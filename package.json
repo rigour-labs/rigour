@@ -1,9 +1,6 @@
 {
   "name": "rigour-labs-monorepo",
-  "private": false,
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
