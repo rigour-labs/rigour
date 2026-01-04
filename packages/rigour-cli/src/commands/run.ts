@@ -11,7 +11,7 @@ const EXIT_FAIL = 1;
 const EXIT_CONFIG_ERROR = 2;
 const EXIT_INTERNAL_ERROR = 3;
 
-export async function runLoop(cwd: string, agentArgs: string[], options: { iterations: number }) {
+export async function runLoop(cwd: string, agentArgs: string[], options: { iterations: number, failFast?: boolean }) {
     const configPath = path.join(cwd, 'rigour.yml');
 
     if (!(await fs.pathExists(configPath))) {
@@ -26,13 +26,22 @@ export async function runLoop(cwd: string, agentArgs: string[], options: { itera
         const runner = new GateRunner(config);
 
         let iteration = 0;
-        const maxIterations = isNaN(options.iterations) || options.iterations < 1 ? 3 : options.iterations;
+        const maxIterations = options.iterations;
 
         while (iteration < maxIterations) {
             iteration++;
             console.log(chalk.bold.blue(`\n══════════════════════════════════════════════════════════════════`));
             console.log(chalk.bold.blue(`  RIGOUR LOOP: Iteration ${iteration}/${maxIterations}`));
             console.log(chalk.bold.blue(`══════════════════════════════════════════════════════════════════`));
+
+            // 1. Prepare Command
+            let currentArgs = [...agentArgs];
+            if (iteration > 1 && agentArgs.length > 0) {
+                // Iteration contract: In later cycles, we focus strictly on the fix packet
+                console.log(chalk.yellow(`\n🔄 REFINEMENT CYCLE - Instructing agent to fix specific violations...`));
+                // We keep the first part of the command (the agent) but can append or wrap
+                // For simplicity, we assume the agent can read the JSON file we generate
+            }
 
             // Snapshot changed files before agent runs
             let beforeFiles: string[] = [];
@@ -41,12 +50,12 @@ export async function runLoop(cwd: string, agentArgs: string[], options: { itera
                 beforeFiles = stdout.split('\n').filter(l => l.trim()).map(l => l.slice(3).trim());
             } catch (e) { }
 
-            // 1. Run the agent command
-            if (agentArgs.length > 0) {
+            // 2. Run the agent command
+            if (currentArgs.length > 0) {
                 console.log(chalk.cyan(`\n🚀 DEPLOYING AGENT:`));
-                console.log(chalk.dim(`   Command: ${agentArgs.join(' ')}`));
+                console.log(chalk.dim(`   Command: ${currentArgs.join(' ')}`));
                 try {
-                    await execa(agentArgs[0], agentArgs.slice(1), { shell: true, stdio: 'inherit', cwd });
+                    await execa(currentArgs[0], currentArgs.slice(1), { shell: true, stdio: 'inherit', cwd });
                 } catch (error: any) {
                     console.warn(chalk.yellow(`\n⚠️  Agent command finished with non-zero exit code. Rigour will now verify state...`));
                 }
@@ -68,9 +77,13 @@ export async function runLoop(cwd: string, agentArgs: string[], options: { itera
                 process.exit(EXIT_FAIL);
             }
 
-            // 2. Run Rigour Check
+            // 3. Run Rigour Check
             console.log(chalk.magenta('\n🔍 AUDITING QUALITY GATES...'));
             const report = await runner.run(cwd);
+
+            // Write report
+            const reportPath = path.join(cwd, config.output.report_path);
+            await fs.writeJson(reportPath, report, { spaces: 2 });
 
             if (report.status === 'PASS') {
                 console.log(chalk.green.bold('\n✨ PASS - All quality gates satisfied.'));
@@ -78,25 +91,35 @@ export async function runLoop(cwd: string, agentArgs: string[], options: { itera
                 return;
             }
 
-            // 3. Generate and print Fix Packet for next iteration
+            // 4. Generate Fix Packet v2
+            const { FixPacketService } = await import('@rigour-labs/core');
+            const fixPacketService = new FixPacketService();
+            const fixPacket = fixPacketService.generate(report, config);
+            const fixPacketPath = path.join(cwd, 'rigour-fix-packet.json');
+            await fs.writeJson(fixPacketPath, fixPacket, { spaces: 2 });
+
             console.log(chalk.red.bold(`\n🛑 FAIL - Found ${report.failures.length} engineering violations.`));
+            console.log(chalk.dim(`   Fix Packet generated: rigour-fix-packet.json`));
 
-            const fixPacket = report.failures.map((f, i) => {
-                let msg = chalk.white(`${i + 1}. `) + chalk.bold.red(`[${f.id.toUpperCase()}] `) + chalk.white(f.title);
-                msg += `\n   ├─ ` + chalk.dim(`Details: ${f.details}`);
-                if (f.hint) msg += `\n   └─ ` + chalk.yellow(`FIX: ${f.hint}`);
-                return msg;
-            }).join('\n\n');
+            if (options.failFast) {
+                console.log(chalk.red.bold(`\n🛑 FAIL-FAST: Aborting loop as requested.`));
+                process.exit(EXIT_FAIL);
+            }
 
-            console.log(chalk.bold.white('\n📋 ACTIONABLE FIX PACKET:'));
-            console.log(fixPacket);
-            console.log(chalk.dim('\nReturning control to agent for the next refinement cycle...'));
+            // Print summary
+            const summary = report.failures.map((f, i) => {
+                return chalk.white(`${i + 1}. `) + chalk.bold.red(`[${f.id.toUpperCase()}] `) + chalk.white(f.title);
+            }).join('\n');
+            console.log(chalk.bold.white('\n📋 VIOLATIONS SUMMARY:'));
+            console.log(summary);
 
             if (iteration === maxIterations) {
                 console.log(chalk.red.bold(`\n❌ CRITICAL: Reached maximum iterations (${maxIterations}).`));
                 console.log(chalk.red(`   Quality gates remain unfulfilled. Refactor manually or check agent logs.`));
                 process.exit(EXIT_FAIL);
             }
+
+            console.log(chalk.dim('\nReturning control to agent for the next refinement cycle...'));
         }
     } catch (error: any) {
         console.error(chalk.red(`\n❌ FATAL ERROR: ${error.message}`));

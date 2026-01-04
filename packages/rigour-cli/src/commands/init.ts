@@ -103,8 +103,8 @@ You are an Elite Software Engineer. You do not just write code that "works"; you
 Before claiming "Done" for any task, you MUST follow this loop:
 
 1.  **Check**: Run \`npx @rigour-labs/cli check\` to verify compliance.
-2.  **Analyze**: If it fails, read \`rigour-report.json\` for exact failure points.
-3.  **Refactor**: Apply **SOLID** and **DRY** principles to resolve the violations.
+2.  **Analyze**: If it fails, read \`rigour-fix-packet.json\` (V2 High-Fidelity) for exact failure points and constraints.
+3.  **Refactor**: Apply **SOLID** and **DRY** principles to resolve the violations according to constraints.
 4.  **Repeat**: Continue until \`npx @rigour-labs/cli check\` returns **PASS**.
 
 ## 🧩 Engineering Standards

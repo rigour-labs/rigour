@@ -43,9 +43,15 @@ program
     .command('run')
     .description('Execute an agent command in a loop until quality gates pass')
     .argument('[command...]', 'The agent command to run (e.g., cursor-agent ...)')
-    .option('-i, --iterations <number>', 'Maximum number of loop iterations', '3')
+    .option('-i, --iterations <number>', 'Maximum number of loop iterations (deprecated, use --max-cycles)', '3')
+    .option('-c, --max-cycles <number>', 'Maximum number of loop iterations', '3')
+    .option('--fail-fast', 'Abort loop immediately on first gate failure')
     .action(async (args: string[], options: any) => {
-        await runLoop(process.cwd(), args, { iterations: parseInt(options.iterations) });
+        const maxCycles = parseInt(options.maxCycles || options.iterations);
+        await runLoop(process.cwd(), args, {
+            iterations: maxCycles,
+            failFast: !!options.failFast
+        });
     });
 
 program.parse();

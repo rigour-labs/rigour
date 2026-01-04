@@ -5,12 +5,13 @@ export class FixPacketService {
     generate(report: Report, config: Config): FixPacketV2 {
         const violations = report.failures.map(f => ({
             id: f.id,
-            gate: f.id, // Usually matches
+            gate: f.id,
             severity: this.inferSeverity(f),
             title: f.title,
             details: f.details,
             files: f.files,
             hint: f.hint,
+            instructions: f.hint ? [f.hint] : [], // Use hint as first instruction
             metrics: (f as any).metrics,
         }));
 
@@ -20,7 +21,10 @@ export class FixPacketService {
             violations,
             constraints: {
                 paradigm: config.paradigm,
-                // Future: add protected_paths from config
+                protected_paths: config.gates.safety?.protected_paths,
+                do_not_touch: config.gates.safety?.protected_paths,
+                max_files_changed: config.gates.safety?.max_files_changed_per_cycle,
+                no_new_deps: true,
             },
         };
 
