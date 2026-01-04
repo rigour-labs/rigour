@@ -1,0 +1,101 @@
+import { Gate } from './base.js';
+import { Failure, Config, Report, Status } from '../types/index.js';
+import { FileGate } from './file.js';
+import { ContentGate } from './content.js';
+import { StructureGate } from './structure.js';
+import { execa } from 'execa';
+import { Logger } from '../utils/logger.js';
+
+export class GateRunner {
+    private gates: Gate[] = [];
+
+    constructor(private config: Config) {
+        this.initializeGates();
+    }
+
+    private initializeGates() {
+        if (this.config.gates.max_file_lines) {
+            this.gates.push(new FileGate({ maxLines: this.config.gates.max_file_lines }));
+        }
+        this.gates.push(
+            new ContentGate({
+                forbidTodos: !!this.config.gates.forbid_todos,
+                forbidFixme: !!this.config.gates.forbid_fixme,
+            })
+        );
+        if (this.config.gates.required_files) {
+            this.gates.push(new StructureGate({ requiredFiles: this.config.gates.required_files }));
+        }
+    }
+
+    /**
+     * Allows adding custom gates dynamically (SOLID - Open/Closed Principle)
+     */
+    addGate(gate: Gate) {
+        this.gates.push(gate);
+    }
+
+    async run(cwd: string): Promise<Report> {
+        const start = Date.now();
+        const failures: Failure[] = [];
+        const summary: Record<string, Status> = {};
+
+        // 1. Run internal gates
+        for (const gate of this.gates) {
+            try {
+                const gateFailures = await gate.run({ cwd });
+                if (gateFailures.length > 0) {
+                    failures.push(...gateFailures);
+                    summary[gate.id] = 'FAIL';
+                } else {
+                    summary[gate.id] = 'PASS';
+                }
+            } catch (error: any) {
+                Logger.error(`Gate ${gate.id} failed with error: ${error.message}`);
+                summary[gate.id] = 'ERROR';
+                failures.push({
+                    id: gate.id,
+                    title: `Gate Error: ${gate.title}`,
+                    details: error.message,
+                    hint: 'There was an internal error running this gate. Check the logs.',
+                });
+            }
+        }
+
+        // 2. Run command gates (lint, test, etc.)
+        const commands = this.config.commands;
+        if (commands) {
+            for (const [key, cmd] of Object.entries(commands)) {
+                if (!cmd) {
+                    summary[key] = 'SKIP';
+                    continue;
+                }
+
+                try {
+                    Logger.info(`Running command gate: ${key} (${cmd})`);
+                    await execa(cmd, { shell: true, cwd });
+                    summary[key] = 'PASS';
+                } catch (error: any) {
+                    summary[key] = 'FAIL';
+                    failures.push({
+                        id: key,
+                        title: `${key.toUpperCase()} Check Failed`,
+                        details: error.stderr || error.stdout || error.message,
+                        hint: `Fix the issues reported by \`${cmd}\`. Use rigorous standards (SOLID, DRY) in your resolution.`,
+                    });
+                }
+            }
+        }
+
+        const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
+
+        return {
+            status,
+            summary,
+            failures,
+            stats: {
+                duration_ms: Date.now() - start,
+            },
+        };
+    }
+}
