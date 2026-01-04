@@ -29,6 +29,15 @@ Agents are powerful, but they are chaotic. They hallucinate, they leave `TODO`s,
 
 It injects a **stateless, deterministic feedback loop** into the agent's lifecycle, ensuring that no task is marked "Done" until it meets strict engineering standards.
 
+### ✨ Key Properties
+
+| Property | Description |
+|:---|:---|
+| 🔒 **Local-only** | No code leaves your machine. Everything runs on your repo. |
+| 🤖 **Agent-agnostic** | Works with any agent because it runs on the repo, not the model. |
+| ⚡ **Stateless** | Each check is independent. No session state to manage. |
+| 📋 **Deterministic** | Same code = same result. Every time. |
+
 ### 🆚 Vibe Coding vs. Rigour Engineering
 
 | Feature | 🚫 Typical AI Agent | 🛡️ Agent with Rigour |
@@ -60,6 +69,22 @@ Don't just run Claude or Gemini. Run them **with Rigour**.
 # Wraps the agent command in a self-healing quality loop
 npx @rigour-labs/cli run -- claude "Refactor the auth middleware"
 ```
+
+#### 🔄 The Run Loop Contract
+
+```
+rigour run -- <agent-command>
+
+1. Execute your agent command
+2. Run `rigour check` automatically
+3. If FAIL → Generate Fix Packet and print to stdout
+4. Re-run agent with Fix Packet context
+5. Repeat until PASS or max cycles (default: 3)
+```
+
+| Option | Default | Description |
+|:---|:---:|:---|
+| `--iterations` | 3 | Maximum loop cycles before failing |
 
 ---
 
@@ -175,21 +200,32 @@ graph TB
 
 ## 🤖 Agent Integration
 
-Rigour integrates with all major AI coding tools via **CLI**, **MCP**, or **Agent Handshake**.
+Rigour integrates with all major AI coding tools via **CLI**, **MCP**, or **Universal Handshake**.
 
-### 🖱️ Cursor & AntiGravity (Automatic Handshake)
+### 📋 Agent Compatibility
 
-Rigour establishes an engineering handshake by writing protocol files that agents are trained to follow.
+| Tool | Integration | Automation | Notes |
+|:---|:---|:---:|:---|
+| **Cursor** | Rules + MCP | ⭐⭐⭐ | Native handshake via `.cursor/rules` |
+| **Claude Desktop** | MCP Server | ⭐⭐⭐ | Full tool support |
+| **VS Code Cline** | MCP Server | ⭐⭐⭐ | Full tool support |
+| **Claude Code CLI** | `rigour run` | ⭐⭐⭐⭐ | Best for automation |
+| **Gemini CLI** | `rigour run` | ⭐⭐⭐ | Best-effort |
+| **Codex CLI** | `rigour run` | ⭐⭐⭐ | Good |
+
+### 📝 Universal Agent Handshake
+
+Rigour writes protocol files that any sophisticated agent can read:
 
 ```bash
 npx @rigour-labs/cli init
 ```
 
 **Files created:**
-- `.cursor/rules/rigour.mdc`: Native enforcement for Cursor.
-- `docs/AGENT_INSTRUCTIONS.md`: Universal protocol for AntiGravity, Claude Code, and other sophisticated agents.
+- `.cursor/rules/rigour.mdc`: Native enforcement for Cursor
+- `docs/AGENT_INSTRUCTIONS.md`: Universal protocol for any agent
 
-High-performance agents read these protocols and know to run quality checks before claiming "Done".
+Agents read these files and know to run `npx @rigour-labs/cli check` before claiming "Done".
 
 ### 💻 Claude Code CLI
 

@@ -1,0 +1,22 @@
+{
+    "name": "vibe-messy",
+    "version": "1.0.0",
+    "description": "Intentionally messy codebase for Rigour demo",
+    "main": "src/monolith.js",
+    "scripts": {
+        "start": "node src/monolith.js",
+        "lint": "echo 'No linter configured'",
+        "test": "echo 'No tests yet'"
+    },
+    "keywords": [
+        "demo",
+        "rigour",
+        "example"
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "express": "^4.18.2",
+        "jsonwebtoken": "^9.0.0",
+        "bcrypt": "^5.1.0"
+    }
+}
