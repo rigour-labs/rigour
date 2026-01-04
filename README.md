@@ -12,7 +12,7 @@
 
 ### **Stop Vibe Coding. Start Engineering.**
 
-[![NPM Version](https://img.shields.io/npm/v/@rigour-labs/core?style=for-the-badge&color=crimson)](https://www.npmjs.com/org/rigour-labs)
+[![NPM Version](https://img.shields.io/npm/v/%40rigour-labs%2Fcli?style=for-the-badge&color=crimson&label=npm)](https://www.npmjs.com/package/@rigour-labs/cli)
 [![CI Status](https://img.shields.io/github/actions/workflow/status/erashu212/rigour/pipeline.yml?style=for-the-badge&label=Pipeline)](https://github.com/erashu212/rigour/actions)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
