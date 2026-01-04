@@ -108,11 +108,81 @@ Rigour comes with built-in "Engineering Primitives" that you can configure in `r
 
 ## 🤖 Agent Integration
 
-Rigour is designed to be "handshaken" by agents. It writes a **Handshake Protocol** to `.cursor/rules/rigour.mdc` (or similar) that instructs the agent on how to behave.
+Rigour integrates with all major AI coding tools via **CLI**, **MCP**, or **Agent Handshake**.
 
-- **Cursor**: Native support via `.cursor/rules`.
-- **Claude Code**: Native support via `run` loop wrapper.
-- **MCP Clients**: Full support via `@rigour-labs/mcp`.
+### 🖱️ Cursor & AntiGravity (Automatic Handshake)
+
+Rigour writes a protocol file to `.cursor/rules/rigour.mdc` during `init`. The agent reads this and knows to run quality checks before claiming "Done".
+
+```bash
+npx @rigour-labs/cli init
+# Creates .cursor/rules/rigour.mdc automatically
+```
+
+### 💻 Claude Code CLI
+
+Use the `run` wrapper to create a self-healing loop:
+
+```bash
+npx @rigour-labs/cli run -- claude "Refactor the payment service"
+```
+
+### ♊ Gemini CLI
+
+```bash
+npx @rigour-labs/cli run -- gemini "Add error handling to the API layer"
+```
+
+### 🧠 Codex / OpenAI CLI
+
+```bash
+npx @rigour-labs/cli run -- codex "Implement the user authentication flow"
+```
+
+---
+
+## 🔌 MCP Integration (Model Context Protocol)
+
+For agents that support MCP (Claude Desktop, VS Code Cline, etc.), Rigour exposes tools directly.
+
+### Claude Desktop
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "rigour": {
+      "command": "npx",
+      "args": ["-y", "@rigour-labs/mcp"]
+    }
+  }
+}
+```
+
+### VS Code Cline
+
+Add to your Cline MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "rigour": {
+      "command": "npx",
+      "args": ["-y", "@rigour-labs/mcp"]
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+| Tool | Description |
+|:---|:---|
+| `rigour_check_status` | Returns PASS/FAIL and a summary of all gate results. |
+| `rigour_get_fix_packet` | Returns prioritized, actionable fix instructions for failures. |
+
+The agent should call `rigour_check_status` before claiming task completion. If it fails, call `rigour_get_fix_packet` and iterate.
 
 ---
 
