@@ -1,6 +1,10 @@
 {
   "name": "rigour-labs-monorepo",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rigour-labs/rigour"
+  },
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",

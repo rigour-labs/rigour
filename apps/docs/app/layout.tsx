@@ -2,7 +2,11 @@ import { Footer, Layout, Navbar } from 'nextra-theme-docs'
 import { Head } from 'nextra/components'
 import { getPageMap } from 'nextra/page-map'
 import React from 'react'
+import { Inter } from 'next/font/google'
 import 'nextra-theme-docs/style.css'
+import './globals.css'
+
+const inter = Inter({ subsets: ['latin'] })
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
     const pageMap = await getPageMap()
@@ -19,7 +23,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     return (
         <html lang="en" dir="ltr" suppressHydrationWarning>
             <Head />
-            <body className="antialiased">
+            <body className={`${inter.className} antialiased`}>
                 <Layout
                     navbar={<Navbar logo={logo} projectLink="https://github.com/rigour-labs/rigour" />}
                     footer={

@@ -5,7 +5,7 @@
     "types": "dist/index.d.ts",
     "repository": {
         "type": "git",
-        "url": "https://github.com/erashu212/rigour"
+        "url": "https://github.com/rigour-labs/rigour"
     },
     "publishConfig": {
         "access": "public",

@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-cyan: #22d3ee;
+  --color-brand-blue: #3b82f6;
+}
+
+@layer base {
+  :root {
+    --nextra-primary-hue: 190deg;
+  }
+
+  html {
+    @apply antialiased scroll-smooth;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-200 selection:bg-cyan-500/30;
+  }
+
+  /* Premium scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-1.5;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-950;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-800 rounded-full hover:bg-slate-700 transition-colors;
+  }
+}
+
+@layer components {
+  .nextra-nav {
+    @apply !bg-slate-950/80 !backdrop-blur-xl border-b border-white/5 !sticky top-0 z-50;
+  }
+
+  .nextra-sidebar {
+    @apply !bg-slate-950/50 backdrop-blur-sm border-r border-white/5;
+  }
+
+  .nextra-footer {
+    @apply !bg-slate-950 !border-t border-white/5 py-12;
+  }
+}

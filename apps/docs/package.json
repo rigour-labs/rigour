@@ -2,6 +2,10 @@
   "name": "@rigour-labs/docs",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rigour-labs/rigour"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,6 +15,8 @@
   "dependencies": {
     "@theguild/remark-mermaid": "0.3.0",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.23.26",
+    "lucide-react": "^0.562.0",
     "next": "16.1.1",
     "nextra": "^4.6.1",
     "nextra-theme-docs": "^4.6.1",
