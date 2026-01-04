@@ -8,11 +8,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     const pageMap = await getPageMap()
 
     const logo = (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <img src="/logo.jpg" alt="Rigour Logo" style={{ width: '24px', height: '24px', borderRadius: '4px' }} />
             <span style={{ fontWeight: 800, fontSize: '1.2rem', letterSpacing: '-0.5px' }}>
-                🛡️ RIGOUR
+                RIGOUR
             </span>
-            <span style={{ opacity: 0.6, fontSize: '0.9rem' }}>LABS</span>
         </div>
     )
 
@@ -26,10 +26,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                         <Footer>
                             <div style={{ textAlign: 'center', width: '100%' }}>
                                 {new Date().getFullYear()} ©{' '}
-                                <a href="https://rigour.run" target="_blank" rel="noopener">
+                                <a href="https://rigour.run" target="_blank" rel="noopener" style={{ fontWeight: 600 }}>
                                     Rigour Labs
                                 </a>
-                                . Engineered with precision.
+                                . A Rigour Labs Project.
                             </div>
                         </Footer>
                     }
