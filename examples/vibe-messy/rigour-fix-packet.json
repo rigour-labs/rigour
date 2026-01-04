@@ -1,0 +1,120 @@
+{
+  "version": 2,
+  "goal": "Achieve PASS state by resolving all listed engineering violations.",
+  "violations": [
+    {
+      "id": "file-size",
+      "gate": "file-size",
+      "severity": "medium",
+      "title": "File Size Limit",
+      "details": "The following files exceed the maximum limit of 400 lines:",
+      "files": [
+        "src/monolith.js (511 lines)"
+      ],
+      "hint": "Break these files into smaller, more modular components to improve maintainability (SOLID - Single Responsibility Principle).",
+      "instructions": [
+        "Break these files into smaller, more modular components to improve maintainability (SOLID - Single Responsibility Principle)."
+      ]
+    },
+    {
+      "id": "content-check",
+      "gate": "content-check",
+      "severity": "medium",
+      "title": "Forbidden Content",
+      "details": "Forbidden placeholders found in the following files:",
+      "files": [
+        "README.md",
+        "docs/AGENT_INSTRUCTIONS.md",
+        "src/monolith.js"
+      ],
+      "hint": "Remove all TODO and FIXME comments. Use the \"Done is Done\" mentality—address the root cause or create a tracked issue.",
+      "instructions": [
+        "Remove all TODO and FIXME comments. Use the \"Done is Done\" mentality—address the root cause or create a tracked issue."
+      ]
+    },
+    {
+      "id": "safety-rail",
+      "gate": "safety-rail",
+      "severity": "medium",
+      "title": "Safety & Protection Rails",
+      "details": "Protected file '.github/workflows/pipeline.yml' was modified.",
+      "files": [
+        ".github/workflows/pipeline.yml"
+      ],
+      "hint": "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml.",
+      "instructions": [
+        "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml."
+      ]
+    },
+    {
+      "id": "safety-rail",
+      "gate": "safety-rail",
+      "severity": "medium",
+      "title": "Safety & Protection Rails",
+      "details": "Protected file 'docs/CURSOR_PROMPT.md' was modified.",
+      "files": [
+        "docs/CURSOR_PROMPT.md"
+      ],
+      "hint": "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml.",
+      "instructions": [
+        "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml."
+      ]
+    },
+    {
+      "id": "safety-rail",
+      "gate": "safety-rail",
+      "severity": "medium",
+      "title": "Safety & Protection Rails",
+      "details": "Protected file 'docs/PRESETS.md' was modified.",
+      "files": [
+        "docs/PRESETS.md"
+      ],
+      "hint": "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml.",
+      "instructions": [
+        "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml."
+      ]
+    },
+    {
+      "id": "safety-rail",
+      "gate": "safety-rail",
+      "severity": "medium",
+      "title": "Safety & Protection Rails",
+      "details": "Protected file 'docs/AGENT_INTEGRATION.md' was modified.",
+      "files": [
+        "docs/AGENT_INTEGRATION.md"
+      ],
+      "hint": "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml.",
+      "instructions": [
+        "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml."
+      ]
+    },
+    {
+      "id": "safety-rail",
+      "gate": "safety-rail",
+      "severity": "medium",
+      "title": "Safety & Protection Rails",
+      "details": "Protected file 'docs/specs/' was modified.",
+      "files": [
+        "docs/specs/"
+      ],
+      "hint": "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml.",
+      "instructions": [
+        "Agents are forbidden from modifying files in .github/**, docs/**, rigour.yml."
+      ]
+    }
+  ],
+  "constraints": {
+    "protected_paths": [
+      ".github/**",
+      "docs/**",
+      "rigour.yml"
+    ],
+    "do_not_touch": [
+      ".github/**",
+      "docs/**",
+      "rigour.yml"
+    ],
+    "max_files_changed": 10,
+    "no_new_deps": true
+  }
+}

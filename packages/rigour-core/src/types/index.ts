@@ -15,6 +15,10 @@ export const GatesSchema = z.object({
         complexity: z.number().optional().default(10),
         max_methods: z.number().optional().default(10),
         max_params: z.number().optional().default(5),
+        max_nesting: z.number().optional().default(4),
+        max_inheritance_depth: z.number().optional().default(3),
+        max_class_dependencies: z.number().optional().default(5),
+        max_function_lines: z.number().optional().default(50),
     }).optional().default({}),
     dependencies: z.object({
         forbid: z.array(z.string()).optional().default([]),

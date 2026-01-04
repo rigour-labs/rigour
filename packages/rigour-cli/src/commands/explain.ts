@@ -57,6 +57,13 @@ export async function explainCommand(cwd: string) {
             console.log(chalk.green('\n✨ All quality gates passed! No violations found.\n'));
         }
 
+        if (report.status === 'FAIL') {
+            console.log(chalk.bold('\n👉 Next Steps:'));
+            console.log(chalk.dim('   1. Refactor the code to address the violations above.'));
+            console.log(chalk.dim('   2. Run `rigour check` again to verify your fixes.'));
+            console.log(chalk.dim('   3. If using an agent, pass it the violations as constraints.\n'));
+        }
+
         if (report.stats) {
             console.log(chalk.dim(`Duration: ${report.stats.duration_ms}ms`));
         }

@@ -1,6 +1,8 @@
-# Cursor / Cline / Claude Code Prompt
+# AI Agent Integration Guide
 
-Copy and paste this into your agent's system prompt or "Custom Rules" (`.cursorrules`) to enforce Rigour quality gates automatically.
+**Supported Tools**: Cursor, Cline, VSCode Copilot, Claude Code, Gemini CLI, Codex, Antigravity, and any agent that accepts custom instructions.
+
+Copy and paste these rules into your AI coding assistant to enforce Rigour quality gates automatically.
 
 ---
 

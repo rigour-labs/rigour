@@ -1,48 +1,38 @@
-# ⚙️ Standards Packs
+# Rigour Presets & Paradigms
 
-Rigour uses **Standards Packs** to apply opinionated engineering rules based on your project's role.
+Rigour uses **Role Presets** and **Paradigm Detection** to apply appropriate quality gates for your project.
 
-## 📦 `api` Pack (Backend Engineering)
-Optimized for Node.js, TypeScript, and Python backends.
+## Role Presets
 
-| Rule | Status | Type | Description |
-|:---|:---:|:---:|:---|
-| **SOLID Density** | ✅ | AST | Classes cannot exceed 12 methods (God Object prevention). |
-| **Complexity Cap** | ✅ | AST | Individual functions cannot exceed cyclomatic complexity of 10. |
-| **SRP Enforcement** | ✅ | File | Max 500 lines per file to prevent "Spaghetti Code". |
-| **Layer Boundaries** | 🧭 | Logic | `controllers` cannot import from `db` directly (Service Layer enforcement). |
-| **Repo Pattern** | 🧭 | Logic | Database access is forbidden outside of `repositories/` or `models/`. |
+Tech-agnostic presets based on your project's function.
 
-## 📦 `ui` Pack (Frontend Engineering)
-Optimized for React, Vue, Next.js, and Vite.
+| Preset | Use Case | Key Gates |
+|:---|:---|:---|
+| **ui** | Frontend/UI Engineers | `max_file_lines: 300`, Component modularity |
+| **api** | Backend Services | `max_file_lines: 400`, SOLID enforcement |
+| **infra** | IaC/DevOps | `max_file_lines: 300`, Runbook requirements |
+| **data** | Data/ML Pipelines | `max_file_lines: 500`, Reproducibility focus |
 
-| Rule | Status | Type | Description |
-|:---|:---:|:---:|:---|
-| **Component Size** | ✅ | File | Max 300 lines per React/Vue component. |
-| **God Components** | ✅ | AST | Limits number of hooks and handlers in a single file. |
-| **A11y Checks** | ✅ | Cmd | Enforces `eslint-plugin-jsx-a11y` via command gate. |
-| **Fetch Hygiene** | 🧭 | Logic | No `fetch` or `axios` calls outside of `api/` or `hooks/` folders. |
+## Paradigms
 
-## 📦 `data` Pack (Data Science & Engineering)
-Optimized for Python, Pandas, and Notebook environments.
+Coding style detection that layers on top of role presets.
 
-| Rule | Status | Type | Description |
-|:---|:---:|:---:|:---|
-| **Secret Scanning** | ✅ | Regex | Universal ban on hardcoded keys in Notebooks/Scripts. |
-| **Function Signatures** | ✅ | AST | Max 5 parameters per data processing function. |
-| **Determinism** | 🧭 | Logic | Enforces seed setting for stochastic operations (Plan). |
+| Paradigm | Detection Markers | Key Gates |
+|:---|:---|:---|
+| **oop** | `class`, `interface`, `extends`, `private/public` | Max methods: 10, Max inheritance: 3 |
+| **functional** | `export const`, `reduce(`, `.pipe(`, `compose(` | Max function lines: 40, Max nesting: 3 |
+| **minimal** | Default fallback | Basic hygiene only |
 
----
+## Auto-Discovery
 
-## 🔍 Selection & Overrides
-
-Rigour automatically selects a pack during `init`. You can manually override:
+When you run `rigour init`, Rigour automatically detects:
+1. **Role** from package.json deps, file markers (e.g., `next.config.js` → `ui`)
+2. **Paradigm** from code patterns (e.g., `class` heavy → `oop`)
 
 ```bash
-rigour init --preset api
-```
+# Zero-config (auto-detect)
+rigour init
 
-### 🔭 Dry Run & Explain
-Not sure what Rigour detected? Run:
-- `rigour init --dry-run`: View detected role/paradigm without writing files.
-- `rigour init --explain`: Shows exactly which markers triggered the detection.
+# Explicit
+rigour init --preset api --paradigm oop
+```
