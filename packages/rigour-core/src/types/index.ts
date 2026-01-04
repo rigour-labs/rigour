@@ -78,6 +78,7 @@ export const ReportSchema = z.object({
     failures: z.array(FailureSchema),
     stats: z.object({
         duration_ms: z.number(),
+        score: z.number().optional(),
     }),
 });
 export type Report = z.infer<typeof ReportSchema>;

@@ -1,6 +1,6 @@
 {
     "name": "@rigour-labs/mcp",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "bin": {
         "rigour-mcp": "dist/index.js"
     },

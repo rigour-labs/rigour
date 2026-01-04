@@ -13,6 +13,7 @@ const EXIT_INTERNAL_ERROR = 3;
 export interface CheckOptions {
     ci?: boolean;
     json?: boolean;
+    interactive?: boolean;
 }
 
 export async function checkCommand(cwd: string, options: CheckOptions = {}) {

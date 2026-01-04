@@ -13,7 +13,7 @@ const program = new Command();
 program
     .name('rigour')
     .description('🛡️ Rigour: The Quality Gate Loop for AI-Assisted Engineering')
-    .version('1.3.0')
+    .version('2.0.0')
     .addHelpText('before', chalk.bold.cyan(`
    ____  _                               
   / __ \\(_)____ ___  __  __ _____        
@@ -44,9 +44,11 @@ program
     .description('Run quality gate checks')
     .option('--ci', 'CI mode (minimal output, non-zero exit on fail)')
     .option('--json', 'Output report in JSON format')
+    .option('-i, --interactive', 'Run in interactive mode with rich output')
     .addHelpText('after', `
 Examples:
-  $ rigour check                       # Run interactive check
+  $ rigour check                       # Run standard check
+  $ rigour check --interactive         # Run with rich, interactive output
   $ rigour check --ci                  # Run in CI environment
     `)
     .action(async (options: any) => {

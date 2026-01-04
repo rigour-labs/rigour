@@ -6,6 +6,7 @@ import { StructureGate } from './structure.js';
 import { ASTGate } from './ast.js';
 import { SafetyGate } from './safety.js';
 import { DependencyGate } from './dependency.js';
+import { CoverageGate } from './coverage.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 
@@ -32,6 +33,7 @@ export class GateRunner {
         this.gates.push(new ASTGate(this.config.gates));
         this.gates.push(new DependencyGate(this.config));
         this.gates.push(new SafetyGate(this.config.gates));
+        this.gates.push(new CoverageGate(this.config.gates));
     }
 
     /**
@@ -94,6 +96,7 @@ export class GateRunner {
         }
 
         const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
+        const score = Math.max(0, 100 - (failures.length * 5)); // Basic SME scoring logic
 
         return {
             status,
@@ -101,6 +104,7 @@ export class GateRunner {
             failures,
             stats: {
                 duration_ms: Date.now() - start,
+                score,
             },
         };
     }
