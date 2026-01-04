@@ -2,7 +2,8 @@
     "name": "@rigour-labs/mcp",
     "version": "1.0.0",
     "publishConfig": {
-        "access": "public"
+        "access": "public",
+        "provenance": true
     },
     "scripts": {
         "build": "tsc",

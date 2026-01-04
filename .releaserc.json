@@ -15,7 +15,7 @@
             "@semantic-release/exec",
             {
                 "prepareCmd": "pnpm -r version ${nextRelease.version} --no-git-tag-version",
-                "publishCmd": "pnpm -r publish --no-git-checks --access public"
+                "publishCmd": "pnpm -r publish --no-git-checks --access public --provenance"
             }
         ],
         [
