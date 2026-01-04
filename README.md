@@ -58,8 +58,7 @@ The `rigour run` command loops until your agent achieves PASS or hits max iterat
 ## 🤖 Works With
 
 - **Claude Code**: `rigour run -- claude "..."`
-- **Cursor**: `.cursor/rules` + MCP integration
-- **Cline / Gemini / Codex**: Via CLI or MCP
+- **Cursor / Cline / Gemini**: Via high-fidelity MCP server (`rigour_check`, `rigour_explain`)
 
 ---
 

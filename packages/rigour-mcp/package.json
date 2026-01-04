@@ -1,6 +1,9 @@
 {
     "name": "@rigour-labs/mcp",
     "version": "1.0.0",
+    "bin": {
+        "rigour-mcp": "dist/index.js"
+    },
     "repository": {
         "type": "git",
         "url": "https://github.com/rigour-labs/rigour"
