@@ -29,7 +29,7 @@ export class FileScanner {
     static async readFiles(cwd: string, files: string[]): Promise<Map<string, string>> {
         const contents = new Map<string, string>();
         for (const file of files) {
-            const filePath = path.join(cwd, file);
+            const filePath = path.isAbsolute(file) ? file : path.join(cwd, file);
             contents.set(file, await fs.readFile(filePath, 'utf-8'));
         }
         return contents;

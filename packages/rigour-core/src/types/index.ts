@@ -66,11 +66,16 @@ export const ConfigSchema = z.object({
         report_path: z.string().default('rigour-report.json'),
     }).optional().default({}),
     planned: z.array(z.string()).optional().default([]),
+    ignore: z.array(z.string()).optional().default([]),
 });
 
 export type Gates = z.infer<typeof GatesSchema>;
 export type Commands = z.infer<typeof CommandsSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
+
+export type RawGates = z.input<typeof GatesSchema>;
+export type RawCommands = z.input<typeof CommandsSchema>;
+export type RawConfig = z.input<typeof ConfigSchema>;
 
 export const StatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR']);
 export type Status = z.infer<typeof StatusSchema>;

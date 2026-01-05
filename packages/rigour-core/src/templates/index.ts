@@ -190,9 +190,22 @@ export const UNIVERSAL_CONFIG: Config = {
             max_files_changed_per_cycle: 10,
             protected_paths: ['.github/**', 'docs/**', 'rigour.yml'],
         },
+        context: {
+            enabled: true,
+            sensitivity: 0.8,
+            mining_depth: 100,
+            ignored_patterns: [],
+        },
+        environment: {
+            enabled: true,
+            enforce_contracts: true,
+            tools: {},
+            required_env: [],
+        },
     },
     output: {
         report_path: 'rigour-report.json',
     },
     planned: [],
+    ignore: [],
 };

@@ -42,17 +42,20 @@ Examples:
 program
     .command('check')
     .description('Run quality gate checks')
+    .argument('[files...]', 'Specific files or directories to check')
     .option('--ci', 'CI mode (minimal output, non-zero exit on fail)')
     .option('--json', 'Output report in JSON format')
     .option('-i, --interactive', 'Run in interactive mode with rich output')
     .addHelpText('after', `
 Examples:
   $ rigour check                       # Run standard check
+  $ rigour check ./src                 # Check only the src directory
+  $ rigour check ./src/app.ts          # Check only app.ts
   $ rigour check --interactive         # Run with rich, interactive output
   $ rigour check --ci                  # Run in CI environment
     `)
-    .action(async (options: any) => {
-        await checkCommand(process.cwd(), options);
+    .action(async (files: string[], options: any) => {
+        await checkCommand(process.cwd(), files, options);
     });
 
 program

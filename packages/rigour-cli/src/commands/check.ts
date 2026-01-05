@@ -16,7 +16,7 @@ export interface CheckOptions {
     interactive?: boolean;
 }
 
-export async function checkCommand(cwd: string, options: CheckOptions = {}) {
+export async function checkCommand(cwd: string, files: string[] = [], options: CheckOptions = {}) {
     const configPath = path.join(cwd, 'rigour.yml');
 
     if (!(await fs.pathExists(configPath))) {
@@ -38,7 +38,7 @@ export async function checkCommand(cwd: string, options: CheckOptions = {}) {
         }
 
         const runner = new GateRunner(config);
-        const report = await runner.run(cwd);
+        const report = await runner.run(cwd, files.length > 0 ? files : undefined);
 
         // Write machine report
         const reportPath = path.join(cwd, config.output.report_path);

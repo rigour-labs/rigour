@@ -22,9 +22,9 @@ export class ASTGate extends Gate {
         const failures: Failure[] = [];
 
         // Find all supported files
-        const files = await globby(['**/*.{ts,js,tsx,jsx,py,go,rs,cs,java,rb,c,cpp,php,swift,kt}'], {
+        const files = await globby(context.patterns || ['**/*.{ts,js,tsx,jsx,py,go,rs,cs,java,rb,c,cpp,php,swift,kt}'], {
             cwd: context.cwd,
-            ignore: ['node_modules/**', 'dist/**', 'build/**', '**/*.test.*', '**/*.spec.*', '**/__pycache__/**'],
+            ignore: context.ignore || ['node_modules/**', 'dist/**', 'build/**', '**/*.test.*', '**/*.spec.*', '**/__pycache__/**'],
         });
 
         for (const file of files) {

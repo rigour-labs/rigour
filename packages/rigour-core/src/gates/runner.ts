@@ -55,10 +55,12 @@ export class GateRunner {
         this.gates.push(gate);
     }
 
-    async run(cwd: string): Promise<Report> {
+    async run(cwd: string, patterns?: string[]): Promise<Report> {
         const start = Date.now();
         const failures: Failure[] = [];
         const summary: Record<string, Status> = {};
+
+        const ignore = this.config.ignore;
 
         // 0. Run Context Discovery
         let record;
@@ -70,7 +72,7 @@ export class GateRunner {
         // 1. Run internal gates
         for (const gate of this.gates) {
             try {
-                const gateFailures = await gate.run({ cwd, record });
+                const gateFailures = await gate.run({ cwd, record, ignore, patterns });
                 if (gateFailures.length > 0) {
                     failures.push(...gateFailures);
                     summary[gate.id] = 'FAIL';

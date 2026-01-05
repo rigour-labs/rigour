@@ -19,7 +19,11 @@ export class ContentGate extends Gate {
 
         if (patterns.length === 0) return [];
 
-        const files = await FileScanner.findFiles({ cwd: context.cwd });
+        const files = await FileScanner.findFiles({
+            cwd: context.cwd,
+            ignore: context.ignore,
+            patterns: context.patterns
+        });
         const contents = await FileScanner.readFiles(context.cwd, files);
 
         const violations: string[] = [];

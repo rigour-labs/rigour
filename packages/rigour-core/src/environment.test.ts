@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { GateRunner } from './gates/runner.js';
-import { Config } from './types/index.js';
+import { Config, RawConfig, ConfigSchema } from './types/index.js';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -16,7 +16,7 @@ describe('Environment Alignment Gate', () => {
     });
 
     it('should detect tool version mismatch (Explicit)', async () => {
-        const config: Config = {
+        const rawConfig: RawConfig = {
             version: 1,
             gates: {
                 environment: {
@@ -29,6 +29,7 @@ describe('Environment Alignment Gate', () => {
             }
         };
 
+        const config = ConfigSchema.parse(rawConfig);
         const runner = new GateRunner(config);
         const report = await runner.run(testDir);
 
@@ -40,7 +41,7 @@ describe('Environment Alignment Gate', () => {
     });
 
     it('should detect missing environment variables', async () => {
-        const config: Config = {
+        const rawConfig: RawConfig = {
             version: 1,
             gates: {
                 environment: {
@@ -50,6 +51,7 @@ describe('Environment Alignment Gate', () => {
             }
         };
 
+        const config = ConfigSchema.parse(rawConfig);
         const runner = new GateRunner(config);
         const report = await runner.run(testDir);
 
@@ -64,7 +66,7 @@ describe('Environment Alignment Gate', () => {
 ruff = ">=99.14.0"
 `);
 
-        const config: Config = {
+        const rawConfig: RawConfig = {
             version: 1,
             gates: {
                 environment: {
@@ -75,6 +77,7 @@ ruff = ">=99.14.0"
             }
         };
 
+        const config = ConfigSchema.parse(rawConfig);
         const runner = new GateRunner(config);
         const report = await runner.run(testDir);
 
@@ -86,7 +89,7 @@ ruff = ">=99.14.0"
     });
 
     it('should prioritize environment gate and run it first', async () => {
-        const config: Config = {
+        const rawConfig: RawConfig = {
             version: 1,
             gates: {
                 max_file_lines: 1,
@@ -96,6 +99,8 @@ ruff = ">=99.14.0"
                 }
             }
         };
+
+        const config = ConfigSchema.parse(rawConfig);
 
         // Create a file that would fail max_file_lines
         await fs.writeFile(path.join(testDir, 'large.js'), 'line1\nline2\nline3');

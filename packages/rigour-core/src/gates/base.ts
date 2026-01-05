@@ -1,8 +1,11 @@
 import { GoldenRecord } from '../services/context-engine.js';
+import { Failure } from '../types/index.js';
 
 export interface GateContext {
     cwd: string;
     record?: GoldenRecord;
+    ignore?: string[];
+    patterns?: string[];
 }
 
 export abstract class Gate {
