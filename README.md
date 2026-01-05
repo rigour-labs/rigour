@@ -21,15 +21,17 @@ npx @rigour-labs/cli run -- claude "Build feature X"  # Agent loop
 
 ---
 
-## 🎯 The Problem
+### 🛑 The "Vibe Coding" Trap
 
-AI agents are powerful but chaotic. They:
-- Leave `TODO`s everywhere
-- Create 500-line "god files"
-- Ignore architectural boundaries
-- Claim "Done" when the code is broken
+AI agents often fall into a cycle of **"Guess and Hope"**:
+1. Agent makes a change.
+2. Agent **claims** "Task 100% complete" or "CI will pass now."
+3. Agent **pushes** to remote.
+4. **CI Fails** (Type error, lint failure, broken test).
 
-**Rigour stops this.** It injects a deterministic feedback loop that blocks closure until PASS.
+This is "Vibe Coding"—the agent is hallucinating success based on narrative, not execution.
+
+**Rigour breaks this cycle.** It forces the agent to face the same cold, hard verification tools (ruff, mypy, vitest) that CI runs, but **locally and immediately.** Rigour turns a "claim of victory" into a "proof of execution."
 
 ---
 

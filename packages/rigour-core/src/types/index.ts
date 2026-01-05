@@ -41,6 +41,12 @@ export const GatesSchema = z.object({
         mining_depth: z.number().optional().default(100), // Number of files to sample
         ignored_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
+    environment: z.object({
+        enabled: z.boolean().optional().default(true),
+        enforce_contracts: z.boolean().optional().default(true), // Auto-discovery of versions from truth sources
+        tools: z.record(z.string()).optional().default({}), // Explicit overrides
+        required_env: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
 });
 
 export const CommandsSchema = z.object({

@@ -7,8 +7,9 @@ import { ASTGate } from './ast.js';
 import { SafetyGate } from './safety.js';
 import { DependencyGate } from './dependency.js';
 import { CoverageGate } from './coverage.js';
-import { ContextGate } from './context.js'; // [NEW]
-import { ContextEngine } from '../services/context-engine.js'; // [NEW]
+import { ContextGate } from './context.js';
+import { ContextEngine } from '../services/context-engine.js';
+import { EnvironmentGate } from './environment.js'; // [NEW]
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 
@@ -39,6 +40,11 @@ export class GateRunner {
 
         if (this.config.gates.context?.enabled) {
             this.gates.push(new ContextGate(this.config.gates));
+        }
+
+        // Environment Alignment Gate (Should be prioritized)
+        if (this.config.gates.environment?.enabled) {
+            this.gates.unshift(new EnvironmentGate(this.config.gates));
         }
     }
 
