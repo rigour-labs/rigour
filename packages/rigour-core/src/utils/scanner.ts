@@ -20,16 +20,21 @@ export class FileScanner {
     ];
 
     static async findFiles(options: ScannerOptions): Promise<string[]> {
-        return globby(options.patterns || this.DEFAULT_PATTERNS, {
-            cwd: options.cwd,
-            ignore: options.ignore || this.DEFAULT_IGNORE,
+        const patterns = (options.patterns || this.DEFAULT_PATTERNS).map(p => p.replace(/\\/g, '/'));
+        const ignore = (options.ignore || this.DEFAULT_IGNORE).map(p => p.replace(/\\/g, '/'));
+        const normalizedCwd = options.cwd.replace(/\\/g, '/');
+
+        return globby(patterns, {
+            cwd: normalizedCwd,
+            ignore: ignore,
         });
     }
 
     static async readFiles(cwd: string, files: string[]): Promise<Map<string, string>> {
         const contents = new Map<string, string>();
         for (const file of files) {
-            const filePath = path.isAbsolute(file) ? file : path.join(cwd, file);
+            const normalizedFile = file.replace(/\//g, path.sep);
+            const filePath = path.isAbsolute(normalizedFile) ? normalizedFile : path.join(cwd, normalizedFile);
             contents.set(file, await fs.readFile(filePath, 'utf-8'));
         }
         return contents;

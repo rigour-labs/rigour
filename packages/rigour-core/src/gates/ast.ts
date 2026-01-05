@@ -21,10 +21,14 @@ export class ASTGate extends Gate {
     async run(context: GateContext): Promise<Failure[]> {
         const failures: Failure[] = [];
 
+        const patterns = (context.patterns || ['**/*.{ts,js,tsx,jsx,py,go,rs,cs,java,rb,c,cpp,php,swift,kt}']).map(p => p.replace(/\\/g, '/'));
+        const ignore = (context.ignore || ['node_modules/**', 'dist/**', 'build/**', '**/*.test.*', '**/*.spec.*', '**/__pycache__/**']).map(p => p.replace(/\\/g, '/'));
+        const normalizedCwd = context.cwd.replace(/\\/g, '/');
+
         // Find all supported files
-        const files = await globby(context.patterns || ['**/*.{ts,js,tsx,jsx,py,go,rs,cs,java,rb,c,cpp,php,swift,kt}'], {
-            cwd: context.cwd,
-            ignore: context.ignore || ['node_modules/**', 'dist/**', 'build/**', '**/*.test.*', '**/*.spec.*', '**/__pycache__/**'],
+        const files = await globby(patterns, {
+            cwd: normalizedCwd,
+            ignore: ignore,
         });
 
         for (const file of files) {
