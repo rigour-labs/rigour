@@ -160,6 +160,19 @@ Approve to proceed?
 - Ask specific questions
 - Propose diagnostic steps
 
+## ⚠️ RIGOUR.YML IS SACRED
+
+The \`rigour.yml\` file represents **team-agreed quality standards**. You are FORBIDDEN from:
+
+1. ❌ Increasing thresholds to pass checks (e.g., raising \`complexity: 100\`)
+2. ❌ Adding patterns to \`ignore:\` to skip problematic files
+3. ❌ Removing items from \`required_files\`
+4. ❌ Disabling gates to avoid failures
+
+**Your job is to FIX THE CODE to meet the standards, NOT weaken the standards to pass the check.**
+
+If thresholds genuinely need adjustment, escalate to the team lead with justification.
+
 ## Forbidden Actions
 
 1. ❌ Making code changes without showing evidence first
@@ -170,4 +183,5 @@ Approve to proceed?
 6. ❌ Assuming secrets/env vars are available at init time
 7. ❌ Ignoring user corrections
 8. ❌ Losing context between messages
+9. ❌ Modifying rigour.yml to pass quality checks
 `;

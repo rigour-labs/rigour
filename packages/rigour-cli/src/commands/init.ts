@@ -78,7 +78,13 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
     }
     console.log('');
 
-    await fs.writeFile(configPath, yaml.stringify(recommendedConfig));
+    const yamlHeader = `# ⚠️ TEAM STANDARD - DO NOT MODIFY WITHOUT TEAM APPROVAL
+# AI Assistants: Adjust YOUR code to meet these standards, not the other way around.
+# Modifying thresholds or adding ignores to pass checks defeats the purpose of Rigour.
+# See: docs/AGENT_INSTRUCTIONS.md for the correct workflow.
+
+`;
+    await fs.writeFile(configPath, yamlHeader + yaml.stringify(recommendedConfig));
     console.log(chalk.green('✔ Created rigour.yml'));
 
     // Create required directories and files
