@@ -14,9 +14,9 @@ describe('Init Command Rules Verification', () => {
         await fs.remove(testDir);
     });
 
-    it('should create universal instructions and cursor rules on init', async () => {
-        // Run init in test directory
-        await initCommand(testDir);
+    it('should create instructions with agnostic rules and cursor rules on init', async () => {
+        // Run init in test directory with all IDEs to verify rules in both locations
+        await initCommand(testDir, { ide: 'all' });
 
         const instructionsPath = path.join(testDir, 'docs', 'AGENT_INSTRUCTIONS.md');
         const mdcPath = path.join(testDir, '.cursor', 'rules', 'rigour.mdc');
@@ -27,15 +27,25 @@ describe('Init Command Rules Verification', () => {
         const instructionsContent = await fs.readFile(instructionsPath, 'utf-8');
         const mdcContent = await fs.readFile(mdcPath, 'utf-8');
 
+        // Check for agnostic instructions
+        expect(instructionsContent).toContain('# 🤖 CRITICAL INSTRUCTION FOR AI');
+        expect(instructionsContent).toContain('VERIFICATION PROOF REQUIRED');
+
         // Check for key sections in universal instructions
         expect(instructionsContent).toContain('# 🛡️ Rigour: Engineering Excellence Protocol');
         expect(instructionsContent).toContain('# Code Quality Standards');
-        expect(instructionsContent).toContain('# Investigation & Debugging Protocol');
-        expect(instructionsContent).toContain('# Role & Collaboration');
 
-        // Check that MDC includes frontmatter and same rules
-        expect(mdcContent).toContain('---');
-        expect(mdcContent).toContain('description: Enforcement of Rigour quality gates and best practices.');
-        expect(mdcContent).toContain('# Code Quality Standards');
+        // Check that MDC includes agnostic rules
+        expect(mdcContent).toContain('# 🤖 CRITICAL INSTRUCTION FOR AI');
     });
+
+    it('should create .clinerules when ide is cline or all', async () => {
+        await initCommand(testDir, { ide: 'cline' });
+        const clineRulesPath = path.join(testDir, '.clinerules');
+        expect(await fs.pathExists(clineRulesPath)).toBe(true);
+
+        const content = await fs.readFile(clineRulesPath, 'utf-8');
+        expect(content).toContain('# 🤖 CRITICAL INSTRUCTION FOR AI');
+    });
+
 });

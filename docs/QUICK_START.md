@@ -45,4 +45,5 @@ npx @rigour-labs/cli explain
 ### 💡 Next Steps
 - [Configuration Guide](./CONFIGURATION.md) - Customize your quality gates.
 - [AST Analysis](./AST_GATES.md) - Learn how structural analysis works.
-- [Agent Handshake](./MCP_INTEGRATION.md) - Bind your agents to these rules.
+- [Agent Integration](./AGENT_INTEGRATION.md) - Multi-agent support (Cursor, Cline, Claude Code, etc).
+

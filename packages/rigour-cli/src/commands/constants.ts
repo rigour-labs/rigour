@@ -185,3 +185,25 @@ If thresholds genuinely need adjustment, escalate to the team lead with justific
 8. ❌ Losing context between messages
 9. ❌ Modifying rigour.yml to pass quality checks
 `;
+
+export const AGNOSTIC_AI_INSTRUCTIONS = `
+# 🤖 CRITICAL INSTRUCTION FOR AI
+
+When asked to implement a feature or fix an issue:
+
+1. **FIRST**: Read ALL relevant rules files (e.g., \`.cursor/rules/*.mdc\`, \`.clinerules\`, \`docs/AGENT_INSTRUCTIONS.md\`).
+2. **NEVER** claim "done" until you can demonstrate the feature WORKS or the fix is verified.
+3. **ALWAYS** run \`npx @rigour-labs/cli check\` before claiming completion.
+4. **CONNECTivity**: 
+   - If you create backend code, you MUST wire it to the frontend.
+   - If you create a service, you MUST connect it to the UI.
+
+## ✅ VERIFICATION PROOF REQUIRED
+
+Before saying "done", show ONE of:
+- Screenshot/output proving it works.
+- The exact commands the user can run to verify.
+- The full flow from initiation (e.g., button click) to result.
+
+"Code exists" ≠ "Feature works"
+`;

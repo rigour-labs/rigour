@@ -1,34 +1,38 @@
 # AI Agent Integration Guide
 
-**Supported Tools**: Cursor, Cline, VSCode Copilot, Claude Code, Gemini CLI, Codex, Antigravity, and any agent that accepts custom instructions.
+**Supported Tools**: Cursor, Cline, Claude Code, Codex, Antigravity, VSCode Copilot, and any agent that accepts custom instructions.
 
-Copy and paste these rules into your AI coding assistant to enforce Rigour quality gates automatically.
+Rigour automatically initializes rules for your favorite AI tools:
+- **Cursor**: Creates \`.cursor/rules/rigour.mdc\`
+- **Cline**: Creates \`.clinerules\`
+- **Universal**: Creates \`docs/AGENT_INSTRUCTIONS.md\` for all other agents (Claude Code, Antigravity, Codex)
+
 
 ---
 
-## 🤖 For Cursor (.cursorrules)
+## 🛡️ Rigour Engineering Protocol
 
-```markdown
-# Rigour Code Quality Rules
+The rules initialized in your project enforce the "Rigour Loop." For agents like **Cursor** and **Cline**, these are automatically picked up. For **Claude Code** or **Antigravity**, you should point the agent to \`docs/AGENT_INSTRUCTIONS.md\`.
 
-You are an expert engineer. You must NEVER mark a task as "Done" until it passes the Rigour Quality Gate.
+### The Critical AI Instruction
 
-## The Protocol
+Every agent must follow these core principles:
 
-1.  After writing any code, you MUST run: `npx @rigour-labs/cli check`
-2.  If the check FAILS:
-    *   Read the error message carefully.
-    *   Apply the fix (e.g., modularize the file, remove the TODO, fix the type error).
-    *   Run `npx @rigour-labs/cli check` again.
-3.  If the check PASSES:
-    *   You may proceed to the next task or wait for user input.
+1.  **READ FIRST**: Always read rule files (\`.mdc\`, \`.clinerules\`, \`docs/AGENT_INSTRUCTIONS.md\`) before starting.
+2.  **VERIFY WORK**: Never claim "Done" without running \`npx @rigour-labs/cli check\`.
+3.  **CONNECTIVITY**: Backend code must be wired to the frontend. Service files must be connected to the UI.
+4.  **PROOF**: Provide actual evidence (screenshots, terminal output, or a full flow) that the feature works.
 
-## Forbidden Actions
+### Commands for Agents
 
-*   DO NOT use `// @ts-ignore` or `any` to bypass checks.
-*   DO NOT leave `TODO` comments in the code.
-*   DO NOT create files larger than 300 lines.
+```bash
+# Verify compliance
+npx @rigour-labs/cli check
+
+# Self-healing loop (runs an agent command until PASS)
+npx @rigour-labs/cli run -- <your-agent-command>
 ```
+
 
 ## 🤖 For One-Off Prompts
 

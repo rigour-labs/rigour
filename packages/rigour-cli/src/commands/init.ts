@@ -3,43 +3,54 @@ import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
 import { DiscoveryService } from '@rigour-labs/core';
-import { CODE_QUALITY_RULES, DEBUGGING_RULES, COLLABORATION_RULES } from './constants.js';
+import { CODE_QUALITY_RULES, DEBUGGING_RULES, COLLABORATION_RULES, AGNOSTIC_AI_INSTRUCTIONS } from './constants.js';
 
 export interface InitOptions {
     preset?: string;
     paradigm?: string;
-    ide?: 'cursor' | 'vscode' | 'all';
+    ide?: 'cursor' | 'vscode' | 'cline' | 'all';
     dryRun?: boolean;
     explain?: boolean;
 }
 
-type DetectedIDE = 'cursor' | 'vscode' | 'unknown';
+type DetectedIDE = 'cursor' | 'vscode' | 'cline' | 'unknown';
 
 function detectIDE(cwd: string): DetectedIDE {
+    // Check for Cline-specific markers
+    if (fs.existsSync(path.join(cwd, '.clinerules'))) {
+        return 'cline';
+    }
+
     // Check for Cursor-specific markers
     if (fs.existsSync(path.join(cwd, '.cursor'))) {
         return 'cursor';
     }
-    
+
     // Check for VS Code markers
     if (fs.existsSync(path.join(cwd, '.vscode'))) {
         return 'vscode';
     }
-    
-    // Check environment variables that IDEs set
+
+    // Check environment variables that IDEs/Agents set
     const termProgram = process.env.TERM_PROGRAM || '';
     const terminal = process.env.TERMINAL_EMULATOR || '';
-    
+    const appName = process.env.APP_NAME || '';
+
     if (termProgram.toLowerCase().includes('cursor') || terminal.toLowerCase().includes('cursor')) {
         return 'cursor';
     }
-    
+
+    if (termProgram.toLowerCase().includes('cline') || appName.toLowerCase().includes('cline')) {
+        return 'cline';
+    }
+
     if (termProgram.toLowerCase().includes('vscode') || process.env.VSCODE_INJECTION) {
         return 'vscode';
     }
-    
+
     return 'unknown';
 }
+
 
 export async function initCommand(cwd: string, options: InitOptions = {}) {
     const discovery = new DiscoveryService();
@@ -152,6 +163,7 @@ npx @rigour-labs/cli check
 npx @rigour-labs/cli run -- <agent-command>
 \`\`\`
 
+${AGNOSTIC_AI_INSTRUCTIONS}
 ${CODE_QUALITY_RULES}
 
 ${DEBUGGING_RULES}
@@ -168,11 +180,11 @@ ${COLLABORATION_RULES}
     // 2. Create IDE-Specific Rules based on detection or user preference
     const detectedIDE = detectIDE(cwd);
     const targetIDE = options.ide || (detectedIDE !== 'unknown' ? detectedIDE : 'all');
-    
+
     if (detectedIDE !== 'unknown' && !options.ide) {
         console.log(chalk.dim(`   (Auto-detected IDE: ${detectedIDE})`));
     }
-    
+
     if (targetIDE === 'cursor' || targetIDE === 'all') {
         const cursorRulesDir = path.join(cwd, '.cursor', 'rules');
         await fs.ensureDir(cursorRulesDir);
@@ -189,10 +201,19 @@ ${ruleContent}`;
             console.log(chalk.green('✔ Initialized Cursor Handshake (.cursor/rules/rigour.mdc)'));
         }
     }
-    
-    if (targetIDE === 'vscode') {
+
+    if (targetIDE === 'vscode' || targetIDE === 'all') {
         // VS Code users use the universal AGENT_INSTRUCTIONS.md (already created above)
+        // We could also add .vscode/settings.json or snippets here if needed
         console.log(chalk.green('✔ VS Code mode - using Universal Handshake (docs/AGENT_INSTRUCTIONS.md)'));
+    }
+
+    if (targetIDE === 'cline' || targetIDE === 'all') {
+        const clineRulesPath = path.join(cwd, '.clinerules');
+        if (!(await fs.pathExists(clineRulesPath))) {
+            await fs.writeFile(clineRulesPath, ruleContent);
+            console.log(chalk.green('✔ Initialized Cline Handshake (.clinerules)'));
+        }
     }
 
     // 3. Update .gitignore
