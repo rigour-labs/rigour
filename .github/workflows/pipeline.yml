@@ -77,8 +77,10 @@ jobs:
 
       - name: Publish to MCP Registry
         if: success()
+        working-directory: packages/rigour-mcp
         run: |
           curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
           chmod +x mcp-publisher
           ./mcp-publisher login github-oidc
-          ./mcp-publisher publish --server packages/rigour-mcp/server.json
+          ./mcp-publisher publish
+
