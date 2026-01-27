@@ -1,7 +1,7 @@
 {
     "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
     "name": "io.github.rigour-labs/rigour",
-    "description": "Quality gates for AI-generated code. Forces AI agents to meet strict engineering standards with PASS/FAIL enforcement. Zero cloud. Zero telemetry.",
+    "description": "Quality gates for AI agents. Lint, test, build checks with memory persistence.",
     "repository": {
         "url": "https://github.com/rigour-labs/rigour",
         "source": "github"
