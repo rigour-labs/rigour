@@ -77,11 +77,8 @@ jobs:
 
       - name: Publish to MCP Registry
         if: success()
-        uses: OtherVibes/mcp-publish-action@v1
-        with:
-          name: io.github.rigour-labs/rigour
-          description: "Quality gates for AI agents. Lint, test, build checks with memory persistence."
-          version: "1.0.0"
-          registry_type: npm
-          identifier: "@rigour-labs/mcp"
-          transport_type: stdio
+        run: |
+          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
+          chmod +x mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish --server packages/rigour-mcp/server.json
