@@ -1,7 +1,7 @@
 {
     "name": "@rigour-labs/mcp",
     "version": "2.9.3",
-    "mcpName": "rigour",
+    "mcpName": "io.github.rigour-labs/rigour",
     "description": "Quality gates for AI-generated code. Forces AI agents to meet strict engineering standards with PASS/FAIL enforcement.",
     "bin": {
         "rigour-mcp": "dist/index.js"

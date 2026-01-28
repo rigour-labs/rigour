@@ -1,6 +1,6 @@
 {
     "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-    "name": "rigour",
+    "name": "io.github.rigour-labs/rigour",
     "description": "Quality gates for AI agents. Lint, test, build checks with memory persistence.",
     "repository": {
         "url": "https://github.com/rigour-labs/rigour",
