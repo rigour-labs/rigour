@@ -8,12 +8,8 @@ import { Command } from 'commander';
 import path from 'path';
 import chalk from 'chalk';
 import ora from 'ora';
-import {
-    PatternIndexer,
-    savePatternIndex,
-    loadPatternIndex,
-    getDefaultIndexPath
-} from '@rigour-labs/core';
+// Dynamic imports are used inside the action handler below to prevent
+// native dependency issues from affecting the rest of the CLI.
 
 export const indexCommand = new Command('index')
     .description('Build or update the pattern index for the current project')
@@ -22,6 +18,15 @@ export const indexCommand = new Command('index')
     .option('-o, --output <path>', 'Custom path for the index file')
     .action(async (options) => {
         const cwd = process.cwd();
+
+        // Dynamic import to isolate native dependencies
+        const {
+            PatternIndexer,
+            savePatternIndex,
+            loadPatternIndex,
+            getDefaultIndexPath
+        } = await import('@rigour-labs/core/pattern-index');
+
         const indexPath = options.output || getDefaultIndexPath(cwd);
         const spinner = ora('Initializing pattern indexer...').start();
 

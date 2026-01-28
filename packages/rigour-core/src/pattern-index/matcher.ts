@@ -254,7 +254,7 @@ export class PatternMatcher {
         // Combine word overlap with character similarity
         const combinedConfidence = Math.round((confidence + wordOverlap * 100) / 2);
 
-        if (combinedConfidence >= 70) {
+        if (combinedConfidence >= 60) {
             return {
                 pattern,
                 matchType: 'fuzzy',

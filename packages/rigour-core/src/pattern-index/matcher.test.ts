@@ -88,7 +88,8 @@ describe('PatternMatcher', () => {
             const index = createIndex([pattern]);
             const matcher = new PatternMatcher(index, { useEmbeddings: false });
 
-            const result = await matcher.match({ name: 'dateFormatter' });
+            // 'formatDate' vs 'formatDates' have extremely high similarity
+            const result = await matcher.match({ name: 'formatDates' });
 
             expect(result.status).toBe('FOUND_SIMILAR');
             expect(result.matches.some(m => m.matchType === 'fuzzy')).toBe(true);

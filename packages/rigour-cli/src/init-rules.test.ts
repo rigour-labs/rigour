@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { initCommand } from './commands/init.js';
+
+
 import fs from 'fs-extra';
 import path from 'path';
+
+async function getInitCommand() {
+    const { initCommand } = await import('./commands/init.js');
+    return initCommand;
+}
 
 describe('Init Command Rules Verification', () => {
     const testDir = path.join(process.cwd(), 'temp-init-rules-test');
@@ -15,6 +21,7 @@ describe('Init Command Rules Verification', () => {
     });
 
     it('should create instructions with agnostic rules and cursor rules on init', async () => {
+        const initCommand = await getInitCommand();
         // Run init in test directory with all IDEs to verify rules in both locations
         await initCommand(testDir, { ide: 'all' });
 
@@ -40,6 +47,7 @@ describe('Init Command Rules Verification', () => {
     });
 
     it('should create .clinerules when ide is cline or all', async () => {
+        const initCommand = await getInitCommand();
         await initCommand(testDir, { ide: 'cline' });
         const clineRulesPath = path.join(testDir, '.clinerules');
         expect(await fs.pathExists(clineRulesPath)).toBe(true);

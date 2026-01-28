@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { checkCommand } from './commands/check.js';
+
 import fs from 'fs-extra';
 import path from 'path';
+
+async function getCheckCommand() {
+    const { checkCommand } = await import('./commands/check.js');
+    return checkCommand;
+}
 
 describe('CLI Smoke Test', () => {
     const testDir = path.join(process.cwd(), 'temp-smoke-test');
@@ -40,6 +45,7 @@ gates:
             // But checkCommand calls process.exit(1) on failure.
 
             // Re-importing checkCommand to ensure it uses the latest core
+            const checkCommand = await getCheckCommand();
             await expect(checkCommand(testDir, [], { ci: true })).resolves.not.toThrow();
         } finally {
             await fs.chmod(restrictedDir, 0o777);
@@ -57,12 +63,14 @@ gates:
 `);
 
         // If we check ONLY good.js, it should PASS (exit PASS)
+        const checkCommand = await getCheckCommand();
         await checkCommand(testDir, [path.join(testDir, 'good.js')], { ci: true });
         expect(process.exit).toHaveBeenCalledWith(0);
 
         // If we check bad.js, it should FAIL (exit FAIL)
         vi.clearAllMocks();
-        await checkCommand(testDir, [path.join(testDir, 'bad.js')], { ci: true });
+        const checkCommandFail = await getCheckCommand();
+        await checkCommandFail(testDir, [path.join(testDir, 'bad.js')], { ci: true });
         expect(process.exit).toHaveBeenCalledWith(1);
     });
 });

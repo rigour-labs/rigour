@@ -12,12 +12,14 @@ import {
     GateRunner,
     ConfigSchema,
     Report,
+} from "@rigour-labs/core";
+import {
     PatternMatcher,
     loadPatternIndex,
     getDefaultIndexPath,
     StalenessDetector,
     SecurityDetector
-} from "@rigour-labs/core";
+} from "@rigour-labs/core/pattern-index";
 
 const server = new Server(
     {
