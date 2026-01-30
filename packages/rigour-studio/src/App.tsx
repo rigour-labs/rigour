@@ -39,6 +39,7 @@ function App() {
     const [inspectingLog, setInspectingLog] = useState<any | null>(null);
     const [isGovernanceOpen, setIsGovernanceOpen] = useState(false);
     const [projectTree, setProjectTree] = useState<string[]>([]);
+    const [projectInfo, setProjectInfo] = useState<{ name: string, path: string, version: string } | null>(null);
 
     React.useEffect(() => {
         const eventSource = new EventSource('/api/events');
@@ -56,6 +57,12 @@ function App() {
             .then(res => res.json())
             .then(setProjectTree)
             .catch(err => console.error('Failed to fetch tree', err));
+
+        // Fetch project info
+        fetch('/api/info')
+            .then(res => res.json())
+            .then(setProjectInfo)
+            .catch(err => console.error('Failed to fetch info', err));
 
         return () => eventSource.close();
     }, []);
@@ -145,9 +152,9 @@ function App() {
         <div className="studio">
             <aside className="sidebar">
                 <div className="brand">
-                    <div className="logo-icon">R</div>
-                    <span>Studio</span>
-                    <div className="version-pill">v2.9</div>
+                    <div className="logo-icon"><ShieldCheck size={18} /></div>
+                    <span>Rigour Studio</span>
+                    <div className="version-pill">v{projectInfo?.version || '2.13'}</div>
                 </div>
 
                 <nav>
@@ -179,24 +186,26 @@ function App() {
             <main className="main-content">
                 <header>
                     <div className="header-left">
-                        <div className="breadcrumb">
-                            <span>Control Path</span>
-                            <ChevronRight size={14} />
-                            <span className="current">{navItems.find(n => n.id === activeTab)?.label}</span>
-                        </div>
+                        {projectInfo && (
+                            <div className="project-identity">
+                                <Folder size={14} className="folder-icon" />
+                                <span className="project-name">{projectInfo.name}</span>
+                                <span className="project-path">{projectInfo.path}</span>
+                            </div>
+                        )}
                     </div>
                     <div className="header-right">
+                        <div className="connection-status">
+                            <div className="status-indicator">
+                                <div className="pulse-emitter" />
+                                <span>LIVE</span>
+                            </div>
+                            <div className="v-divider" />
+                            <span>v{projectInfo?.version || '0.0.0'}</span>
+                        </div>
                         <button className="theme-toggle" onClick={toggleTheme}>
                             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
                         </button>
-                        <div className="connection-status">
-                            <Wifi size={14} className="wifi-icon" />
-                            <span>Shadowing: .rigour/events.jsonl</span>
-                        </div>
-                        <div className="status-indicator">
-                            <div className="pulse-emitter" />
-                            <span>Live Mode</span>
-                        </div>
                     </div>
                 </header>
 
@@ -280,13 +289,17 @@ function App() {
                                         <span>Governance Audit: {inspectingLog.tool}</span>
                                     </div>
                                     <div className="hitl-actions">
-                                        <button className="btn-approve" onClick={() => handleArbitration('approve')}>
-                                            <CheckCircle size={16} /> Approve (Override)
-                                        </button>
-                                        <button className="btn-reject" onClick={() => handleArbitration('reject')}>
-                                            <XCircle size={16} /> Reject Change
-                                        </button>
-                                        <div className="divider" />
+                                        {inspectingLog.type === 'interception_requested' && (
+                                            <>
+                                                <button className="btn-approve" onClick={() => handleArbitration('approve')}>
+                                                    <CheckCircle size={16} /> Approve
+                                                </button>
+                                                <button className="btn-reject" onClick={() => handleArbitration('reject')}>
+                                                    <XCircle size={16} /> Reject
+                                                </button>
+                                                <div className="divider" />
+                                            </>
+                                        )}
                                         <button onClick={() => setIsGovernanceOpen(false)} className="close-btn"><X size={20} /></button>
                                     </div>
                                 </div>

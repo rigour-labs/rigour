@@ -205,7 +205,7 @@ export const AuditLog: React.FC<AuditLogProps> = ({ logs, onClearLogs, onSelectL
 };
 
 const LogDetailView: React.FC<{ log: LogEntry; onClose: () => void }> = ({ log, onClose }) => {
-    const [activeTab, setActiveTab] = useState<'args' | 'report'>('args');
+    const [activeTab, setActiveTab] = useState<'args' | 'report'>(log._rigour_report ? 'report' : 'args');
 
     return (
         <div className="log-detail-view">
@@ -240,16 +240,16 @@ const LogDetailView: React.FC<{ log: LogEntry; onClose: () => void }> = ({ log, 
             {log._rigour_report && (
                 <div className="detail-tabs">
                     <button
-                        className={activeTab === 'args' ? 'active' : ''}
-                        onClick={() => setActiveTab('args')}
-                    >
-                        Arguments
-                    </button>
-                    <button
                         className={activeTab === 'report' ? 'active' : ''}
                         onClick={() => setActiveTab('report')}
                     >
-                        Rigour Report
+                        Verification Report
+                    </button>
+                    <button
+                        className={activeTab === 'args' ? 'active' : ''}
+                        onClick={() => setActiveTab('args')}
+                    >
+                        Technical Arguments
                     </button>
                 </div>
             )}

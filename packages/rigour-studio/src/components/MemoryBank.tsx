@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, Search, RefreshCw, Clock, Key, ChevronRight, Database } from 'lucide-react';
+import { Brain, Search, RefreshCw, Clock, Key, ChevronRight, Database, Copy, Check } from 'lucide-react';
 
 interface MemoryEntry {
     value: string;
@@ -15,6 +15,7 @@ export const MemoryBank: React.FC = () => {
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [isLoading, setIsLoading] = useState(true);
+    const [copied, setCopied] = useState(false);
 
     const fetchMemory = async () => {
         setIsLoading(true);
@@ -51,6 +52,43 @@ export const MemoryBank: React.FC = () => {
         } catch {
             return timestamp;
         }
+    };
+
+    const copyToClipboard = () => {
+        if (!selectedMemory) return;
+        navigator.clipboard.writeText(selectedMemory.value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const renderValue = (value: string) => {
+        // Simple heuristic: if it looks like an audit report (has numbered items like 1), 2) etc)
+        // or has "Priority:", let's split it into blocks
+        if (value.includes('1)') && value.includes('2)')) {
+            const sections = value.split(/(\d+\))/);
+            return (
+                <div className="formatted-content">
+                    {sections.map((section, i) => {
+                        if (/^\d+\)$/.test(section)) {
+                            return <div key={i} className="section-marker">{section}</div>;
+                        }
+                        if (section.trim().startsWith('Priority:')) {
+                            const [p, rest] = section.split('Priority:');
+                            return (
+                                <React.Fragment key={i}>
+                                    {p.trim() && <div className="section-body">{p.trim()}</div>}
+                                    <div className="priority-box">{rest.trim()}</div>
+                                </React.Fragment>
+                            );
+                        }
+                        return section.trim() ? <div key={i} className="section-body">{section.trim()}</div> : null;
+                    })}
+                </div>
+            );
+        }
+
+        // Default: Preserve newlines and wrap
+        return <pre>{value}</pre>;
     };
 
     return (
@@ -119,11 +157,17 @@ export const MemoryBank: React.FC = () => {
                                 <h3>{selectedKey}</h3>
                             </div>
                             <div className="detail-meta">
-                                <Clock size={14} />
-                                <span>Stored: {formatDate(selectedMemory.timestamp)}</span>
+                                <div className="meta-left">
+                                    <Clock size={14} />
+                                    <span>Stored: {formatDate(selectedMemory.timestamp)}</span>
+                                </div>
+                                <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copyToClipboard}>
+                                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                                </button>
                             </div>
                             <div className="detail-content">
-                                <pre>{selectedMemory.value}</pre>
+                                {renderValue(selectedMemory.value)}
                             </div>
                         </>
                     ) : (

@@ -155,6 +155,19 @@ async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath
             } catch {
                 res.writeHead(404); res.end('Not found');
             }
+        } else if (url.pathname === '/api/info') {
+            try {
+                const pkgPath = path.join(cwd, 'package.json');
+                const pkg = await fs.pathExists(pkgPath) ? await fs.readJson(pkgPath) : {};
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    name: pkg.name || path.basename(cwd),
+                    path: cwd,
+                    version: pkg.version || '0.0.0'
+                }));
+            } catch (e: any) {
+                res.writeHead(500); res.end(e.message);
+            }
         } else if (url.pathname === '/api/tree') {
             try {
                 const getTree = async (dir: string): Promise<string[]> => {
