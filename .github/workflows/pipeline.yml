@@ -79,8 +79,8 @@ jobs:
         if: success()
         working-directory: packages/rigour-mcp
         run: |
-          # Get the version that was just published/tagged
-          VERSION=$(npm view @rigour-labs/mcp dist-tags.latest)
+          # Get the version from the package.json which was just updated by semantic-release
+          VERSION=$(node -p "require('./package.json').version")
           
           echo "Syncing server.json to version $VERSION"
           jq ".version = \"$VERSION\" | .packages[0].version = \"$VERSION\"" server.json > server.json.tmp && mv server.json.tmp server.json
