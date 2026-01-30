@@ -640,7 +640,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 // 1. Log Interceptable Event
                 await logStudioEvent(cwd, {
                     type: "interception_requested",
-                    interactionId: requestId,
+                    requestId: requestId,
                     tool: "rigour_run",
                     command
                 });

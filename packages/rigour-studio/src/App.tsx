@@ -15,7 +15,8 @@ import {
     Sun,
     Moon,
     CheckCircle,
-    XCircle
+    XCircle,
+    AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DiffEditor } from '@monaco-editor/react';
@@ -24,7 +25,7 @@ import { FileTree } from './components/FileTree';
 import { MemoryBank } from './components/MemoryBank';
 import { PatternIndex } from './components/PatternIndex';
 import { QualityGates } from './components/QualityGates';
-import { AuditLog } from './components/AuditLog';
+import { AuditLog, LogEntry } from './components/AuditLog';
 
 function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
@@ -212,13 +213,17 @@ function App() {
                                 <AuditLog
                                     logs={logs}
                                     onClearLogs={() => setLogs([])}
-                                    onSelectLog={(log) => {
+                                    onSelectLog={(log: LogEntry | null) => {
                                         setInspectingLog(log);
-                                        // Only open full Governance overlay if it's a report
-                                        if (log?._rigour_report) {
-                                            const firstFile = log._rigour_report.failures?.[0]?.files?.[0];
-                                            if (firstFile) fetchFileContent(firstFile);
-                                            else setSelectedDiff(null);
+                                        // Open overlay for reports OR interception requests
+                                        if (log?._rigour_report || log?.type === 'interception_requested') {
+                                            if (log?._rigour_report) {
+                                                const firstFile = log._rigour_report.failures?.[0]?.files?.[0];
+                                                if (firstFile) fetchFileContent(firstFile);
+                                                else setSelectedDiff(null);
+                                            } else {
+                                                setSelectedDiff(null);
+                                            }
                                             setIsGovernanceOpen(true);
                                         } else {
                                             setSelectedDiff(null);
@@ -286,28 +291,53 @@ function App() {
                                     </div>
                                 </div>
                                 <div className="governance-body">
-                                    <FileTree
-                                        files={(inspectingLog._rigour_report?.failures?.flatMap((f: any) => f.files || []) || projectTree).map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}
-                                        onSelect={(file) => fetchFileContent(file)}
-                                        activeFile={selectedDiff?.filename}
-                                        violatedFiles={(inspectingLog._rigour_report?.failures?.flatMap((f: any) => f.files || []) || []).map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}
-                                    />
-                                    <div className="diff-view-area">
-                                        {selectedDiff ? (
-                                            <DiffViewer
-                                                filename={selectedDiff.filename}
-                                                originalCode={selectedDiff.original}
-                                                modifiedCode={selectedDiff.modified}
-                                                onClose={() => setSelectedDiff(null)}
-                                                theme={theme as 'dark' | 'light'}
-                                            />
-                                        ) : (
-                                            <div className="diff-placeholder">
-                                                <Activity size={48} />
-                                                <p>Select a file to audit the proposed changes</p>
+                                    {inspectingLog.type === 'interception_requested' ? (
+                                        <div className="interception-view">
+                                            <div className="interception-card">
+                                                <Terminal size={48} />
+                                                <h4>Command Intercepted</h4>
+                                                <div className="command-box">
+                                                    <code>{inspectingLog.command}</code>
+                                                </div>
+                                                <p>An AI agent is requesting to execute this command. Review the project state below before arbitrating.</p>
+                                                <div className="warning-note">
+                                                    <AlertTriangle size={16} />
+                                                    <span>Critical actions should be manually verified.</span>
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
+                                            <FileTree
+                                                files={projectTree.map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}
+                                                onSelect={(file) => fetchFileContent(file)}
+                                                activeFile={selectedDiff?.filename}
+                                                violatedFiles={[]}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <FileTree
+                                                files={(inspectingLog._rigour_report?.failures?.flatMap((f: any) => f.files || []) || projectTree).map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}
+                                                onSelect={(file) => fetchFileContent(file)}
+                                                activeFile={selectedDiff?.filename}
+                                                violatedFiles={(inspectingLog._rigour_report?.failures?.flatMap((f: any) => f.files || []) || []).map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}
+                                            />
+                                            <div className="diff-view-area">
+                                                {selectedDiff ? (
+                                                    <DiffViewer
+                                                        filename={selectedDiff.filename}
+                                                        originalCode={selectedDiff.original}
+                                                        modifiedCode={selectedDiff.modified}
+                                                        onClose={() => setSelectedDiff(null)}
+                                                        theme={theme as 'dark' | 'light'}
+                                                    />
+                                                ) : (
+                                                    <div className="diff-placeholder">
+                                                        <Activity size={48} />
+                                                        <p>Select a file to audit the proposed changes</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>

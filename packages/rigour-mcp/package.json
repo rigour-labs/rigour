@@ -23,6 +23,7 @@
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.25.2",
         "@rigour-labs/core": "workspace:*",
+        "execa": "^8.0.1",
         "fs-extra": "^11.2.0",
         "yaml": "^2.8.2"
     },

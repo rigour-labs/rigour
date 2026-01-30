@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, Search, Filter, Clock, CheckCircle, XCircle, AlertTriangle, ChevronRight, Terminal, FileCode, Trash2, Download, RefreshCw, Eye, X } from 'lucide-react';
 
-interface LogEntry {
+export interface LogEntry {
     id: string;
     requestId?: string;
     timestamp: string;
@@ -12,6 +12,8 @@ interface LogEntry {
     _rigour_report?: any;
     arbitrated?: boolean;
     decision?: 'approve' | 'reject';
+    type?: string;
+    command?: string;
 }
 
 interface AuditLogProps {
