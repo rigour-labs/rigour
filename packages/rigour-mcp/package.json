@@ -1,6 +1,6 @@
 {
     "name": "@rigour-labs/mcp",
-    "version": "2.0.0",
+    "version": "2.13.0",
     "type": "module",
     "mcpName": "io.github.rigour-labs/rigour",
     "description": "Quality gates for AI-generated code. Forces AI agents to meet strict engineering standards with PASS/FAIL enforcement.",

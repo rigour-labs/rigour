@@ -6,12 +6,12 @@
         "url": "https://github.com/rigour-labs/rigour",
         "source": "github"
     },
-    "version": "2.9.3",
+    "version": "2.13.0",
     "packages": [
         {
             "registryType": "npm",
             "identifier": "@rigour-labs/mcp",
-            "version": "2.9.3",
+            "version": "2.13.0",
             "transport": {
                 "type": "stdio"
             },
