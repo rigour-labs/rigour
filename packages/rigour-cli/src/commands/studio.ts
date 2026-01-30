@@ -22,6 +22,15 @@ export const studioCommand = new Command('studio')
 
         console.log(chalk.bold.cyan('\n🛡️ Launching Rigour Studio...'));
         console.log(chalk.gray(`Project Root: ${cwd}`));
+
+        // Pre-flight check: Is the project initialized?
+        const configPath = path.join(cwd, 'rigour.yml');
+        if (!(await fs.pathExists(configPath))) {
+            console.log(chalk.yellow('\n⚠️ Warning: rigour.yml not found.'));
+            console.log(chalk.dim('The Studio will be empty until you initialize the project.'));
+            console.log(chalk.cyan('Suggest: ') + chalk.bold('npx @rigour-labs/cli init') + '\n');
+        }
+
         console.log(chalk.gray(`Shadowing interactions in ${path.join(cwd, '.rigour/events.jsonl')}\n`));
 
         // Check if we are in a monorepo development environment
