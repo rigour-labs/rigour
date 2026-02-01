@@ -50,7 +50,7 @@ export class ContextEngine {
             } catch (e) { }
         }
 
-        console.log(`[ContextEngine] Discovered ${envVars.size} env anchors`);
+        // Logs removed to avoid stdout pollution in JSON mode
 
         // Convert envVars to anchors
         for (const [name, count] of envVars.entries()) {

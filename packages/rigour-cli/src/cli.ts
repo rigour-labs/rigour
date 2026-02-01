@@ -54,6 +54,7 @@ program
     .option('--ci', 'CI mode (minimal output, non-zero exit on fail)')
     .option('--json', 'Output report in JSON format')
     .option('-i, --interactive', 'Run in interactive mode with rich output')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
     .addHelpText('after', `
 Examples:
   $ rigour check                       # Run standard check

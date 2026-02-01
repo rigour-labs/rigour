@@ -16,13 +16,13 @@ export class Logger {
 
     static info(message: string) {
         if (this.level <= LogLevel.INFO) {
-            console.log(chalk.blue('info: ') + message);
+            console.error(chalk.blue('info: ') + message);
         }
     }
 
     static warn(message: string) {
         if (this.level <= LogLevel.WARN) {
-            console.log(chalk.yellow('warn: ') + message);
+            console.error(chalk.yellow('warn: ') + message);
         }
     }
 
@@ -37,7 +37,7 @@ export class Logger {
 
     static debug(message: string) {
         if (this.level <= LogLevel.DEBUG) {
-            console.log(chalk.dim('debug: ') + message);
+            console.error(chalk.dim('debug: ') + message);
         }
     }
 }

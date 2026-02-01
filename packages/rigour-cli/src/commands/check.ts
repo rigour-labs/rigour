@@ -16,6 +16,7 @@ export interface CheckOptions {
     ci?: boolean;
     json?: boolean;
     interactive?: boolean;
+    config?: string;
 }
 
 // Helper to log events for Rigour Studio
@@ -36,13 +37,13 @@ async function logStudioEvent(cwd: string, event: any) {
 }
 
 export async function checkCommand(cwd: string, files: string[] = [], options: CheckOptions = {}) {
-    const configPath = path.join(cwd, 'rigour.yml');
+    const configPath = options.config ? path.resolve(cwd, options.config) : path.join(cwd, 'rigour.yml');
 
     if (!(await fs.pathExists(configPath))) {
         if (options.json) {
-            console.log(JSON.stringify({ error: 'CONFIG_ERROR', message: 'rigour.yml not found' }));
+            console.log(JSON.stringify({ error: 'CONFIG_ERROR', message: `Config file not found: ${configPath}` }));
         } else if (!options.ci) {
-            console.error(chalk.red('Error: rigour.yml not found. Run `rigour init` first.'));
+            console.error(chalk.red(`Error: Config file not found at ${configPath}. Run \`rigour init\` first or provide a valid path.`));
         }
         process.exit(EXIT_CONFIG_ERROR);
     }
