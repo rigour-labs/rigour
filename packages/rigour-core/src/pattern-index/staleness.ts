@@ -159,6 +159,136 @@ const BUILT_IN_DEPRECATIONS: DeprecationEntry[] = [
         replacement: "useRouter from 'next/navigation' in App Router",
         severity: 'info',
         reason: 'Use next/navigation for App Router projects'
+    },
+
+    // ============================================================
+    // SECURITY PATTERNS - Cross-language security vulnerabilities
+    // ============================================================
+
+    // Python CSRF disabled
+    {
+        pattern: 'csrf\\s*=\\s*False',
+        deprecatedIn: 'security',
+        replacement: "Never disable CSRF protection. Remove 'csrf = False' and use proper CSRF tokens.",
+        severity: 'error',
+        reason: 'CSRF protection is critical for security. Disabling it exposes users to cross-site request forgery attacks.'
+    },
+    {
+        pattern: 'WTF_CSRF_ENABLED\\s*=\\s*False',
+        deprecatedIn: 'security',
+        replacement: "Never disable CSRF. Remove 'WTF_CSRF_ENABLED = False' from config.",
+        severity: 'error',
+        reason: 'Flask-WTF CSRF protection should never be disabled in production.'
+    },
+    {
+        pattern: "@csrf_exempt",
+        deprecatedIn: 'security',
+        replacement: "Remove @csrf_exempt decorator. Use proper CSRF token handling instead.",
+        severity: 'error',
+        reason: 'csrf_exempt bypasses CSRF protection, creating security vulnerabilities.'
+    },
+
+    // Python hardcoded secrets
+    {
+        pattern: "SECRET_KEY\\s*=\\s*['\"][^'\"]{1,50}['\"]",
+        deprecatedIn: 'security',
+        replacement: "Use os.environ.get('SECRET_KEY') or secrets.token_hex(32)",
+        severity: 'error',
+        reason: 'Hardcoded secrets are exposed in version control and logs. Use environment variables.'
+    },
+    {
+        pattern: "API_KEY\\s*=\\s*['\"][^'\"]+['\"]",
+        deprecatedIn: 'security',
+        replacement: "Use os.environ.get('API_KEY') for API credentials",
+        severity: 'error',
+        reason: 'Hardcoded API keys are a security risk. Use environment variables.'
+    },
+    {
+        pattern: "PASSWORD\\s*=\\s*['\"][^'\"]+['\"]",
+        deprecatedIn: 'security',
+        replacement: "Never hardcode passwords. Use environment variables or secret managers.",
+        severity: 'error',
+        reason: 'Hardcoded passwords are a critical security vulnerability.'
+    },
+
+    // JavaScript/TypeScript prototype pollution
+    {
+        pattern: '\\.__proto__',
+        deprecatedIn: 'security',
+        replacement: "Use Object.getPrototypeOf() or Object.setPrototypeOf() instead of __proto__",
+        severity: 'error',
+        reason: 'Direct __proto__ access enables prototype pollution attacks.'
+    },
+    {
+        pattern: '\\[\\s*[\'"]__proto__[\'"]\\s*\\]',
+        deprecatedIn: 'security',
+        replacement: "Never allow user input to access __proto__. Validate and sanitize object keys.",
+        severity: 'error',
+        reason: 'Bracket notation access to __proto__ is a prototype pollution vector.'
+    },
+    {
+        pattern: '\\[\\s*[\'"]constructor[\'"]\\s*\\]\\s*\\[',
+        deprecatedIn: 'security',
+        replacement: "Block access to constructor property from user input.",
+        severity: 'error',
+        reason: 'constructor[constructor] pattern enables prototype pollution.'
+    },
+
+    // SQL Injection patterns
+    {
+        pattern: 'cursor\\.execute\\s*\\(\\s*f[\'"]',
+        deprecatedIn: 'security',
+        replacement: "Use parameterized queries: cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))",
+        severity: 'error',
+        reason: 'F-string SQL queries are vulnerable to SQL injection attacks.'
+    },
+    {
+        pattern: '\\.execute\\s*\\([^)]*\\+[^)]*\\)',
+        deprecatedIn: 'security',
+        replacement: "Use parameterized queries instead of string concatenation.",
+        severity: 'error',
+        reason: 'String concatenation in SQL queries enables SQL injection.'
+    },
+
+    // XSS patterns
+    {
+        pattern: 'dangerouslySetInnerHTML',
+        deprecatedIn: 'security',
+        replacement: "Sanitize HTML with DOMPurify before using dangerouslySetInnerHTML, or use safe alternatives.",
+        severity: 'warning',
+        reason: 'dangerouslySetInnerHTML can lead to XSS vulnerabilities if content is not sanitized.'
+    },
+    {
+        pattern: '\\.innerHTML\\s*=',
+        deprecatedIn: 'security',
+        replacement: "Use textContent for text, or sanitize HTML before setting innerHTML.",
+        severity: 'warning',
+        reason: 'Direct innerHTML assignment can lead to XSS attacks.'
+    },
+
+    // Insecure session/cookie settings
+    {
+        pattern: 'SESSION_COOKIE_SECURE\\s*=\\s*False',
+        deprecatedIn: 'security',
+        replacement: "Set SESSION_COOKIE_SECURE = True in production",
+        severity: 'error',
+        reason: 'Insecure cookies can be intercepted over HTTP connections.'
+    },
+    {
+        pattern: 'SESSION_COOKIE_HTTPONLY\\s*=\\s*False',
+        deprecatedIn: 'security',
+        replacement: "Set SESSION_COOKIE_HTTPONLY = True to prevent XSS cookie theft",
+        severity: 'error',
+        reason: 'Non-HTTPOnly cookies are accessible via JavaScript, enabling XSS attacks.'
+    },
+
+    // Debug mode in production
+    {
+        pattern: 'DEBUG\\s*=\\s*True',
+        deprecatedIn: 'security',
+        replacement: "Use DEBUG = os.environ.get('DEBUG', 'False') == 'True'",
+        severity: 'warning',
+        reason: 'Debug mode in production exposes sensitive information and stack traces.'
     }
 ];
 

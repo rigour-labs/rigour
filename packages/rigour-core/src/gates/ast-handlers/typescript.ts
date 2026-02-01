@@ -103,6 +103,57 @@ export class TypeScriptHandler extends ASTHandler {
                 }
             }
 
+            // === SECURITY CHECKS (Prototype Pollution) ===
+
+            // Check for direct __proto__ access: obj.__proto__
+            if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name) && node.name.text === '__proto__') {
+                const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+                addFailure({
+                    id: 'SECURITY_PROTOTYPE_POLLUTION',
+                    title: `Direct __proto__ access at line ${line}`,
+                    details: `Prototype pollution vulnerability in ${relativePath}:${line}`,
+                    files: [relativePath],
+                    hint: `Use Object.getPrototypeOf() or Object.setPrototypeOf() instead of __proto__.`
+                });
+            }
+
+            // Check for bracket notation __proto__ access: obj["__proto__"]
+            if (ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression)) {
+                const accessKey = node.argumentExpression.text;
+                if (accessKey === '__proto__' || accessKey === 'constructor' || accessKey === 'prototype') {
+                    const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+                    addFailure({
+                        id: 'SECURITY_PROTOTYPE_POLLUTION',
+                        title: `Unsafe bracket notation access to '${accessKey}' at line ${line}`,
+                        details: `Potential prototype pollution via bracket notation in ${relativePath}:${line}`,
+                        files: [relativePath],
+                        hint: `Block access to '${accessKey}' property when handling user input. Use allowlist for object keys.`
+                    });
+                }
+            }
+
+            // Check for Object.assign with user-controllable input (common prototype pollution pattern)
+            if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+                const propAccess = node.expression;
+                if (ts.isIdentifier(propAccess.expression) && propAccess.expression.text === 'Object' &&
+                    ts.isIdentifier(propAccess.name) && propAccess.name.text === 'assign') {
+                    // This is Object.assign() - warn if first arg is empty object (merge pattern)
+                    if (node.arguments.length >= 2) {
+                        const firstArg = node.arguments[0];
+                        if (ts.isObjectLiteralExpression(firstArg) && firstArg.properties.length === 0) {
+                            const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+                            addFailure({
+                                id: 'SECURITY_PROTOTYPE_POLLUTION_MERGE',
+                                title: `Object.assign() merge pattern at line ${line}`,
+                                details: `Object.assign({}, ...) can propagate prototype pollution in ${relativePath}:${line}`,
+                                files: [relativePath],
+                                hint: `Validate and sanitize source objects before merging. Block __proto__ and constructor keys.`
+                            });
+                        }
+                    }
+                }
+            }
+
             // === COMPLEXITY CHECKS ===
 
             if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isArrowFunction(node)) {
