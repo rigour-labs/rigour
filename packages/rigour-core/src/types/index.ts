@@ -20,6 +20,20 @@ export const GatesSchema = z.object({
         max_class_dependencies: z.number().optional().default(5),
         max_function_lines: z.number().optional().default(50),
     }).optional().default({}),
+    staleness: z.object({
+        enabled: z.boolean().optional().default(false),
+        // Rule-based staleness detection (toggle individual rules)
+        rules: z.record(z.boolean()).optional().default({
+            'no-var': true,              // var → const/let (ES6+)
+            'no-commonjs': false,        // require() → import
+            'no-arguments': false,       // arguments → rest params
+            'prefer-arrow': false,       // function → arrow function
+            'prefer-template': false,    // 'a' + b → `a${b}`
+            'prefer-spread': false,      // apply() → spread
+            'prefer-rest': false,        // arguments → ...args
+            'prefer-const': false,       // let (unchanged) → const
+        }),
+    }).optional().default({}),
     dependencies: z.object({
         forbid: z.array(z.string()).optional().default([]),
         trusted_registry: z.string().optional(),

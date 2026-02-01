@@ -208,6 +208,19 @@ export const UNIVERSAL_CONFIG: Config = {
             auto_classify: true,
             doc_sources: {},
         },
+        staleness: {
+            enabled: false,
+            rules: {
+                'no-var': true,
+                'no-commonjs': false,
+                'no-arguments': false,
+                'prefer-arrow': false,
+                'prefer-template': false,
+                'prefer-spread': false,
+                'prefer-rest': false,
+                'prefer-const': false,
+            },
+        },
     },
     output: {
         report_path: 'rigour-report.json',

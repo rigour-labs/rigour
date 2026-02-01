@@ -91,10 +91,13 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
             await fs.writeJson(fixPacketPath, fixPacket, { spaces: 2 });
         }
 
-        // JSON output mode
+        // JSON output mode - use stdout.write for large outputs to avoid truncation
         if (options.json) {
-            console.log(JSON.stringify(report, null, 2));
-            process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+            const jsonOutput = JSON.stringify(report, null, 2);
+            process.stdout.write(jsonOutput + '\n', () => {
+                process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+            });
+            return; // Wait for write callback
         }
 
         // CI mode: minimal output
