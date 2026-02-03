@@ -2,9 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Brain, Search, RefreshCw, Clock, Key, ChevronRight, Database, Copy, Check } from 'lucide-react';
 
 interface MemoryEntry {
-    value: string;
+    value: string | Record<string, unknown>;
     timestamp: string;
 }
+
+const getValueAsString = (value: string | Record<string, unknown>): string => {
+    if (typeof value === 'string') return value;
+    return JSON.stringify(value, null, 2);
+};
 
 interface MemoryStore {
     memories: Record<string, MemoryEntry>;
@@ -56,16 +61,17 @@ export const MemoryBank: React.FC = () => {
 
     const copyToClipboard = () => {
         if (!selectedMemory) return;
-        navigator.clipboard.writeText(selectedMemory.value);
+        navigator.clipboard.writeText(getValueAsString(selectedMemory.value));
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const renderValue = (value: string) => {
+    const renderValue = (value: string | Record<string, unknown>) => {
+        const strValue = getValueAsString(value);
         // Simple heuristic: if it looks like an audit report (has numbered items like 1), 2) etc)
         // or has "Priority:", let's split it into blocks
-        if (value.includes('1)') && value.includes('2)')) {
-            const sections = value.split(/(\d+\))/);
+        if (strValue.includes('1)') && strValue.includes('2)')) {
+            const sections = strValue.split(/(\d+\))/);
             return (
                 <div className="formatted-content">
                     {sections.map((section, i) => {
@@ -88,7 +94,7 @@ export const MemoryBank: React.FC = () => {
         }
 
         // Default: Preserve newlines and wrap
-        return <pre>{value}</pre>;
+        return <pre>{strValue}</pre>;
     };
 
     return (
@@ -142,7 +148,10 @@ export const MemoryBank: React.FC = () => {
                                     <span>{formatDate(entry.timestamp)}</span>
                                 </div>
                                 <div className="memory-item-preview">
-                                    {entry.value.slice(0, 100)}{entry.value.length > 100 ? '...' : ''}
+                                    {(() => {
+                                        const str = getValueAsString(entry.value);
+                                        return str.slice(0, 100) + (str.length > 100 ? '...' : '');
+                                    })()}
                                 </div>
                             </div>
                         ))
