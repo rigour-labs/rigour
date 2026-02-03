@@ -14,9 +14,9 @@ Rigour forces AI agents to meet strict engineering standards before marking task
 ## 🚀 Quick Start
 
 ```bash
-npx @rigour-labs/cli init     # Initialize quality gates
-npx @rigour-labs/cli check    # Verify code quality
-npx @rigour-labs/cli run -- claude "Build feature X"  # Agent loop
+npx rigour init     # Initialize quality gates
+npx rigour check    # Verify code quality
+npx rigour run -- claude "Build feature X"  # Agent loop
 ```
 
 ---
@@ -42,6 +42,17 @@ Agent writes code → Rigour checks → FAIL? → Fix Packet → Agent retries �
 ```
 
 The `rigour run` command loops until your agent achieves PASS or hits max iterations.
+
+### 🌗 Rigour Modes
+
+| Mode | Control | Use Case | Loop |
+| :--- | :--- | :--- | :--- |
+| **Advisor** | Suggestive | Code reviews & IDE suggestions | Single pass |
+| **Supervisor** | Enforcement | CI/CD gates & Autonomous agents | Iterative (Auto-fix) |
+
+> [!TIP]
+> This workflow uses **Supervisor mode** for CI/CD, ensuring that any AI-generated code meets all quality gates before merge.
+
 
 ---
 
@@ -79,10 +90,25 @@ The `rigour run` command loops until your agent achieves PASS or hits max iterat
 
 ---
 
+## 🛠️ CLI Commands Reference
+
+For a complete reference, visit [docs.rigour.run/cli/commands](https://docs.rigour.run/cli/commands).
+
+| Command | Purpose |
+| :--- | :--- |
+| `rigour check` | Validates staged changes against safety rules |
+| `rigour check --ci` | CI mode with appropriate output |
+| `rigour init` | Setup Rigour in project |
+| `rigour explain` | Detailed explanation of validation results |
+| `rigour run` | Supervisor loop for iterative refinement |
+| `rigour studio` | Dashboard for monitoring |
+
+---
+
 ## 🧪 CI Integration
 
 ```yaml
-- run: npx @rigour-labs/cli check --ci
+- run: npx rigour check --ci
 ```
 
 See [full example](./docs/ENTERPRISE.md) for GitHub Actions setup.
