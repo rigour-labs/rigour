@@ -46,6 +46,7 @@ export class DiscoveryService {
             paradigm: extension.paradigm || base.paradigm,
             commands: { ...base.commands, ...extension.commands },
             gates: { ...base.gates, ...extension.gates },
+            ignore: [...new Set([...(base.ignore || []), ...(extension.ignore || [])])],
         };
     }
 

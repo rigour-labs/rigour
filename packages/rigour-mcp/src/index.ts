@@ -299,6 +299,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     },
                     required: ["cwd", "command"],
                 },
+            },
+            {
+                name: "rigour_run_supervised",
+                description: "Run a command under FULL Supervisor Mode. Iteratively executes the command, checks quality gates, and returns fix packets until PASS or max retries reached. Use this for self-healing agent loops.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        cwd: {
+                            type: "string",
+                            description: "Absolute path to the project root.",
+                        },
+                        command: {
+                            type: "string",
+                            description: "The agent command to run (e.g., 'claude \"fix the bug\"', 'aider --message \"refactor auth\"').",
+                        },
+                        maxRetries: {
+                            type: "number",
+                            description: "Maximum retry iterations (default: 3).",
+                        },
+                        dryRun: {
+                            type: "boolean",
+                            description: "If true, simulates the loop without executing the command. Useful for testing gate checks.",
+                        },
+                    },
+                    required: ["cwd", "command"],
+                },
             }
         ],
     };
@@ -713,6 +739,104 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         };
                     }
                 }
+                break;
+            }
+
+            case "rigour_run_supervised": {
+                const { command, maxRetries = 3, dryRun = false } = args as any;
+                const { execa } = await import("execa");
+
+                let iteration = 0;
+                let lastReport: Report | null = null;
+                const iterations: { iteration: number; status: string; failures: number }[] = [];
+
+                await logStudioEvent(cwd, {
+                    type: "supervisor_started",
+                    requestId,
+                    command,
+                    maxRetries,
+                    dryRun
+                });
+
+                while (iteration < maxRetries) {
+                    iteration++;
+
+                    // 1. Execute the agent command (skip in dryRun mode)
+                    if (!dryRun) {
+                        try {
+                            await execa(command, { shell: true, cwd });
+                        } catch (e: any) {
+                            // Command failure is OK - agent might have partial progress
+                            console.error(`[RIGOUR] Iteration ${iteration} command error: ${e.message}`);
+                        }
+                    } else {
+                        console.error(`[RIGOUR] Iteration ${iteration} (DRY RUN - skipping command execution)`);
+                    }
+
+
+                    // 2. Check quality gates
+                    lastReport = await runner.run(cwd);
+                    iterations.push({
+                        iteration,
+                        status: lastReport.status,
+                        failures: lastReport.failures.length
+                    });
+
+                    await logStudioEvent(cwd, {
+                        type: "supervisor_iteration",
+                        requestId,
+                        iteration,
+                        status: lastReport.status,
+                        failures: lastReport.failures.length
+                    });
+
+                    // 3. If PASS, we're done
+                    if (lastReport.status === "PASS") {
+                        result = {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `✅ SUPERVISOR MODE: PASSED on iteration ${iteration}/${maxRetries}\n\nIterations:\n${iterations.map(i => `  ${i.iteration}. ${i.status} (${i.failures} failures)`).join("\n")}\n\nAll quality gates have been satisfied.`,
+                                },
+                            ],
+                        };
+                        break;
+                    }
+
+                    // 4. If not at max retries, continue the loop (agent will use fix packet next iteration)
+                    if (iteration >= maxRetries) {
+                        // Final failure - return fix packet
+                        const fixPacket = lastReport.failures.map((f, i) => {
+                            let text = `FIX TASK ${i + 1}: [${f.id.toUpperCase()}] ${f.title}\n`;
+                            text += `   - CONTEXT: ${f.details}\n`;
+                            if (f.files && f.files.length > 0) {
+                                text += `   - TARGET FILES: ${f.files.join(", ")}\n`;
+                            }
+                            if (f.hint) {
+                                text += `   - REFACTORING GUIDANCE: ${f.hint}\n`;
+                            }
+                            return text;
+                        }).join("\n---\n");
+
+                        result = {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `❌ SUPERVISOR MODE: FAILED after ${iteration} iterations\n\nIterations:\n${iterations.map(i => `  ${i.iteration}. ${i.status} (${i.failures} failures)`).join("\n")}\n\nFINAL FIX PACKET:\n${fixPacket}`,
+                                },
+                            ],
+                            isError: true
+                        };
+                    }
+                }
+
+                await logStudioEvent(cwd, {
+                    type: "supervisor_completed",
+                    requestId,
+                    finalStatus: lastReport?.status || "UNKNOWN",
+                    totalIterations: iteration
+                });
+
                 break;
             }
 

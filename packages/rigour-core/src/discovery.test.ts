@@ -58,4 +58,31 @@ describe('DiscoveryService', () => {
         const result = await service.discover('/test');
         expect(result.matches.paradigm?.name).toBe('oop');
     });
+
+    it('should include project-type-aware ignore patterns for API preset', async () => {
+        const service = new DiscoveryService();
+        // Mock finding requirements.txt (Python API marker)
+        vi.mocked(fs.pathExists).mockImplementation(async (p: string) => p.includes('requirements.txt'));
+        vi.mocked(fs.readdir).mockResolvedValue(['requirements.txt'] as any);
+        vi.mocked(fs.readFile).mockResolvedValue('flask==2.0.0' as any);
+
+        const result = await service.discover('/test');
+        expect(result.matches.preset?.name).toBe('api');
+        expect(result.config.ignore).toContain('venv/**');
+        expect(result.config.ignore).toContain('__pycache__/**');
+        expect(result.config.ignore).toContain('*.pyc');
+    });
+
+    it('should include project-type-aware ignore patterns for UI preset', async () => {
+        const service = new DiscoveryService();
+        // Mock finding next.config.js (UI marker)
+        vi.mocked(fs.pathExists).mockImplementation(async (p: string) => p.includes('next.config.js'));
+        vi.mocked(fs.readdir).mockResolvedValue(['next.config.js'] as any);
+        vi.mocked(fs.readFile).mockResolvedValue('module.exports = {}' as any);
+
+        const result = await service.discover('/test');
+        expect(result.matches.preset?.name).toBe('ui');
+        expect(result.config.ignore).toContain('node_modules/**');
+        expect(result.config.ignore).toContain('.next/**');
+    });
 });

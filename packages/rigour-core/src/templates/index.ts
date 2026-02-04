@@ -9,6 +9,7 @@ export interface Template {
         commands?: Partial<Commands>;
         gates?: Partial<Gates>;
         planned?: string[];
+        ignore?: string[];
     };
 }
 
@@ -28,6 +29,17 @@ export const TEMPLATES: Template[] = [
         ],
         config: {
             preset: 'ui',
+            ignore: [
+                '.git/**',
+                'node_modules/**',
+                'dist/**',
+                'build/**',
+                '.next/**',
+                '.nuxt/**',
+                '.svelte-kit/**',
+                'coverage/**',
+                '.turbo/**',
+            ],
             gates: {
                 max_file_lines: 300,
                 required_files: ['docs/SPEC.md', 'docs/ARCH.md', 'README.md'],
@@ -53,6 +65,23 @@ export const TEMPLATES: Template[] = [
         ],
         config: {
             preset: 'api',
+            ignore: [
+                '.git/**',
+                // Node.js
+                'node_modules/**',
+                'dist/**',
+                // Python
+                'venv/**',
+                '.venv/**',
+                '__pycache__/**',
+                '*.pyc',
+                '.tox/**',
+                '.pytest_cache/**',
+                '.mypy_cache/**',
+                '*.egg-info/**',
+                // Go
+                'vendor/**',
+            ],
             gates: {
                 max_file_lines: 400,
                 required_files: ['docs/SPEC.md', 'docs/ARCH.md', 'README.md'],
@@ -75,6 +104,14 @@ export const TEMPLATES: Template[] = [
         ],
         config: {
             preset: 'infra',
+            ignore: [
+                '.git/**',
+                '.terraform/**',
+                '*.tfstate',
+                '*.tfstate.backup',
+                '.terragrunt-cache/**',
+                'charts/**/*.tgz',
+            ],
             gates: {
                 max_file_lines: 300,
                 required_files: ['docs/RUNBOOK.md', 'docs/ARCH.md', 'README.md'],
@@ -92,6 +129,17 @@ export const TEMPLATES: Template[] = [
         ],
         config: {
             preset: 'data',
+            ignore: [
+                '.git/**',
+                '.ipynb_checkpoints/**',
+                '__pycache__/**',
+                '*.pyc',
+                'dbt_packages/**',
+                'target/**',
+                'logs/**',
+                '*.parquet',
+                '*.csv',
+            ],
             gates: {
                 max_file_lines: 500,
                 required_files: ['docs/DATA_DICTIONARY.md', 'docs/PIPELINE.md', 'README.md'],
