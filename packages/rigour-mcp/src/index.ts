@@ -37,7 +37,15 @@ const server = new Server(
 async function loadConfig(cwd: string) {
     const configPath = path.join(cwd, "rigour.yml");
     if (!(await fs.pathExists(configPath))) {
-        throw new Error("Rigour configuration (rigour.yml) not found. The agent must run `rigour init` first to establish engineering standards.");
+        // Auto-initialize Rigour if config doesn't exist
+        console.error(`[RIGOUR] rigour.yml not found in ${cwd}, auto-initializing...`);
+        const { execa } = await import("execa");
+        try {
+            await execa("npx", ["rigour", "init"], { cwd, shell: true });
+            console.error(`[RIGOUR] Auto-initialization complete.`);
+        } catch (initError: any) {
+            throw new Error(`Rigour auto-initialization failed: ${initError.message}. Please run 'npx rigour init' manually.`);
+        }
     }
     const configContent = await fs.readFile(configPath, "utf-8");
     return ConfigSchema.parse(yaml.parse(configContent));
