@@ -21,7 +21,7 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.25.2",
+        "@modelcontextprotocol/sdk": "^1.26.0",
         "@rigour-labs/core": "workspace:*",
         "execa": "^8.0.1",
         "fs-extra": "^11.2.0",
