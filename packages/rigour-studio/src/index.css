@@ -2304,3 +2304,135 @@ header {
     color: #ef4444;
     border: 1px solid rgba(239, 68, 68, 0.3);
 }
+
+/* Frontier Model Visualizations */
+.verification-view {
+    padding: 20px;
+    background: var(--bg-surface);
+    border-radius: 12px;
+    border: 1px solid var(--border-dim);
+}
+
+.checkpoint-viz,
+.agent-viz {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.viz-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.viz-stat {
+    background: var(--bg-card);
+    padding: 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border-med);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.viz-stat .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+}
+
+.viz-stat .value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-vibrant);
+}
+
+.viz-summary h4,
+.viz-files h4,
+.scope-box h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.viz-summary p {
+    font-size: 14px;
+    color: var(--text-dim);
+    line-height: 1.6;
+}
+
+.file-badges,
+.scope-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.file-badge {
+    background: var(--bg-accent);
+    color: var(--accent-secondary);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    border: 1px solid var(--border-med);
+}
+
+.agent-viz {
+    align-items: center;
+    text-align: center;
+}
+
+.viz-icon {
+    color: var(--accent-primary);
+    margin-bottom: 8px;
+}
+
+.scope-box {
+    width: 100%;
+    text-align: left;
+}
+
+.scope-list code {
+    background: #000;
+    color: var(--accent-primary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+.has-report {
+    border-left: 3px solid var(--accent-primary) !important;
+}
+
+.has-warnings {
+    border-left: 3px solid var(--status-warning) !important;
+}
+
+.drift-visualization {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 4px 12px;
+    border-radius: 100px;
+    border: 1px solid var(--border-dim);
+}
+
+.drift-sparkline {
+    overflow: visible;
+}
+
+.drift-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+}

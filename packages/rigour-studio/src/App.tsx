@@ -16,7 +16,9 @@ import {
     Moon,
     CheckCircle,
     XCircle,
-    AlertTriangle
+    AlertTriangle,
+    Users,
+    Flag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DiffEditor } from '@monaco-editor/react';
@@ -26,6 +28,8 @@ import { MemoryBank } from './components/MemoryBank';
 import { PatternIndex } from './components/PatternIndex';
 import { QualityGates } from './components/QualityGates';
 import { AuditLog, LogEntry } from './components/AuditLog';
+import { AgentTeams } from './components/AgentTeams';
+import { CheckpointTimeline } from './components/CheckpointTimeline';
 
 function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
@@ -77,18 +81,24 @@ function App() {
     const [rigourConfig, setRigourConfig] = useState<string>('');
     const [memoryData, setMemoryData] = useState<any>({});
     const [indexStats, setIndexStats] = useState<any>({});
+    const [agentSession, setAgentSession] = useState<any>(null);
+    const [checkpointSession, setCheckpointSession] = useState<any>(null);
 
     useEffect(() => {
         const fetchMeta = async () => {
             try {
-                const [cfg, mem, idx] = await Promise.all([
+                const [cfg, mem, idx, agents, checkpoints] = await Promise.all([
                     fetch('/api/config').then(r => r.ok ? r.text() : ''),
                     fetch('/api/memory').then(r => r.json()),
-                    fetch('/api/index-stats').then(r => r.json())
+                    fetch('/api/index-stats').then(r => r.json()),
+                    fetch('/api/agents').then(r => r.json()),
+                    fetch('/api/checkpoints').then(r => r.json())
                 ]);
                 setRigourConfig(cfg);
                 setMemoryData(mem);
                 setIndexStats(idx);
+                setAgentSession(agents);
+                setCheckpointSession(checkpoints);
             } catch (err) {
                 console.error('Failed to fetch meta data', err);
             }
@@ -146,6 +156,8 @@ function App() {
         { id: 'gates', label: 'Quality Gates', icon: ShieldCheck },
         { id: 'patterns', label: 'Pattern Index', icon: Database },
         { id: 'memory', label: 'Memory Bank', icon: Cpu },
+        { id: 'agents', label: 'Agent Teams', icon: Users },
+        { id: 'checkpoints', label: 'Checkpoints', icon: Flag },
     ];
 
     return (
@@ -276,6 +288,30 @@ function App() {
                                 className="full-view"
                             >
                                 <MemoryBank />
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'agents' && (
+                            <motion.div
+                                key="agents"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="full-view"
+                            >
+                                <AgentTeams session={agentSession} />
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'checkpoints' && (
+                            <motion.div
+                                key="checkpoints"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="full-view"
+                            >
+                                <CheckpointTimeline checkpoints={checkpointSession?.checkpoints || []} />
                             </motion.div>
                         )}
                     </AnimatePresence>

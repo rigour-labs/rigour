@@ -11,6 +11,9 @@ import { ContextGate } from './context.js';
 import { ContextEngine } from '../services/context-engine.js';
 import { EnvironmentGate } from './environment.js';
 import { RetryLoopBreakerGate } from './retry-loop-breaker.js';
+import { AgentTeamGate } from './agent-team.js';
+import { CheckpointGate } from './checkpoint.js';
+import { SecurityPatternsGate } from './security-patterns.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 
@@ -46,6 +49,21 @@ export class GateRunner {
 
         if (this.config.gates.context?.enabled) {
             this.gates.push(new ContextGate(this.config.gates));
+        }
+
+        // Agent Team Governance Gate (for Opus 4.6 / GPT-5.3 multi-agent workflows)
+        if (this.config.gates.agent_team?.enabled) {
+            this.gates.push(new AgentTeamGate(this.config.gates.agent_team));
+        }
+
+        // Checkpoint Supervision Gate (for long-running GPT-5.3 coworking mode)
+        if (this.config.gates.checkpoint?.enabled) {
+            this.gates.push(new CheckpointGate(this.config.gates.checkpoint));
+        }
+
+        // Security Patterns Gate (code-level vulnerability detection)
+        if (this.config.gates.security?.enabled) {
+            this.gates.push(new SecurityPatternsGate(this.config.gates.security));
         }
 
         // Environment Alignment Gate (Should be prioritized)

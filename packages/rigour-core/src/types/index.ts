@@ -54,6 +54,11 @@ export const GatesSchema = z.object({
         sensitivity: z.number().min(0).max(1).optional().default(0.8), // 0.8 correlation threshold
         mining_depth: z.number().optional().default(100), // Number of files to sample
         ignored_patterns: z.array(z.string()).optional().default([]),
+        // v2.14+ Extended Context for frontier models
+        cross_file_patterns: z.boolean().optional().default(true),
+        naming_consistency: z.boolean().optional().default(true),
+        import_relationships: z.boolean().optional().default(true),
+        max_cross_file_depth: z.number().optional().default(50),
     }).optional().default({}),
     environment: z.object({
         enabled: z.boolean().optional().default(true),
@@ -66,6 +71,37 @@ export const GatesSchema = z.object({
         max_retries: z.number().optional().default(3), // Fail after 3 consecutive failures in same category
         auto_classify: z.boolean().optional().default(true), // Auto-detect failure category from error message
         doc_sources: z.record(z.string()).optional().default({}), // Custom doc URLs per category
+    }).optional().default({}),
+    agent_team: z.object({
+        enabled: z.boolean().optional().default(false),
+        max_concurrent_agents: z.number().optional().default(3),
+        cross_agent_pattern_check: z.boolean().optional().default(true),
+        handoff_verification: z.boolean().optional().default(true),
+        task_ownership: z.enum(['strict', 'collaborative']).optional().default('strict'),
+    }).optional().default({}),
+    checkpoint: z.object({
+        enabled: z.boolean().optional().default(false),
+        interval_minutes: z.number().optional().default(15),
+        quality_threshold: z.number().optional().default(80),
+        drift_detection: z.boolean().optional().default(true),
+        auto_save_on_failure: z.boolean().optional().default(true),
+    }).optional().default({}),
+    security: z.object({
+        enabled: z.boolean().optional().default(false),
+        sql_injection: z.boolean().optional().default(true),
+        xss: z.boolean().optional().default(true),
+        path_traversal: z.boolean().optional().default(true),
+        hardcoded_secrets: z.boolean().optional().default(true),
+        insecure_randomness: z.boolean().optional().default(true),
+        command_injection: z.boolean().optional().default(true),
+        block_on_severity: z.enum(['critical', 'high', 'medium', 'low']).optional().default('high'),
+    }).optional().default({}),
+    adaptive: z.object({
+        enabled: z.boolean().optional().default(false),
+        base_coverage_threshold: z.number().optional().default(80),
+        base_quality_threshold: z.number().optional().default(80),
+        auto_detect_tier: z.boolean().optional().default(true),
+        forced_tier: z.enum(['hobby', 'startup', 'enterprise']).optional(),
     }).optional().default({}),
 });
 

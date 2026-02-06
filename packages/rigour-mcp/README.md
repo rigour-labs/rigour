@@ -24,6 +24,8 @@ Rigour moves code quality enforcement from the "Post-Commit" phase to the "In-Pr
 
 ## 🛠️ Available Tools
 
+### Core Tools
+
 | Tool | Description |
 |:---|:---|
 | `rigour_check` | Runs all configured quality gates on the current workspace. |
@@ -31,6 +33,19 @@ Rigour moves code quality enforcement from the "Post-Commit" phase to the "In-Pr
 | `rigour_check_pattern` | Checks if a proposed code pattern already exists in the codebase. |
 | `rigour_remember` | Stores project-specific context or rules in Rigour's persistent memory. |
 | `rigour_recall` | Retrieves stored context to guide AI generation. |
+| `rigour_security_audit` | Runs a live CVE check on project dependencies. |
+
+### Frontier Model Tools (v2.14+)
+
+For next-gen multi-agent workflows (Opus 4.6, GPT-5.3-Codex):
+
+| Tool | Description |
+|:---|:---|
+| `rigour_agent_register` | Register agent in session with scope conflict detection. |
+| `rigour_agent_deregister` | Remove agent from session when work is complete. |
+| `rigour_checkpoint` | Record quality checkpoint with drift detection. |
+| `rigour_handoff` | Initiate task handoff to another agent. |
+| `rigour_handoff_accept` | Accept a pending handoff from another agent. |
 
 ---
 

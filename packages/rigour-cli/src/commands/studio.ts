@@ -246,6 +246,32 @@ async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath
             } catch (e: any) {
                 res.writeHead(500); res.end(e.message);
             }
+        } else if (url.pathname === '/api/agents') {
+            try {
+                const sessionPath = path.join(cwd, '.rigour/agent-session.json');
+                if (await fs.pathExists(sessionPath)) {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(await fs.readFile(sessionPath, 'utf-8'));
+                } else {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ agents: [], status: 'inactive' }));
+                }
+            } catch (e: any) {
+                res.writeHead(500); res.end(e.message);
+            }
+        } else if (url.pathname === '/api/checkpoints') {
+            try {
+                const checkpointPath = path.join(cwd, '.rigour/checkpoint-session.json');
+                if (await fs.pathExists(checkpointPath)) {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(await fs.readFile(checkpointPath, 'utf-8'));
+                } else {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ checkpoints: [], status: 'inactive' }));
+                }
+            } catch (e: any) {
+                res.writeHead(500); res.end(e.message);
+            }
         } else if (url.pathname === '/api/arbitrate' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => body += chunk);

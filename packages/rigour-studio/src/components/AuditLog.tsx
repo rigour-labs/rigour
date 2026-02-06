@@ -205,7 +205,8 @@ export const AuditLog: React.FC<AuditLogProps> = ({ logs, onClearLogs, onSelectL
 };
 
 const LogDetailView: React.FC<{ log: LogEntry; onClose: () => void }> = ({ log, onClose }) => {
-    const [activeTab, setActiveTab] = useState<'args' | 'report'>(log._rigour_report ? 'report' : 'args');
+    const hasReport = !!log._rigour_report || ['rigour_checkpoint', 'rigour_agent_register', 'rigour_handoff'].includes(log.tool);
+    const [activeTab, setActiveTab] = useState<'args' | 'report'>(hasReport ? 'report' : 'args');
 
     return (
         <div className="log-detail-view">
@@ -237,13 +238,13 @@ const LogDetailView: React.FC<{ log: LogEntry; onClose: () => void }> = ({ log, 
                 )}
             </div>
 
-            {log._rigour_report && (
+            {hasReport && (
                 <div className="detail-tabs">
                     <button
                         className={activeTab === 'report' ? 'active' : ''}
                         onClick={() => setActiveTab('report')}
                     >
-                        Verification Report
+                        {log._rigour_report ? 'Verification Report' : 'Visualized Content'}
                     </button>
                     <button
                         className={activeTab === 'args' ? 'active' : ''}
@@ -271,9 +272,55 @@ const LogDetailView: React.FC<{ log: LogEntry; onClose: () => void }> = ({ log, 
                         )}
                     </>
                 ) : (
-                    <div className="code-section">
-                        <h4>Rigour Report</h4>
-                        <pre>{JSON.stringify(log._rigour_report, null, 2)}</pre>
+                    <div className="verification-view">
+                        {log.tool === 'rigour_checkpoint' ? (
+                            <div className="checkpoint-viz">
+                                <div className="viz-stats">
+                                    <div className="viz-stat">
+                                        <span className="label">Progress</span>
+                                        <span className="value">{log.arguments?.progressPct ?? 0}%</span>
+                                    </div>
+                                    <div className="viz-stat">
+                                        <span className="label">Quality</span>
+                                        <span className="value" style={{ color: (log.arguments?.qualityScore ?? 0) >= 80 ? '#34d399' : '#f87171' }}>
+                                            {log.arguments?.qualityScore ?? 0}%
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="viz-summary">
+                                    <h4>Summary of Work</h4>
+                                    <p>{log.arguments?.summary || 'No summary provided.'}</p>
+                                </div>
+                                {log.arguments?.filesChanged && log.arguments.filesChanged.length > 0 && (
+                                    <div className="viz-files">
+                                        <h4>Files Changed</h4>
+                                        <div className="file-badges">
+                                            {log.arguments.filesChanged.map((f: string) => (
+                                                <span key={f} className="file-badge">{f}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : log.tool === 'rigour_agent_register' ? (
+                            <div className="agent-viz">
+                                <Activity size={32} className="viz-icon" />
+                                <h3>Agent Scope Claims</h3>
+                                <div className="scope-box">
+                                    <h4>Claimed Scope:</h4>
+                                    <div className="scope-list">
+                                        {log.arguments?.taskScope?.map((s: string) => (
+                                            <code key={s}>{s}</code>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="code-section">
+                                <h4>Rigour Report</h4>
+                                <pre>{JSON.stringify(log._rigour_report, null, 2)}</pre>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
