@@ -34,6 +34,11 @@ describe('Context Awareness Engine', () => {
                     enabled: true,
                     sensitivity: 0.8,
                     mining_depth: 10,
+                    ignored_patterns: [],
+                    cross_file_patterns: true,
+                    naming_consistency: true,
+                    import_relationships: true,
+                    max_cross_file_depth: 50,
                 },
             },
             output: { report_path: 'rigour-report.json' }
@@ -57,7 +62,16 @@ describe('Context Awareness Engine', () => {
             version: 1,
             commands: {},
             gates: {
-                context: { enabled: true },
+                context: {
+                    enabled: true,
+                    sensitivity: 0.8,
+                    mining_depth: 100,
+                    ignored_patterns: [],
+                    cross_file_patterns: true,
+                    naming_consistency: true,
+                    import_relationships: true,
+                    max_cross_file_depth: 50,
+                },
             },
             output: { report_path: 'rigour-report.json' }
         };

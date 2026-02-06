@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { Config } from './types/index.js';
+import { Config, Gates } from './types/index.js';
 import { TEMPLATES, PARADIGM_TEMPLATES, UNIVERSAL_CONFIG } from './templates/index.js';
 
 export interface DiscoveryResult {
@@ -40,12 +40,24 @@ export class DiscoveryService {
     }
 
     private mergeConfig(base: Config, extension: any): Config {
+        // Deep merge for gates to preserve defaults when overrides are partial
+        const mergedGates = { ...base.gates };
+        if (extension.gates) {
+            for (const [key, value] of Object.entries(extension.gates)) {
+                if (typeof value === 'object' && value !== null && !Array.isArray(value) && (mergedGates as any)[key]) {
+                    (mergedGates as any)[key] = { ...(mergedGates as any)[key], ...value };
+                } else {
+                    (mergedGates as any)[key] = value;
+                }
+            }
+        }
+
         return {
             ...base,
             preset: extension.preset || base.preset,
             paradigm: extension.paradigm || base.paradigm,
             commands: { ...base.commands, ...extension.commands },
-            gates: { ...base.gates, ...extension.gates },
+            gates: mergedGates as Gates,
             ignore: [...new Set([...(base.ignore || []), ...(extension.ignore || [])])],
         };
     }
