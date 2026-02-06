@@ -18,7 +18,15 @@ describe('CLI Smoke Test', () => {
     });
 
     afterEach(async () => {
-        await fs.remove(testDir);
+        try {
+            const restrictedDir = path.join(testDir, '.restricted');
+            if (await fs.pathExists(restrictedDir)) {
+                await fs.chmod(restrictedDir, 0o777);
+            }
+            await fs.remove(testDir);
+        } catch (e) {
+            // Best effort cleanup
+        }
         vi.restoreAllMocks();
     });
 
