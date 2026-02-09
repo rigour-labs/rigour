@@ -1,0 +1,17 @@
+{
+    "name": "Rigour Quality Governance",
+    "version": "2.14.0",
+    "description": "Meta-cognitive governance for AI agents. Monitor drift, manage agent teams, and enforce quality gates during long-running coworking tasks.",
+    "author": "Rigour Labs",
+    "capabilities": {
+        "mcp": {
+            "enabled": true
+        }
+    },
+    "entrypoint": "../dist/index.js",
+    "icon": "🛡️",
+    "categories": [
+        "Productivity",
+        "Developer Tools"
+    ]
+}
