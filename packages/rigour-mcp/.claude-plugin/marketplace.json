@@ -13,11 +13,8 @@
             "description": "Quality gate checks, checkpoint supervision, and multi-agent governance for Claude Cowork mode.",
             "version": "2.14.0",
             "source": {
-                "type": "mcp",
-                "command": "npx",
-                "args": [
-                    "@rigour-labs/mcp"
-                ]
+                "type": "npm",
+                "package": "@rigour-labs/mcp"
             }
         }
     ]
