@@ -1,0 +1,24 @@
+{
+    "$schema": "https://claude.com/schemas/marketplace.schema.json",
+    "name": "Rigour Governance",
+    "version": "2.14.0",
+    "description": "Meta-cognitive governance for AI agents. Monitor drift, manage agent teams, and enforce quality gates during long-running coworking tasks.",
+    "owner": {
+        "name": "Rigour Labs",
+        "email": "support@rigour.dev"
+    },
+    "plugins": [
+        {
+            "name": "rigour-governance",
+            "description": "Quality gate checks, checkpoint supervision, and multi-agent governance for Claude Cowork mode.",
+            "version": "2.14.0",
+            "source": {
+                "type": "mcp",
+                "command": "npx",
+                "args": [
+                    "@rigour-labs/mcp"
+                ]
+            }
+        }
+    ]
+}
