@@ -8,7 +8,10 @@ import { guideCommand } from './commands/guide.js';
 import { setupCommand } from './commands/setup.js';
 import { indexCommand } from './commands/index.js';
 import { studioCommand } from './commands/studio.js';
+import { checkForUpdates } from './utils/version.js';
 import chalk from 'chalk';
+
+const CLI_VERSION = '2.0.0';
 
 const program = new Command();
 
@@ -18,7 +21,7 @@ program.addCommand(studioCommand);
 program
     .name('rigour')
     .description('🛡️ Rigour: The Quality Gate Loop for AI-Assisted Engineering')
-    .version('2.0.0')
+    .version(CLI_VERSION)
     .addHelpText('before', chalk.bold.cyan(`
    ____  _                               
   / __ \\(_)____ ___  __  __ _____        
@@ -36,6 +39,7 @@ program
     .option('--ide <name>', 'Target IDE (cursor, vscode, all). Auto-detects if not specified.')
     .option('--dry-run', 'Show detected configuration without writing files')
     .option('--explain', 'Show detection markers for roles and paradigms')
+    .option('-f, --force', 'Force re-initialization, overwriting existing rigour.yml')
     .addHelpText('after', `
 Examples:
   $ rigour init                        # Auto-discover role & paradigm
@@ -110,4 +114,16 @@ program
         await setupCommand();
     });
 
-program.parse();
+// Check for updates before parsing (non-blocking)
+(async () => {
+    try {
+        const updateInfo = await checkForUpdates(CLI_VERSION);
+        if (updateInfo?.hasUpdate) {
+            console.log(chalk.yellow(`\n⚡ Update available: ${updateInfo.currentVersion} → ${updateInfo.latestVersion}`));
+            console.log(chalk.dim(`   Run: npx @rigour-labs/cli@latest init --force\n`));
+        }
+    } catch {
+        // Ignore version check errors
+    }
+    program.parse();
+})();

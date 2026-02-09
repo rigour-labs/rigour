@@ -29,6 +29,7 @@ export interface InitOptions {
     ide?: 'cursor' | 'vscode' | 'cline' | 'claude' | 'gemini' | 'codex' | 'windsurf' | 'all';
     dryRun?: boolean;
     explain?: boolean;
+    force?: boolean;
 }
 
 type DetectedIDE = 'cursor' | 'vscode' | 'cline' | 'claude' | 'gemini' | 'codex' | 'windsurf' | 'unknown';
@@ -153,8 +154,16 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
     const configPath = path.join(cwd, 'rigour.yml');
 
     if (await fs.pathExists(configPath)) {
-        console.log(chalk.yellow('rigour.yml already exists. Skipping initialization.'));
-        return;
+        if (!options.force) {
+            console.log(chalk.yellow('rigour.yml already exists.'));
+            console.log(chalk.dim('  → Run with --force to regenerate with latest templates'));
+            console.log(chalk.dim('  → Your current config will be backed up to rigour.yml.bak'));
+            return;
+        }
+        // Backup existing config
+        const backupPath = path.join(cwd, 'rigour.yml.bak');
+        await fs.copy(configPath, backupPath);
+        console.log(chalk.dim(`  Backed up existing config to rigour.yml.bak`));
     }
 
     console.log(chalk.bold.blue('\n🔍 Rigour Auto-Discovery:'));
