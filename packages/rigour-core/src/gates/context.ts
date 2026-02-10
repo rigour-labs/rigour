@@ -107,11 +107,24 @@ export class ContextGate extends Gate {
         file: string,
         patterns: Map<string, { casing: string; file: string; count: number }[]>
     ) {
-        // Function declarations
-        const funcMatches = content.matchAll(/(?:function|const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*[=(]/g);
-        for (const match of funcMatches) {
-            const name = match[1];
-            const casing = this.detectCasing(name);
+        // Named function declarations: function fetchData() { ... }
+        const namedFuncMatches = content.matchAll(/function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g);
+        for (const match of namedFuncMatches) {
+            const casing = this.detectCasing(match[1]);
+            this.addPattern(patterns, 'function', { casing, file, count: 1 });
+        }
+
+        // Arrow function expressions: (export) const fetchData = (async) (...) => { ... }
+        const arrowFuncMatches = content.matchAll(/(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>/g);
+        for (const match of arrowFuncMatches) {
+            const casing = this.detectCasing(match[1]);
+            this.addPattern(patterns, 'function', { casing, file, count: 1 });
+        }
+
+        // Function expressions: (export) const fetchData = (async) function(...) { ... }
+        const funcExprMatches = content.matchAll(/(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s+)?function\s*\(/g);
+        for (const match of funcExprMatches) {
+            const casing = this.detectCasing(match[1]);
             this.addPattern(patterns, 'function', { casing, file, count: 1 });
         }
 
@@ -234,6 +247,7 @@ export class ContextGate extends Gate {
     private detectCasing(name: string): string {
         if (/^[A-Z][a-z]/.test(name) && /[a-z][A-Z]/.test(name)) return 'PascalCase';
         if (/^[a-z]/.test(name) && /[a-z][A-Z]/.test(name)) return 'camelCase';
+        if (/^[a-z][a-zA-Z0-9]*$/.test(name)) return 'camelCase';  // single-word lowercase (e.g. fetch, use, get)
         if (/^[a-z]+(_[a-z]+)+$/.test(name)) return 'snake_case';
         if (/^[A-Z]+(_[A-Z]+)*$/.test(name)) return 'SCREAMING_SNAKE';
         if (/^[A-Z][a-zA-Z]*$/.test(name)) return 'PascalCase';
