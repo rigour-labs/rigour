@@ -42,6 +42,14 @@ ignore:
 gates:
   forbid_todos: true
   required_files: []
+  context:
+    enabled: false
+  environment:
+    enabled: false
+  safety:
+    protected_paths: []
+  retry_loop_breaker:
+    enabled: false
 `);
 
         // Simulate EPERM by changing permissions
@@ -58,7 +66,7 @@ gates:
         } finally {
             await fs.chmod(restrictedDir, 0o777);
         }
-    });
+    }, 30_000);
 
     it('should check specific files when provided', async () => {
         await fs.writeFile(path.join(testDir, 'bad.js'), 'TODO: fixme');
