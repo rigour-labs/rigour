@@ -93,6 +93,34 @@ async function logStudioEvent(cwd: string, event: any) {
     }
 }
 
+// Helper to parse diff and get modified lines per file
+function parseDiff(diff: string): Record<string, Set<number>> {
+    const lines = diff.split('\n');
+    const mapping: Record<string, Set<number>> = {};
+    let currentFile = "";
+    let currentLine = 0;
+
+    for (const line of lines) {
+        if (line.startsWith('+++ b/')) {
+            currentFile = line.slice(6);
+            mapping[currentFile] = new Set();
+        } else if (line.startsWith('@@')) {
+            const match = line.match(/\+(\d+)/);
+            if (match) {
+                currentLine = parseInt(match[1], 10);
+            }
+        } else if (line.startsWith('+') && !line.startsWith('+++')) {
+            if (currentFile) {
+                mapping[currentFile].add(currentLine);
+            }
+            currentLine++;
+        } else if (!line.startsWith('-')) {
+            currentLine++;
+        }
+    }
+    return mapping;
+}
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
         tools: [
@@ -455,6 +483,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                         },
                     },
                     required: ["cwd", "handoffId", "agentId"],
+                },
+            },
+            {
+                name: "rigour_review",
+                description: "Perform a high-fidelity code review on a pull request diff. Analyzes changed files using all active quality gates.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        cwd: {
+                            type: "string",
+                            description: "Absolute path to the project root.",
+                        },
+                        repository: {
+                            type: "string",
+                            description: "Full repository name (e.g., 'owner/repo').",
+                        },
+                        branch: {
+                            type: "string",
+                            description: "The branch containing the changes.",
+                        },
+                        diff: {
+                            type: "string",
+                            description: "The git diff content to analyze.",
+                        },
+                        files: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: "List of filenames that were changed.",
+                        },
+                    },
+                    required: ["cwd", "diff"],
                 },
             }
         ],
@@ -1266,6 +1325,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 result = {
                     content: [{ type: "text", text: responseText }],
+                };
+                break;
+            }
+
+            case "rigour_review": {
+                const { diff, files: changedFiles } = args as any;
+
+                // 1. Map diff to line numbers for filtering
+                const diffMapping = parseDiff(diff);
+                const targetFiles = changedFiles || Object.keys(diffMapping);
+
+                // 2. Run high-fidelity analysis on changed files
+                const report = await runner.run(cwd, targetFiles);
+
+                // 3. Filter failures to only those on changed lines (or global gate failures)
+                const filteredFailures = report.failures.filter(failure => {
+                    // Global failures (no file associated) are always reported
+                    if (!failure.files || failure.files.length === 0) return true;
+
+                    return failure.files.some(file => {
+                        const fileModifiedLines = diffMapping[file];
+                        // If we can't find the file in the diff, assume it's a side-effect or skip
+                        if (!fileModifiedLines) return false;
+
+                        // If failure has line info, check if it's in modifiedLines
+                        if (failure.line !== undefined) {
+                            return fileModifiedLines.has(failure.line);
+                        }
+
+                        // Fallback: if file is changed and no specific line is given, report it
+                        return true;
+                    });
+                });
+
+                result = {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                status: filteredFailures.length > 0 ? "FAIL" : "PASS",
+                                failures: filteredFailures.map(f => ({
+                                    id: f.id,
+                                    gate: f.title,
+                                    severity: "FAIL", // Rigour failures are FAIL by default
+                                    message: f.details,
+                                    file: f.files?.[0] || "",
+                                    line: f.line || 1,
+                                    suggestion: f.hint
+                                }))
+                            }),
+                        },
+                    ],
                 };
                 break;
             }

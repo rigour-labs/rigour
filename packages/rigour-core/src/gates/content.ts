@@ -13,7 +13,7 @@ export class ContentGate extends Gate {
     }
 
     async run(context: GateContext): Promise<Failure[]> {
-        const patterns = [];
+        const patterns: RegExp[] = [];
         if (this.config.forbidTodos) patterns.push(/TODO/i);
         if (this.config.forbidFixme) patterns.push(/FIXME/i);
 
@@ -26,26 +26,25 @@ export class ContentGate extends Gate {
         });
         const contents = await FileScanner.readFiles(context.cwd, files);
 
-        const violations: string[] = [];
+        const failures: Failure[] = [];
         for (const [file, content] of contents) {
-            for (const pattern of patterns) {
-                if (pattern.test(content)) {
-                    violations.push(file);
-                    break;
+            const lines = content.split('\n');
+            lines.forEach((line, index) => {
+                for (const pattern of patterns) {
+                    if (pattern.test(line)) {
+                        failures.push(this.createFailure(
+                            `Forbidden placeholder '${pattern.source}' found`,
+                            [file],
+                            'Remove forbidden comments. address the root cause or create a tracked issue.',
+                            undefined,
+                            index + 1,
+                            index + 1
+                        ));
+                    }
                 }
-            }
+            });
         }
 
-        if (violations.length > 0) {
-            return [
-                this.createFailure(
-                    'Forbidden placeholders found in the following files:',
-                    violations,
-                    'Remove all TODO and FIXME comments. Use the "Done is Done" mentality—address the root cause or create a tracked issue.'
-                ),
-            ];
-        }
-
-        return [];
+        return failures;
     }
 }

@@ -231,10 +231,12 @@ export class SecurityPatternsGate extends Gate {
         for (const vuln of filteredVulns) {
             if (this.severityOrder[vuln.severity] <= blockThreshold) {
                 failures.push(this.createFailure(
-                    `[${vuln.cwe}] ${vuln.description} at line ${vuln.line}`,
+                    `[${vuln.cwe}] ${vuln.description}`,
                     [vuln.file],
                     `Found: "${vuln.match.slice(0, 60)}..." - Use parameterized queries/sanitization.`,
-                    `Security: ${vuln.type.replace('_', ' ').toUpperCase()}`
+                    `Security: ${vuln.type.replace('_', ' ').toUpperCase()}`,
+                    vuln.line,
+                    vuln.line
                 ));
             }
         }

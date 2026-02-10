@@ -65,9 +65,10 @@ export class TypeScriptHandler extends ASTHandler {
                     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                     addFailure({
                         id: 'STALENESS_NO_VAR',
-                        title: `Stale 'var' keyword at line ${line}`,
+                        title: `Stale 'var' keyword`,
                         details: `Use 'const' or 'let' instead of 'var' in ${relativePath}:${line}`,
                         files: [relativePath],
+                        line,
                         hint: `Replace 'var' with 'const' (preferred) or 'let' for modern JavaScript.`
                     });
                 }
@@ -79,9 +80,10 @@ export class TypeScriptHandler extends ASTHandler {
                     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                     addFailure({
                         id: 'STALENESS_NO_COMMONJS',
-                        title: `CommonJS require() at line ${line}`,
+                        title: `CommonJS require()`,
                         details: `Use ES6 'import' instead of 'require()' in ${relativePath}:${line}`,
                         files: [relativePath],
+                        line,
                         hint: `Replace require('module') with import module from 'module'.`
                     });
                 }
@@ -95,9 +97,10 @@ export class TypeScriptHandler extends ASTHandler {
                     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                     addFailure({
                         id: 'STALENESS_NO_ARGUMENTS',
-                        title: `Legacy 'arguments' object at line ${line}`,
+                        title: `Legacy 'arguments' object`,
                         details: `Use rest parameters (...args) instead of 'arguments' in ${relativePath}:${line}`,
                         files: [relativePath],
+                        line,
                         hint: `Replace 'arguments' with rest parameters: function(...args) { }`
                     });
                 }
@@ -110,9 +113,10 @@ export class TypeScriptHandler extends ASTHandler {
                 const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                 addFailure({
                     id: 'SECURITY_PROTOTYPE_POLLUTION',
-                    title: `Direct __proto__ access at line ${line}`,
+                    title: `Direct __proto__ access`,
                     details: `Prototype pollution vulnerability in ${relativePath}:${line}`,
                     files: [relativePath],
+                    line,
                     hint: `Use Object.getPrototypeOf() or Object.setPrototypeOf() instead of __proto__.`
                 });
             }
@@ -124,9 +128,10 @@ export class TypeScriptHandler extends ASTHandler {
                     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                     addFailure({
                         id: 'SECURITY_PROTOTYPE_POLLUTION',
-                        title: `Unsafe bracket notation access to '${accessKey}' at line ${line}`,
+                        title: `Unsafe bracket notation access to '${accessKey}'`,
                         details: `Potential prototype pollution via bracket notation in ${relativePath}:${line}`,
                         files: [relativePath],
+                        line,
                         hint: `Block access to '${accessKey}' property when handling user input. Use allowlist for object keys.`
                     });
                 }
@@ -144,9 +149,10 @@ export class TypeScriptHandler extends ASTHandler {
                             const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                             addFailure({
                                 id: 'SECURITY_PROTOTYPE_POLLUTION_MERGE',
-                                title: `Object.assign() merge pattern at line ${line}`,
+                                title: `Object.assign() merge pattern`,
                                 details: `Object.assign({}, ...) can propagate prototype pollution in ${relativePath}:${line}`,
                                 files: [relativePath],
+                                line,
                                 hint: `Validate and sanitize source objects before merging. Block __proto__ and constructor keys.`
                             });
                         }

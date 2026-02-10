@@ -141,6 +141,8 @@ export const FailureSchema = z.object({
     title: z.string(),
     details: z.string(),
     files: z.array(z.string()).optional(),
+    line: z.number().optional(),
+    endLine: z.number().optional(),
     hint: z.string().optional(),
 });
 export type Failure = z.infer<typeof FailureSchema>;
