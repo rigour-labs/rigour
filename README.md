@@ -1,122 +1,217 @@
-# 🛡️ Rigour
+# Rigour
 
 [![npm version](https://img.shields.io/npm/v/@rigour-labs/cli?color=cyan&label=cli)](https://www.npmjs.com/package/@rigour-labs/cli)
 [![npm downloads](https://img.shields.io/npm/dm/@rigour-labs/cli?color=blue)](https://www.npmjs.com/package/@rigour-labs/cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Local-first quality gates for AI-generated code.**  
-Rigour forces AI agents to meet strict engineering standards before marking tasks "Done".
+**Deterministic quality gates that force AI agents to write production-grade code.**
 
-> **Zero cloud. Zero telemetry. PASS/FAIL is always free.**
+AI coding agents (Claude, Cursor, Copilot) routinely claim "done" while leaving behind TODO comments, 1000-line God files, and cyclomatic complexity violations. Rigour sits between the agent and your codebase, enforcing structural standards **before** code ships — not after CI fails.
 
----
-
-## 🚀 Quick Start
+> Zero cloud. Zero telemetry. Fully local. MIT licensed.
 
 ```bash
-npx rigour init     # Initialize quality gates
-npx rigour check    # Verify code quality
-npx rigour run -- claude "Build feature X"  # Agent loop
+npx @rigour-labs/cli init        # Auto-detect project, generate config
+npx @rigour-labs/cli check       # Run all quality gates → PASS or FAIL
+npx @rigour-labs/cli run -- claude "Build feature X"   # Supervised agent loop
 ```
 
 ---
 
-### 🛑 The "Vibe Coding" Trap
+## The Problem
 
-AI agents often fall into a cycle of **"Guess and Hope"**:
-1. Agent makes a change.
-2. Agent **claims** "Task 100% complete" or "CI will pass now."
-3. Agent **pushes** to remote.
-4. **CI Fails** (Type error, lint failure, broken test).
+Every team using AI code generation hits the same wall:
 
-This is "Vibe Coding"—the agent is hallucinating success based on narrative, not execution.
+```
+Agent writes code → Claims "Done!" → Code has TODOs, complexity violations, God files
+→ CI fails → Human intervenes → Repeat
+```
 
-**Rigour breaks this cycle.** It forces the agent to face the same cold, hard verification tools (ruff, mypy, vitest) that CI runs, but **locally and immediately.** Rigour turns a "claim of victory" into a "proof of execution."
+This is **"Vibe Coding"** — the agent optimizes for appearing correct, not for being maintainable. Tests might pass, but the code violates every structural principle your team spent years establishing.
+
+## How Rigour Solves It
+
+Rigour introduces a **stateless feedback loop** between the agent and the filesystem:
+
+```
+Agent writes code → Rigour gates check → FAIL? → Fix Packet (JSON) → Agent retries → PASS ✓
+```
+
+The agent never talks to a server. Rigour reads the filesystem, runs deterministic checks, and produces structured **Fix Packets** — machine-readable diagnostics that tell the agent *exactly* what to fix (`"auth.ts line 45: complexity 15, max allowed 10"`).
+
+No opinions. No heuristics. Just PASS or FAIL.
 
 ---
 
-## 🔄 How It Works
+## What Gets Checked
 
-```
-Agent writes code → Rigour checks → FAIL? → Fix Packet → Agent retries → PASS ✓
-```
+Rigour ships with **19 quality gates** across four categories:
 
-The `rigour run` command loops until your agent achieves PASS or hits max iterations.
-
-### 🌗 Rigour Modes
-
-| Mode | Control | Use Case | Loop |
-| :--- | :--- | :--- | :--- |
-| **Advisor** | Suggestive | Code reviews & IDE suggestions | Single pass |
-| **Supervisor** | Enforcement | CI/CD gates & Autonomous agents | Iterative (Auto-fix) |
-
-> [!TIP]
-> This workflow uses **Supervisor mode** for CI/CD, ensuring that any AI-generated code meets all quality gates before merge.
-
-
----
-
-## ⚙️ What Gets Checked
-
-| Gate | Description |
+### Structural Gates
+| Gate | What It Enforces |
 |:---|:---|
-| **File Size** | Max lines per file (default: 300-500) |
-| **Hygiene** | No TODO/FIXME comments allowed |
-| **Complexity** | Cyclomatic complexity limits (AST-based) |
-| **Required Docs** | SPEC.md, ARCH.md, README must exist |
-| **Safety Rails** | Protected paths, max files changed |
-| **Context Alignment** | Prevents drift by anchoring on project patterns |
+| **File Size** | Max lines per file (default 300–500) |
+| **Content Hygiene** | Zero tolerance for TODO/FIXME comments |
+| **Required Docs** | SPEC.md, ARCH.md, DECISIONS.md must exist |
+| **Safety Rails** | Protected paths cannot be modified by agents |
 
----
-
-## 🤖 Works With
-
-- **Claude Code**: `rigour run -- claude "..."`
-- **Cursor / Cline / Gemini**: Via high-fidelity MCP server (`rigour_check`, `rigour_explain`)
-
----
-
-## 📖 Documentation
-
-**[📚 Full Documentation →](https://docs.rigour.run/)**
-
-| Quick Links | |
+### AST-Based Code Analysis
+| Gate | What It Enforces |
 |:---|:---|
-| [Getting Started](https://docs.rigour.run/getting-started/installation) | Install and run in 60 seconds |
-| [CLI Reference](https://docs.rigour.run/cli/commands) | All commands and options |
-| [Configuration](https://docs.rigour.run/getting-started/configuration) | Customize quality gates |
-| [MCP Integration](https://docs.rigour.run/mcp/mcp-server) | AI agent setup |
-| [Concepts](https://docs.rigour.run/concepts/philosophy) | How Rigour works |
+| **Cyclomatic Complexity** | Max 10 per function (configurable) |
+| **Method Count** | Max 12 methods per class |
+| **Parameter Count** | Max 5 parameters per function |
+| **Nesting Depth** | Max 4 levels of nesting |
+
+Supports **TypeScript, JavaScript, and Python** via `web-tree-sitter`, with a universal fallback for other languages.
+
+### Security Gates
+| Gate | What It Catches |
+|:---|:---|
+| **Hardcoded Secrets** | API keys, tokens, passwords in source |
+| **SQL Injection** | Unsanitized query construction |
+| **XSS Patterns** | Dangerous DOM manipulation |
+| **Prototype Pollution** | Unsafe object merging |
+| **CSRF Vulnerabilities** | Missing token validation |
+
+### Agent Governance (Frontier Model Support)
+| Gate | Purpose |
+|:---|:---|
+| **Agent Team** | Multi-agent scope isolation and conflict detection |
+| **Checkpoint** | Long-running execution supervision |
+| **Context Drift** | Prevents architectural divergence over time |
+| **Retry Loop Breaker** | Detects and stops infinite agent loops |
 
 ---
 
-## 🛠️ CLI Commands Reference
+## Integration
 
-For a complete reference, visit [docs.rigour.run/cli/commands](https://docs.rigour.run/cli/commands).
+### MCP Server (Claude Desktop, Cursor, Cline, VS Code)
 
-| Command | Purpose |
-| :--- | :--- |
-| `rigour check` | Validates staged changes against safety rules |
-| `rigour check --ci` | CI mode with appropriate output |
-| `rigour init` | Setup Rigour in project |
-| `rigour explain` | Detailed explanation of validation results |
-| `rigour run` | Supervisor loop for iterative refinement |
-| `rigour studio` | Dashboard for monitoring |
+```json
+{
+  "mcpServers": {
+    "rigour": {
+      "command": "npx",
+      "args": ["-y", "@rigour-labs/mcp"]
+    }
+  }
+}
+```
 
----
+The MCP server exposes `rigour_check`, `rigour_explain`, `rigour_get_fix_packet`, `rigour_review`, and more — giving any MCP-compatible agent direct access to quality gates.
 
-## 🧪 CI Integration
+### CI/CD (GitHub Actions)
 
 ```yaml
-- run: npx rigour check --ci
+- run: npx @rigour-labs/cli check --ci
 ```
 
-See [full example](./docs/ENTERPRISE.md) for GitHub Actions setup.
+### Supervisor Mode
+
+```bash
+npx @rigour-labs/cli run -- claude "Refactor auth module"
+```
+
+Runs the agent, checks gates, feeds back Fix Packets, and retries automatically — up to a configurable max iterations.
 
 ---
 
-## 📜 License
+## Configuration
+
+```yaml
+# rigour.yml — generated by `rigour init`
+version: 1
+preset: api          # auto-detected: ui | api | infra | data
+paradigm: functional # auto-detected: oop | functional | minimal
+
+gates:
+  max_file_lines: 500
+  forbid_todos: true
+  forbid_fixme: true
+  required_files: [docs/SPEC.md, docs/ARCH.md]
+  ast:
+    complexity: 10
+    max_methods: 12
+    max_params: 5
+    max_nesting: 4
+  security:
+    enabled: true
+
+commands:
+  lint: "npm run lint"
+  test: "npm test"
+
+ignore: ["**/node_modules/**", "**/dist/**"]
+```
+
+---
+
+## Architecture
+
+Rigour is a **pnpm monorepo** with four packages:
+
+| Package | Purpose | Size |
+|:---|:---|:---|
+| `@rigour-labs/core` | Gate engine, AST analysis, Fix Packet generation | ~2,400 SLOC |
+| `@rigour-labs/cli` | User-facing commands (`init`, `check`, `run`, `studio`) | ~500 SLOC |
+| `@rigour-labs/mcp` | Model Context Protocol server for agent integration | ~400 SLOC |
+| `@rigour-labs/studio` | React-based monitoring dashboard | Private |
+
+**Tech stack:** TypeScript (strict mode, ESNext), web-tree-sitter, Zod, Vitest, GitHub Actions CI across Ubuntu/macOS/Windows.
+
+---
+
+## Fix Packet Schema (v2)
+
+The core innovation — structured, machine-readable diagnostics that agents can consume without human interpretation:
+
+```json
+{
+  "violations": [{
+    "id": "ast-complexity",
+    "severity": "high",
+    "file": "src/auth.ts",
+    "line": 45,
+    "metrics": { "current": 15, "max": 10 },
+    "instructions": [
+      "Extract nested conditional logic into a separate validateToken() function",
+      "Replace switch statement with strategy pattern"
+    ]
+  }],
+  "constraints": {
+    "no_new_deps": true,
+    "do_not_touch": [".github/**", "docs/**"]
+  }
+}
+```
+
+---
+
+## Documentation
+
+**[Full docs at docs.rigour.run →](https://docs.rigour.run/)**
+
+| | |
+|:---|:---|
+| [Getting Started](https://docs.rigour.run/getting-started/installation) | Install and run in 60 seconds |
+| [Configuration](https://docs.rigour.run/getting-started/configuration) | Customize quality gates |
+| [AST Gates](./docs/AST_GATES.md) | Deep dive on structural analysis |
+| [Fix Packet Schema](./docs/FIX_PACKET.md) | v2 diagnostic format |
+| [MCP Integration](https://docs.rigour.run/mcp/mcp-server) | Agent setup guides |
+| [Philosophy](./docs/PHILOSOPHY.md) | Why Rigour exists |
+| [Enterprise CI/CD](./docs/ENTERPRISE.md) | GitHub Actions patterns |
+
+---
+
+## Prior Art
+
+The [Technical Specification](./docs/SPEC.md) (published January 2026) establishes public disclosure of the "Agentic Quality Gate Feedback Loop" — the specific combination of automated local gates and agent-specific Fix Packets described in this system.
+
+---
+
+## License
 
 MIT © [Rigour Labs](https://github.com/rigour-labs)
 
-> *"Rigour adds the engineering."*
+Built by [Ashutosh](https://github.com/erashu212) — enforcing the engineering standards that AI agents skip.
