@@ -38,7 +38,8 @@ export class ContentGate extends Gate {
                             'Remove forbidden comments. address the root cause or create a tracked issue.',
                             undefined,
                             index + 1,
-                            index + 1
+                            index + 1,
+                            'info'
                         ));
                     }
                 }

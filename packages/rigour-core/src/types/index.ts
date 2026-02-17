@@ -103,6 +103,33 @@ export const GatesSchema = z.object({
         auto_detect_tier: z.boolean().optional().default(true),
         forced_tier: z.enum(['hobby', 'startup', 'enterprise']).optional(),
     }).optional().default({}),
+    // v2.16+ AI-Native Drift Detection Gates
+    duplication_drift: z.object({
+        enabled: z.boolean().optional().default(true),
+        similarity_threshold: z.number().min(0).max(1).optional().default(0.8),
+        min_body_lines: z.number().optional().default(5),
+    }).optional().default({}),
+    hallucinated_imports: z.object({
+        enabled: z.boolean().optional().default(true),
+        check_relative: z.boolean().optional().default(true),
+        check_packages: z.boolean().optional().default(true),
+        ignore_patterns: z.array(z.string()).optional().default([
+            '\\.css$', '\\.scss$', '\\.less$', '\\.svg$', '\\.png$', '\\.jpg$',
+            '\\.json$', '\\.wasm$', '\\.graphql$', '\\.gql$',
+        ]),
+    }).optional().default({}),
+    inconsistent_error_handling: z.object({
+        enabled: z.boolean().optional().default(true),
+        max_strategies_per_type: z.number().optional().default(2),
+        min_occurrences: z.number().optional().default(3),
+        ignore_empty_catches: z.boolean().optional().default(false),
+    }).optional().default({}),
+    context_window_artifacts: z.object({
+        enabled: z.boolean().optional().default(true),
+        min_file_lines: z.number().optional().default(100),
+        degradation_threshold: z.number().min(0).max(1).optional().default(0.4),
+        signals_required: z.number().optional().default(2),
+    }).optional().default({}),
 });
 
 export const CommandsSchema = z.object({
@@ -136,10 +163,23 @@ export type RawConfig = z.input<typeof ConfigSchema>;
 export const StatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR']);
 export type Status = z.infer<typeof StatusSchema>;
 
+export const SeveritySchema = z.enum(['critical', 'high', 'medium', 'low', 'info']);
+export type Severity = z.infer<typeof SeveritySchema>;
+
+/** Severity weights for score calculation */
+export const SEVERITY_WEIGHTS: Record<Severity, number> = {
+    critical: 20,
+    high: 10,
+    medium: 5,
+    low: 2,
+    info: 0,
+};
+
 export const FailureSchema = z.object({
     id: z.string(),
     title: z.string(),
     details: z.string(),
+    severity: SeveritySchema.optional(),
     files: z.array(z.string()).optional(),
     line: z.number().optional(),
     endLine: z.number().optional(),
@@ -154,6 +194,7 @@ export const ReportSchema = z.object({
     stats: z.object({
         duration_ms: z.number(),
         score: z.number().optional(),
+        severity_breakdown: z.record(z.number()).optional(),
     }),
 });
 export type Report = z.infer<typeof ReportSchema>;

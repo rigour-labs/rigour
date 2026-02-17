@@ -45,42 +45,64 @@ No opinions. No heuristics. Just PASS or FAIL.
 
 ## What Gets Checked
 
-Rigour ships with **19 quality gates** across four categories:
+Rigour ships with **23 quality gates** across five categories:
 
 ### Structural Gates
-| Gate | What It Enforces |
-|:---|:---|
-| **File Size** | Max lines per file (default 300–500) |
-| **Content Hygiene** | Zero tolerance for TODO/FIXME comments |
-| **Required Docs** | SPEC.md, ARCH.md, DECISIONS.md must exist |
-| **File Guard** | Protected paths cannot be modified by agents |
+| Gate | What It Enforces | Severity |
+|:---|:---|:---|
+| **File Size** | Max lines per file (default 300–500) | `low` |
+| **Content Hygiene** | Zero tolerance for TODO/FIXME comments | `info` |
+| **Required Docs** | SPEC.md, ARCH.md, DECISIONS.md must exist | `medium` |
+| **File Guard** | Protected paths cannot be modified by agents | `medium` |
 
 ### AST-Based Code Analysis
-| Gate | What It Enforces |
-|:---|:---|
-| **Cyclomatic Complexity** | Max 10 per function (configurable) |
-| **Method Count** | Max 12 methods per class |
-| **Parameter Count** | Max 5 parameters per function |
-| **Nesting Depth** | Max 4 levels of nesting |
+| Gate | What It Enforces | Severity |
+|:---|:---|:---|
+| **Cyclomatic Complexity** | Max 10 per function (configurable) | `medium` |
+| **Method Count** | Max 12 methods per class | `medium` |
+| **Parameter Count** | Max 5 parameters per function | `medium` |
+| **Nesting Depth** | Max 4 levels of nesting | `medium` |
 
 Supports **TypeScript, JavaScript, and Python** via `web-tree-sitter`, with a universal fallback for other languages.
 
 ### Security Gates
-| Gate | What It Catches |
-|:---|:---|
-| **Hardcoded Secrets** | API keys, tokens, passwords in source |
-| **SQL Injection** | Unsanitized query construction |
-| **XSS Patterns** | Dangerous DOM manipulation |
-| **Prototype Pollution** | Unsafe object merging |
-| **CSRF Vulnerabilities** | Missing token validation |
+| Gate | What It Catches | Severity |
+|:---|:---|:---|
+| **Hardcoded Secrets** | API keys, tokens, passwords in source | `critical` |
+| **SQL Injection** | Unsanitized query construction | `critical` |
+| **XSS Patterns** | Dangerous DOM manipulation | `high` |
+| **Command Injection** | Shell execution with user input | `critical` |
+| **Path Traversal** | File operations with unsanitized paths | `high` |
+
+### AI-Native Drift Detection (v2.16+)
+| Gate | What It Catches | Severity |
+|:---|:---|:---|
+| **Duplication Drift** | Near-identical functions across files — AI re-invents what it forgot it already wrote | `high` |
+| **Hallucinated Imports** | Imports referencing modules that don't exist in the project | `critical` |
+| **Inconsistent Error Handling** | Same error type handled 4 different ways across agent sessions | `high` |
+| **Context Window Artifacts** | Quality degradation within a file — clean top, messy bottom | `high` |
 
 ### Agent Governance (Frontier Model Support)
-| Gate | Purpose |
-|:---|:---|
-| **Agent Team** | Multi-agent scope isolation and conflict detection |
-| **Checkpoint** | Long-running execution supervision |
-| **Context Drift** | Prevents architectural divergence over time |
-| **Retry Loop Breaker** | Detects and stops infinite agent loops |
+| Gate | Purpose | Severity |
+|:---|:---|:---|
+| **Agent Team** | Multi-agent scope isolation and conflict detection | `high` |
+| **Checkpoint** | Long-running execution supervision | `medium` |
+| **Context Drift** | Prevents architectural divergence over time | `high` |
+| **Retry Loop Breaker** | Detects and stops infinite agent loops | `high` |
+
+### Severity-Weighted Scoring
+
+Rigour scores your codebase on a 0–100 scale, with deductions weighted by severity:
+
+| Severity | Point Deduction | Meaning |
+|:---|:---|:---|
+| `critical` | 20 pts | Security vulnerabilities, hallucinated code |
+| `high` | 10 pts | AI drift patterns, architectural violations |
+| `medium` | 5 pts | Complexity violations, structural issues |
+| `low` | 2 pts | File size limits |
+| `info` | 0 pts | TODOs, minor hygiene — tracked but free |
+
+This means 5 TODO comments cost 0 points, while a single hardcoded API key costs 20. The score reflects what actually matters.
 
 ---
 
@@ -137,6 +159,20 @@ gates:
     max_nesting: 4
   security:
     enabled: true
+  # AI-Native Drift Detection (all enabled by default)
+  duplication_drift:
+    enabled: true
+    similarity_threshold: 0.8
+    min_body_lines: 5
+  hallucinated_imports:
+    enabled: true
+  inconsistent_error_handling:
+    enabled: true
+    max_strategies_per_type: 2
+  context_window_artifacts:
+    enabled: true
+    min_file_lines: 100
+    degradation_threshold: 0.4
 
 commands:
   lint: "npm run lint"

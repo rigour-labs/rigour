@@ -1,5 +1,5 @@
 import { GoldenRecord } from '../services/context-engine.js';
-import { Failure } from '../types/index.js';
+import { Failure, Severity } from '../types/index.js';
 
 export interface GateContext {
     cwd: string;
@@ -13,11 +13,12 @@ export abstract class Gate {
 
     abstract run(context: GateContext): Promise<Failure[]>;
 
-    protected createFailure(details: string, files?: string[], hint?: string, title?: string, line?: number, endLine?: number): Failure {
+    protected createFailure(details: string, files?: string[], hint?: string, title?: string, line?: number, endLine?: number, severity?: Severity): Failure {
         return {
             id: this.id,
             title: title || this.title,
             details,
+            severity: severity || 'medium',
             files,
             line,
             endLine,

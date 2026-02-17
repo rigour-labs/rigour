@@ -236,7 +236,8 @@ export class SecurityPatternsGate extends Gate {
                     `Found: "${vuln.match.slice(0, 60)}..." - Use parameterized queries/sanitization.`,
                     `Security: ${vuln.type.replace('_', ' ').toUpperCase()}`,
                     vuln.line,
-                    vuln.line
+                    vuln.line,
+                    vuln.severity
                 ));
             }
         }

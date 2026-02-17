@@ -92,7 +92,8 @@ export class ContextGate extends Gate {
                     failures.push(this.createFailure(
                         `Context Drift: Redundant variation '${accessedVar}' detected in ${file}.`,
                         [file],
-                        `The project already uses '${anchor.id}' as a standard anchor. Avoid inventing variations like '${deviation}'. Reuse the existing anchor or align with established project patterns.`
+                        `The project already uses '${anchor.id}' as a standard anchor. Avoid inventing variations like '${deviation}'. Reuse the existing anchor or align with established project patterns.`,
+                        undefined, undefined, undefined, 'high'
                     ));
                 }
             }
@@ -194,7 +195,8 @@ export class ContextGate extends Gate {
                         `Cross-file naming inconsistency: ${type} names use ${casing} in ${count} places (dominant is ${dominant})`,
                         uniqueFiles,
                         `Standardize ${type} naming to ${dominant}. Found ${casing} in: ${uniqueFiles.join(', ')}`,
-                        'Naming Convention Drift'
+                        'Naming Convention Drift',
+                        undefined, undefined, 'high'
                     ));
                 }
             }
@@ -236,7 +238,8 @@ export class ContextGate extends Gate {
                 `Cross-file import inconsistency: ${mixedFiles.length} files mix relative and absolute imports`,
                 mixedFiles.slice(0, 5),
                 'Standardize import style across the codebase. Use either relative (./foo) or path aliases (@/foo) consistently.',
-                'Import Pattern Drift'
+                'Import Pattern Drift',
+                undefined, undefined, 'high'
             ));
         }
     }

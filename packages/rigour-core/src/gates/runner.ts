@@ -1,5 +1,5 @@
 import { Gate } from './base.js';
-import { Failure, Config, Report, Status } from '../types/index.js';
+import { Failure, Config, Report, Status, Severity, SEVERITY_WEIGHTS } from '../types/index.js';
 import { FileGate } from './file.js';
 import { ContentGate } from './content.js';
 import { StructureGate } from './structure.js';
@@ -14,6 +14,10 @@ import { RetryLoopBreakerGate } from './retry-loop-breaker.js';
 import { AgentTeamGate } from './agent-team.js';
 import { CheckpointGate } from './checkpoint.js';
 import { SecurityPatternsGate } from './security-patterns.js';
+import { DuplicationDriftGate } from './duplication-drift.js';
+import { HallucinatedImportsGate } from './hallucinated-imports.js';
+import { InconsistentErrorHandlingGate } from './inconsistent-error-handling.js';
+import { ContextWindowArtifactsGate } from './context-window-artifacts.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 
@@ -64,6 +68,23 @@ export class GateRunner {
         // Security Patterns Gate (code-level vulnerability detection) — enabled by default since v2.15
         if (this.config.gates.security?.enabled !== false) {
             this.gates.push(new SecurityPatternsGate(this.config.gates.security));
+        }
+
+        // v2.16+ AI-Native Drift Detection Gates (enabled by default)
+        if (this.config.gates.duplication_drift?.enabled !== false) {
+            this.gates.push(new DuplicationDriftGate(this.config.gates.duplication_drift));
+        }
+
+        if (this.config.gates.hallucinated_imports?.enabled !== false) {
+            this.gates.push(new HallucinatedImportsGate(this.config.gates.hallucinated_imports));
+        }
+
+        if (this.config.gates.inconsistent_error_handling?.enabled !== false) {
+            this.gates.push(new InconsistentErrorHandlingGate(this.config.gates.inconsistent_error_handling));
+        }
+
+        if (this.config.gates.context_window_artifacts?.enabled !== false) {
+            this.gates.push(new ContextWindowArtifactsGate(this.config.gates.context_window_artifacts));
         }
 
         // Environment Alignment Gate (Should be prioritized)
@@ -141,7 +162,17 @@ export class GateRunner {
         }
 
         const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
-        const score = Math.max(0, 100 - (failures.length * 5)); // Basic SME scoring logic
+
+        // Severity-weighted scoring: each failure deducts based on its severity
+        // critical=20, high=10, medium=5, low=2, info=0
+        const severityBreakdown: Record<string, number> = {};
+        let totalDeduction = 0;
+        for (const f of failures) {
+            const sev = (f.severity || 'medium') as Severity;
+            severityBreakdown[sev] = (severityBreakdown[sev] || 0) + 1;
+            totalDeduction += SEVERITY_WEIGHTS[sev] ?? 5;
+        }
+        const score = Math.max(0, 100 - totalDeduction);
 
         return {
             status,
@@ -150,6 +181,7 @@ export class GateRunner {
             stats: {
                 duration_ms: Date.now() - start,
                 score,
+                severity_breakdown: severityBreakdown,
             },
         };
     }

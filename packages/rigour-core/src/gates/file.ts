@@ -32,7 +32,11 @@ export class FileGate extends Gate {
                 this.createFailure(
                     `The following files exceed the maximum limit of ${this.config.maxLines} lines:`,
                     violations,
-                    'Break these files into smaller, more modular components to improve maintainability (SOLID - Single Responsibility Principle).'
+                    'Break these files into smaller, more modular components to improve maintainability (SOLID - Single Responsibility Principle).',
+                    undefined,
+                    undefined,
+                    undefined,
+                    'low'
                 ),
             ];
         }

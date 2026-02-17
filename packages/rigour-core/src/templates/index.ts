@@ -303,6 +303,32 @@ export const UNIVERSAL_CONFIG: Config = {
                 'prefer-const': false,
             },
         },
+        duplication_drift: {
+            enabled: true,
+            similarity_threshold: 0.8,
+            min_body_lines: 5,
+        },
+        hallucinated_imports: {
+            enabled: true,
+            check_relative: true,
+            check_packages: true,
+            ignore_patterns: [
+                '\\.css$', '\\.scss$', '\\.less$', '\\.svg$', '\\.png$', '\\.jpg$',
+                '\\.json$', '\\.wasm$', '\\.graphql$', '\\.gql$',
+            ],
+        },
+        inconsistent_error_handling: {
+            enabled: true,
+            max_strategies_per_type: 2,
+            min_occurrences: 3,
+            ignore_empty_catches: false,
+        },
+        context_window_artifacts: {
+            enabled: true,
+            min_file_lines: 100,
+            degradation_threshold: 0.4,
+            signals_required: 2,
+        },
     },
     output: {
         report_path: 'rigour-report.json',
