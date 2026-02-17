@@ -31,7 +31,9 @@ export function AgentTeams({ session }: Props) {
                     <span>Supported Models:</span>
                     <div className="model-badges">
                         <span className="badge opus">Opus 4.6</span>
+                        <span className="badge sonnet">Sonnet 4.5</span>
                         <span className="badge gpt">GPT-5.3</span>
+                        <span className="badge codex">Codex</span>
                     </div>
                 </div>
             </div>
