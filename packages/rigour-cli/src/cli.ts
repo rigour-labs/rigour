@@ -118,7 +118,9 @@ program
 (async () => {
     try {
         const updateInfo = await checkForUpdates(CLI_VERSION);
-        if (updateInfo?.hasUpdate) {
+        // Suppress update message in JSON/CI mode to keep stdout clean
+        const isSilent = process.argv.includes('--json') || process.argv.includes('--ci');
+        if (updateInfo?.hasUpdate && !isSilent) {
             console.log(chalk.yellow(`\n⚡ Update available: ${updateInfo.currentVersion} → ${updateInfo.latestVersion}`));
             console.log(chalk.dim(`   Run: npx @rigour-labs/cli@latest init --force\n`));
         }

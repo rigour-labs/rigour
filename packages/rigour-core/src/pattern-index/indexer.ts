@@ -109,7 +109,8 @@ export class PatternIndexer {
 
         // Generate embeddings in parallel batches if enabled
         if (this.config.useEmbeddings && patterns.length > 0) {
-            console.log(`Generating embeddings for ${patterns.length} patterns...`);
+            // Use stderr to avoid contaminating JSON output on stdout
+            process.stderr.write(`Generating embeddings for ${patterns.length} patterns...\n`);
             for (let i = 0; i < patterns.length; i += BATCH_SIZE) {
                 const batch = patterns.slice(i, i + BATCH_SIZE);
                 await Promise.all(batch.map(async (pattern) => {
