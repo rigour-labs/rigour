@@ -1,7 +1,27 @@
 {
     "name": "@rigour-labs/core",
     "version": "1.0.0",
+    "description": "Deterministic quality gate engine for AI-generated code. AST analysis, drift detection, and Fix Packet generation across TypeScript, JavaScript, Python, Go, Ruby, and C#.",
+    "license": "MIT",
+    "homepage": "https://rigour.run",
+    "keywords": [
+        "quality-gates",
+        "ai-code-quality",
+        "static-analysis",
+        "ast",
+        "drift-detection",
+        "code-review",
+        "linter",
+        "typescript",
+        "python",
+        "golang",
+        "csharp"
+    ],
     "type": "module",
+    "files": [
+        "dist",
+        "README.md"
+    ],
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "exports": {

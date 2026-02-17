@@ -10,7 +10,7 @@ export const FixPacketV2Schema = z.object({
     violations: z.array(z.object({
         id: z.string(),
         gate: z.string(),
-        severity: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
+        severity: z.enum(['info', 'low', 'medium', 'high', 'critical']).default('medium'),
         category: z.string().optional(),
         title: z.string(),
         details: z.string(),

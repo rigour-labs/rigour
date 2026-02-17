@@ -26,7 +26,11 @@ export class StructureGate extends Gate {
                 this.createFailure(
                     'The following required files are missing:',
                     missing,
-                    'Create these files to maintain project documentation and consistency.'
+                    'Create these files to maintain project documentation and consistency.',
+                    undefined,
+                    undefined,
+                    undefined,
+                    'low'
                 ),
             ];
         }

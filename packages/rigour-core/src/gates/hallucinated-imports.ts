@@ -11,12 +11,16 @@
  * 2. For relative imports: verify the target file exists
  * 3. For package imports: verify the package exists in node_modules or package.json
  * 4. For Python imports: verify the module exists in the project or site-packages
+ * 5. For Go imports: verify relative package paths exist in the project
+ * 6. For Ruby/C#: verify relative require/using paths exist
+ *
+ * Supported languages: JS/TS, Python, Go, Ruby, C#
  *
  * @since v2.16.0
  */
 
 import { Gate, GateContext } from './base.js';
-import { Failure } from '../types/index.js';
+import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import fs from 'fs-extra';
@@ -26,7 +30,7 @@ export interface HallucinatedImport {
     file: string;
     line: number;
     importPath: string;
-    type: 'relative' | 'package' | 'python';
+    type: 'relative' | 'package' | 'python' | 'go' | 'ruby' | 'csharp';
     reason: string;
 }
 
@@ -53,6 +57,8 @@ export class HallucinatedImportsGate extends Gate {
         };
     }
 
+    protected get provenance(): Provenance { return 'ai-drift'; }
+
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) return [];
 
@@ -61,8 +67,9 @@ export class HallucinatedImportsGate extends Gate {
 
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,js,tsx,jsx,py}'],
-            ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**', '**/.venv/**'],
+            patterns: ['**/*.{ts,js,tsx,jsx,py,go,rb,cs}'],
+            ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
+                     '**/.venv/**', '**/venv/**', '**/vendor/**', '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**'],
         });
 
         Logger.info(`Hallucinated Imports: Scanning ${files.length} files`);
@@ -89,6 +96,12 @@ export class HallucinatedImportsGate extends Gate {
                     await this.checkJSImports(content, file, context.cwd, projectFiles, allDeps, hasNodeModules, hallucinated);
                 } else if (ext === '.py') {
                     await this.checkPyImports(content, file, context.cwd, projectFiles, hallucinated);
+                } else if (ext === '.go') {
+                    this.checkGoImports(content, file, context.cwd, projectFiles, hallucinated);
+                } else if (ext === '.rb') {
+                    this.checkRubyImports(content, file, projectFiles, hallucinated);
+                } else if (ext === '.cs') {
+                    this.checkCSharpImports(content, file, projectFiles, hallucinated);
                 }
             } catch (e) { }
         }
@@ -347,6 +360,121 @@ export class HallucinatedImportsGate extends Gate {
             '_thread', '__future__', '__main__',
         ]);
         return stdlibs.has(topLevel);
+    }
+
+    /**
+     * Check Go imports — verify relative/project package paths exist
+     * Go stdlib packages are skipped; only project-relative imports are checked
+     */
+    private checkGoImports(
+        content: string, file: string, cwd: string,
+        projectFiles: Set<string>, hallucinated: HallucinatedImport[]
+    ): void {
+        const lines = content.split('\n');
+        let inImportBlock = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+
+            // Detect import block: import ( ... )
+            if (/^import\s*\(/.test(line)) { inImportBlock = true; continue; }
+            if (inImportBlock && line === ')') { inImportBlock = false; continue; }
+
+            // Single import: import "path"
+            const singleMatch = line.match(/^import\s+"([^"]+)"/);
+            const blockMatch = inImportBlock ? line.match(/^\s*"([^"]+)"/) : null;
+            const importPath = singleMatch?.[1] || blockMatch?.[1];
+            if (!importPath) continue;
+
+            // Skip Go stdlib (no dots in path = stdlib or well-known)
+            if (!importPath.includes('.') && !importPath.includes('/')) continue;
+
+            // Project-relative imports (contain module path from go.mod)
+            // We only flag imports that look like project paths but don't resolve
+            if (importPath.includes('/') && !importPath.startsWith('github.com') && !importPath.startsWith('golang.org')) {
+                // Check if the path maps to a directory in the project
+                const dirPath = importPath.split('/').slice(-2).join('/');
+                const hasMatchingFile = [...projectFiles].some(f => f.includes(dirPath));
+                if (!hasMatchingFile) {
+                    hallucinated.push({
+                        file, line: i + 1, importPath, type: 'go',
+                        reason: `Go import '${importPath}' — package path not found in project`,
+                    });
+                }
+            }
+        }
+    }
+
+    /**
+     * Check Ruby imports — verify require_relative paths exist
+     */
+    private checkRubyImports(
+        content: string, file: string,
+        projectFiles: Set<string>, hallucinated: HallucinatedImport[]
+    ): void {
+        const lines = content.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+
+            // require_relative 'path' — should resolve to a real file
+            const relMatch = line.match(/require_relative\s+['"]([^'"]+)['"]/);
+            if (relMatch) {
+                const reqPath = relMatch[1];
+                const dir = path.dirname(file);
+                const resolved = path.join(dir, reqPath).replace(/\\/g, '/');
+                const candidates = [resolved + '.rb', resolved];
+                if (!candidates.some(c => projectFiles.has(c))) {
+                    hallucinated.push({
+                        file, line: i + 1, importPath: reqPath, type: 'ruby',
+                        reason: `require_relative '${reqPath}' — file not found in project`,
+                    });
+                }
+            }
+        }
+    }
+
+    /**
+     * Check C# imports — verify relative using paths match project namespaces
+     * (C# uses namespaces, not file paths — we check for obviously wrong namespaces)
+     */
+    private checkCSharpImports(
+        content: string, file: string,
+        projectFiles: Set<string>, hallucinated: HallucinatedImport[]
+    ): void {
+        const lines = content.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+
+            // using ProjectName.Something — check if namespace maps to project files
+            const usingMatch = line.match(/^using\s+([\w.]+)\s*;/);
+            if (!usingMatch) continue;
+
+            const namespace = usingMatch[1];
+            // Skip System.* and Microsoft.* and common framework namespaces
+            if (/^(?:System|Microsoft|Newtonsoft|NUnit|Xunit|Moq|AutoMapper)\b/.test(namespace)) continue;
+
+            // Check if the namespace maps to any .cs file path in the project
+            const nsPath = namespace.replace(/\./g, '/');
+            const hasMatch = [...projectFiles].some(f =>
+                f.endsWith('.cs') && (f.includes(nsPath) || f.includes(namespace.split('.')[0]))
+            );
+
+            // Only flag if the project has NO files that could match this namespace
+            if (!hasMatch && namespace.includes('.')) {
+                // Could be a NuGet package — we can't verify without .csproj parsing
+                // Only flag obvious project-relative namespaces
+                const topLevel = namespace.split('.')[0];
+                const hasProjectFiles = [...projectFiles].some(f => f.endsWith('.cs') && f.includes(topLevel));
+                if (hasProjectFiles) {
+                    hallucinated.push({
+                        file, line: i + 1, importPath: namespace, type: 'csharp',
+                        reason: `Namespace '${namespace}' — no matching files found in project`,
+                    });
+                }
+            }
+        }
     }
 
     private async loadPackageJson(cwd: string): Promise<any> {

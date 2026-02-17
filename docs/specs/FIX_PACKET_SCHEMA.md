@@ -20,6 +20,8 @@
           "id": { "type": "string", "description": "Unique violation ID" },
           "gate": { "type": "string", "description": "Gate name (e.g., complexity, structure)" },
           "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "provenance": { "type": "string", "enum": ["ai-drift", "traditional", "security", "governance"], "description": "Origin category of the failure (v2.17+)" },
+          "category": { "type": "string", "description": "Grouping category for Fix Packet display (v2.17+)" },
           "title": { "type": "string" },
           "details": { "type": "string" },
           "files": { "type": "array", "items": { "type": "string" } },

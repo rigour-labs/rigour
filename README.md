@@ -63,7 +63,7 @@ Rigour ships with **23 quality gates** across five categories:
 | **Parameter Count** | Max 5 parameters per function | `medium` |
 | **Nesting Depth** | Max 4 levels of nesting | `medium` |
 
-Supports **TypeScript, JavaScript, and Python** via `web-tree-sitter`, with a universal fallback for other languages.
+Supports **TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET** via `web-tree-sitter`, with a universal fallback for other languages.
 
 ### Security Gates
 | Gate | What It Catches | Severity |
@@ -78,9 +78,10 @@ Supports **TypeScript, JavaScript, and Python** via `web-tree-sitter`, with a un
 | Gate | What It Catches | Severity |
 |:---|:---|:---|
 | **Duplication Drift** | Near-identical functions across files — AI re-invents what it forgot it already wrote | `high` |
-| **Hallucinated Imports** | Imports referencing modules that don't exist in the project | `critical` |
+| **Hallucinated Imports** | Imports referencing modules that don't exist in the project (JS/TS, Python, Go, Ruby, C#) | `critical` |
 | **Inconsistent Error Handling** | Same error type handled 4 different ways across agent sessions | `high` |
 | **Context Window Artifacts** | Quality degradation within a file — clean top, messy bottom | `high` |
+| **Async & Error Safety** | Unsafe async/promise patterns, unhandled errors across 6 languages (v2.17+) | `high` |
 
 ### Agent Governance (Frontier Model Support)
 | Gate | Purpose | Severity |
@@ -89,6 +90,10 @@ Supports **TypeScript, JavaScript, and Python** via `web-tree-sitter`, with a un
 | **Checkpoint** | Long-running execution supervision | `medium` |
 | **Context Drift** | Prevents architectural divergence over time | `high` |
 | **Retry Loop Breaker** | Detects and stops infinite agent loops | `high` |
+
+### Two-Score System & Provenance (v2.17+)
+
+Every failure carries a **provenance tag** (`ai-drift`, `traditional`, `security`, `governance`) and contributes to two sub-scores: **AI Health Score** (AI-specific failures) and **Structural Score** (traditional quality), alongside the overall 0–100 score.
 
 ### Severity-Weighted Scoring
 
@@ -173,6 +178,8 @@ gates:
     enabled: true
     min_file_lines: 100
     degradation_threshold: 0.4
+  promise_safety:
+    enabled: true
 
 commands:
   lint: "npm run lint"

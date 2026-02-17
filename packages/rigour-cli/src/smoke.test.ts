@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import fs from 'fs-extra';
 import path from 'path';
+import os from 'os';
 
 async function getCheckCommand() {
     const { checkCommand } = await import('./commands/check.js');
@@ -9,7 +10,7 @@ async function getCheckCommand() {
 }
 
 describe('CLI Smoke Test', () => {
-    const testDir = path.join(process.cwd(), 'temp-smoke-test');
+    const testDir = path.join(os.tmpdir(), 'rigour-temp-smoke-test-' + process.pid);
 
     beforeEach(async () => {
         await fs.ensureDir(testDir);

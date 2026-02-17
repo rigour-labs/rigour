@@ -1,5 +1,7 @@
 {
   "name": "rigour-labs-monorepo",
+  "license": "MIT",
+  "homepage": "https://rigour.run",
   "private": true,
   "repository": {
     "type": "git",

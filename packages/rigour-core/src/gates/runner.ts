@@ -1,5 +1,5 @@
 import { Gate } from './base.js';
-import { Failure, Config, Report, Status, Severity, SEVERITY_WEIGHTS } from '../types/index.js';
+import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS } from '../types/index.js';
 import { FileGate } from './file.js';
 import { ContentGate } from './content.js';
 import { StructureGate } from './structure.js';
@@ -18,6 +18,7 @@ import { DuplicationDriftGate } from './duplication-drift.js';
 import { HallucinatedImportsGate } from './hallucinated-imports.js';
 import { InconsistentErrorHandlingGate } from './inconsistent-error-handling.js';
 import { ContextWindowArtifactsGate } from './context-window-artifacts.js';
+import { PromiseSafetyGate } from './promise-safety.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 
@@ -87,6 +88,11 @@ export class GateRunner {
             this.gates.push(new ContextWindowArtifactsGate(this.config.gates.context_window_artifacts));
         }
 
+        // v2.17+ Promise Safety Gate (async/promise AI failure modes)
+        if (this.config.gates.promise_safety?.enabled !== false) {
+            this.gates.push(new PromiseSafetyGate(this.config.gates.promise_safety));
+        }
+
         // Environment Alignment Gate (Should be prioritized)
         if (this.config.gates.environment?.enabled) {
             this.gates.unshift(new EnvironmentGate(this.config.gates));
@@ -131,6 +137,8 @@ export class GateRunner {
                     id: gate.id,
                     title: `Gate Error: ${gate.title}`,
                     details: error.message,
+                    severity: 'medium',
+                    provenance: 'traditional',
                     hint: 'There was an internal error running this gate. Check the logs.',
                 });
             }
@@ -155,6 +163,8 @@ export class GateRunner {
                         id: key,
                         title: `${key.toUpperCase()} Check Failed`,
                         details: error.stderr || error.stdout || error.message,
+                        severity: 'medium',
+                        provenance: 'traditional',
                         hint: `Fix the issues reported by \`${cmd}\`. Use rigorous standards (SOLID, DRY) in your resolution.`,
                     });
                 }
@@ -164,7 +174,6 @@ export class GateRunner {
         const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
 
         // Severity-weighted scoring: each failure deducts based on its severity
-        // critical=20, high=10, medium=5, low=2, info=0
         const severityBreakdown: Record<string, number> = {};
         let totalDeduction = 0;
         for (const f of failures) {
@@ -174,6 +183,23 @@ export class GateRunner {
         }
         const score = Math.max(0, 100 - totalDeduction);
 
+        // Two-score system: separate AI health from structural quality
+        let aiDeduction = 0;
+        let aiCount = 0;
+        let structuralDeduction = 0;
+        let structuralCount = 0;
+        for (const f of failures) {
+            const sev = (f.severity || 'medium') as Severity;
+            const weight = SEVERITY_WEIGHTS[sev] ?? 5;
+            if (f.provenance === 'ai-drift') {
+                aiDeduction += weight;
+                aiCount++;
+            } else {
+                structuralDeduction += weight;
+                structuralCount++;
+            }
+        }
+
         return {
             status,
             summary,
@@ -181,7 +207,15 @@ export class GateRunner {
             stats: {
                 duration_ms: Date.now() - start,
                 score,
+                ai_health_score: Math.max(0, 100 - aiDeduction),
+                structural_score: Math.max(0, 100 - structuralDeduction),
                 severity_breakdown: severityBreakdown,
+                provenance_breakdown: {
+                    'ai-drift': aiCount,
+                    traditional: structuralCount - failures.filter(f => f.provenance === 'security' || f.provenance === 'governance').length,
+                    security: failures.filter(f => f.provenance === 'security').length,
+                    governance: failures.filter(f => f.provenance === 'governance').length,
+                },
             },
         };
     }

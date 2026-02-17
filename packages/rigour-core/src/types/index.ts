@@ -130,6 +130,14 @@ export const GatesSchema = z.object({
         degradation_threshold: z.number().min(0).max(1).optional().default(0.4),
         signals_required: z.number().optional().default(2),
     }).optional().default({}),
+    promise_safety: z.object({
+        enabled: z.boolean().optional().default(true),
+        check_unhandled_then: z.boolean().optional().default(true),
+        check_unsafe_parse: z.boolean().optional().default(true),
+        check_async_without_await: z.boolean().optional().default(true),
+        check_unsafe_fetch: z.boolean().optional().default(true),
+        ignore_patterns: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
 });
 
 export const CommandsSchema = z.object({
@@ -166,6 +174,10 @@ export type Status = z.infer<typeof StatusSchema>;
 export const SeveritySchema = z.enum(['critical', 'high', 'medium', 'low', 'info']);
 export type Severity = z.infer<typeof SeveritySchema>;
 
+/** Provenance tags — lets dashboards/agents filter by what matters */
+export const ProvenanceSchema = z.enum(['ai-drift', 'traditional', 'security', 'governance']);
+export type Provenance = z.infer<typeof ProvenanceSchema>;
+
 /** Severity weights for score calculation */
 export const SEVERITY_WEIGHTS: Record<Severity, number> = {
     critical: 20,
@@ -180,6 +192,7 @@ export const FailureSchema = z.object({
     title: z.string(),
     details: z.string(),
     severity: SeveritySchema.optional(),
+    provenance: ProvenanceSchema.optional(),
     files: z.array(z.string()).optional(),
     line: z.number().optional(),
     endLine: z.number().optional(),
@@ -194,7 +207,15 @@ export const ReportSchema = z.object({
     stats: z.object({
         duration_ms: z.number(),
         score: z.number().optional(),
+        ai_health_score: z.number().optional(),
+        structural_score: z.number().optional(),
         severity_breakdown: z.record(z.number()).optional(),
+        provenance_breakdown: z.object({
+            'ai-drift': z.number(),
+            traditional: z.number(),
+            security: z.number(),
+            governance: z.number(),
+        }).optional(),
     }),
 });
 export type Report = z.infer<typeof ReportSchema>;

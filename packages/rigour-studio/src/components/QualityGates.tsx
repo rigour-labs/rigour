@@ -35,6 +35,21 @@ interface GateConfig {
         enabled?: boolean;
         max_retries?: number;
     };
+    // AI-Native Gates (v2.17+)
+    duplication_drift?: { enabled?: boolean; similarity_threshold?: number; min_lines?: number };
+    hallucinated_imports?: { enabled?: boolean; check_relative?: boolean; check_packages?: boolean };
+    inconsistent_error_handling?: { enabled?: boolean; threshold?: number };
+    context_window_artifacts?: { enabled?: boolean };
+    promise_safety?: { enabled?: boolean; check_unhandled_then?: boolean; check_unsafe_parse?: boolean; check_async_without_await?: boolean; check_unsafe_fetch?: boolean };
+}
+
+interface ReportStats {
+    score?: number;
+    ai_health_score?: number;
+    structural_score?: number;
+    severity_breakdown?: Record<string, number>;
+    provenance_breakdown?: Record<string, number>;
+    duration_ms?: number;
 }
 
 interface RigourConfig {
@@ -49,6 +64,7 @@ interface RigourConfig {
 export const QualityGates: React.FC = () => {
     const [config, setConfig] = useState<RigourConfig | null>(null);
     const [rawYaml, setRawYaml] = useState<string>('');
+    const [reportStats, setReportStats] = useState<ReportStats | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [viewMode, setViewMode] = useState<'visual' | 'raw'>('visual');
 
@@ -58,14 +74,20 @@ export const QualityGates: React.FC = () => {
             const res = await fetch('/api/config');
             const text = await res.text();
             setRawYaml(text);
-            // Parse YAML to JSON for visualization
             const parsed = parseYaml(text);
             setConfig(parsed);
         } catch (err) {
             console.error('Failed to fetch config:', err);
-        } finally {
-            setIsLoading(false);
         }
+        // Also fetch latest report stats if available
+        try {
+            const reportRes = await fetch('/api/report-stats');
+            if (reportRes.ok) {
+                const stats = await reportRes.json();
+                setReportStats(stats);
+            }
+        } catch { /* No report available yet */ }
+        setIsLoading(false);
     };
 
     // Simple YAML parser for display purposes
@@ -261,6 +283,56 @@ export const QualityGates: React.FC = () => {
                                 <GateCard label="Enabled" value={gates.retry_loop_breaker.enabled} />
                                 <GateCard label="Max Retries" value={gates.retry_loop_breaker.max_retries} />
                             </div>
+                        </div>
+                    )}
+
+                    {/* AI-Native Gates (v2.17+) */}
+                    <div className="gate-section">
+                        <div className="section-header">
+                            <Zap size={18} />
+                            <h3>AI-Native Gates</h3>
+                        </div>
+                        <div className="gate-grid">
+                            <GateCard label="Duplication Drift" value={gates.duplication_drift?.enabled ?? true} icon={<CheckCircle size={16} />} />
+                            <GateCard label="Hallucinated Imports" value={gates.hallucinated_imports?.enabled ?? true} icon={<AlertTriangle size={16} />} />
+                            <GateCard label="Error Handling" value={gates.inconsistent_error_handling?.enabled ?? true} icon={<Shield size={16} />} />
+                            <GateCard label="Context Artifacts" value={gates.context_window_artifacts?.enabled ?? true} icon={<Layers size={16} />} />
+                            <GateCard label="Async Safety" value={gates.promise_safety?.enabled ?? true} icon={<Zap size={16} />} />
+                        </div>
+                    </div>
+
+                    {/* Score Dashboard */}
+                    {reportStats && (
+                        <div className="gate-section">
+                            <div className="section-header">
+                                <Shield size={18} />
+                                <h3>Latest Scores</h3>
+                            </div>
+                            <div className="gate-grid">
+                                {reportStats.score !== undefined && <GateCard label="Overall Score" value={`${reportStats.score}/100`} />}
+                                {reportStats.ai_health_score !== undefined && <GateCard label="AI Health" value={`${reportStats.ai_health_score}/100`} icon={<Zap size={16} />} />}
+                                {reportStats.structural_score !== undefined && <GateCard label="Structural" value={`${reportStats.structural_score}/100`} icon={<Layers size={16} />} />}
+                            </div>
+                            {reportStats.severity_breakdown && (
+                                <div className="severity-breakdown">
+                                    <h4>Severity Breakdown</h4>
+                                    <div className="gate-grid">
+                                        {Object.entries(reportStats.severity_breakdown).filter(([, c]) => c > 0).map(([sev, count]) => (
+                                            <GateCard key={sev} label={sev.charAt(0).toUpperCase() + sev.slice(1)} value={count} />
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {reportStats.provenance_breakdown && (
+                                <div className="provenance-breakdown">
+                                    <h4>Provenance Breakdown</h4>
+                                    <div className="gate-grid">
+                                        {Object.entries(reportStats.provenance_breakdown).filter(([, c]) => c > 0).map(([prov, count]) => (
+                                            <GateCard key={prov} label={prov} value={count} />
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

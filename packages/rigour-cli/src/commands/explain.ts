@@ -33,6 +33,38 @@ export async function explainCommand(cwd: string) {
             ? chalk.green.bold('✅ PASS')
             : chalk.red.bold('🛑 FAIL')));
 
+        // Score summary
+        if (report.stats) {
+            const stats = report.stats;
+            const scoreParts: string[] = [];
+            if (stats.score !== undefined) scoreParts.push(`Score: ${stats.score}/100`);
+            if (stats.ai_health_score !== undefined) scoreParts.push(`AI Health: ${stats.ai_health_score}/100`);
+            if (stats.structural_score !== undefined) scoreParts.push(`Structural: ${stats.structural_score}/100`);
+            if (scoreParts.length > 0) {
+                console.log(chalk.bold('\n' + scoreParts.join(' | ')));
+            }
+
+            // Severity breakdown
+            if (stats.severity_breakdown) {
+                const sevParts = Object.entries(stats.severity_breakdown)
+                    .filter(([, count]: [string, any]) => count > 0)
+                    .map(([sev, count]: [string, any]) => `${sev}: ${count}`);
+                if (sevParts.length > 0) {
+                    console.log(chalk.dim('Severity: ' + sevParts.join(', ')));
+                }
+            }
+
+            // Provenance breakdown
+            if (stats.provenance_breakdown) {
+                const provParts = Object.entries(stats.provenance_breakdown)
+                    .filter(([, count]: [string, any]) => count > 0)
+                    .map(([prov, count]: [string, any]) => `${prov}: ${count}`);
+                if (provParts.length > 0) {
+                    console.log(chalk.dim('Categories: ' + provParts.join(', ')));
+                }
+            }
+        }
+
         console.log(chalk.bold('\nGate Summary:'));
         for (const [gate, status] of Object.entries(report.summary || {})) {
             const icon = status === 'PASS' ? '✅' : status === 'FAIL' ? '❌' : '⏭️';
@@ -42,8 +74,22 @@ export async function explainCommand(cwd: string) {
         if (report.failures && report.failures.length > 0) {
             console.log(chalk.bold.red(`\n🔧 ${report.failures.length} Violation(s) to Fix:\n`));
 
+            // Severity color helper
+            const sevColor = (s: string) => {
+                switch (s) {
+                    case 'critical': return chalk.red.bold;
+                    case 'high': return chalk.red;
+                    case 'medium': return chalk.yellow;
+                    case 'low': return chalk.dim;
+                    default: return chalk.dim;
+                }
+            };
+
             report.failures.forEach((failure: any, index: number) => {
-                console.log(chalk.white(`${index + 1}. `) + chalk.bold.yellow(`[${failure.id.toUpperCase()}]`) + chalk.white(` ${failure.title}`));
+                const sev = failure.severity || 'medium';
+                const sevLabel = sevColor(sev)(`[${sev.toUpperCase()}]`);
+                const provLabel = failure.provenance ? chalk.dim(`(${failure.provenance})`) : '';
+                console.log(chalk.white(`${index + 1}. `) + sevLabel + ' ' + chalk.bold.yellow(`[${failure.id.toUpperCase()}]`) + ' ' + provLabel + chalk.white(` ${failure.title}`));
                 console.log(chalk.dim(`   └─ ${failure.details}`));
                 if (failure.files && failure.files.length > 0) {
                     console.log(chalk.cyan(`   📁 Files: ${failure.files.join(', ')}`));

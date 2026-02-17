@@ -16,7 +16,7 @@
  */
 
 import { Gate, GateContext } from './base.js';
-import { Failure } from '../types/index.js';
+import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import fs from 'fs-extra';
@@ -181,6 +181,8 @@ export class SecurityPatternsGate extends Gate {
             block_on_severity: config.block_on_severity ?? 'high',
         };
     }
+
+    protected get provenance(): Provenance { return 'security'; }
 
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) {

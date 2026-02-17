@@ -1,5 +1,5 @@
 import { Gate, GateContext } from './base.js';
-import { Failure, Gates } from '../types/index.js';
+import { Failure, Gates, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import fs from 'fs-extra';
@@ -34,6 +34,8 @@ export class ContextGate extends Gate {
             max_cross_file_depth: 50,
         };
     }
+
+    protected get provenance(): Provenance { return 'ai-drift'; }
 
     async run(context: GateContext): Promise<Failure[]> {
         const failures: Failure[] = [];

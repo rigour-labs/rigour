@@ -150,6 +150,167 @@ export const TEMPLATES: Template[] = [
             ],
         },
     },
+    // --- Regulated Industry Presets ---
+    {
+        name: 'healthcare',
+        markers: [
+            'hl7', 'fhir', 'hipaa', 'medical', 'patient', 'health',
+            'ehr', 'phi', 'dicom', 'icd-10', 'snomed',
+        ],
+        config: {
+            preset: 'healthcare',
+            ignore: [
+                '.git/**', 'node_modules/**', 'dist/**', 'build/**',
+                'venv/**', '.venv/**', '__pycache__/**',
+            ],
+            gates: {
+                max_file_lines: 300,
+                required_files: ['docs/COMPLIANCE.md', 'docs/SPEC.md', 'docs/ARCH.md', 'README.md'],
+                security: {
+                    enabled: true,
+                    sql_injection: true,
+                    xss: true,
+                    path_traversal: true,
+                    hardcoded_secrets: true,
+                    insecure_randomness: true,
+                    command_injection: true,
+                    block_on_severity: 'critical',
+                },
+            },
+        },
+    },
+    {
+        name: 'fintech',
+        markers: [
+            'trading', 'payment', 'kyc', 'aml', 'pci', 'transaction',
+            'ledger', 'banking', 'stripe', 'plaid', 'sox',
+        ],
+        config: {
+            preset: 'fintech',
+            ignore: [
+                '.git/**', 'node_modules/**', 'dist/**', 'build/**',
+                'venv/**', '.venv/**', '__pycache__/**', 'vendor/**',
+            ],
+            gates: {
+                max_file_lines: 350,
+                required_files: ['docs/AUDIT_LOG.md', 'docs/SPEC.md', 'docs/ARCH.md', 'README.md'],
+                security: {
+                    enabled: true,
+                    sql_injection: true,
+                    xss: true,
+                    path_traversal: true,
+                    hardcoded_secrets: true,
+                    insecure_randomness: true,
+                    command_injection: true,
+                    block_on_severity: 'high',
+                },
+                agent_team: {
+                    enabled: true,
+                    max_concurrent_agents: 3,
+                    cross_agent_pattern_check: true,
+                    handoff_verification: true,
+                    task_ownership: 'strict',
+                },
+            },
+        },
+    },
+    {
+        name: 'government',
+        markers: [
+            'fedramp', 'nist', 'cmmc', 'federal', 'govcloud',
+            'il4', 'il5', 'fisma', 'itar', 'cui',
+        ],
+        config: {
+            preset: 'government',
+            ignore: [
+                '.git/**', 'node_modules/**', 'dist/**', 'build/**',
+                'venv/**', '.venv/**', '__pycache__/**', 'vendor/**',
+            ],
+            gates: {
+                max_file_lines: 250,
+                required_files: ['docs/SECURITY.md', 'docs/SPEC.md', 'docs/ARCH.md', 'README.md'],
+                ast: {
+                    complexity: 8,
+                    max_methods: 10,
+                    max_params: 4,
+                    max_nesting: 3,
+                    max_inheritance_depth: 3,
+                    max_class_dependencies: 5,
+                    max_function_lines: 40,
+                },
+                security: {
+                    enabled: true,
+                    sql_injection: true,
+                    xss: true,
+                    path_traversal: true,
+                    hardcoded_secrets: true,
+                    insecure_randomness: true,
+                    command_injection: true,
+                    block_on_severity: 'medium',
+                },
+                agent_team: {
+                    enabled: true,
+                    max_concurrent_agents: 3,
+                    cross_agent_pattern_check: true,
+                    handoff_verification: true,
+                    task_ownership: 'strict',
+                },
+                checkpoint: {
+                    enabled: true,
+                    interval_minutes: 10,
+                    quality_threshold: 85,
+                    drift_detection: true,
+                    auto_save_on_failure: true,
+                },
+            },
+        },
+    },
+    // DevSecOps / Security SRE preset
+    {
+        name: 'devsecops',
+        markers: [
+            'trivy', 'snyk', 'semgrep', 'sonarqube', 'owasp',
+            'sast', 'dast', 'pentest', 'vulnerability', 'cve',
+            'security-scan', 'falco', 'wazuh', 'ossec',
+        ],
+        config: {
+            preset: 'devsecops',
+            ignore: [
+                '.git/**', 'node_modules/**', 'dist/**', 'build/**',
+                'venv/**', '.venv/**', '__pycache__/**', 'vendor/**',
+            ],
+            gates: {
+                max_file_lines: 300,
+                required_files: ['docs/SECURITY.md', 'docs/RUNBOOK.md', 'README.md'],
+                ast: {
+                    complexity: 10,
+                    max_methods: 10,
+                    max_params: 5,
+                    max_nesting: 3,
+                    max_inheritance_depth: 3,
+                    max_class_dependencies: 5,
+                    max_function_lines: 50,
+                },
+                security: {
+                    enabled: true,
+                    sql_injection: true,
+                    xss: true,
+                    path_traversal: true,
+                    hardcoded_secrets: true,
+                    insecure_randomness: true,
+                    command_injection: true,
+                    block_on_severity: 'high',
+                },
+                agent_team: {
+                    enabled: true,
+                    max_concurrent_agents: 3,
+                    cross_agent_pattern_check: true,
+                    handoff_verification: true,
+                    task_ownership: 'strict',
+                },
+            },
+        },
+    },
 ];
 
 export const PARADIGM_TEMPLATES: Template[] = [
@@ -328,6 +489,14 @@ export const UNIVERSAL_CONFIG: Config = {
             min_file_lines: 100,
             degradation_threshold: 0.4,
             signals_required: 2,
+        },
+        promise_safety: {
+            enabled: true,
+            check_unhandled_then: true,
+            check_unsafe_parse: true,
+            check_async_without_await: true,
+            check_unsafe_fetch: true,
+            ignore_patterns: [],
         },
     },
     output: {

@@ -35,6 +35,7 @@ Agent writes code → Rigour checks → FAIL? → Fix Packet → Agent retries �
 
 ## ⚙️ Quality Gates
 
+### Structural & Security Gates
 | Gate | Description |
 |:---|:---|
 | **File Size** | Max lines per file (default: 300-500) |
@@ -42,8 +43,20 @@ Agent writes code → Rigour checks → FAIL? → Fix Packet → Agent retries �
 | **Complexity** | Cyclomatic complexity limits (AST-based) |
 | **Required Docs** | SPEC.md, ARCH.md, README must exist |
 | **File Guard** | Protected paths, max files changed |
-| **Security Patterns** | XSS, SQL injection, hardcoded secrets, command injection (enabled by default) |
+| **Security Patterns** | XSS, SQL injection, hardcoded secrets, command injection |
 | **Context Alignment** | Prevents drift by anchoring on project patterns |
+
+### AI-Native Drift Detection (v2.16+)
+| Gate | Description |
+|:---|:---|
+| **Duplication Drift** | Near-identical functions across files — AI re-invents what it forgot |
+| **Hallucinated Imports** | Imports referencing modules that don't exist (JS/TS, Python, Go, Ruby, C#) |
+| **Inconsistent Error Handling** | Same error type handled differently across agent sessions |
+| **Context Window Artifacts** | Quality degradation within a file — clean top, messy bottom |
+| **Async & Error Safety** | Unsafe async/promise patterns, unhandled errors across 6 languages |
+
+### Multi-Language Support
+All gates support **TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET**.
 
 ## 🛠️ Commands
 

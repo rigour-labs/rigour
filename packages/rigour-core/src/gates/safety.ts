@@ -1,11 +1,13 @@
 import { Gate, GateContext } from './base.js';
-import { Failure, Gates } from '../types/index.js';
+import { Failure, Gates, Provenance } from '../types/index.js';
 import { execa } from 'execa';
 
 export class FileGuardGate extends Gate {
     constructor(private config: Gates) {
         super('file-guard', 'File Guard — Protected Paths');
     }
+
+    protected get provenance(): Provenance { return 'governance'; }
 
     async run(context: GateContext): Promise<Failure[]> {
         const failures: Failure[] = [];
@@ -34,7 +36,10 @@ export class FileGuardGate extends Gate {
                         message,
                         [file],
                         `Agents are forbidden from modifying files in ${protectedPaths.join(', ')}.`,
-                        message
+                        message,
+                        undefined,
+                        undefined,
+                        'high'
                     ));
                 }
             }

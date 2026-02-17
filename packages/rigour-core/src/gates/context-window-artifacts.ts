@@ -17,7 +17,7 @@
  */
 
 import { Gate, GateContext } from './base.js';
-import { Failure } from '../types/index.js';
+import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import fs from 'fs-extra';
@@ -61,6 +61,8 @@ export class ContextWindowArtifactsGate extends Gate {
             signals_required: config.signals_required ?? 2,
         };
     }
+
+    protected get provenance(): Provenance { return 'ai-drift'; }
 
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) return [];
@@ -118,8 +120,8 @@ export class ContextWindowArtifactsGate extends Gate {
         const signals: string[] = [];
         let degradationScore = 0;
 
-        // Signal 1: Comment density drops
-        if (topMetrics.commentDensity > 0) {
+        // Signal 1: Comment density drops (use threshold to avoid tiny-denominator noise)
+        if (topMetrics.commentDensity > 0.01) {
             const commentRatio = bottomMetrics.commentDensity / topMetrics.commentDensity;
             if (commentRatio < 0.5) {
                 signals.push(`Comment density drops ${((1 - commentRatio) * 100).toFixed(0)}% in bottom half`);
@@ -189,9 +191,11 @@ export class ContextWindowArtifactsGate extends Gate {
     private measureHalf(content: string): HalfMetrics {
         const lines = content.split('\n');
         const codeLines = lines.filter(l => l.trim() && !l.trim().startsWith('//') && !l.trim().startsWith('#') && !l.trim().startsWith('*'));
+        // Only count inline comments (//), not JSDoc/block comments (/** ... */ or * ...)
+        // JSDoc tends to cluster at file top, skewing "degradation" unfairly
         const commentLines = lines.filter(l => {
             const trimmed = l.trim();
-            return trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+            return trimmed.startsWith('//') || trimmed.startsWith('#');
         });
 
         // Comment density

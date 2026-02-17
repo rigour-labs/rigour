@@ -42,7 +42,9 @@ export class CoverageGate extends Gate {
                     title: `Low coverage for high-risk file: ${file}`,
                     details: `Current coverage: ${coverage.toFixed(2)}%. Required: ${threshold}% due to structural risk.`,
                     files: [file],
-                    hint: `Add dynamic tests to cover complex logical branches in this file.`
+                    hint: `Add dynamic tests to cover complex logical branches in this file.`,
+                    severity: 'medium' as const,
+                    provenance: 'traditional' as const
                 });
             }
         }

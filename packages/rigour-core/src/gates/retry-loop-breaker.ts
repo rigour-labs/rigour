@@ -1,5 +1,5 @@
 import { Gate, GateContext } from './base.js';
-import { Failure, Gates } from '../types/index.js';
+import { Failure, Gates, Provenance } from '../types/index.js';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -35,6 +35,8 @@ export class RetryLoopBreakerGate extends Gate {
         super('retry_loop_breaker', 'Retry Loop Breaker');
     }
 
+    protected get provenance(): Provenance { return 'governance'; }
+
     async run(context: GateContext): Promise<Failure[]> {
         const state = await this.loadState(context.cwd);
         const failures: Failure[] = [];
@@ -46,7 +48,10 @@ export class RetryLoopBreakerGate extends Gate {
                     `Operation '${category}' has failed ${record.count} times consecutively. Last error: ${record.lastError}`,
                     undefined,
                     `STOP RETRYING. You are in a loop. Consult the official documentation: ${docUrl}. Extract the canonical solution pattern and apply it.`,
-                    `Retry Loop Detected: ${category}`
+                    `Retry Loop Detected: ${category}`,
+                    undefined,
+                    undefined,
+                    'critical'
                 ));
             }
         }

@@ -3,9 +3,10 @@ import { GateRunner } from './gates/runner.js';
 import { Config, RawConfig, ConfigSchema } from './types/index.js';
 import fs from 'fs-extra';
 import path from 'path';
+import os from 'os';
 
 describe('Environment Alignment Gate', () => {
-    const testDir = path.join(process.cwd(), 'temp-test-env');
+    const testDir = path.join(os.tmpdir(), 'rigour-temp-test-env-' + process.pid);
 
     beforeEach(async () => {
         await fs.ensureDir(testDir);

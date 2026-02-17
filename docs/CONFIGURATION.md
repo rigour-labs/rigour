@@ -61,6 +61,8 @@ Any shell command that returns a non-zero exit code will cause the Rigour check 
 
 These gates detect failure modes unique to AI code generation — patterns that only exist because LLMs lose context, hallucinate, or generate code from scratch each session.
 
+All AI-native gates are **enabled by default** and support **multi-language detection** (TypeScript, JavaScript, Python, Go, Ruby, C#/.NET).
+
 ### `duplication_drift`
 Detects when AI generates near-identical functions across files because it doesn't remember what it already wrote. Groups functions by normalized body hash and flags duplicates spanning multiple files. Severity: `high`.
 
@@ -73,14 +75,16 @@ gates:
 ```
 
 ### `hallucinated_imports`
-Detects imports referencing modules that don't exist — a common AI failure where models confidently generate import statements for fictional packages or file paths. Severity: `critical`.
+Detects imports referencing modules that don't exist — a common AI failure where models confidently generate import statements for fictional packages or file paths. Severity: `critical`. Provenance: `ai-drift`.
+
+**Multi-language support:** Validates imports across JS/TS (`import`/`require`), Python (`import`/`from`), Go (`import`), Ruby (`require`/`require_relative`), and C# (`using`).
 
 ```yaml
 gates:
   hallucinated_imports:
     enabled: true               # Default: true
     check_relative: true        # Verify relative imports resolve to real files
-    check_packages: true        # Verify npm packages exist in package.json
+    check_packages: true        # Verify packages exist in manifest
     ignore_patterns:            # Skip asset imports
       - '\\.css$'
       - '\\.svg$'
@@ -99,7 +103,7 @@ gates:
 ```
 
 ### `context_window_artifacts`
-Detects quality degradation within a single file when AI loses context mid-generation. Compares the top half vs bottom half of each file across six signals: comment density, function length, variable naming, error handling, empty blocks, and TODO density. Severity: `high`.
+Detects quality degradation within a single file when AI loses context mid-generation. Compares the top half vs bottom half of each file across six signals: comment density, function length, variable naming, error handling, empty blocks, and TODO density. Severity: `high`. Provenance: `ai-drift`.
 
 ```yaml
 gates:
@@ -109,6 +113,50 @@ gates:
     degradation_threshold: 0.4  # 0-1, flag if degradation exceeds this
     signals_required: 2         # Need 2+ signals to flag a file
 ```
+
+### `promise_safety` (v2.17+)
+Detects unsafe async/error-handling patterns across all supported languages — a pattern where AI generates "happy-path only" code that silently swallows errors. Severity: `high`. Provenance: `ai-drift`.
+
+**Multi-language checks:**
+
+| Language | Patterns Detected |
+|:---|:---|
+| JS/TS | `.then()` without `.catch()`, `JSON.parse` without try/catch, `async` without `await`, `fetch` without error handling |
+| Python | `json.loads` without try/except, `async def` without `await`, `requests`/`httpx` without error handling, bare `except: pass` |
+| Go | Ignored error returns (`_`), `json.Unmarshal` without error check, `http.Get` without error check |
+| Ruby | `JSON.parse` without `begin/rescue`, `Net::HTTP`/`HTTParty`/`Faraday` without `begin/rescue` |
+| C#/.NET | `JsonSerializer` without try/catch, `HttpClient` without error handling, `async Task` without `await`, `.Result`/`.Wait()` deadlock risk |
+
+```yaml
+gates:
+  promise_safety:
+    enabled: true                    # Default: true
+    check_unhandled_then: true       # .then() without .catch()
+    check_unsafe_parse: true         # JSON.parse / json.loads without error handling
+    check_async_without_await: true  # async functions that never await
+    check_unsafe_fetch: true         # HTTP calls without error handling
+```
+
+---
+
+## Two-Score System (v2.17+)
+
+Rigour now provides **two distinct scores** alongside the overall score:
+
+| Score | What It Measures |
+|:---|:---|
+| **AI Health Score** (0–100) | Quality of AI-generated code — drift patterns, hallucinations, promise safety |
+| **Structural Score** (0–100) | Traditional code quality — complexity, file sizes, security |
+| **Overall Score** (0–100) | Combined weighted score across all gates |
+
+Each failure also carries a **provenance tag** indicating its origin:
+
+| Provenance | Meaning |
+|:---|:---|
+| `ai-drift` | Caused by AI losing context, hallucinating, or generating unsafe patterns |
+| `traditional` | Standard code quality issues (complexity, file size, etc.) |
+| `security` | Security vulnerabilities (secrets, injection, XSS) |
+| `governance` | Agent governance violations (scope conflicts, loop detection) |
 
 ---
 

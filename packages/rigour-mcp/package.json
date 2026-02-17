@@ -1,9 +1,27 @@
 {
     "name": "@rigour-labs/mcp",
     "version": "2.12.0",
+    "description": "MCP server for AI code quality gates. Integrates with Claude Desktop, Cursor, Cline, and VS Code to enforce engineering standards in real-time.",
+    "license": "MIT",
+    "homepage": "https://rigour.run",
+    "keywords": [
+        "mcp",
+        "model-context-protocol",
+        "quality-gates",
+        "ai-code-quality",
+        "claude",
+        "cursor",
+        "cline",
+        "code-review",
+        "static-analysis",
+        "agent-governance"
+    ],
     "type": "module",
     "mcpName": "io.github.rigour-labs/rigour",
-    "description": "Quality gates for AI-generated code. Forces AI agents to meet strict engineering standards with PASS/FAIL enforcement.",
+    "files": [
+        "dist",
+        "README.md"
+    ],
     "bin": {
         "rigour-mcp": "dist/index.js"
     },

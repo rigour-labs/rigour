@@ -21,7 +21,7 @@
  */
 
 import { Gate, GateContext } from './base.js';
-import { Failure } from '../types/index.js';
+import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import fs from 'fs-extra';
@@ -54,6 +54,8 @@ export class InconsistentErrorHandlingGate extends Gate {
             ignore_empty_catches: config.ignore_empty_catches ?? false,
         };
     }
+
+    protected get provenance(): Provenance { return 'ai-drift'; }
 
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) return [];
@@ -236,17 +238,25 @@ export class InconsistentErrorHandlingGate extends Gate {
     }
 
     private extractCatchCallbackBody(lines: string[], startLine: number): string | null {
-        let depth = 0;
+        // Detect if this is an arrow function (.catch(e => { ... }))
+        const hasArrow = lines[startLine]?.includes('=>');
+        let braceDepth = 0;
         let started = false;
         const body: string[] = [];
 
         for (let i = startLine; i < Math.min(startLine + 20, lines.length); i++) {
             for (const ch of lines[i]) {
-                if (ch === '{' || ch === '(') { depth++; started = true; }
-                if (ch === '}' || ch === ')') depth--;
+                // For arrow functions, only track braces (not parens) for body extraction
+                if (hasArrow) {
+                    if (ch === '{') { braceDepth++; started = true; }
+                    if (ch === '}') braceDepth--;
+                } else {
+                    if (ch === '{' || ch === '(') { braceDepth++; started = true; }
+                    if (ch === '}' || ch === ')') braceDepth--;
+                }
             }
             if (started && i > startLine) body.push(lines[i]);
-            if (started && depth <= 0) break;
+            if (started && braceDepth <= 0) break;
         }
 
         return body.length > 0 ? body.join('\n') : null;

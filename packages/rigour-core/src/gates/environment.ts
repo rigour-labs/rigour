@@ -32,21 +32,33 @@ export class EnvironmentGate extends Gate {
                         failures.push(this.createFailure(
                             `Environment Alignment: Tool '${tool}' version mismatch.`,
                             [],
-                            `Project requires '${tool} ${semverRange}' (discovered from contract), but found version '${version}'. Please align your local environment to prevent drift.`
+                            `Project requires '${tool} ${semverRange}' (discovered from contract), but found version '${version}'. Please align your local environment to prevent drift.`,
+                            undefined,
+                            undefined,
+                            undefined,
+                            'medium'
                         ));
                     }
                 } else {
                     failures.push(this.createFailure(
                         `Environment Alignment: Could not determine version for '${tool}'.`,
                         [],
-                        `Ensure '${tool} --version' returns a standard SemVer string.`
+                        `Ensure '${tool} --version' returns a standard SemVer string.`,
+                        undefined,
+                        undefined,
+                        undefined,
+                        'medium'
                     ));
                 }
             } catch (e) {
                 failures.push(this.createFailure(
                     `Environment Alignment: Required tool '${tool}' is missing.`,
                     [],
-                    `Install '${tool}' and ensure it is in your $PATH.`
+                    `Install '${tool}' and ensure it is in your $PATH.`,
+                    undefined,
+                    undefined,
+                    undefined,
+                    'medium'
                 ));
             }
         }
@@ -58,7 +70,11 @@ export class EnvironmentGate extends Gate {
                 failures.push(this.createFailure(
                     `Environment Alignment: Missing required environment variable '${envVar}'.`,
                     [],
-                    `Ensure '${envVar}' is defined in your environment or .env file.`
+                    `Ensure '${envVar}' is defined in your environment or .env file.`,
+                    undefined,
+                    undefined,
+                    undefined,
+                    'medium'
                 ));
             }
         }

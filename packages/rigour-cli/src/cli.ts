@@ -8,6 +8,8 @@ import { guideCommand } from './commands/guide.js';
 import { setupCommand } from './commands/setup.js';
 import { indexCommand } from './commands/index.js';
 import { studioCommand } from './commands/studio.js';
+import { exportAuditCommand } from './commands/export-audit.js';
+import { demoCommand } from './commands/demo.js';
 import { checkForUpdates } from './utils/version.js';
 import chalk from 'chalk';
 
@@ -34,7 +36,7 @@ program
 program
     .command('init')
     .description('Initialize Rigour in the current directory')
-    .option('-p, --preset <name>', 'Project preset (ui, api, infra, data)')
+    .option('-p, --preset <name>', 'Project preset (ui, api, infra, data, healthcare, fintech, government)')
     .option('--paradigm <name>', 'Coding paradigm (oop, functional, minimal)')
     .option('--ide <name>', 'Target IDE (cursor, vscode, all). Auto-detects if not specified.')
     .option('--dry-run', 'Show detected configuration without writing files')
@@ -42,10 +44,12 @@ program
     .option('-f, --force', 'Force re-initialization, overwriting existing rigour.yml')
     .addHelpText('after', `
 Examples:
-  $ rigour init                        # Auto-discover role & paradigm
-  $ rigour init --preset api --explain # Force API role and show why
-  $ rigour init --ide vscode           # Only create VS Code compatible files
-  $ rigour init --ide all              # Create files for all IDEs
+  $ rigour init                            # Auto-discover role & paradigm
+  $ rigour init --preset api --explain     # Force API role and show why
+  $ rigour init --preset healthcare        # HIPAA-compliant quality gates
+  $ rigour init --preset fintech           # SOC2/PCI-DSS quality gates
+  $ rigour init --preset government        # FedRAMP/NIST quality gates
+  $ rigour init --ide all                  # Create files for all IDEs
     `)
     .action(async (options: any) => {
         await initCommand(process.cwd(), options);
@@ -98,6 +102,35 @@ Examples:
             iterations: parseInt(options.maxCycles),
             failFast: !!options.failFast
         });
+    });
+
+program
+    .command('export-audit')
+    .description('Generate a compliance audit package from the last check')
+    .option('-f, --format <type>', 'Output format: json or md', 'json')
+    .option('-o, --output <path>', 'Custom output file path')
+    .option('--run', 'Run a fresh rigour check before exporting')
+    .addHelpText('after', `
+Examples:
+  $ rigour export-audit                      # Export JSON audit package
+  $ rigour export-audit --format md          # Export Markdown report
+  $ rigour export-audit --run                # Run check first, then export
+  $ rigour export-audit -o audit.json        # Custom output path
+    `)
+    .action(async (options: any) => {
+        await exportAuditCommand(process.cwd(), options);
+    });
+
+program
+    .command('demo')
+    .description('Run a live demo — see Rigour catch AI drift, security issues, and structural violations')
+    .addHelpText('after', `
+Examples:
+  $ rigour demo                          # Run the flagship demo
+  $ npx @rigour-labs/cli demo            # Try without installing
+    `)
+    .action(async () => {
+        await demoCommand();
     });
 
 program

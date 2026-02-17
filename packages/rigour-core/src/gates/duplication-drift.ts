@@ -14,7 +14,7 @@
  */
 
 import { Gate, GateContext } from './base.js';
-import { Failure } from '../types/index.js';
+import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import crypto from 'crypto';
@@ -47,6 +47,8 @@ export class DuplicationDriftGate extends Gate {
             min_body_lines: config.min_body_lines ?? 5,
         };
     }
+
+    protected get provenance(): Provenance { return 'ai-drift'; }
 
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) return [];
@@ -197,8 +199,10 @@ export class DuplicationDriftGate extends Gate {
             .replace(/\/\/.*/g, '')           // strip single-line comments
             .replace(/\/\*[\s\S]*?\*\//g, '') // strip multi-line comments
             .replace(/#.*/g, '')              // strip Python comments
+            .replace(/`[^`]*`/g, '"STR"')    // normalize template literals to placeholder
+            .replace(/\basync\s+/g, '')       // normalize async modifier
             .replace(/\s+/g, ' ')            // collapse whitespace
-            .replace(/['"`]/g, '"')          // normalize quotes
+            .replace(/['"]/g, '"')           // normalize single/double quotes (NOT backticks)
             .trim();
     }
 

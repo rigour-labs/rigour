@@ -1,6 +1,9 @@
 {
     "name": "@rigour-labs/studio",
     "version": "1.0.0",
+    "description": "Governance Studio dashboard for Rigour — real-time monitoring of AI code quality gates, agent governance, and quality trends.",
+    "license": "MIT",
+    "homepage": "https://rigour.run",
     "private": true,
     "type": "module",
     "scripts": {

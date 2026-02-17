@@ -14,7 +14,7 @@
  */
 
 import { Gate, GateContext } from './base.js';
-import { Failure } from '../types/index.js';
+import { Failure, Provenance } from '../types/index.js';
 import { Logger } from '../utils/logger.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -256,6 +256,8 @@ export class CheckpointGate extends Gate {
         };
     }
 
+    protected get provenance(): Provenance { return 'governance'; }
+
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) {
             return [];
@@ -289,7 +291,10 @@ export class CheckpointGate extends Gate {
                 `Quality score ${lastCheckpoint.qualityScore}% is below threshold ${this.config.quality_threshold}%`,
                 lastCheckpoint.filesChanged,
                 'Review recent changes and address quality issues before continuing',
-                'Quality Below Threshold'
+                'Quality Below Threshold',
+                undefined,
+                undefined,
+                'high'
             ));
         }
 
@@ -301,7 +306,10 @@ export class CheckpointGate extends Gate {
                     `Quality drift detected: scores are degrading over time`,
                     undefined,
                     'Agent performance is declining. Consider pausing and reviewing recent work.',
-                    'Quality Drift Detected'
+                    'Quality Drift Detected',
+                    undefined,
+                    undefined,
+                    'high'
                 ));
             }
         }

@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { GateRunner, ConfigSchema, Failure } from '@rigour-labs/core';
+import { GateRunner, ConfigSchema, Failure, recordScore, getScoreTrend } from '@rigour-labs/core';
 import inquirer from 'inquirer';
 import { randomUUID } from 'crypto';
 
@@ -73,6 +73,9 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
         const reportPath = path.join(cwd, config.output.report_path);
         await fs.writeJson(reportPath, report, { spaces: 2 });
 
+        // Record score for trend tracking
+        recordScore(cwd, report);
+
         await logStudioEvent(cwd, {
             type: "tool_response",
             requestId,
@@ -100,14 +103,17 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
             return; // Wait for write callback
         }
 
-        // CI mode: minimal output
+        // CI mode: minimal output with score
         if (options.ci) {
             if (report.status === 'PASS') {
-                console.log('PASS');
+                const scoreStr = report.stats.score !== undefined ? ` (${report.stats.score}/100)` : '';
+                console.log(`PASS${scoreStr}`);
             } else {
-                console.log(`FAIL: ${report.failures.length} violation(s)`);
+                const scoreStr = report.stats.score !== undefined ? ` Score: ${report.stats.score}/100` : '';
+                console.log(`FAIL: ${report.failures.length} violation(s)${scoreStr}`);
                 report.failures.forEach((f: Failure) => {
-                    console.log(`  - [${f.id}] ${f.title}`);
+                    const sev = (f.severity || 'medium').toUpperCase();
+                    console.log(`  - [${sev}] [${f.id}] ${f.title}`);
                 });
             }
             process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
@@ -124,15 +130,52 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
         } else {
             console.log(chalk.red.bold('✘ FAIL - Quality gate violations found.\n'));
 
+            // Score summary line
+            const stats = report.stats;
+            const scoreParts: string[] = [];
+            if (stats.score !== undefined) scoreParts.push(`Score: ${stats.score}/100`);
+            if (stats.ai_health_score !== undefined) scoreParts.push(`AI Health: ${stats.ai_health_score}/100`);
+            if (stats.structural_score !== undefined) scoreParts.push(`Structural: ${stats.structural_score}/100`);
+            if (scoreParts.length > 0) {
+                console.log(chalk.bold(scoreParts.join(' | ')) + '\n');
+            }
+
+            // Severity breakdown
+            if (stats.severity_breakdown) {
+                const parts = Object.entries(stats.severity_breakdown)
+                    .filter(([, count]) => count > 0)
+                    .map(([sev, count]) => {
+                        const color = sev === 'critical' ? chalk.red.bold : sev === 'high' ? chalk.red : sev === 'medium' ? chalk.yellow : chalk.dim;
+                        return color(`${sev}: ${count}`);
+                    });
+                if (parts.length > 0) {
+                    console.log('Severity: ' + parts.join(', ') + '\n');
+                }
+            }
+
+            // Group failures by provenance
+            const severityIcon = (s?: string) => {
+                switch (s) {
+                    case 'critical': return chalk.red.bold('CRIT');
+                    case 'high': return chalk.red('HIGH');
+                    case 'medium': return chalk.yellow('MED ');
+                    case 'low': return chalk.dim('LOW ');
+                    case 'info': return chalk.dim('INFO');
+                    default: return chalk.yellow('MED ');
+                }
+            };
+
             for (const failure of report.failures as Failure[]) {
-                console.log(chalk.red(`[${failure.id}] ${failure.title}`));
-                console.log(chalk.dim(`  Details: ${failure.details}`));
+                const sev = severityIcon(failure.severity);
+                const prov = (failure as any).provenance ? chalk.dim(`[${(failure as any).provenance}]`) : '';
+                console.log(`${sev} ${prov} ${chalk.red(`[${failure.id}]`)} ${failure.title}`);
+                console.log(chalk.dim(`      Details: ${failure.details}`));
                 if (failure.files && failure.files.length > 0) {
-                    console.log(chalk.dim('  Files:'));
-                    failure.files.forEach((f: string) => console.log(chalk.dim(`    - ${f}`)));
+                    console.log(chalk.dim('      Files:'));
+                    failure.files.forEach((f: string) => console.log(chalk.dim(`        - ${f}`)));
                 }
                 if (failure.hint) {
-                    console.log(chalk.cyan(`  Hint: ${failure.hint}`));
+                    console.log(chalk.cyan(`      Hint: ${failure.hint}`));
                 }
                 console.log('');
             }
@@ -140,7 +183,23 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
             console.log(chalk.yellow(`See ${config.output.report_path} for full details.`));
         }
 
-        console.log(chalk.dim(`\nFinished in ${report.stats.duration_ms}ms`));
+        // Score trend display
+        const trend = getScoreTrend(cwd);
+        if (trend && trend.recentScores.length >= 3) {
+            const arrow = trend.direction === 'improving' ? chalk.green('↑') :
+                          trend.direction === 'degrading' ? chalk.red('↓') : chalk.dim('→');
+            const trendColor = trend.direction === 'improving' ? chalk.green :
+                               trend.direction === 'degrading' ? chalk.red : chalk.dim;
+            const scoresStr = trend.recentScores.map(s => String(s)).join(' → ');
+            console.log(trendColor(`\nScore Trend: ${scoresStr} (${trend.direction} ${arrow})`));
+        }
+
+        // Stats footer
+        const footerParts = [`Finished in ${report.stats.duration_ms}ms`];
+        if (report.status === 'PASS' && report.stats.score !== undefined) {
+            footerParts.push(`Score: ${report.stats.score}/100`);
+        }
+        console.log(chalk.dim('\n' + footerParts.join(' | ')));
 
         process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
 

@@ -14,7 +14,9 @@ Rigour is a local-first Model Context Protocol (MCP) server that forces AI agent
 Rigour moves code quality enforcement from the "Post-Commit" phase to the "In-Progress" phase. By running as an MCP server inside your editor, it provides the AI with a deterministic PASS/FAIL loop, preventing "Vibe Coding" and broken builds.
 
 ### Key Features:
-- **Quality Gates**: Deterministic checks for file size, complexity, and hygiene.
+- **Quality Gates**: Deterministic checks for file size, complexity, hygiene, and AI-native drift detection.
+- **Multi-Language**: Gates support TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET.
+- **Two-Score System**: Separate AI Health Score and Structural Score with provenance tracking.
 - **Context Memory**: Persistent memory that tracks project rules and patterns across sessions.
 - **Pattern Reinvention Blocking**: Warns or blocks the AI when it tries to rewrite existing utilities.
 - **Security Audits**: Real-time CVE detection for dependencies the AI is suggesting.
@@ -30,10 +32,18 @@ Rigour moves code quality enforcement from the "Post-Commit" phase to the "In-Pr
 |:---|:---|
 | `rigour_check` | Runs all configured quality gates on the current workspace. |
 | `rigour_explain` | Explains why a specific gate failed and provides actionable fix instructions. |
+| `rigour_status` | Quick PASS/FAIL check with JSON-friendly output for polling. |
+| `rigour_get_fix_packet` | Retrieves prioritized Fix Packet (v2) with severity and provenance. |
+| `rigour_list_gates` | Lists all configured quality gates and their thresholds. |
+| `rigour_get_config` | Returns the current rigour.yml configuration. |
 | `rigour_check_pattern` | Checks if a proposed code pattern already exists in the codebase. |
 | `rigour_remember` | Stores project-specific context or rules in Rigour's persistent memory. |
 | `rigour_recall` | Retrieves stored context to guide AI generation. |
+| `rigour_forget` | Removes a stored memory by key. |
 | `rigour_security_audit` | Runs a live CVE check on project dependencies. |
+| `rigour_run` | Executes a command under Rigour supervision with human arbitration. |
+| `rigour_run_supervised` | Full supervisor mode — iterative command + gate check loop. |
+| `rigour_review` | High-fidelity code review on a PR diff against all quality gates. |
 
 ### Frontier Model Tools (v2.14+)
 

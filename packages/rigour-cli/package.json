@@ -1,6 +1,22 @@
 {
     "name": "@rigour-labs/cli",
     "version": "1.0.0",
+    "description": "CLI quality gates for AI-generated code. Forces AI agents (Claude, Cursor, Copilot) to meet strict engineering standards with PASS/FAIL enforcement.",
+    "license": "MIT",
+    "homepage": "https://rigour.run",
+    "keywords": [
+        "quality-gates",
+        "ai-code-quality",
+        "cli",
+        "linter",
+        "static-analysis",
+        "claude",
+        "cursor",
+        "copilot",
+        "mcp",
+        "code-review",
+        "ci-cd"
+    ],
     "type": "module",
     "bin": {
         "rigour": "dist/cli.js"

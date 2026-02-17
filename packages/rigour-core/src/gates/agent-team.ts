@@ -13,7 +13,7 @@
  */
 
 import { Gate, GateContext } from './base.js';
-import { Failure } from '../types/index.js';
+import { Failure, Provenance } from '../types/index.js';
 import { Logger } from '../utils/logger.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -152,6 +152,8 @@ export class AgentTeamGate extends Gate {
             task_ownership: config.task_ownership ?? 'strict',
         };
     }
+
+    protected get provenance(): Provenance { return 'governance'; }
 
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) {

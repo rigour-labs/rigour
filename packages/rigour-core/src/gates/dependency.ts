@@ -33,7 +33,10 @@ export class DependencyGate extends Gate {
                             `The package '${dep}' is forbidden by project standards.`,
                             ['package.json'],
                             `Remove '${dep}' from package.json and use approved alternatives.`,
-                            'Forbidden Dependency'
+                            'Forbidden Dependency',
+                            undefined,
+                            undefined,
+                            'medium'
                         ));
                     }
                 }
@@ -50,7 +53,10 @@ export class DependencyGate extends Gate {
                         `The Python package '${dep}' is forbidden.`,
                         ['requirements.txt'],
                         `Remove '${dep}' from requirements.txt.`,
-                        'Forbidden Dependency'
+                        'Forbidden Dependency',
+                        undefined,
+                        undefined,
+                        'medium'
                     ));
                 }
             }
@@ -65,7 +71,10 @@ export class DependencyGate extends Gate {
                         `The Python package '${dep}' is forbidden in pyproject.toml.`,
                         ['pyproject.toml'],
                         `Remove '${dep}' from pyproject.toml dependencies.`,
-                        'Forbidden Dependency'
+                        'Forbidden Dependency',
+                        undefined,
+                        undefined,
+                        'medium'
                     ));
                 }
             }
@@ -81,7 +90,10 @@ export class DependencyGate extends Gate {
                         `The Go module '${dep}' is forbidden.`,
                         ['go.mod'],
                         `Remove '${dep}' from go.mod.`,
-                        'Forbidden Dependency'
+                        'Forbidden Dependency',
+                        undefined,
+                        undefined,
+                        'medium'
                     ));
                 }
             }
@@ -97,7 +109,10 @@ export class DependencyGate extends Gate {
                         `The Java artifact '${dep}' is forbidden.`,
                         ['pom.xml'],
                         `Remove '${dep}' from pom.xml.`,
-                        'Forbidden Dependency'
+                        'Forbidden Dependency',
+                        undefined,
+                        undefined,
+                        'medium'
                     ));
                 }
             }

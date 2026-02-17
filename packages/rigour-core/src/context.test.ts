@@ -2,10 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { GateRunner } from '../src/gates/runner.js';
 import fs from 'fs-extra';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import os from 'os';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEST_CWD = path.join(__dirname, '../temp-test-context');
+const TEST_CWD = path.join(os.tmpdir(), 'rigour-temp-test-context-' + process.pid);
 
 describe('Context Awareness Engine', () => {
     beforeAll(async () => {

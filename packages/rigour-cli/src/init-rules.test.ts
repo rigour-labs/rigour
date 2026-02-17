@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import fs from 'fs-extra';
 import path from 'path';
+import os from 'os';
 
 async function getInitCommand() {
     const { initCommand } = await import('./commands/init.js');
@@ -10,7 +11,7 @@ async function getInitCommand() {
 }
 
 describe('Init Command Rules Verification', () => {
-    const testDir = path.join(process.cwd(), 'temp-init-rules-test');
+    const testDir = path.join(os.tmpdir(), 'rigour-temp-init-rules-test-' + process.pid);
 
     beforeEach(async () => {
         await fs.ensureDir(testDir);
