@@ -3,6 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@rigour-labs/cli?color=cyan&label=cli)](https://www.npmjs.com/package/@rigour-labs/cli)
 [![npm downloads](https://img.shields.io/npm/dm/@rigour-labs/cli?color=blue)](https://www.npmjs.com/package/@rigour-labs/cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18673564.svg)](https://doi.org/10.5281/zenodo.18673564)
 
 **Deterministic quality gates that force AI agents to write production-grade code.**
 
@@ -244,6 +245,25 @@ The core innovation — structured, machine-readable diagnostics that agents can
 | [MCP Integration](https://docs.rigour.run/mcp/mcp-server) | Agent setup guides |
 | [Philosophy](./docs/PHILOSOPHY.md) | Why Rigour exists |
 | [Enterprise CI/CD](./docs/ENTERPRISE.md) | GitHub Actions patterns |
+
+---
+
+## Cite This Project
+
+If you use Rigour in academic or industry research, please cite:
+
+> Singh, A. (2026). *Rigour: Deterministic Quality Gates for AI-Generated Code.* Rigour Labs. [https://doi.org/10.5281/zenodo.18673564](https://doi.org/10.5281/zenodo.18673564)
+
+```bibtex
+@techreport{singh2026rigour,
+  title={Rigour: Deterministic Quality Gates for AI-Generated Code},
+  author={Singh, Ashutosh},
+  year={2026},
+  institution={Rigour Labs},
+  doi={10.5281/zenodo.18673564},
+  url={https://doi.org/10.5281/zenodo.18673564}
+}
+```
 
 ---
 
