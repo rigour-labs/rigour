@@ -87,7 +87,7 @@ export const GatesSchema = z.object({
         auto_save_on_failure: z.boolean().optional().default(true),
     }).optional().default({}),
     security: z.object({
-        enabled: z.boolean().optional().default(false),
+        enabled: z.boolean().optional().default(true),
         sql_injection: z.boolean().optional().default(true),
         xss: z.boolean().optional().default(true),
         path_traversal: z.boolean().optional().default(true),

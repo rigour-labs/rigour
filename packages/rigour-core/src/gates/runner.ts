@@ -4,7 +4,7 @@ import { FileGate } from './file.js';
 import { ContentGate } from './content.js';
 import { StructureGate } from './structure.js';
 import { ASTGate } from './ast.js';
-import { SafetyGate } from './safety.js';
+import { FileGuardGate } from './safety.js';
 import { DependencyGate } from './dependency.js';
 import { CoverageGate } from './coverage.js';
 import { ContextGate } from './context.js';
@@ -44,7 +44,7 @@ export class GateRunner {
         }
         this.gates.push(new ASTGate(this.config.gates));
         this.gates.push(new DependencyGate(this.config));
-        this.gates.push(new SafetyGate(this.config.gates));
+        this.gates.push(new FileGuardGate(this.config.gates));
         this.gates.push(new CoverageGate(this.config.gates));
 
         if (this.config.gates.context?.enabled) {
@@ -61,8 +61,8 @@ export class GateRunner {
             this.gates.push(new CheckpointGate(this.config.gates.checkpoint));
         }
 
-        // Security Patterns Gate (code-level vulnerability detection)
-        if (this.config.gates.security?.enabled) {
+        // Security Patterns Gate (code-level vulnerability detection) — enabled by default since v2.15
+        if (this.config.gates.security?.enabled !== false) {
             this.gates.push(new SecurityPatternsGate(this.config.gates.security));
         }
 

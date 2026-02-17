@@ -76,7 +76,7 @@ export async function runLoop(cwd: string, agentArgs: string[], options: { itera
             const maxFiles = config.gates.safety?.max_files_changed_per_cycle || 10;
 
             if (changedThisCycle.length > maxFiles) {
-                console.log(chalk.red.bold(`\n🛑 SAFETY RAIL ABORT: Agent changed ${changedThisCycle.length} files (max: ${maxFiles}).`));
+                console.log(chalk.red.bold(`\n🛑 FILE GUARD ABORT: Agent changed ${changedThisCycle.length} files (max: ${maxFiles}).`));
                 console.log(chalk.red(`   This looks like explosive behavior. Check your agent's instructions.`));
                 process.exit(EXIT_FAIL);
             }

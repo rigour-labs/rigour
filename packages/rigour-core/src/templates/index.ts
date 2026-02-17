@@ -275,7 +275,7 @@ export const UNIVERSAL_CONFIG: Config = {
             auto_save_on_failure: true,
         },
         security: {
-            enabled: false,
+            enabled: true,
             sql_injection: true,
             xss: true,
             path_traversal: true,

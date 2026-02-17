@@ -2,9 +2,9 @@ import { Gate, GateContext } from './base.js';
 import { Failure, Gates } from '../types/index.js';
 import { execa } from 'execa';
 
-export class SafetyGate extends Gate {
+export class FileGuardGate extends Gate {
     constructor(private config: Gates) {
-        super('safety-rail', 'Safety & Protection Rails');
+        super('file-guard', 'File Guard — Protected Paths');
     }
 
     async run(context: GateContext): Promise<Failure[]> {
@@ -16,7 +16,7 @@ export class SafetyGate extends Gate {
 
         try {
             // Check for modified files in protected paths using git
-            // This is a "Safety Rail" - if an agent touched these, we fail.
+            // File Guard - if an agent touched protected files, we fail.
             const { stdout } = await execa('git', ['status', '--porcelain'], { cwd: context.cwd });
             const modifiedFiles = stdout.split('\n')
                 .filter(line => {

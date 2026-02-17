@@ -53,7 +53,7 @@ Rigour ships with **19 quality gates** across four categories:
 | **File Size** | Max lines per file (default 300–500) |
 | **Content Hygiene** | Zero tolerance for TODO/FIXME comments |
 | **Required Docs** | SPEC.md, ARCH.md, DECISIONS.md must exist |
-| **Safety Rails** | Protected paths cannot be modified by agents |
+| **File Guard** | Protected paths cannot be modified by agents |
 
 ### AST-Based Code Analysis
 | Gate | What It Enforces |

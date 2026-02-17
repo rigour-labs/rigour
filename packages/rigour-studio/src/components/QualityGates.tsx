@@ -194,12 +194,12 @@ export const QualityGates: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Safety Section */}
+                    {/* File Guard Section */}
                     {gates.safety && (
                         <div className="gate-section">
                             <div className="section-header">
                                 <Lock size={18} />
-                                <h3>Safety Controls</h3>
+                                <h3>File Guard</h3>
                             </div>
                             <div className="gate-grid">
                                 <GateCard label="Max Files/Cycle" value={gates.safety.max_files_changed_per_cycle} />

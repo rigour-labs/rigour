@@ -10,7 +10,8 @@ export async function guideCommand() {
 
     console.log(chalk.bold('Key Concepts:'));
     console.log(chalk.yellow('  • Fix Packet v2') + chalk.dim(': Structured diagnostics fed directly into AI agents.'));
-    console.log(chalk.yellow('  • Safety Rails') + chalk.dim(': Prevents "explosive" refactoring (max files changed).'));
+    console.log(chalk.yellow('  • File Guard') + chalk.dim(': Protects critical paths from agent modification (max files changed).'));
+    console.log(chalk.yellow('  • Security Patterns') + chalk.dim(': Detects XSS, SQL injection, hardcoded secrets, command injection (enabled by default).'));
     console.log(chalk.yellow('  • Strategic Guardians') + chalk.dim(': Dependency and Architectural boundary enforcement.\n'));
 
     console.log(chalk.bold('Workflow Integration:'));

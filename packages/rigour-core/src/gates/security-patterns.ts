@@ -171,7 +171,7 @@ export class SecurityPatternsGate extends Gate {
     constructor(config: SecurityPatternsConfig = {}) {
         super('security-patterns', 'Security Pattern Detection');
         this.config = {
-            enabled: config.enabled ?? false,
+            enabled: config.enabled ?? true,
             sql_injection: config.sql_injection ?? true,
             xss: config.xss ?? true,
             path_traversal: config.path_traversal ?? true,

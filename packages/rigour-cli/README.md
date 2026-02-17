@@ -41,7 +41,8 @@ Agent writes code → Rigour checks → FAIL? → Fix Packet → Agent retries �
 | **Hygiene** | No TODO/FIXME comments allowed |
 | **Complexity** | Cyclomatic complexity limits (AST-based) |
 | **Required Docs** | SPEC.md, ARCH.md, README must exist |
-| **Safety Rails** | Protected paths, max files changed |
+| **File Guard** | Protected paths, max files changed |
+| **Security Patterns** | XSS, SQL injection, hardcoded secrets, command injection (enabled by default) |
 | **Context Alignment** | Prevents drift by anchoring on project patterns |
 
 ## 🛠️ Commands

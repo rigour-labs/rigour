@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SafetyGate } from './gates/safety.js';
+import { FileGuardGate } from './gates/safety.js';
 import { Gates } from './types/index.js';
 import { execa } from 'execa';
 
 vi.mock('execa');
 
-describe('SafetyGate', () => {
+describe('FileGuardGate', () => {
     const config: Gates = {
         safety: {
             protected_paths: ['docs/'],
@@ -14,7 +14,7 @@ describe('SafetyGate', () => {
     } as any;
 
     it('should flag modified (M) protected files', async () => {
-        const gate = new SafetyGate(config);
+        const gate = new FileGuardGate(config);
         vi.mocked(execa).mockResolvedValueOnce({ stdout: ' M docs/SPEC.md\n' } as any);
 
         const failures = await gate.run({ cwd: '/test', record: {} as any });
@@ -23,7 +23,7 @@ describe('SafetyGate', () => {
     });
 
     it('should flag added (A) protected files', async () => {
-        const gate = new SafetyGate(config);
+        const gate = new FileGuardGate(config);
         vi.mocked(execa).mockResolvedValueOnce({ stdout: 'A  docs/NEW.md\n' } as any);
 
         const failures = await gate.run({ cwd: '/test', record: {} as any });
@@ -32,7 +32,7 @@ describe('SafetyGate', () => {
     });
 
     it('should NOT flag untracked (??) protected files', async () => {
-        const gate = new SafetyGate(config);
+        const gate = new FileGuardGate(config);
         vi.mocked(execa).mockResolvedValueOnce({ stdout: '?? docs/UNTRAKED.md\n' } as any);
 
         const failures = await gate.run({ cwd: '/test', record: {} as any });
@@ -40,7 +40,7 @@ describe('SafetyGate', () => {
     });
 
     it('should correctly handle multiple mixed statuses', async () => {
-        const gate = new SafetyGate(config);
+        const gate = new FileGuardGate(config);
         vi.mocked(execa).mockResolvedValueOnce({
             stdout: ' M docs/MODIFIED.md\n?? docs/NEW_UNTRACKED.md\n D docs/DELETED.md\n'
         } as any);
