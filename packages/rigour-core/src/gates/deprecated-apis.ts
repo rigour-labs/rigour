@@ -762,7 +762,7 @@ const JAVA_DEPRECATED_RULES: DeprecatedRule[] = [
         replacement: 'LocalDate.now().getYear()', category: 'superseded',
     },
     {
-        pattern: /Thread\.stop\s*\(/,
+        pattern: /Thread\.stop\s*\(/i,
         api: 'Thread.stop()', reason: 'Deprecated — unsafe, can corrupt objects',
         replacement: 'Thread.interrupt() with cooperative checking', category: 'security',
     },
