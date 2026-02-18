@@ -19,6 +19,9 @@ import { HallucinatedImportsGate } from './hallucinated-imports.js';
 import { InconsistentErrorHandlingGate } from './inconsistent-error-handling.js';
 import { ContextWindowArtifactsGate } from './context-window-artifacts.js';
 import { PromiseSafetyGate } from './promise-safety.js';
+import { PhantomApisGate } from './phantom-apis.js';
+import { DeprecatedApisGate } from './deprecated-apis.js';
+import { TestQualityGate } from './test-quality.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 
@@ -91,6 +94,19 @@ export class GateRunner {
         // v2.17+ Promise Safety Gate (async/promise AI failure modes)
         if (this.config.gates.promise_safety?.enabled !== false) {
             this.gates.push(new PromiseSafetyGate(this.config.gates.promise_safety));
+        }
+
+        // v3.1+ Extended Hallucination Detection
+        if (this.config.gates.phantom_apis?.enabled !== false) {
+            this.gates.push(new PhantomApisGate(this.config.gates.phantom_apis));
+        }
+
+        if (this.config.gates.deprecated_apis?.enabled !== false) {
+            this.gates.push(new DeprecatedApisGate(this.config.gates.deprecated_apis));
+        }
+
+        if (this.config.gates.test_quality?.enabled !== false) {
+            this.gates.push(new TestQualityGate(this.config.gates.test_quality));
         }
 
         // Environment Alignment Gate (Should be prioritized)

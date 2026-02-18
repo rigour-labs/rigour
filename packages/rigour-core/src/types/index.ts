@@ -138,6 +138,37 @@ export const GatesSchema = z.object({
         check_unsafe_fetch: z.boolean().optional().default(true),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
+    // v3.1+ Extended Hallucination Detection
+    phantom_apis: z.object({
+        enabled: z.boolean().optional().default(true),
+        check_node: z.boolean().optional().default(true),
+        check_python: z.boolean().optional().default(true),
+        check_go: z.boolean().optional().default(true),
+        check_csharp: z.boolean().optional().default(true),
+        check_java: z.boolean().optional().default(true),
+        ignore_patterns: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
+    deprecated_apis: z.object({
+        enabled: z.boolean().optional().default(true),
+        check_node: z.boolean().optional().default(true),
+        check_python: z.boolean().optional().default(true),
+        check_web: z.boolean().optional().default(true),
+        check_go: z.boolean().optional().default(true),
+        check_csharp: z.boolean().optional().default(true),
+        check_java: z.boolean().optional().default(true),
+        block_security_deprecated: z.boolean().optional().default(true),
+        ignore_patterns: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
+    test_quality: z.object({
+        enabled: z.boolean().optional().default(true),
+        check_empty_tests: z.boolean().optional().default(true),
+        check_tautological: z.boolean().optional().default(true),
+        check_mock_heavy: z.boolean().optional().default(true),
+        check_snapshot_abuse: z.boolean().optional().default(true),
+        check_assertion_free_async: z.boolean().optional().default(true),
+        max_mocks_per_test: z.number().optional().default(5),
+        ignore_patterns: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
 });
 
 export const CommandsSchema = z.object({
@@ -152,6 +183,8 @@ export const HooksSchema = z.object({
     tools: z.array(z.enum(['claude', 'cursor', 'cline', 'windsurf'])).optional().default([]),
     fast_gates: z.array(z.string()).optional().default([
         'hallucinated-imports',
+        'phantom-apis',
+        'deprecated-apis',
         'promise-safety',
         'security-patterns',
         'file-size',
