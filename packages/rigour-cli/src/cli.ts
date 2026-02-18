@@ -10,6 +10,7 @@ import { indexCommand } from './commands/index.js';
 import { studioCommand } from './commands/studio.js';
 import { exportAuditCommand } from './commands/export-audit.js';
 import { demoCommand } from './commands/demo.js';
+import { hooksInitCommand } from './commands/hooks.js';
 import { checkForUpdates } from './utils/version.js';
 import chalk from 'chalk';
 
@@ -124,13 +125,23 @@ Examples:
 program
     .command('demo')
     .description('Run a live demo — see Rigour catch AI drift, security issues, and structural violations')
+    .option('--cinematic', 'Screen-recording mode: typewriter effects, simulated AI agent, before/after scores')
+    .option('--hooks', 'Focus on real-time hooks catching issues as AI writes code')
+    .option('--speed <speed>', 'Pacing: fast, normal, slow (default: normal)', 'normal')
     .addHelpText('after', `
 Examples:
   $ rigour demo                          # Run the flagship demo
+  $ rigour demo --cinematic              # Screen-recording optimized (great for GIFs)
+  $ rigour demo --cinematic --speed slow # Slower pacing for presentations
+  $ rigour demo --hooks                  # Focus on hooks catching issues
   $ npx @rigour-labs/cli demo            # Try without installing
     `)
-    .action(async () => {
-        await demoCommand();
+    .action(async (options: any) => {
+        await demoCommand({
+            cinematic: !!options.cinematic,
+            hooks: !!options.hooks,
+            speed: options.speed || 'normal',
+        });
     });
 
 program
@@ -145,6 +156,29 @@ program
     .description('Show installation and global setup guidance')
     .action(async () => {
         await setupCommand();
+    });
+
+const hooksCmd = program
+    .command('hooks')
+    .description('Manage AI coding tool hook integrations');
+
+hooksCmd
+    .command('init')
+    .description('Generate hook configs for AI coding tools (Claude, Cursor, Cline, Windsurf)')
+    .option('-t, --tool <name>', 'Target tool(s): claude, cursor, cline, windsurf, all. Auto-detects if not specified.')
+    .option('--dry-run', 'Show what files would be created without writing them')
+    .option('-f, --force', 'Overwrite existing hook files')
+    .option('--block', 'Configure hooks to block on failure (exit code 2)')
+    .addHelpText('after', `
+Examples:
+  $ rigour hooks init                    # Auto-detect tools, generate hooks
+  $ rigour hooks init --tool claude      # Generate Claude Code hooks only
+  $ rigour hooks init --tool all         # Generate hooks for all tools
+  $ rigour hooks init --dry-run          # Preview without writing files
+  $ rigour hooks init --tool cursor -f   # Force overwrite Cursor hooks
+    `)
+    .action(async (options: any) => {
+        await hooksInitCommand(process.cwd(), options);
     });
 
 // Check for updates before parsing (non-blocking)

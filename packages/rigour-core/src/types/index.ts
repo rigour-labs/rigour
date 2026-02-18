@@ -147,12 +147,26 @@ export const CommandsSchema = z.object({
     test: z.string().optional(),
 });
 
+export const HooksSchema = z.object({
+    enabled: z.boolean().optional().default(false),
+    tools: z.array(z.enum(['claude', 'cursor', 'cline', 'windsurf'])).optional().default([]),
+    fast_gates: z.array(z.string()).optional().default([
+        'hallucinated-imports',
+        'promise-safety',
+        'security-patterns',
+        'file-size',
+    ]),
+    timeout_ms: z.number().optional().default(5000),
+    block_on_failure: z.boolean().optional().default(false),
+}).optional().default({});
+
 export const ConfigSchema = z.object({
     version: z.number().default(1),
     preset: z.string().optional(),
     paradigm: z.string().optional(),
     commands: CommandsSchema.optional().default({}),
     gates: GatesSchema.optional().default({}),
+    hooks: HooksSchema,
     output: z.object({
         report_path: z.string().default('rigour-report.json'),
     }).optional().default({}),
@@ -162,10 +176,12 @@ export const ConfigSchema = z.object({
 
 export type Gates = z.infer<typeof GatesSchema>;
 export type Commands = z.infer<typeof CommandsSchema>;
+export type Hooks = z.infer<typeof HooksSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
 export type RawGates = z.input<typeof GatesSchema>;
 export type RawCommands = z.input<typeof CommandsSchema>;
+export type RawHooks = z.input<typeof HooksSchema>;
 export type RawConfig = z.input<typeof ConfigSchema>;
 
 export const StatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR']);

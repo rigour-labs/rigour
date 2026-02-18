@@ -499,6 +499,13 @@ export const UNIVERSAL_CONFIG: Config = {
             ignore_patterns: [],
         },
     },
+    hooks: {
+        enabled: false,
+        tools: [],
+        fast_gates: ['hallucinated-imports', 'promise-safety', 'security-patterns', 'file-size'],
+        timeout_ms: 5000,
+        block_on_failure: false,
+    },
     output: {
         report_path: 'rigour-report.json',
     },

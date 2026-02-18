@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import yaml from 'yaml';
 import { DiscoveryService } from '@rigour-labs/core';
 import { CODE_QUALITY_RULES, DEBUGGING_RULES, COLLABORATION_RULES, AGNOSTIC_AI_INSTRUCTIONS } from './constants.js';
+import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
 
 // Helper to log events for Rigour Studio
@@ -370,7 +371,10 @@ ${ruleContent}`;
         }
     }
 
-    // 3. Update .gitignore
+    // 3. Auto-initialize hooks for detected AI coding tools
+    await initHooksForDetectedTools(cwd, detectedIDE);
+
+    // 4. Update .gitignore
     const gitignorePath = path.join(cwd, '.gitignore');
     const ignorePatterns = ['rigour-report.json', 'rigour-fix-packet.json', '.rigour/'];
     try {
@@ -419,4 +423,30 @@ ${ruleContent}`;
         status: "success",
         content: [{ type: "text", text: `Rigour Governance Initialized` }]
     });
+}
+
+// Maps detected IDE to hook tool name
+const IDE_TO_HOOK_TOOL: Record<string, string> = {
+    claude: 'claude',
+    cursor: 'cursor',
+    cline: 'cline',
+    windsurf: 'windsurf',
+};
+
+async function initHooksForDetectedTools(
+    cwd: string,
+    detectedIDE: DetectedIDE
+): Promise<void> {
+    const hookTool = IDE_TO_HOOK_TOOL[detectedIDE];
+    if (!hookTool) {
+        return; // Unknown IDE or no hook support (vscode, gemini, codex)
+    }
+
+    try {
+        console.log(chalk.dim(`\n   Setting up real-time hooks for ${detectedIDE}...`));
+        await hooksInitCommand(cwd, { tool: hookTool });
+    } catch {
+        // Non-fatal — hooks are a bonus, not a requirement
+        console.log(chalk.dim(`   (Hooks setup skipped — run 'rigour hooks init' manually)`));
+    }
 }

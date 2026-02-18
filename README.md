@@ -4,17 +4,62 @@
 [![npm downloads](https://img.shields.io/npm/dm/@rigour-labs/cli?color=blue)](https://www.npmjs.com/package/@rigour-labs/cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18673564.svg)](https://doi.org/10.5281/zenodo.18673564)
+[![OWASP Coverage](https://img.shields.io/badge/OWASP_LLM_Top_10-10%2F10_covered-green)](./docs/OWASP_MAPPING.md)
 
 **Deterministic quality gates that force AI agents to write production-grade code.**
 
-AI coding agents (Claude, Cursor, Copilot) routinely claim "done" while leaving behind TODO comments, 1000-line God files, and cyclomatic complexity violations. Rigour sits between the agent and your codebase, enforcing structural standards **before** code ships — not after CI fails.
+Rigour sits between your AI agent and the codebase — catching hallucinated imports, hardcoded secrets, and floating promises **the instant they're written**, not after CI fails.
 
 > Zero cloud. Zero telemetry. Fully local. MIT licensed.
 
+---
+
+## See It In Action
+
 ```bash
-npx @rigour-labs/cli init        # Auto-detect project, generate config
-npx @rigour-labs/cli check       # Run all quality gates → PASS or FAIL
-npx @rigour-labs/cli run -- claude "Build feature X"   # Supervised agent loop
+npx @rigour-labs/cli demo --cinematic
+```
+
+<!-- Replace with your recorded GIF: asciinema rec → gif -->
+<!-- ![Rigour Demo](https://raw.githubusercontent.com/rigour-labs/rigour/main/docs/assets/demo.gif) -->
+
+Watch an AI agent write flawed code, Rigour hooks catch each issue in real time, then the agent self-corrects — score jumps from 35 → 91:
+
+```
+Agent: Write → src/auth.ts
+  const API_KEY = "sk-live-4f3c2b1a..."
+
+[rigour/hook] CRITICAL [security-patterns] src/auth.ts:3
+  → Hardcoded secret detected
+
+Agent: Write → src/data-loader.ts
+  import { magicParser } from 'ai-data-magic';
+
+[rigour/hook] HIGH [hallucinated-imports] src/data-loader.ts:2
+  → Package 'ai-data-magic' does not exist
+
+Agent: Write → src/api-handler.ts
+  fetchUserData(req.params.id);  // no await
+
+[rigour/hook] MEDIUM [promise-safety] src/api-handler.ts:7
+  → Floating promise — missing await or .catch()
+
+  Overall     ██████░░░░░░░░░░░░░░░░░░░░░░░░ 35/100
+
+Agent fixes issues...
+
+  Before      ██████░░░░░░░░░░░░░░░░░░░░░░░░ 35/100
+  After       ███████████████████████████░░░░ 91/100
+```
+
+---
+
+## Quick Start
+
+```bash
+npx @rigour-labs/cli init          # Auto-detect project, generate config
+npx @rigour-labs/cli check         # Run 23 quality gates → PASS or FAIL
+npx @rigour-labs/cli hooks init    # Wire into Claude/Cursor/Cline/Windsurf
 ```
 
 ---
@@ -24,91 +69,125 @@ npx @rigour-labs/cli run -- claude "Build feature X"   # Supervised agent loop
 Every team using AI code generation hits the same wall:
 
 ```
-Agent writes code → Claims "Done!" → Code has TODOs, complexity violations, God files
-→ CI fails → Human intervenes → Repeat
+Agent writes code → Claims "Done!" → Hardcoded secrets, hallucinated packages, floating promises
+→ CI fails 10 minutes later → Human intervenes → Repeat
 ```
 
-This is **"Vibe Coding"** — the agent optimizes for appearing correct, not for being maintainable. Tests might pass, but the code violates every structural principle your team spent years establishing.
+This is **"Vibe Coding"** — the agent optimizes for appearing correct, not for being safe. The OWASP Foundation now tracks this as a [Top 10 risk for LLM-generated code](./docs/OWASP_MAPPING.md).
 
 ## How Rigour Solves It
 
-Rigour introduces a **stateless feedback loop** between the agent and the filesystem:
+**Two layers of enforcement:**
+
+**Layer 1 — Real-time hooks** (<200ms per file): As the AI agent writes each file, Rigour's hooks run 4 fast gates (hallucinated imports, promise safety, security patterns, file size) and flag issues instantly — before the agent moves to the next file.
+
+**Layer 2 — Full quality gates** (23 gates): On `rigour check`, the complete gate suite runs: AST complexity, duplication drift, context window artifacts, inconsistent error handling, and more. Produces structured **Fix Packets** (JSON) that agents consume directly — no human interpretation needed.
 
 ```
-Agent writes code → Rigour gates check → FAIL? → Fix Packet (JSON) → Agent retries → PASS ✓
+Agent writes code → Hook catches issue → Agent retries → Hook passes → Full check → PASS ✓
 ```
 
-The agent never talks to a server. Rigour reads the filesystem, runs deterministic checks, and produces structured **Fix Packets** — machine-readable diagnostics that tell the agent *exactly* what to fix (`"auth.ts line 45: complexity 15, max allowed 10"`).
+---
 
-No opinions. No heuristics. Just PASS or FAIL.
+## OWASP LLM Top 10 Coverage
+
+Rigour has **Strong coverage on all 10 risks** from the [OWASP Top 10 for LLM-Generated Code (2025)](./docs/OWASP_MAPPING.md):
+
+| OWASP Risk | Rigour Gate | Coverage |
+|:---|:---|:---|
+| Injection Flaws | `security-patterns` (SQL, XSS, command, eval) | **Strong** |
+| Insecure Auth (hardcoded creds) | `security-patterns` | **Strong** |
+| Sensitive Data Exposure | `security-patterns` | **Strong** |
+| Hallucinated Dependencies | `hallucinated-imports` | **Strong** |
+| Improper Error Handling | `promise-safety`, `inconsistent-error-handling` | **Strong** |
+| Insecure Output Handling | `security-patterns` (reflection, template injection) | **Strong** |
+| DoS Vulnerabilities | `security-patterns` (ReDoS), `ast` (complexity) | **Strong** |
+| Insufficient Input Validation | `security-patterns` (raw parse, `as any`), `ast` | **Strong** |
+| Overly Permissive Code | `security-patterns` (CORS `*`, `0.0.0.0`, chmod 777) | **Strong** |
+| Inadequate Code Quality | `duplication-drift`, `file-size`, `content-check`, `ast` | **Strong** |
+
+[Full mapping with details →](./docs/OWASP_MAPPING.md)
+
+---
+
+## Real-Time Hooks
+
+One command wires Rigour into your AI coding tool:
+
+```bash
+npx @rigour-labs/cli hooks init              # Auto-detects installed tools
+npx @rigour-labs/cli hooks init --tool all   # Claude + Cursor + Cline + Windsurf
+```
+
+| Tool | Hook Type | What Happens |
+|:---|:---|:---|
+| **Claude Code** | `PostToolUse` on Write/Edit | Rigour checks every file the agent writes |
+| **Cursor** | `afterFileEdit` | Stdin-based checker runs on each edit |
+| **Cline** | `PostToolUse` executable | Injects fix context back into the agent |
+| **Windsurf** | `post_write_code` | Cascade agent gets instant feedback |
+
+Hooks run **4 fast gates in <200ms**: `hallucinated-imports`, `promise-safety`, `security-patterns`, `file-size`.
 
 ---
 
 ## What Gets Checked
 
-Rigour ships with **23 quality gates** across five categories:
-
-### Structural Gates
-| Gate | What It Enforces | Severity |
-|:---|:---|:---|
-| **File Size** | Max lines per file (default 300–500) | `low` |
-| **Content Hygiene** | Zero tolerance for TODO/FIXME comments | `info` |
-| **Required Docs** | SPEC.md, ARCH.md, DECISIONS.md must exist | `medium` |
-| **File Guard** | Protected paths cannot be modified by agents | `medium` |
-
-### AST-Based Code Analysis
-| Gate | What It Enforces | Severity |
-|:---|:---|:---|
-| **Cyclomatic Complexity** | Max 10 per function (configurable) | `medium` |
-| **Method Count** | Max 12 methods per class | `medium` |
-| **Parameter Count** | Max 5 parameters per function | `medium` |
-| **Nesting Depth** | Max 4 levels of nesting | `medium` |
-
-Supports **TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET** via `web-tree-sitter`, with a universal fallback for other languages.
+**23 quality gates** across five categories:
 
 ### Security Gates
 | Gate | What It Catches | Severity |
 |:---|:---|:---|
-| **Hardcoded Secrets** | API keys, tokens, passwords in source | `critical` |
+| **Hardcoded Secrets** | API keys (`sk-`, `ghp_`, `AKIA`), passwords, tokens | `critical` |
 | **SQL Injection** | Unsanitized query construction | `critical` |
-| **XSS Patterns** | Dangerous DOM manipulation | `high` |
 | **Command Injection** | Shell execution with user input | `critical` |
+| **XSS Patterns** | Dangerous DOM manipulation | `high` |
 | **Path Traversal** | File operations with unsanitized paths | `high` |
 
-### AI-Native Drift Detection (v2.16+)
+### AI Drift Detection
 | Gate | What It Catches | Severity |
 |:---|:---|:---|
-| **Duplication Drift** | Near-identical functions across files — AI re-invents what it forgot it already wrote | `high` |
-| **Hallucinated Imports** | Imports referencing modules that don't exist in the project (JS/TS, Python, Go, Ruby, C#) | `critical` |
-| **Inconsistent Error Handling** | Same error type handled 4 different ways across agent sessions | `high` |
-| **Context Window Artifacts** | Quality degradation within a file — clean top, messy bottom | `high` |
-| **Async & Error Safety** | Unsafe async/promise patterns, unhandled errors across 6 languages (v2.17+) | `high` |
+| **Hallucinated Imports** | Imports referencing packages that don't exist (JS/TS, Python, Go, Ruby, C#) | `critical` |
+| **Duplication Drift** | Near-identical functions — AI re-invents what it forgot it already wrote | `high` |
+| **Context Window Artifacts** | Clean code at top, degraded code at bottom — context overflow signature | `high` |
+| **Inconsistent Error Handling** | Same error type handled 4 different ways across sessions | `high` |
+| **Async & Error Safety** | Floating promises, unhandled errors across 6 languages | `high` |
 
-### Agent Governance (Frontier Model Support)
+### Structural Gates
+| Gate | What It Enforces | Severity |
+|:---|:---|:---|
+| **Cyclomatic Complexity** | Max 10 per function (configurable) | `medium` |
+| **File Size** | Max lines per file (default 300–500) | `low` |
+| **Method/Param/Nesting** | Max 12 methods, 5 params, 4 nesting levels | `medium` |
+| **Content Hygiene** | Zero tolerance for TODO/FIXME left by agents | `info` |
+
+### Agent Governance
 | Gate | Purpose | Severity |
 |:---|:---|:---|
 | **Agent Team** | Multi-agent scope isolation and conflict detection | `high` |
 | **Checkpoint** | Long-running execution supervision | `medium` |
-| **Context Drift** | Prevents architectural divergence over time | `high` |
 | **Retry Loop Breaker** | Detects and stops infinite agent loops | `high` |
 
-### Two-Score System & Provenance (v2.17+)
+Supports **TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET** via `web-tree-sitter`.
 
-Every failure carries a **provenance tag** (`ai-drift`, `traditional`, `security`, `governance`) and contributes to two sub-scores: **AI Health Score** (AI-specific failures) and **Structural Score** (traditional quality), alongside the overall 0–100 score.
+---
 
-### Severity-Weighted Scoring
+## Scoring
 
-Rigour scores your codebase on a 0–100 scale, with deductions weighted by severity:
+Every failure carries a **provenance tag** (`ai-drift`, `traditional`, `security`, `governance`) and contributes to two sub-scores:
 
-| Severity | Point Deduction | Meaning |
+```
+  Overall     ██████████████████░░░░░░░░░░░░ 62/100
+  AI Health   █████████████████████░░░░░░░░░ 70/100
+  Structural  ███████████████░░░░░░░░░░░░░░░ 51/100
+```
+
+| Severity | Deduction | What It Means |
 |:---|:---|:---|
-| `critical` | 20 pts | Security vulnerabilities, hallucinated code |
-| `high` | 10 pts | AI drift patterns, architectural violations |
-| `medium` | 5 pts | Complexity violations, structural issues |
-| `low` | 2 pts | File size limits |
-| `info` | 0 pts | TODOs, minor hygiene — tracked but free |
-
-This means 5 TODO comments cost 0 points, while a single hardcoded API key costs 20. The score reflects what actually matters.
+| `critical` | −20 pts | Security vulnerabilities, hallucinated code |
+| `high` | −10 pts | AI drift patterns, architectural violations |
+| `medium` | −5 pts | Complexity violations, structural issues |
+| `low` | −2 pts | File size limits |
+| `info` | 0 pts | TODOs — tracked but free |
 
 ---
 
@@ -127,7 +206,7 @@ This means 5 TODO comments cost 0 points, while a single hardcoded API key costs
 }
 ```
 
-The MCP server exposes `rigour_check`, `rigour_explain`, `rigour_get_fix_packet`, `rigour_review`, and more — giving any MCP-compatible agent direct access to quality gates.
+Exposes `rigour_check`, `rigour_explain`, `rigour_get_fix_packet`, `rigour_review`, and more — giving any MCP-compatible agent direct access to quality gates.
 
 ### CI/CD (GitHub Actions)
 
@@ -141,74 +220,13 @@ The MCP server exposes `rigour_check`, `rigour_explain`, `rigour_get_fix_packet`
 npx @rigour-labs/cli run -- claude "Refactor auth module"
 ```
 
-Runs the agent, checks gates, feeds back Fix Packets, and retries automatically — up to a configurable max iterations.
-
----
-
-## Configuration
-
-```yaml
-# rigour.yml — generated by `rigour init`
-version: 1
-preset: api          # auto-detected: ui | api | infra | data
-paradigm: functional # auto-detected: oop | functional | minimal
-
-gates:
-  max_file_lines: 500
-  forbid_todos: true
-  forbid_fixme: true
-  required_files: [docs/SPEC.md, docs/ARCH.md]
-  ast:
-    complexity: 10
-    max_methods: 12
-    max_params: 5
-    max_nesting: 4
-  security:
-    enabled: true
-  # AI-Native Drift Detection (all enabled by default)
-  duplication_drift:
-    enabled: true
-    similarity_threshold: 0.8
-    min_body_lines: 5
-  hallucinated_imports:
-    enabled: true
-  inconsistent_error_handling:
-    enabled: true
-    max_strategies_per_type: 2
-  context_window_artifacts:
-    enabled: true
-    min_file_lines: 100
-    degradation_threshold: 0.4
-  promise_safety:
-    enabled: true
-
-commands:
-  lint: "npm run lint"
-  test: "npm test"
-
-ignore: ["**/node_modules/**", "**/dist/**"]
-```
-
----
-
-## Architecture
-
-Rigour is a **pnpm monorepo** with four packages:
-
-| Package | Purpose | Size |
-|:---|:---|:---|
-| `@rigour-labs/core` | Gate engine, AST analysis, Fix Packet generation | ~2,400 SLOC |
-| `@rigour-labs/cli` | User-facing commands (`init`, `check`, `run`, `studio`) | ~500 SLOC |
-| `@rigour-labs/mcp` | Model Context Protocol server for agent integration | ~400 SLOC |
-| `@rigour-labs/studio` | React-based monitoring dashboard | Private |
-
-**Tech stack:** TypeScript (strict mode, ESNext), web-tree-sitter, Zod, Vitest, GitHub Actions CI across Ubuntu/macOS/Windows.
+Runs the agent, checks gates, feeds back Fix Packets, and retries automatically.
 
 ---
 
 ## Fix Packet Schema (v2)
 
-The core innovation — structured, machine-readable diagnostics that agents can consume without human interpretation:
+Structured, machine-readable diagnostics that agents consume without human interpretation:
 
 ```json
 {
@@ -232,31 +250,104 @@ The core innovation — structured, machine-readable diagnostics that agents can
 
 ---
 
+## Configuration
+
+```yaml
+# rigour.yml — generated by `rigour init`
+version: 1
+preset: api          # auto-detected: ui | api | infra | data
+paradigm: functional # auto-detected: oop | functional | minimal
+
+gates:
+  max_file_lines: 500
+  forbid_todos: true
+  ast:
+    complexity: 10
+    max_methods: 12
+    max_params: 5
+    max_nesting: 4
+  security:
+    enabled: true
+  hallucinated_imports:
+    enabled: true
+  promise_safety:
+    enabled: true
+  duplication_drift:
+    enabled: true
+    similarity_threshold: 0.8
+
+hooks:
+  enabled: true
+  tools: [claude, cursor]
+  fast_gates: [hallucinated-imports, promise-safety, security-patterns, file-size]
+  timeout_ms: 5000
+
+commands:
+  lint: "npm run lint"
+  test: "npm test"
+
+ignore: ["**/node_modules/**", "**/dist/**"]
+```
+
+---
+
+## Architecture
+
+A **pnpm monorepo** with four packages:
+
+| Package | Purpose |
+|:---|:---|
+| `@rigour-labs/core` | Gate engine, AST analysis, hooks checker, Fix Packet generation |
+| `@rigour-labs/cli` | Commands: `init`, `check`, `run`, `demo`, `hooks init`, `studio` |
+| `@rigour-labs/mcp` | Model Context Protocol server for agent integration |
+| `@rigour-labs/studio` | React-based monitoring dashboard |
+
+**Tech stack:** TypeScript (strict mode), web-tree-sitter, Zod, Commander.js, Vitest, GitHub Actions CI (Ubuntu/macOS/Windows).
+
+---
+
+## Demo Modes
+
+```bash
+rigour demo                          # Fast: scaffold → check → results
+rigour demo --hooks                  # Show real-time hooks catching AI mistakes
+rigour demo --cinematic              # Screen-recording mode (GIF-ready)
+rigour demo --cinematic --speed slow # Presentation pacing
+```
+
+The cinematic demo simulates an AI agent writing flawed code, hooks catching each issue, the agent fixing them, and a before/after score chart — all with typewriter effects and timed pauses. Perfect for recording with `asciinema`, `terminalizer`, or `vhs`.
+
+---
+
 ## Documentation
 
 **[Full docs at docs.rigour.run →](https://docs.rigour.run/)**
 
-| | |
+| Doc | What's Inside |
 |:---|:---|
-| [Getting Started](https://docs.rigour.run/getting-started/installation) | Install and run in 60 seconds |
-| [Configuration](https://docs.rigour.run/getting-started/configuration) | Customize quality gates |
-| [AST Gates](./docs/AST_GATES.md) | Deep dive on structural analysis |
-| [Fix Packet Schema](./docs/FIX_PACKET.md) | v2 diagnostic format |
-| [MCP Integration](https://docs.rigour.run/mcp/mcp-server) | Agent setup guides |
+| [Quick Start](./docs/QUICK_START.md) | Install and run in 60 seconds |
+| [Configuration](./docs/CONFIGURATION.md) | Full `rigour.yml` reference |
+| [OWASP LLM Mapping](./docs/OWASP_MAPPING.md) | All 10 OWASP LLM code risks covered |
+| [AST Gates](./docs/AST_GATES.md) | Cyclomatic complexity, nesting, tree-sitter |
+| [Fix Packet Schema](./docs/FIX_PACKET.md) | v2 machine-readable diagnostics |
+| [Presets](./docs/PRESETS.md) | `api`, `ui`, `infra`, `data` preset details |
+| [MCP Integration](./docs/MCP_INTEGRATION.md) | MCP server setup for Claude/Cursor/Cline |
+| [Agent Integration](./docs/AGENT_INTEGRATION.md) | Wiring agents into the feedback loop |
+| [Agent Instructions](./docs/AGENT_INSTRUCTIONS.md) | `.mdc` / system prompt patterns |
+| [Enterprise CI/CD](./docs/ENTERPRISE.md) | GitHub Actions, team adoption |
+| [Regulated Industries](./docs/REGULATED_INDUSTRIES.md) | SOC2, HIPAA, FDA compliance patterns |
+| [Fix Packet Spec](./docs/specs/FIX_PACKET_SCHEMA.md) | Formal JSON schema for fix packets |
 | [Philosophy](./docs/PHILOSOPHY.md) | Why Rigour exists |
-| [Enterprise CI/CD](./docs/ENTERPRISE.md) | GitHub Actions patterns |
 
 ---
 
 ## Cite This Project
 
-If you use Rigour in academic or industry research, please cite:
-
-> Singh, A. (2026). *Rigour: Deterministic Quality Gates for AI-Generated Code.* Rigour Labs. [https://doi.org/10.5281/zenodo.18673564](https://doi.org/10.5281/zenodo.18673564)
+> Singh, A. (2026). *Deterministic Quality Gates and Governance for AI-Generated Code in Regulated Software Systems.* Rigour Labs. [https://doi.org/10.5281/zenodo.18673564](https://doi.org/10.5281/zenodo.18673564)
 
 ```bibtex
 @techreport{singh2026rigour,
-  title={Rigour: Deterministic Quality Gates for AI-Generated Code},
+  title={Deterministic Quality Gates and Governance for AI-Generated Code in Regulated Software Systems},
   author={Singh, Ashutosh},
   year={2026},
   institution={Rigour Labs},
@@ -267,14 +358,8 @@ If you use Rigour in academic or industry research, please cite:
 
 ---
 
-## Prior Art
-
-The [Technical Specification](./docs/SPEC.md) (published January 2026) establishes public disclosure of the "Agentic Quality Gate Feedback Loop" — the specific combination of automated local gates and agent-specific Fix Packets described in this system.
-
----
-
 ## License
 
 MIT © [Rigour Labs](https://github.com/rigour-labs)
 
-Built by [Ashutosh](https://github.com/erashu212) — enforcing the engineering standards that AI agents skip.
+Built by [Ashutosh](https://github.com/erashu212) — enforcing the standards that AI agents skip.

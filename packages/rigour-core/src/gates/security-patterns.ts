@@ -40,6 +40,10 @@ export interface SecurityPatternsConfig {
     hardcoded_secrets?: boolean;
     insecure_randomness?: boolean;
     command_injection?: boolean;
+    redos?: boolean;
+    overly_permissive?: boolean;
+    unsafe_output?: boolean;
+    missing_input_validation?: boolean;
     block_on_severity?: 'critical' | 'high' | 'medium' | 'low';
 }
 
@@ -162,6 +166,98 @@ const VULNERABILITY_PATTERNS: {
             cwe: 'CWE-78',
             languages: ['ts', 'js']
         },
+        // ReDoS — Denial of Service via regex (OWASP #7)
+        {
+            type: 'redos',
+            regex: /new RegExp\s*\([^)]*(?:req\.|params|query|body|input|user)/g,
+            severity: 'high',
+            description: 'Dynamic regex from user input — potential ReDoS',
+            cwe: 'CWE-1333',
+            languages: ['ts', 'js']
+        },
+        {
+            type: 'redos',
+            regex: /\(\?:[^)]*\+[^)]*\)\+|\([^)]*\*[^)]*\)\+|\(\.\*\)\{/g,
+            severity: 'medium',
+            description: 'Regex with nested quantifiers — potential ReDoS',
+            cwe: 'CWE-1333',
+            languages: ['ts', 'js', 'py']
+        },
+        // Overly Permissive Code (OWASP #9)
+        {
+            type: 'overly_permissive',
+            regex: /cors\s*\(\s*\{[^}]*origin\s*:\s*(?:true|['"`]\*['"`])/g,
+            severity: 'high',
+            description: 'CORS wildcard origin — allows any domain',
+            cwe: 'CWE-942',
+            languages: ['ts', 'js']
+        },
+        {
+            type: 'overly_permissive',
+            regex: /(?:listen|bind)\s*\(\s*(?:\d+\s*,\s*)?['"`]0\.0\.0\.0['"`]/g,
+            severity: 'medium',
+            description: 'Binding to 0.0.0.0 exposes service to all interfaces',
+            cwe: 'CWE-668',
+            languages: ['ts', 'js', 'py', 'go']
+        },
+        {
+            type: 'overly_permissive',
+            regex: /chmod\s*\(\s*[^,]*,\s*['"`]?(?:0o?)?777['"`]?\s*\)/g,
+            severity: 'high',
+            description: 'chmod 777 — world-readable/writable permissions',
+            cwe: 'CWE-732',
+            languages: ['ts', 'js', 'py']
+        },
+        {
+            type: 'overly_permissive',
+            regex: /(?:Access-Control-Allow-Origin|x-powered-by)['"`,\s:]+\*/gi,
+            severity: 'high',
+            description: 'Wildcard Access-Control-Allow-Origin header',
+            cwe: 'CWE-942',
+            languages: ['ts', 'js', 'py']
+        },
+        // Unsafe Output Handling (OWASP #6)
+        {
+            type: 'unsafe_output',
+            regex: /res\.(?:send|write|end)\s*\(\s*(?:req\.|params|query|body|input|user)/g,
+            severity: 'high',
+            description: 'Reflecting user input in response without sanitization',
+            cwe: 'CWE-79',
+            languages: ['ts', 'js']
+        },
+        {
+            type: 'unsafe_output',
+            regex: /\$\{[^}]*(?:req\.|params|query|body|input|user)[^}]*\}.*(?:html|template|render)/gi,
+            severity: 'high',
+            description: 'User input interpolated into template/HTML output',
+            cwe: 'CWE-79',
+            languages: ['ts', 'js', 'py']
+        },
+        {
+            type: 'unsafe_output',
+            regex: /eval\s*\(\s*(?:req\.|params|query|body|input|user)/g,
+            severity: 'critical',
+            description: 'eval() with user input — code injection',
+            cwe: 'CWE-94',
+            languages: ['ts', 'js', 'py']
+        },
+        // Missing Input Validation (OWASP #8)
+        {
+            type: 'missing_input_validation',
+            regex: /JSON\.parse\s*\(\s*(?:req\.body|request\.body|body|data|input)\s*\)/g,
+            severity: 'medium',
+            description: 'JSON.parse on raw input without schema validation',
+            cwe: 'CWE-20',
+            languages: ['ts', 'js']
+        },
+        {
+            type: 'missing_input_validation',
+            regex: /(?:as\s+any|:\s*any)\s*(?:[;,)\]}])/g,
+            severity: 'medium',
+            description: 'Type assertion to "any" bypasses type safety',
+            cwe: 'CWE-20',
+            languages: ['ts']
+        },
     ];
 
 export class SecurityPatternsGate extends Gate {
@@ -178,6 +274,10 @@ export class SecurityPatternsGate extends Gate {
             hardcoded_secrets: config.hardcoded_secrets ?? true,
             insecure_randomness: config.insecure_randomness ?? true,
             command_injection: config.command_injection ?? true,
+            redos: config.redos ?? true,
+            overly_permissive: config.overly_permissive ?? true,
+            unsafe_output: config.unsafe_output ?? true,
+            missing_input_validation: config.missing_input_validation ?? true,
             block_on_severity: config.block_on_severity ?? 'high',
         };
     }
@@ -218,6 +318,10 @@ export class SecurityPatternsGate extends Gate {
                 case 'hardcoded_secrets': return this.config.hardcoded_secrets;
                 case 'insecure_randomness': return this.config.insecure_randomness;
                 case 'command_injection': return this.config.command_injection;
+                case 'redos': return this.config.redos;
+                case 'overly_permissive': return this.config.overly_permissive;
+                case 'unsafe_output': return this.config.unsafe_output;
+                case 'missing_input_validation': return this.config.missing_input_validation;
                 default: return true;
             }
         });
