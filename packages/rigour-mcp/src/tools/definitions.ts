@@ -237,6 +237,35 @@ export const TOOL_DEFINITIONS = [
         },
     },
 
+    // ─── Real-Time Hooks (v3.0) ────────────────────────────
+    {
+        name: "rigour_hooks_check",
+        description: "Run the fast hook checker on specific files. Same checks that run inside IDE hooks (Claude, Cursor, Cline, Windsurf). Catches: hardcoded secrets, hallucinated imports, command injection, file size. Completes in <100ms.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                files: { type: "array", items: { type: "string" }, description: "List of file paths (relative to cwd) to check." },
+                timeout: { type: "number", description: "Optional timeout in milliseconds (default: 5000)." },
+            },
+            required: ["cwd", "files"],
+        },
+    },
+    {
+        name: "rigour_hooks_init",
+        description: "Generate hook configs for AI coding tools (Claude, Cursor, Cline, Windsurf). Installs real-time quality checks that run on every file write.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                tool: { type: "string", description: "Target tool: 'claude', 'cursor', 'cline', or 'windsurf'." },
+                force: { type: "boolean", description: "Overwrite existing hook files (default: false)." },
+                dryRun: { type: "boolean", description: "Preview changes without writing files (default: false)." },
+            },
+            required: ["cwd", "tool"],
+        },
+    },
+
     // ─── Code Review ──────────────────────────────────────
     {
         name: "rigour_review",

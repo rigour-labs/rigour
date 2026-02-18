@@ -363,8 +363,15 @@ export class HallucinatedImportsGate extends Gate {
     }
 
     /**
-     * Check Go imports — verify relative/project package paths exist
-     * Go stdlib packages are skipped; only project-relative imports are checked
+     * Check Go imports — verify project-relative package paths exist.
+     *
+     * Strategy:
+     *  1. Skip Go standard library (comprehensive list of 150+ packages)
+     *  2. Skip external modules (any path containing a dot → domain name)
+     *  3. Parse go.mod for the project module path
+     *  4. Only flag imports that match the project module prefix but don't resolve
+     *
+     * @since v3.0.1 — fixed false positives on Go stdlib (encoding/json, net/http, etc.)
      */
     private checkGoImports(
         content: string, file: string, cwd: string,
@@ -373,6 +380,17 @@ export class HallucinatedImportsGate extends Gate {
         const lines = content.split('\n');
         let inImportBlock = false;
 
+        // Try to read go.mod for the module path
+        const goModPath = path.join(cwd, 'go.mod');
+        let modulePath: string | null = null;
+        try {
+            if (fs.pathExistsSync(goModPath)) {
+                const goMod = fs.readFileSync(goModPath, 'utf-8');
+                const moduleMatch = goMod.match(/^module\s+(\S+)/m);
+                if (moduleMatch) modulePath = moduleMatch[1];
+            }
+        } catch { /* no go.mod — skip project-relative checks entirely */ }
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
 
@@ -380,29 +398,142 @@ export class HallucinatedImportsGate extends Gate {
             if (/^import\s*\(/.test(line)) { inImportBlock = true; continue; }
             if (inImportBlock && line === ')') { inImportBlock = false; continue; }
 
-            // Single import: import "path"
-            const singleMatch = line.match(/^import\s+"([^"]+)"/);
-            const blockMatch = inImportBlock ? line.match(/^\s*"([^"]+)"/) : null;
+            // Single import: import "path"  or  import alias "path"
+            const singleMatch = line.match(/^import\s+(?:\w+\s+)?"([^"]+)"/);
+            const blockMatch = inImportBlock ? line.match(/^\s*(?:\w+\s+)?"([^"]+)"/) : null;
             const importPath = singleMatch?.[1] || blockMatch?.[1];
             if (!importPath) continue;
 
-            // Skip Go stdlib (no dots in path = stdlib or well-known)
-            if (!importPath.includes('.') && !importPath.includes('/')) continue;
+            // 1. Skip Go standard library — comprehensive list
+            if (this.isGoStdlib(importPath)) continue;
 
-            // Project-relative imports (contain module path from go.mod)
-            // We only flag imports that look like project paths but don't resolve
-            if (importPath.includes('/') && !importPath.startsWith('github.com') && !importPath.startsWith('golang.org')) {
-                // Check if the path maps to a directory in the project
-                const dirPath = importPath.split('/').slice(-2).join('/');
-                const hasMatchingFile = [...projectFiles].some(f => f.includes(dirPath));
+            // 2. If we have a module path, check project-relative imports FIRST
+            //    (project imports like github.com/myorg/project/pkg also have dots)
+            if (modulePath && importPath.startsWith(modulePath + '/')) {
+                const relPath = importPath.slice(modulePath.length + 1);
+                const hasMatchingFile = [...projectFiles].some(f =>
+                    f.endsWith('.go') && f.startsWith(relPath)
+                );
                 if (!hasMatchingFile) {
                     hallucinated.push({
                         file, line: i + 1, importPath, type: 'go',
-                        reason: `Go import '${importPath}' — package path not found in project`,
+                        reason: `Go import '${importPath}' — package directory '${relPath}' not found in project`,
                     });
                 }
+                continue;
             }
+
+            // 3. Skip external modules — any import containing a dot is a domain
+            //    e.g. github.com/*, google.golang.org/*, go.uber.org/*
+            if (importPath.includes('.')) continue;
+
+            // 4. No dots, no go.mod match, not stdlib → likely an internal package
+            //    without go.mod context we can't verify, so skip to avoid false positives
         }
+    }
+
+    /**
+     * Comprehensive Go standard library package list.
+     * Includes all packages from Go 1.22+ (latest stable).
+     * Go stdlib is identified by having NO dots in the import path.
+     * We maintain an explicit list for packages with slashes (e.g. encoding/json).
+     *
+     * @since v3.0.1
+     */
+    private isGoStdlib(importPath: string): boolean {
+        // Fast check: single-segment packages are always stdlib if no dots
+        if (!importPath.includes('/') && !importPath.includes('.')) return true;
+
+        // Check the full path against known stdlib packages with sub-paths
+        const topLevel = importPath.split('/')[0];
+
+        // All Go stdlib top-level packages (including those with sub-packages)
+        const stdlibTopLevel = new Set([
+            // Single-word packages
+            'archive', 'bufio', 'builtin', 'bytes', 'cmp', 'compress',
+            'container', 'context', 'crypto', 'database', 'debug',
+            'embed', 'encoding', 'errors', 'expvar', 'flag', 'fmt',
+            'go', 'hash', 'html', 'image', 'index', 'io', 'iter',
+            'log', 'maps', 'math', 'mime', 'net', 'os', 'path',
+            'plugin', 'reflect', 'regexp', 'runtime', 'slices', 'sort',
+            'strconv', 'strings', 'structs', 'sync', 'syscall',
+            'testing', 'text', 'time', 'unicode', 'unique', 'unsafe',
+            // Internal packages (used by stdlib, sometimes by tools)
+            'internal', 'vendor',
+        ]);
+
+        if (stdlibTopLevel.has(topLevel)) return true;
+
+        // Explicit full-path list for maximum safety — covers all Go 1.22 stdlib paths
+        // This catches any edge case the top-level check might miss
+        const knownStdlibPaths = new Set([
+            // archive/*
+            'archive/tar', 'archive/zip',
+            // compress/*
+            'compress/bzip2', 'compress/flate', 'compress/gzip', 'compress/lzw', 'compress/zlib',
+            // container/*
+            'container/heap', 'container/list', 'container/ring',
+            // crypto/*
+            'crypto/aes', 'crypto/cipher', 'crypto/des', 'crypto/dsa',
+            'crypto/ecdh', 'crypto/ecdsa', 'crypto/ed25519', 'crypto/elliptic',
+            'crypto/hmac', 'crypto/md5', 'crypto/rand', 'crypto/rc4',
+            'crypto/rsa', 'crypto/sha1', 'crypto/sha256', 'crypto/sha512',
+            'crypto/subtle', 'crypto/tls', 'crypto/x509', 'crypto/x509/pkix',
+            // database/*
+            'database/sql', 'database/sql/driver',
+            // debug/*
+            'debug/buildinfo', 'debug/dwarf', 'debug/elf', 'debug/gosym',
+            'debug/macho', 'debug/pe', 'debug/plan9obj',
+            // encoding/*
+            'encoding/ascii85', 'encoding/asn1', 'encoding/base32', 'encoding/base64',
+            'encoding/binary', 'encoding/csv', 'encoding/gob', 'encoding/hex',
+            'encoding/json', 'encoding/pem', 'encoding/xml',
+            // go/*
+            'go/ast', 'go/build', 'go/build/constraint', 'go/constant',
+            'go/doc', 'go/doc/comment', 'go/format', 'go/importer',
+            'go/parser', 'go/printer', 'go/scanner', 'go/token', 'go/types', 'go/version',
+            // hash/*
+            'hash/adler32', 'hash/crc32', 'hash/crc64', 'hash/fnv', 'hash/maphash',
+            // html/*
+            'html/template',
+            // image/*
+            'image/color', 'image/color/palette', 'image/draw',
+            'image/gif', 'image/jpeg', 'image/png',
+            // index/*
+            'index/suffixarray',
+            // io/*
+            'io/fs', 'io/ioutil',
+            // log/*
+            'log/slog', 'log/syslog',
+            // math/*
+            'math/big', 'math/bits', 'math/cmplx', 'math/rand', 'math/rand/v2',
+            // mime/*
+            'mime/multipart', 'mime/quotedprintable',
+            // net/*
+            'net/http', 'net/http/cgi', 'net/http/cookiejar', 'net/http/fcgi',
+            'net/http/httptest', 'net/http/httptrace', 'net/http/httputil',
+            'net/http/pprof', 'net/mail', 'net/netip', 'net/rpc',
+            'net/rpc/jsonrpc', 'net/smtp', 'net/textproto', 'net/url',
+            // os/*
+            'os/exec', 'os/signal', 'os/user',
+            // path/*
+            'path/filepath',
+            // regexp/*
+            'regexp/syntax',
+            // runtime/*
+            'runtime/cgo', 'runtime/coverage', 'runtime/debug', 'runtime/metrics',
+            'runtime/pprof', 'runtime/race', 'runtime/trace',
+            // sync/*
+            'sync/atomic',
+            // testing/*
+            'testing/fstest', 'testing/iotest', 'testing/quick', 'testing/slogtest',
+            // text/*
+            'text/scanner', 'text/tabwriter', 'text/template', 'text/template/parse',
+            // unicode/*
+            'unicode/utf16', 'unicode/utf8',
+        ]);
+
+        return knownStdlibPaths.has(importPath);
     }
 
     /**

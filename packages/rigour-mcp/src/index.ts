@@ -29,11 +29,12 @@ import { handleCheckPattern, handleSecurityAudit } from './tools/pattern-handler
 import { handleRun, handleRunSupervised } from './tools/execution-handlers.js';
 import { handleAgentRegister, handleCheckpoint, handleHandoff, handleAgentDeregister, handleHandoffAccept } from './tools/agent-handlers.js';
 import { handleReview } from './tools/review-handler.js';
+import { handleHooksCheck, handleHooksInit } from './tools/hooks-handler.js';
 
 // ─── Server Setup ─────────────────────────────────────────────────
 
 const server = new Server(
-    { name: "rigour-mcp", version: "1.0.0" },
+    { name: "rigour-mcp", version: "3.0.0" },
     { capabilities: { tools: {} } }
 );
 
@@ -98,6 +99,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "rigour_agent_deregister": result = await handleAgentDeregister(cwd, (args as any).agentId, requestId); break;
             case "rigour_handoff_accept":   result = await handleHandoffAccept(cwd, (args as any).handoffId, (args as any).agentId, requestId); break;
 
+            // Real-time hooks (v3.0)
+            case "rigour_hooks_check": result = await handleHooksCheck(cwd, (args as any).files, (args as any).timeout); break;
+            case "rigour_hooks_init":  result = await handleHooksInit(cwd, (args as any).tool, (args as any).force, (args as any).dryRun); break;
+
             // Code review
             case "rigour_review": result = await handleReview(runner, cwd, (args as any).diff, (args as any).files); break;
 
@@ -132,7 +137,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Rigour MCP server v1.0.0 running on stdio");
+    console.error("Rigour MCP server v3.0.0 running on stdio");
 }
 
 main().catch((error) => {
