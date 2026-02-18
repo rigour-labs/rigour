@@ -16,40 +16,12 @@ Rigour sits between your AI agent and the codebase — catching hallucinated imp
 
 ## See It In Action
 
+![Rigour Demo](https://raw.githubusercontent.com/rigour-labs/rigour/main/docs/assets/demo.gif)
+
+Watch an AI agent write flawed code, Rigour hooks catch each issue **in real time**, then the agent self-corrects — score jumps from **35 → 91**.
+
 ```bash
 npx @rigour-labs/cli demo --cinematic
-```
-
-<!-- Replace with your recorded GIF: asciinema rec → gif -->
-<!-- ![Rigour Demo](https://raw.githubusercontent.com/rigour-labs/rigour/main/docs/assets/demo.gif) -->
-
-Watch an AI agent write flawed code, Rigour hooks catch each issue in real time, then the agent self-corrects — score jumps from 35 → 91:
-
-```
-Agent: Write → src/auth.ts
-  const API_KEY = "sk-live-4f3c2b1a..."
-
-[rigour/hook] CRITICAL [security-patterns] src/auth.ts:3
-  → Hardcoded secret detected
-
-Agent: Write → src/data-loader.ts
-  import { magicParser } from 'ai-data-magic';
-
-[rigour/hook] HIGH [hallucinated-imports] src/data-loader.ts:2
-  → Package 'ai-data-magic' does not exist
-
-Agent: Write → src/api-handler.ts
-  fetchUserData(req.params.id);  // no await
-
-[rigour/hook] MEDIUM [promise-safety] src/api-handler.ts:7
-  → Floating promise — missing await or .catch()
-
-  Overall     ██████░░░░░░░░░░░░░░░░░░░░░░░░ 35/100
-
-Agent fixes issues...
-
-  Before      ██████░░░░░░░░░░░░░░░░░░░░░░░░ 35/100
-  After       ███████████████████████████░░░░ 91/100
 ```
 
 ---
