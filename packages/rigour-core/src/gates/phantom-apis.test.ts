@@ -294,6 +294,35 @@ func check() {
         expect(failures).toHaveLength(1);
         expect(failures[0].details).toContain('Exists');
     });
+
+    it('should NOT flag real Go stdlib functions (os.ReadFile, fmt.Print, math.Max)', async () => {
+        mockFindFiles.mockResolvedValue(['main.go']);
+        mockReadFile.mockResolvedValue(`
+package main
+
+import (
+    "fmt"
+    "math"
+    "os"
+)
+
+func main() {
+    data, err := os.ReadFile("config.json")
+    if err != nil {
+        fmt.Printf("error: %v\n", err)
+        return
+    }
+    fmt.Println(string(data))
+    fmt.Print("done\n")
+    x := math.Max(1.5, 2.5)
+    fmt.Sprintf("max: %f", x)
+    fmt.Fprintf(os.Stderr, "log\n")
+}
+        `);
+
+        const failures = await gate.run({ cwd: '/project' });
+        expect(failures).toHaveLength(0);
+    });
 });
 
 describe('PhantomApisGate — C#', () => {
@@ -375,5 +404,32 @@ class Service {
 
         const failures = await gate.run({ cwd: '/project' });
         expect(failures.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should NOT flag real Java methods (Deque.push, StringBuilder.append, stream().sorted(), List.reversed())', async () => {
+        mockFindFiles.mockResolvedValue(['RealJava.java']);
+        mockReadFile.mockResolvedValue(`
+import java.util.*;
+import java.util.stream.*;
+class RealJava {
+    void test() {
+        Deque<String> deque = new ArrayDeque<>();
+        deque.push("hello");
+
+        Stack<Integer> stack = new Stack<>();
+        stack.push(42);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("world");
+
+        List<Integer> nums = List.of(3, 1, 2);
+        List<Integer> sorted = nums.stream().sorted().collect(Collectors.toList());
+        List<Integer> rev = nums.reversed();
+    }
+}
+        `);
+
+        const failures = await gate.run({ cwd: '/project' });
+        expect(failures).toHaveLength(0);
     });
 });

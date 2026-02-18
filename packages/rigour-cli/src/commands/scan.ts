@@ -215,13 +215,33 @@ function renderScanHeader(scanCtx: ScanContext, stackSignals: StackSignals): voi
 
 function renderScanResults(report: Report, stackSignals: StackSignals, reportPath: string, cwd: string): void {
     const fakePackages = extractHallucinatedImports(report.failures);
+    const criticalSecrets = report.failures.filter(f => f.id === 'security-patterns' && f.severity === 'critical');
+    const phantomApis = report.failures.filter(f => f.id === 'phantom-apis');
+    const ignoredErrors = report.failures.filter(f => f.id === 'promise-safety' && (f.severity === 'high' || f.severity === 'critical'));
 
+    // --- Scary headlines for the worst findings ---
+    let scaryHeadlines = 0;
+    if (criticalSecrets.length > 0) {
+        console.log(chalk.red.bold(`🔑 HARDCODED SECRETS: ${criticalSecrets.length} credential(s) exposed in plain text`));
+        const firstFile = criticalSecrets[0].files?.[0];
+        if (firstFile) console.log(chalk.dim(`   First hit: ${firstFile}`));
+        scaryHeadlines++;
+    }
     if (fakePackages.length > 0) {
         const unique = [...new Set(fakePackages)];
-        console.log(chalk.red.bold(`oh shit: ${unique.length} fake package/path import(s) detected`));
-        console.log(chalk.dim(`Examples: ${unique.slice(0, 5).join(', ')}${unique.length > 5 ? ', ...' : ''}`));
-        console.log('');
+        console.log(chalk.red.bold(`📦 HALLUCINATED PACKAGES: ${unique.length} import(s) don't exist — will crash at runtime`));
+        console.log(chalk.dim(`   Examples: ${unique.slice(0, 4).join(', ')}${unique.length > 4 ? `, +${unique.length - 4} more` : ''}`));
+        scaryHeadlines++;
     }
+    if (phantomApis.length > 0) {
+        console.log(chalk.red.bold(`👻 PHANTOM APIs: ${phantomApis.length} call(s) to methods that don't exist in stdlib`));
+        scaryHeadlines++;
+    }
+    if (ignoredErrors.length > 0) {
+        console.log(chalk.yellow.bold(`🔇 SILENT FAILURES: ${ignoredErrors.length} async error(s) swallowed — failures will vanish without a trace`));
+        scaryHeadlines++;
+    }
+    if (scaryHeadlines > 0) console.log('');
 
     const statusColor = report.status === 'PASS' ? chalk.green.bold : chalk.red.bold;
     const statusLabel = report.status === 'PASS' ? 'PASS' : 'FAIL';
@@ -243,30 +263,53 @@ function renderScanResults(report: Report, stackSignals: StackSignals, reportPat
     console.log('');
 
     if (report.status === 'FAIL') {
-        const topFindings = report.failures.slice(0, 8);
+        // Sort by severity so critical findings appear first
+        const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+        const sorted = [...report.failures].sort((a, b) =>
+            (SEVERITY_ORDER[a.severity ?? 'medium'] ?? 2) - (SEVERITY_ORDER[b.severity ?? 'medium'] ?? 2)
+        );
+        const topFindings = sorted.slice(0, 8);
         for (const failure of topFindings) {
-            const sev = (failure.severity || 'medium').toUpperCase().padEnd(8, ' ');
-            console.log(`${sev} [${failure.id}] ${failure.title}`);
+            const sev = failure.severity ?? 'medium';
+            const sevColor = sev === 'critical' ? chalk.red.bold
+                : sev === 'high' ? chalk.yellow.bold
+                : sev === 'medium' ? chalk.white
+                : chalk.dim;
+            console.log(sevColor(`${sev.toUpperCase().padEnd(8)} [${failure.id}] ${failure.title}`));
             if (failure.files && failure.files.length > 0) {
-                console.log(chalk.dim(`  files: ${failure.files.slice(0, 3).join(', ')}`));
+                console.log(chalk.dim(`         ${failure.files.slice(0, 2).join(', ')}`));
             }
         }
 
         if (report.failures.length > topFindings.length) {
-            console.log(chalk.dim(`...and ${report.failures.length - topFindings.length} more findings`));
+            console.log(chalk.dim(`\n...and ${report.failures.length - topFindings.length} more. See full report.`));
         }
     }
 
     const trend = getScoreTrend(cwd);
     if (trend && trend.recentScores.length >= 3) {
-        console.log(chalk.dim(`\nTrend: ${trend.recentScores.join(' -> ')} (${trend.direction})`));
+        const arrow = trend.direction === 'improving' ? '↑' : trend.direction === 'degrading' ? '↓' : '→';
+        const color = trend.direction === 'improving' ? chalk.green : trend.direction === 'degrading' ? chalk.red : chalk.dim;
+        console.log(color(`\nTrend: ${trend.recentScores.join(' → ')} ${arrow}`));
     }
 
     console.log(chalk.yellow(`\nFull report: ${reportPath}`));
     if (report.status === 'FAIL') {
-        console.log(chalk.yellow('Fix packet: rigour-fix-packet.json'));
+        console.log(chalk.yellow('Fix packet:  rigour-fix-packet.json'));
     }
     console.log(chalk.dim(`Finished in ${report.stats.duration_ms}ms`));
+
+    // --- Next steps ---
+    console.log('');
+    if (report.status === 'FAIL') {
+        console.log(chalk.bold('Next steps:'));
+        console.log(`  ${chalk.cyan('rigour explain')}      — get plain-English fix suggestions`);
+        console.log(`  ${chalk.cyan('rigour init')}         — add quality gates to your project (blocks AI from repeating this)`);
+        console.log(`  ${chalk.cyan('rigour check --ci')}   — enforce in CI/CD pipeline`);
+    } else {
+        console.log(chalk.green.bold('✓ This repo is clean. Add it to CI to keep it that way:'));
+        console.log(`  ${chalk.cyan('rigour init')}  — write quality gates to rigour.yml + CI config`);
+    }
 }
 
 function renderCoverageWarnings(stackSignals: StackSignals): void {
