@@ -184,19 +184,35 @@ export class GateRunner {
         const score = Math.max(0, 100 - totalDeduction);
 
         // Two-score system: separate AI health from structural quality
+        // IMPORTANT: Only ai-drift affects ai_health_score, only traditional affects structural_score.
+        // Security and governance affect the overall score but NOT the sub-scores,
+        // preventing security criticals from incorrectly zeroing structural_score.
         let aiDeduction = 0;
-        let aiCount = 0;
         let structuralDeduction = 0;
-        let structuralCount = 0;
+        const provenanceCounts = {
+            'ai-drift': 0,
+            'traditional': 0,
+            'security': 0,
+            'governance': 0,
+        };
         for (const f of failures) {
             const sev = (f.severity || 'medium') as Severity;
             const weight = SEVERITY_WEIGHTS[sev] ?? 5;
-            if (f.provenance === 'ai-drift') {
-                aiDeduction += weight;
-                aiCount++;
-            } else {
-                structuralDeduction += weight;
-                structuralCount++;
+            const prov = f.provenance || 'traditional';
+            provenanceCounts[prov] = (provenanceCounts[prov] || 0) + 1;
+
+            switch (prov) {
+                case 'ai-drift':
+                    aiDeduction += weight;
+                    break;
+                case 'traditional':
+                    structuralDeduction += weight;
+                    break;
+                // security and governance contribute to overall score (totalDeduction)
+                // but do NOT pollute the sub-scores
+                case 'security':
+                case 'governance':
+                    break;
             }
         }
 
@@ -210,12 +226,7 @@ export class GateRunner {
                 ai_health_score: Math.max(0, 100 - aiDeduction),
                 structural_score: Math.max(0, 100 - structuralDeduction),
                 severity_breakdown: severityBreakdown,
-                provenance_breakdown: {
-                    'ai-drift': aiCount,
-                    traditional: structuralCount - failures.filter(f => f.provenance === 'security' || f.provenance === 'governance').length,
-                    security: failures.filter(f => f.provenance === 'security').length,
-                    governance: failures.filter(f => f.provenance === 'governance').length,
-                },
+                provenance_breakdown: provenanceCounts,
             },
         };
     }

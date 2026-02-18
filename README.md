@@ -118,7 +118,7 @@ Hooks run **4 fast gates in <200ms**: `hallucinated-imports`, `promise-safety`, 
 ### AI Drift Detection
 | Gate | What It Catches | Severity |
 |:---|:---|:---|
-| **Hallucinated Imports** | Imports referencing packages that don't exist (JS/TS, Python, Go, Ruby, C#) | `critical` |
+| **Hallucinated Imports** | Imports referencing packages that don't exist (8 languages — see below) | `critical` |
 | **Duplication Drift** | Near-identical functions — AI re-invents what it forgot it already wrote | `high` |
 | **Context Window Artifacts** | Clean code at top, degraded code at bottom — context overflow signature | `high` |
 | **Inconsistent Error Handling** | Same error type handled 4 different ways across sessions | `high` |
@@ -139,7 +139,20 @@ Hooks run **4 fast gates in <200ms**: `hallucinated-imports`, `promise-safety`, 
 | **Checkpoint** | Long-running execution supervision | `medium` |
 | **Retry Loop Breaker** | Detects and stops infinite agent loops | `high` |
 
-Supports **TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET** via `web-tree-sitter`.
+Supports **8 languages**: TypeScript, JavaScript, Python, Go, Ruby, C#/.NET, Rust, Java, and Kotlin.
+
+### Hallucinated Import Detection — Language Matrix
+
+| Language | Stdlib Whitelist | Dependency Manifest | Import Patterns |
+|:---|:---|:---|:---|
+| **JS/TS** | Node.js 22.x builtins | `package.json` | `import`, `require()`, `export from` |
+| **Python** | 160+ modules (3.12+) | Local module resolution | `import`, `from ... import` |
+| **Go** | 150+ packages (1.22+) | `go.mod` module path | `import "..."`, aliased imports |
+| **Ruby** | 80+ gems (3.3+ MRI) | `Gemfile`, `.gemspec` | `require`, `require_relative` |
+| **C# / .NET** | .NET 8 framework namespaces | `.csproj` NuGet refs | `using`, `using static` |
+| **Rust** | `std`/`core`/`alloc` crates | `Cargo.toml` (dash→underscore) | `use`, `extern crate`, `pub use` |
+| **Java** | `java.*`/`javax.*`/`jakarta.*` | `build.gradle`, `pom.xml` | `import`, `import static` |
+| **Kotlin** | `kotlin.*`/`kotlinx.*` + Java | `build.gradle.kts` | `import` |
 
 ---
 

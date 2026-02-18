@@ -2,9 +2,18 @@
  * MCP Tool Definitions
  *
  * Schema definitions for all Rigour MCP tools.
- * Each tool has a name, description, and JSON Schema for its input.
+ * Each tool has a name, description, JSON Schema for input, and MCP annotations.
+ *
+ * Annotations follow the MCP spec (2025-03-26):
+ *   title         — human-readable display name
+ *   readOnlyHint  — true if tool only reads/computes, never writes
+ *   destructiveHint — true if tool deletes or overwrites data
+ *   idempotentHint  — true if repeated calls produce same result
+ *   openWorldHint   — true if tool reaches outside the user's project
  *
  * @since v2.17.0 — extracted from monolithic index.ts
+ * @since v3.0.0 — hooks tools added
+ * @since v3.0.1 — MCP annotations added for Smithery quality compliance
  */
 
 function cwdParam() {
@@ -26,6 +35,13 @@ export const TOOL_DEFINITIONS = [
             properties: cwdParam(),
             required: ["cwd"],
         },
+        annotations: {
+            title: "Run Quality Gates",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_explain",
@@ -34,6 +50,13 @@ export const TOOL_DEFINITIONS = [
             type: "object",
             properties: cwdParam(),
             required: ["cwd"],
+        },
+        annotations: {
+            title: "Explain Gate Failures",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
         },
     },
     {
@@ -44,6 +67,13 @@ export const TOOL_DEFINITIONS = [
             properties: cwdParam(),
             required: ["cwd"],
         },
+        annotations: {
+            title: "Quality Status",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_get_fix_packet",
@@ -52,6 +82,13 @@ export const TOOL_DEFINITIONS = [
             type: "object",
             properties: cwdParam(),
             required: ["cwd"],
+        },
+        annotations: {
+            title: "Get Fix Packet",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
         },
     },
     {
@@ -62,6 +99,13 @@ export const TOOL_DEFINITIONS = [
             properties: cwdParam(),
             required: ["cwd"],
         },
+        annotations: {
+            title: "List Quality Gates",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_get_config",
@@ -70,6 +114,13 @@ export const TOOL_DEFINITIONS = [
             type: "object",
             properties: cwdParam(),
             required: ["cwd"],
+        },
+        annotations: {
+            title: "Get Configuration",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
         },
     },
 
@@ -86,6 +137,13 @@ export const TOOL_DEFINITIONS = [
             },
             required: ["cwd", "key", "value"],
         },
+        annotations: {
+            title: "Store Memory",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_recall",
@@ -98,6 +156,13 @@ export const TOOL_DEFINITIONS = [
             },
             required: ["cwd"],
         },
+        annotations: {
+            title: "Recall Memory",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_forget",
@@ -109,6 +174,13 @@ export const TOOL_DEFINITIONS = [
                 key: { type: "string", description: "Key of the memory to remove." },
             },
             required: ["cwd", "key"],
+        },
+        annotations: {
+            title: "Delete Memory",
+            readOnlyHint: false,
+            destructiveHint: true,
+            idempotentHint: true,
+            openWorldHint: false,
         },
     },
 
@@ -126,6 +198,13 @@ export const TOOL_DEFINITIONS = [
             },
             required: ["cwd", "name"],
         },
+        annotations: {
+            title: "Check Pattern Exists",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_security_audit",
@@ -134,6 +213,13 @@ export const TOOL_DEFINITIONS = [
             type: "object",
             properties: cwdParam(),
             required: ["cwd"],
+        },
+        annotations: {
+            title: "Security Audit",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: true,
         },
     },
 
@@ -150,6 +236,13 @@ export const TOOL_DEFINITIONS = [
             },
             required: ["cwd", "command"],
         },
+        annotations: {
+            title: "Run Command",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_run_supervised",
@@ -163,6 +256,13 @@ export const TOOL_DEFINITIONS = [
                 dryRun: { type: "boolean", description: "If true, simulates the loop without executing the command. Useful for testing gate checks." },
             },
             required: ["cwd", "command"],
+        },
+        annotations: {
+            title: "Supervised Execution",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
         },
     },
 
@@ -179,6 +279,13 @@ export const TOOL_DEFINITIONS = [
             },
             required: ["cwd", "agentId", "taskScope"],
         },
+        annotations: {
+            title: "Register Agent",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_checkpoint",
@@ -193,6 +300,13 @@ export const TOOL_DEFINITIONS = [
                 qualityScore: { type: "number", description: "Self-assessed quality score (0-100). Be honest - artificially high scores trigger drift detection." },
             },
             required: ["cwd", "progressPct", "summary", "qualityScore"],
+        },
+        annotations: {
+            title: "Record Checkpoint",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
         },
     },
     {
@@ -210,6 +324,13 @@ export const TOOL_DEFINITIONS = [
             },
             required: ["cwd", "fromAgentId", "toAgentId", "taskDescription"],
         },
+        annotations: {
+            title: "Handoff Task",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_agent_deregister",
@@ -221,6 +342,13 @@ export const TOOL_DEFINITIONS = [
                 agentId: { type: "string", description: "ID of the agent to deregister." },
             },
             required: ["cwd", "agentId"],
+        },
+        annotations: {
+            title: "Deregister Agent",
+            readOnlyHint: false,
+            destructiveHint: true,
+            idempotentHint: true,
+            openWorldHint: false,
         },
     },
     {
@@ -234,6 +362,13 @@ export const TOOL_DEFINITIONS = [
                 agentId: { type: "string", description: "ID of the accepting agent (must match toAgentId in the handoff)." },
             },
             required: ["cwd", "handoffId", "agentId"],
+        },
+        annotations: {
+            title: "Accept Handoff",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
         },
     },
 
@@ -250,6 +385,13 @@ export const TOOL_DEFINITIONS = [
             },
             required: ["cwd", "files"],
         },
+        annotations: {
+            title: "Fast Hook Check",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
     },
     {
         name: "rigour_hooks_init",
@@ -263,6 +405,13 @@ export const TOOL_DEFINITIONS = [
                 dryRun: { type: "boolean", description: "Preview changes without writing files (default: false)." },
             },
             required: ["cwd", "tool"],
+        },
+        annotations: {
+            title: "Install IDE Hooks",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
         },
     },
 
@@ -280,6 +429,13 @@ export const TOOL_DEFINITIONS = [
                 files: { type: "array", items: { type: "string" }, description: "List of filenames that were changed." },
             },
             required: ["cwd", "diff"],
+        },
+        annotations: {
+            title: "Code Review",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
         },
     },
 ];

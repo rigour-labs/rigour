@@ -1,0 +1,46 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      cwd:
+        type: string
+        title: Project Root
+        description: "Absolute path to the project root directory where rigour.yml is located. Defaults to the current working directory."
+      preset:
+        type: string
+        title: Quality Preset
+        description: "Quality gate preset to use. Auto-detected if not specified."
+        enum:
+          - api
+          - ui
+          - infra
+          - data
+      scoreThreshold:
+        type: number
+        title: Minimum Score
+        description: "Minimum overall quality score (0-100) required to PASS. Default: 0 (any score passes if no critical violations)."
+        minimum: 0
+        maximum: 100
+      enableHooks:
+        type: boolean
+        title: Enable Real-Time Hooks
+        description: "Enable real-time file-write hooks for AI coding tools. Default: true."
+        default: true
+      securityAudit:
+        type: boolean
+        title: Enable Security Audit
+        description: "Enable live CVE checking on project dependencies. Default: false (requires network access)."
+        default: false
+    required: []
+  commandFunction:
+    |-
+    (config) => {
+      const env = {};
+      if (config.cwd) env.RIGOUR_CWD = config.cwd;
+      if (config.preset) env.RIGOUR_PRESET = config.preset;
+      if (config.scoreThreshold !== undefined) env.RIGOUR_SCORE_THRESHOLD = String(config.scoreThreshold);
+      if (config.enableHooks !== undefined) env.RIGOUR_HOOKS_ENABLED = String(config.enableHooks);
+      if (config.securityAudit !== undefined) env.RIGOUR_SECURITY_AUDIT = String(config.securityAudit);
+      return { command: 'npx', args: ['-y', '@rigour-labs/mcp'], env };
+    }

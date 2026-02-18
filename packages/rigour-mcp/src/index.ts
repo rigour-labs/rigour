@@ -12,6 +12,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
+    ListPromptsRequestSchema,
+    GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
 import { GateRunner } from "@rigour-labs/core";
@@ -34,8 +36,8 @@ import { handleHooksCheck, handleHooksInit } from './tools/hooks-handler.js';
 // ─── Server Setup ─────────────────────────────────────────────────
 
 const server = new Server(
-    { name: "rigour-mcp", version: "3.0.0" },
-    { capabilities: { tools: {} } }
+    { name: "rigour-mcp", version: "3.0.1" },
+    { capabilities: { tools: {}, prompts: {} } }
 );
 
 // ─── Tool Listing ─────────────────────────────────────────────────
@@ -129,6 +131,100 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
 
         return errorResponse;
+    }
+});
+
+// ─── Prompt Templates ────────────────────────────────────────────
+
+import { PROMPT_DEFINITIONS } from './tools/prompts.js';
+
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: PROMPT_DEFINITIONS,
+}));
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name, arguments: promptArgs } = request.params;
+    const cwd = (promptArgs as any)?.cwd || process.env.RIGOUR_CWD || process.cwd();
+
+    const prompt = PROMPT_DEFINITIONS.find((p: any) => p.name === name);
+    if (!prompt) {
+        throw new Error(`Unknown prompt: ${name}`);
+    }
+
+    // Generate dynamic messages based on prompt name
+    switch (name) {
+        case "rigour-setup": {
+            return {
+                description: prompt.description,
+                messages: [
+                    {
+                        role: "user" as const,
+                        content: {
+                            type: "text" as const,
+                            text: `Initialize Rigour quality gates for the project at ${cwd}. Run \`rigour_check\` to see current quality score, then use \`rigour_hooks_init\` to install real-time hooks for the detected AI coding tool. Report the score breakdown (overall, AI health, structural) and any critical violations.`,
+                        },
+                    },
+                ],
+            };
+        }
+        case "rigour-fix-loop": {
+            return {
+                description: prompt.description,
+                messages: [
+                    {
+                        role: "user" as const,
+                        content: {
+                            type: "text" as const,
+                            text: `Run \`rigour_check\` on ${cwd}. If the project FAILS, retrieve the fix packet with \`rigour_get_fix_packet\` and fix every violation in priority order (critical → high → medium → low). After each fix, re-run \`rigour_check\` to verify. Repeat until PASS. Do NOT skip any violation. Report progress after each iteration.`,
+                        },
+                    },
+                ],
+            };
+        }
+        case "rigour-security-review": {
+            return {
+                description: prompt.description,
+                messages: [
+                    {
+                        role: "user" as const,
+                        content: {
+                            type: "text" as const,
+                            text: `Perform a full security review on ${cwd}. First run \`rigour_security_audit\` for CVE checks on dependencies. Then run \`rigour_check\` and filter for security-provenance violations (hardcoded secrets, SQL injection, XSS, command injection, path traversal). Report all findings with severity, file locations, and remediation instructions.`,
+                        },
+                    },
+                ],
+            };
+        }
+        case "rigour-pre-commit": {
+            return {
+                description: prompt.description,
+                messages: [
+                    {
+                        role: "user" as const,
+                        content: {
+                            type: "text" as const,
+                            text: `Run a pre-commit quality check on ${cwd}. Execute \`rigour_check\` and \`rigour_hooks_check\` on all staged files. If any critical or high severity violations exist, list them and block the commit. For medium/low violations, warn but allow. Provide a one-line summary: PASS (safe to commit) or FAIL (must fix first).`,
+                        },
+                    },
+                ],
+            };
+        }
+        case "rigour-ai-health-report": {
+            return {
+                description: prompt.description,
+                messages: [
+                    {
+                        role: "user" as const,
+                        content: {
+                            type: "text" as const,
+                            text: `Generate an AI code health report for ${cwd}. Run \`rigour_check\` and focus on AI-drift provenance violations: hallucinated imports, duplication drift, context window artifacts, inconsistent error handling, and promise safety. Compare AI health score vs structural score. Provide a summary table of AI-specific issues and concrete next steps to improve the AI health score.`,
+                        },
+                    },
+                ],
+            };
+        }
+        default:
+            throw new Error(`Unknown prompt: ${name}`);
     }
 });
 

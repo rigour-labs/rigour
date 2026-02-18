@@ -6,17 +6,18 @@
  * statements for packages, files, or modules that were never installed
  * or created.
  *
- * Detection strategy:
- * 1. Parse all import/require statements
- * 2. For relative imports: verify the target file exists
- * 3. For package imports: verify the package exists in node_modules or package.json
- * 4. For Python imports: verify the module exists in the project or site-packages
- * 5. For Go imports: verify relative package paths exist in the project
- * 6. For Ruby/C#: verify relative require/using paths exist
- *
- * Supported languages: JS/TS, Python, Go, Ruby, C#
+ * Supported languages (v3.0.1):
+ *   JS/TS  — package.json deps, node_modules fallback, Node.js builtins (22.x)
+ *   Python — stdlib whitelist (3.12+), relative imports, local module resolution
+ *   Go     — stdlib whitelist (1.22+), go.mod module path, aliased imports
+ *   Ruby   — stdlib whitelist (3.3+), Gemfile parsing, require + require_relative
+ *   C#     — .NET 8 framework namespaces, .csproj NuGet parsing, using directives
+ *   Rust   — std/core/alloc crates, Cargo.toml deps, use/extern crate statements
+ *   Java   — java/javax/jakarta stdlib, build.gradle + pom.xml deps, import statements
+ *   Kotlin — kotlin/kotlinx stdlib, Gradle deps, import statements
  *
  * @since v2.16.0
+ * @since v3.0.1 — Go stdlib fix, Ruby/C# strengthened, Rust/Java/Kotlin added
  */
 
 import { Gate, GateContext } from './base.js';
@@ -30,7 +31,7 @@ export interface HallucinatedImport {
     file: string;
     line: number;
     importPath: string;
-    type: 'relative' | 'package' | 'python' | 'go' | 'ruby' | 'csharp';
+    type: 'relative' | 'package' | 'python' | 'go' | 'ruby' | 'csharp' | 'rust' | 'java' | 'kotlin';
     reason: string;
 }
 
@@ -67,9 +68,11 @@ export class HallucinatedImportsGate extends Gate {
 
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,js,tsx,jsx,py,go,rb,cs}'],
+            patterns: ['**/*.{ts,js,tsx,jsx,py,go,rb,cs,rs,java,kt}'],
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
-                     '**/.venv/**', '**/venv/**', '**/vendor/**', '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**'],
+                     '**/.venv/**', '**/venv/**', '**/vendor/**', '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**',
+                     '**/target/debug/**', '**/target/release/**', // Rust
+                     '**/out/**', '**/.gradle/**', '**/gradle/**'], // Java/Kotlin
         });
 
         Logger.info(`Hallucinated Imports: Scanning ${files.length} files`);
@@ -99,9 +102,13 @@ export class HallucinatedImportsGate extends Gate {
                 } else if (ext === '.go') {
                     this.checkGoImports(content, file, context.cwd, projectFiles, hallucinated);
                 } else if (ext === '.rb') {
-                    this.checkRubyImports(content, file, projectFiles, hallucinated);
+                    this.checkRubyImports(content, file, context.cwd, projectFiles, hallucinated);
                 } else if (ext === '.cs') {
-                    this.checkCSharpImports(content, file, projectFiles, hallucinated);
+                    this.checkCSharpImports(content, file, context.cwd, projectFiles, hallucinated);
+                } else if (ext === '.rs') {
+                    this.checkRustImports(content, file, context.cwd, projectFiles, hallucinated);
+                } else if (ext === '.java' || ext === '.kt') {
+                    this.checkJavaKotlinImports(content, file, ext, context.cwd, projectFiles, hallucinated);
                 }
             } catch (e) { }
         }
@@ -299,26 +306,27 @@ export class HallucinatedImportsGate extends Gate {
         return this.config.ignore_patterns.some(pattern => new RegExp(pattern).test(importPath));
     }
 
+    /**
+     * Node.js built-in modules — covers Node.js 18/20/22 LTS
+     * No third-party packages in this list (removed fs-extra hack).
+     */
     private isNodeBuiltin(name: string): boolean {
+        // Fast path: node: protocol prefix
+        if (name.startsWith('node:')) return true;
+
         const builtins = new Set([
-            'assert', 'buffer', 'child_process', 'cluster', 'console', 'constants',
-            'crypto', 'dgram', 'dns', 'domain', 'events', 'fs', 'http', 'http2',
-            'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks',
-            'process', 'punycode', 'querystring', 'readline', 'repl', 'stream',
-            'string_decoder', 'sys', 'timers', 'tls', 'trace_events', 'tty',
-            'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib',
-            'node:assert', 'node:buffer', 'node:child_process', 'node:cluster',
-            'node:console', 'node:constants', 'node:crypto', 'node:dgram',
-            'node:dns', 'node:domain', 'node:events', 'node:fs', 'node:http',
-            'node:http2', 'node:https', 'node:inspector', 'node:module', 'node:net',
-            'node:os', 'node:path', 'node:perf_hooks', 'node:process',
-            'node:punycode', 'node:querystring', 'node:readline', 'node:repl',
-            'node:stream', 'node:string_decoder', 'node:sys', 'node:timers',
-            'node:tls', 'node:trace_events', 'node:tty', 'node:url', 'node:util',
-            'node:v8', 'node:vm', 'node:wasi', 'node:worker_threads', 'node:zlib',
-            'fs-extra', // common enough to skip
+            'assert', 'assert/strict', 'async_hooks', 'buffer', 'child_process',
+            'cluster', 'console', 'constants', 'crypto', 'dgram', 'diagnostics_channel',
+            'dns', 'dns/promises', 'domain', 'events', 'fs', 'fs/promises',
+            'http', 'http2', 'https', 'inspector', 'inspector/promises', 'module',
+            'net', 'os', 'path', 'path/posix', 'path/win32', 'perf_hooks',
+            'process', 'punycode', 'querystring', 'readline', 'readline/promises',
+            'repl', 'stream', 'stream/consumers', 'stream/promises', 'stream/web',
+            'string_decoder', 'sys', 'test', 'timers', 'timers/promises',
+            'tls', 'trace_events', 'tty', 'url', 'util', 'util/types',
+            'v8', 'vm', 'wasi', 'worker_threads', 'zlib',
         ]);
-        return builtins.has(name) || name.startsWith('node:');
+        return builtins.has(name);
     }
 
     private isPythonStdlib(modulePath: string): boolean {
@@ -537,18 +545,30 @@ export class HallucinatedImportsGate extends Gate {
     }
 
     /**
-     * Check Ruby imports — verify require_relative paths exist
+     * Check Ruby imports — require, require_relative, Gemfile verification
+     *
+     * Strategy:
+     *  1. require_relative: verify target .rb file exists in project
+     *  2. require: skip stdlib, skip gems from Gemfile/gemspec, flag unknown local requires
+     *
+     * @since v3.0.1 — strengthened with stdlib whitelist and Gemfile parsing
      */
     private checkRubyImports(
-        content: string, file: string,
+        content: string, file: string, cwd: string,
         projectFiles: Set<string>, hallucinated: HallucinatedImport[]
     ): void {
         const lines = content.split('\n');
 
+        // Parse Gemfile for known gem dependencies
+        const gemDeps = this.loadRubyGems(cwd);
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
 
-            // require_relative 'path' — should resolve to a real file
+            // Skip comments
+            if (line.startsWith('#')) continue;
+
+            // require_relative 'path' — must resolve to a real file
             const relMatch = line.match(/require_relative\s+['"]([^'"]+)['"]/);
             if (relMatch) {
                 const reqPath = relMatch[1];
@@ -561,51 +581,421 @@ export class HallucinatedImportsGate extends Gate {
                         reason: `require_relative '${reqPath}' — file not found in project`,
                     });
                 }
+                continue;
+            }
+
+            // require 'something' — check stdlib, gems, then local
+            const reqMatch = line.match(/^require\s+['"]([^'"]+)['"]/);
+            if (reqMatch) {
+                const reqPath = reqMatch[1];
+
+                // Skip Ruby stdlib
+                if (this.isRubyStdlib(reqPath)) continue;
+
+                // Skip gems listed in Gemfile
+                const gemName = reqPath.split('/')[0];
+                if (gemDeps.has(gemName)) continue;
+
+                // Check if it resolves to a project file
+                const candidates = [
+                    reqPath + '.rb',
+                    reqPath,
+                    'lib/' + reqPath + '.rb',
+                    'lib/' + reqPath,
+                ];
+                const found = candidates.some(c => projectFiles.has(c));
+                if (!found) {
+                    // If we have a Gemfile and it's not in it, it might be hallucinated
+                    if (gemDeps.size > 0) {
+                        hallucinated.push({
+                            file, line: i + 1, importPath: reqPath, type: 'ruby',
+                            reason: `require '${reqPath}' — not in stdlib, Gemfile, or project files`,
+                        });
+                    }
+                }
             }
         }
     }
 
+    /** Load gem names from Gemfile */
+    private loadRubyGems(cwd: string): Set<string> {
+        const gems = new Set<string>();
+        try {
+            const gemfilePath = path.join(cwd, 'Gemfile');
+            if (fs.pathExistsSync(gemfilePath)) {
+                const content = fs.readFileSync(gemfilePath, 'utf-8');
+                const gemPattern = /gem\s+['"]([^'"]+)['"]/g;
+                let m;
+                while ((m = gemPattern.exec(content)) !== null) {
+                    gems.add(m[1]);
+                }
+            }
+            // Also check .gemspec
+            const gemspecs = [...new Set<string>()]; // placeholder
+            const files = fs.readdirSync?.(cwd) || [];
+            for (const f of files) {
+                if (typeof f === 'string' && f.endsWith('.gemspec')) {
+                    try {
+                        const spec = fs.readFileSync(path.join(cwd, f), 'utf-8');
+                        const depPattern = /add_(?:runtime_)?dependency\s+['"]([^'"]+)['"]/g;
+                        let dm;
+                        while ((dm = depPattern.exec(spec)) !== null) {
+                            gems.add(dm[1]);
+                        }
+                    } catch { /* skip */ }
+                }
+            }
+        } catch { /* no Gemfile */ }
+        return gems;
+    }
+
     /**
-     * Check C# imports — verify relative using paths match project namespaces
-     * (C# uses namespaces, not file paths — we check for obviously wrong namespaces)
+     * Ruby standard library — covers Ruby 3.3+ (MRI)
+     * Includes both the default gems and bundled gems that ship with Ruby.
+     */
+    private isRubyStdlib(name: string): boolean {
+        const topLevel = name.split('/')[0];
+        const stdlibs = new Set([
+            // Core libs (always available)
+            'abbrev', 'base64', 'benchmark', 'bigdecimal', 'cgi', 'csv',
+            'date', 'delegate', 'did_you_mean', 'digest', 'drb', 'english',
+            'erb', 'error_highlight', 'etc', 'fcntl', 'fiddle', 'fileutils',
+            'find', 'forwardable', 'getoptlong', 'io', 'ipaddr', 'irb',
+            'json', 'logger', 'matrix', 'minitest', 'monitor', 'mutex_m',
+            'net', 'nkf', 'objspace', 'observer', 'open3', 'open-uri',
+            'openssl', 'optparse', 'ostruct', 'pathname', 'pp', 'prettyprint',
+            'prime', 'pstore', 'psych', 'racc', 'rake', 'rdoc', 'readline',
+            'reline', 'resolv', 'resolv-replace', 'rinda', 'ruby2_keywords',
+            'rubygems', 'securerandom', 'set', 'shellwords', 'singleton',
+            'socket', 'stringio', 'strscan', 'syntax_suggest', 'syslog',
+            'tempfile', 'time', 'timeout', 'tmpdir', 'tsort', 'un',
+            'unicode_normalize', 'uri', 'weakref', 'yaml', 'zlib',
+            // Default gems (ship with Ruby, can be overridden)
+            'bundler', 'debug', 'net-ftp', 'net-http', 'net-imap',
+            'net-pop', 'net-protocol', 'net-smtp', 'power_assert',
+            'test-unit', 'rexml', 'rss', 'typeprof',
+            // Common C extensions
+            'stringio', 'io/console', 'io/nonblock', 'io/wait',
+            'rbconfig', 'mkmf', 'thread',
+            // Rails-adjacent but actually stdlib
+            'webrick', 'cmath', 'complex', 'rational',
+            'coverage', 'ripper', 'win32ole', 'win32api',
+        ]);
+        return stdlibs.has(topLevel);
+    }
+
+    /**
+     * Check C# imports — using directives against .NET framework, NuGet, and project
+     *
+     * Strategy:
+     *  1. Skip .NET framework namespaces (System.*, Microsoft.*, etc.)
+     *  2. Skip NuGet packages from .csproj PackageReference
+     *  3. Flag project-relative namespaces that don't resolve
+     *
+     * @since v3.0.1 — .csproj NuGet parsing, comprehensive framework namespace list
      */
     private checkCSharpImports(
-        content: string, file: string,
+        content: string, file: string, cwd: string,
         projectFiles: Set<string>, hallucinated: HallucinatedImport[]
     ): void {
         const lines = content.split('\n');
+        const nugetPackages = this.loadNuGetPackages(cwd);
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
 
-            // using ProjectName.Something — check if namespace maps to project files
-            const usingMatch = line.match(/^using\s+([\w.]+)\s*;/);
+            // Match: using Namespace; and using static Namespace.Class;
+            // Skip: using alias = Namespace; and using (var x = ...) disposable
+            const usingMatch = line.match(/^using\s+(?:static\s+)?([\w.]+)\s*;/);
             if (!usingMatch) continue;
 
             const namespace = usingMatch[1];
-            // Skip System.* and Microsoft.* and common framework namespaces
-            if (/^(?:System|Microsoft|Newtonsoft|NUnit|Xunit|Moq|AutoMapper)\b/.test(namespace)) continue;
 
-            // Check if the namespace maps to any .cs file path in the project
+            // 1. Skip .NET framework and BCL namespaces
+            if (this.isDotNetFramework(namespace)) continue;
+
+            // 2. Skip NuGet packages from .csproj
+            const topLevel = namespace.split('.')[0];
+            if (nugetPackages.has(topLevel) || nugetPackages.has(namespace.split('.').slice(0, 2).join('.'))) continue;
+
+            // 3. Check if the namespace maps to any .cs file in the project
+            //    C# namespaces often have a root prefix (project name) not in the directory tree
+            //    e.g. MyProject.Services.UserService → check Services/UserService AND MyProject/Services/UserService
+            const nsParts = namespace.split('.');
             const nsPath = namespace.replace(/\./g, '/');
-            const hasMatch = [...projectFiles].some(f =>
-                f.endsWith('.cs') && (f.includes(nsPath) || f.includes(namespace.split('.')[0]))
+            // Also check without root prefix (common convention: namespace root != directory root)
+            const nsPathNoRoot = nsParts.slice(1).join('/');
+
+            const csFiles = [...projectFiles].filter(f => f.endsWith('.cs'));
+            const hasMatch = csFiles.some(f =>
+                f.includes(nsPath) || (nsPathNoRoot && f.includes(nsPathNoRoot))
             );
 
-            // Only flag if the project has NO files that could match this namespace
-            if (!hasMatch && namespace.includes('.')) {
-                // Could be a NuGet package — we can't verify without .csproj parsing
-                // Only flag obvious project-relative namespaces
-                const topLevel = namespace.split('.')[0];
-                const hasProjectFiles = [...projectFiles].some(f => f.endsWith('.cs') && f.includes(topLevel));
-                if (hasProjectFiles) {
+            // Only flag if we have .csproj context (proves this is a real .NET project)
+            if (!hasMatch && namespace.includes('.') && nugetPackages.size >= 0) {
+                // Check if we actually have .csproj context (a real .NET project)
+                const hasCsproj = this.hasCsprojFile(cwd);
+                if (hasCsproj) {
                     hallucinated.push({
                         file, line: i + 1, importPath: namespace, type: 'csharp',
-                        reason: `Namespace '${namespace}' — no matching files found in project`,
+                        reason: `Namespace '${namespace}' — no matching files in project, not in NuGet packages`,
                     });
                 }
             }
         }
+    }
+
+    /** Check if any .csproj file exists in the project root */
+    private hasCsprojFile(cwd: string): boolean {
+        try {
+            const files = fs.readdirSync?.(cwd) || [];
+            return files.some((f: any) => typeof f === 'string' && f.endsWith('.csproj'));
+        } catch { return false; }
+    }
+
+    /** Parse .csproj files for PackageReference names */
+    private loadNuGetPackages(cwd: string): Set<string> {
+        const packages = new Set<string>();
+        try {
+            const files = fs.readdirSync?.(cwd) || [];
+            for (const f of files) {
+                if (typeof f === 'string' && f.endsWith('.csproj')) {
+                    try {
+                        const content = fs.readFileSync(path.join(cwd, f), 'utf-8');
+                        const pkgPattern = /PackageReference\s+Include="([^"]+)"/g;
+                        let m;
+                        while ((m = pkgPattern.exec(content)) !== null) {
+                            packages.add(m[1]);
+                            // Also add top-level namespace (e.g. Newtonsoft.Json → Newtonsoft)
+                            packages.add(m[1].split('.')[0]);
+                        }
+                    } catch { /* skip */ }
+                }
+            }
+        } catch { /* no .csproj */ }
+        return packages;
+    }
+
+    /**
+     * .NET 8 framework and common ecosystem namespaces
+     * Covers BCL, ASP.NET, EF Core, and major ecosystem packages
+     */
+    private isDotNetFramework(namespace: string): boolean {
+        const topLevel = namespace.split('.')[0];
+        const frameworkPrefixes = new Set([
+            // BCL / .NET Runtime
+            'System', 'Microsoft', 'Windows',
+            // Common ecosystem (NuGet defaults everyone uses)
+            'Newtonsoft', 'NUnit', 'Xunit', 'Moq', 'AutoMapper',
+            'FluentAssertions', 'FluentValidation', 'Serilog', 'NLog',
+            'Dapper', 'MediatR', 'Polly', 'Swashbuckle', 'Hangfire',
+            'StackExchange', 'Npgsql', 'MongoDB', 'MySql', 'Oracle',
+            'Amazon', 'Google', 'Azure', 'Grpc',
+            'Bogus', 'Humanizer', 'CsvHelper', 'MailKit', 'MimeKit',
+            'RestSharp', 'Refit', 'AutoFixture', 'Shouldly',
+            'IdentityModel', 'IdentityServer4',
+        ]);
+        return frameworkPrefixes.has(topLevel);
+    }
+
+    /**
+     * Check Rust imports — use/extern crate against std/core/alloc and Cargo.toml
+     *
+     * Strategy:
+     *  1. Skip Rust std, core, alloc crates
+     *  2. Skip crates listed in Cargo.toml [dependencies]
+     *  3. Flag unknown extern crate and use statements for project modules that don't exist
+     *
+     * @since v3.0.1
+     */
+    private checkRustImports(
+        content: string, file: string, cwd: string,
+        projectFiles: Set<string>, hallucinated: HallucinatedImport[]
+    ): void {
+        const lines = content.split('\n');
+        const cargoDeps = this.loadCargoDeps(cwd);
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line.startsWith('//') || line.startsWith('/*')) continue;
+
+            // extern crate foo;
+            const externMatch = line.match(/^extern\s+crate\s+(\w+)/);
+            if (externMatch) {
+                const crateName = externMatch[1];
+                if (this.isRustStdCrate(crateName)) continue;
+                if (cargoDeps.has(crateName)) continue;
+                hallucinated.push({
+                    file, line: i + 1, importPath: crateName, type: 'rust',
+                    reason: `extern crate '${crateName}' — not in Cargo.toml or Rust std`,
+                });
+                continue;
+            }
+
+            // use foo::bar::baz;  or  use foo::{bar, baz};
+            const useMatch = line.match(/^(?:pub\s+)?use\s+(\w+)::/);
+            if (useMatch) {
+                const crateName = useMatch[1];
+                if (this.isRustStdCrate(crateName)) continue;
+                if (cargoDeps.has(crateName)) continue;
+                // 'crate' and 'self' and 'super' are Rust path keywords
+                if (['crate', 'self', 'super'].includes(crateName)) continue;
+                hallucinated.push({
+                    file, line: i + 1, importPath: crateName, type: 'rust',
+                    reason: `use ${crateName}:: — crate not in Cargo.toml or Rust std`,
+                });
+            }
+        }
+    }
+
+    /** Load dependency names from Cargo.toml */
+    private loadCargoDeps(cwd: string): Set<string> {
+        const deps = new Set<string>();
+        try {
+            const cargoPath = path.join(cwd, 'Cargo.toml');
+            if (fs.pathExistsSync(cargoPath)) {
+                const content = fs.readFileSync(cargoPath, 'utf-8');
+                // Match [dependencies] section entries: name = "version" or name = { ... }
+                const depPattern = /^\s*(\w[\w-]*)\s*=/gm;
+                let inDeps = false;
+                for (const line of content.split('\n')) {
+                    if (/^\[(?:.*-)?dependencies/.test(line.trim())) { inDeps = true; continue; }
+                    if (/^\[/.test(line.trim()) && inDeps) { inDeps = false; continue; }
+                    if (inDeps) {
+                        const m = line.match(/^\s*([\w][\w-]*)\s*=/);
+                        if (m) deps.add(m[1].replace(/-/g, '_')); // Rust uses _ in code for - in Cargo
+                    }
+                }
+            }
+        } catch { /* no Cargo.toml */ }
+        return deps;
+    }
+
+    /** Rust standard crates — std, core, alloc, proc_macro, and common test crates */
+    private isRustStdCrate(name: string): boolean {
+        const stdCrates = new Set([
+            'std', 'core', 'alloc', 'proc_macro', 'test',
+            // Common proc-macro / compiler crates
+            'proc_macro2', 'syn', 'quote',
+        ]);
+        return stdCrates.has(name);
+    }
+
+    /**
+     * Check Java/Kotlin imports — against stdlib and build dependencies
+     *
+     * Strategy:
+     *  1. Skip java.*, javax.*, jakarta.* (Java stdlib/EE)
+     *  2. Skip kotlin.*, kotlinx.* (Kotlin stdlib)
+     *  3. Skip deps from build.gradle or pom.xml
+     *  4. Flag project-relative imports that don't resolve
+     *
+     * @since v3.0.1
+     */
+    private checkJavaKotlinImports(
+        content: string, file: string, ext: string, cwd: string,
+        projectFiles: Set<string>, hallucinated: HallucinatedImport[]
+    ): void {
+        const lines = content.split('\n');
+        const buildDeps = this.loadJavaDeps(cwd);
+        const isKotlin = ext === '.kt';
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+
+            // import com.example.package.Class
+            const importMatch = line.match(/^import\s+(?:static\s+)?([\w.]+)/);
+            if (!importMatch) continue;
+
+            const importPath = importMatch[1];
+
+            // Skip Java stdlib
+            if (this.isJavaStdlib(importPath)) continue;
+
+            // Skip Kotlin stdlib
+            if (isKotlin && this.isKotlinStdlib(importPath)) continue;
+
+            // Skip known build dependencies (by group prefix)
+            const parts = importPath.split('.');
+            const group2 = parts.slice(0, 2).join('.');
+            const group3 = parts.slice(0, 3).join('.');
+            if (buildDeps.has(group2) || buildDeps.has(group3)) continue;
+
+            // Check if it resolves to a project file
+            const javaPath = importPath.replace(/\./g, '/');
+            const candidates = [
+                javaPath + '.java',
+                javaPath + '.kt',
+                'src/main/java/' + javaPath + '.java',
+                'src/main/kotlin/' + javaPath + '.kt',
+            ];
+            const found = candidates.some(c => projectFiles.has(c)) ||
+                [...projectFiles].some(f => f.includes(javaPath));
+
+            if (!found) {
+                // Only flag if we have build deps context (Gradle/Maven project)
+                if (buildDeps.size > 0) {
+                    hallucinated.push({
+                        file, line: i + 1, importPath, type: isKotlin ? 'kotlin' : 'java',
+                        reason: `import '${importPath}' — not in stdlib, build deps, or project files`,
+                    });
+                }
+            }
+        }
+    }
+
+    /** Load dependency group IDs from build.gradle or pom.xml */
+    private loadJavaDeps(cwd: string): Set<string> {
+        const deps = new Set<string>();
+        try {
+            // Gradle: build.gradle or build.gradle.kts
+            for (const gradleFile of ['build.gradle', 'build.gradle.kts']) {
+                const gradlePath = path.join(cwd, gradleFile);
+                if (fs.pathExistsSync(gradlePath)) {
+                    const content = fs.readFileSync(gradlePath, 'utf-8');
+                    // Match: implementation 'group:artifact:version' or "group:artifact:version"
+                    const depPattern = /(?:implementation|api|compile|testImplementation|runtimeOnly)\s*[('"]([^:'"]+)/g;
+                    let m;
+                    while ((m = depPattern.exec(content)) !== null) {
+                        deps.add(m[1]); // group ID like "com.google.guava"
+                    }
+                }
+            }
+            // Maven: pom.xml
+            const pomPath = path.join(cwd, 'pom.xml');
+            if (fs.pathExistsSync(pomPath)) {
+                const content = fs.readFileSync(pomPath, 'utf-8');
+                const groupPattern = /<groupId>([^<]+)<\/groupId>/g;
+                let m;
+                while ((m = groupPattern.exec(content)) !== null) {
+                    deps.add(m[1]);
+                }
+            }
+        } catch { /* no build files */ }
+        return deps;
+    }
+
+    /** Java standard library and Jakarta EE namespaces */
+    private isJavaStdlib(importPath: string): boolean {
+        const prefixes = [
+            'java.', 'javax.', 'jakarta.',
+            'sun.', 'com.sun.', 'jdk.',
+            // Android SDK
+            'android.', 'androidx.',
+            // Common ecosystem (so ubiquitous they're basically stdlib)
+            'org.junit.', 'org.slf4j.', 'org.apache.logging.',
+        ];
+        return prefixes.some(p => importPath.startsWith(p));
+    }
+
+    /** Kotlin standard library namespaces */
+    private isKotlinStdlib(importPath: string): boolean {
+        const prefixes = [
+            'kotlin.', 'kotlinx.',
+            // Java interop (Kotlin can use Java stdlib directly)
+            'java.', 'javax.', 'jakarta.',
+        ];
+        return prefixes.some(p => importPath.startsWith(p));
     }
 
     private async loadPackageJson(cwd: string): Promise<any> {

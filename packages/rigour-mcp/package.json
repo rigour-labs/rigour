@@ -4,6 +4,7 @@
     "description": "MCP server for AI code governance — OWASP LLM Top 10 (10/10), real-time hooks, 25+ security patterns, hallucinated import detection, multi-agent governance. Works with Claude, Cursor, Cline, Windsurf, Gemini. Industry presets for HIPAA, SOC2, FedRAMP.",
     "license": "MIT",
     "homepage": "https://rigour.run",
+    "icon": "https://raw.githubusercontent.com/rigour-labs/rigour/main/docs/assets/icon.svg",
     "keywords": [
         "mcp",
         "model-context-protocol",
