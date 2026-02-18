@@ -12,6 +12,7 @@ Rigour forces AI agents to meet strict engineering standards before marking task
 ## 🚀 Quick Start
 
 ```bash
+npx rigour scan     # Zero-config scan (auto-detect stack)
 npx rigour init     # Initialize quality gates
 npx rigour check    # Verify code quality
 npx rigour run -- claude "Build feature X"  # Agent loop
@@ -62,6 +63,7 @@ All gates support **TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET**.
 
 | Command | Purpose |
 |:---|:---|
+| `rigour scan` | Zero-config stack-aware scan using existing gates |
 | `rigour init` | Setup Rigour in your project |
 | `rigour check` | Validate code against quality gates |
 | `rigour check --ci` | CI mode with appropriate output |

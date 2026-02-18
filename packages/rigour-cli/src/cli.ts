@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
 import { checkCommand } from './commands/check.js';
+import { scanCommand } from './commands/scan.js';
 import { explainCommand } from './commands/explain.js';
 import { runLoop } from './commands/run.js';
 import { guideCommand } from './commands/guide.js';
@@ -74,6 +75,24 @@ Examples:
     `)
     .action(async (files: string[], options: any) => {
         await checkCommand(process.cwd(), files, options);
+    });
+
+program
+    .command('scan')
+    .description('Run zero-config scan with auto-detected stack and existing gates')
+    .argument('[files...]', 'Specific files or directories to scan')
+    .option('--ci', 'CI mode (minimal output, non-zero exit on fail)')
+    .option('--json', 'Output report in JSON format')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration (optional)')
+    .addHelpText('after', `
+Examples:
+  $ rigour scan                       # Zero-config scan in current repo
+  $ rigour scan ./src                 # Scan only src
+  $ rigour scan --json                # Machine-readable output
+  $ rigour scan --ci                  # CI-friendly output
+    `)
+    .action(async (files: string[], options: any) => {
+        await scanCommand(process.cwd(), files, options);
     });
 
 program

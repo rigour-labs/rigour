@@ -29,10 +29,21 @@ npx @rigour-labs/cli demo --cinematic
 ## Quick Start
 
 ```bash
+npx @rigour-labs/cli scan         # Zero-config scan (auto-detect stack, scary findings fast)
 npx @rigour-labs/cli init          # Auto-detect project, generate config
 npx @rigour-labs/cli check         # Run 23 quality gates → PASS or FAIL
 npx @rigour-labs/cli hooks init    # Wire into Claude/Cursor/Cline/Windsurf
 ```
+
+---
+
+## Instant Scan
+
+```bash
+npx @rigour-labs/cli scan
+```
+
+Runs with zero setup: auto-detects project profile and stack, executes existing gates, and highlights high-impact issues immediately (hallucinated imports, deprecated/security patterns, async safety, and more).
 
 ---
 
@@ -283,7 +294,7 @@ A **pnpm monorepo** with four packages:
 | Package | Purpose |
 |:---|:---|
 | `@rigour-labs/core` | Gate engine, AST analysis, hooks checker, Fix Packet generation |
-| `@rigour-labs/cli` | Commands: `init`, `check`, `run`, `demo`, `hooks init`, `studio` |
+| `@rigour-labs/cli` | Commands: `scan`, `init`, `check`, `run`, `demo`, `hooks init`, `studio` |
 | `@rigour-labs/mcp` | Model Context Protocol server for agent integration |
 | `@rigour-labs/studio` | React-based monitoring dashboard |
 
