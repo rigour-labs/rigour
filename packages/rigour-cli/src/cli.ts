@@ -12,6 +12,7 @@ import { studioCommand } from './commands/studio.js';
 import { exportAuditCommand } from './commands/export-audit.js';
 import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand } from './commands/hooks.js';
+import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { checkForUpdates } from './utils/version.js';
 import chalk from 'chalk';
 
@@ -65,13 +66,24 @@ program
     .option('--json', 'Output report in JSON format')
     .option('-i, --interactive', 'Run in interactive mode with rich output')
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .option('--deep', 'Enable deep LLM-powered analysis (local, 350MB one-time download)')
+    .option('--pro', 'Use larger model for deep analysis (900MB, higher quality)')
+    .option('-k, --api-key <key>', 'Use cloud API key instead of local model (BYOK)')
+    .option('--provider <name>', 'Cloud provider: claude, openai, gemini, groq, mistral, together, deepseek, ollama, or any OpenAI-compatible')
+    .option('--api-base-url <url>', 'Custom API base URL (for self-hosted or proxy endpoints)')
+    .option('--model-name <name>', 'Override cloud model name')
+    .option('--agents <count>', 'Number of parallel agents for deep scan (cloud-only, default: 1)', '1')
     .addHelpText('after', `
 Examples:
-  $ rigour check                       # Run standard check
-  $ rigour check ./src                 # Check only the src directory
-  $ rigour check ./src/app.ts          # Check only app.ts
-  $ rigour check --interactive         # Run with rich, interactive output
-  $ rigour check --ci                  # Run in CI environment
+  $ rigour check                                          # AST only. Instant. Free.
+  $ rigour check --deep                                   # AST + local LLM (350MB one-time)
+  $ rigour check --deep --pro                             # AST + larger local LLM (900MB)
+  $ rigour check --deep -k sk-ant-xxx                     # AST + Claude API (BYOK)
+  $ rigour check --deep -k gsk_xxx --provider groq        # Use Groq
+  $ rigour check --deep -k xxx --provider ollama          # Use local Ollama
+  $ rigour check --deep -k xxx --provider custom --api-base-url http://my-server/v1  # Any endpoint
+  $ rigour check ./src --deep                             # Deep on specific directory
+  $ rigour check --ci                                     # CI environment
     `)
     .action(async (files: string[], options: any) => {
         await checkCommand(process.cwd(), files, options);
@@ -199,6 +211,52 @@ Examples:
     .action(async (options: any) => {
         await hooksInitCommand(process.cwd(), options);
     });
+
+// Settings management (like Claude Code's settings.json)
+const settingsCmd = program
+    .command('settings')
+    .description('Manage global settings (~/.rigour/settings.json) — API keys, providers, defaults');
+
+settingsCmd
+    .command('show', { isDefault: true })
+    .description('Show current settings')
+    .action(async () => { await settingsShowCommand(); });
+
+settingsCmd
+    .command('set-key')
+    .description('Add or update an API key for a provider')
+    .argument('<provider>', 'Provider name: anthropic, openai, groq, deepseek, mistral, together, gemini, ollama')
+    .argument('<key>', 'API key')
+    .action(async (provider: string, key: string) => { await settingsSetKeyCommand(provider, key); });
+
+settingsCmd
+    .command('remove-key')
+    .description('Remove an API key for a provider')
+    .argument('<provider>', 'Provider name')
+    .action(async (provider: string) => { await settingsRemoveKeyCommand(provider); });
+
+settingsCmd
+    .command('set')
+    .description('Set a configuration value (dot-notation)')
+    .argument('<key>', 'Setting key (e.g., deep.defaultProvider, cli.verboseOutput)')
+    .argument('<value>', 'Setting value')
+    .action(async (key: string, value: string) => { await settingsSetCommand(key, value); });
+
+settingsCmd
+    .command('get')
+    .description('Get a configuration value')
+    .argument('<key>', 'Setting key')
+    .action(async (key: string) => { await settingsGetCommand(key); });
+
+settingsCmd
+    .command('reset')
+    .description('Reset all settings to defaults')
+    .action(async () => { await settingsResetCommand(); });
+
+settingsCmd
+    .command('path')
+    .description('Show settings file path')
+    .action(async () => { await settingsPathCommand(); });
 
 // Check for updates before parsing (non-blocking)
 (async () => {

@@ -137,6 +137,67 @@ gates:
     check_unsafe_fetch: true         # HTTP calls without error handling
 ```
 
+### `deep` (v2.18+)
+
+Semantic code analysis powered by LLMs. Detects architectural violations, design pattern issues, and language idioms using a three-step pipeline: AST extraction → LLM interpretation → AST verification. Requires API key or local model.
+
+```yaml
+gates:
+  deep:
+    enabled: true                             # Default: false
+    provider: anthropic                       # anthropic, openai, local
+    model: claude-sonnet-4-5-20250514         # Model to use
+    agents: 1                                 # Parallel agents (cloud only)
+
+    # LLM settings
+    maxTokens: 4000
+    temperature: 0.3
+    timeoutMs: 30000
+
+    # Categories to check (all enabled if omitted)
+    checks:
+      - solid                  # SRP, OCP, LSP, ISP, DIP violations
+      - dry                    # Duplication, copy-paste code
+      - design_patterns        # God classes, feature envy, etc.
+      - error_handling         # Empty catches, swallowing, missing checks
+      - language_idioms        # Language best practices, naming
+      - test_quality           # Test coverage, assertion quality
+      - architecture           # Circular deps, package cohesion, API design
+      - code_smells            # Long files, magic numbers, dead code
+      - concurrency            # Race conditions, goroutine leaks (Go-specific)
+      - performance            # Inefficiency, resource leaks
+      - naming                 # Naming conventions
+      - resource_management    # Hardcoded config, resource cleanup
+```
+
+**Settings file** (`~/.rigour/settings.json`):
+
+Store API keys and default provider:
+
+```json
+{
+  "anthropic_api_key": "sk-ant-...",
+  "openai_api_key": "sk-...",
+  "deep_provider": "anthropic",
+  "deep_model": "claude-sonnet-4-5-20250514",
+  "deep_enabled": true,
+  "deep_agents": 1,
+  "deep_timeout_ms": 30000
+}
+```
+
+**CLI Usage**:
+
+```bash
+rigour check --deep                          # Enable deep analysis
+rigour check --deep --provider anthropic     # Use Anthropic API
+rigour check --deep --provider openai        # Use OpenAI API
+rigour check --deep --provider local         # Use local model
+rigour check --deep --agents 3              # 3 parallel agents (cloud only)
+```
+
+[Full deep analysis guide →](./DEEP_ANALYSIS.md)
+
 ---
 
 ## Two-Score System (v2.17+)

@@ -32,6 +32,7 @@ import { handleRun, handleRunSupervised } from './tools/execution-handlers.js';
 import { handleAgentRegister, handleCheckpoint, handleHandoff, handleAgentDeregister, handleHandoffAccept } from './tools/agent-handlers.js';
 import { handleReview } from './tools/review-handler.js';
 import { handleHooksCheck, handleHooksInit } from './tools/hooks-handler.js';
+import { handleCheckDeep, handleDeepStats } from './tools/deep-handlers.js';
 
 // ─── Server Setup ─────────────────────────────────────────────────
 
@@ -104,6 +105,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             // Real-time hooks (v3.0)
             case "rigour_hooks_check": result = await handleHooksCheck(cwd, (args as any).files, (args as any).timeout); break;
             case "rigour_hooks_init":  result = await handleHooksInit(cwd, (args as any).tool, (args as any).force, (args as any).dryRun); break;
+
+            // Deep analysis (v4.0+)
+            case "rigour_check_deep": {
+                const { pro, apiKey, provider, apiBaseUrl, modelName } = args as any;
+                result = await handleCheckDeep(runner, cwd, config, { pro, apiKey, provider, apiBaseUrl, modelName });
+                break;
+            }
+            case "rigour_deep_stats": result = await handleDeepStats(cwd, (args as any).limit); break;
 
             // Code review
             case "rigour_review": result = await handleReview(runner, cwd, (args as any).diff, (args as any).files); break;
@@ -223,6 +232,20 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
                 ],
             };
         }
+        case "rigour-deep-analysis": {
+            return {
+                description: prompt.description,
+                messages: [
+                    {
+                        role: "user" as const,
+                        content: {
+                            type: "text" as const,
+                            text: `Run \`rigour_check_deep\` on ${cwd} for a full deep code quality analysis. This uses the three-step pipeline: AST extracts facts → LLM interprets patterns → AST verifies findings. Report the AI Health score, Code Quality score, and Overall score. List all verified findings grouped by category (SOLID violations, code smells, architecture issues, test quality). For each finding, show the file, description, and suggestion. If any critical findings exist, prioritize them. End with concrete action items to improve the code quality score.`,
+                        },
+                    },
+                ],
+            };
+        }
         default:
             throw new Error(`Unknown prompt: ${name}`);
     }
@@ -233,7 +256,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
 async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Rigour MCP server v3.0.0 running on stdio");
+    console.error("Rigour MCP server v4.0.0 running on stdio");
 }
 
 main().catch((error) => {

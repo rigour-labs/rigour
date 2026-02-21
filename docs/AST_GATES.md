@@ -12,7 +12,7 @@ Rigour currently uses the official **TypeScript Compiler API** to parse and anal
 | **TypeScript (.ts, .tsx)** | TS Compiler API | ✅ Stable |
 | **JavaScript (.js, .jsx)** | TS Compiler API | ✅ Stable |
 | **Python** | `python-ast` / `ruff` | 🧭 Planned |
-| **Go** | `go/ast` | 🧭 Researching |
+| **Go** | tree-sitter | ✅ Stable |
 
 ## 📏 Enforced Metrics
 
@@ -27,6 +27,34 @@ Rigour flags classes that are becoming "God Objects". This forces the agent to e
 ### 3. Function Signatures
 **Statutory Limit**: 5 parameters (Configurable)
 Large parameter lists are a sign of poor abstraction. Rigour forces the use of options objects or better encapsulation.
+
+---
+
+## Deep Analysis Pipeline (v2.18+)
+
+**New in v2.18**: A semantic analysis layer built on AST facts.
+
+Deep analysis combines **AST extraction** with **LLM interpretation** to detect issues pure syntax trees cannot catch:
+
+1. **AST Extracts Facts**: Functions, classes, error handling, concurrency, imports, testing patterns
+2. **LLM Interprets Facts**: Identifies 40+ quality issues across SOLID, design patterns, error handling, architecture, concurrency, and language idioms
+3. **AST Verifies Findings**: Drops hallucinated results (references to non-existent entities)
+
+The three-step pipeline achieves accuracy impossible with either component alone.
+
+**Categories checked** (40+):
+- SOLID Principles (SRP, OCP, LSP, ISP, DIP violations)
+- Design Patterns (god classes, feature envy, shotgun surgery, data clumps)
+- DRY (duplication, copy-paste code)
+- Error Handling (empty catches, error swallowing, missing checks, panic in libraries)
+- Concurrency (race conditions, goroutine leaks, missing context, mutex scope) — Go-specific
+- Testing (test quality, test coupling, test duplication, missing coverage)
+- Architecture (circular dependencies, package cohesion, API design, missing abstraction)
+- Language Idioms & Naming Conventions
+- Performance & Resource Management
+- Code Smells (long files, magic numbers, dead code)
+
+[Full deep analysis docs →](./DEEP_ANALYSIS.md)
 
 ---
 

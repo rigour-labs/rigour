@@ -1,5 +1,6 @@
 import { Gate } from './base.js';
-import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS } from '../types/index.js';
+import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
+import { DeepAnalysisGate } from './deep-analysis.js';
 import { FileGate } from './file.js';
 import { ContentGate } from './content.js';
 import { StructureGate } from './structure.js';
@@ -122,7 +123,7 @@ export class GateRunner {
         this.gates.push(gate);
     }
 
-    async run(cwd: string, patterns?: string[]): Promise<Report> {
+    async run(cwd: string, patterns?: string[], deepOptions?: DeepOptions & { onProgress?: (msg: string) => void }): Promise<Report> {
         const start = Date.now();
         const failures: Failure[] = [];
         const summary: Record<string, Status> = {};
@@ -187,6 +188,44 @@ export class GateRunner {
             }
         }
 
+        // 3. Run Deep Analysis (if enabled)
+        let deepStats: Report['stats']['deep'] = undefined;
+        if (deepOptions?.enabled) {
+            const deepSetupStart = Date.now();
+            const deepGate = new DeepAnalysisGate({
+                options: deepOptions,
+                checks: this.config.gates.deep?.checks,
+                threads: this.config.gates.deep?.threads,
+                maxTokens: this.config.gates.deep?.max_tokens,
+                temperature: this.config.gates.deep?.temperature,
+                timeoutMs: this.config.gates.deep?.timeout_ms,
+                onProgress: deepOptions.onProgress,
+            });
+
+            try {
+                const deepFailures = await deepGate.run({ cwd, ignore, patterns });
+                if (deepFailures.length > 0) {
+                    failures.push(...deepFailures);
+                    summary['deep-analysis'] = 'FAIL';
+                } else {
+                    summary['deep-analysis'] = 'PASS';
+                }
+
+                deepStats = {
+                    enabled: true,
+                    tier: deepOptions.apiKey ? 'cloud' : (deepOptions.pro ? 'pro' : 'deep'),
+                    model: deepOptions.apiKey ? (deepOptions.provider || 'cloud') : (deepOptions.pro ? 'Qwen2.5-Coder-1.5B' : 'Qwen2.5-Coder-0.5B'),
+                    total_ms: Date.now() - deepSetupStart,
+                    findings_count: deepFailures.length,
+                    findings_verified: deepFailures.filter((f: any) => f.verified).length,
+                };
+            } catch (error: any) {
+                Logger.error(`Deep analysis failed: ${error.message}`);
+                summary['deep-analysis'] = 'ERROR';
+                deepStats = { enabled: true };
+            }
+        }
+
         const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
 
         // Severity-weighted scoring: each failure deducts based on its severity
@@ -205,11 +244,13 @@ export class GateRunner {
         // preventing security criticals from incorrectly zeroing structural_score.
         let aiDeduction = 0;
         let structuralDeduction = 0;
+        let deepDeduction = 0;
         const provenanceCounts = {
             'ai-drift': 0,
             'traditional': 0,
             'security': 0,
             'governance': 0,
+            'deep-analysis': 0,
         };
         for (const f of failures) {
             const sev = (f.severity || 'medium') as Severity;
@@ -223,6 +264,9 @@ export class GateRunner {
                     break;
                 case 'traditional':
                     structuralDeduction += weight;
+                    break;
+                case 'deep-analysis':
+                    deepDeduction += weight;
                     break;
                 // security and governance contribute to overall score (totalDeduction)
                 // but do NOT pollute the sub-scores
@@ -241,8 +285,10 @@ export class GateRunner {
                 score,
                 ai_health_score: Math.max(0, 100 - aiDeduction),
                 structural_score: Math.max(0, 100 - structuralDeduction),
+                ...(deepOptions?.enabled ? { code_quality_score: Math.max(0, 100 - deepDeduction) } : {}),
                 severity_breakdown: severityBreakdown,
                 provenance_breakdown: provenanceCounts,
+                ...(deepStats ? { deep: deepStats } : {}),
             },
         };
     }

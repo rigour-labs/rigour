@@ -29,10 +29,11 @@ npx @rigour-labs/cli demo --cinematic
 ## Quick Start
 
 ```bash
-npx @rigour-labs/cli scan         # Zero-config scan (auto-detect stack, scary findings fast)
-npx @rigour-labs/cli init          # Auto-detect project, generate config
-npx @rigour-labs/cli check         # Run 23 quality gates → PASS or FAIL
-npx @rigour-labs/cli hooks init    # Wire into Claude/Cursor/Cline/Windsurf
+npx @rigour-labs/cli scan                  # Zero-config scan (auto-detect stack, scary findings fast)
+npx @rigour-labs/cli init                   # Auto-detect project, generate config
+npx @rigour-labs/cli check                  # Run 23 quality gates → PASS or FAIL
+npx @rigour-labs/cli check --deep           # Enable deep analysis (LLM-powered, 40+ semantic checks)
+npx @rigour-labs/cli hooks init             # Wire into Claude/Cursor/Cline/Windsurf
 ```
 
 ---
@@ -165,6 +166,27 @@ Supports **8 languages**: TypeScript, JavaScript, Python, Go, Ruby, C#/.NET, Rus
 | **Java** | `java.*`/`javax.*`/`jakarta.*` | `build.gradle`, `pom.xml` | `import`, `import static` |
 | **Kotlin** | `kotlin.*`/`kotlinx.*` + Java | `build.gradle.kts` | `import` |
 
+### Deep Analysis (LLM-Powered)
+
+Semantic code quality checks across 40+ categories, enabled with `--deep`:
+
+| Category | What It Detects | Examples |
+|:---|:---|:---|
+| **SOLID Principles** | SRP, OCP, LSP, ISP, DIP violations | God classes, classes with too many reasons to change |
+| **Design Patterns** | God classes, feature envy, shotgun surgery, data clumps | Functions too interested in other objects' state |
+| **DRY** | Code duplication, copy-paste violations | Identical logic blocks across files |
+| **Error Handling** | Empty catches, error swallowing, missing checks | Silent failures, panic in libraries |
+| **Concurrency** | Race conditions, goroutine leaks, missing context | Unhandled goroutines, mutex scope issues (Go) |
+| **Testing** | Test quality, coverage gaps, test coupling | Untested public functions, implementation-coupled tests |
+| **Architecture** | Circular dependencies, package cohesion, API design | Modules that shouldn't depend on each other |
+| **Language Idioms** | Language best practices, naming conventions | Non-idiomatic code, inconsistent naming |
+
+Requires LLM provider (Anthropic, OpenAI, or local model). Results verified by AST to prevent hallucination.
+
+```bash
+rigour check --deep --provider anthropic
+```
+
 ---
 
 ## Scoring
@@ -271,6 +293,22 @@ gates:
   duplication_drift:
     enabled: true
     similarity_threshold: 0.8
+  deep:
+    enabled: false  # Enable with --deep or set to true
+    provider: anthropic
+    model: claude-sonnet-4-5-20250514
+    agents: 1
+    checks:
+      - solid
+      - dry
+      - design_patterns
+      - error_handling
+      - language_idioms
+      - test_quality
+      - architecture
+      - code_smells
+      - concurrency
+      - performance
 
 hooks:
   enabled: true
@@ -285,6 +323,17 @@ commands:
 ignore: ["**/node_modules/**", "**/dist/**"]
 ```
 
+**Settings file** (`~/.rigour/settings.json`) stores API keys:
+
+```json
+{
+  "anthropic_api_key": "sk-ant-...",
+  "openai_api_key": "sk-...",
+  "deep_provider": "anthropic",
+  "deep_model": "claude-sonnet-4-5-20250514"
+}
+```
+
 ---
 
 ## Architecture
@@ -293,7 +342,7 @@ A **pnpm monorepo** with four packages:
 
 | Package | Purpose |
 |:---|:---|
-| `@rigour-labs/core` | Gate engine, AST analysis, hooks checker, Fix Packet generation |
+| `@rigour-labs/core` | Gate engine, AST analysis, deep analysis pipeline, hooks checker, Fix Packet generation |
 | `@rigour-labs/cli` | Commands: `scan`, `init`, `check`, `run`, `demo`, `hooks init`, `studio` |
 | `@rigour-labs/mcp` | Model Context Protocol server for agent integration |
 | `@rigour-labs/studio` | React-based monitoring dashboard |
@@ -323,8 +372,9 @@ The cinematic demo simulates an AI agent writing flawed code, hooks catching eac
 |:---|:---|
 | [Quick Start](./docs/QUICK_START.md) | Install and run in 60 seconds |
 | [Configuration](./docs/CONFIGURATION.md) | Full `rigour.yml` reference |
+| [Deep Analysis](./docs/DEEP_ANALYSIS.md) | LLM-powered semantic code quality (40+ checks) |
 | [OWASP LLM Mapping](./docs/OWASP_MAPPING.md) | All 10 OWASP LLM code risks covered |
-| [AST Gates](./docs/AST_GATES.md) | Cyclomatic complexity, nesting, tree-sitter |
+| [AST Gates](./docs/AST_GATES.md) | Cyclomatic complexity, nesting, tree-sitter, deep analysis pipeline |
 | [Fix Packet Schema](./docs/FIX_PACKET.md) | v2 machine-readable diagnostics |
 | [Presets](./docs/PRESETS.md) | `api`, `ui`, `infra`, `data` preset details |
 | [MCP Integration](./docs/MCP_INTEGRATION.md) | MCP server setup for Claude/Cursor/Cline |
