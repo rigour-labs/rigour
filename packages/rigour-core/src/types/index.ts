@@ -169,6 +169,30 @@ export const GatesSchema = z.object({
         max_mocks_per_test: z.number().optional().default(5),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
+    // v4.0+ Deep Analysis (LLM-powered)
+    deep: z.object({
+        enabled: z.boolean().optional().default(false),
+        pro: z.boolean().optional().default(false),
+        provider: z.string().optional().default('local'), // 'local' for sidecar, or any cloud: 'claude', 'openai', 'gemini', 'groq', 'mistral', 'together', etc.
+        api_key: z.string().optional(),
+        api_base_url: z.string().optional(), // custom API base URL (for self-hosted, proxies, any OpenAI-compatible endpoint)
+        model_name: z.string().optional(), // cloud model name override (e.g. 'gpt-4o', 'claude-sonnet-4-5-20250929', 'gemini-pro')
+        model_path: z.string().optional(), // custom local GGUF model path override
+        threads: z.number().optional().default(4),
+        max_tokens: z.number().optional().default(512),
+        temperature: z.number().optional().default(0.1),
+        timeout_ms: z.number().optional().default(60000),
+        checks: z.object({
+            solid: z.boolean().optional().default(true),
+            dry: z.boolean().optional().default(true),
+            design_patterns: z.boolean().optional().default(true),
+            language_idioms: z.boolean().optional().default(true),
+            error_handling: z.boolean().optional().default(true),
+            test_quality: z.boolean().optional().default(true),
+            architecture: z.boolean().optional().default(true),
+            code_smells: z.boolean().optional().default(true),
+        }).optional().default({}),
+    }).optional().default({}),
 });
 
 export const CommandsSchema = z.object({
@@ -224,7 +248,7 @@ export const SeveritySchema = z.enum(['critical', 'high', 'medium', 'low', 'info
 export type Severity = z.infer<typeof SeveritySchema>;
 
 /** Provenance tags — lets dashboards/agents filter by what matters */
-export const ProvenanceSchema = z.enum(['ai-drift', 'traditional', 'security', 'governance']);
+export const ProvenanceSchema = z.enum(['ai-drift', 'traditional', 'security', 'governance', 'deep-analysis']);
 export type Provenance = z.infer<typeof ProvenanceSchema>;
 
 /** Severity weights for score calculation */
@@ -246,6 +270,11 @@ export const FailureSchema = z.object({
     line: z.number().optional(),
     endLine: z.number().optional(),
     hint: z.string().optional(),
+    // Deep analysis fields
+    confidence: z.number().min(0).max(1).optional(), // LLM confidence score
+    source: z.enum(['ast', 'llm', 'hybrid']).optional(), // Finding source
+    category: z.string().optional(), // e.g. 'srp_violation', 'god_function'
+    verified: z.boolean().optional(), // AST-verified LLM finding
 });
 export type Failure = z.infer<typeof FailureSchema>;
 
@@ -258,13 +287,35 @@ export const ReportSchema = z.object({
         score: z.number().optional(),
         ai_health_score: z.number().optional(),
         structural_score: z.number().optional(),
+        code_quality_score: z.number().optional(), // Deep analysis score
         severity_breakdown: z.record(z.number()).optional(),
         provenance_breakdown: z.object({
             'ai-drift': z.number(),
             traditional: z.number(),
             security: z.number(),
             governance: z.number(),
+            'deep-analysis': z.number(),
+        }).optional(),
+        deep: z.object({
+            enabled: z.boolean(),
+            tier: z.enum(['deep', 'pro', 'cloud']).optional(),
+            model: z.string().optional(),
+            total_ms: z.number().optional(),
+            files_analyzed: z.number().optional(),
+            findings_count: z.number().optional(),
+            findings_verified: z.number().optional(),
         }).optional(),
     }),
 });
 export type Report = z.infer<typeof ReportSchema>;
+
+/** Options passed from CLI --deep / --pro / -k flags */
+export interface DeepOptions {
+    enabled: boolean;
+    pro?: boolean;
+    apiKey?: string;
+    provider?: string; // 'local' or any cloud provider name
+    apiBaseUrl?: string; // custom API endpoint
+    modelName?: string; // cloud model name override
+    agents?: number; // Number of parallel agents (default: 1). Cloud-only. Each gets own provider instance.
+}

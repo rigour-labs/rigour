@@ -63,4 +63,15 @@ export const PROMPT_DEFINITIONS = [
             },
         ],
     },
+    {
+        name: "rigour-deep-analysis",
+        description: "Run deep LLM-powered code quality analysis. AST extracts facts, LLM interprets patterns (SOLID violations, code smells, architecture issues), AST verifies findings. 100% local by default.",
+        arguments: [
+            {
+                name: "cwd",
+                description: "Absolute path to the project root.",
+                required: false,
+            },
+        ],
+    },
 ];

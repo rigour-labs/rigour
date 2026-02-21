@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { DiscoveryService } from '@rigour-labs/core';
+import { DiscoveryService, loadSettings, isModelCached, getModelsDir } from '@rigour-labs/core';
 import { CODE_QUALITY_RULES, DEBUGGING_RULES, COLLABORATION_RULES, AGNOSTIC_AI_INSTRUCTIONS } from './constants.js';
 import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
@@ -423,6 +423,90 @@ ${ruleContent}`;
         status: "success",
         content: [{ type: "text", text: `Rigour Governance Initialized` }]
     });
+
+    // 5. Auto-prerequisites check
+    await checkPrerequisites();
+}
+
+/**
+ * Auto-prerequisites check — runs after init to guide deep analysis setup.
+ * Checks settings.json for API keys, local model availability, and prints
+ * actionable next steps.
+ */
+async function checkPrerequisites(): Promise<void> {
+    console.log(chalk.bold.cyan('\n🔧 Deep Analysis Prerequisites:'));
+
+    const settings = loadSettings();
+    const providers = settings.providers || {};
+    const configuredKeys = Object.entries(providers).filter(([_, key]) => !!key);
+
+    // Check 1: API keys in settings.json
+    const hasApiKey = configuredKeys.length > 0;
+    if (hasApiKey) {
+        const providerNames = configuredKeys.map(([name]) => name).join(', ');
+        console.log(chalk.green(`  ✔ API keys configured: ${providerNames}`));
+    } else {
+        console.log(chalk.yellow('  ○ No API keys configured'));
+    }
+
+    // Check 2: Local model availability
+    const hasDeepModel = isModelCached('deep');
+    const hasProModel = isModelCached('pro');
+    if (hasDeepModel || hasProModel) {
+        const models = [];
+        if (hasDeepModel) models.push('deep (350MB)');
+        if (hasProModel) models.push('pro (900MB)');
+        console.log(chalk.green(`  ✔ Local models cached: ${models.join(', ')}`));
+    } else {
+        console.log(chalk.yellow('  ○ No local models cached'));
+    }
+
+    // Check 3: Sidecar binary
+    let hasSidecar = false;
+    try {
+        const { execSync } = await import('child_process');
+        const result = execSync('which llama-cli 2>/dev/null || which rigour-brain 2>/dev/null', { encoding: 'utf-8', timeout: 3000 }).trim();
+        hasSidecar = result.length > 0;
+    } catch {
+        // Also check ~/.rigour/bin/
+        const binDir = path.join(getModelsDir(), '..', 'bin');
+        hasSidecar = fs.existsSync(path.join(binDir, 'rigour-brain')) || fs.existsSync(path.join(binDir, 'llama-cli'));
+    }
+
+    if (hasSidecar) {
+        console.log(chalk.green('  ✔ Inference binary available'));
+    } else if (!hasApiKey) {
+        console.log(chalk.yellow('  ○ No local inference binary found'));
+    }
+
+    // Summary: what can the user do?
+    const isReady = hasApiKey || (hasSidecar && (hasDeepModel || hasProModel));
+
+    if (isReady) {
+        console.log(chalk.green('\n  ✓ Deep analysis is ready!'));
+        if (hasApiKey) {
+            const defaultProvider = settings.deep?.defaultProvider || configuredKeys[0]?.[0] || 'unknown';
+            console.log(chalk.dim(`    Run: rigour check --deep --provider ${defaultProvider}`));
+        }
+        if (hasSidecar && hasDeepModel) {
+            console.log(chalk.dim('    Run: rigour check --deep              (100% local, free)'));
+        }
+    } else {
+        console.log(chalk.bold.yellow('\n  ⚡ Set up deep analysis (optional):'));
+        console.log('');
+        console.log(chalk.bold('  Option A: Cloud API (Recommended — instant, high quality)'));
+        console.log(chalk.dim('    rigour settings set-key anthropic sk-ant-xxx     # Claude'));
+        console.log(chalk.dim('    rigour settings set-key openai sk-xxx            # OpenAI'));
+        console.log(chalk.dim('    rigour settings set-key groq gsk_xxx            # Groq (fast + free tier)'));
+        console.log(chalk.dim('    Then: rigour check --deep'));
+        console.log('');
+        console.log(chalk.bold('  Option B: 100% Local (Free, private, 350MB download)'));
+        console.log(chalk.dim('    rigour check --deep                              # Auto-downloads model'));
+        console.log(chalk.dim('    rigour check --deep --pro                        # Larger model (900MB)'));
+        console.log('');
+        console.log(chalk.dim('  Without deep analysis, Rigour still runs 15+ AST-based quality gates.'));
+    }
+    console.log('');
 }
 
 // Maps detected IDE to hook tool name

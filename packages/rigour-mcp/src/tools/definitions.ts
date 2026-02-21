@@ -415,6 +415,50 @@ export const TOOL_DEFINITIONS = [
         },
     },
 
+    // ─── Deep Analysis (v4.0+) ──────────────────────────────
+    {
+        name: "rigour_check_deep",
+        description: "Run quality gates WITH deep LLM-powered analysis. Three-step pipeline: AST extracts facts → LLM interprets → AST verifies. Local-first by default (Qwen2.5-Coder), or bring your own API key for any cloud provider.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                pro: { type: "boolean", description: "Use the larger 1.5B model (--pro tier). Default: false (0.5B model)." },
+                apiKey: { type: "string", description: "API key for cloud LLM provider. If provided, uses cloud instead of local sidecar." },
+                provider: { type: "string", description: "Cloud provider name (e.g., 'claude', 'openai', 'gemini', 'groq', 'mistral', 'together', 'fireworks', 'deepseek', 'perplexity', 'ollama', 'lmstudio'). Default: 'claude' when apiKey is provided." },
+                apiBaseUrl: { type: "string", description: "Custom API base URL for self-hosted or proxy endpoints." },
+                modelName: { type: "string", description: "Override the default model name for the chosen provider." },
+            },
+            required: ["cwd"],
+        },
+        annotations: {
+            title: "Deep Analysis",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
+        name: "rigour_deep_stats",
+        description: "Get deep analysis statistics from SQLite storage. Returns recent scan scores, top issues, and score trends for a repository.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                limit: { type: "number", description: "Number of recent scans to return (default: 10)." },
+            },
+            required: ["cwd"],
+        },
+        annotations: {
+            title: "Deep Analysis Stats",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+
     // ─── Code Review ──────────────────────────────────────
     {
         name: "rigour_review",
