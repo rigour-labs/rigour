@@ -272,6 +272,37 @@ async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath
             } catch (e: any) {
                 res.writeHead(500); res.end(e.message);
             }
+        } else if (url.pathname === '/api/report-stats') {
+            try {
+                const reportPath = path.join(cwd, 'rigour-report.json');
+                if (await fs.pathExists(reportPath)) {
+                    const report = await fs.readJson(reportPath);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(report.stats || {}));
+                } else {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({}));
+                }
+            } catch (e: any) {
+                res.writeHead(500); res.end(e.message);
+            }
+        } else if (url.pathname === '/api/deep-findings') {
+            try {
+                const reportPath = path.join(cwd, 'rigour-report.json');
+                if (await fs.pathExists(reportPath)) {
+                    const report = await fs.readJson(reportPath);
+                    const findings = (report.failures || []).filter(
+                        (f: any) => f.provenance === 'deep-analysis' || f.source === 'llm' || f.source === 'hybrid'
+                    );
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(findings));
+                } else {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify([]));
+                }
+            } catch (e: any) {
+                res.writeHead(500); res.end(e.message);
+            }
         } else if (url.pathname === '/api/arbitrate' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => body += chunk);

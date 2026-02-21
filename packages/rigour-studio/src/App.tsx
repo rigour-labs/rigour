@@ -18,7 +18,8 @@ import {
     XCircle,
     AlertTriangle,
     Users,
-    Flag
+    Flag,
+    Brain
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DiffEditor } from '@monaco-editor/react';
@@ -30,6 +31,7 @@ import { QualityGates } from './components/QualityGates';
 import { AuditLog, LogEntry } from './components/AuditLog';
 import { AgentTeams } from './components/AgentTeams';
 import { CheckpointTimeline } from './components/CheckpointTimeline';
+import { DeepAnalysis } from './components/DeepAnalysis';
 
 function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
@@ -154,6 +156,7 @@ function App() {
     const navItems = [
         { id: 'audit', label: 'Audit Log', icon: Terminal },
         { id: 'gates', label: 'Quality Gates', icon: ShieldCheck },
+        { id: 'deep', label: 'Deep Analysis', icon: Brain },
         { id: 'patterns', label: 'Pattern Index', icon: Database },
         { id: 'memory', label: 'Memory Bank', icon: Cpu },
         { id: 'agents', label: 'Agent Teams', icon: Users },
@@ -264,6 +267,18 @@ function App() {
                                 className="full-view"
                             >
                                 <QualityGates />
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'deep' && (
+                            <motion.div
+                                key="deep"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="full-view"
+                            >
+                                <DeepAnalysis />
                             </motion.div>
                         )}
 

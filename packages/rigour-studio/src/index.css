@@ -3093,3 +3093,433 @@ header {
     margin-left: 4px;
     margin-top: 6px;
 }
+
+/* ═══════════════════════════════════════════════════════
+   Deep Analysis Tab
+   ═══════════════════════════════════════════════════════ */
+
+.deep-analysis {
+    padding: 24px;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.deep-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.deep-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.deep-title h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-vibrant);
+}
+
+.tier-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--accent-glow);
+    color: var(--accent-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.deep-loading {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-dim);
+}
+
+.deep-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 40px;
+    text-align: center;
+    color: var(--text-dim);
+    gap: 16px;
+}
+
+.deep-empty h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.deep-empty p {
+    max-width: 400px;
+    line-height: 1.5;
+}
+
+.deep-empty code {
+    background: var(--bg-accent);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--accent-primary);
+}
+
+.empty-features {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.empty-features .feature {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-dim);
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: var(--bg-accent);
+    border: 1px solid var(--border-dim);
+}
+
+/* Stats Banner */
+.deep-stats-banner {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.deep-stats-banner .stat-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    min-width: 100px;
+    flex: 1;
+}
+
+.deep-stats-banner .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-vibrant);
+}
+
+.deep-stats-banner .stat-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+}
+
+/* Score Rings */
+.deep-scores {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    margin-bottom: 24px;
+    padding: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+}
+
+.score-ring {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.score-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+/* Filters */
+.deep-filters {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 8px 12px;
+    background: var(--bg-accent);
+    border-radius: 8px;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.filter-select {
+    background: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--border-dim);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border-dim);
+    background: var(--bg-card);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.filter-toggle.active {
+    background: var(--accent-glow);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+.filter-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+/* Finding Groups */
+.deep-findings {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.finding-group {
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg-card);
+    border: none;
+    color: var(--text-main);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background 0.15s;
+}
+
+.group-header:hover {
+    background: var(--bg-accent);
+}
+
+.group-count {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--accent-glow);
+    color: var(--accent-primary);
+}
+
+.group-severity-dots {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.sev-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.group-findings {
+    border-top: 1px solid var(--border-dim);
+}
+
+/* Finding Cards */
+.finding-card {
+    border-bottom: 1px solid var(--border-dim);
+}
+
+.finding-card:last-child {
+    border-bottom: none;
+}
+
+.finding-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 14px 10px 20px;
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    cursor: pointer;
+    font-size: 13px;
+    text-align: left;
+    transition: background 0.15s;
+}
+
+.finding-header:hover {
+    background: var(--bg-accent);
+}
+
+.finding-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.severity-indicator {
+    width: 4px;
+    height: 20px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.finding-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.finding-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.category-tag {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bg-accent);
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.verified-badge {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(5, 150, 105, 0.1);
+    color: var(--status-success);
+    white-space: nowrap;
+}
+
+.confidence-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bg-accent);
+    color: var(--accent-tertiary);
+    font-weight: 600;
+}
+
+.severity-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+/* Finding Body */
+.finding-body {
+    padding: 12px 20px 16px 34px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--bg-accent);
+    border-top: 1px solid var(--border-dim);
+}
+
+.finding-details {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-main);
+}
+
+.finding-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border-radius: 6px;
+    border-left: 3px solid var(--accent-primary);
+    font-size: 12px;
+    color: var(--text-main);
+    line-height: 1.4;
+}
+
+.finding-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.file-tag {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--bg-card);
+    color: var(--text-dim);
+    font-family: 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
+}
+
+.finding-meta {
+    display: flex;
+    gap: 8px;
+}
+
+.meta-tag {
+    font-size: 10px;
+    color: var(--text-dim);
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--bg-card);
+}
+
+.no-findings {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 48px;
+    color: var(--text-dim);
+    text-align: center;
+}
