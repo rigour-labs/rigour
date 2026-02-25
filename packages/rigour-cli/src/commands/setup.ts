@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs-extra';
 import { loadSettings, getSettingsPath, isModelCached, getModelsDir } from '@rigour-labs/core';
+import { getCliVersion } from '../utils/cli-version.js';
 
 export async function setupCommand() {
     console.log(chalk.bold.cyan('\n🛠️ Rigour Labs | Setup & System Check\n'));
@@ -103,17 +104,4 @@ export async function setupCommand() {
     console.log(chalk.dim('    No-install: ') + chalk.cyan('npx @rigour-labs/cli check'));
     console.log(chalk.dim('    MCP:     ') + chalk.cyan('packages/rigour-mcp/dist/index.js'));
     console.log('');
-}
-
-function getCliVersion(): string | null {
-    try {
-        const pkgPath = path.resolve(new URL(import.meta.url).pathname, '../../../package.json');
-        if (fs.existsSync(pkgPath)) {
-            const pkg = fs.readJsonSync(pkgPath);
-            return pkg.version || null;
-        }
-    } catch {
-        // fallback
-    }
-    return '2.0.0';
 }

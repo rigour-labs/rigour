@@ -14,8 +14,9 @@ import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
 import { getScoreHistory, getScoreTrend } from '@rigour-labs/core';
+import { getCliVersion } from '../utils/cli-version.js';
 
-const CLI_VERSION = '2.0.0';
+const CLI_VERSION = getCliVersion();
 
 export interface ExportAuditOptions {
     format?: 'json' | 'md';

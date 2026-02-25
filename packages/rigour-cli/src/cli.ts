@@ -14,9 +14,10 @@ import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand } from './commands/hooks.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { checkForUpdates } from './utils/version.js';
+import { getCliVersion } from './utils/cli-version.js';
 import chalk from 'chalk';
 
-const CLI_VERSION = '2.0.0';
+const CLI_VERSION = getCliVersion();
 
 const program = new Command();
 
