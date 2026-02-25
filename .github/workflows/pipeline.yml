@@ -75,6 +75,60 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Publish Homebrew Formula
+        if: success() && secrets.HOMEBREW_TAP_GH_TOKEN != ''
+        env:
+          HOMEBREW_TAP_GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GH_TOKEN }}
+          HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'rigour-labs/homebrew-tap' }}
+        run: |
+          set -euo pipefail
+
+          VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
+          TARBALL_URL="https://registry.npmjs.org/@rigour-labs/cli/-/cli-${VERSION}.tgz"
+          TARBALL_PATH="/tmp/rigour-cli-${VERSION}.tgz"
+
+          echo "Preparing Homebrew formula for version ${VERSION}"
+          curl -fsSL "${TARBALL_URL}" -o "${TARBALL_PATH}"
+          SHA256=$(sha256sum "${TARBALL_PATH}" | awk '{print $1}')
+
+          TAP_DIR="/tmp/homebrew-tap"
+          rm -rf "${TAP_DIR}"
+          git clone "https://x-access-token:${HOMEBREW_TAP_GH_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" "${TAP_DIR}"
+
+          mkdir -p "${TAP_DIR}/Formula"
+          cat > "${TAP_DIR}/Formula/rigour.rb" <<EOF
+          class Rigour < Formula
+            desc "Rigour CLI quality gates for AI-generated code"
+            homepage "https://github.com/rigour-labs/rigour"
+            url "${TARBALL_URL}"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            depends_on "node"
+
+            def install
+              system "npm", "install", *std_npm_args(libexec)
+              bin.install_symlink Dir["#{libexec}/bin/*"]
+            end
+
+            test do
+              system "#{bin}/rigour", "--version"
+            end
+          end
+          EOF
+
+          cd "${TAP_DIR}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/rigour.rb
+          if git diff --cached --quiet; then
+            echo "Homebrew formula already up to date."
+            exit 0
+          fi
+          git commit -m "chore: bump rigour to v${VERSION}"
+          git push origin HEAD
+          echo "Homebrew formula updated in ${HOMEBREW_TAP_REPO}"
+
       - name: Publish to MCP Registry
         if: success()
         working-directory: packages/rigour-mcp
@@ -89,5 +143,4 @@ jobs:
           chmod +x mcp-publisher
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
-
 

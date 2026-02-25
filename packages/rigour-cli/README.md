@@ -18,6 +18,13 @@ npx rigour check    # Verify code quality
 npx rigour run -- claude "Build feature X"  # Agent loop
 ```
 
+## 🍺 Homebrew
+
+```bash
+brew tap rigour-labs/tap
+brew install rigour
+```
+
 ## 🛑 The Problem
 
 AI agents often fall into **"Vibe Coding"**—claiming success based on narrative, not execution:

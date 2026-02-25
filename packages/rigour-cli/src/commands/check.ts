@@ -86,6 +86,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
         // Build deep options if enabled
         // Merges CLI flags with ~/.rigour/settings.json (CLI flags win)
         let deepOpts: (DeepOptions & { onProgress?: (msg: string) => void }) | undefined;
+        let resolvedDeepMode: { isLocal: boolean; provider: string } | undefined;
         if (isDeep) {
             const resolved = resolveDeepOptions({
                 apiKey: options.apiKey,
@@ -112,6 +113,11 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                     process.stderr.write(msg + '\n');
                 },
             };
+
+            resolvedDeepMode = {
+                isLocal: !hasApiKey || deepOpts.provider === 'local',
+                provider: deepOpts.provider || 'cloud',
+            };
         }
 
         const report = await runner.run(cwd, files.length > 0 ? files : undefined, deepOpts);
@@ -131,7 +137,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                 if (db) {
                     const repoName = path.basename(cwd);
                     const scanId = insertScan(db, repoName, report, {
-                        deepTier: options.pro ? 'pro' : (options.apiKey ? 'cloud' : 'deep'),
+                        deepTier: report.stats.deep?.tier || (options.pro ? 'pro' : (resolvedDeepMode?.isLocal ? 'deep' : 'cloud')),
                         deepModel: report.stats.deep?.model,
                     });
                     insertFindings(db, scanId, report.failures);
@@ -197,7 +203,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
 
         if (isDeep) {
             // Deep analysis output format (from product bible)
-            renderDeepOutput(report, config, options);
+            renderDeepOutput(report, config, options, resolvedDeepMode);
         } else {
             // Standard AST-only output
             renderStandardOutput(report, config);
@@ -258,9 +264,15 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
  * - Privacy badge and model info
  * - Summary count at end
  */
-function renderDeepOutput(report: any, config: any, options: CheckOptions) {
+function renderDeepOutput(
+    report: any,
+    config: any,
+    options: CheckOptions,
+    resolvedDeepMode?: { isLocal: boolean; provider: string }
+) {
     const stats = report.stats;
-    const isLocal = !options.apiKey;
+    const isLocal = stats.deep?.tier ? stats.deep.tier !== 'cloud' : (resolvedDeepMode?.isLocal ?? !options.apiKey);
+    const provider = resolvedDeepMode?.provider || options.provider || 'cloud';
 
     console.log('');
 
@@ -285,12 +297,12 @@ function renderDeepOutput(report: any, config: any, options: CheckOptions) {
     if (isLocal) {
         console.log(chalk.green('  🔒 100% local. Your code never left this machine.'));
     } else {
-        console.log(chalk.yellow(`  ☁️  Code was sent to ${options.provider || 'cloud'} API.`));
+        console.log(chalk.yellow(`  ☁️  Code was sent to ${provider} API.`));
     }
 
     // Deep stats
     if (stats.deep) {
-        const tier = stats.deep.tier === 'cloud' ? options.provider || 'cloud' : stats.deep.tier;
+        const tier = stats.deep.tier === 'cloud' ? provider : stats.deep.tier;
         const model = stats.deep.model || 'unknown';
         const inferenceSec = stats.deep.total_ms ? (stats.deep.total_ms / 1000).toFixed(1) + 's' : '';
         console.log(chalk.dim(`  Model: ${model} (${tier}) ${inferenceSec}`));

@@ -8,6 +8,7 @@ import { promisify } from 'util';
 import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
+import { createRequire } from 'module';
 import type { InferenceProvider, InferenceOptions, ModelTier } from './types.js';
 import { ensureModel, getModelPath, isModelCached, getModelInfo } from './model-manager.js';
 
@@ -40,14 +41,25 @@ export class SidecarProvider implements InferenceProvider {
     }
 
     async setup(onProgress?: (message: string) => void): Promise<void> {
+        const platformKey = this.getPlatformKey();
+        const packageName = PLATFORM_PACKAGES[platformKey];
+
         // 1. Check/resolve binary
         this.binaryPath = await this.resolveBinaryPath();
-        if (this.binaryPath) {
-            onProgress?.('✓ Inference engine ready');
-        } else {
-            onProgress?.('⚠ Inference engine not found. Install @rigour/brain-* or add llama-cli to PATH');
-            throw new Error('Sidecar binary not found. Run: npm install @rigour/brain-' + this.getPlatformKey());
+
+        // Auto-bootstrap local sidecar once before failing.
+        if (!this.binaryPath && packageName) {
+            const installed = await this.installSidecarBinary(packageName, onProgress);
+            if (installed) {
+                this.binaryPath = await this.resolveBinaryPath();
+            }
         }
+
+        if (!this.binaryPath) {
+            onProgress?.('⚠ Inference engine not found. Install @rigour/brain-* or add llama-cli to PATH');
+            throw new Error('Sidecar binary not found. Run: npm install @rigour/brain-' + platformKey);
+        }
+        onProgress?.('✓ Inference engine ready');
 
         // 2. Ensure model is downloaded
         if (!isModelCached(this.tier)) {
@@ -117,10 +129,27 @@ export class SidecarProvider implements InferenceProvider {
         const packageName = PLATFORM_PACKAGES[platformKey];
         if (packageName) {
             try {
+                const require = createRequire(import.meta.url);
+                const pkgJsonPath = require.resolve(path.posix.join(packageName, 'package.json'));
+                const pkgDir = path.dirname(pkgJsonPath);
+                const resolvedBin = path.join(pkgDir, 'bin', 'rigour-brain');
+                const resolvedBinPath = os.platform() === 'win32' ? resolvedBin + '.exe' : resolvedBin;
+                if (await fs.pathExists(resolvedBinPath)) {
+                    return resolvedBinPath;
+                }
+            } catch {
+                // Package not resolvable from current runtime
+            }
+
+            try {
                 // Try to resolve from node_modules
                 const possiblePaths = [
+                    // From current working directory
+                    path.join(process.cwd(), 'node_modules', ...packageName.split('/'), 'bin', 'rigour-brain'),
                     // From rigour-core node_modules
                     path.join(__dirname, '..', '..', '..', 'node_modules', ...packageName.split('/'), 'bin', 'rigour-brain'),
+                    // From monorepo root when rigour-core is nested under packages/
+                    path.join(__dirname, '..', '..', '..', '..', '..', 'node_modules', ...packageName.split('/'), 'bin', 'rigour-brain'),
                     // From global node_modules
                     path.join(os.homedir(), '.npm-global', 'lib', 'node_modules', ...packageName.split('/'), 'bin', 'rigour-brain'),
                 ];
@@ -166,5 +195,27 @@ export class SidecarProvider implements InferenceProvider {
         }
 
         return null;
+    }
+
+    private async installSidecarBinary(packageName: string, onProgress?: (message: string) => void): Promise<boolean> {
+        onProgress?.(`⬇ Inference engine missing. Attempting automatic install: ${packageName}`);
+        try {
+            await execFileAsync(
+                'npm',
+                ['install', '--no-save', '--no-package-lock', packageName],
+                {
+                    cwd: process.cwd(),
+                    timeout: 120000,
+                    maxBuffer: 10 * 1024 * 1024,
+                }
+            );
+        } catch (error: any) {
+            const reason = typeof error?.message === 'string' ? error.message : 'unknown install error';
+            onProgress?.(`⚠ Auto-install failed: ${reason}`);
+            return false;
+        }
+
+        onProgress?.(`✓ Installed ${packageName}`);
+        return true;
     }
 }

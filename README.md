@@ -36,6 +36,13 @@ npx @rigour-labs/cli check --deep           # Enable deep analysis (LLM-powered,
 npx @rigour-labs/cli hooks init             # Wire into Claude/Cursor/Cline/Windsurf
 ```
 
+### Homebrew Install
+
+```bash
+brew tap rigour-labs/tap
+brew install rigour
+```
+
 ---
 
 ## Instant Scan
@@ -348,6 +355,16 @@ A **pnpm monorepo** with four packages:
 | `@rigour-labs/studio` | React-based monitoring dashboard |
 
 **Tech stack:** TypeScript (strict mode), web-tree-sitter, Zod, Commander.js, Vitest, GitHub Actions CI (Ubuntu/macOS/Windows).
+
+### Homebrew Release Automation
+
+`main` releases can auto-update a tap formula at `Formula/rigour.rb`.
+
+Required GitHub secret:
+- `HOMEBREW_TAP_GH_TOKEN` (PAT with push access to the tap repo)
+
+Optional GitHub variable:
+- `HOMEBREW_TAP_REPO` (defaults to `rigour-labs/homebrew-tap`)
 
 ---
 
