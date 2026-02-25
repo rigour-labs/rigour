@@ -76,12 +76,17 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish Homebrew Formula
-        if: success() && secrets.HOMEBREW_TAP_GH_TOKEN != ''
+        if: success()
         env:
           HOMEBREW_TAP_GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GH_TOKEN }}
           HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'rigour-labs/homebrew-tap' }}
         run: |
           set -euo pipefail
+
+          if [ -z "${HOMEBREW_TAP_GH_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_GH_TOKEN is not set. Skipping Homebrew publish."
+            exit 0
+          fi
 
           VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
           TARBALL_URL="https://registry.npmjs.org/@rigour-labs/cli/-/cli-${VERSION}.tgz"
@@ -143,4 +148,3 @@ jobs:
           chmod +x mcp-publisher
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
-
