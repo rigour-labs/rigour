@@ -45,6 +45,16 @@ importers:
         specifier: ^1.3.1
         version: 1.6.1(@types/node@25.0.3)(lightningcss@1.30.2)
 
+  packages/brain-darwin-arm64: {}
+
+  packages/brain-darwin-x64: {}
+
+  packages/brain-linux-arm64: {}
+
+  packages/brain-linux-x64: {}
+
+  packages/brain-win-x64: {}
+
   packages/rigour-cli:
     dependencies:
       '@rigour-labs/core':
@@ -140,6 +150,21 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.30.1
         version: 0.30.1
+      '@rigour-labs/brain-darwin-arm64':
+        specifier: workspace:*
+        version: link:../brain-darwin-arm64
+      '@rigour-labs/brain-darwin-x64':
+        specifier: workspace:*
+        version: link:../brain-darwin-x64
+      '@rigour-labs/brain-linux-arm64':
+        specifier: workspace:*
+        version: link:../brain-linux-arm64
+      '@rigour-labs/brain-linux-x64':
+        specifier: workspace:*
+        version: link:../brain-linux-x64
+      '@rigour-labs/brain-win-x64':
+        specifier: workspace:*
+        version: link:../brain-win-x64
       '@xenova/transformers':
         specifier: ^2.17.2
         version: 2.17.2
