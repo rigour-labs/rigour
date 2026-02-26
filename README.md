@@ -28,19 +28,41 @@ npx @rigour-labs/cli demo --cinematic
 
 ## Quick Start
 
-```bash
-npx @rigour-labs/cli scan                  # Zero-config scan (auto-detect stack, scary findings fast)
-npx @rigour-labs/cli init                   # Auto-detect project, generate config
-npx @rigour-labs/cli check                  # Run 23 quality gates → PASS or FAIL
-npx @rigour-labs/cli check --deep           # Enable deep analysis (LLM-powered, 40+ semantic checks)
-npx @rigour-labs/cli hooks init             # Wire into Claude/Cursor/Cline/Windsurf
-```
+### 1) Choose Installation Method
 
-### Homebrew Install
+Use one of these:
 
 ```bash
+# Option A: No install (quickest)
+npx @rigour-labs/cli --version
+
+# Option B: Homebrew (macOS/Linux users already using brew)
 brew tap rigour-labs/tap
 brew install rigour
+rigour --version
+
+# Option C: Global npm install
+npm install -g @rigour-labs/cli
+rigour --version
+```
+
+### 2) First Commands To Run In Your Repo
+
+If using `npx`, prefix each command with `npx @rigour-labs/cli`.
+If installed (`brew` or global npm), use `rigour`.
+
+```bash
+rigour scan                 # Zero-config scan, immediate findings
+rigour init                 # Generate rigour.yml + docs
+rigour check                # Run quality gates (PASS/FAIL)
+rigour hooks init           # Enable real-time hooks for Claude/Cursor/Cline/Windsurf
+rigour check --deep --pro   # Deep semantic analysis (larger local model)
+```
+
+### 3) CI Command
+
+```bash
+npx @rigour-labs/cli check --ci
 ```
 
 ---
