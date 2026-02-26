@@ -1,6 +1,6 @@
 /**
  * Sidecar Binary Provider — runs inference via pre-compiled llama.cpp binary.
- * Binary ships as @rigour/brain-{platform} optional npm dependency.
+ * Binary ships as @rigour-labs/brain-{platform} optional npm dependency.
  * Falls back to PATH lookup for development/manual installs.
  */
 import { execFile } from 'child_process';
@@ -16,11 +16,11 @@ const execFileAsync = promisify(execFile);
 
 /** Platform → npm package mapping */
 const PLATFORM_PACKAGES: Record<string, string> = {
-    'darwin-arm64': '@rigour/brain-darwin-arm64',
-    'darwin-x64': '@rigour/brain-darwin-x64',
-    'linux-x64': '@rigour/brain-linux-x64',
-    'linux-arm64': '@rigour/brain-linux-arm64',
-    'win32-x64': '@rigour/brain-win-x64',
+    'darwin-arm64': '@rigour-labs/brain-darwin-arm64',
+    'darwin-x64': '@rigour-labs/brain-darwin-x64',
+    'linux-x64': '@rigour-labs/brain-linux-x64',
+    'linux-arm64': '@rigour-labs/brain-linux-arm64',
+    'win32-x64': '@rigour-labs/brain-win-x64',
 };
 
 export class SidecarProvider implements InferenceProvider {
@@ -56,8 +56,9 @@ export class SidecarProvider implements InferenceProvider {
         }
 
         if (!this.binaryPath) {
-            onProgress?.('⚠ Inference engine not found. Install @rigour/brain-* or add llama-cli to PATH');
-            throw new Error('Sidecar binary not found. Run: npm install @rigour/brain-' + platformKey);
+            onProgress?.('⚠ Inference engine not found. Install @rigour-labs/brain-* or add llama-cli to PATH');
+            const installHint = packageName || `@rigour-labs/brain-${platformKey}`;
+            throw new Error(`Sidecar binary not found. Run: npm install ${installHint}`);
         }
         onProgress?.('✓ Inference engine ready');
 
@@ -96,11 +97,15 @@ export class SidecarProvider implements InferenceProvider {
         }
 
         try {
-            const { stdout, stderr } = await execFileAsync(this.binaryPath, args, {
+            const execOptions = {
                 timeout: options?.timeout || 60000,
                 maxBuffer: 10 * 1024 * 1024, // 10MB
                 env: { ...process.env, LLAMA_LOG_DISABLE: '1' },
-            });
+            };
+
+            const { stdout } = process.platform === 'win32' && this.binaryPath.endsWith('.cmd')
+                ? await execFileAsync('cmd.exe', ['/d', '/s', '/c', [this.binaryPath, ...args].map(quoteCmdArg).join(' ')], execOptions)
+                : await execFileAsync(this.binaryPath, args, execOptions);
 
             // llama.cpp sometimes outputs to stderr for diagnostics — ignore
             return stdout.trim();
@@ -125,7 +130,7 @@ export class SidecarProvider implements InferenceProvider {
     private async resolveBinaryPath(): Promise<string | null> {
         const platformKey = this.getPlatformKey();
 
-        // Strategy 1: Check @rigour/brain-{platform} optional dependency
+        // Strategy 1: Check @rigour-labs/brain-{platform} optional dependency
         const packageName = PLATFORM_PACKAGES[platformKey];
         if (packageName) {
             try {
@@ -133,9 +138,13 @@ export class SidecarProvider implements InferenceProvider {
                 const pkgJsonPath = require.resolve(path.posix.join(packageName, 'package.json'));
                 const pkgDir = path.dirname(pkgJsonPath);
                 const resolvedBin = path.join(pkgDir, 'bin', 'rigour-brain');
-                const resolvedBinPath = os.platform() === 'win32' ? resolvedBin + '.exe' : resolvedBin;
-                if (await fs.pathExists(resolvedBinPath)) {
-                    return resolvedBinPath;
+                const resolvedCandidates = os.platform() === 'win32'
+                    ? [resolvedBin + '.exe', resolvedBin + '.cmd', resolvedBin]
+                    : [resolvedBin];
+                for (const resolvedBinPath of resolvedCandidates) {
+                    if (await fs.pathExists(resolvedBinPath)) {
+                        return resolvedBinPath;
+                    }
                 }
             } catch {
                 // Package not resolvable from current runtime
@@ -155,9 +164,11 @@ export class SidecarProvider implements InferenceProvider {
                 ];
 
                 for (const p of possiblePaths) {
-                    const binPath = os.platform() === 'win32' ? p + '.exe' : p;
-                    if (await fs.pathExists(binPath)) {
-                        return binPath;
+                    const candidates = os.platform() === 'win32' ? [p + '.exe', p + '.cmd', p] : [p];
+                    for (const binPath of candidates) {
+                        if (await fs.pathExists(binPath)) {
+                            return binPath;
+                        }
                     }
                 }
             } catch {
@@ -167,9 +178,13 @@ export class SidecarProvider implements InferenceProvider {
 
         // Strategy 2: Check ~/.rigour/bin/
         const localBin = path.join(os.homedir(), '.rigour', 'bin', 'rigour-brain');
-        const localBinPath = os.platform() === 'win32' ? localBin + '.exe' : localBin;
-        if (await fs.pathExists(localBinPath)) {
-            return localBinPath;
+        const localCandidates = os.platform() === 'win32'
+            ? [localBin + '.exe', localBin + '.cmd', localBin]
+            : [localBin];
+        for (const localBinPath of localCandidates) {
+            if (await fs.pathExists(localBinPath)) {
+                return localBinPath;
+            }
         }
 
         // Strategy 3: Check PATH for llama-cli (llama.cpp CLI)
@@ -218,4 +233,8 @@ export class SidecarProvider implements InferenceProvider {
         onProgress?.(`✓ Installed ${packageName}`);
         return true;
     }
+}
+
+function quoteCmdArg(value: string): string {
+    return `"${value.replace(/"/g, '\\"')}"`;
 }

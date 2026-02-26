@@ -1,0 +1,25 @@
+{
+  "name": "@rigour-labs/brain-darwin-arm64",
+  "version": "1.0.0",
+  "description": "Rigour sidecar inference binary package for macOS arm64",
+  "license": "MIT",
+  "homepage": "https://rigour.run",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rigour-labs/rigour"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

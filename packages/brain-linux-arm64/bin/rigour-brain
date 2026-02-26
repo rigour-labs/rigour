@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+if command -v llama-cli >/dev/null 2>&1; then
+  exec llama-cli "$@"
+fi
+echo "rigour-brain is not bundled in this build. Install llama-cli or republish with binary assets." >&2
+exit 1

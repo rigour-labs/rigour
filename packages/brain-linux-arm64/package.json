@@ -1,0 +1,25 @@
+{
+  "name": "@rigour-labs/brain-linux-arm64",
+  "version": "1.0.0",
+  "description": "Rigour sidecar inference binary package for linux-arm64",
+  "license": "MIT",
+  "homepage": "https://rigour.run",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rigour-labs/rigour"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
