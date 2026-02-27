@@ -49,8 +49,8 @@ export async function setupCommand() {
     console.log(chalk.bold('\n  Deep Analysis'));
 
     // Check local models
-    const hasDeep = isModelCached('deep');
-    const hasPro = isModelCached('pro');
+    const hasDeep = await isModelCached('deep');
+    const hasPro = await isModelCached('pro');
     if (hasDeep) console.log(chalk.green('    ✔ Local model: deep (Qwen2.5-Coder-0.5B, 350MB)'));
     if (hasPro) console.log(chalk.green('    ✔ Local model: pro (Qwen2.5-Coder-1.5B, 900MB)'));
     if (!hasDeep && !hasPro) {
@@ -62,7 +62,11 @@ export async function setupCommand() {
     let hasSidecar = false;
     try {
         const { execSync } = await import('child_process');
-        execSync('which llama-cli 2>/dev/null || which rigour-brain 2>/dev/null', { encoding: 'utf-8', timeout: 3000 });
+        if (process.platform === 'win32') {
+            execSync('where llama-cli || where rigour-brain', { encoding: 'utf-8', timeout: 3000 });
+        } else {
+            execSync('which llama-cli 2>/dev/null || which rigour-brain 2>/dev/null', { encoding: 'utf-8', timeout: 3000 });
+        }
         hasSidecar = true;
         console.log(chalk.green('    ✔ Inference binary found'));
     } catch {
@@ -102,6 +106,7 @@ export async function setupCommand() {
     console.log(chalk.dim('    Global:  ') + chalk.cyan('npm install -g @rigour-labs/cli'));
     console.log(chalk.dim('    Local:   ') + chalk.cyan('npm install --save-dev @rigour-labs/cli'));
     console.log(chalk.dim('    No-install: ') + chalk.cyan('npx @rigour-labs/cli check'));
+    console.log(chalk.dim('    Diagnostics: ') + chalk.cyan('rigour doctor'));
     console.log(chalk.dim('    MCP:     ') + chalk.cyan('packages/rigour-mcp/dist/index.js'));
     console.log('');
 }

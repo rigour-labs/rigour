@@ -74,14 +74,16 @@ export class PhantomApisGate extends Gate {
             cwd: context.cwd,
             patterns: ['**/*.{ts,js,tsx,jsx,py,go,cs,java,kt}'],
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
+                '**/*.test.*', '**/*.spec.*', '**/__tests__/**',
                 '**/.venv/**', '**/venv/**', '**/vendor/**', '**/__pycache__/**',
                 '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**',
                 '**/target/**', '**/.gradle/**', '**/out/**'],
         });
+        const analyzableFiles = files.filter(file => !this.shouldSkipFile(file));
 
-        Logger.info(`Phantom APIs: Scanning ${files.length} files`);
+        Logger.info(`Phantom APIs: Scanning ${analyzableFiles.length} files`);
 
-        for (const file of files) {
+        for (const file of analyzableFiles) {
             try {
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
@@ -125,6 +127,18 @@ export class PhantomApisGate extends Gate {
         return failures;
     }
 
+    private shouldSkipFile(file: string): boolean {
+        const normalized = file.replace(/\\/g, '/');
+        return (
+            this.config.ignore_patterns.some(pattern => new RegExp(pattern).test(normalized)) ||
+            normalized.includes('/examples/') ||
+            normalized.includes('/__tests__/') ||
+            normalized.endsWith('/phantom-apis-data.ts') ||
+            /\.test\.[^.]+$/i.test(normalized) ||
+            /\.spec\.[^.]+$/i.test(normalized)
+        );
+    }
+
     /**
      * Node.js stdlib method verification.
      * For each known module, we maintain the actual exported methods.
@@ -153,7 +167,8 @@ export class PhantomApisGate extends Gate {
 
         // Scan for method calls on imported modules
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+            const line = this.stripJsCommentLine(lines[i]);
+            if (!line) continue;
 
             for (const [alias, moduleName] of moduleAliases) {
                 // Match: alias.methodName( or alias.property.something(
@@ -173,6 +188,21 @@ export class PhantomApisGate extends Gate {
                 }
             }
         }
+    }
+
+    private stripJsCommentLine(line: string): string {
+        const trimmed = line.trim();
+        if (
+            trimmed.length === 0 ||
+            trimmed.startsWith('//') ||
+            trimmed.startsWith('/*') ||
+            trimmed.startsWith('*/') ||
+            trimmed.startsWith('*')
+        ) {
+            return '';
+        }
+        const withoutInline = line.replace(/\/\/.*$/, '');
+        return withoutInline.trim();
     }
 
     /**

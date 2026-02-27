@@ -19,7 +19,7 @@ import { randomUUID } from "crypto";
 import { GateRunner } from "@rigour-labs/core";
 
 // Utils
-import { loadConfig, logStudioEvent } from './utils/config.js';
+import { loadConfig, loadMcpSettings, logStudioEvent } from './utils/config.js';
 
 // Tool definitions
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
@@ -33,6 +33,7 @@ import { handleAgentRegister, handleCheckpoint, handleHandoff, handleAgentDeregi
 import { handleReview } from './tools/review-handler.js';
 import { handleHooksCheck, handleHooksInit } from './tools/hooks-handler.js';
 import { handleCheckDeep, handleDeepStats } from './tools/deep-handlers.js';
+import { handleMcpGetSettings, handleMcpSetSettings } from './tools/mcp-settings-handler.js';
 
 // ─── Server Setup ─────────────────────────────────────────────────
 
@@ -63,12 +64,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         switch (name) {
             // Quality gates
-            case "rigour_check":         result = await handleCheck(runner, cwd); break;
+            case "rigour_check": {
+                const { files, deep, pro, apiKey, provider, apiBaseUrl, modelName } = args as any;
+                const mcpSettings = await loadMcpSettings(cwd);
+                result = await handleCheck(runner, cwd, {
+                    files,
+                    deep: deep ?? mcpSettings.deep_default_mode,
+                    pro,
+                    apiKey,
+                    provider,
+                    apiBaseUrl,
+                    modelName,
+                });
+                break;
+            }
             case "rigour_explain":       result = await handleExplain(runner, cwd); break;
             case "rigour_status":        result = await handleStatus(runner, cwd); break;
             case "rigour_get_fix_packet": result = await handleGetFixPacket(runner, cwd, config); break;
             case "rigour_list_gates":    result = handleListGates(config); break;
             case "rigour_get_config":    result = handleGetConfig(config); break;
+            case "rigour_mcp_get_settings": result = await handleMcpGetSettings(cwd); break;
+            case "rigour_mcp_set_settings": result = await handleMcpSetSettings(cwd, args as any); break;
 
             // Memory
             case "rigour_remember":      result = await handleRemember(cwd, (args as any).key, (args as any).value); break;
@@ -154,6 +170,8 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => ({
 server.setRequestHandler(GetPromptRequestSchema, async (request) => {
     const { name, arguments: promptArgs } = request.params;
     const cwd = (promptArgs as any)?.cwd || process.env.RIGOUR_CWD || process.cwd();
+    const mcpSettings = await loadMcpSettings(cwd);
+    const deepMode = mcpSettings.deep_default_mode;
 
     const prompt = PROMPT_DEFINITIONS.find((p: any) => p.name === name);
     if (!prompt) {
@@ -170,7 +188,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
                         role: "user" as const,
                         content: {
                             type: "text" as const,
-                            text: `Initialize Rigour quality gates for the project at ${cwd}. Run \`rigour_check\` to see current quality score, then use \`rigour_hooks_init\` to install real-time hooks for the detected AI coding tool. Report the score breakdown (overall, AI health, structural) and any critical violations.`,
+                            text: `Initialize Rigour quality gates for the project at ${cwd}. Run \`rigour_check\` to see current quality score, then use \`rigour_hooks_init\` to install real-time hooks for the detected AI coding tool. MCP default deep mode for \`rigour_check\` is "${deepMode}". Report the score breakdown (overall, AI health, structural) and any critical violations.`,
                         },
                     },
                 ],
@@ -184,7 +202,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
                         role: "user" as const,
                         content: {
                             type: "text" as const,
-                            text: `Run \`rigour_check\` on ${cwd}. If the project FAILS, retrieve the fix packet with \`rigour_get_fix_packet\` and fix every violation in priority order (critical → high → medium → low). After each fix, re-run \`rigour_check\` to verify. Repeat until PASS. Do NOT skip any violation. Report progress after each iteration.`,
+                            text: `Run \`rigour_check\` on ${cwd}. MCP default deep mode for \`rigour_check\` is "${deepMode}". If the project FAILS, retrieve the fix packet with \`rigour_get_fix_packet\` and fix every violation in priority order (critical → high → medium → low). After each fix, re-run \`rigour_check\` to verify. Repeat until PASS. Do NOT skip any violation. Report progress after each iteration.`,
                         },
                     },
                 ],
@@ -198,7 +216,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
                         role: "user" as const,
                         content: {
                             type: "text" as const,
-                            text: `Perform a full security review on ${cwd}. First run \`rigour_security_audit\` for CVE checks on dependencies. Then run \`rigour_check\` and filter for security-provenance violations (hardcoded secrets, SQL injection, XSS, command injection, path traversal). Report all findings with severity, file locations, and remediation instructions.`,
+                            text: `Perform a full security review on ${cwd}. First run \`rigour_security_audit\` for CVE checks on dependencies. Then run \`rigour_check\` (default deep mode "${deepMode}") and filter for security-provenance violations (hardcoded secrets, SQL injection, XSS, command injection, path traversal). Report all findings with severity, file locations, and remediation instructions.`,
                         },
                     },
                 ],
@@ -212,7 +230,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
                         role: "user" as const,
                         content: {
                             type: "text" as const,
-                            text: `Run a pre-commit quality check on ${cwd}. Execute \`rigour_check\` and \`rigour_hooks_check\` on all staged files. If any critical or high severity violations exist, list them and block the commit. For medium/low violations, warn but allow. Provide a one-line summary: PASS (safe to commit) or FAIL (must fix first).`,
+                            text: `Run a pre-commit quality check on ${cwd}. Execute \`rigour_check\` (default deep mode "${deepMode}") and \`rigour_hooks_check\` on all staged files. If any critical or high severity violations exist, list them and block the commit. For medium/low violations, warn but allow. Provide a one-line summary: PASS (safe to commit) or FAIL (must fix first).`,
                         },
                     },
                 ],
@@ -226,7 +244,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
                         role: "user" as const,
                         content: {
                             type: "text" as const,
-                            text: `Generate an AI code health report for ${cwd}. Run \`rigour_check\` and focus on AI-drift provenance violations: hallucinated imports, duplication drift, context window artifacts, inconsistent error handling, and promise safety. Compare AI health score vs structural score. Provide a summary table of AI-specific issues and concrete next steps to improve the AI health score.`,
+                            text: `Generate an AI code health report for ${cwd}. Run \`rigour_check\` (default deep mode "${deepMode}") and focus on AI-drift provenance violations: hallucinated imports, duplication drift, context window artifacts, inconsistent error handling, and promise safety. Compare AI health score vs structural score. Provide a summary table of AI-specific issues and concrete next steps to improve the AI health score.`,
                         },
                     },
                 ],

@@ -24,7 +24,7 @@ Rigour moves code quality enforcement from the "Post-Commit" phase to the "In-Pr
 - **Security Audits**: Real-time CVE detection for dependencies the AI is suggesting.
 - **Multi-Agent Governance**: Agent registration, scope isolation, checkpoint supervision, and verified handoffs for multi-agent workflows.
 - **Industry Presets**: SOC2, HIPAA, FedRAMP-ready gate configurations.
-- **Zero Cloud**: 100% local analysis. Your code never leaves your machine.
+- **Local-First**: Deterministic gates run locally. If deep analysis is configured with a cloud provider, code context may be sent to that provider.
 
 ---
 

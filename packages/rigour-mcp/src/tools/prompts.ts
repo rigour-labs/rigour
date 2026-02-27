@@ -65,7 +65,7 @@ export const PROMPT_DEFINITIONS = [
     },
     {
         name: "rigour-deep-analysis",
-        description: "Run deep LLM-powered code quality analysis. AST extracts facts, LLM interprets patterns (SOLID violations, code smells, architecture issues), AST verifies findings. 100% local by default.",
+        description: "Run deep LLM-powered code quality analysis. AST extracts facts, LLM interprets patterns (SOLID violations, code smells, architecture issues), AST verifies findings. Local sidecar by default; cloud provider mode when configured.",
         arguments: [
             {
                 name: "cwd",

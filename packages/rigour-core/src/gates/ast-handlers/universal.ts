@@ -139,7 +139,9 @@ export class UniversalASTHandler extends ASTHandler {
                             title: `Method '${name}' has high cognitive load (${cognitive})`,
                             details: `Deeply nested or complex logic detected in ${context.file}.`,
                             files: [context.file],
-                            hint: `Flatten logical branches and extract nested loops.`
+                            hint: `Flatten logical branches and extract nested loops.`,
+                            severity: 'medium',
+                            provenance: 'traditional',
                         });
                     }
                 }
@@ -155,7 +157,9 @@ export class UniversalASTHandler extends ASTHandler {
                         title: `Unsafe function call detected: ${capture.node.text}`,
                         details: `Potentially dangerous execution in ${context.file}.`,
                         files: [context.file],
-                        hint: `Avoid using shell execution or eval. Use safe alternatives.`
+                        hint: `Avoid using shell execution or eval. Use safe alternatives.`,
+                        severity: 'high',
+                        provenance: 'security',
                     });
                 }
             }
@@ -170,7 +174,9 @@ export class UniversalASTHandler extends ASTHandler {
                         title: `Ecosystem anti-pattern detected`,
                         details: `Violation of ${ext} best practices in ${context.file}.`,
                         files: [context.file],
-                        hint: `Review language-specific best practices (e.g., error handling or mutable defaults).`
+                        hint: `Review language-specific best practices (e.g., error handling or mutable defaults).`,
+                        severity: 'medium',
+                        provenance: 'traditional',
                     });
                 }
             }

@@ -7,9 +7,30 @@
  * @since v2.17.0 — extracted from monolithic index.ts
  */
 import { GateRunner, Report } from "@rigour-labs/core";
-import type { Config } from "@rigour-labs/core";
+import type { Config, DeepOptions } from "@rigour-labs/core";
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean; _rigour_report?: Report };
+type DeepMode = 'off' | 'quick' | 'full';
+
+export interface CheckArgs {
+    files?: string[];
+    deep?: DeepMode;
+    pro?: boolean;
+    apiKey?: string;
+    provider?: string;
+    apiBaseUrl?: string;
+    modelName?: string;
+}
+
+function resolveDeepExecution(args: CheckArgs): { isLocal: boolean; provider: string } {
+    const requestedProvider = (args.provider || '').toLowerCase();
+    const isForcedLocal = requestedProvider === 'local';
+    const isLocal = !args.apiKey || isForcedLocal;
+    return {
+        isLocal,
+        provider: isLocal ? 'local' : (args.provider || 'claude'),
+    };
+}
 
 // ─── Score / Severity Formatters ──────────────────────────────────
 function formatScoreText(stats: Report['stats']): string {
@@ -30,15 +51,38 @@ function formatSeverityText(stats: Report['stats']): string {
 
 // ─── Handlers ─────────────────────────────────────────────────────
 
-export async function handleCheck(runner: GateRunner, cwd: string): Promise<ToolResult> {
-    const report = await runner.run(cwd);
+export async function handleCheck(runner: GateRunner, cwd: string, args: CheckArgs = {}): Promise<ToolResult> {
+    const deepMode: DeepMode = args.deep || 'off';
+    const fileTargets = args.files && args.files.length > 0 ? args.files : undefined;
+    const execution = resolveDeepExecution(args);
+
+    let deepOpts: DeepOptions | undefined;
+    if (deepMode !== 'off') {
+        deepOpts = {
+            enabled: true,
+            // full mode always means pro-depth analysis in MCP.
+            pro: deepMode === 'full' ? true : !!args.pro,
+            apiKey: args.apiKey,
+            provider: execution.provider,
+            apiBaseUrl: args.apiBaseUrl,
+            modelName: args.modelName,
+        };
+    }
+
+    const report = await runner.run(cwd, fileTargets, deepOpts);
     const scoreText = formatScoreText(report.stats);
     const sevText = formatSeverityText(report.stats);
+    const deepText = deepMode === 'off'
+        ? ''
+        : `\nDeep: ${deepMode} | Execution: ${execution.isLocal ? 'local' : 'cloud'}${report.stats.deep?.model ? ` | Model: ${report.stats.deep.model}` : ''}` +
+          `${execution.isLocal
+              ? '\nPrivacy: Local sidecar/model execution. Code remains on this machine.'
+              : `\nPrivacy: Cloud provider execution. Code context may be sent to ${execution.provider} API.`}`;
 
     const result: ToolResult = {
         content: [{
             type: "text",
-            text: `RIGOUR AUDIT RESULT: ${report.status}${scoreText}${sevText}\n\nSummary:\n${Object.entries(report.summary).map(([k, v]) => `- ${k}: ${v}`).join("\n")}`,
+            text: `RIGOUR AUDIT RESULT: ${report.status}${scoreText}${sevText}${deepText}\n\nSummary:\n${Object.entries(report.summary).map(([k, v]) => `- ${k}: ${v}`).join("\n")}`,
         }],
     };
     result._rigour_report = report;

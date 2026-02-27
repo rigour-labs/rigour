@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 
-export async function guideCommand() {
+export function guideCommand() {
     console.log(chalk.bold.cyan('\n🛡️ Rigour Labs | The Engineering Guide\n'));
 
     console.log(chalk.bold('Getting Started:'));

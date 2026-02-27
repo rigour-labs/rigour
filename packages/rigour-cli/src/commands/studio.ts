@@ -97,10 +97,19 @@ export const studioCommand = new Command('studio')
     });
 
 async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath: string, cwd: string, studioProcess?: any) {
+    const allowedOrigins = new Set([
+        `http://localhost:${studioPort}`,
+        `http://127.0.0.1:${studioPort}`,
+    ]);
+
     const apiServer = http.createServer(async (req, res) => {
         const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+        const requestOrigin = req.headers.origin;
 
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        if (typeof requestOrigin === 'string' && allowedOrigins.has(requestOrigin)) {
+            res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+            res.setHeader('Vary', 'Origin');
+        }
         res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -126,15 +135,18 @@ async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath
             }
 
             await fs.ensureDir(path.dirname(eventsPath));
-            const watcher = fs.watch(path.dirname(eventsPath), (eventType, filename) => {
+            const watcher = fs.watch(path.dirname(eventsPath), async (_eventType, filename) => {
                 if (filename === 'events.jsonl') {
-                    fs.readFile(eventsPath, 'utf8').then(content => {
+                    try {
+                        const content = await fs.readFile(eventsPath, 'utf8');
                         const lines = content.split('\n').filter(l => l.trim());
                         const lastLine = lines[lines.length - 1];
                         if (lastLine) {
                             res.write(`data: ${lastLine}\n\n`);
                         }
-                    }).catch(() => { });
+                    } catch {
+                        // ignore transient file read failures during writes
+                    }
                 }
             });
 

@@ -59,8 +59,8 @@ export async function handleHooksInit(
 ): Promise<ToolResult> {
     try {
         const hookTool = tool as HookTool;
-        const checkerPath = 'npx @rigour-labs/cli hooks check';
-        const files = generateHookFiles(hookTool, checkerPath);
+        const checkerCommand = 'rigour hooks check';
+        const files = generateHookFiles(hookTool, checkerCommand);
 
         if (dryRun) {
             const preview = files.map(f => `${f.path}:\n${f.content}`).join('\n\n');
@@ -85,6 +85,9 @@ export async function handleHooksInit(
 
             await fs.ensureDir(path.dirname(fullPath));
             await fs.writeFile(fullPath, file.content);
+            if (file.executable) {
+                await fs.chmod(fullPath, 0o755);
+            }
             written.push(file.path);
         }
 

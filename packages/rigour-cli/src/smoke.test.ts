@@ -70,7 +70,7 @@ gates:
     }, 30_000);
 
     it('should check specific files when provided', async () => {
-        await fs.writeFile(path.join(testDir, 'bad.js'), 'TODO: fixme');
+        await fs.writeFile(path.join(testDir, 'bad.js'), '// TODO: fixme');
         await fs.writeFile(path.join(testDir, 'good.js'), 'console.log("hello")');
         await fs.writeFile(path.join(testDir, 'rigour.yml'), `
 version: 1

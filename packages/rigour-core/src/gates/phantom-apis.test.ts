@@ -146,6 +146,22 @@ fs.readFileSyn('data.txt');
         expect(failures[0].details).toContain('readFileSync');
     });
 
+    it('should ignore phantom method mentions inside comments', async () => {
+        mockFindFiles.mockResolvedValue(['src/docs.ts']);
+        mockReadFile.mockResolvedValue(`
+import fs from 'fs';
+// fs.readFileAsync('data.txt')
+/* path.combine('a', 'b') */
+/**
+ * fs.writeFilePromise('out.txt')
+ */
+const data = fs.readFileSync('real.txt', 'utf-8');
+        `);
+
+        const failures = await gate.run({ cwd: '/project' });
+        expect(failures).toHaveLength(0);
+    });
+
     it('should not scan when disabled', async () => {
         const disabled = new PhantomApisGate({ enabled: false });
         const failures = await disabled.run({ cwd: '/project' });

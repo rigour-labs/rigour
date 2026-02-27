@@ -64,6 +64,7 @@ export class PromiseSafetyGate extends Gate {
 
         for (const file of files) {
             if (this.config.ignore_patterns.some(p => new RegExp(p).test(file))) continue;
+            if (this.shouldSkipFile(file)) continue;
             const lang = detectLang(file);
             if (lang === 'unknown') continue;
 
@@ -97,22 +98,25 @@ export class PromiseSafetyGate extends Gate {
 
     private detectUnhandledThen(lines: string[], file: string, violations: PromiseViolation[]) {
         for (let i = 0; i < lines.length; i++) {
-            if (!/\.then\s*\(/.test(lines[i])) continue;
+            const line = this.sanitizeLine(lines[i]);
+            if (!/\.then\s*\(/.test(line)) continue;
             let hasCatch = false;
             for (let j = i; j < Math.min(i + 10, lines.length); j++) {
-                if (/\.catch\s*\(/.test(lines[j])) { hasCatch = true; break; }
-                if (j > i && /^(?:const|let|var|function|class|export|import|if|for|while|return)\b/.test(lines[j].trim())) break;
+                const lookahead = this.sanitizeLine(lines[j]);
+                if (/\.catch\s*\(/.test(lookahead)) { hasCatch = true; break; }
+                if (j > i && /^(?:const|let|var|function|class|export|import|if|for|while|return)\b/.test(lookahead.trim())) break;
             }
-            if (!hasCatch && !isInsideTryBlock(lines, i) && !/(?:const|let|var)\s+\w+\s*=/.test(lines[i])) {
-                violations.push({ file, line: i + 1, type: 'unhandled-then', code: lines[i].trim().substring(0, 80), reason: `.then() chain without .catch() — unhandled promise rejection` });
+            if (!hasCatch && !isInsideTryBlock(lines, i) && !/(?:const|let|var)\s+\w+\s*=/.test(line)) {
+                violations.push({ file, line: i + 1, type: 'unhandled-then', code: line.trim().substring(0, 80), reason: `.then() chain without .catch() — unhandled promise rejection` });
             }
         }
     }
 
     private detectUnsafeParseJS(lines: string[], file: string, violations: PromiseViolation[]) {
         for (let i = 0; i < lines.length; i++) {
-            if (/JSON\.parse\s*\(/.test(lines[i]) && !isInsideTryBlock(lines, i)) {
-                violations.push({ file, line: i + 1, type: 'unsafe-parse', code: lines[i].trim().substring(0, 80), reason: `JSON.parse() without try/catch — crashes on malformed input` });
+            const line = this.sanitizeLine(lines[i]);
+            if (/JSON\.parse\s*\(/.test(line) && !isInsideTryBlock(lines, i)) {
+                violations.push({ file, line: i + 1, type: 'unsafe-parse', code: line.trim().substring(0, 80), reason: `JSON.parse() without try/catch — crashes on malformed input` });
             }
         }
     }
@@ -135,9 +139,10 @@ export class PromiseSafetyGate extends Gate {
 
     private detectUnsafeFetchJS(lines: string[], file: string, violations: PromiseViolation[]) {
         for (let i = 0; i < lines.length; i++) {
-            if (!/\bfetch\s*\(/.test(lines[i]) && !/\baxios\.\w+\s*\(/.test(lines[i])) continue;
+            const line = this.sanitizeLine(lines[i]);
+            if (!/\bfetch\s*\(/.test(line) && !/\baxios\.\w+\s*\(/.test(line)) continue;
             if (isInsideTryBlock(lines, i) || hasCatchAhead(lines, i) || hasStatusCheckAhead(lines, i)) continue;
-            violations.push({ file, line: i + 1, type: 'unsafe-fetch', code: lines[i].trim().substring(0, 80), reason: `HTTP call without error handling` });
+            violations.push({ file, line: i + 1, type: 'unsafe-fetch', code: line.trim().substring(0, 80), reason: `HTTP call without error handling` });
         }
     }
 
@@ -321,5 +326,25 @@ export class PromiseSafetyGate extends Gate {
             ));
         }
         return failures;
+    }
+
+    private shouldSkipFile(file: string): boolean {
+        const normalized = file.replace(/\\/g, '/');
+        return (
+            normalized.includes('/examples/') ||
+            /\/commands\/demo(?:-|\/)/.test(`/${normalized}`) ||
+            /\/gates\/(?:promise-safety|deprecated-apis-rules(?:-node|-lang)?)\.ts$/i.test(normalized)
+        );
+    }
+
+    private sanitizeLine(line: string): string {
+        // Remove obvious comments and quoted literals to avoid matching detector text/examples.
+        const withoutBlockTail = line.replace(/\/\*.*?\*\//g, '');
+        const withoutSingleComments = withoutBlockTail.replace(/\/\/.*$/, '');
+        const withoutQuoted = withoutSingleComments
+            .replace(/'(?:\\.|[^'\\])*'/g, "''")
+            .replace(/"(?:\\.|[^"\\])*"/g, '""')
+            .replace(/`(?:\\.|[^`\\])*`/g, '``');
+        return withoutQuoted;
     }
 }

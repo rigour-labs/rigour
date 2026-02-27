@@ -53,4 +53,4 @@ npx @rigour-labs/cli check --ci || (echo "Rigour check failed. Refactor before p
 ```
 
 ## 🔒 Security & Privacy
-Because Rigour runs entirely locally on your filesystem, it is naturally compliant with strict security policies. **No code or metadata ever leaves your infrastructure.**
+Rigour is local-first on your filesystem. Core gates and hooks run locally. If teams enable deep cloud mode (`--deep --provider ...`), code context can be sent to the configured provider. For strict environments, enforce local deep mode only and block cloud providers in policy.

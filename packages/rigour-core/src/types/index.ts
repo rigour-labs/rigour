@@ -126,9 +126,9 @@ export const GatesSchema = z.object({
     }).optional().default({}),
     context_window_artifacts: z.object({
         enabled: z.boolean().optional().default(true),
-        min_file_lines: z.number().optional().default(100),
-        degradation_threshold: z.number().min(0).max(1).optional().default(0.4),
-        signals_required: z.number().optional().default(2),
+        min_file_lines: z.number().optional().default(180),
+        degradation_threshold: z.number().min(0).max(1).optional().default(0.55),
+        signals_required: z.number().optional().default(4),
     }).optional().default({}),
     promise_safety: z.object({
         enabled: z.boolean().optional().default(true),

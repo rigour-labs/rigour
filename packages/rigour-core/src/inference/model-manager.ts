@@ -4,23 +4,85 @@
  */
 import path from 'path';
 import fs from 'fs-extra';
+import { createHash } from 'crypto';
 import { RIGOUR_DIR } from '../storage/db.js';
 import { MODELS, type ModelTier, type ModelInfo } from './types.js';
 
 const MODELS_DIR = path.join(RIGOUR_DIR, 'models');
+const SHA256_RE = /^[a-f0-9]{64}$/i;
+
+interface ModelCacheMetadata {
+    sha256: string;
+    sizeBytes: number;
+    verifiedAt: string;
+    sourceUrl: string;
+    sourceEtag?: string;
+}
+
+function getModelMetadataPath(tier: ModelTier): string {
+    return path.join(MODELS_DIR, MODELS[tier].filename + '.meta.json');
+}
+
+function isValidMetadata(raw: any): raw is ModelCacheMetadata {
+    return !!raw &&
+        typeof raw.sha256 === 'string' &&
+        SHA256_RE.test(raw.sha256) &&
+        typeof raw.sizeBytes === 'number' &&
+        typeof raw.verifiedAt === 'string' &&
+        typeof raw.sourceUrl === 'string';
+}
+
+export function extractSha256FromEtag(etag: string | null): string | null {
+    if (!etag) return null;
+    const normalized = etag.replace(/^W\//i, '').replace(/^"+|"+$/g, '').trim();
+    return SHA256_RE.test(normalized) ? normalized.toLowerCase() : null;
+}
+
+export async function hashFileSha256(filePath: string): Promise<string> {
+    const hash = createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    for await (const chunk of stream) {
+        hash.update(chunk as Buffer);
+    }
+    return hash.digest('hex');
+}
+
+async function writeModelMetadata(tier: ModelTier, metadata: ModelCacheMetadata): Promise<void> {
+    const metadataPath = getModelMetadataPath(tier);
+    await fs.writeJson(metadataPath, metadata, { spaces: 2 });
+}
+
+async function readModelMetadata(tier: ModelTier): Promise<ModelCacheMetadata | null> {
+    const metadataPath = getModelMetadataPath(tier);
+    if (!(await fs.pathExists(metadataPath))) {
+        return null;
+    }
+    try {
+        const raw = await fs.readJson(metadataPath);
+        return isValidMetadata(raw) ? raw : null;
+    } catch {
+        return null;
+    }
+}
 
 /**
  * Check if a model is already downloaded and valid.
  */
-export function isModelCached(tier: ModelTier): boolean {
+export async function isModelCached(tier: ModelTier): Promise<boolean> {
     const model = MODELS[tier];
     const modelPath = path.join(MODELS_DIR, model.filename);
-    if (!fs.existsSync(modelPath)) return false;
+    if (!(await fs.pathExists(modelPath))) return false;
 
-    // Basic size check (within 10% tolerance)
-    const stat = fs.statSync(modelPath);
+    const metadata = await readModelMetadata(tier);
+    if (!metadata) return false;
+
+    // Size check + "changed since verification" check.
+    const stat = await fs.stat(modelPath);
     const tolerance = model.sizeBytes * 0.1;
-    return stat.size > model.sizeBytes - tolerance;
+    if (stat.size <= model.sizeBytes - tolerance) return false;
+    if (metadata.sizeBytes !== stat.size) return false;
+    if (new Date(metadata.verifiedAt).getTime() < stat.mtimeMs) return false;
+    return true;
 }
 
 /**
@@ -52,7 +114,7 @@ export async function downloadModel(
     fs.ensureDirSync(MODELS_DIR);
 
     // Already cached
-    if (isModelCached(tier)) {
+    if (await isModelCached(tier)) {
         onProgress?.(`Model ${model.name} already cached`, 100);
         return destPath;
     }
@@ -64,12 +126,14 @@ export async function downloadModel(
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+        const expectedSha256 = extractSha256FromEtag(response.headers.get('etag'));
 
         const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
         const reader = response.body?.getReader();
         if (!reader) throw new Error('No response body');
 
         const writeStream = fs.createWriteStream(tempPath);
+        const hash = createHash('sha256');
         let downloaded = 0;
         let lastProgressPercent = 0;
 
@@ -77,7 +141,9 @@ export async function downloadModel(
             const { done, value } = await reader.read();
             if (done) break;
 
-            writeStream.write(Buffer.from(value));
+            const chunk = Buffer.from(value);
+            writeStream.write(chunk);
+            hash.update(chunk);
             downloaded += value.length;
 
             if (contentLength > 0) {
@@ -95,8 +161,20 @@ export async function downloadModel(
             writeStream.on('error', reject);
         });
 
+        const actualSha256 = hash.digest('hex');
+        if (expectedSha256 && actualSha256 !== expectedSha256) {
+            throw new Error(`Model checksum mismatch for ${model.name}: expected ${expectedSha256}, got ${actualSha256}`);
+        }
+
         // Atomic rename
         fs.renameSync(tempPath, destPath);
+        await writeModelMetadata(tier, {
+            sha256: actualSha256,
+            sizeBytes: downloaded,
+            verifiedAt: new Date().toISOString(),
+            sourceUrl: model.url,
+            sourceEtag: response.headers.get('etag') || undefined,
+        });
         onProgress?.(`Model ${model.name} ready`, 100);
 
         return destPath;
@@ -114,7 +192,7 @@ export async function ensureModel(
     tier: ModelTier,
     onProgress?: (message: string, percent?: number) => void
 ): Promise<string> {
-    if (isModelCached(tier)) {
+    if (await isModelCached(tier)) {
         return getModelPath(tier);
     }
     return downloadModel(tier, onProgress);

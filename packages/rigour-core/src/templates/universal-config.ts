@@ -115,9 +115,9 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         context_window_artifacts: {
             enabled: true,
-            min_file_lines: 100,
-            degradation_threshold: 0.4,
-            signals_required: 2,
+            min_file_lines: 180,
+            degradation_threshold: 0.55,
+            signals_required: 4,
         },
         promise_safety: {
             enabled: true,

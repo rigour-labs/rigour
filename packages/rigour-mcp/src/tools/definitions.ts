@@ -29,10 +29,19 @@ export const TOOL_DEFINITIONS = [
     // ─── Core Quality Gates ───────────────────────────────
     {
         name: "rigour_check",
-        description: "Run quality gate checks on the project. Matches the CLI 'check' command.",
+        description: "Run quality gate checks on the project. Deep modes: off (fast deterministic gates only), quick (deep enabled with standard local tier unless cloud provider is configured), full (deep enabled, optional pro model).",
         inputSchema: {
             type: "object",
-            properties: cwdParam(),
+            properties: {
+                ...cwdParam(),
+                files: { type: "array", items: { type: "string" }, description: "Optional file paths (relative to cwd) to limit scan scope for both deterministic and deep checks." },
+                deep: { type: "string", enum: ["off", "quick", "full"], description: "Deep mode: 'off' (default), 'quick' (deep enabled with standard model), 'full' (deep enabled, combine with pro=true for larger local model)." },
+                pro: { type: "boolean", description: "Use larger local deep model tier when deep is enabled." },
+                apiKey: { type: "string", description: "Optional cloud API key for deep analysis." },
+                provider: { type: "string", description: "Cloud provider for deep analysis (claude, openai, gemini, groq, mistral, together, deepseek, ollama, etc.)." },
+                apiBaseUrl: { type: "string", description: "Custom API base URL for self-hosted/proxy deep endpoints." },
+                modelName: { type: "string", description: "Override cloud model name for deep analysis." },
+            },
             required: ["cwd"],
         },
         annotations: {
@@ -118,6 +127,45 @@ export const TOOL_DEFINITIONS = [
         annotations: {
             title: "Get Configuration",
             readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
+        name: "rigour_mcp_get_settings",
+        description: "Get Rigour MCP runtime settings for this repository (.rigour/mcp-settings.json).",
+        inputSchema: {
+            type: "object",
+            properties: cwdParam(),
+            required: ["cwd"],
+        },
+        annotations: {
+            title: "Get MCP Settings",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
+        name: "rigour_mcp_set_settings",
+        description: "Set Rigour MCP runtime settings for this repository. Currently supports deep_default_mode: off | quick | full.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                deep_default_mode: {
+                    type: "string",
+                    enum: ["off", "quick", "full"],
+                    description: "Default deep mode applied to rigour_check when deep is not passed.",
+                },
+            },
+            required: ["cwd", "deep_default_mode"],
+        },
+        annotations: {
+            title: "Set MCP Settings",
+            readOnlyHint: false,
             destructiveHint: false,
             idempotentHint: true,
             openWorldHint: false,

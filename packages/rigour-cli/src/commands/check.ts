@@ -118,6 +118,17 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                 isLocal: !hasApiKey || deepOpts.provider === 'local',
                 provider: deepOpts.provider || 'cloud',
             };
+
+            if (!isSilent) {
+                if (!resolvedDeepMode.isLocal && !options.provider && !options.apiKey) {
+                    console.log(chalk.yellow(`Deep execution defaulted to cloud (${resolvedDeepMode.provider}) from settings.`));
+                    console.log(chalk.dim('Use `--provider local` to force local sidecar execution.\n'));
+                } else if (options.provider === 'local' && hasApiKey) {
+                    console.log(chalk.green('Deep execution forced to local (`--provider local`) even though an API key is configured.\n'));
+                } else if (options.provider && options.provider !== 'local' && !hasApiKey) {
+                    console.log(chalk.yellow(`Provider "${options.provider}" requested, but no API key was resolved. Falling back to local execution.\n`));
+                }
+            }
         }
 
         const report = await runner.run(cwd, files.length > 0 ? files : undefined, deepOpts);
@@ -271,7 +282,7 @@ function renderDeepOutput(
     resolvedDeepMode?: { isLocal: boolean; provider: string }
 ) {
     const stats = report.stats;
-    const isLocal = stats.deep?.tier ? stats.deep.tier !== 'cloud' : (resolvedDeepMode?.isLocal ?? !options.apiKey);
+    const isLocal = resolvedDeepMode?.isLocal ?? (stats.deep?.tier ? stats.deep.tier !== 'cloud' : !options.apiKey);
     const provider = resolvedDeepMode?.provider || options.provider || 'cloud';
 
     console.log('');
@@ -295,9 +306,9 @@ function renderDeepOutput(
 
     // Privacy badge — this IS the marketing
     if (isLocal) {
-        console.log(chalk.green('  🔒 100% local. Your code never left this machine.'));
+        console.log(chalk.green('  🔒 Local sidecar/model execution. Code remains on this machine.'));
     } else {
-        console.log(chalk.yellow(`  ☁️  Code was sent to ${provider} API.`));
+        console.log(chalk.yellow(`  ☁️  Cloud provider execution. Code context may be sent to ${provider} API.`));
     }
 
     // Deep stats

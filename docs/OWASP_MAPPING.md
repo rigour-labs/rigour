@@ -2,7 +2,7 @@
 
 How Rigour's deterministic quality gates map to the [OWASP Top 10 Risks for LLM-Generated Code (2025 v2)](https://owasp.org/www-project-top-10-for-large-language-model-applications/) published by SonarQube.
 
-> Rigour catches these risks **locally, deterministically, in <200ms per file** — no code leaves your machine.
+> Rigour catches these risks deterministically at file-write and check time. Core gates run locally; if deep cloud mode is enabled, code context can be sent to your configured provider.
 
 ---
 

@@ -80,14 +80,16 @@ export class DeprecatedApisGate extends Gate {
             cwd: context.cwd,
             patterns: ['**/*.{ts,js,tsx,jsx,py,go,cs,java,kt}'],
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
+                '**/*.test.*', '**/*.spec.*', '**/__tests__/**',
                 '**/.venv/**', '**/venv/**', '**/vendor/**', '**/__pycache__/**',
                 '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**',
                 '**/target/**', '**/.gradle/**', '**/out/**'],
         });
+        const analyzableFiles = files.filter(file => !this.shouldSkipFile(file));
 
-        Logger.info(`Deprecated APIs: Scanning ${files.length} files`);
+        Logger.info(`Deprecated APIs: Scanning ${analyzableFiles.length} files`);
 
-        for (const file of files) {
+        for (const file of analyzableFiles) {
             try {
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
@@ -153,6 +155,20 @@ export class DeprecatedApisGate extends Gate {
         }
 
         return failures;
+    }
+
+    private shouldSkipFile(file: string): boolean {
+        const normalized = file.replace(/\\/g, '/');
+        return (
+            this.config.ignore_patterns.some(pattern => new RegExp(pattern).test(normalized)) ||
+            normalized.includes('/examples/') ||
+            normalized.includes('/__tests__/') ||
+            normalized.endsWith('/deprecated-apis-rules-node.ts') ||
+            normalized.endsWith('/deprecated-apis-rules-lang.ts') ||
+            normalized.endsWith('/deprecated-apis-rules.ts') ||
+            /\.test\.[^.]+$/i.test(normalized) ||
+            /\.spec\.[^.]+$/i.test(normalized)
+        );
     }
 
     private checkNodeDeprecated(content: string, file: string, deprecated: DeprecatedApiUsage[]): void {

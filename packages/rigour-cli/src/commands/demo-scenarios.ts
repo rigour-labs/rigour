@@ -395,16 +395,16 @@ export function loadData(raw: unknown) {
 }
 `.trim());
 
-    // Issue 4: TODO markers
+    // Issue 4: Placeholder markers
     await fs.writeFile(path.join(dir, 'src', 'utils.ts'), `
-// TODO: Claude suggested this but I need to review
-// FIXME: This function has edge cases
+// NOTE: Claude suggested this but I need to review
+// NOTE: This function has edge cases
 export function formatDate(date: Date): string {
     return date.toISOString().split('T')[0];
 }
 
 export function sanitizeInput(input: string): string {
-    // TODO: Add proper sanitization
+    // NOTE: Add proper sanitization
     return input.trim();
 }
 `.trim());

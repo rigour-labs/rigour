@@ -30,7 +30,7 @@ Regulators haven't caught up yet. But the liability hasn't changed. If an AI age
 - **Async & Error Safety gate** detects unhandled errors in HTTP calls and JSON parsing across Python, C#, and JS — the exact pattern that leads to silent data loss in EHR integrations.
 - **Provenance tracking** (`ai-drift` vs `traditional` vs `security`) provides audit evidence showing *which* quality issues originated from AI generation vs human coding.
 - **Severity-weighted scoring** with the two-score system (AI Health + Structural) gives compliance officers a single dashboard metric to monitor AI code quality over time.
-- **Deterministic, local-first execution** means no PHI or source code leaves the development machine — a compliance requirement for many HIPAA-covered entities.
+- **Deterministic, local-first execution** keeps core gates on the development machine. For HIPAA-constrained teams, use local deep mode and disallow cloud provider mode by policy.
 
 **Positioning statement:** *"Rigour provides deterministic quality evidence for AI-generated code in healthcare systems — proving to auditors that every AI contribution was validated against security, structural, and safety gates before it touched production."*
 
@@ -54,12 +54,12 @@ Regulators haven't caught up yet. But the liability hasn't changed. If an AI age
 
 **Rigour's value:**
 
-- **Zero cloud, zero telemetry** — Rigour runs entirely locally, never phoning home. This is a hard requirement for IL4+ environments and air-gapped networks.
+- **Local-first with enforceable provider policy** — Rigour supports fully local execution. In IL4+/air-gapped environments, run without cloud providers and disable outbound deep-provider configuration.
 - **Agent Team Governance** (multi-agent scope isolation, checkpoint supervision, handoff verification) provides the chain-of-custody documentation that defense contracts require — proving which agent modified which files, with human approval at each step.
 - **Retry Loop Breaker** prevents runaway AI agents from burning compute or creating infinite modification loops — an operational safety concern in government cloud environments with strict resource allocation.
 - **Provenance-tagged Fix Packets** serve as NIST 800-53 SA-11 evidence — documenting that AI-generated code was tested against security gates, structural gates, and AI-specific drift gates before acceptance.
 
-**Positioning statement:** *"Rigour is the quality firewall purpose-built for AI-assisted development in government environments — local-only execution, deterministic gates, and chain-of-custody governance that satisfies NIST, FedRAMP, and CMMC requirements out of the box."*
+**Positioning statement:** *"Rigour is the quality firewall for AI-assisted development in government environments — deterministic gates, chain-of-custody governance, and deployment controls that support local-only operation when required by NIST, FedRAMP, and CMMC policies."*
 
 ---
 
@@ -74,14 +74,14 @@ Regulators haven't caught up yet. But the liability hasn't changed. If an AI age
 | **AI-specific detection** | None | 5 dedicated AI-drift gates |
 | **Provenance tracking** | No | Every failure tagged with origin |
 | **Multi-agent governance** | No | Scope isolation, handoff verification |
-| **Execution model** | Cloud/CI | Local-first, zero telemetry |
+| **Execution model** | Cloud/CI | Local-first, cloud-optional deep mode |
 | **Feedback loop** | Post-commit (CI fails) | Pre-commit (agent self-heals) |
 
 ### The Compliance Narrative
 
 Traditional compliance story: *"We run SonarQube in CI and review results manually."*
 
-Rigour compliance story: *"Every AI-generated code change passes through deterministic quality gates before it enters the codebase. Each failure is documented with severity, provenance, file, and line number. Agent governance ensures multi-agent workflows have scope isolation and human arbitration. All processing is local — no source code or metrics leave our infrastructure."*
+Rigour compliance story: *"Every AI-generated code change passes through deterministic quality gates before it enters the codebase. Each failure is documented with severity, provenance, file, and line number. Agent governance ensures multi-agent workflows have scope isolation and human arbitration. Processing can be constrained to local-only execution where policy requires it."*
 
 The second story is what auditors in 2026 want to hear.
 

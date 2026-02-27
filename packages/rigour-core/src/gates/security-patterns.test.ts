@@ -50,6 +50,16 @@ describe('SecurityPatternsGate', () => {
             const vulns = await checkSecurityPatterns(filePath);
             expect(vulns.some(v => v.type === 'sql_injection')).toBe(true);
         });
+
+        it('should NOT flag non-SQL template interpolation in normal function calls', async () => {
+            const filePath = path.join(testDir, 'status.ts');
+            fs.writeFileSync(filePath, `
+                logger.info(\`Current version: \${current} -> \${latest}\`);
+            `);
+
+            const vulns = await checkSecurityPatterns(filePath);
+            expect(vulns.some(v => v.type === 'sql_injection')).toBe(false);
+        });
     });
 
     describe('XSS detection', () => {
@@ -157,6 +167,18 @@ describe('SecurityPatternsGate', () => {
 
             const failures = await gate.run({ cwd: testDir });
             expect(failures).toHaveLength(0); // High severity not blocked
+        });
+
+        it('should skip fixture-style test files for gate-level scans', async () => {
+            const gate = new SecurityPatternsGate({ enabled: true });
+            const fixturePath = path.join(testDir, 'auth.test.ts');
+            fs.writeFileSync(fixturePath, `
+                const password = "supersecretpassword123";
+                eval(req.body.code);
+            `);
+
+            const failures = await gate.run({ cwd: testDir });
+            expect(failures).toHaveLength(0);
         });
     });
 });

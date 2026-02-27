@@ -11,8 +11,10 @@ import fs from 'fs-extra';
 import { createRequire } from 'module';
 import type { InferenceProvider, InferenceOptions, ModelTier } from './types.js';
 import { ensureModel, getModelPath, isModelCached, getModelInfo } from './model-manager.js';
+import { ensureExecutableBinary } from './executable.js';
 
 const execFileAsync = promisify(execFile);
+const SIDECAR_INSTALL_DIR = path.join(os.homedir(), '.rigour', 'sidecar');
 
 /** Platform → npm package mapping */
 const PLATFORM_PACKAGES: Record<string, string> = {
@@ -41,13 +43,12 @@ export class SidecarProvider implements InferenceProvider {
     }
 
     async setup(onProgress?: (message: string) => void): Promise<void> {
-        const platformKey = this.getPlatformKey();
-        const packageName = PLATFORM_PACKAGES[platformKey];
+        const packageName = this.getPlatformPackageName();
 
         // 1. Check/resolve binary
         this.binaryPath = await this.resolveBinaryPath();
 
-        // Auto-bootstrap local sidecar once before failing.
+        // Auto-bootstrap local sidecar when missing.
         if (!this.binaryPath && packageName) {
             const installed = await this.installSidecarBinary(packageName, onProgress);
             if (installed) {
@@ -57,13 +58,34 @@ export class SidecarProvider implements InferenceProvider {
 
         if (!this.binaryPath) {
             onProgress?.('⚠ Inference engine not found. Install @rigour-labs/brain-* or add llama-cli to PATH');
-            const installHint = packageName || `@rigour-labs/brain-${platformKey}`;
+            const installHint = packageName || `@rigour-labs/brain-${this.getPlatformKey()}`;
             throw new Error(`Sidecar binary not found. Run: npm install ${installHint}`);
         }
+
+        let executableCheck = ensureExecutableBinary(this.binaryPath);
+        // If the discovered binary is not executable, try a managed reinstall once.
+        if (!executableCheck.ok && packageName) {
+            onProgress?.('⚠ Inference engine is present but not executable. Reinstalling managed sidecar...');
+            const installed = await this.installSidecarBinary(packageName, onProgress);
+            if (installed) {
+                const refreshedPath = await this.resolveBinaryPath();
+                if (refreshedPath) {
+                    this.binaryPath = refreshedPath;
+                    executableCheck = ensureExecutableBinary(this.binaryPath);
+                }
+            }
+        }
+        if (!executableCheck.ok) {
+            throw new Error(`Sidecar binary is not executable: ${this.binaryPath}. Run: chmod +x "${this.binaryPath}"`);
+        }
+        if (executableCheck.fixed) {
+            onProgress?.('✓ Fixed execute permission for inference engine');
+        }
+
         onProgress?.('✓ Inference engine ready');
 
         // 2. Ensure model is downloaded
-        if (!isModelCached(this.tier)) {
+        if (!(await isModelCached(this.tier))) {
             const modelInfo = getModelInfo(this.tier);
             onProgress?.(`⬇ Downloading analysis model (${modelInfo.sizeHuman})...`);
         }
@@ -103,15 +125,52 @@ export class SidecarProvider implements InferenceProvider {
                 env: { ...process.env, LLAMA_LOG_DISABLE: '1' },
             };
 
-            const { stdout } = process.platform === 'win32' && this.binaryPath.endsWith('.cmd')
-                ? await execFileAsync('cmd.exe', ['/d', '/s', '/c', [this.binaryPath, ...args].map(quoteCmdArg).join(' ')], execOptions)
-                : await execFileAsync(this.binaryPath, args, execOptions);
+            const runInference = async () => {
+                return process.platform === 'win32' && this.binaryPath!.endsWith('.cmd')
+                    ? await execFileAsync('cmd.exe', ['/d', '/s', '/c', [this.binaryPath!, ...args].map(quoteCmdArg).join(' ')], execOptions)
+                    : await execFileAsync(this.binaryPath!, args, execOptions);
+            };
+
+            let stdout: string;
+            try {
+                ({ stdout } = await runInference());
+            } catch (error: any) {
+                // One retry path for stale/bad file mode in packaged installs.
+                if (error?.code === 'EACCES') {
+                    const check = ensureExecutableBinary(this.binaryPath);
+                    if (check.ok) {
+                        ({ stdout } = await runInference());
+                    } else {
+                        const packageName = this.getPlatformPackageName();
+                        if (packageName) {
+                            const installed = await this.installSidecarBinary(packageName);
+                            if (installed) {
+                                const refreshedPath = await this.resolveBinaryPath();
+                                if (refreshedPath) {
+                                    this.binaryPath = refreshedPath;
+                                    const refreshedCheck = ensureExecutableBinary(this.binaryPath);
+                                    if (refreshedCheck.ok) {
+                                        ({ stdout } = await runInference());
+                                        return stdout.trim();
+                                    }
+                                }
+                            }
+                        }
+                        throw error;
+                    }
+                } else {
+                    throw error;
+                }
+            }
 
             // llama.cpp sometimes outputs to stderr for diagnostics — ignore
             return stdout.trim();
         } catch (error: any) {
             if (error.killed) {
                 throw new Error(`Inference timed out after ${(options?.timeout || 60000) / 1000}s`);
+            }
+            if (error?.code === 'EACCES') {
+                throw new Error(`Inference binary is not executable: ${this.binaryPath}. Run: chmod +x "${this.binaryPath}"`);
             }
             throw new Error(`Inference failed: ${error.message}`);
         }
@@ -127,12 +186,28 @@ export class SidecarProvider implements InferenceProvider {
         return `${os.platform()}-${os.arch()}`;
     }
 
+    private getPlatformPackageName(): string | undefined {
+        const platformKey = this.getPlatformKey();
+        return PLATFORM_PACKAGES[platformKey];
+    }
+
     private async resolveBinaryPath(): Promise<string | null> {
         const platformKey = this.getPlatformKey();
 
         // Strategy 1: Check @rigour-labs/brain-{platform} optional dependency
         const packageName = PLATFORM_PACKAGES[platformKey];
         if (packageName) {
+            // Prefer Rigour-managed sidecar install root first to avoid brittle global/homebrew layouts.
+            const managedPath = path.join(SIDECAR_INSTALL_DIR, 'node_modules', ...packageName.split('/'), 'bin', 'rigour-brain');
+            const managedCandidates = os.platform() === 'win32'
+                ? [managedPath + '.exe', managedPath + '.cmd', managedPath]
+                : [managedPath];
+            for (const managedBinPath of managedCandidates) {
+                if (await fs.pathExists(managedBinPath)) {
+                    return managedBinPath;
+                }
+            }
+
             try {
                 const require = createRequire(import.meta.url);
                 const pkgJsonPath = require.resolve(path.posix.join(packageName, 'package.json'));
@@ -188,9 +263,10 @@ export class SidecarProvider implements InferenceProvider {
         }
 
         // Strategy 3: Check PATH for llama-cli (llama.cpp CLI)
+        const locator = os.platform() === 'win32' ? 'where' : 'which';
         try {
-            const { stdout } = await execFileAsync('which', ['llama-cli']);
-            const llamaPath = stdout.trim();
+            const { stdout } = await execFileAsync(locator, ['llama-cli']);
+            const llamaPath = stdout.split(/\r?\n/).map(s => s.trim()).find(Boolean) || '';
             if (llamaPath && await fs.pathExists(llamaPath)) {
                 return llamaPath;
             }
@@ -202,8 +278,9 @@ export class SidecarProvider implements InferenceProvider {
         const altNames = ['llama-cli', 'llama', 'main'];
         for (const name of altNames) {
             try {
-                const { stdout } = await execFileAsync('which', [name]);
-                if (stdout.trim()) return stdout.trim();
+                const { stdout } = await execFileAsync(locator, [name]);
+                const resolved = stdout.split(/\r?\n/).map(s => s.trim()).find(Boolean);
+                if (resolved && await fs.pathExists(resolved)) return resolved;
             } catch {
                 // Continue
             }
@@ -215,11 +292,12 @@ export class SidecarProvider implements InferenceProvider {
     private async installSidecarBinary(packageName: string, onProgress?: (message: string) => void): Promise<boolean> {
         onProgress?.(`⬇ Inference engine missing. Attempting automatic install: ${packageName}`);
         try {
+            await fs.ensureDir(SIDECAR_INSTALL_DIR);
             await execFileAsync(
-                'npm',
-                ['install', '--no-save', '--no-package-lock', packageName],
+                os.platform() === 'win32' ? 'npm.cmd' : 'npm',
+                ['install', '--no-save', '--no-package-lock', '--prefix', SIDECAR_INSTALL_DIR, packageName],
                 {
-                    cwd: process.cwd(),
+                    cwd: SIDECAR_INSTALL_DIR,
                     timeout: 120000,
                     maxBuffer: 10 * 1024 * 1024,
                 }

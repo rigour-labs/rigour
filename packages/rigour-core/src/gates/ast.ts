@@ -22,7 +22,21 @@ export class ASTGate extends Gate {
         const failures: Failure[] = [];
 
         const patterns = (context.patterns || ['**/*.{ts,js,tsx,jsx,py,go,rs,cs,java,rb,c,cpp,php,swift,kt}']).map(p => p.replace(/\\/g, '/'));
-        const ignore = (context.ignore || ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.test.*', '**/*.spec.*', '**/__pycache__/**']).map(p => p.replace(/\\/g, '/'));
+        const defaultIgnore = [
+            '**/node_modules/**',
+            '**/dist/**',
+            '**/build/**',
+            '**/studio-dist/**',
+            '**/.next/**',
+            '**/coverage/**',
+            '**/out/**',
+            '**/target/**',
+            '**/examples/**',
+            '**/*.test.*',
+            '**/*.spec.*',
+            '**/__pycache__/**',
+        ];
+        const ignore = [...new Set([...(context.ignore || []), ...defaultIgnore])].map(p => p.replace(/\\/g, '/'));
         const normalizedCwd = context.cwd.replace(/\\/g, '/');
 
         // Find all supported files

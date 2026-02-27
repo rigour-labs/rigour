@@ -12,6 +12,14 @@ import { logStudioEvent } from '../utils/config.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean; _shouldContinue?: boolean };
 
+function parseJsonOrNull<T>(raw: string): T | null {
+    try {
+        return JSON.parse(raw) as T;
+    } catch {
+        return null;
+    }
+}
+
 // ─── Agent Register ───────────────────────────────────────────────
 
 export async function handleAgentRegister(
@@ -21,7 +29,10 @@ export async function handleAgentRegister(
     let session = { agents: [] as any[], startedAt: new Date().toISOString() };
 
     if (await fs.pathExists(sessionPath)) {
-        session = JSON.parse(await fs.readFile(sessionPath, 'utf-8'));
+        const parsed = parseJsonOrNull<typeof session>(await fs.readFile(sessionPath, 'utf-8'));
+        if (parsed) {
+            session = parsed;
+        }
     }
 
     const existingIdx = session.agents.findIndex((a: any) => a.agentId === agentId);
@@ -85,7 +96,10 @@ export async function handleCheckpoint(
     };
 
     if (await fs.pathExists(checkpointPath)) {
-        session = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
+        const parsed = parseJsonOrNull<typeof session>(await fs.readFile(checkpointPath, 'utf-8'));
+        if (parsed) {
+            session = parsed;
+        }
     }
 
     const checkpointId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -174,7 +188,10 @@ export async function handleAgentDeregister(cwd: string, agentId: string, reques
         return { content: [{ type: "text", text: `❌ No active agent session found.` }] };
     }
 
-    const session = JSON.parse(await fs.readFile(sessionPath, 'utf-8'));
+    const session = parseJsonOrNull<any>(await fs.readFile(sessionPath, 'utf-8'));
+    if (!session || !Array.isArray(session.agents)) {
+        return { content: [{ type: "text", text: `❌ Agent session file is malformed.` }], isError: true };
+    }
     const initialCount = session.agents.length;
     session.agents = session.agents.filter((a: any) => a.agentId !== agentId);
 
@@ -205,7 +222,12 @@ export async function handleHandoffAccept(cwd: string, handoffId: string, agentI
     }
 
     const content = await fs.readFile(handoffPath, 'utf-8');
-    const handoffs = content.trim().split('\n').filter(l => l).map(line => JSON.parse(line));
+    const handoffs = content
+        .trim()
+        .split('\n')
+        .filter(l => l)
+        .map(line => parseJsonOrNull<any>(line))
+        .filter((entry): entry is any => !!entry);
 
     const handoff = handoffs.find((h: any) => h.handoffId === handoffId);
     if (!handoff) {

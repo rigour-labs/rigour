@@ -146,7 +146,12 @@ async function pollArbitration(cwd: string, rid: string, timeout: number): Promi
             const content = await fs.readFile(eventsPath, 'utf-8');
             const lines = content.split('\n').filter(l => l.trim());
             for (const line of lines.reverse()) {
-                const event = JSON.parse(line);
+                let event: any;
+                try {
+                    event = JSON.parse(line);
+                } catch {
+                    continue;
+                }
                 if (event.tool === 'human_arbitration' && event.requestId === rid) {
                     return event.decision;
                 }

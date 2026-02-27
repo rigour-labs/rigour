@@ -46,7 +46,14 @@ export async function loadMemory(cwd: string): Promise<MemoryStore> {
     const memPath = await getMemoryPath(cwd);
     if (await fs.pathExists(memPath)) {
         const content = await fs.readFile(memPath, "utf-8");
-        return JSON.parse(content);
+        try {
+            const parsed = JSON.parse(content);
+            if (parsed && typeof parsed === 'object' && parsed.memories && typeof parsed.memories === 'object') {
+                return parsed as MemoryStore;
+            }
+        } catch {
+            // fall through to default
+        }
     }
     return { memories: {} };
 }
@@ -54,6 +61,45 @@ export async function loadMemory(cwd: string): Promise<MemoryStore> {
 export async function saveMemory(cwd: string, store: MemoryStore): Promise<void> {
     const memPath = await getMemoryPath(cwd);
     await fs.writeFile(memPath, JSON.stringify(store, null, 2));
+}
+
+// ─── MCP Settings ────────────────────────────────────────────────
+export interface McpSettings {
+    deep_default_mode: 'off' | 'quick' | 'full';
+}
+
+const DEFAULT_MCP_SETTINGS: McpSettings = {
+    deep_default_mode: 'off',
+};
+
+export async function getMcpSettingsPath(cwd: string): Promise<string> {
+    const rigourDir = path.join(cwd, ".rigour");
+    await fs.ensureDir(rigourDir);
+    return path.join(rigourDir, "mcp-settings.json");
+}
+
+export async function loadMcpSettings(cwd: string): Promise<McpSettings> {
+    const settingsPath = await getMcpSettingsPath(cwd);
+    if (!(await fs.pathExists(settingsPath))) {
+        return DEFAULT_MCP_SETTINGS;
+    }
+
+    try {
+        const raw = await fs.readJson(settingsPath);
+        const deepMode = raw?.deep_default_mode;
+        if (deepMode === 'quick' || deepMode === 'full' || deepMode === 'off') {
+            return { deep_default_mode: deepMode };
+        }
+    } catch {
+        // Fall through to defaults.
+    }
+
+    return DEFAULT_MCP_SETTINGS;
+}
+
+export async function saveMcpSettings(cwd: string, settings: McpSettings): Promise<void> {
+    const settingsPath = await getMcpSettingsPath(cwd);
+    await fs.writeJson(settingsPath, settings, { spaces: 2 });
 }
 
 // ─── Studio Event Logging ─────────────────────────────────────────

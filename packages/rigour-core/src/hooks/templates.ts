@@ -22,22 +22,22 @@ export interface GeneratedHookFile {
 /**
  * Generate hook config files for a specific tool.
  */
-export function generateHookFiles(tool: HookTool, checkerPath: string): GeneratedHookFile[] {
+export function generateHookFiles(tool: HookTool, checkerCommand: string): GeneratedHookFile[] {
     switch (tool) {
         case 'claude':
-            return generateClaudeHooks(checkerPath);
+            return generateClaudeHooks(checkerCommand);
         case 'cursor':
-            return generateCursorHooks(checkerPath);
+            return generateCursorHooks(checkerCommand);
         case 'cline':
-            return generateClineHooks(checkerPath);
+            return generateClineHooks(checkerCommand);
         case 'windsurf':
-            return generateWindsurfHooks(checkerPath);
+            return generateWindsurfHooks(checkerCommand);
         default:
             return [];
     }
 }
 
-function generateClaudeHooks(checkerPath: string): GeneratedHookFile[] {
+function generateClaudeHooks(checkerCommand: string): GeneratedHookFile[] {
     const settings = {
         hooks: {
             PostToolUse: [
@@ -46,7 +46,7 @@ function generateClaudeHooks(checkerPath: string): GeneratedHookFile[] {
                     hooks: [
                         {
                             type: "command",
-                            command: `node ${checkerPath} --files "$TOOL_INPUT_file_path"`,
+                            command: `${checkerCommand} --files "$TOOL_INPUT_file_path"`,
                         }
                     ]
                 }
@@ -63,13 +63,13 @@ function generateClaudeHooks(checkerPath: string): GeneratedHookFile[] {
     ];
 }
 
-function generateCursorHooks(checkerPath: string): GeneratedHookFile[] {
+function generateCursorHooks(checkerCommand: string): GeneratedHookFile[] {
     const hooks = {
         version: 1,
         hooks: {
             afterFileEdit: [
                 {
-                    command: `node ${checkerPath} --stdin`,
+                    command: `${checkerCommand} --stdin`,
                 }
             ]
         }
@@ -125,7 +125,7 @@ process.stdin.on('end', async () => {
     ];
 }
 
-function generateClineHooks(checkerPath: string): GeneratedHookFile[] {
+function generateClineHooks(checkerCommand: string): GeneratedHookFile[] {
     const script = `#!/usr/bin/env node
 /**
  * Cline PostToolUse hook for Rigour.
@@ -192,13 +192,13 @@ process.stdin.on('end', async () => {
     ];
 }
 
-function generateWindsurfHooks(checkerPath: string): GeneratedHookFile[] {
+function generateWindsurfHooks(checkerCommand: string): GeneratedHookFile[] {
     const hooks = {
         version: 1,
         hooks: {
             post_write_code: [
                 {
-                    command: `node ${checkerPath} --stdin`,
+                    command: `${checkerCommand} --stdin`,
                 }
             ]
         }

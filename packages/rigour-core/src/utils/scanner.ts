@@ -13,6 +13,12 @@ export class FileScanner {
     private static DEFAULT_IGNORE = [
         '**/node_modules/**',
         '**/dist/**',
+        '**/studio-dist/**',
+        '**/.next/**',
+        '**/coverage/**',
+        '**/out/**',
+        '**/target/**',
+        '**/examples/**',
         '**/package-lock.json',
         '**/pnpm-lock.yaml',
         '**/.git/**',

@@ -450,8 +450,8 @@ async function checkPrerequisites(): Promise<void> {
     }
 
     // Check 2: Local model availability
-    const hasDeepModel = isModelCached('deep');
-    const hasProModel = isModelCached('pro');
+    const hasDeepModel = await isModelCached('deep');
+    const hasProModel = await isModelCached('pro');
     if (hasDeepModel || hasProModel) {
         const models = [];
         if (hasDeepModel) models.push('deep (350MB)');

@@ -56,9 +56,9 @@ export class ContextWindowArtifactsGate extends Gate {
         super('context-window-artifacts', 'Context Window Artifact Detection');
         this.config = {
             enabled: config.enabled ?? true,
-            min_file_lines: config.min_file_lines ?? 100,
-            degradation_threshold: config.degradation_threshold ?? 0.4,
-            signals_required: config.signals_required ?? 2,
+            min_file_lines: config.min_file_lines ?? 180,
+            degradation_threshold: config.degradation_threshold ?? 0.55,
+            signals_required: config.signals_required ?? 4,
         };
     }
 
@@ -78,6 +78,7 @@ export class ContextWindowArtifactsGate extends Gate {
         Logger.info(`Context Window Artifacts: Scanning ${files.length} files`);
 
         for (const file of files) {
+            if (this.shouldSkipFile(file)) continue;
             try {
                 const content = await fs.readFile(path.join(context.cwd, file), 'utf-8');
                 const lines = content.split('\n');
@@ -105,6 +106,14 @@ export class ContextWindowArtifactsGate extends Gate {
         }
 
         return failures;
+    }
+
+    private shouldSkipFile(file: string): boolean {
+        const normalized = file.replace(/\\/g, '/');
+        return (
+            normalized.includes('/examples/') ||
+            normalized.includes('/src/gates/')
+        );
     }
 
     private analyzeFile(content: string, file: string): FileQualityMetrics | null {

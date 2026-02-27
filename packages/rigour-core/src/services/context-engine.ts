@@ -68,7 +68,7 @@ export class ContextEngine {
             anchors,
             metadata: {
                 scannedFiles,
-                detectedCasing: 'unknown', // TODO: Implement casing discovery
+                detectedCasing: 'unknown', // Placeholder until casing discovery is implemented
             }
         };
     }

@@ -9,7 +9,7 @@ import type { RigourSettings } from '@rigour-labs/core';
  * Stores API keys, default provider, multi-agent config, CLI preferences.
  */
 
-export async function settingsShowCommand() {
+export function settingsShowCommand() {
     const settingsPath = getSettingsPath();
     const settings = loadSettings();
 
@@ -72,7 +72,7 @@ export async function settingsShowCommand() {
     }
 }
 
-export async function settingsSetKeyCommand(provider: string, apiKey: string) {
+export function settingsSetKeyCommand(provider: string, apiKey: string) {
     updateProviderKey(provider, apiKey);
     const masked = maskKey(apiKey);
     console.log(chalk.green(`  ✓ ${provider} API key saved: ${masked}`));
@@ -82,12 +82,12 @@ export async function settingsSetKeyCommand(provider: string, apiKey: string) {
     console.log(chalk.dim(`  Or set as default: rigour settings set provider ${provider}`));
 }
 
-export async function settingsRemoveKeyCommand(provider: string) {
+export function settingsRemoveKeyCommand(provider: string) {
     removeProviderKey(provider);
     console.log(chalk.green(`  ✓ ${provider} API key removed`));
 }
 
-export async function settingsSetCommand(key: string, value: string) {
+export function settingsSetCommand(key: string, value: string) {
     const settings = loadSettings();
 
     // Parse dot-notation keys: "deep.defaultProvider" -> settings.deep.defaultProvider
@@ -111,7 +111,7 @@ export async function settingsSetCommand(key: string, value: string) {
     console.log(chalk.green(`  ✓ ${key} = ${value}`));
 }
 
-export async function settingsGetCommand(key: string) {
+export function settingsGetCommand(key: string) {
     const settings = loadSettings();
     const parts = key.split('.');
     let value: any = settings;
@@ -130,13 +130,13 @@ export async function settingsGetCommand(key: string) {
     }
 }
 
-export async function settingsResetCommand() {
+export function settingsResetCommand() {
     saveSettings({});
     console.log(chalk.green('  ✓ Settings reset to defaults'));
     console.log(chalk.dim(`    ${getSettingsPath()}`));
 }
 
-export async function settingsPathCommand() {
+export function settingsPathCommand() {
     console.log(getSettingsPath());
 }
 

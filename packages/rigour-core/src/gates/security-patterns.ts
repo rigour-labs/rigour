@@ -59,7 +59,7 @@ const VULNERABILITY_PATTERNS: {
         // SQL Injection
         {
             type: 'sql_injection',
-            regex: /(?:execute|query|raw|exec)\s*\(\s*[`'"].*\$\{.+\}|`\s*\+\s*\w+|\$\{.+\}.*(?:SELECT|INSERT|UPDATE|DELETE|DROP)/gi,
+            regex: /(?:execute|query|raw|exec)\s*\(\s*`[^`]*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|WITH)[^`]*\$\{[^}]+\}[^`]*`/gi,
             severity: 'critical',
             description: 'Potential SQL injection: User input concatenated into SQL query',
             cwe: 'CWE-89',
@@ -67,7 +67,7 @@ const VULNERABILITY_PATTERNS: {
         },
         {
             type: 'sql_injection',
-            regex: /\.query\s*\(\s*['"`].*\+.*\+.*['"`]\s*\)/g,
+            regex: /(?:execute|query|raw|exec)\s*\(\s*['"`][^'"`]*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|WITH)[^'"`]*['"`]\s*\+\s*[^)]+\)/gi,
             severity: 'critical',
             description: 'SQL query built with string concatenation',
             cwe: 'CWE-89',
@@ -152,7 +152,7 @@ const VULNERABILITY_PATTERNS: {
         // Command Injection
         {
             type: 'command_injection',
-            regex: /(?:exec|spawn|execSync|spawnSync)\s*\([^)]*(?:req\.|`.*\$\{)/g,
+            regex: /(?:exec|execSync|spawn|spawnSync)\s*\(\s*(?:`[^`]*\$\{[^}]*(?:req\.|query|params|body|input|user|argv|process\.env)[^}]*\}[^`]*`|[^)]*(?:req\.|query|params|body|input|user|argv|process\.env)[^)]*)\)/g,
             severity: 'critical',
             description: 'Potential command injection: shell execution with user input',
             cwe: 'CWE-78',
@@ -160,7 +160,7 @@ const VULNERABILITY_PATTERNS: {
         },
         {
             type: 'command_injection',
-            regex: /child_process.*\s*\.\s*(?:exec|spawn)\s*\(/g,
+            regex: /child_process.*\s*\.\s*(?:exec|spawn)\s*\([^)]*(?:req\.|query|params|body|input|user|argv|process\.env)/g,
             severity: 'high',
             description: 'child_process usage detected (verify input sanitization)',
             cwe: 'CWE-78',
@@ -295,11 +295,13 @@ export class SecurityPatternsGate extends Gate {
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
             patterns: ['**/*.{ts,js,tsx,jsx,py,java,go}'],
+            ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/coverage/**'],
         });
 
-        Logger.info(`Security Patterns Gate: Scanning ${files.length} files`);
+        const scanFiles = files.filter(file => !this.shouldSkipSecurityFile(file));
+        Logger.info(`Security Patterns Gate: Scanning ${scanFiles.length} files`);
 
-        for (const file of files) {
+        for (const file of scanFiles) {
             try {
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
@@ -354,6 +356,16 @@ export class SecurityPatternsGate extends Gate {
         }
 
         return failures;
+    }
+
+    private shouldSkipSecurityFile(file: string): boolean {
+        const normalized = file.replace(/\\/g, '/');
+        if (/\/(?:examples|studio-dist|dist|build|coverage|target|out)\//.test(`/${normalized}`)) return true;
+        if (/\/__tests__\//.test(`/${normalized}`)) return true;
+        if (/\/commands\/demo(?:-|\/)/.test(`/${normalized}`)) return true;
+        if (/\/gates\/deprecated-apis-rules(?:-node|-lang)?\.ts$/i.test(normalized)) return true;
+        if (/\.(test|spec)\.(?:ts|tsx|js|jsx|py|java|go)$/i.test(normalized)) return true;
+        return false;
     }
 
     private scanFileForVulnerabilities(

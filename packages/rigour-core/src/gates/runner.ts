@@ -211,10 +211,18 @@ export class GateRunner {
                     summary['deep-analysis'] = 'PASS';
                 }
 
+                const isLocalDeepExecution =
+                    !deepOptions.apiKey || (deepOptions.provider || '').toLowerCase() === 'local';
+                const deepTier: 'deep' | 'pro' | 'cloud' = isLocalDeepExecution
+                    ? (deepOptions.pro ? 'pro' : 'deep')
+                    : 'cloud';
+
                 deepStats = {
                     enabled: true,
-                    tier: deepOptions.apiKey ? 'cloud' : (deepOptions.pro ? 'pro' : 'deep'),
-                    model: deepOptions.apiKey ? (deepOptions.provider || 'cloud') : (deepOptions.pro ? 'Qwen2.5-Coder-1.5B' : 'Qwen2.5-Coder-0.5B'),
+                    tier: deepTier,
+                    model: isLocalDeepExecution
+                        ? (deepOptions.pro ? 'Qwen2.5-Coder-1.5B' : 'Qwen2.5-Coder-0.5B')
+                        : (deepOptions.modelName || deepOptions.provider || 'cloud'),
                     total_ms: Date.now() - deepSetupStart,
                     findings_count: deepFailures.length,
                     findings_verified: deepFailures.filter((f: any) => f.verified).length,

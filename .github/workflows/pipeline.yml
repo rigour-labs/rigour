@@ -38,11 +38,16 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Accuracy Benchmark Gate
+        run: pnpm accuracy:check
+
   release:
     name: Release
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
+    outputs:
+      cli_version: ${{ steps.capture_version.outputs.cli_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,6 +67,12 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Verify brain package executables
+        run: pnpm verify:brain-packages
+
+      - name: Verify release readiness
+        run: pnpm verify:release
+
       - name: Authenticate with NPM
         run: |
           npm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
@@ -74,6 +85,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Capture released CLI version
+        id: capture_version
+        run: |
+          VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
+          echo "cli_version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Publish Homebrew Formula
         if: success()
@@ -155,3 +172,54 @@ jobs:
           chmod +x mcp-publisher
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
+
+  distribution-smoke:
+    name: Distribution Smoke
+    needs: release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      EXPECTED_CLI_VERSION: ${{ needs.release.outputs.cli_version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify npx command
+        run: |
+          node -e 'const { execSync } = require("child_process"); const expected = process.env.EXPECTED_CLI_VERSION; const out = execSync("npx -y @rigour-labs/cli --version", { encoding: "utf8" }); const versions = out.match(/\d+\.\d+\.\d+/g) || []; const actual = versions[versions.length - 1]; if (!actual) { console.error("No CLI version found in output"); process.exit(1); } if (expected && actual !== expected) { console.error("npx version mismatch: expected " + expected + ", got " + actual); process.exit(1); } console.log("npx version OK: " + actual);'
+
+      - name: Verify global npm install
+        run: |
+          npm install -g @rigour-labs/cli
+          node -e 'const { execSync } = require("child_process"); const expected = process.env.EXPECTED_CLI_VERSION; const out = execSync("rigour --version", { encoding: "utf8" }); const versions = out.match(/\d+\.\d+\.\d+/g) || []; const actual = versions[versions.length - 1]; if (!actual) { console.error("No global CLI version found in output"); process.exit(1); } if (expected && actual !== expected) { console.error("global npm version mismatch: expected " + expected + ", got " + actual); process.exit(1); } console.log("global npm version OK: " + actual);'
+
+      - name: Verify hooks checker command path (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rigour-smoke
+          echo "export const x = 1;" > /tmp/rigour-smoke/sample.ts
+          cd /tmp/rigour-smoke
+          rigour hooks check --files sample.ts
+
+      - name: Verify hooks checker command path (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "$env:TEMP\rigour-smoke" -Force | Out-Null
+          Set-Content -Path "$env:TEMP\rigour-smoke\sample.ts" -Value "export const x = 1;"
+          Set-Location "$env:TEMP\rigour-smoke"
+          rigour hooks check --files sample.ts
+
+      - name: Verify Homebrew install (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew tap rigour-labs/tap
+          brew install rigour
+          node -e 'const { execSync } = require("child_process"); const expected = process.env.EXPECTED_CLI_VERSION; const out = execSync("rigour --version", { encoding: "utf8" }); const versions = out.match(/\d+\.\d+\.\d+/g) || []; const actual = versions[versions.length - 1]; if (!actual) { console.error("No brew CLI version found in output"); process.exit(1); } if (expected && actual !== expected) { console.error("brew version mismatch: expected " + expected + ", got " + actual); process.exit(1); } console.log("brew version OK: " + actual);'

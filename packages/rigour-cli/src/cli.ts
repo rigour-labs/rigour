@@ -11,8 +11,9 @@ import { indexCommand } from './commands/index.js';
 import { studioCommand } from './commands/studio.js';
 import { exportAuditCommand } from './commands/export-audit.js';
 import { demoCommand } from './commands/demo.js';
-import { hooksInitCommand } from './commands/hooks.js';
+import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
+import { doctorCommand } from './commands/doctor.js';
 import { checkForUpdates } from './utils/version.js';
 import { getCliVersion } from './utils/cli-version.js';
 import chalk from 'chalk';
@@ -190,6 +191,13 @@ program
         await setupCommand();
     });
 
+program
+    .command('doctor')
+    .description('Diagnose install conflicts and deep-mode readiness')
+    .action(async () => {
+        await doctorCommand();
+    });
+
 const hooksCmd = program
     .command('hooks')
     .description('Manage AI coding tool hook integrations');
@@ -211,6 +219,23 @@ Examples:
     `)
     .action(async (options: any) => {
         await hooksInitCommand(process.cwd(), options);
+    });
+
+hooksCmd
+    .command('check')
+    .description('Run fast hook checks for one or more files')
+    .option('--files <paths>', 'Comma-separated file paths')
+    .option('--stdin', 'Read hook payload from stdin (Cursor/Windsurf/Cline format)')
+    .option('--block', 'Exit code 2 on failures (for blocking hooks)')
+    .option('--timeout <ms>', 'Timeout in milliseconds (default: 5000)')
+    .addHelpText('after', `
+Examples:
+  $ rigour hooks check --files src/app.ts
+  $ rigour hooks check --files src/a.ts,src/b.ts --block
+  $ echo '{"file_path":"src/app.ts"}' | rigour hooks check --stdin
+    `)
+    .action(async (options: any) => {
+        await hooksCheckCommand(process.cwd(), options);
     });
 
 // Settings management (like Claude Code's settings.json)

@@ -25,7 +25,7 @@ export class TypeScriptHandler extends ASTHandler {
         const maxParams = astConfig.max_params || 5;
 
         // Limit failures per file to avoid output bloat on large files
-        const MAX_FAILURES_PER_FILE = 50;
+        const MAX_FAILURES_PER_FILE = 5;
         const fileFailureCount: Record<string, number> = {};
 
         const addFailure = (failure: Failure): boolean => {
@@ -42,7 +42,9 @@ export class TypeScriptHandler extends ASTHandler {
                     title: `More than ${MAX_FAILURES_PER_FILE} ${ruleId} violations in ${relativePath}`,
                     details: `Truncated output: showing first ${MAX_FAILURES_PER_FILE} violations. Consider fixing the root cause.`,
                     files: [relativePath],
-                    hint: `This file has many violations. Fix them systematically or exclude the file if it's legacy code.`
+                    hint: `This file has many violations. Fix them systematically or exclude the file if it's legacy code.`,
+                    severity: 'medium',
+                    provenance: 'traditional',
                 });
             }
             return false;
@@ -69,7 +71,9 @@ export class TypeScriptHandler extends ASTHandler {
                         details: `Use 'const' or 'let' instead of 'var' in ${relativePath}:${line}`,
                         files: [relativePath],
                         line,
-                        hint: `Replace 'var' with 'const' (preferred) or 'let' for modern JavaScript.`
+                        hint: `Replace 'var' with 'const' (preferred) or 'let' for modern JavaScript.`,
+                        severity: 'medium',
+                        provenance: 'traditional',
                     });
                 }
             }
@@ -84,7 +88,9 @@ export class TypeScriptHandler extends ASTHandler {
                         details: `Use ES6 'import' instead of 'require()' in ${relativePath}:${line}`,
                         files: [relativePath],
                         line,
-                        hint: `Replace require('module') with import module from 'module'.`
+                        hint: `Replace require('module') with import module from 'module'.`,
+                        severity: 'medium',
+                        provenance: 'traditional',
                     });
                 }
             }
@@ -101,7 +107,9 @@ export class TypeScriptHandler extends ASTHandler {
                         details: `Use rest parameters (...args) instead of 'arguments' in ${relativePath}:${line}`,
                         files: [relativePath],
                         line,
-                        hint: `Replace 'arguments' with rest parameters: function(...args) { }`
+                        hint: `Replace 'arguments' with rest parameters: function(...args) { }`,
+                        severity: 'medium',
+                        provenance: 'traditional',
                     });
                 }
             }
@@ -117,7 +125,9 @@ export class TypeScriptHandler extends ASTHandler {
                     details: `Prototype pollution vulnerability in ${relativePath}:${line}`,
                     files: [relativePath],
                     line,
-                    hint: `Use Object.getPrototypeOf() or Object.setPrototypeOf() instead of __proto__.`
+                    hint: `Use Object.getPrototypeOf() or Object.setPrototypeOf() instead of __proto__.`,
+                    severity: 'critical',
+                    provenance: 'security',
                 });
             }
 
@@ -132,7 +142,9 @@ export class TypeScriptHandler extends ASTHandler {
                         details: `Potential prototype pollution via bracket notation in ${relativePath}:${line}`,
                         files: [relativePath],
                         line,
-                        hint: `Block access to '${accessKey}' property when handling user input. Use allowlist for object keys.`
+                        hint: `Block access to '${accessKey}' property when handling user input. Use allowlist for object keys.`,
+                        severity: 'critical',
+                        provenance: 'security',
                     });
                 }
             }
@@ -153,7 +165,9 @@ export class TypeScriptHandler extends ASTHandler {
                                 details: `Object.assign({}, ...) can propagate prototype pollution in ${relativePath}:${line}`,
                                 files: [relativePath],
                                 line,
-                                hint: `Validate and sanitize source objects before merging. Block __proto__ and constructor keys.`
+                                hint: `Validate and sanitize source objects before merging. Block __proto__ and constructor keys.`,
+                                severity: 'high',
+                                provenance: 'security',
                             });
                         }
                     }
@@ -171,12 +185,19 @@ export class TypeScriptHandler extends ASTHandler {
                         title: `Function '${name}' has ${node.parameters.length} parameters (max: ${maxParams})`,
                         details: `High parameter count detected in ${relativePath}`,
                         files: [relativePath],
-                        hint: `Reduce number of parameters or use an options object.`
+                        hint: `Reduce number of parameters or use an options object.`,
+                        severity: 'medium',
+                        provenance: 'traditional',
                     });
                 }
 
                 let complexity = 1;
                 const countComplexity = (n: ts.Node) => {
+                    // Nested functions have their own complexity budget.
+                    // Do not attribute their branches to the parent function.
+                    if (n !== node && ts.isFunctionLike(n)) {
+                        return;
+                    }
                     if (ts.isIfStatement(n) || ts.isCaseClause(n) || ts.isDefaultClause(n) ||
                         ts.isForStatement(n) || ts.isForInStatement(n) || ts.isForOfStatement(n) ||
                         ts.isWhileStatement(n) || ts.isDoStatement(n) || ts.isConditionalExpression(n)) {
@@ -198,7 +219,9 @@ export class TypeScriptHandler extends ASTHandler {
                         title: `Function '${name}' has cyclomatic complexity of ${complexity} (max: ${maxComplexity})`,
                         details: `High complexity detected in ${relativePath}`,
                         files: [relativePath],
-                        hint: `Refactor '${name}' into smaller, more focused functions.`
+                        hint: `Refactor '${name}' into smaller, more focused functions.`,
+                        severity: 'medium',
+                        provenance: 'traditional',
                     });
                 }
             }
@@ -213,7 +236,9 @@ export class TypeScriptHandler extends ASTHandler {
                         title: `Class '${name}' has ${methods.length} methods (max: ${maxMethods})`,
                         details: `God Object pattern detected in ${relativePath}`,
                         files: [relativePath],
-                        hint: `Class '${name}' is becoming too large. Split it into smaller services.`
+                        hint: `Class '${name}' is becoming too large. Split it into smaller services.`,
+                        severity: 'medium',
+                        provenance: 'traditional',
                     });
                 }
             }
@@ -243,7 +268,9 @@ export class TypeScriptHandler extends ASTHandler {
                         title: `Architectural Violation`,
                         details: `'${relativePath}' is forbidden from importing '${importPath}' (denied by boundary rule).`,
                         files: [relativePath],
-                        hint: `Remove this import to maintain architectural layering.`
+                        hint: `Remove this import to maintain architectural layering.`,
+                        severity: 'high',
+                        provenance: 'traditional',
                     });
                 }
             }

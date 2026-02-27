@@ -62,9 +62,9 @@ export class DeepAnalysisGate extends Gate {
 
             const isLocal = !this.config.options.apiKey || this.config.options.provider === 'local';
             if (isLocal) {
-                onProgress?.('\n  🔒 100% local analysis. Your code never leaves this machine.\n');
+                onProgress?.('\n  🔒 Local sidecar/model execution. Code remains on this machine.\n');
             } else {
-                onProgress?.(`\n  ☁️  Using ${this.config.options.provider} API. Code is sent to cloud.\n`);
+                onProgress?.(`\n  ☁️  Using ${this.config.options.provider} API. Code context may be sent to the provider.\n`);
             }
 
             // Step 1: AST extracts facts

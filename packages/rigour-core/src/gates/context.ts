@@ -42,7 +42,13 @@ export class ContextGate extends Gate {
         const record = context.record;
         if (!record || !this.extendedConfig.enabled) return [];
 
-        const files = await FileScanner.findFiles({ cwd: context.cwd });
+        const files = await FileScanner.findFiles({
+            cwd: context.cwd,
+            patterns: ['**/*.{ts,js,tsx,jsx,py,go,java,cs,rb,kt,swift,rs,php}'],
+            ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
+                '**/studio-dist/**', '**/.next/**', '**/coverage/**', '**/out/**',
+                '**/*.test.*', '**/*.spec.*', '**/examples/**', '**/docs/**'],
+        });
         const envAnchors = record.anchors.filter(a => a.type === 'env' && a.confidence >= 1);
 
         // Collect all patterns across files for cross-file analysis
@@ -52,14 +58,15 @@ export class ContextGate extends Gate {
         for (const file of files) {
             try {
                 const content = await fs.readFile(path.join(context.cwd, file), 'utf-8');
+                const codeContent = this.stripComments(content);
 
                 // 1. Original: Detect Redundant Suffixes (The Golden Example)
-                this.checkEnvDrift(content, file, envAnchors, failures);
+                this.checkEnvDrift(codeContent, file, envAnchors, failures);
 
                 // 2. NEW: Cross-file pattern collection
                 if (this.extendedConfig.cross_file_patterns) {
-                    this.collectNamingPatterns(content, file, namingPatterns);
-                    this.collectImportPatterns(content, file, importPatterns);
+                    this.collectNamingPatterns(codeContent, file, namingPatterns);
+                    this.collectImportPatterns(codeContent, file, importPatterns);
                 }
 
             } catch (e) { }
@@ -217,10 +224,13 @@ export class ContextGate extends Gate {
             for (const imp of imports) {
                 if (imp.startsWith('.') || imp.startsWith('..')) {
                     relativeCount.set(file, (relativeCount.get(file) || 0) + 1);
-                } else if (!imp.startsWith('@') && !imp.includes('/')) {
-                    // Skip external packages
                 } else {
-                    absoluteCount.set(file, (absoluteCount.get(file) || 0) + 1);
+                    // Count only local alias styles as "absolute local imports".
+                    // Scoped packages like @rigour-labs/core should be treated as external.
+                    const isLocalAlias = imp.startsWith('@/') || imp.startsWith('~/') || imp.startsWith('src/');
+                    if (isLocalAlias) {
+                        absoluteCount.set(file, (absoluteCount.get(file) || 0) + 1);
+                    }
                 }
             }
         }
@@ -268,5 +278,18 @@ export class ContextGate extends Gate {
             patterns.set(type, []);
         }
         patterns.get(type)!.push(entry);
+    }
+
+    private stripComments(content: string): string {
+        // Remove block comments first, then strip line comments.
+        const noBlockComments = content.replace(/\/\*[\s\S]*?\*\//g, '');
+        const lines = noBlockComments.split('\n').map((line) => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('//') || trimmed.startsWith('#')) {
+                return '';
+            }
+            return line.replace(/\/\/.*$/, '');
+        });
+        return lines.join('\n');
     }
 }

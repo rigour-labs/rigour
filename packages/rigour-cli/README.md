@@ -7,15 +7,15 @@
 **Local-first quality gates for AI-generated code.**  
 Rigour forces AI agents to meet strict engineering standards before marking tasks "Done".
 
-> **Zero cloud. Zero telemetry. PASS/FAIL is always free.**
+> Core gates run locally. Deep analysis can run local or cloud provider mode.
 
 ## 🚀 Quick Start
 
 ```bash
-npx rigour scan     # Zero-config scan (auto-detect stack)
-npx rigour init     # Initialize quality gates
-npx rigour check    # Verify code quality
-npx rigour run -- claude "Build feature X"  # Agent loop
+npx @rigour-labs/cli scan     # Zero-config scan (auto-detect stack)
+npx @rigour-labs/cli init     # Initialize quality gates
+npx @rigour-labs/cli check    # Verify code quality
+npx @rigour-labs/cli run -- claude "Build feature X"  # Agent loop
 ```
 
 ## 🍺 Homebrew
@@ -74,6 +74,8 @@ All gates support **TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET**.
 | `rigour init` | Setup Rigour in your project |
 | `rigour check` | Validate code against quality gates |
 | `rigour check --ci` | CI mode with appropriate output |
+| `rigour hooks init` | Install real-time hooks for supported tools |
+| `rigour hooks check --files ...` | Run fast hook gates on specific files |
 | `rigour explain` | Detailed explanation of validation results |
 | `rigour run` | Supervisor loop for iterative refinement |
 | `rigour studio` | Dashboard for monitoring |
@@ -98,7 +100,7 @@ All gates support **TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET**.
 ## 🧪 CI Integration
 
 ```yaml
-- run: npx rigour check --ci
+- run: npx @rigour-labs/cli check --ci
 ```
 
 ## 📜 License

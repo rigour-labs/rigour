@@ -18,6 +18,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import { randomUUID } from 'crypto';
+import { runHookChecker } from '@rigour-labs/core';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -28,11 +29,23 @@ export interface HooksOptions {
     block?: boolean;
 }
 
+export interface HooksCheckOptions {
+    files?: string;
+    stdin?: boolean;
+    block?: boolean;
+    timeout?: string;
+}
+
 interface GeneratedFile {
     path: string;
     content: string;
     executable?: boolean;
     description: string;
+}
+
+interface CheckerCommandSpec {
+    command: string;
+    args: string[];
 }
 
 // ── Studio event logging ─────────────────────────────────────────────
@@ -75,14 +88,25 @@ function detectTools(cwd: string): HookTool[] {
     return detected;
 }
 
-function resolveCheckerPath(cwd: string): string {
+function resolveCheckerCommand(cwd: string): CheckerCommandSpec {
     const localPath = path.join(
         cwd, 'node_modules', '@rigour-labs', 'core', 'dist', 'hooks', 'standalone-checker.js'
     );
     if (fs.existsSync(localPath)) {
-        return localPath;
+        return { command: 'node', args: [localPath] };
     }
-    return 'npx rigour-hook-check';
+    return { command: 'rigour', args: ['hooks', 'check'] };
+}
+
+function shellEscape(arg: string): string {
+    if (/^[A-Za-z0-9_/@%+=:,.-]+$/.test(arg)) {
+        return arg;
+    }
+    return `'${arg.replace(/'/g, `'\\''`)}'`;
+}
+
+function checkerToShellCommand(spec: CheckerCommandSpec): string {
+    return [spec.command, ...spec.args].map(shellEscape).join(' ');
 }
 
 // ── Tool resolution (from --tool flag or auto-detect) ────────────────
@@ -117,15 +141,16 @@ function resolveTools(cwd: string, toolFlag?: string): HookTool[] {
 
 // ── Per-tool hook generators ─────────────────────────────────────────
 
-function generateClaudeHooks(checkerPath: string, block: boolean): GeneratedFile[] {
+function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean): GeneratedFile[] {
     const blockFlag = block ? ' --block' : '';
+    const checkerCommand = checkerToShellCommand(checker);
     const settings = {
         hooks: {
             PostToolUse: [{
                 matcher: "Write|Edit|MultiEdit",
                 hooks: [{
                     type: "command" as const,
-                    command: `node ${checkerPath} --files "$TOOL_INPUT_file_path"${blockFlag}`,
+                    command: `${checkerCommand} --files "$TOOL_INPUT_file_path"${blockFlag}`,
                 }]
             }]
         }
@@ -138,10 +163,12 @@ function generateClaudeHooks(checkerPath: string, block: boolean): GeneratedFile
     }];
 }
 
-function generateCursorHooks(checkerPath: string, _block: boolean): GeneratedFile[] {
+function generateCursorHooks(checker: CheckerCommandSpec, block: boolean): GeneratedFile[] {
+    const blockFlag = block ? ' --block' : '';
+    const checkerCommand = checkerToShellCommand(checker);
     const hooks = {
         version: 1,
-        hooks: { afterFileEdit: [{ command: `node ${checkerPath} --stdin` }] }
+        hooks: { afterFileEdit: [{ command: `${checkerCommand} --stdin${blockFlag}` }] }
     };
 
     return [{
@@ -151,8 +178,8 @@ function generateCursorHooks(checkerPath: string, _block: boolean): GeneratedFil
     }];
 }
 
-function generateClineHooks(checkerPath: string, _block: boolean): GeneratedFile[] {
-    const script = buildClineScript(checkerPath);
+function generateClineHooks(checker: CheckerCommandSpec, block: boolean): GeneratedFile[] {
+    const script = buildClineScript(checker, block);
     return [{
         path: '.clinerules/hooks/PostToolUse',
         content: script,
@@ -161,7 +188,8 @@ function generateClineHooks(checkerPath: string, _block: boolean): GeneratedFile
     }];
 }
 
-function buildClineScript(checkerPath: string): string {
+function buildClineScript(checker: CheckerCommandSpec, block: boolean): string {
+    const blockArgLiteral = block ? `, '--block'` : '';
     return `#!/usr/bin/env node
 /**
  * Cline PostToolUse hook for Rigour.
@@ -184,11 +212,21 @@ process.stdin.on('end', async () => {
             return;
         }
 
-        const { execSync } = require('child_process');
-        const raw = execSync(
-            \`node ${checkerPath} --files "\${filePath}"\`,
+        const { spawnSync } = require('child_process');
+        const command = ${JSON.stringify(checker.command)};
+        const baseArgs = ${JSON.stringify(checker.args)};
+        const proc = spawnSync(
+            command,
+            [...baseArgs, '--files', filePath${blockArgLiteral}],
             { encoding: 'utf-8', timeout: 5000 }
         );
+        if (proc.error) {
+            throw proc.error;
+        }
+        const raw = (proc.stdout || '').trim();
+        if (!raw) {
+            throw new Error(proc.stderr || 'Rigour hook checker returned no output');
+        }
         const result = JSON.parse(raw);
         if (result.status === 'fail') {
             const msgs = result.failures
@@ -208,10 +246,12 @@ process.stdin.on('end', async () => {
 `;
 }
 
-function generateWindsurfHooks(checkerPath: string, _block: boolean): GeneratedFile[] {
+function generateWindsurfHooks(checker: CheckerCommandSpec, block: boolean): GeneratedFile[] {
+    const blockFlag = block ? ' --block' : '';
+    const checkerCommand = checkerToShellCommand(checker);
     const hooks = {
         version: 1,
-        hooks: { post_write_code: [{ command: `node ${checkerPath} --stdin` }] }
+        hooks: { post_write_code: [{ command: `${checkerCommand} --stdin${blockFlag}` }] }
     };
 
     return [{
@@ -221,7 +261,7 @@ function generateWindsurfHooks(checkerPath: string, _block: boolean): GeneratedF
     }];
 }
 
-const GENERATORS: Record<HookTool, (checkerPath: string, block: boolean) => GeneratedFile[]> = {
+const GENERATORS: Record<HookTool, (checker: CheckerCommandSpec, block: boolean) => GeneratedFile[]> = {
     claude: generateClaudeHooks,
     cursor: generateCursorHooks,
     cline: generateClineHooks,
@@ -302,13 +342,13 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     });
 
     const tools = resolveTools(cwd, options.tool);
-    const checkerPath = resolveCheckerPath(cwd);
+    const checker = resolveCheckerCommand(cwd);
     const block = !!options.block;
 
     // Collect generated files from all tools
     const allFiles: GeneratedFile[] = [];
     for (const tool of tools) {
-        allFiles.push(...GENERATORS[tool](checkerPath, block));
+        allFiles.push(...GENERATORS[tool](checker, block));
     }
 
     if (options.dryRun) {
@@ -334,4 +374,66 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
         status: 'success',
         content: [{ type: 'text', text: `Generated hooks for: ${tools.join(', ')}` }],
     });
+}
+
+async function readStdin(): Promise<string> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) {
+        chunks.push(chunk as Buffer);
+    }
+    return Buffer.concat(chunks).toString('utf-8').trim();
+}
+
+function parseStdinFiles(input: string): string[] {
+    if (!input) {
+        return [];
+    }
+    try {
+        const payload = JSON.parse(input);
+        if (Array.isArray(payload.files)) {
+            return payload.files;
+        }
+        if (payload.file_path) {
+            return [payload.file_path];
+        }
+        if (payload.toolInput?.path) {
+            return [payload.toolInput.path];
+        }
+        if (payload.toolInput?.file_path) {
+            return [payload.toolInput.file_path];
+        }
+        return [];
+    } catch {
+        return input.split('\n').map(l => l.trim()).filter(Boolean);
+    }
+}
+
+export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions = {}): Promise<void> {
+    const timeout = options.timeout ? Number(options.timeout) : 5000;
+    const files = options.stdin
+        ? parseStdinFiles(await readStdin())
+        : (options.files ?? '').split(',').map(f => f.trim()).filter(Boolean);
+
+    if (files.length === 0) {
+        process.stdout.write(JSON.stringify({ status: 'pass', failures: [], duration_ms: 0 }));
+        return;
+    }
+
+    const result = await runHookChecker({
+        cwd,
+        files,
+        timeout_ms: Number.isFinite(timeout) ? timeout : 5000,
+    });
+
+    process.stdout.write(JSON.stringify(result));
+
+    if (result.status === 'fail') {
+        for (const failure of result.failures) {
+            const loc = failure.line ? `:${failure.line}` : '';
+            process.stderr.write(`[rigour/${failure.gate}] ${failure.file}${loc}: ${failure.message}\n`);
+        }
+        if (options.block) {
+            process.exitCode = 2;
+        }
+    }
 }

@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HallucinatedImportsGate } from './hallucinated-imports.js';
 import type { GateContext } from './base.js';
+import path from 'path';
 
 // Mock fs-extra — vi.hoisted ensures these are available when vi.mock runs (hoisted)
 const { mockPathExists, mockPathExistsSync, mockReadFile, mockReadFileSync, mockReadJson, mockReaddirSync } = vi.hoisted(() => ({
@@ -45,6 +46,8 @@ vi.mock('../utils/scanner.js', () => ({
 }));
 
 import { FileScanner } from '../utils/scanner.js';
+
+const normalizePath = (input: string): string => input.replace(/\\/g, '/');
 
 // ═══════════════════════════════════════════════════════════════
 // GO
@@ -286,7 +289,8 @@ from urllib.parse import urlparse
 
 describe('HallucinatedImportsGate — JS/TS Node builtins', () => {
     let gate: HallucinatedImportsGate;
-    const testCwd = '/tmp/test-node-project';
+    const testCwd = path.resolve('/tmp/test-node-project');
+    const testCwdNormalized = normalizePath(testCwd);
     const context: GateContext = { cwd: testCwd, ignore: [] };
 
     beforeEach(() => {
@@ -331,6 +335,182 @@ import { ReadableStream } from 'stream/web';
 
         (FileScanner.findFiles as any).mockResolvedValue(['server.ts']);
         mockReadFile.mockResolvedValue(jsContent);
+        mockPathExists.mockResolvedValue(false);
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(0);
+    });
+
+    it('should resolve dependencies from nearest package.json in monorepos', async () => {
+        const jsContent = `
+import { app } from 'electron';
+import React from 'react';
+`;
+
+        (FileScanner.findFiles as any).mockResolvedValue(['apps/desktop/src/main.ts']);
+        mockReadFile.mockResolvedValue(jsContent);
+        mockPathExists.mockImplementation(async (p: string) => {
+            const normalized = normalizePath(p);
+            return normalized === `${testCwdNormalized}/apps/desktop/package.json`
+                || normalized === `${testCwdNormalized}/package.json`
+                || normalized.includes('/node_modules/electron')
+                || normalized.includes('/node_modules/react');
+        });
+        mockReadJson.mockImplementation(async (p: string) => {
+            const normalized = normalizePath(p);
+            if (normalized.endsWith('/apps/desktop/package.json')) {
+                return {
+                    dependencies: { electron: '^31.0.0', react: '^18.0.0' },
+                    devDependencies: {},
+                    peerDependencies: {},
+                    optionalDependencies: {},
+                };
+            }
+            // Root package.json should not incorrectly block desktop deps
+            return {
+                dependencies: {},
+                devDependencies: {},
+                peerDependencies: {},
+                optionalDependencies: {},
+            };
+        });
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(0);
+    });
+
+    it('should NOT flag tsconfig path aliases that resolve in monorepos', async () => {
+        const jsContent = `
+import { logger } from '@/utils/logger';
+import { cfg } from '~shared/config';
+`;
+        const tsconfigContent = `{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "~shared/*": ["../shared/src/*"]
+    }
+  }
+}`;
+
+        (FileScanner.findFiles as any).mockResolvedValue([
+            'apps/desktop/src/main.ts',
+            'apps/desktop/src/utils/logger.ts',
+            'apps/shared/src/config.ts',
+        ]);
+        mockReadFile.mockImplementation(async (p: string) => {
+            const normalized = normalizePath(p);
+            if (normalized.endsWith('/apps/desktop/tsconfig.json')) return tsconfigContent;
+            if (normalized.endsWith('/apps/desktop/src/main.ts')) return jsContent;
+            return 'export const ok = true;';
+        });
+        mockPathExists.mockImplementation(async (p: string) => {
+            const normalized = normalizePath(p);
+            return normalized === `${testCwdNormalized}/apps/desktop/tsconfig.json`
+                || normalized === `${testCwdNormalized}/package.json`;
+        });
+        mockReadJson.mockResolvedValue({
+            dependencies: {},
+            devDependencies: {},
+            peerDependencies: {},
+            optionalDependencies: {},
+        });
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(0);
+    });
+
+    it('should flag tsconfig path aliases when target does not resolve', async () => {
+        const jsContent = `import { logger } from '@/utils/missing';`;
+        const tsconfigContent = `{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  }
+}`;
+
+        (FileScanner.findFiles as any).mockResolvedValue(['apps/desktop/src/main.ts']);
+        mockReadFile.mockImplementation(async (p: string) => {
+            const normalized = normalizePath(p);
+            if (normalized.endsWith('/apps/desktop/tsconfig.json')) return tsconfigContent;
+            return jsContent;
+        });
+        mockPathExists.mockImplementation(async (p: string) => {
+            const normalized = normalizePath(p);
+            return normalized === `${testCwdNormalized}/apps/desktop/tsconfig.json`
+                || normalized === `${testCwdNormalized}/package.json`;
+        });
+        mockReadJson.mockResolvedValue({
+            dependencies: {},
+            devDependencies: {},
+            peerDependencies: {},
+            optionalDependencies: {},
+        });
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(1);
+        // Depending on tsconfig resolution context, this may surface as
+        // a direct alias resolution failure OR a missing package fallback.
+        const details = failures[0].details;
+        expect(
+            details.includes("Path alias '@/utils/missing' does not resolve to a project file")
+            || details.includes("Package '@/utils' not in package.json dependencies")
+        ).toBe(true);
+    });
+
+    it('should NOT flag ESM .js specifiers that resolve to .ts source files', async () => {
+        const jsContent = `
+import { helper } from './utils.js';
+`;
+
+        (FileScanner.findFiles as any).mockResolvedValue(['src/main.ts', 'src/utils.ts']);
+        mockReadFile.mockImplementation(async (p: string) => {
+            const normalized = p.replace(/\\/g, '/');
+            if (normalized.endsWith('/src/main.ts')) return jsContent;
+            return 'export const helper = () => 42;';
+        });
+        mockPathExists.mockImplementation(async (p: string) => {
+            const normalized = p.replace(/\\/g, '/');
+            return normalized === '/tmp/test-node-project/package.json';
+        });
+        mockReadJson.mockResolvedValue({
+            dependencies: {},
+            devDependencies: {},
+            peerDependencies: {},
+            optionalDependencies: {},
+        });
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(0);
+    });
+});
+
+describe('HallucinatedImportsGate — ignore generated/test artifacts', () => {
+    let gate: HallucinatedImportsGate;
+    const testCwd = '/tmp/test-ignore-project';
+    const context: GateContext = { cwd: testCwd, ignore: [] };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockReaddirSync.mockReturnValue([]);
+        gate = new HallucinatedImportsGate({ enabled: true });
+    });
+
+    it('skips studio-dist files by default', async () => {
+        (FileScanner.findFiles as any).mockResolvedValue(['packages/rigour-cli/studio-dist/assets/index.js']);
+        mockReadFile.mockResolvedValue(`import 'definitely-not-a-real-package';`);
+        mockPathExists.mockResolvedValue(false);
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(0);
+    });
+
+    it('skips test files by default', async () => {
+        (FileScanner.findFiles as any).mockResolvedValue(['src/example.test.ts']);
+        mockReadFile.mockResolvedValue(`import 'totally-not-installed';`);
         mockPathExists.mockResolvedValue(false);
 
         const failures = await gate.run(context);
