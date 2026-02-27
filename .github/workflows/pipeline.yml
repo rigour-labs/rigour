@@ -48,6 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cli_version: ${{ steps.capture_version.outputs.cli_version }}
+      did_release: ${{ steps.release_guard.outputs.skip_release != 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,7 +74,22 @@ jobs:
       - name: Verify release readiness
         run: pnpm verify:release
 
+      - name: Detect existing release tag on HEAD
+        id: release_guard
+        run: |
+          set -euo pipefail
+          EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+          if [ -n "${EXISTING_TAG}" ]; then
+            echo "Found existing release tag on HEAD: ${EXISTING_TAG}. Skipping semantic-release rerun."
+            echo "skip_release=true" >> "$GITHUB_OUTPUT"
+            echo "existing_tag=${EXISTING_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release tag on HEAD. Proceeding with semantic-release."
+            echo "skip_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Authenticate with NPM
+        if: steps.release_guard.outputs.skip_release != 'true'
         run: |
           npm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
           pnpm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
@@ -81,6 +97,7 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Release
+        if: steps.release_guard.outputs.skip_release != 'true'
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -89,11 +106,16 @@ jobs:
       - name: Capture released CLI version
         id: capture_version
         run: |
-          VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
+          if [ "${{ steps.release_guard.outputs.skip_release }}" = "true" ]; then
+            VERSION="${{ steps.release_guard.outputs.existing_tag }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
+          fi
           echo "cli_version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Publish Homebrew Formula
-        if: success()
+        if: success() && steps.release_guard.outputs.skip_release != 'true'
         env:
           HOMEBREW_TAP_GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GH_TOKEN }}
           HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'rigour-labs/homebrew-tap' }}
@@ -159,7 +181,7 @@ jobs:
           echo "Homebrew formula updated in ${HOMEBREW_TAP_REPO}"
 
       - name: Publish to MCP Registry
-        if: success()
+        if: success() && steps.release_guard.outputs.skip_release != 'true'
         working-directory: packages/rigour-mcp
         run: |
           # Get the version from the package.json which was just updated by semantic-release
@@ -176,7 +198,7 @@ jobs:
   distribution-smoke:
     name: Distribution Smoke
     needs: release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.outputs.did_release == 'true'
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
