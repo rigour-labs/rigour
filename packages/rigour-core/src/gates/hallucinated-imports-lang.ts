@@ -15,16 +15,26 @@ export function checkGoImports(
     const lines = content.split('\n');
     let inImportBlock = false;
 
-    // Try to read go.mod for the module path
-    const goModPath = path.join(cwd, 'go.mod');
+    // Find go.mod by walking up from the Go file's directory (monorepo support).
+    // A monorepo may have go.mod in subdirectories like kubernetes/go.mod, server/go.mod, etc.
     let modulePath: string | null = null;
-    try {
-        if (fs.pathExistsSync(goModPath)) {
-            const goMod = fs.readFileSync(goModPath, 'utf-8');
-            const moduleMatch = goMod.match(/^module\s+(\S+)/m);
-            if (moduleMatch) modulePath = moduleMatch[1];
-        }
-    } catch { /* no go.mod — skip project-relative checks entirely */ }
+    const fileAbsDir = path.dirname(path.resolve(cwd, file));
+    const rootDir = path.resolve(cwd);
+    let searchDir = fileAbsDir;
+
+    while (searchDir.startsWith(rootDir) || searchDir === rootDir) {
+        const goModPath = path.join(searchDir, 'go.mod');
+        try {
+            if (fs.pathExistsSync(goModPath)) {
+                const goMod = fs.readFileSync(goModPath, 'utf-8');
+                const moduleMatch = goMod.match(/^module\s+(\S+)/m);
+                if (moduleMatch) { modulePath = moduleMatch[1]; break; }
+            }
+        } catch { /* skip */ }
+        const parent = path.dirname(searchDir);
+        if (parent === searchDir) break;
+        searchDir = parent;
+    }
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -167,7 +177,8 @@ export function checkCSharpImports(
     projectFiles: Set<string>, hallucinated: HallucinatedImport[]
 ): void {
     const lines = content.split('\n');
-    const nugetPackages = loadNuGetPackages(cwd);
+    // Search for .csproj in file's directory and parent dirs (monorepo support)
+    const nugetPackages = loadNuGetPackagesForFile(file, cwd);
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -202,7 +213,7 @@ export function checkCSharpImports(
         // Only flag if we have .csproj context (proves this is a real .NET project)
         if (!hasMatch && namespace.includes('.') && nugetPackages.size >= 0) {
             // Check if we actually have .csproj context (a real .NET project)
-            const hasCsproj = hasCsprojFile(cwd);
+            const hasCsproj = nugetPackages.size > 0 || hasCsprojFile(cwd);
             if (hasCsproj) {
                 hallucinated.push({
                     file, line: i + 1, importPath: namespace, type: 'csharp',
@@ -240,6 +251,27 @@ export function loadNuGetPackages(cwd: string): Set<string> {
         }
     } catch { /* no .csproj */ }
     return packages;
+}
+
+/**
+ * Search for .csproj files by walking up from the C# file's directory.
+ * Monorepo support: a C# file in tests/csharp/MyProject/ needs to find .csproj
+ * in that directory, not just the project root.
+ */
+export function loadNuGetPackagesForFile(file: string, cwd: string): Set<string> {
+    const allPackages = new Set<string>();
+    const rootDir = path.resolve(cwd);
+    let searchDir = path.dirname(path.resolve(cwd, file));
+
+    while (searchDir.startsWith(rootDir) || searchDir === rootDir) {
+        const pkgs = loadNuGetPackages(searchDir);
+        for (const p of pkgs) allPackages.add(p);
+
+        const parent = path.dirname(searchDir);
+        if (parent === searchDir) break;
+        searchDir = parent;
+    }
+    return allPackages;
 }
 
 export function checkRustImports(
@@ -309,7 +341,8 @@ export function checkJavaKotlinImports(
     projectFiles: Set<string>, hallucinated: HallucinatedImport[]
 ): void {
     const lines = content.split('\n');
-    const buildDeps = loadJavaDeps(cwd);
+    // Search for build.gradle/pom.xml by walking up from the file's directory (monorepo support)
+    const buildDeps = loadJavaDepsForFile(file, cwd);
     const isKotlin = ext === '.kt';
 
     for (let i = 0; i < lines.length; i++) {
@@ -384,6 +417,26 @@ export function loadJavaDeps(cwd: string): Set<string> {
         }
     } catch { /* no build files */ }
     return deps;
+}
+
+/**
+ * Search for build.gradle/pom.xml by walking up from the Java/Kotlin file's directory.
+ * Monorepo support: a Java file in sdks/sandbox/java/ needs to find build.gradle there.
+ */
+export function loadJavaDepsForFile(file: string, cwd: string): Set<string> {
+    const allDeps = new Set<string>();
+    const rootDir = path.resolve(cwd);
+    let searchDir = path.dirname(path.resolve(cwd, file));
+
+    while (searchDir.startsWith(rootDir) || searchDir === rootDir) {
+        const deps = loadJavaDeps(searchDir);
+        for (const d of deps) allDeps.add(d);
+
+        const parent = path.dirname(searchDir);
+        if (parent === searchDir) break;
+        searchDir = parent;
+    }
+    return allDeps;
 }
 
 export async function loadPackageJson(cwd: string): Promise<any> {

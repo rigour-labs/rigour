@@ -97,8 +97,10 @@ export class PhantomApisGate extends Gate {
                     this.checkGoPhantomApis(content, file, phantoms);
                 } else if (ext === '.cs' && this.config.check_csharp) {
                     this.checkCSharpPhantomApis(content, file, phantoms);
-                } else if ((ext === '.java' || ext === '.kt') && this.config.check_java) {
+                } else if (ext === '.java' && this.config.check_java) {
                     this.checkJavaPhantomApis(content, file, phantoms);
+                } else if (ext === '.kt' && this.config.check_java) {
+                    this.checkKotlinPhantomApis(content, file, phantoms);
                 }
             } catch { /* skip unreadable files */ }
         }
@@ -135,8 +137,35 @@ export class PhantomApisGate extends Gate {
             normalized.includes('/__tests__/') ||
             normalized.endsWith('/phantom-apis-data.ts') ||
             /\.test\.[^.]+$/i.test(normalized) ||
-            /\.spec\.[^.]+$/i.test(normalized)
+            /\.spec\.[^.]+$/i.test(normalized) ||
+            // Additional test file patterns (Python, Go, Java)
+            /\/tests\//.test(`/${normalized}`) ||
+            /\/test\//.test(`/${normalized}`) ||
+            /_test\.go$/i.test(normalized) ||
+            /(?:^|\/)test_[^/]+\.py$/i.test(normalized) ||
+            /(?:^|\/)conftest\.py$/i.test(normalized) ||
+            /\/e2e\//.test(`/${normalized}`) ||
+            /E2E/i.test(path.basename(normalized))
         );
+    }
+
+    /**
+     * Strip string literal contents from a line to prevent matching code-in-strings.
+     * Replaces the content inside quotes with spaces, preserving the quotes themselves.
+     * This prevents false positives when e.g. a Java test passes Python code as a string
+     * to a code interpreter sandbox.
+     */
+    private stripStringLiterals(line: string): string {
+        // Replace content inside triple-quoted strings (Python/Kotlin)
+        let result = line.replace(/"""[\s\S]*?"""/g, '""""""');
+        result = result.replace(/'''[\s\S]*?'''/g, "''''''");
+        // Replace content inside regular double-quoted strings (handles escaped quotes)
+        result = result.replace(/"(?:\\.|[^"\\])*"/g, '""');
+        // Replace content inside single-quoted strings
+        result = result.replace(/'(?:\\.|[^'\\])*'/g, "''");
+        // Replace content inside backtick strings (JS/TS template literals)
+        result = result.replace(/`(?:\\.|[^`\\])*`/g, '``');
+        return result;
     }
 
     /**
@@ -167,7 +196,7 @@ export class PhantomApisGate extends Gate {
 
         // Scan for method calls on imported modules
         for (let i = 0; i < lines.length; i++) {
-            const line = this.stripJsCommentLine(lines[i]);
+            const line = this.stripStringLiterals(this.stripJsCommentLine(lines[i]));
             if (!line) continue;
 
             for (const [alias, moduleName] of moduleAliases) {
@@ -231,7 +260,7 @@ export class PhantomApisGate extends Gate {
         if (moduleAliases.size === 0) return;
 
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+            const line = this.stripStringLiterals(lines[i]);
 
             for (const [alias, moduleName] of moduleAliases) {
                 const callPattern = new RegExp(`\\b${this.escapeRegex(alias)}\\.(\\w+)\\s*\\(`, 'g');
@@ -300,7 +329,7 @@ export class PhantomApisGate extends Gate {
     private checkGoPhantomApis(content: string, file: string, phantoms: PhantomApiCall[]): void {
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+            const line = this.stripStringLiterals(lines[i]);
             for (const rule of GO_PHANTOM_RULES) {
                 if (rule.pattern.test(line)) {
                     phantoms.push({
@@ -320,7 +349,7 @@ export class PhantomApisGate extends Gate {
     private checkCSharpPhantomApis(content: string, file: string, phantoms: PhantomApiCall[]): void {
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+            const line = this.stripStringLiterals(lines[i]);
             for (const rule of CSHARP_PHANTOM_RULES) {
                 if (rule.pattern.test(line)) {
                     phantoms.push({
@@ -334,19 +363,51 @@ export class PhantomApisGate extends Gate {
     }
 
     /**
-     * Java/Kotlin phantom API detection — pattern-based.
+     * Java phantom API detection — pattern-based.
      * AI hallucinates Python/JS-style APIs on JDK classes.
+     * Strips string literal contents to avoid matching code-in-strings
+     * (e.g. Java test passing Python code `print('hello')` to a sandbox).
      */
     private checkJavaPhantomApis(content: string, file: string, phantoms: PhantomApiCall[]): void {
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+            const line = this.stripStringLiterals(lines[i]);
             for (const rule of JAVA_PHANTOM_RULES) {
                 if (rule.pattern.test(line)) {
                     phantoms.push({
                         file, line: i + 1,
                         module: rule.module, method: rule.phantom,
                         reason: `'${rule.phantom}' does not exist in Java. ${rule.suggestion}`,
+                    });
+                }
+            }
+        }
+    }
+
+    /**
+     * Kotlin phantom API detection — uses a SUBSET of Java rules.
+     * Kotlin has different syntax than Java, so rules must be filtered:
+     *   - print() IS valid Kotlin (kotlin.io.print)
+     *   - var x: Type = IS valid Kotlin syntax
+     *   - Most other Java patterns (includes, slice, arrow syntax) still apply
+     */
+    private checkKotlinPhantomApis(content: string, file: string, phantoms: PhantomApiCall[]): void {
+        // Rules that are NOT applicable to Kotlin (valid Kotlin syntax)
+        const kotlinExclude = new Set([
+            'print()',      // kotlin.io.print() is real
+            'var x: Type =', // Kotlin explicitly supports typed var/val declarations
+        ]);
+
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            const line = this.stripStringLiterals(lines[i]);
+            for (const rule of JAVA_PHANTOM_RULES) {
+                if (kotlinExclude.has(rule.phantom)) continue;
+                if (rule.pattern.test(line)) {
+                    phantoms.push({
+                        file, line: i + 1,
+                        module: rule.module, method: rule.phantom,
+                        reason: `'${rule.phantom}' does not exist in Kotlin. ${rule.suggestion}`,
                     });
                 }
             }

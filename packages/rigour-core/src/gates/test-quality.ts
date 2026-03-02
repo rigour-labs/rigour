@@ -290,6 +290,10 @@ export class TestQualityGate extends Gate {
 
     private checkPythonTestQuality(content: string, file: string, issues: TestQualityIssue[]): void {
         const lines = content.split('\n');
+        const basename = path.basename(file);
+
+        // Skip conftest.py entirely — these contain fixtures, not tests
+        if (basename === 'conftest.py') return;
 
         let inTestFunc = false;
         let testStartLine = 0;
@@ -297,6 +301,7 @@ export class TestQualityGate extends Gate {
         let hasAssertion = false;
         let mockCount = 0;
         let testContent = '';
+        let hasFixtureDecorator = false;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -305,6 +310,18 @@ export class TestQualityGate extends Gate {
             // Detect test function start
             const testFuncMatch = line.match(/^(\s*)(?:def|async\s+def)\s+(test_\w+)\s*\(/);
             if (testFuncMatch) {
+                // Check if this function has a @pytest.fixture decorator (not a real test)
+                hasFixtureDecorator = false;
+                for (let j = i - 1; j >= 0 && j >= i - 5; j--) {
+                    const prevLine = lines[j].trim();
+                    if (!prevLine || prevLine.startsWith('#')) continue;
+                    if (!prevLine.startsWith('@')) break;
+                    if (/^@pytest\.fixture/.test(prevLine)) {
+                        hasFixtureDecorator = true;
+                        break;
+                    }
+                }
+                if (hasFixtureDecorator) continue; // Skip — this is a fixture, not a test
                 // If we were in a previous test, analyze it
                 if (inTestFunc) {
                     this.analyzePythonTestBlock(testContent, file, testStartLine, hasAssertion, mockCount, issues);

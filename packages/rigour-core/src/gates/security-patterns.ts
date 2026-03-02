@@ -360,11 +360,24 @@ export class SecurityPatternsGate extends Gate {
 
     private shouldSkipSecurityFile(file: string): boolean {
         const normalized = file.replace(/\\/g, '/');
+        // Skip common non-source directories
         if (/\/(?:examples|studio-dist|dist|build|coverage|target|out)\//.test(`/${normalized}`)) return true;
-        if (/\/__tests__\//.test(`/${normalized}`)) return true;
+        // Skip test directories: __tests__/, tests/, test/, __test__/, e2e/, fixtures/, mocks/
+        if (/\/(?:__tests__|tests|test|__test__|e2e|fixtures|mocks)\//.test(`/${normalized}`)) return true;
         if (/\/commands\/demo(?:-|\/)/.test(`/${normalized}`)) return true;
         if (/\/gates\/deprecated-apis-rules(?:-node|-lang)?\.ts$/i.test(normalized)) return true;
+        // Skip test files: *.test.ts, *.spec.ts (JS/TS/Java)
         if (/\.(test|spec)\.(?:ts|tsx|js|jsx|py|java|go)$/i.test(normalized)) return true;
+        // Skip Go test files: *_test.go
+        if (/_test\.go$/i.test(normalized)) return true;
+        // Skip Python test files: test_*.py, *_test.py, conftest.py
+        if (/(?:^|\/)test_[^/]+\.py$/i.test(normalized)) return true;
+        if (/_test\.py$/i.test(normalized)) return true;
+        if (/(?:^|\/)conftest\.py$/i.test(normalized)) return true;
+        // Skip Java/Kotlin test files in src/test/ directories
+        if (/\/src\/test\//.test(`/${normalized}`)) return true;
+        // Skip E2E test files by naming convention
+        if (/[._-]e2e[._-]/i.test(normalized) || /E2E/i.test(path.basename(normalized))) return true;
         return false;
     }
 
@@ -387,6 +400,11 @@ export class SecurityPatternsGate extends Gate {
 
             let match;
             while ((match = pattern.regex.exec(content)) !== null) {
+                // For hardcoded_secrets: filter out placeholder/dummy values and env var names
+                if (pattern.type === 'hardcoded_secrets' && this.isDummySecretValue(match[0])) {
+                    continue;
+                }
+
                 // Find line number
                 const beforeMatch = content.slice(0, match.index);
                 const lineNumber = beforeMatch.split('\n').length;
@@ -402,6 +420,34 @@ export class SecurityPatternsGate extends Gate {
                 });
             }
         }
+    }
+
+    /**
+     * Check if a hardcoded secret match is actually a dummy/placeholder value.
+     * Filters out test values, placeholder defaults, and env-var-name assignments.
+     */
+    private isDummySecretValue(matchText: string): boolean {
+        // Extract the quoted value from the match (e.g., api_key="test-api-key" → test-api-key)
+        const valueMatch = matchText.match(/[:=]\s*['"]([^'"]+)['"]/);
+        if (!valueMatch) return false;
+
+        const value = valueMatch[1];
+
+        // Placeholder/example patterns
+        if (/^(?:your[_-]|my[_-]|example[_-]|placeholder|changeme|replace[_-]me|xxx+|dummy|fake|sample)/i.test(value)) return true;
+
+        // Test-specific dummy values
+        if (/^(?:test[_-]|e2e[_-]|mock[_-]|stub[_-]|dev[_-])/i.test(value)) return true;
+        if (/^testpass(?:word)?$/i.test(value)) return true;
+
+        // All-caps with underscores = env var names, not actual secrets
+        // e.g., API_KEY = "OPEN_SANDBOX_API_KEY" is referencing a var name, not a real key
+        if (/^[A-Z][A-Z0-9_]{7,}$/.test(value)) return true;
+
+        // Common documentation/tutorial dummy values
+        if (/^(?:sk_test_|pk_test_|sk_live_xxx|password123|secret123|abcdef|abc123)/i.test(value)) return true;
+
+        return false;
     }
 }
 

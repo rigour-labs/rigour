@@ -168,6 +168,33 @@ export class PromiseSafetyGate extends Gate {
             const funcName = match[1];
             const body = extractIndentedBody(content, match.index + match[0].length);
             if (body && !/\bawait\b/.test(body) && body.trim().split('\n').length > 2) {
+                // Check for framework decorators that require async def without await.
+                // FastAPI, Starlette, Django, pytest, and other frameworks use async handlers
+                // that legitimately don't need await (e.g. exception handlers, simple endpoints).
+                const linesBefore = content.substring(0, match.index);
+                const precedingLines = linesBefore.split('\n');
+
+                let hasFrameworkDecorator = false;
+                // Walk backwards to find decorators (immediately preceding lines starting with @)
+                for (let j = precedingLines.length - 1; j >= 0 && j >= precedingLines.length - 5; j--) {
+                    const trimmedLine = precedingLines[j].trim();
+                    if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+                    if (!trimmedLine.startsWith('@')) break; // Non-decorator, non-empty line — stop
+
+                    // FastAPI/Starlette: @app.*, @router.*, @exception_handler
+                    if (/^@(?:app|router)\.\w+/.test(trimmedLine)) { hasFrameworkDecorator = true; break; }
+                    // pytest: @pytest.fixture, @pytest.mark.asyncio
+                    if (/^@pytest\.\w+/.test(trimmedLine)) { hasFrameworkDecorator = true; break; }
+                    // Django: @api_view, @action, @admin.*
+                    if (/^@(?:api_view|action|admin\.)/.test(trimmedLine)) { hasFrameworkDecorator = true; break; }
+                    // Generic: @override, @abstractmethod, @staticmethod, @classmethod, @property
+                    if (/^@(?:override|abstractmethod|staticmethod|classmethod|property)\b/.test(trimmedLine)) { hasFrameworkDecorator = true; break; }
+                    // Any decorator with 'handler', 'endpoint', 'route', 'hook', 'middleware', 'listener' in name
+                    if (/^@\w*(?:handler|endpoint|route|hook|middleware|listener|callback|event)/i.test(trimmedLine)) { hasFrameworkDecorator = true; break; }
+                }
+
+                if (hasFrameworkDecorator) continue;
+
                 const lineNum = content.substring(0, match.index).split('\n').length;
                 violations.push({ file, line: lineNum, type: 'async-no-await', code: `async def ${funcName}()`, reason: `async def never uses await` });
             }
@@ -223,9 +250,27 @@ export class PromiseSafetyGate extends Gate {
     }
 
     private detectIgnoredErrorsGo(lines: string[], file: string, violations: PromiseViolation[]) {
+        // Functions where ignoring the error is idiomatic/safe in Go:
+        // - json.Marshal/MarshalIndent on simple types (cannot fail on []string, map[string]string, etc.)
+        // - fmt.Sprintf/Fprintf/Fprint (format functions almost never fail)
+        // - strconv.Itoa (infallible)
+        // - strings.* functions (pure string operations)
+        const safeToIgnorePatterns = [
+            /\bjson\.Marshal\s*\(/,          // json.Marshal on simple types
+            /\bjson\.MarshalIndent\s*\(/,    // json.MarshalIndent on simple types
+            /\bfmt\.(?:Sprintf|Fprintf|Fprint|Sprint|Sprintln|Fprintln)\s*\(/,
+            /\bstrconv\.(?:Itoa|FormatBool|FormatInt|FormatUint|FormatFloat)\s*\(/,
+            /\bstrings\.(?:Join|Replace|ToLower|ToUpper|TrimSpace|Trim|Split)\s*\(/,
+            /\bbytes\.(?:Join|Replace)\s*\(/,
+        ];
+
         for (let i = 0; i < lines.length; i++) {
             const match = lines[i].match(/(\w+)\s*,\s*_\s*(?::=|=)\s*(\w+)\./);
             if (match && /\b(?:os|io|ioutil|bufio|sql|net|http|json|xml|yaml|strconv)\./.test(lines[i].trim())) {
+                // Check if this is an infallible operation where _ is idiomatic
+                const isSafeToIgnore = safeToIgnorePatterns.some(p => p.test(lines[i]));
+                if (isSafeToIgnore) continue;
+
                 violations.push({ file, line: i + 1, type: 'ignored-error', code: lines[i].trim().substring(0, 80), reason: `Error return ignored with _` });
             }
         }
@@ -333,7 +378,9 @@ export class PromiseSafetyGate extends Gate {
         return (
             normalized.includes('/examples/') ||
             /\/commands\/demo(?:-|\/)/.test(`/${normalized}`) ||
-            /\/gates\/(?:promise-safety|deprecated-apis-rules(?:-node|-lang)?)\.ts$/i.test(normalized)
+            /\/gates\/(?:promise-safety|deprecated-apis-rules(?:-node|-lang)?)\.ts$/i.test(normalized) ||
+            // Skip conftest.py (pytest fixtures, not application code)
+            /(?:^|\/)conftest\.py$/i.test(normalized)
         );
     }
 

@@ -430,6 +430,9 @@ export class HallucinatedImportsGate extends Gate {
         hallucinated: HallucinatedImport[]
     ): Promise<void> {
         const lines = content.split('\n');
+        // Lazily resolve Python source roots and installed packages for this project
+        const pySourceRoots = await this.findPythonSourceRoots(cwd, projectFiles);
+        const pyInstalledPkgs = await this.loadPythonInstalledPackages(cwd);
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -446,49 +449,242 @@ export class HallucinatedImportsGate extends Gate {
 
             // Check if it's a relative project import
             if (modulePath.startsWith('.')) {
-                // Relative Python import
-                const pyFile = modulePath.replace(/\./g, '/') + '.py';
-                const pyInit = modulePath.replace(/\./g, '/') + '/__init__.py';
-                const fileDir = path.dirname(file);
-                const resolved1 = path.join(fileDir, pyFile).replace(/\\/g, '/');
-                const resolved2 = path.join(fileDir, pyInit).replace(/\\/g, '/');
+                // Python relative import: count leading dots to determine traversal depth.
+                // N dots = go up (N-1) package levels from the file's directory.
+                //   from .types import X      → 1 dot = current package (0 levels up)
+                //   from ..types import X     → 2 dots = parent package (1 level up)
+                //   from ...client import X   → 3 dots = grandparent package (2 levels up)
+                const dotMatch = modulePath.match(/^(\.+)/);
+                const dotCount = dotMatch ? dotMatch[1].length : 0;
+                const moduleRest = modulePath.slice(dotCount); // e.g. 'client', 'types', 'models.permission', or '' for bare dots
 
-                if (!projectFiles.has(resolved1) && !projectFiles.has(resolved2)) {
+                // Walk up (dotCount - 1) directories from the file's directory
+                let baseDir = path.dirname(file);
+                for (let level = 1; level < dotCount; level++) {
+                    const parent = path.dirname(baseDir);
+                    if (parent === baseDir) break; // at root
+                    baseDir = parent;
+                }
+
+                // If moduleRest is empty (e.g. `from . import X`), we're just referencing the package directory.
+                // The imported names come from the `import` clause, not the module path — skip validation
+                // since bare-dot package references are almost never hallucinated.
+                if (!moduleRest) continue;
+
+                // Resolve remaining module path within the target directory
+                const moduleParts = moduleRest.replace(/\./g, '/');
+                const candidateBase = path.join(baseDir, moduleParts).replace(/\\/g, '/');
+
+                const candidates = [
+                    candidateBase + '.py',
+                    candidateBase + '/__init__.py',
+                ];
+
+                if (!candidates.some(c => projectFiles.has(c))) {
                     hallucinated.push({
                         file, line: i + 1, importPath: modulePath, type: 'python',
                         reason: `Relative module '${modulePath}' not found in project`,
                     });
                 }
             } else {
-                // Absolute import — check if it's a project module
+                // Absolute import — check if it's a project module or installed package
                 const topLevel = modulePath.split('.')[0];
-                const pyFile = topLevel + '.py';
-                const pyInit = topLevel + '/__init__.py';
 
-                // If it matches a project file, it's a local import — verify it exists
-                const isLocalModule = projectFiles.has(pyFile) || projectFiles.has(pyInit) ||
-                    [...projectFiles].some(f => f.startsWith(topLevel + '/'));
+                // Check if this is an installed package (from pyproject.toml, requirements.txt, etc.)
+                if (pyInstalledPkgs.has(topLevel) || pyInstalledPkgs.has(topLevel.replace(/_/g, '-'))) {
+                    continue; // Known installed package — skip
+                }
 
-                // If not local and not stdlib, we can't easily verify pip packages
-                // without a requirements.txt or pyproject.toml check
-                if (isLocalModule) {
+                // Check if it's a local module (searching across all Python source roots)
+                let foundLocal = false;
+                const searchRoots = ['', ...pySourceRoots]; // '' = project root
+
+                for (const root of searchRoots) {
+                    const prefix = root ? root + '/' : '';
+                    const pyFile = prefix + topLevel + '.py';
+                    const pyInit = prefix + topLevel + '/__init__.py';
+                    const dirPrefix = prefix + topLevel + '/';
+
+                    const isLocalModule = projectFiles.has(pyFile) || projectFiles.has(pyInit) ||
+                        [...projectFiles].some(f => f.startsWith(dirPrefix));
+
+                    if (!isLocalModule) continue;
+                    foundLocal = true;
+
                     // It's referencing a local module — verify the full path
-                    const fullModulePath = modulePath.replace(/\./g, '/');
+                    const fullModulePath = prefix + modulePath.replace(/\./g, '/');
                     const candidates = [
                         fullModulePath + '.py',
                         fullModulePath + '/__init__.py',
                     ];
                     const exists = candidates.some(c => projectFiles.has(c));
-                    if (!exists && modulePath.includes('.')) {
+                    if (exists) break; // Found it — no issue
+
+                    if (modulePath.includes('.')) {
                         // Only flag deep module paths that partially resolve
                         hallucinated.push({
                             file, line: i + 1, importPath: modulePath, type: 'python',
                             reason: `Module '${modulePath}' partially resolves but target not found`,
                         });
                     }
+                    break;
+                }
+
+                // If not local and not stdlib and not installed, we can't easily verify
+                // — skip silently rather than risk false positives
+            }
+        }
+    }
+
+    /**
+     * Find Python source roots (directories that are on sys.path) by looking at
+     * pyproject.toml, setup.cfg, or common patterns like src/ layouts.
+     */
+    private async findPythonSourceRoots(cwd: string, projectFiles: Set<string>): Promise<string[]> {
+        const roots: string[] = [];
+
+        // Check pyproject.toml for package-dir or src layout hints
+        const pyprojectPath = path.join(cwd, 'pyproject.toml');
+        if (await fs.pathExists(pyprojectPath)) {
+            try {
+                const content = await fs.readFile(pyprojectPath, 'utf-8');
+                // Match [tool.setuptools.packages.find] where = ["src"] or similar
+                const whereMatch = content.match(/where\s*=\s*\[\s*"([^"]+)"\s*\]/);
+                if (whereMatch) {
+                    roots.push(whereMatch[1]);
+                }
+                // Match package-dir patterns
+                const pkgDirMatch = content.match(/package-dir\s*=\s*\{\s*""\s*:\s*"([^"]+)"\s*\}/);
+                if (pkgDirMatch) {
+                    roots.push(pkgDirMatch[1]);
+                }
+            } catch { /* skip */ }
+        }
+
+        // Common source root patterns
+        const commonSrcDirs = ['src', 'lib', 'app'];
+        for (const dir of commonSrcDirs) {
+            if ([...projectFiles].some(f => f.startsWith(dir + '/') && f.endsWith('.py'))) {
+                if (!roots.includes(dir)) {
+                    roots.push(dir);
                 }
             }
         }
+
+        // Also scan for directories containing __init__.py that aren't at root level
+        // (e.g. sdks/sandbox/python/src/ as a source root)
+        const pyprojectFiles = [...projectFiles].filter(f => f.endsWith('/pyproject.toml') || f === 'pyproject.toml');
+        for (const pf of pyprojectFiles) {
+            const pfDir = path.dirname(pf);
+            if (pfDir === '.') continue;
+            // Check if this pyproject.toml has a src/ dir
+            const srcDir = pfDir + '/src';
+            if ([...projectFiles].some(f => f.startsWith(srcDir + '/') && f.endsWith('.py'))) {
+                if (!roots.includes(srcDir)) {
+                    roots.push(srcDir);
+                }
+            }
+        }
+
+        return roots;
+    }
+
+    /**
+     * Load installed Python package names from pyproject.toml dependencies,
+     * requirements.txt, setup.cfg, or Pipfile.
+     */
+    private async loadPythonInstalledPackages(cwd: string): Promise<Set<string>> {
+        const packages = new Set<string>();
+
+        // Helper to normalize package names (PEP 503: lowercase, replace [-_.] with -)
+        const normalize = (name: string) => name.toLowerCase().replace(/[-_.]+/g, '-');
+
+        // Check pyproject.toml
+        const pyprojectPath = path.join(cwd, 'pyproject.toml');
+        if (await fs.pathExists(pyprojectPath)) {
+            try {
+                const content = await fs.readFile(pyprojectPath, 'utf-8');
+                // Match dependencies = ["fastapi>=0.100", "kubernetes", ...]
+                const depsMatch = content.match(/dependencies\s*=\s*\[([\s\S]*?)\]/g);
+                if (depsMatch) {
+                    for (const block of depsMatch) {
+                        const pkgs = block.match(/"([^">=<!\s\[]+)/g);
+                        if (pkgs) {
+                            for (const pkg of pkgs) {
+                                const name = pkg.replace(/^"/, '').split(/[>=<!\[]/)[0].trim();
+                                if (name && name !== 'dependencies') {
+                                    packages.add(normalize(name));
+                                    // Also add the import name (replace - with _)
+                                    packages.add(name.replace(/-/g, '_').toLowerCase());
+                                }
+                            }
+                        }
+                    }
+                }
+                // optional-dependencies
+                const optDepsMatch = content.match(/optional-dependencies\s*\]([\s\S]*?)(?:\n\[|\n$)/);
+                if (optDepsMatch) {
+                    const pkgs = optDepsMatch[1].match(/"([^">=<!\s\[]+)/g);
+                    if (pkgs) {
+                        for (const pkg of pkgs) {
+                            const name = pkg.replace(/^"/, '').split(/[>=<!\[]/)[0].trim();
+                            if (name) {
+                                packages.add(normalize(name));
+                                packages.add(name.replace(/-/g, '_').toLowerCase());
+                            }
+                        }
+                    }
+                }
+            } catch { /* skip */ }
+        }
+
+        // Check requirements*.txt files
+        const reqFiles = ['requirements.txt', 'requirements-dev.txt', 'requirements_dev.txt'];
+        for (const reqFile of reqFiles) {
+            const reqPath = path.join(cwd, reqFile);
+            if (await fs.pathExists(reqPath)) {
+                try {
+                    const content = await fs.readFile(reqPath, 'utf-8');
+                    for (const line of content.split('\n')) {
+                        const trimmed = line.trim();
+                        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('-')) continue;
+                        const name = trimmed.split(/[>=<!\[;@\s]/)[0].trim();
+                        if (name) {
+                            packages.add(normalize(name));
+                            packages.add(name.replace(/-/g, '_').toLowerCase());
+                        }
+                    }
+                } catch { /* skip */ }
+            }
+        }
+
+        // Also scan subdirectories for pyproject.toml (monorepo support)
+        const subPyprojects = ['server/pyproject.toml', 'api/pyproject.toml', 'backend/pyproject.toml'];
+        for (const sub of subPyprojects) {
+            const subPath = path.join(cwd, sub);
+            if (await fs.pathExists(subPath)) {
+                try {
+                    const content = await fs.readFile(subPath, 'utf-8');
+                    const depsMatch = content.match(/dependencies\s*=\s*\[([\s\S]*?)\]/g);
+                    if (depsMatch) {
+                        for (const block of depsMatch) {
+                            const pkgs = block.match(/"([^">=<!\s\[]+)/g);
+                            if (pkgs) {
+                                for (const pkg of pkgs) {
+                                    const name = pkg.replace(/^"/, '').split(/[>=<!\[]/)[0].trim();
+                                    if (name && name !== 'dependencies') {
+                                        packages.add(normalize(name));
+                                        packages.add(name.replace(/-/g, '_').toLowerCase());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch { /* skip */ }
+            }
+        }
+
+        return packages;
     }
 
     private resolveRelativeImport(fromFile: string, importPath: string, projectFiles: Set<string>): boolean {
