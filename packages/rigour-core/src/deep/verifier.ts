@@ -128,32 +128,52 @@ function verifyFinding(
             }
             return { ...finding, verified: finding.confidence >= 0.4, verificationNotes: 'Accepted on confidence' };
 
-        // ── Categories verified by file existence + reasonable confidence ──
-        case 'dry_violation':
-        case 'copy_paste_code':
-        case 'data_clump':
-        case 'feature_envy':
-        case 'shotgun_surgery':
-        case 'inappropriate_intimacy':
-        case 'primitive_obsession':
+        // ── Entity-name-verified categories (Tier 1) ──
+        // LLM must reference a real class/struct/function name — drops hallucinated entities
         case 'lazy_class':
+            return verifyLazyClass(finding, fileFacts);
+        case 'feature_envy':
+        case 'primitive_obsession':
         case 'speculative_generality':
         case 'refused_bequest':
-        case 'architecture':
-        case 'circular_dependency':
-        case 'package_cohesion':
-        case 'api_design':
         case 'missing_abstraction':
-        case 'language_idiom':
-        case 'naming_convention':
+        case 'api_design':
+            return verifyEntityNameRequired(finding, fileFacts);
+
+        // ── Structural precondition categories (Tier 2) ──
         case 'dead_code':
-        case 'code_smell':
-        case 'performance':
+            return verifyDeadCode(finding, fileFacts, factsByPath);
+        case 'naming_convention':
+            return verifyNamingConvention(finding, fileFacts);
         case 'hardcoded_config':
+            return verifyHardcodedConfig(finding, fileFacts);
+        case 'data_clump':
+            return verifyDataClump(finding, fileFacts);
+        case 'performance':
+            return verifyPerformance(finding, fileFacts);
+
+        // ── Cross-file graph categories (Tier 3) ──
+        case 'circular_dependency':
+            return verifyCircularDependency(finding, fileFacts, factsByPath);
+        case 'dry_violation':
+        case 'copy_paste_code':
+            return verifyDryViolation(finding, fileFacts, factsByPath);
+        case 'shotgun_surgery':
+            return verifyShotgunSurgery(finding, fileFacts, factsByPath);
+        case 'inappropriate_intimacy':
+            return verifyInappropriateIntimacy(finding, fileFacts, factsByPath);
+
+        // ── Confidence-floor categories (Tier 4) — raised from 0.3 → 0.5 ──
+        case 'architecture':
+        case 'package_cohesion':
+        case 'code_smell':
+        case 'language_idiom':
             return {
                 ...finding,
-                verified: finding.confidence >= 0.3,
-                verificationNotes: finding.confidence < 0.3 ? 'Low confidence' : 'File exists, accepted',
+                verified: finding.confidence >= 0.5,
+                verificationNotes: finding.confidence < 0.5
+                    ? `Low confidence (${finding.confidence}) — requires >= 0.5 for ${finding.category}`
+                    : `Accepted at confidence ${finding.confidence} (threshold: 0.5)`,
             };
 
         default:
@@ -406,6 +426,557 @@ function verifyTestFinding(finding: DeepFinding, facts: FileFacts): VerifiedFind
         ...finding,
         verified: finding.confidence >= 0.3,
         verificationNotes: 'Accepted on confidence',
+    };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Tier 1: Entity-name-verified categories
+// LLM must reference a real class/struct/function — hallucinated names are dropped
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Verify lazy_class: class/struct must exist AND have few methods.
+ * A "lazy class" that doesn't exist is a hallucination.
+ */
+function verifyLazyClass(finding: DeepFinding, facts: FileFacts): VerifiedFinding {
+    const entities = [
+        ...facts.classes.map(c => ({ name: c.name, methodCount: c.methodCount, lineCount: c.lineCount })),
+        ...(facts.structs || []).map(s => ({ name: s.name, methodCount: s.methodCount, lineCount: s.lineCount })),
+    ];
+
+    if (entities.length === 0) {
+        return { ...finding, verified: false, verificationNotes: 'No classes or structs found — cannot verify lazy class' };
+    }
+
+    const entityName = extractEntityName(finding.description, entities.map(e => e.name));
+    if (!entityName) {
+        // LLM didn't reference a specific name — only accept if high confidence
+        return {
+            ...finding,
+            verified: finding.confidence >= 0.6,
+            verificationNotes: 'No entity name found in description — requires high confidence',
+        };
+    }
+
+    const entity = entities.find(e => e.name === entityName);
+    if (!entity) {
+        return { ...finding, verified: false, verificationNotes: `Entity "${entityName}" not found in ${facts.path}` };
+    }
+
+    // Lazy class = too few methods for its existence
+    if (entity.methodCount >= 4 && entity.lineCount >= 50) {
+        return {
+            ...finding,
+            verified: false,
+            verificationNotes: `"${entityName}" has ${entity.methodCount} methods, ${entity.lineCount} lines — not lazy`,
+        };
+    }
+
+    return {
+        ...finding,
+        verified: true,
+        verificationNotes: `"${entityName}" has only ${entity.methodCount} methods, ${entity.lineCount} lines — lazy class confirmed`,
+    };
+}
+
+/**
+ * Generic entity-name verification for design smell categories.
+ * Requires the LLM to reference a real function/class/struct name.
+ */
+function verifyEntityNameRequired(finding: DeepFinding, facts: FileFacts): VerifiedFinding {
+    const allNames = [
+        ...facts.classes.map(c => c.name),
+        ...(facts.structs || []).map(s => s.name),
+        ...facts.functions.map(f => f.name),
+    ];
+
+    if (allNames.length === 0) {
+        return { ...finding, verified: false, verificationNotes: 'No entities found in file' };
+    }
+
+    const entityName = extractEntityName(finding.description, allNames);
+    if (entityName) {
+        return {
+            ...finding,
+            verified: finding.confidence >= 0.3,
+            verificationNotes: `Entity "${entityName}" exists — ${finding.category} accepted`,
+        };
+    }
+
+    // LLM didn't name a specific entity — require higher confidence
+    return {
+        ...finding,
+        verified: finding.confidence >= 0.6,
+        verificationNotes: `No entity name matched in description — requires confidence >= 0.6 for ${finding.category}`,
+    };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Tier 2: Structural precondition categories
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Verify dead_code: function/export must exist AND not be referenced by other files.
+ */
+function verifyDeadCode(finding: DeepFinding, facts: FileFacts, factsByPath: Map<string, FileFacts>): VerifiedFinding {
+    const allNames = [
+        ...facts.functions.map(f => f.name),
+        ...facts.exports,
+        ...facts.classes.map(c => c.name),
+    ];
+
+    const entityName = extractEntityName(finding.description, allNames);
+    if (!entityName) {
+        return {
+            ...finding,
+            verified: finding.confidence >= 0.6,
+            verificationNotes: 'No entity name found — requires high confidence for dead code',
+        };
+    }
+
+    // Check if the entity is referenced in any other file's imports
+    let referencedExternally = false;
+    for (const [otherPath, otherFacts] of factsByPath) {
+        if (otherPath === facts.path) continue;
+        // Check if any import in other files references this entity or this file
+        for (const imp of otherFacts.imports) {
+            if (imp.includes(entityName)) {
+                referencedExternally = true;
+                break;
+            }
+        }
+        if (referencedExternally) break;
+    }
+
+    if (referencedExternally) {
+        return {
+            ...finding,
+            verified: false,
+            verificationNotes: `"${entityName}" is imported by other files — not dead code`,
+        };
+    }
+
+    // Check if the entity is exported (could be used externally)
+    const func = facts.functions.find(f => f.name === entityName);
+    if (func?.isExported) {
+        // Exported but no internal references — might be a public API
+        return {
+            ...finding,
+            verified: finding.confidence >= 0.5,
+            verificationNotes: `"${entityName}" is exported but unreferenced — possible dead public API`,
+        };
+    }
+
+    return {
+        ...finding,
+        verified: true,
+        verificationNotes: `"${entityName}" exists and is not referenced externally — dead code confirmed`,
+    };
+}
+
+/**
+ * Verify naming_convention: check the referenced name against language-specific patterns.
+ */
+function verifyNamingConvention(finding: DeepFinding, facts: FileFacts): VerifiedFinding {
+    const allNames = [
+        ...facts.classes.map(c => c.name),
+        ...(facts.structs || []).map(s => s.name),
+        ...facts.functions.map(f => f.name),
+    ];
+
+    const entityName = extractEntityName(finding.description, allNames);
+    if (!entityName) {
+        return {
+            ...finding,
+            verified: finding.confidence >= 0.6,
+            verificationNotes: 'No entity name found — requires high confidence for naming convention',
+        };
+    }
+
+    // Language-specific naming convention checks
+    let violatesConvention = false;
+    let reason = '';
+
+    switch (facts.language) {
+        case 'go':
+            // Go: exported = PascalCase, unexported = camelCase. Common violation: snake_case
+            if (entityName.includes('_') && !entityName.startsWith('_') && entityName !== entityName.toUpperCase()) {
+                violatesConvention = true;
+                reason = 'Go names should use MixedCaps, not snake_case';
+            }
+            break;
+        case 'python':
+            // Python: functions/variables = snake_case, classes = PascalCase
+            if (facts.functions.some(f => f.name === entityName)) {
+                // Function — should be snake_case
+                if (entityName !== entityName.toLowerCase() && /[A-Z]/.test(entityName) && !entityName.startsWith('_')) {
+                    violatesConvention = true;
+                    reason = 'Python functions should be snake_case';
+                }
+            } else if (facts.classes.some(c => c.name === entityName)) {
+                // Class — should be PascalCase
+                if (entityName.includes('_') && entityName !== entityName.toUpperCase()) {
+                    violatesConvention = true;
+                    reason = 'Python classes should be PascalCase';
+                }
+            }
+            break;
+        case 'typescript':
+        case 'javascript':
+            // JS/TS: functions = camelCase, classes = PascalCase
+            if (facts.functions.some(f => f.name === entityName)) {
+                if (entityName.includes('_') && entityName !== entityName.toUpperCase()) {
+                    violatesConvention = true;
+                    reason = 'JS/TS functions should be camelCase';
+                }
+            }
+            break;
+        default:
+            // No language-specific check — fall back to confidence
+            return {
+                ...finding,
+                verified: finding.confidence >= 0.5,
+                verificationNotes: `No naming rules for ${facts.language} — accepted on confidence`,
+            };
+    }
+
+    if (!violatesConvention) {
+        return {
+            ...finding,
+            verified: false,
+            verificationNotes: `"${entityName}" follows ${facts.language} naming conventions — false positive`,
+        };
+    }
+
+    return {
+        ...finding,
+        verified: true,
+        verificationNotes: `"${entityName}" — ${reason}`,
+    };
+}
+
+/**
+ * Verify hardcoded_config: file must have sufficient magic numbers or string constants.
+ */
+function verifyHardcodedConfig(finding: DeepFinding, facts: FileFacts): VerifiedFinding {
+    const hasMagicNumbers = (facts.magicNumbers || 0) > 2;
+    const isTestFile = facts.hasTests;
+
+    // Don't flag test files for hardcoded config — test data is expected
+    if (isTestFile) {
+        return {
+            ...finding,
+            verified: false,
+            verificationNotes: 'Test files are expected to have hardcoded values',
+        };
+    }
+
+    if (hasMagicNumbers) {
+        return {
+            ...finding,
+            verified: true,
+            verificationNotes: `File has ${facts.magicNumbers} magic numbers — hardcoded config likely`,
+        };
+    }
+
+    // No magic numbers detected by AST — require higher LLM confidence
+    return {
+        ...finding,
+        verified: finding.confidence >= 0.6,
+        verificationNotes: `No magic numbers detected by AST (${facts.magicNumbers || 0}) — requires confidence >= 0.6`,
+    };
+}
+
+/**
+ * Verify data_clump: multiple functions must share 3+ similar parameter names.
+ */
+function verifyDataClump(finding: DeepFinding, facts: FileFacts): VerifiedFinding {
+    if (facts.functions.length < 2) {
+        return { ...finding, verified: false, verificationNotes: 'Need multiple functions to detect data clump' };
+    }
+
+    // Check if any pair of functions shares 3+ parameter names
+    let maxSharedParams = 0;
+    let clumpPair = '';
+    for (let i = 0; i < facts.functions.length; i++) {
+        for (let j = i + 1; j < facts.functions.length; j++) {
+            const paramsA = new Set(facts.functions[i].params.map(p => p.replace(/[:\s].*/, '').trim().toLowerCase()));
+            const paramsB = new Set(facts.functions[j].params.map(p => p.replace(/[:\s].*/, '').trim().toLowerCase()));
+            const shared = [...paramsA].filter(p => paramsB.has(p) && p.length > 1).length;
+            if (shared > maxSharedParams) {
+                maxSharedParams = shared;
+                clumpPair = `${facts.functions[i].name} & ${facts.functions[j].name}`;
+            }
+        }
+    }
+
+    if (maxSharedParams >= 3) {
+        return {
+            ...finding,
+            verified: true,
+            verificationNotes: `${clumpPair} share ${maxSharedParams} parameters — data clump confirmed`,
+        };
+    }
+
+    return {
+        ...finding,
+        verified: false,
+        verificationNotes: `Max shared params between any function pair: ${maxSharedParams} (need >= 3)`,
+    };
+}
+
+/**
+ * Verify performance: function must be non-trivial (> 20 lines or has deep nesting).
+ */
+function verifyPerformance(finding: DeepFinding, facts: FileFacts): VerifiedFinding {
+    const entityName = extractEntityName(finding.description, facts.functions.map(f => f.name));
+
+    if (entityName) {
+        const func = facts.functions.find(f => f.name === entityName);
+        if (!func) {
+            return { ...finding, verified: false, verificationNotes: `Function "${entityName}" not found` };
+        }
+        if (func.lineCount < 10) {
+            return {
+                ...finding,
+                verified: false,
+                verificationNotes: `Function "${entityName}" is only ${func.lineCount} lines — unlikely performance issue`,
+            };
+        }
+        return {
+            ...finding,
+            verified: true,
+            verificationNotes: `Function "${entityName}" is ${func.lineCount} lines — performance review accepted`,
+        };
+    }
+
+    // No specific function referenced — check file-level
+    if (facts.lineCount < 50) {
+        return {
+            ...finding,
+            verified: false,
+            verificationNotes: `File is only ${facts.lineCount} lines — unlikely performance hotspot`,
+        };
+    }
+
+    return {
+        ...finding,
+        verified: finding.confidence >= 0.5,
+        verificationNotes: `No specific function referenced — accepted at confidence >= 0.5`,
+    };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Tier 3: Cross-file graph verification
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Verify circular_dependency: build import graph and check if a cycle actually exists.
+ */
+function verifyCircularDependency(finding: DeepFinding, facts: FileFacts, factsByPath: Map<string, FileFacts>): VerifiedFinding {
+    // Extract the other file(s) mentioned in the finding description
+    const mentionedPaths: string[] = [];
+    for (const [p] of factsByPath) {
+        const baseName = p.split('/').pop() || '';
+        const dirName = p.split('/').slice(-2).join('/');
+        if (finding.description.includes(baseName) || finding.description.includes(dirName) || finding.description.includes(p)) {
+            if (p !== facts.path) mentionedPaths.push(p);
+        }
+    }
+
+    if (mentionedPaths.length === 0) {
+        // LLM didn't reference a specific file — require high confidence
+        return {
+            ...finding,
+            verified: finding.confidence >= 0.6,
+            verificationNotes: 'No specific file path mentioned in description — requires confidence >= 0.6',
+        };
+    }
+
+    // Check for actual bidirectional imports
+    for (const otherPath of mentionedPaths) {
+        const otherFacts = factsByPath.get(otherPath);
+        if (!otherFacts) continue;
+
+        const thisImportsOther = facts.imports.some(imp =>
+            otherPath.includes(imp.replace(/\./g, '/')) || imp.includes(otherPath.replace(/\//g, '.').replace(/\.\w+$/, ''))
+        );
+        const otherImportsThis = otherFacts.imports.some(imp =>
+            facts.path.includes(imp.replace(/\./g, '/')) || imp.includes(facts.path.replace(/\//g, '.').replace(/\.\w+$/, ''))
+        );
+
+        if (thisImportsOther && otherImportsThis) {
+            return {
+                ...finding,
+                verified: true,
+                verificationNotes: `Circular import confirmed: ${facts.path} ↔ ${otherPath}`,
+            };
+        }
+    }
+
+    // Check generic: does the current file import something that imports it back?
+    const thisFileModules = new Set(facts.imports);
+    for (const [otherPath, otherFacts] of factsByPath) {
+        if (otherPath === facts.path) continue;
+        const otherImportsThis = otherFacts.imports.some(imp => {
+            const normalized = facts.path.replace(/\.\w+$/, '').replace(/\//g, '/');
+            return normalized.endsWith(imp.replace(/\./g, '/')) || imp.endsWith(normalized);
+        });
+        if (otherImportsThis) {
+            const thisImportsOther = facts.imports.some(imp => {
+                const normalized = otherPath.replace(/\.\w+$/, '').replace(/\//g, '/');
+                return normalized.endsWith(imp.replace(/\./g, '/')) || imp.endsWith(normalized);
+            });
+            if (thisImportsOther) {
+                return {
+                    ...finding,
+                    verified: true,
+                    verificationNotes: `Circular import found: ${facts.path} ↔ ${otherPath}`,
+                };
+            }
+        }
+    }
+
+    return {
+        ...finding,
+        verified: false,
+        verificationNotes: 'No circular dependency found in import graph',
+    };
+}
+
+/**
+ * Verify dry_violation / copy_paste_code: check for functions with similar signatures across files.
+ */
+function verifyDryViolation(finding: DeepFinding, facts: FileFacts, factsByPath: Map<string, FileFacts>): VerifiedFinding {
+    // Extract referenced function name
+    const entityName = extractEntityName(
+        finding.description,
+        facts.functions.map(f => f.name),
+    );
+
+    if (entityName) {
+        const func = facts.functions.find(f => f.name === entityName);
+        if (!func) {
+            return { ...finding, verified: false, verificationNotes: `Function "${entityName}" not found` };
+        }
+
+        // Check if a similar function exists in another file
+        for (const [otherPath, otherFacts] of factsByPath) {
+            if (otherPath === facts.path) continue;
+            for (const otherFunc of otherFacts.functions) {
+                // Similar if: same name, or similar param count and line count
+                const nameSimilar = otherFunc.name === func.name
+                    || otherFunc.name.toLowerCase() === func.name.toLowerCase();
+                const structSimilar = Math.abs(otherFunc.paramCount - func.paramCount) <= 1
+                    && Math.abs(otherFunc.lineCount - func.lineCount) <= 5
+                    && func.lineCount > 5;
+
+                if (nameSimilar || structSimilar) {
+                    return {
+                        ...finding,
+                        verified: true,
+                        verificationNotes: `"${entityName}" (${func.lineCount} lines) similar to "${otherFunc.name}" in ${otherPath} (${otherFunc.lineCount} lines)`,
+                    };
+                }
+            }
+        }
+
+        return {
+            ...finding,
+            verified: false,
+            verificationNotes: `No similar function found across files for "${entityName}"`,
+        };
+    }
+
+    // No function name — require high confidence
+    return {
+        ...finding,
+        verified: finding.confidence >= 0.6,
+        verificationNotes: 'No entity name found in DRY violation — requires confidence >= 0.6',
+    };
+}
+
+/**
+ * Verify shotgun_surgery: an entity should be referenced/imported by many files (>= 4).
+ */
+function verifyShotgunSurgery(finding: DeepFinding, facts: FileFacts, factsByPath: Map<string, FileFacts>): VerifiedFinding {
+    const allNames = [
+        ...facts.classes.map(c => c.name),
+        ...(facts.structs || []).map(s => s.name),
+        ...facts.functions.filter(f => f.isExported).map(f => f.name),
+    ];
+
+    const entityName = extractEntityName(finding.description, allNames);
+    if (!entityName) {
+        return {
+            ...finding,
+            verified: finding.confidence >= 0.6,
+            verificationNotes: 'No entity name found — requires high confidence for shotgun surgery',
+        };
+    }
+
+    // Count how many other files reference this entity
+    let importerCount = 0;
+    for (const [otherPath, otherFacts] of factsByPath) {
+        if (otherPath === facts.path) continue;
+        if (otherFacts.imports.some(imp => imp.includes(entityName))) {
+            importerCount++;
+        }
+    }
+
+    if (importerCount >= 4) {
+        return {
+            ...finding,
+            verified: true,
+            verificationNotes: `"${entityName}" is imported by ${importerCount} files — shotgun surgery confirmed`,
+        };
+    }
+
+    return {
+        ...finding,
+        verified: false,
+        verificationNotes: `"${entityName}" only imported by ${importerCount} files (need >= 4 for shotgun surgery)`,
+    };
+}
+
+/**
+ * Verify inappropriate_intimacy: two modules must have bidirectional imports.
+ */
+function verifyInappropriateIntimacy(finding: DeepFinding, facts: FileFacts, factsByPath: Map<string, FileFacts>): VerifiedFinding {
+    // Look for bidirectional import relationships from this file
+    let biDirectionalCount = 0;
+    let biDirectionalPartner = '';
+
+    for (const [otherPath, otherFacts] of factsByPath) {
+        if (otherPath === facts.path) continue;
+
+        const thisImportsOther = facts.imports.some(imp => {
+            const otherModule = otherPath.replace(/\.\w+$/, '');
+            return otherModule.endsWith(imp.replace(/\./g, '/')) || imp.endsWith(otherModule.split('/').pop() || '');
+        });
+        const otherImportsThis = otherFacts.imports.some(imp => {
+            const thisModule = facts.path.replace(/\.\w+$/, '');
+            return thisModule.endsWith(imp.replace(/\./g, '/')) || imp.endsWith(thisModule.split('/').pop() || '');
+        });
+
+        if (thisImportsOther && otherImportsThis) {
+            biDirectionalCount++;
+            biDirectionalPartner = otherPath;
+        }
+    }
+
+    if (biDirectionalCount > 0) {
+        return {
+            ...finding,
+            verified: true,
+            verificationNotes: `Bidirectional import with ${biDirectionalPartner} — inappropriate intimacy confirmed`,
+        };
+    }
+
+    return {
+        ...finding,
+        verified: false,
+        verificationNotes: 'No bidirectional import relationships found',
     };
 }
 

@@ -485,29 +485,158 @@ describe('Verifier', () => {
         });
     });
 
-    // ── Confidence-based categories ──
+    // ── Structurally-verified categories ──
+    // After verifier hardening, these categories use entity names, cross-file
+    // checks, or raised confidence floors — not just confidence >= 0.3.
 
-    describe('confidence-based verification', () => {
-        const confidenceCategories = [
-            'dry_violation', 'feature_envy', 'architecture',
-            'naming_convention', 'dead_code', 'performance',
-        ];
+    describe('structurally-verified categories', () => {
+        // Tier 1: Entity-name required — accepts when entity name matches
+        it('should accept feature_envy when entity name exists in file', () => {
+            const findings = [makeFinding({
+                category: 'feature_envy',
+                description: 'The processData function accesses too many external modules',
+                confidence: 0.5,
+            })];
+            const facts = [makeFileFacts()];
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(1);
+        });
 
-        for (const category of confidenceCategories) {
-            it(`should accept ${category} with confidence >= 0.3`, () => {
-                const findings = [makeFinding({ category, confidence: 0.5 })];
-                const facts = [makeFileFacts()];
-                const result = verifyFindings(findings, facts);
-                expect(result).toHaveLength(1);
-            });
+        it('should reject feature_envy with no entity name and low confidence', () => {
+            const findings = [makeFinding({
+                category: 'feature_envy',
+                description: 'Some function accesses external modules',
+                confidence: 0.3,
+            })];
+            const facts = [makeFileFacts()];
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(0); // No entity name → needs confidence >= 0.6
+        });
 
-            it(`should reject ${category} with low confidence`, () => {
-                const findings = [makeFinding({ category, confidence: 0.1 })];
-                const facts = [makeFileFacts()];
-                const result = verifyFindings(findings, facts);
-                expect(result).toHaveLength(0);
-            });
-        }
+        // Tier 2: dead_code — needs entity unreferenced externally
+        it('should accept dead_code when entity is unreferenced', () => {
+            const findings = [makeFinding({
+                category: 'dead_code',
+                description: 'processData is never called',
+                confidence: 0.5,
+            })];
+            // Only one file — processData can't be imported by other files
+            const facts = [makeFileFacts()];
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(1);
+        });
+
+        it('should reject dead_code when entity is imported by another file', () => {
+            const findings = [makeFinding({
+                category: 'dead_code',
+                description: 'processData is never called',
+                confidence: 0.9,
+            })];
+            const facts = [
+                makeFileFacts(),
+                makeFileFacts({
+                    path: 'src/consumer.ts',
+                    imports: ['./service', 'processData'],  // References the entity
+                }),
+            ];
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(0); // Entity is referenced — not dead code
+        });
+
+        // Tier 2: naming_convention — checks actual language rules
+        it('should accept naming_convention when name violates rules', () => {
+            const findings = [makeFinding({
+                category: 'naming_convention',
+                file: 'pkg/utils.go',
+                description: 'get_user_name uses snake_case instead of MixedCaps',
+                confidence: 0.5,
+            })];
+            const facts = [makeFileFacts({
+                path: 'pkg/utils.go',
+                language: 'go',
+                functions: [{
+                    name: 'get_user_name',
+                    lineStart: 10, lineEnd: 30, lineCount: 20,
+                    paramCount: 1, params: ['id'],
+                    maxNesting: 1, hasReturn: true, isAsync: false, isExported: false,
+                }],
+            })];
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(1);
+            expect(result[0].verified).toBe(true);
+        });
+
+        it('should reject naming_convention when name follows rules', () => {
+            const findings = [makeFinding({
+                category: 'naming_convention',
+                description: 'processData naming issue',
+                confidence: 0.8,
+            })];
+            const facts = [makeFileFacts()]; // processData is camelCase — correct for TS
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(0); // Name follows conventions → FP
+        });
+
+        // Tier 2: performance — needs non-trivial function
+        it('should accept performance when function is substantial', () => {
+            const findings = [makeFinding({
+                category: 'performance',
+                description: 'processData has O(n²) complexity',
+                confidence: 0.5,
+            })];
+            const facts = [makeFileFacts()]; // processData is 70 lines
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(1);
+        });
+
+        // Tier 3: dry_violation — needs cross-file similarity
+        it('should accept dry_violation when similar function exists in another file', () => {
+            const findings = [makeFinding({
+                category: 'dry_violation',
+                description: 'processData is duplicated across files',
+                confidence: 0.5,
+            })];
+            const facts = [
+                makeFileFacts(),
+                makeFileFacts({
+                    path: 'src/other.ts',
+                    functions: [{
+                        name: 'processData', // Same name = similar
+                        lineStart: 10, lineEnd: 80, lineCount: 70,
+                        paramCount: 5, params: ['a', 'b', 'c', 'd', 'e'],
+                        maxNesting: 3, hasReturn: true, isAsync: true, isExported: true,
+                    }],
+                }),
+            ];
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(1);
+        });
+
+        it('should reject dry_violation when no similar function exists', () => {
+            const findings = [makeFinding({
+                category: 'dry_violation',
+                description: 'processData is duplicated',
+                confidence: 0.5,
+            })];
+            const facts = [makeFileFacts()]; // Only one file — no cross-file match
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(0);
+        });
+
+        // Tier 4: Confidence floor raised to 0.5
+        it('should accept architecture with confidence >= 0.5', () => {
+            const findings = [makeFinding({ category: 'architecture', confidence: 0.6 })];
+            const facts = [makeFileFacts()];
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(1);
+        });
+
+        it('should reject architecture with confidence < 0.5', () => {
+            const findings = [makeFinding({ category: 'architecture', confidence: 0.4 })];
+            const facts = [makeFileFacts()];
+            const result = verifyFindings(findings, facts);
+            expect(result).toHaveLength(0);
+        });
     });
 
     // ── Resource leak (Go-specific) ──
@@ -554,14 +683,14 @@ describe('Verifier', () => {
                 makeFinding({ category: 'god_function', file: 'nonexistent.ts' }),         // Should fail (no file)
                 makeFinding({ category: 'long_file' }),                                     // Should fail (300 lines, need >300)
                 makeFinding({ category: 'magic_number' }),                                  // Should fail (no magicNumbers set)
-                makeFinding({ category: 'dry_violation', confidence: 0.1 }),               // Should fail (low confidence)
-                makeFinding({ category: 'dry_violation', confidence: 0.5 }),               // Should pass
+                makeFinding({ category: 'architecture', confidence: 0.1 }),                // Should fail (below 0.5 floor)
+                makeFinding({ category: 'architecture', confidence: 0.6 }),                // Should pass (above 0.5 floor)
             ];
             const facts = [makeFileFacts()];
             const result = verifyFindings(findings, facts);
 
             const verified = result.filter(r => r.verified);
-            expect(verified.length).toBeGreaterThanOrEqual(2); // god_class, dry_violation(0.5)
+            expect(verified.length).toBeGreaterThanOrEqual(2); // god_class, architecture(0.6)
         });
     });
 });
