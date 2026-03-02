@@ -4,21 +4,106 @@
 [![npm downloads](https://img.shields.io/npm/dm/@rigour-labs/cli?color=blue)](https://www.npmjs.com/package/@rigour-labs/cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Rigour is a quality gate system for AI-generated code.
+**AI Agent Governance. One command. Every agent.**
 
-It runs where AI mistakes happen:
-- At file-write time (hooks)
-- Before merge/deploy (`rigour check`)
+Rigour is the security and quality layer that sits between AI coding agents and your codebase. It governs three things no one else does:
 
-If your standard is production-grade code from agents, Rigour is built for that workflow.
+1. **What goes IN** — DLP intercepts credentials before they reach any agent
+2. **What comes OUT** — Quality gates catch hallucinated imports, unsafe patterns, and drift
+3. **What gets PERSISTED** — Memory & skills governance prevents secrets from leaking into agent memory
 
-## Why Teams Use Rigour
+Works with Claude Code, Cursor, Cline, Windsurf, and GitHub Copilot. One `rigour init` sets up everything.
 
-- Deterministic gates (repeatable pass/fail)
-- AI-drift detection (hallucinated imports, unsafe async patterns, duplication drift)
-- Security-pattern checks for common high-risk classes
-- Hook + CI + MCP integration in one stack
-- Local-first operation with optional cloud deep analysis
+## The Problem
+
+AI agents are powerful but ungoverned. Today, when you paste an AWS key into Cursor or tell Claude your database password, that credential gets sent to the model, cached in conversation, and potentially stored in agent memory files (`.cursorrules`, `CLAUDE.md`, `.clinerules`). There is no interception layer. No audit trail. No governance.
+
+Rigour fixes this.
+
+## 30-Second Start
+
+```bash
+npx @rigour-labs/cli init
+```
+
+That's it. This command:
+- Scans your project and creates `rigour.yml`
+- Installs real-time hooks for every detected agent (Claude, Cursor, Cline, Windsurf)
+- Enables DLP — credentials are intercepted before reaching agents
+- Enables memory & skills governance — agents must use `rigour_remember` instead of native memory
+- All local-first. Code never leaves your machine.
+
+## What Rigour Does
+
+### AI Agent DLP (Data Loss Prevention)
+
+Every AI agent gets a **PreToolUse hook** that scans user input before the agent processes it.
+
+**29 credential patterns** detected in real-time (<50ms):
+- Cloud keys (AWS, GCP, Azure)
+- API tokens (OpenAI, Anthropic, GitHub, Stripe, Twilio, Slack, SendGrid)
+- Private keys (RSA, EC, OPENSSH, ED25519 — full multiline blocks)
+- Database URLs (PostgreSQL, MongoDB, MySQL, Redis, AMQP)
+- Bearer tokens and JWTs
+- Base64/hex-encoded secrets (entropy detection)
+- CI/CD tokens (Docker, NPM, PyPI, Sonar, Codecov, Sentry, Datadog)
+- Generic password/secret assignments, .env format, URLs with embedded credentials
+
+**Anti-evasion hardening:**
+- Unicode normalization (zero-width chars, bidi control, homoglyphs)
+- Shannon entropy detection for encoded/obfuscated secrets (>4.5 bits)
+- JSON deserialization scanning (nested credentials in serialized objects)
+- Deduplication with severity-based prioritization
+
+**Compliance mapping:** SOC2-CC6.1, HIPAA-164.312, PCI-DSS-3.4/3.5/6.5, OWASP-A2, CWE-798, CIS-SCM, CIS-GCP, CIS-Azure
+
+### Memory & Skills Governance
+
+Agents write to native memory files — `.cursorrules`, `CLAUDE.md`, `.claude/skills/`, `.windsurf/memories/`. Rigour intercepts these writes and forces agents to use `rigour_remember` instead, where every value is DLP-scanned before persistence.
+
+**Three enforcement layers:**
+
+| Layer | What it blocks | Gate name |
+|---|---|---|
+| Memory | `CLAUDE.md`, `.clinerules`, `.windsurf/memories/` | `governance` |
+| Skills | `.claude/skills/`, `.cursor/rules/`, `.windsurf/rules/` | `governance-skills` |
+| DLP | Credentials in any governed file | `governance-dlp` |
+
+**Recall is also gated.** If credentials were stored before DLP was installed, `rigour_recall` blocks them on read and tells the agent to clean up.
+
+**Fully configurable in `rigour.yml`:**
+
+```yaml
+gates:
+  governance:
+    enabled: true              # master switch — false turns off all governance
+    enforce_memory: true       # block native agent memory writes
+    enforce_skills: true       # block native agent skills/rules writes
+    block_native_memory: true  # hard block vs warning-only
+```
+
+### Quality Gates (40+ checks)
+
+The original Rigour — deterministic PASS/FAIL gates that catch AI-generated code issues:
+
+- Hallucinated imports (relative + package, language-aware)
+- Phantom APIs (non-existent stdlib/framework methods)
+- Deprecated API usage (Node, Python, Web, Go, C#, Java)
+- Security patterns (hardcoded secrets, command injection, SQL injection, XSS, path traversal)
+- Promise safety (unhandled async, unsafe JSON.parse, floating fetch)
+- Duplication drift, context-window artifacts, inconsistent error handling
+- AST-level: cyclomatic complexity, method count, nesting depth, function length
+- Test quality (empty tests, tautological assertions, mock-heavy, snapshot abuse)
+
+### Deep Analysis (LLM-Powered)
+
+Optional LLM layer for SOLID principles, design patterns, language idioms, architecture review:
+
+```bash
+rigour check --deep           # Local Qwen2.5-Coder-0.5B
+rigour check --deep --pro     # Local Qwen2.5-Coder-1.5B
+rigour check --deep --provider claude -k sk-ant-xxx  # Cloud
+```
 
 ## 5-Minute Start
 
@@ -26,14 +111,14 @@ If your standard is production-grade code from agents, Rigour is built for that 
 # 1) Run once without install
 npx @rigour-labs/cli scan
 
-# 2) Initialize config + docs
+# 2) Initialize everything — config, hooks, DLP, governance
 npx @rigour-labs/cli init
 
 # 3) Full repository gates
 npx @rigour-labs/cli check
 
-# 4) Install real-time hooks for your agent/editor
-npx @rigour-labs/cli hooks init
+# 4) Manually install hooks for a specific agent
+npx @rigour-labs/cli hooks init --tool claude
 ```
 
 ## Install
@@ -156,7 +241,7 @@ GitHub Actions minimal step:
 
 ## MCP
 
-Use Rigour as an MCP server for agentic workflows:
+Use Rigour as an MCP server — agents get quality gates, DLP scanning, governed memory, and deep analysis as tool calls:
 
 ```json
 {
@@ -168,6 +253,19 @@ Use Rigour as an MCP server for agentic workflows:
   }
 }
 ```
+
+**Key MCP tools:**
+
+| Tool | What it does |
+|---|---|
+| `rigour_check` | Run quality gates on the project |
+| `rigour_hooks_check` | Fast file check (<100ms) — also accepts `text` param for DLP scanning |
+| `rigour_hooks_init` | Install hooks for any agent (DLP on by default) |
+| `rigour_remember` | DLP-gated persistent memory (scans before storing) |
+| `rigour_recall` | DLP-gated recall (blocks tainted memories) |
+| `rigour_check_deep` | LLM-powered code review |
+| `rigour_review` | PR diff analysis |
+| `rigour_security_audit` | CVE scan on dependencies |
 
 ## Release-Ready Validation
 

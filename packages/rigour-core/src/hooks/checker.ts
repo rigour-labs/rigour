@@ -14,6 +14,7 @@ import path from 'path';
 import yaml from 'yaml';
 import { ConfigSchema, Config } from '../types/index.js';
 import type { HookCheckerResult } from './types.js';
+import { scanInputForCredentials } from './input-validator.js';
 
 type FailureEntry = HookCheckerResult['failures'][number];
 
@@ -57,6 +58,9 @@ async function resolveFile(filePath: string, cwd: string): Promise<{ absPath: st
 function checkFile(content: string, relPath: string, cwd: string, config: Config): FailureEntry[] {
     const failures: FailureEntry[] = [];
     const lines = content.split('\n');
+
+    // Gate 0: Memory & Skills Governance — block writes to agent-native memory paths
+    checkGovernance(content, relPath, config, failures);
 
     // Gate 1: File size
     const maxLines = config.gates.max_file_lines ?? 500;
@@ -277,5 +281,111 @@ function checkCommandInjection(
             severity: 'critical',
             line: i + 1,
         });
+    }
+}
+
+// ── Memory & Skills Governance (v4.2+) ────────────────────────────
+
+/**
+ * Simple glob matcher — handles exact paths, `*` (single segment),
+ * and `**` (any depth). No external dependencies.
+ */
+function simpleGlob(filePath: string, pattern: string): boolean {
+    // Exact match
+    if (filePath === pattern) return true;
+
+    // Convert glob to regex: ** → any path, * → single segment
+    const regexStr = pattern
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials (except * and ?)
+        .replace(/\*\*/g, '<<<DOUBLESTAR>>>')
+        .replace(/\*/g, '[^/]*')
+        .replace(/<<<DOUBLESTAR>>>/g, '.*');
+
+    return new RegExp(`^${regexStr}$`).test(filePath);
+}
+
+/**
+ * Intercept writes to agent-native memory AND skills files.
+ *
+ * Two separate enforcement layers:
+ *   1. enforce_memory — blocks writes to CLAUDE.md, .clinerules, .windsurf/memories/
+ *      → tells agent: "use rigour_remember instead"
+ *   2. enforce_skills — blocks writes to .claude/skills/, .cursor/rules/, etc.
+ *      → tells agent: "use rigour skills system instead"
+ *
+ * Both layers DLP-scan content for credentials regardless of blocking.
+ *
+ * Users can disable via rigour.yml:
+ *   gates:
+ *     governance:
+ *       enabled: false          # disable everything
+ *       enforce_memory: false   # allow native memory, still enforce skills
+ *       enforce_skills: false   # allow native skills, still enforce memory
+ *
+ * @since v4.2.0
+ */
+function checkGovernance(
+    content: string,
+    relPath: string,
+    config: Config,
+    failures: FailureEntry[]
+): void {
+    const gov = config.gates.governance;
+    if (!gov?.enabled) return;
+
+    const exemptPaths = gov.exempt_paths ?? [];
+    const normalizedPath = relPath.replace(/\\/g, '/');
+
+    // Check exemptions first (Rigour's own hook configs)
+    const isExempt = exemptPaths.some(pattern =>
+        simpleGlob(normalizedPath, pattern)
+    );
+    if (isExempt) return;
+
+    // ── Check memory paths ──
+    const memoryPaths = gov.protected_memory_paths ?? [];
+    const isMemoryPath = memoryPaths.some(pattern =>
+        simpleGlob(normalizedPath, pattern)
+    );
+
+    // ── Check skills paths ──
+    const skillsPaths = (gov as any).protected_skills_paths ?? [];
+    const isSkillsPath = skillsPaths.some((pattern: string) =>
+        simpleGlob(normalizedPath, pattern)
+    );
+
+    if (!isMemoryPath && !isSkillsPath) return;
+
+    // ── Enforcement: block memory writes ──
+    if (isMemoryPath && gov.enforce_memory && gov.block_native_memory) {
+        failures.push({
+            gate: 'governance',
+            file: relPath,
+            message: `BLOCKED: Agent writing to native memory path "${relPath}". Use rigour_remember instead — it DLP-scans and persists safely to .rigour/memory.json`,
+            severity: 'critical',
+        });
+    }
+
+    // ── Enforcement: block skills writes ──
+    if (isSkillsPath && gov.enforce_skills) {
+        failures.push({
+            gate: 'governance-skills',
+            file: relPath,
+            message: `BLOCKED: Agent writing to native skills/rules path "${relPath}". Use Rigour skills system instead — governed, DLP-scanned, and auditable`,
+            severity: 'critical',
+        });
+    }
+
+    // ── DLP scan the content being written (always, regardless of block settings) ──
+    const dlpResult = scanInputForCredentials(content);
+    if (dlpResult.status !== 'clean') {
+        for (const detection of dlpResult.detections) {
+            failures.push({
+                gate: 'governance-dlp',
+                file: relPath,
+                message: `${detection.description} found in agent ${isMemoryPath ? 'memory' : 'skills'} file. ${detection.recommendation}`,
+                severity: detection.severity === 'critical' ? 'critical' : 'high',
+            });
+        }
     }
 }

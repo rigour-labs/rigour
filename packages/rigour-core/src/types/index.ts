@@ -169,6 +169,63 @@ export const GatesSchema = z.object({
         max_mocks_per_test: z.number().optional().default(5),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
+    // v4.2+ Memory & Skills Governance
+    governance: z.object({
+        enabled: z.boolean().optional().default(true),
+        /** Enforce rigour_remember for all persistent storage — block native agent memory writes */
+        enforce_memory: z.boolean().optional().default(true),
+        /** Enforce rigour skills over native agent skills/rules files */
+        enforce_skills: z.boolean().optional().default(true),
+        /** Block writes and tell agent to use rigour_remember / rigour_recall */
+        block_native_memory: z.boolean().optional().default(true),
+        /** Agent-native MEMORY paths — where agents auto-save context (glob patterns) */
+        protected_memory_paths: z.array(z.string()).optional().default([
+            // Claude Code — auto-memory
+            'CLAUDE.md',
+            '.claude/CLAUDE.md',
+            // Cline — editable rules (agent can write)
+            '.clinerules',
+            '.clinerules/**',
+            // Windsurf — auto-generated memories
+            '.windsurf/memories/**',
+            // Generic
+            '.github/copilot-instructions.md',
+        ]),
+        /** Agent-native SKILLS/RULES paths — where agents store instructions/skills */
+        protected_skills_paths: z.array(z.string()).optional().default([
+            // Claude Code — skills, rules, commands
+            '.claude/skills/**',
+            '.claude/rules/**',
+            '.claude/commands/**',
+            // Cursor — rules and prompts
+            '.cursorrules',
+            '.cursor/rules/**',
+            '.cursor/prompts/**',
+            // Cline — rules directory
+            '.cline/rules/**',
+            // Windsurf — rules
+            '.windsurf/rules/**',
+            '.windsurfrules',
+            // Copilot — instructions
+            '.github/instructions/**',
+            'copilot-instructions.md',
+        ]),
+        /** Paths that are exempt from governance (e.g. Rigour's own hook configs) */
+        exempt_paths: z.array(z.string()).optional().default([
+            '.claude/settings.json',   // Rigour's own hook config
+            '.cursor/hooks.json',      // Rigour's own hook config
+            '.windsurf/hooks.json',    // Rigour's own hook config
+        ]),
+    }).optional().default({}),
+    // v4.2+ AI Agent DLP (Data Loss Prevention)
+    input_validation: z.object({
+        enabled: z.boolean().optional().default(true),
+        block_on_detection: z.boolean().optional().default(true),
+        min_secret_length: z.number().optional().default(8),
+        custom_patterns: z.array(z.string()).optional().default([]),
+        ignore_patterns: z.array(z.string()).optional().default([]),
+        audit_log: z.boolean().optional().default(true),
+    }).optional().default({}),
     // v4.0+ Deep Analysis (LLM-powered)
     deep: z.object({
         enabled: z.boolean().optional().default(false),
@@ -215,6 +272,8 @@ export const HooksSchema = z.object({
     ]),
     timeout_ms: z.number().optional().default(5000),
     block_on_failure: z.boolean().optional().default(false),
+    /** Enable DLP (Data Loss Prevention) pre-input hooks — default ON for security */
+    dlp: z.boolean().optional().default(true),
 }).optional().default({});
 
 export const ConfigSchema = z.object({

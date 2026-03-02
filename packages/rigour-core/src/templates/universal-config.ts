@@ -157,6 +157,38 @@ export const UNIVERSAL_CONFIG: Config = {
             max_mocks_per_test: 5,
             ignore_patterns: [],
         },
+        governance: {
+            enabled: true,
+            enforce_memory: true,
+            enforce_skills: true,
+            block_native_memory: true,
+            protected_memory_paths: [
+                'CLAUDE.md', '.claude/CLAUDE.md',
+                '.clinerules', '.clinerules/**',
+                '.windsurf/memories/**',
+                '.github/copilot-instructions.md',
+            ],
+            protected_skills_paths: [
+                '.claude/skills/**', '.claude/rules/**', '.claude/commands/**',
+                '.cursorrules', '.cursor/rules/**', '.cursor/prompts/**',
+                '.cline/rules/**',
+                '.windsurf/rules/**', '.windsurfrules',
+                '.github/instructions/**', 'copilot-instructions.md',
+            ],
+            exempt_paths: [
+                '.claude/settings.json',
+                '.cursor/hooks.json',
+                '.windsurf/hooks.json',
+            ],
+        },
+        input_validation: {
+            enabled: true,
+            block_on_detection: true,
+            min_secret_length: 8,
+            custom_patterns: [],
+            ignore_patterns: [],
+            audit_log: true,
+        },
         deep: {
             enabled: false,
             pro: false,
@@ -183,6 +215,7 @@ export const UNIVERSAL_CONFIG: Config = {
         fast_gates: ['hallucinated-imports', 'phantom-apis', 'deprecated-apis', 'promise-safety', 'security-patterns', 'file-size'],
         timeout_ms: 5000,
         block_on_failure: false,
+        dlp: true,
     },
     output: {
         report_path: 'rigour-report.json',

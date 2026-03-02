@@ -112,6 +112,62 @@ describe('hooksInitCommand', () => {
     });
 });
 
+describe('hooksInitCommand — DLP integration', () => {
+    let testDir: string;
+
+    beforeEach(() => {
+        testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-dlp-test-'));
+        fs.writeFileSync(path.join(testDir, 'rigour.yml'), yaml.stringify({
+            version: 1,
+            gates: { max_file_lines: 500 },
+        }));
+        vi.spyOn(console, 'log').mockImplementation(() => { });
+        vi.spyOn(console, 'error').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        fs.rmSync(testDir, { recursive: true, force: true });
+        vi.restoreAllMocks();
+    });
+
+    it('should generate Claude hooks with DLP (PreToolUse) by default', async () => {
+        await hooksInitCommand(testDir, { tool: 'claude', force: true });
+
+        const settingsPath = path.join(testDir, '.claude', 'settings.json');
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+        expect(settings.hooks.PostToolUse).toBeDefined();
+        expect(settings.hooks.PreToolUse).toBeDefined();
+        expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('--mode dlp');
+    });
+
+    it('should generate Cursor hooks with DLP (beforeFileEdit) by default', async () => {
+        await hooksInitCommand(testDir, { tool: 'cursor', force: true });
+
+        const hooksPath = path.join(testDir, '.cursor', 'hooks.json');
+        const hooks = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
+        expect(hooks.hooks.afterFileEdit).toBeDefined();
+        expect(hooks.hooks.beforeFileEdit).toBeDefined();
+    });
+
+    it('should generate Windsurf hooks with DLP by default', async () => {
+        await hooksInitCommand(testDir, { tool: 'windsurf', force: true });
+
+        const hooksPath = path.join(testDir, '.windsurf', 'hooks.json');
+        const hooks = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
+        expect(hooks.hooks.post_write_code).toBeDefined();
+        expect(hooks.hooks.pre_write_code).toBeDefined();
+    });
+
+    it('should skip DLP hooks when dlp: false', async () => {
+        await hooksInitCommand(testDir, { tool: 'claude', force: true, dlp: false });
+
+        const settingsPath = path.join(testDir, '.claude', 'settings.json');
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+        expect(settings.hooks.PostToolUse).toBeDefined();
+        expect(settings.hooks.PreToolUse).toBeUndefined();
+    });
+});
+
 describe('hooksCheckCommand', () => {
     let testDir: string;
 

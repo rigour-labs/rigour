@@ -420,21 +420,23 @@ export const TOOL_DEFINITIONS = [
         },
     },
 
-    // ─── Real-Time Hooks (v3.0) ────────────────────────────
+    // ─── Real-Time Hooks + DLP (v3.0 / v4.2) ───────────────
     {
         name: "rigour_hooks_check",
-        description: "Run the fast hook checker on specific files. Same checks that run inside IDE hooks (Claude, Cursor, Cline, Windsurf). Catches: hardcoded secrets, hallucinated imports, command injection, file size. Completes in <100ms.",
+        description: "Run the fast hook checker on specific files. Same checks that run inside IDE hooks (Claude, Cursor, Cline, Windsurf). Catches: hardcoded secrets, hallucinated imports, command injection, file size. Completes in <100ms. NEW: Pass 'text' param for DLP mode — scans user input for credentials (AWS keys, API tokens, database URLs, private keys, JWTs) before agent processing.",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
                 files: { type: "array", items: { type: "string" }, description: "List of file paths (relative to cwd) to check." },
                 timeout: { type: "number", description: "Optional timeout in milliseconds (default: 5000)." },
+                text: { type: "string", description: "Text to scan for credentials (DLP mode). When provided, scans text instead of files. Use this to validate user input before agent processing." },
+                agent: { type: "string", description: "Agent name for DLP audit trail (e.g., 'claude', 'cursor'). Only used in DLP mode." },
             },
-            required: ["cwd", "files"],
+            required: ["cwd"],
         },
         annotations: {
-            title: "Fast Hook Check",
+            title: "Fast Hook Check + DLP",
             readOnlyHint: true,
             destructiveHint: false,
             idempotentHint: true,
@@ -443,7 +445,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_hooks_init",
-        description: "Generate hook configs for AI coding tools (Claude, Cursor, Cline, Windsurf). Installs real-time quality checks that run on every file write.",
+        description: "Generate hook configs for AI coding tools (Claude, Cursor, Cline, Windsurf). Installs real-time quality checks AND DLP (credential interception) hooks by default. DLP hooks intercept credentials in user input BEFORE they reach the AI agent. Pass dlp=false to disable DLP hooks only.",
         inputSchema: {
             type: "object",
             properties: {
@@ -451,11 +453,12 @@ export const TOOL_DEFINITIONS = [
                 tool: { type: "string", description: "Target tool: 'claude', 'cursor', 'cline', or 'windsurf'." },
                 force: { type: "boolean", description: "Overwrite existing hook files (default: false)." },
                 dryRun: { type: "boolean", description: "Preview changes without writing files (default: false)." },
+                dlp: { type: "boolean", description: "Generate DLP (Data Loss Prevention) hooks for pre-input credential interception (default: true). Set false to skip DLP hooks." },
             },
             required: ["cwd", "tool"],
         },
         annotations: {
-            title: "Install IDE Hooks",
+            title: "Install IDE Hooks + DLP",
             readOnlyHint: false,
             destructiveHint: false,
             idempotentHint: true,

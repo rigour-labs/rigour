@@ -18,7 +18,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import { randomUUID } from 'crypto';
-import { runHookChecker } from '@rigour-labs/core';
+import { runHookChecker, scanInputForCredentials, formatDLPAlert, createDLPAuditEntry, generateDLPHookFiles } from '@rigour-labs/core';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -27,6 +27,8 @@ export interface HooksOptions {
     dryRun?: boolean;
     force?: boolean;
     block?: boolean;
+    /** Also generate DLP (pre-input credential interception) hooks */
+    dlp?: boolean;
 }
 
 export interface HooksCheckOptions {
@@ -34,6 +36,10 @@ export interface HooksCheckOptions {
     stdin?: boolean;
     block?: boolean;
     timeout?: string;
+    /** Run in DLP mode: scan text for credentials instead of checking files */
+    mode?: 'check' | 'dlp';
+    /** Agent name for audit trail (DLP mode) */
+    agent?: string;
 }
 
 interface GeneratedFile {
@@ -141,51 +147,79 @@ function resolveTools(cwd: string, toolFlag?: string): HookTool[] {
 
 // ── Per-tool hook generators ─────────────────────────────────────────
 
-function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean): GeneratedFile[] {
+function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: boolean = true): GeneratedFile[] {
     const blockFlag = block ? ' --block' : '';
     const checkerCommand = checkerToShellCommand(checker);
-    const settings = {
-        hooks: {
-            PostToolUse: [{
-                matcher: "Write|Edit|MultiEdit",
-                hooks: [{
-                    type: "command" as const,
-                    command: `${checkerCommand} --files "$TOOL_INPUT_file_path"${blockFlag}`,
-                }]
+    const hooks: Record<string, unknown[]> = {
+        PostToolUse: [{
+            matcher: "Write|Edit|MultiEdit",
+            hooks: [{
+                type: "command" as const,
+                command: `${checkerCommand} --files "$TOOL_INPUT_file_path"${blockFlag}`,
             }]
-        }
+        }],
     };
+
+    // DLP: Add PreToolUse hook for credential interception
+    if (dlp) {
+        hooks.PreToolUse = [{
+            matcher: ".*",
+            hooks: [{
+                type: "command" as const,
+                command: `${checkerCommand} --mode dlp --stdin`,
+            }]
+        }];
+    }
+
+    const settings = { hooks };
 
     return [{
         path: '.claude/settings.json',
         content: JSON.stringify(settings, null, 4),
-        description: 'Claude Code PostToolUse hook',
+        description: dlp
+            ? 'Claude Code hooks — PostToolUse quality checks + PreToolUse DLP credential interception'
+            : 'Claude Code PostToolUse hook',
     }];
 }
 
-function generateCursorHooks(checker: CheckerCommandSpec, block: boolean): GeneratedFile[] {
+function generateCursorHooks(checker: CheckerCommandSpec, block: boolean, dlp: boolean = true): GeneratedFile[] {
     const blockFlag = block ? ' --block' : '';
     const checkerCommand = checkerToShellCommand(checker);
-    const hooks = {
-        version: 1,
-        hooks: { afterFileEdit: [{ command: `${checkerCommand} --stdin${blockFlag}` }] }
+    const hookEntries: Record<string, unknown[]> = {
+        afterFileEdit: [{ command: `${checkerCommand} --stdin${blockFlag}` }],
     };
+    if (dlp) {
+        hookEntries.beforeFileEdit = [{ command: `${checkerCommand} --mode dlp --stdin` }];
+    }
+    const hooks = { version: 1, hooks: hookEntries };
 
     return [{
         path: '.cursor/hooks.json',
         content: JSON.stringify(hooks, null, 4),
-        description: 'Cursor afterFileEdit hook config',
+        description: dlp
+            ? 'Cursor hooks — afterFileEdit quality checks + beforeFileEdit DLP credential interception'
+            : 'Cursor afterFileEdit hook config',
     }];
 }
 
-function generateClineHooks(checker: CheckerCommandSpec, block: boolean): GeneratedFile[] {
-    const script = buildClineScript(checker, block);
-    return [{
+function generateClineHooks(checker: CheckerCommandSpec, block: boolean, dlp: boolean = true): GeneratedFile[] {
+    const files: GeneratedFile[] = [{
         path: '.clinerules/hooks/PostToolUse',
-        content: script,
+        content: buildClineScript(checker, block),
         executable: true,
-        description: 'Cline PostToolUse executable hook',
+        description: 'Cline PostToolUse executable hook — quality checks after file writes',
     }];
+
+    if (dlp) {
+        files.push({
+            path: '.clinerules/hooks/PreToolUse',
+            content: buildClineDLPScript(checker),
+            executable: true,
+            description: 'Cline PreToolUse DLP hook — credential interception before agent execution',
+        });
+    }
+
+    return files;
 }
 
 function buildClineScript(checker: CheckerCommandSpec, block: boolean): string {
@@ -246,22 +280,85 @@ process.stdin.on('end', async () => {
 `;
 }
 
-function generateWindsurfHooks(checker: CheckerCommandSpec, block: boolean): GeneratedFile[] {
+function buildClineDLPScript(checker: CheckerCommandSpec): string {
+    return `#!/usr/bin/env node
+/**
+ * Cline PreToolUse DLP hook for Rigour.
+ * Scans tool input for credentials BEFORE agent execution.
+ */
+let data = '';
+process.stdin.on('data', chunk => { data += chunk; });
+process.stdin.on('end', async () => {
+    try {
+        const payload = JSON.parse(data);
+        const textsToScan = [];
+        if (payload.toolInput) {
+            for (const [key, value] of Object.entries(payload.toolInput)) {
+                if (typeof value === 'string' && value.length > 5) {
+                    textsToScan.push(value);
+                }
+            }
+        }
+        if (textsToScan.length === 0) {
+            process.stdout.write(JSON.stringify({}));
+            return;
+        }
+
+        const { spawnSync } = require('child_process');
+        const command = ${JSON.stringify(checker.command)};
+        const baseArgs = ${JSON.stringify(checker.args)};
+        const proc = spawnSync(
+            command,
+            [...baseArgs, '--mode', 'dlp', '--stdin'],
+            { input: textsToScan.join('\\n'), encoding: 'utf-8', timeout: 3000 }
+        );
+        if (proc.error) throw proc.error;
+        const raw = (proc.stdout || '').trim();
+        if (!raw) {
+            process.stdout.write(JSON.stringify({}));
+            return;
+        }
+        const result = JSON.parse(raw);
+        if (result.status === 'blocked') {
+            const msgs = result.detections
+                .map(d => \`[rigour/dlp/\${d.type}] \${d.description} → \${d.recommendation}\`)
+                .join('\\n');
+            process.stdout.write(JSON.stringify({
+                contextModification: \`\\n🛑 [Rigour DLP] \${result.detections.length} credential(s) BLOCKED:\\n\${msgs}\\nReplace with environment variable references.\`,
+            }));
+            process.exit(2);
+        } else {
+            process.stdout.write(JSON.stringify({}));
+        }
+    } catch (err) {
+        process.stderr.write(\`Rigour DLP hook error: \${err.message}\\n\`);
+        process.stdout.write(JSON.stringify({}));
+    }
+});
+`;
+}
+
+function generateWindsurfHooks(checker: CheckerCommandSpec, block: boolean, dlp: boolean = true): GeneratedFile[] {
     const blockFlag = block ? ' --block' : '';
     const checkerCommand = checkerToShellCommand(checker);
-    const hooks = {
-        version: 1,
-        hooks: { post_write_code: [{ command: `${checkerCommand} --stdin${blockFlag}` }] }
+    const hookEntries: Record<string, unknown[]> = {
+        post_write_code: [{ command: `${checkerCommand} --stdin${blockFlag}` }],
     };
+    if (dlp) {
+        hookEntries.pre_write_code = [{ command: `${checkerCommand} --mode dlp --stdin` }];
+    }
+    const hooks = { version: 1, hooks: hookEntries };
 
     return [{
         path: '.windsurf/hooks.json',
         content: JSON.stringify(hooks, null, 4),
-        description: 'Windsurf post_write_code hook config',
+        description: dlp
+            ? 'Windsurf hooks — post_write_code quality checks + pre_write_code DLP credential interception'
+            : 'Windsurf post_write_code hook config',
     }];
 }
 
-const GENERATORS: Record<HookTool, (checker: CheckerCommandSpec, block: boolean) => GeneratedFile[]> = {
+const GENERATORS: Record<HookTool, (checker: CheckerCommandSpec, block: boolean, dlp?: boolean) => GeneratedFile[]> = {
     claude: generateClaudeHooks,
     cursor: generateCursorHooks,
     cline: generateClineHooks,
@@ -338,17 +435,19 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     await logStudioEvent(cwd, {
         type: 'tool_call',
         tool: 'rigour_hooks_init',
-        arguments: { tool: options.tool, dryRun: options.dryRun },
+        arguments: { tool: options.tool, dryRun: options.dryRun, dlp: options.dlp },
     });
 
     const tools = resolveTools(cwd, options.tool);
     const checker = resolveCheckerCommand(cwd);
     const block = !!options.block;
+    // DLP is ON by default — user must explicitly pass --no-dlp to disable
+    const dlp = options.dlp !== false;
 
-    // Collect generated files from all tools
+    // Collect generated files — each generator includes DLP hooks in the SAME config file
     const allFiles: GeneratedFile[] = [];
     for (const tool of tools) {
-        allFiles.push(...GENERATORS[tool](checker, block));
+        allFiles.push(...GENERATORS[tool](checker, block, dlp));
     }
 
     if (options.dryRun) {
@@ -368,11 +467,17 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
 
     printNextSteps(tools);
 
+    if (dlp) {
+        console.log(chalk.red.bold('  🛑 DLP Protection ACTIVE'));
+        console.log(chalk.dim('  Credentials will be intercepted BEFORE reaching AI agents.'));
+        console.log(chalk.dim('  Coverage: AWS keys, API tokens, database URLs, private keys, JWTs, passwords.\n'));
+    }
+
     await logStudioEvent(cwd, {
         type: 'tool_response',
         tool: 'rigour_hooks_init',
         status: 'success',
-        content: [{ type: 'text', text: `Generated hooks for: ${tools.join(', ')}` }],
+        content: [{ type: 'text', text: `Generated hooks for: ${tools.join(', ')}${options.dlp ? ' (+ DLP)' : ''}` }],
     });
 }
 
@@ -409,6 +514,45 @@ function parseStdinFiles(input: string): string[] {
 }
 
 export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions = {}): Promise<void> {
+    // ── DLP Mode: Scan text for credentials ──────────────────
+    if (options.mode === 'dlp') {
+        const input = options.stdin
+            ? await readStdin()
+            : (options.files ?? ''); // Reuse files param as text in DLP mode
+
+        if (!input) {
+            process.stdout.write(JSON.stringify({ status: 'clean', detections: [], duration_ms: 0, scanned_length: 0 }));
+            return;
+        }
+
+        const result = scanInputForCredentials(input, {
+            enabled: true,
+            block_on_detection: options.block ?? true,
+        });
+
+        process.stdout.write(JSON.stringify(result));
+
+        if (result.status !== 'clean') {
+            process.stderr.write('\n' + formatDLPAlert(result) + '\n');
+
+            // Audit trail
+            try {
+                const auditEntry = createDLPAuditEntry(result, {
+                    agent: options.agent ?? 'hook',
+                });
+                await logStudioEvent(cwd, auditEntry);
+            } catch {
+                // Silent
+            }
+
+            if (result.status === 'blocked') {
+                process.exitCode = 2;
+            }
+        }
+        return;
+    }
+
+    // ── Standard Mode: Check files ───────────────────────────
     const timeout = options.timeout ? Number(options.timeout) : 5000;
     const files = options.stdin
         ? parseStdinFiles(await readStdin())
@@ -437,3 +581,4 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         }
     }
 }
+

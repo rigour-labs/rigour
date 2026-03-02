@@ -118,9 +118,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "rigour_agent_deregister": result = await handleAgentDeregister(cwd, (args as any).agentId, requestId); break;
             case "rigour_handoff_accept":   result = await handleHandoffAccept(cwd, (args as any).handoffId, (args as any).agentId, requestId); break;
 
-            // Real-time hooks (v3.0)
-            case "rigour_hooks_check": result = await handleHooksCheck(cwd, (args as any).files, (args as any).timeout); break;
-            case "rigour_hooks_init":  result = await handleHooksInit(cwd, (args as any).tool, (args as any).force, (args as any).dryRun); break;
+            // Real-time hooks + DLP (v3.0 / v4.2)
+            case "rigour_hooks_check": result = await handleHooksCheck(cwd, (args as any).files ?? [], (args as any).timeout, (args as any).text, (args as any).agent); break;
+            case "rigour_hooks_init":  result = await handleHooksInit(cwd, (args as any).tool, (args as any).force, (args as any).dryRun, (args as any).dlp ?? true); break;
 
             // Deep analysis (v4.0+)
             case "rigour_check_deep": {

@@ -528,7 +528,8 @@ async function initHooksForDetectedTools(
 
     try {
         console.log(chalk.dim(`\n   Setting up real-time hooks for ${detectedIDE}...`));
-        await hooksInitCommand(cwd, { tool: hookTool });
+        await hooksInitCommand(cwd, { tool: hookTool, dlp: true });
+        console.log(chalk.dim(`   🛑 DLP protection active — credentials intercepted before reaching agents`));
     } catch {
         // Non-fatal — hooks are a bonus, not a requirement
         console.log(chalk.dim(`   (Hooks setup skipped — run 'rigour hooks init' manually)`));
