@@ -100,9 +100,45 @@ The original Rigour — deterministic PASS/FAIL gates that catch AI-generated co
 Optional LLM layer for SOLID principles, design patterns, language idioms, architecture review:
 
 ```bash
-rigour check --deep           # Local Qwen2.5-Coder-0.5B
-rigour check --deep --pro     # Local Qwen2.5-Coder-1.5B
-rigour check --deep --provider claude -k sk-ant-xxx  # Cloud
+rigour check --deep           # Local Qwen2.5-Coder-0.5B (350MB one-time download)
+rigour check --deep --pro     # Local Qwen2.5-Coder-1.5B (900MB)
+rigour check --deep --provider claude -k sk-ant-xxx  # Cloud BYOK
+rigour scan --deep            # Zero-config + deep (no rigour.yml required)
+```
+
+### Zero-Config Scan
+
+Point Rigour at any repo — no config file needed. Auto-detects stack, applies all gates:
+
+```bash
+npx @rigour-labs/cli scan                     # AST-only, instant
+npx @rigour-labs/cli scan --deep              # + local LLM analysis (350MB one-time)
+npx @rigour-labs/cli scan --deep --pro        # + larger model (900MB, higher quality)
+npx @rigour-labs/cli scan --deep -k sk-xxx    # + Claude API (BYOK)
+```
+
+### Live Demo on Any Public Repo
+
+Clone a real GitHub repo, inject realistic AI drift, and watch Rigour catch it in real time:
+
+```bash
+npx @rigour-labs/cli demo --cinematic --repo https://github.com/fastapi/fastapi
+```
+
+**What happens:** Rigour clones the repo (shallow, into `/tmp`), detects the language (Python or TypeScript), injects realistic AI-generated code issues (hardcoded secrets, hallucinated imports, floating promises), simulates hooks catching each one live, runs full quality gates, then fixes the issues and shows the before/after score improvement. The original repo is never modified.
+
+Supported injections by language:
+
+| Language | Injections |
+|---|---|
+| **TypeScript/JS** | Hardcoded API secret, hallucinated npm package, unhandled async promise |
+| **Python** | Wildcard CORS with credentials, PII logging in middleware, hardcoded config secrets |
+
+```bash
+rigour demo                                   # Synthetic project (built-in)
+rigour demo --cinematic                       # Screen-recording optimized
+rigour demo --cinematic --speed slow          # Slower pacing for presentations
+rigour demo --hooks                           # Focus on real-time hook catches
 ```
 
 ## 5-Minute Start
@@ -147,15 +183,18 @@ rigour --version
 ## Core Commands
 
 ```bash
-rigour scan
-rigour init
-rigour check
-rigour check --ci
-rigour check --deep
-rigour check --deep --pro
-rigour hooks init
-rigour hooks check --files src/app.ts
-rigour doctor
+rigour scan                                              # Zero-config AST scan
+rigour scan --deep                                       # Zero-config + local LLM deep analysis
+rigour scan --deep -k sk-ant-xxx                         # Zero-config + Claude API
+rigour init                                              # Set up config, hooks, DLP, governance
+rigour check                                             # Full repository gates
+rigour check --ci                                        # CI mode (minimal output)
+rigour check --deep                                      # + local LLM analysis
+rigour check --deep --pro                                # + larger local model
+rigour hooks init                                        # Install real-time hooks
+rigour hooks check --files src/app.ts                    # Fast file check
+rigour demo --cinematic --repo <github-url>              # Live demo on any repo
+rigour doctor                                            # Diagnose install + deep readiness
 ```
 
 ## Deep Analysis: Exact Behavior

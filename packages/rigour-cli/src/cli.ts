@@ -98,12 +98,23 @@ program
     .option('--ci', 'CI mode (minimal output, non-zero exit on fail)')
     .option('--json', 'Output report in JSON format')
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration (optional)')
+    .option('--deep', 'Enable deep LLM-powered analysis (local, 350MB one-time download)')
+    .option('--pro', 'Use larger model for deep analysis (900MB, higher quality)')
+    .option('-k, --api-key <key>', 'Use cloud API key instead of local model (BYOK)')
+    .option('--provider <name>', 'Cloud provider: claude, openai, gemini, groq, mistral, together, deepseek, ollama')
+    .option('--api-base-url <url>', 'Custom API base URL')
+    .option('--model-name <name>', 'Override cloud model name')
+    .option('--agents <count>', 'Number of parallel agents for deep scan (cloud-only)', '1')
     .addHelpText('after', `
 Examples:
-  $ rigour scan                       # Zero-config scan in current repo
-  $ rigour scan ./src                 # Scan only src
-  $ rigour scan --json                # Machine-readable output
-  $ rigour scan --ci                  # CI-friendly output
+  $ rigour scan                                     # Zero-config AST scan
+  $ rigour scan --deep                              # Zero-config + local LLM deep analysis
+  $ rigour scan --deep --pro                        # Zero-config + larger local model
+  $ rigour scan --deep -k sk-ant-xxx                # Zero-config + Claude API
+  $ rigour scan --deep --provider groq -k gsk_xxx   # Zero-config + Groq
+  $ rigour scan ./src --deep                        # Deep scan specific directory
+  $ rigour scan --json                              # Machine-readable output
+  $ rigour scan --ci                                # CI-friendly output
     `)
     .action(async (files: string[], options: any) => {
         await scanCommand(process.cwd(), files, options);
@@ -161,19 +172,22 @@ program
     .option('--cinematic', 'Screen-recording mode: typewriter effects, simulated AI agent, before/after scores')
     .option('--hooks', 'Focus on real-time hooks catching issues as AI writes code')
     .option('--speed <speed>', 'Pacing: fast, normal, slow (default: normal)', 'normal')
+    .option('--repo <url>', 'Clone a real GitHub repo and inject drift into it (festival mode)')
     .addHelpText('after', `
 Examples:
-  $ rigour demo                          # Run the flagship demo
-  $ rigour demo --cinematic              # Screen-recording optimized (great for GIFs)
-  $ rigour demo --cinematic --speed slow # Slower pacing for presentations
-  $ rigour demo --hooks                  # Focus on hooks catching issues
-  $ npx @rigour-labs/cli demo            # Try without installing
+  $ rigour demo                                              # Flagship demo (synthetic project)
+  $ rigour demo --cinematic                                  # Screen-recording optimized
+  $ rigour demo --cinematic --speed slow                     # Slower pacing for presentations
+  $ rigour demo --cinematic --repo https://github.com/fastapi/fastapi  # Live demo on real repo
+  $ rigour demo --hooks                                      # Focus on real-time hooks
+  $ npx @rigour-labs/cli demo                                # Try without installing
     `)
     .action(async (options: any) => {
         await demoCommand({
             cinematic: !!options.cinematic,
             hooks: !!options.hooks,
             speed: options.speed || 'normal',
+            repo: options.repo,
         });
     });
 

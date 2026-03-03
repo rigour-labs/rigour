@@ -14,6 +14,7 @@ import {
     recordScore,
     getScoreTrend,
 } from '@rigour-labs/core';
+import { buildDeepOpts, persistDeepResults, renderDeepScanResults } from './scan-deep.js';
 
 // Exit codes per spec
 const EXIT_PASS = 0;
@@ -25,6 +26,13 @@ export interface ScanOptions {
     ci?: boolean;
     json?: boolean;
     config?: string;
+    deep?: boolean;
+    pro?: boolean;
+    apiKey?: string;
+    provider?: string;
+    apiBaseUrl?: string;
+    modelName?: string;
+    agents?: string;
 }
 
 type ScanMode = 'existing-config' | 'auto-discovered';
@@ -37,7 +45,7 @@ interface ScanContext {
     detectedParadigm?: string;
 }
 
-interface StackSignals {
+export interface StackSignals {
     languages: string[];
     hasDocker: boolean;
     hasTerraform: boolean;
@@ -86,49 +94,34 @@ export async function scanCommand(cwd: string, files: string[] = [], options: Sc
     try {
         const scanCtx = await resolveScanConfig(cwd, options);
         const stackSignals = await detectStackSignals(cwd);
+        const isDeep = !!options.deep || !!options.pro || !!options.apiKey;
+        const isSilent = !!options.ci || !!options.json;
 
-        if (!options.ci && !options.json) {
-            renderScanHeader(scanCtx, stackSignals);
+        if (!isSilent) {
+            renderScanHeader(scanCtx, stackSignals, isDeep);
         }
 
         const runner = new GateRunner(scanCtx.config);
-        const report = await runner.run(cwd, files.length > 0 ? files : undefined);
+        const deepOpts = isDeep ? buildDeepOpts(options, isSilent) : undefined;
+        const report = await runner.run(cwd, files.length > 0 ? files : undefined, deepOpts);
 
-        // Write machine report and score history
-        const reportPath = path.join(cwd, scanCtx.config.output.report_path);
-        await fs.writeJson(reportPath, report, { spaces: 2 });
-        recordScore(cwd, report);
-
-        // Generate fix packet on failure
-        if (report.status === 'FAIL') {
-            const fixPacketService = new FixPacketService();
-            const fixPacket = fixPacketService.generate(report, scanCtx.config);
-            const fixPacketPath = path.join(cwd, 'rigour-fix-packet.json');
-            await fs.writeJson(fixPacketPath, fixPacket, { spaces: 2 });
-        }
+        await writeReportArtifacts(cwd, report, scanCtx.config);
+        persistDeepResults(cwd, report, isDeep, options);
 
         if (options.json) {
-            process.stdout.write(JSON.stringify({
-                mode: scanCtx.mode,
-                preset: scanCtx.detectedPreset ?? scanCtx.config.preset,
-                paradigm: scanCtx.detectedParadigm ?? scanCtx.config.paradigm,
-                stack: stackSignals,
-                report,
-            }, null, 2) + '\n');
-            process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+            outputJson(scanCtx, stackSignals, report);
+            return;
         }
-
         if (options.ci) {
-            const score = report.stats.score ?? 0;
-            if (report.status === 'PASS') {
-                console.log(`PASS (${score}/100)`);
-            } else {
-                console.log(`FAIL: ${report.failures.length} violation(s) | Score: ${score}/100`);
-            }
-            process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+            outputCi(report);
+            return;
         }
 
-        renderScanResults(report, stackSignals, scanCtx.config.output.report_path, cwd);
+        if (isDeep) {
+            renderDeepScanResults(report, stackSignals, scanCtx.config, cwd);
+        } else {
+            renderScanResults(report, stackSignals, scanCtx.config.output.report_path, cwd);
+        }
         process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
     } catch (error: any) {
         if (error.name === 'ZodError') {
@@ -138,10 +131,44 @@ export async function scanCommand(cwd: string, files: string[] = [], options: Sc
             });
             process.exit(EXIT_CONFIG_ERROR);
         }
-
         console.error(chalk.red(`Internal error: ${error.message}`));
         process.exit(EXIT_INTERNAL_ERROR);
     }
+}
+
+
+async function writeReportArtifacts(cwd: string, report: Report, config: Config): Promise<void> {
+    const reportPath = path.join(cwd, config.output.report_path);
+    await fs.writeJson(reportPath, report, { spaces: 2 });
+    recordScore(cwd, report);
+
+    if (report.status === 'FAIL') {
+        const fixPacketService = new FixPacketService();
+        const fixPacket = fixPacketService.generate(report, config);
+        await fs.writeJson(path.join(cwd, 'rigour-fix-packet.json'), fixPacket, { spaces: 2 });
+    }
+}
+
+
+function outputJson(scanCtx: ScanContext, stackSignals: StackSignals, report: Report): void {
+    process.stdout.write(JSON.stringify({
+        mode: scanCtx.mode,
+        preset: scanCtx.detectedPreset ?? scanCtx.config.preset,
+        paradigm: scanCtx.detectedParadigm ?? scanCtx.config.paradigm,
+        stack: stackSignals,
+        report,
+    }, null, 2) + '\n');
+    process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+}
+
+function outputCi(report: Report): void {
+    const score = report.stats.score ?? 0;
+    if (report.status === 'PASS') {
+        console.log(`PASS (${score}/100)`);
+    } else {
+        console.log(`FAIL: ${report.failures.length} violation(s) | Score: ${score}/100`);
+    }
+    process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
 }
 
 async function resolveScanConfig(cwd: string, options: ScanOptions): Promise<ScanContext> {
@@ -196,9 +223,12 @@ async function detectStackSignals(cwd: string): Promise<StackSignals> {
     };
 }
 
-function renderScanHeader(scanCtx: ScanContext, stackSignals: StackSignals): void {
-    console.log(chalk.bold.cyan('\nRigour Scan'));
-    console.log(chalk.dim('Zero-config security and AI-drift sweep using existing Rigour gates.\n'));
+function renderScanHeader(scanCtx: ScanContext, stackSignals: StackSignals, isDeep = false): void {
+    console.log(chalk.bold.cyan('\nRigour Scan') + (isDeep ? chalk.blue.bold(' + Deep Analysis') : ''));
+    const desc = isDeep
+        ? 'Zero-config sweep with LLM-powered deep analysis.'
+        : 'Zero-config security and AI-drift sweep using existing Rigour gates.';
+    console.log(chalk.dim(desc + '\n'));
 
     const modeLabel = scanCtx.mode === 'existing-config'
         ? `Using existing config: ${path.basename(scanCtx.configPath || 'rigour.yml')}`
@@ -312,7 +342,8 @@ function renderScanResults(report: Report, stackSignals: StackSignals, reportPat
     }
 }
 
-function renderCoverageWarnings(stackSignals: StackSignals): void {
+
+export function renderCoverageWarnings(stackSignals: StackSignals): void {
     const gaps: string[] = [];
 
     for (const language of stackSignals.languages) {
@@ -339,7 +370,7 @@ function renderCoverageWarnings(stackSignals: StackSignals): void {
     }
 }
 
-function extractHallucinatedImports(failures: Failure[]): string[] {
+export function extractHallucinatedImports(failures: Failure[]): string[] {
     const fakeImports: string[] = [];
 
     for (const failure of failures) {

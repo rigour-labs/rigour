@@ -6,6 +6,7 @@ export interface DemoOptions {
     cinematic?: boolean;
     hooks?: boolean;
     speed?: 'fast' | 'normal' | 'slow';
+    repo?: string;
 }
 
 const SPEED_MULTIPLIERS: Record<string, number> = {
