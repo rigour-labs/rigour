@@ -6,6 +6,7 @@ export * from './templates/index.js';
 export * from './types/fix-packet.js';
 export { Gate, GateContext } from './gates/base.js';
 export { RetryLoopBreakerGate } from './gates/retry-loop-breaker.js';
+export { SideEffectAnalysisGate } from './gates/side-effect-analysis.js';
 export * from './utils/logger.js';
 export * from './services/score-history.js';
 export * from './hooks/index.js';

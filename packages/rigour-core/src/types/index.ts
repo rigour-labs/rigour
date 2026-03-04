@@ -226,6 +226,19 @@ export const GatesSchema = z.object({
         ignore_patterns: z.array(z.string()).optional().default([]),
         audit_log: z.boolean().optional().default(true),
     }).optional().default({}),
+    // v4.3+ Side-Effect Safety Analysis
+    side_effect_analysis: z.object({
+        enabled: z.boolean().optional().default(true),
+        check_unbounded_timers: z.boolean().optional().default(true),
+        check_unbounded_loops: z.boolean().optional().default(true),
+        check_process_lifecycle: z.boolean().optional().default(true),
+        check_recursive_depth: z.boolean().optional().default(true),
+        check_resource_lifecycle: z.boolean().optional().default(true),
+        check_retry_without_limit: z.boolean().optional().default(true),
+        check_circular_triggers: z.boolean().optional().default(true),
+        check_auto_restart: z.boolean().optional().default(true),
+        ignore_patterns: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
     // v4.0+ Deep Analysis (LLM-powered)
     deep: z.object({
         enabled: z.boolean().optional().default(false),
@@ -268,6 +281,7 @@ export const HooksSchema = z.object({
         'deprecated-apis',
         'promise-safety',
         'security-patterns',
+        'side-effect-analysis',
         'file-size',
     ]),
     timeout_ms: z.number().optional().default(5000),

@@ -24,6 +24,7 @@ import { PromiseSafetyGate } from './promise-safety.js';
 import { PhantomApisGate } from './phantom-apis.js';
 import { DeprecatedApisGate } from './deprecated-apis.js';
 import { TestQualityGate } from './test-quality.js';
+import { SideEffectAnalysisGate } from './side-effect-analysis.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 
@@ -109,6 +110,11 @@ export class GateRunner {
 
         if (this.config.gates.test_quality?.enabled !== false) {
             this.gates.push(new TestQualityGate(this.config.gates.test_quality));
+        }
+
+        // v4.3+ Side-Effect Safety Analysis (enabled by default)
+        if (this.config.gates.side_effect_analysis?.enabled !== false) {
+            this.gates.push(new SideEffectAnalysisGate(this.config.gates.side_effect_analysis));
         }
 
         // Environment Alignment Gate (Should be prioritized)

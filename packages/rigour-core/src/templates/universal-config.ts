@@ -189,6 +189,18 @@ export const UNIVERSAL_CONFIG: Config = {
             ignore_patterns: [],
             audit_log: true,
         },
+        side_effect_analysis: {
+            enabled: true,
+            check_unbounded_timers: true,
+            check_unbounded_loops: true,
+            check_process_lifecycle: true,
+            check_recursive_depth: true,
+            check_resource_lifecycle: true,
+            check_retry_without_limit: true,
+            check_circular_triggers: true,
+            check_auto_restart: true,
+            ignore_patterns: [],
+        },
         deep: {
             enabled: false,
             pro: false,
