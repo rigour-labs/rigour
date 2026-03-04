@@ -106,6 +106,21 @@ rigour check --deep --provider claude -k sk-ant-xxx  # Cloud BYOK
 rigour scan --deep            # Zero-config + deep (no rigour.yml required)
 ```
 
+### Rigour Brain — Local Project Memory
+
+Rigour gets smarter every time you use it. Every scan stores findings in a local SQLite database (`~/.rigour/rigour.db`). Patterns are reinforced when seen repeatedly, decay when absent, and promote to "hard rules" at high strength. Next deep scan checks local memory BEFORE calling the LLM — known patterns produce instant findings with zero inference cost.
+
+```bash
+rigour brain                          # Show memory status: DB size, patterns, hard rules
+rigour brain --compact                # Prune old findings, weak patterns, VACUUM
+rigour brain --compact --retain 30    # Keep only last 30 days
+rigour brain --reset                  # Wipe all memory and start fresh
+```
+
+**How it works:** scan → store findings in SQLite → reinforce patterns (+0.15 per sighting) → decay stale patterns (-0.05 after 30 days unseen) → prune dead patterns (< 0.1) → promote to hard rules (≥ 0.9). The central GGUF model provides general code knowledge; local memory provides project-specific history. Two sources of truth, code never leaves your machine.
+
+**Compression:** Memory does not grow unbounded. Automatic decay prunes weak patterns every scan. `rigour brain --compact` deletes old findings beyond the retention window (default 90 days), removes patterns that never grew (strength < 0.3, seen < 3 times), cleans orphaned records, and runs SQLite VACUUM to reclaim disk space.
+
 ### Zero-Config Scan
 
 Point Rigour at any repo — no config file needed. Auto-detects stack, applies all gates:
@@ -194,6 +209,8 @@ rigour check --deep --pro                                # + larger local model
 rigour hooks init                                        # Install real-time hooks
 rigour hooks check --files src/app.ts                    # Fast file check
 rigour demo --cinematic --repo <github-url>              # Live demo on any repo
+rigour brain                                             # Local memory status
+rigour brain --compact                                   # Prune old data, reclaim disk
 rigour doctor                                            # Diagnose install + deep readiness
 ```
 
@@ -305,6 +322,7 @@ Use Rigour as an MCP server — agents get quality gates, DLP scanning, governed
 | `rigour_check_deep` | LLM-powered code review |
 | `rigour_review` | PR diff analysis |
 | `rigour_security_audit` | CVE scan on dependencies |
+| `rigour_deep_stats` | Local memory stats and score trends |
 
 ## Release-Ready Validation
 

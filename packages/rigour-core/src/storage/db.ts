@@ -28,7 +28,16 @@ function loadDatabase(): any {
 const RIGOUR_DIR = path.join(os.homedir(), '.rigour');
 const DB_PATH = path.join(RIGOUR_DIR, 'rigour.db');
 
+/** Current schema version — bump when adding migrations. */
+const SCHEMA_VERSION = 2;
+
 const SCHEMA_SQL = `
+-- Schema version tracking
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 -- Every scan result, forever
 CREATE TABLE IF NOT EXISTS scans (
     id TEXT PRIMARY KEY,
@@ -125,8 +134,9 @@ export function openDatabase(dbPath?: string): RigourDB | null {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
 
-    // Run schema migration
+    // Run schema creation + migrations
     db.exec(SCHEMA_SQL);
+    runMigrations(db);
 
     return {
         db,
@@ -134,6 +144,103 @@ export function openDatabase(dbPath?: string): RigourDB | null {
             db.close();
         },
     };
+}
+
+/**
+ * Run incremental schema migrations based on stored version.
+ */
+function runMigrations(db: any): void {
+    const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get();
+    const current = row ? parseInt(row.value, 10) : 0;
+
+    if (current < 1) {
+        // v1: base schema (already created by SCHEMA_SQL)
+        db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '1')").run();
+    }
+    if (current < 2) {
+        // v2: retention indexes for compaction queries
+        db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_findings_file ON findings(file);
+            CREATE INDEX IF NOT EXISTS idx_scans_repo_ts ON scans(repo, timestamp);
+        `);
+        db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')").run();
+    }
+    // Future: if (current < 3) { ... ALTER TABLE ... }
+}
+
+/**
+ * Compact the database — prune old data, reclaim disk space.
+ * Retention policy: keep last `retainDays` of findings, merge old patterns.
+ */
+export function compactDatabase(retainDays = 90): CompactResult {
+    const Db = loadDatabase();
+    if (!Db) return { pruned: 0, patternsDecayed: 0, sizeBefore: 0, sizeAfter: 0 };
+
+    const resolvedPath = DB_PATH;
+    const sizeBefore = fs.existsSync(resolvedPath) ? fs.statSync(resolvedPath).size : 0;
+    const db = new Db(resolvedPath);
+    db.pragma('journal_mode = WAL');
+
+    const cutoff = Date.now() - (retainDays * 24 * 60 * 60 * 1000);
+    let pruned = 0;
+    let patternsDecayed = 0;
+
+    try {
+        db.transaction(() => {
+            // 1. Delete old findings (keep scan records for trend lines)
+            const r1 = db.prepare(`
+                DELETE FROM findings WHERE scan_id IN (
+                    SELECT id FROM scans WHERE timestamp < ?
+                )
+            `).run(cutoff);
+            pruned += r1.changes;
+
+            // 2. Prune weak patterns (never grew, seen < 3 times)
+            const r2 = db.prepare(
+                "DELETE FROM patterns WHERE strength < 0.3 AND times_seen < 3"
+            ).run();
+            patternsDecayed += r2.changes;
+
+            // 3. Prune orphaned feedback
+            db.prepare(
+                "DELETE FROM feedback WHERE finding_id NOT IN (SELECT id FROM findings)"
+            ).run();
+
+            // 4. Prune old codebase index entries
+            db.prepare("DELETE FROM codebase WHERE last_indexed < ?").run(cutoff);
+        })();
+
+        // 5. Reclaim disk space
+        db.exec('VACUUM');
+    } finally {
+        db.close();
+    }
+
+    const sizeAfter = fs.existsSync(resolvedPath) ? fs.statSync(resolvedPath).size : 0;
+    return { pruned, patternsDecayed, sizeBefore, sizeAfter };
+}
+
+export interface CompactResult {
+    pruned: number;
+    patternsDecayed: number;
+    sizeBefore: number;
+    sizeAfter: number;
+}
+
+/**
+ * Get database file size in bytes. Returns 0 if DB doesn't exist.
+ */
+export function getDatabaseSize(): number {
+    return fs.existsSync(DB_PATH) ? fs.statSync(DB_PATH).size : 0;
+}
+
+/**
+ * Reset the database — delete and recreate from scratch.
+ */
+export function resetDatabase(): void {
+    if (fs.existsSync(DB_PATH)) fs.removeSync(DB_PATH);
+    if (fs.existsSync(DB_PATH + '-wal')) fs.removeSync(DB_PATH + '-wal');
+    if (fs.existsSync(DB_PATH + '-shm')) fs.removeSync(DB_PATH + '-shm');
 }
 
 /**

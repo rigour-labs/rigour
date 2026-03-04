@@ -20,8 +20,11 @@ export { MODELS } from './inference/types.js';
 export { isModelCached, getModelsDir, getModelInfo } from './inference/model-manager.js';
 export { extractFacts, factsToPromptString } from './deep/fact-extractor.js';
 // Storage (SQLite Brain)
-export { openDatabase, isSQLiteAvailable, insertScan, insertFindings, getRecentScans, getScoreTrendFromDB, getTopIssues, reinforcePattern, getStrongPatterns } from './storage/index.js';
-export type { RigourDB } from './storage/index.js';
+export { openDatabase, isSQLiteAvailable, compactDatabase, getDatabaseSize, resetDatabase, insertScan, insertFindings, getRecentScans, getScoreTrendFromDB, getTopIssues, reinforcePattern, getStrongPatterns } from './storage/index.js';
+export type { RigourDB, CompactResult } from './storage/index.js';
+// Local Project Memory (hybrid intelligence — SQLite-backed per-project learning)
+export { checkLocalPatterns, persistAndReinforce, getProjectStats } from './storage/index.js';
+export type { ProjectStats } from './storage/index.js';
 // Pattern Index is intentionally NOT exported here to prevent
 // native dependency issues (sharp/transformers) from leaking into
 // non-AI parts of the system.

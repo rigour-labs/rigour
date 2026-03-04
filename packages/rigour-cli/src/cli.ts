@@ -14,6 +14,7 @@ import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
+import { brainCommand } from './commands/brain.js';
 import { checkForUpdates } from './utils/version.js';
 import { getCliVersion } from './utils/cli-version.js';
 import chalk from 'chalk';
@@ -24,6 +25,7 @@ const program = new Command();
 
 program.addCommand(indexCommand);
 program.addCommand(studioCommand);
+program.addCommand(brainCommand);
 
 program
     .name('rigour')

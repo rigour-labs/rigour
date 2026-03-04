@@ -1,6 +1,7 @@
 import { Gate } from './base.js';
 import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
 import { DeepAnalysisGate } from './deep-analysis.js';
+import { persistAndReinforce } from '../storage/local-memory.js';
 import { FileGate } from './file.js';
 import { ContentGate } from './content.js';
 import { StructureGate } from './structure.js';
@@ -284,7 +285,8 @@ export class GateRunner {
             }
         }
 
-        return {
+        // Persist findings + reinforce patterns in local SQLite (fire-and-forget)
+        const report: Report = {
             status,
             summary,
             failures,
@@ -299,5 +301,17 @@ export class GateRunner {
                 ...(deepStats ? { deep: deepStats } : {}),
             },
         };
+
+        // Store findings + reinforce patterns in local SQLite (non-blocking)
+        try {
+            persistAndReinforce(cwd, report, deepStats ? {
+                deepTier: deepStats.tier,
+                deepModel: deepStats.model,
+            } : undefined);
+        } catch {
+            // Silent — local memory is advisory, never blocks scans
+        }
+
+        return report;
     }
 }

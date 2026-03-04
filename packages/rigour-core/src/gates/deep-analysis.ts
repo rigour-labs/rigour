@@ -12,6 +12,7 @@ import { Gate, GateContext } from './base.js';
 import { Failure, Provenance, DeepOptions } from '../types/index.js';
 import { createProvider, type InferenceProvider, type DeepFinding } from '../inference/index.js';
 import { extractFacts, factsToPromptString, chunkFacts, buildAnalysisPrompt, buildCrossFilePrompt, verifyFindings } from '../deep/index.js';
+import { checkLocalPatterns } from '../storage/local-memory.js';
 import { Logger } from '../utils/logger.js';
 
 /** Max files to analyze before truncating (prevents OOM on huge repos) */
@@ -89,9 +90,16 @@ export class DeepAnalysisGate extends Gate {
 
             onProgress?.(`  Found ${allFacts.length} files to analyze${agentCount > 1 ? ` with ${agentCount} parallel agents` : ''}.`);
 
+            // Step 1.5: Check local project memory for known patterns (instant, no LLM)
+            const fileList = allFacts.map(f => f.path).filter(Boolean);
+            const localFindings = checkLocalPatterns(context.cwd, fileList);
+            if (localFindings.length > 0) {
+                onProgress?.(`  🧠 Local memory: ${localFindings.length} known pattern(s) matched instantly.`);
+            }
+
             // Step 2: LLM interprets facts (in chunks)
             const chunks = chunkFacts(allFacts);
-            const allFindings: DeepFinding[] = [];
+            const allFindings: DeepFinding[] = [...localFindings];
             let failedChunks = 0;
 
             if (agentCount > 1 && isCloud) {

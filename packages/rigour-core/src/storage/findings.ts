@@ -45,13 +45,14 @@ export function getFindingsForScan(store: RigourDB, scanId: string): any[] {
 }
 
 /**
- * Get all deep analysis findings for a repo.
+ * Get deep analysis and high-confidence AST findings for a repo.
+ * Used by local memory to match known patterns against new scans.
  */
 export function getDeepFindings(store: RigourDB, repo: string, limit = 50): any[] {
     const stmt = store.db.prepare(`
         SELECT f.* FROM findings f
         JOIN scans s ON f.scan_id = s.id
-        WHERE s.repo = ? AND f.source = 'llm'
+        WHERE s.repo = ? AND (f.source = 'llm' OR f.source = 'hybrid' OR f.confidence >= 0.7)
         ORDER BY f.confidence DESC LIMIT ?
     `);
     return stmt.all(repo, limit);
