@@ -7,6 +7,7 @@ export * from './types/fix-packet.js';
 export { Gate, GateContext } from './gates/base.js';
 export { RetryLoopBreakerGate } from './gates/retry-loop-breaker.js';
 export { SideEffectAnalysisGate } from './gates/side-effect-analysis.js';
+export { FrontendSecretExposureGate } from './gates/frontend-secret-exposure.js';
 export * from './utils/logger.js';
 export * from './services/score-history.js';
 export * from './hooks/index.js';

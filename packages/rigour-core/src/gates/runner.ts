@@ -16,6 +16,7 @@ import { RetryLoopBreakerGate } from './retry-loop-breaker.js';
 import { AgentTeamGate } from './agent-team.js';
 import { CheckpointGate } from './checkpoint.js';
 import { SecurityPatternsGate } from './security-patterns.js';
+import { FrontendSecretExposureGate } from './frontend-secret-exposure.js';
 import { DuplicationDriftGate } from './duplication-drift.js';
 import { HallucinatedImportsGate } from './hallucinated-imports.js';
 import { InconsistentErrorHandlingGate } from './inconsistent-error-handling.js';
@@ -75,6 +76,10 @@ export class GateRunner {
         // Security Patterns Gate (code-level vulnerability detection) — enabled by default since v2.15
         if (this.config.gates.security?.enabled !== false) {
             this.gates.push(new SecurityPatternsGate(this.config.gates.security));
+        }
+
+        if (this.config.gates.frontend_secret_exposure?.enabled !== false) {
+            this.gates.push(new FrontendSecretExposureGate(this.config.gates.frontend_secret_exposure));
         }
 
         // v2.16+ AI-Native Drift Detection Gates (enabled by default)
