@@ -84,11 +84,41 @@ export interface ModelInfo {
     sizeHuman: string;    // e.g. "350MB"
 }
 
+/**
+ * Model version — bump when new fine-tuned GGUF is published.
+ * The RLAIF pipeline uploads new models to HuggingFace, and
+ * model-manager checks this version to auto-update.
+ */
+export const MODEL_VERSION = '1';
+
 /** All supported model definitions */
 export const MODELS: Record<ModelTier, ModelInfo> = {
     deep: {
         tier: 'deep',
-        name: 'Qwen2.5-Coder-0.5B-Instruct',
+        name: 'Rigour-Deep-v1 (Qwen2.5-Coder-0.5B fine-tuned)',
+        filename: `rigour-deep-v${MODEL_VERSION}-q4_k_m.gguf`,
+        url: `https://huggingface.co/rigour-labs/rigour-deep-v1-gguf/resolve/main/rigour-deep-v${MODEL_VERSION}-q4_k_m.gguf`,
+        sizeBytes: 350_000_000,
+        sizeHuman: '350MB',
+    },
+    pro: {
+        tier: 'pro',
+        name: 'Rigour-Pro-v1 (Qwen2.5-Coder-1.5B fine-tuned)',
+        filename: `rigour-pro-v${MODEL_VERSION}-q4_k_m.gguf`,
+        url: `https://huggingface.co/rigour-labs/rigour-pro-v1-gguf/resolve/main/rigour-pro-v${MODEL_VERSION}-q4_k_m.gguf`,
+        sizeBytes: 900_000_000,
+        sizeHuman: '900MB',
+    },
+};
+
+/**
+ * Fallback stock models — used when fine-tuned model is not yet
+ * available on HuggingFace (initial setup / first-time users).
+ */
+export const FALLBACK_MODELS: Record<ModelTier, ModelInfo> = {
+    deep: {
+        tier: 'deep',
+        name: 'Qwen2.5-Coder-0.5B-Instruct (stock)',
         filename: 'qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
         url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
         sizeBytes: 350_000_000,
@@ -96,7 +126,7 @@ export const MODELS: Record<ModelTier, ModelInfo> = {
     },
     pro: {
         tier: 'pro',
-        name: 'Qwen2.5-Coder-1.5B-Instruct',
+        name: 'Qwen2.5-Coder-1.5B-Instruct (stock)',
         filename: 'qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
         url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
         sizeBytes: 900_000_000,

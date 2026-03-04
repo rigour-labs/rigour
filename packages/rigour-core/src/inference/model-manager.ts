@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import { createHash } from 'crypto';
 import { RIGOUR_DIR } from '../storage/db.js';
-import { MODELS, type ModelTier, type ModelInfo } from './types.js';
+import { MODELS, FALLBACK_MODELS, type ModelTier, type ModelInfo } from './types.js';
 
 const MODELS_DIR = path.join(RIGOUR_DIR, 'models');
 const SHA256_RE = /^[a-f0-9]{64}$/i;
@@ -19,8 +19,8 @@ interface ModelCacheMetadata {
     sourceEtag?: string;
 }
 
-function getModelMetadataPath(tier: ModelTier): string {
-    return path.join(MODELS_DIR, MODELS[tier].filename + '.meta.json');
+function getModelMetadataPath(filename: string): string {
+    return path.join(MODELS_DIR, filename + '.meta.json');
 }
 
 function isValidMetadata(raw: any): raw is ModelCacheMetadata {
@@ -47,18 +47,15 @@ export async function hashFileSha256(filePath: string): Promise<string> {
     return hash.digest('hex');
 }
 
-async function writeModelMetadata(tier: ModelTier, metadata: ModelCacheMetadata): Promise<void> {
-    const metadataPath = getModelMetadataPath(tier);
-    await fs.writeJson(metadataPath, metadata, { spaces: 2 });
+async function writeModelMeta(filename: string, metadata: ModelCacheMetadata): Promise<void> {
+    await fs.writeJson(getModelMetadataPath(filename), metadata, { spaces: 2 });
 }
 
-async function readModelMetadata(tier: ModelTier): Promise<ModelCacheMetadata | null> {
-    const metadataPath = getModelMetadataPath(tier);
-    if (!(await fs.pathExists(metadataPath))) {
-        return null;
-    }
+async function readModelMeta(filename: string): Promise<ModelCacheMetadata | null> {
+    const p = getModelMetadataPath(filename);
+    if (!(await fs.pathExists(p))) return null;
     try {
-        const raw = await fs.readJson(metadataPath);
+        const raw = await fs.readJson(p);
         return isValidMetadata(raw) ? raw : null;
     } catch {
         return null;
@@ -66,17 +63,13 @@ async function readModelMetadata(tier: ModelTier): Promise<ModelCacheMetadata | 
 }
 
 /**
- * Check if a model is already downloaded and valid.
+ * Check if a single model file is cached and valid.
  */
-export async function isModelCached(tier: ModelTier): Promise<boolean> {
-    const model = MODELS[tier];
+async function isFileCached(model: ModelInfo): Promise<boolean> {
     const modelPath = path.join(MODELS_DIR, model.filename);
     if (!(await fs.pathExists(modelPath))) return false;
-
-    const metadata = await readModelMetadata(tier);
+    const metadata = await readModelMeta(model.filename);
     if (!metadata) return false;
-
-    // Size check + "changed since verification" check.
     const stat = await fs.stat(modelPath);
     const tolerance = model.sizeBytes * 0.1;
     if (stat.size <= model.sizeBytes - tolerance) return false;
@@ -86,10 +79,21 @@ export async function isModelCached(tier: ModelTier): Promise<boolean> {
 }
 
 /**
- * Get the path to a cached model.
+ * Check if any model for this tier is cached (fine-tuned or fallback).
+ */
+export async function isModelCached(tier: ModelTier): Promise<boolean> {
+    if (await isFileCached(MODELS[tier])) return true;
+    const fb = FALLBACK_MODELS[tier];
+    return fb.url !== MODELS[tier].url && await isFileCached(fb);
+}
+
+/**
+ * Get the path to a cached model (prefers fine-tuned over fallback).
  */
 export function getModelPath(tier: ModelTier): string {
-    return path.join(MODELS_DIR, MODELS[tier].filename);
+    const primary = path.join(MODELS_DIR, MODELS[tier].filename);
+    if (fs.pathExistsSync(primary)) return primary;
+    return path.join(MODELS_DIR, FALLBACK_MODELS[tier].filename);
 }
 
 /**
@@ -100,96 +104,131 @@ export function getModelInfo(tier: ModelTier): ModelInfo {
 }
 
 /**
- * Download a model from HuggingFace CDN.
- * Calls onProgress with status updates.
+ * Stream a response body to disk with progress + SHA256.
+ * Returns { sha256, downloaded } on success.
  */
-export async function downloadModel(
-    tier: ModelTier,
-    onProgress?: (message: string, percent?: number) => void
-): Promise<string> {
-    const model = MODELS[tier];
-    const destPath = path.join(MODELS_DIR, model.filename);
-    const tempPath = destPath + '.download';
+async function streamToDisk(
+    response: Response,
+    tempPath: string,
+    model: ModelInfo,
+    onProgress?: (message: string, percent?: number) => void,
+): Promise<{ sha256: string; downloaded: number }> {
+    const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
 
-    fs.ensureDirSync(MODELS_DIR);
+    const writeStream = fs.createWriteStream(tempPath);
+    const hash = createHash('sha256');
+    let downloaded = 0;
+    let lastPct = 0;
 
-    // Already cached
-    if (await isModelCached(tier)) {
-        onProgress?.(`Model ${model.name} already cached`, 100);
-        return destPath;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = Buffer.from(value);
+        writeStream.write(chunk);
+        hash.update(chunk);
+        downloaded += value.length;
+        if (contentLength > 0) {
+            const pct = Math.round((downloaded / contentLength) * 100);
+            if (pct >= lastPct + 5) {
+                lastPct = pct;
+                onProgress?.(`Downloading ${model.name}: ${pct}%`, pct);
+            }
+        }
     }
 
-    onProgress?.(`Downloading ${model.name} (${model.sizeHuman})...`, 0);
+    writeStream.end();
+    await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+    });
+
+    return { sha256: hash.digest('hex'), downloaded };
+}
+
+/**
+ * Verify SHA256 against ETag, allowing LFS OID mismatches
+ * if the download size is reasonable.
+ */
+function verifySha256(
+    expectedSha256: string | null, actualSha256: string,
+    downloaded: number, model: ModelInfo,
+): void {
+    if (!expectedSha256 || actualSha256 === expectedSha256) return;
+    const tolerance = model.sizeBytes * 0.1;
+    if (downloaded < model.sizeBytes - tolerance) {
+        throw new Error(
+            `Checksum mismatch for ${model.name}: ` +
+            `expected ${expectedSha256}, got ${actualSha256} ` +
+            `(undersized: ${downloaded} bytes)`
+        );
+    }
+    // Size OK — ETag likely a Git LFS OID, not content SHA256
+}
+
+/**
+ * Download a specific model from its URL, write to disk, save metadata.
+ */
+async function downloadFromUrl(
+    tier: ModelTier,
+    model: ModelInfo,
+    onProgress?: (message: string, percent?: number) => void,
+): Promise<string> {
+    const destPath = path.join(MODELS_DIR, model.filename);
+    const tempPath = destPath + '.download';
 
     try {
         const response = await fetch(model.url);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        const expectedSha256 = extractSha256FromEtag(response.headers.get('etag'));
+        const expectedSha = extractSha256FromEtag(response.headers.get('etag'));
+        const { sha256, downloaded } = await streamToDisk(response, tempPath, model, onProgress);
+        verifySha256(expectedSha, sha256, downloaded, model);
 
-        const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error('No response body');
-
-        const writeStream = fs.createWriteStream(tempPath);
-        const hash = createHash('sha256');
-        let downloaded = 0;
-        let lastProgressPercent = 0;
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = Buffer.from(value);
-            writeStream.write(chunk);
-            hash.update(chunk);
-            downloaded += value.length;
-
-            if (contentLength > 0) {
-                const percent = Math.round((downloaded / contentLength) * 100);
-                if (percent >= lastProgressPercent + 5) { // Report every 5%
-                    lastProgressPercent = percent;
-                    onProgress?.(`Downloading ${model.name}: ${percent}%`, percent);
-                }
-            }
-        }
-
-        writeStream.end();
-        await new Promise<void>((resolve, reject) => {
-            writeStream.on('finish', resolve);
-            writeStream.on('error', reject);
-        });
-
-        const actualSha256 = hash.digest('hex');
-        if (expectedSha256 && actualSha256 !== expectedSha256) {
-            // HuggingFace ETags for LFS files may contain the Git LFS OID (pointer hash)
-            // rather than the SHA256 of the actual served bytes. This is common when
-            // CDN/Cloudfront serves the file. Only hard-fail if the download is also
-            // suspiciously small (likely corrupt). Otherwise warn and proceed — the
-            // actual content hash is still recorded in metadata for future verification.
-            const tolerance = model.sizeBytes * 0.1;
-            if (downloaded < model.sizeBytes - tolerance) {
-                throw new Error(`Model checksum mismatch for ${model.name}: expected ${expectedSha256}, got ${actualSha256} (download also undersized: ${downloaded} bytes)`);
-            }
-            // Download size is reasonable — ETag likely a Git LFS OID, not content SHA256
-        }
-
-        // Atomic rename
         fs.renameSync(tempPath, destPath);
-        await writeModelMetadata(tier, {
-            sha256: actualSha256,
-            sizeBytes: downloaded,
+        await writeModelMeta(model.filename, {
+            sha256, sizeBytes: downloaded,
             verifiedAt: new Date().toISOString(),
             sourceUrl: model.url,
             sourceEtag: response.headers.get('etag') || undefined,
         });
         onProgress?.(`Model ${model.name} ready`, 100);
-
         return destPath;
     } catch (error) {
-        // Clean up temp file on failure
         fs.removeSync(tempPath);
+        throw error;
+    }
+}
+
+/**
+ * Download a model from HuggingFace CDN.
+ * Tries fine-tuned model first, falls back to stock Qwen if unavailable.
+ */
+export async function downloadModel(
+    tier: ModelTier,
+    onProgress?: (message: string, percent?: number) => void
+): Promise<string> {
+    fs.ensureDirSync(MODELS_DIR);
+
+    if (await isModelCached(tier)) {
+        onProgress?.(`Model ${MODELS[tier].name} already cached`, 100);
+        return getModelPath(tier);
+    }
+
+    const model = MODELS[tier];
+    onProgress?.(`Downloading ${model.name} (${model.sizeHuman})...`, 0);
+
+    try {
+        return await downloadFromUrl(tier, model, onProgress);
+    } catch (error) {
+        // Fine-tuned model not available — try stock fallback
+        const fallback = FALLBACK_MODELS[tier];
+        if (fallback && fallback.url !== model.url) {
+            onProgress?.(`Fine-tuned model unavailable, using ${fallback.name}`, 0);
+            return downloadFromUrl(tier, fallback, onProgress);
+        }
         throw error;
     }
 }
