@@ -32,7 +32,7 @@ export class SidecarProvider implements InferenceProvider {
     private tier: ModelTier;
     private threads: number;
 
-    constructor(tier: ModelTier = 'deep', threads = 4) {
+    constructor(tier: ModelTier = 'lite', threads = 4) {
         this.tier = tier;
         this.threads = threads;
     }

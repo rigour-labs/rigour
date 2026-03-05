@@ -29,14 +29,14 @@ export const TOOL_DEFINITIONS = [
     // ─── Core Quality Gates ───────────────────────────────
     {
         name: "rigour_check",
-        description: "Run quality gate checks on the project. Deep modes: off (fast deterministic gates only), quick (deep enabled with standard local tier unless cloud provider is configured), full (deep enabled, optional pro model).",
+        description: "Run quality gate checks on the project. Deep modes: off (fast deterministic gates only), quick (deep enabled with lite local model unless cloud provider is configured), full (deep enabled, optional pro flag for full deep model).",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
                 files: { type: "array", items: { type: "string" }, description: "Optional file paths (relative to cwd) to limit scan scope for both deterministic and deep checks." },
-                deep: { type: "string", enum: ["off", "quick", "full"], description: "Deep mode: 'off' (default), 'quick' (deep enabled with standard model), 'full' (deep enabled, combine with pro=true for larger local model)." },
-                pro: { type: "boolean", description: "Use larger local deep model tier when deep is enabled." },
+                deep: { type: "string", enum: ["off", "quick", "full"], description: "Deep mode: 'off' (default), 'quick' (deep enabled with lite model), 'full' (deep enabled, combine with pro=true for full deep model)." },
+                pro: { type: "boolean", description: "Use full deep model (Qwen2.5-Coder-1.5B) instead of lite (Qwen3.5-0.8B) when deep is enabled." },
                 apiKey: { type: "string", description: "Optional cloud API key for deep analysis." },
                 provider: { type: "string", description: "Cloud provider for deep analysis (claude, openai, gemini, groq, mistral, together, deepseek, ollama, etc.)." },
                 apiBaseUrl: { type: "string", description: "Custom API base URL for self-hosted/proxy deep endpoints." },
@@ -469,12 +469,12 @@ export const TOOL_DEFINITIONS = [
     // ─── Deep Analysis (v4.0+) ──────────────────────────────
     {
         name: "rigour_check_deep",
-        description: "Run quality gates WITH deep LLM-powered analysis. Three-step pipeline: AST extracts facts → LLM interprets → AST verifies. Local-first by default (Qwen2.5-Coder), or bring your own API key for any cloud provider.",
+        description: "Run quality gates WITH deep LLM-powered analysis. Three-step pipeline: AST extracts facts → LLM interprets → AST verifies. Local-first by default (Qwen3.5-0.8B lite sidecar), or bring your own API key for any cloud provider.",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
-                pro: { type: "boolean", description: "Use the larger 1.5B model (--pro tier). Default: false (0.5B model)." },
+                pro: { type: "boolean", description: "Use full deep model (Qwen2.5-Coder-1.5B) instead of default lite model (Qwen3.5-0.8B)." },
                 apiKey: { type: "string", description: "API key for cloud LLM provider. If provided, uses cloud instead of local sidecar." },
                 provider: { type: "string", description: "Cloud provider name (e.g., 'claude', 'openai', 'gemini', 'groq', 'mistral', 'together', 'fireworks', 'deepseek', 'perplexity', 'ollama', 'lmstudio'). Default: 'claude' when apiKey is provided." },
                 apiBaseUrl: { type: "string", description: "Custom API base URL for self-hosted or proxy endpoints." },

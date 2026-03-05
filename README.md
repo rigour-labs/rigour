@@ -100,11 +100,13 @@ The original Rigour — deterministic PASS/FAIL gates that catch AI-generated co
 Optional LLM layer for SOLID principles, design patterns, language idioms, architecture review:
 
 ```bash
-rigour check --deep           # Local Qwen2.5-Coder-0.5B (350MB one-time download)
-rigour check --deep --pro     # Local Qwen2.5-Coder-1.5B (900MB)
+rigour check --deep           # Local Qwen3.5-0.8B lite (500MB one-time download)
+rigour check --deep --pro     # Local Qwen2.5-Coder-1.5B deep (900MB, company-hosted)
 rigour check --deep --provider claude -k sk-ant-xxx  # Cloud BYOK
 rigour scan --deep            # Zero-config + deep (no rigour.yml required)
 ```
+
+**Two model tiers:** The **lite** model (Qwen3.5-0.8B) ships as the default sidecar — runs on any laptop CPU. The **deep** model (Qwen2.5-Coder-1.5B) is the full-power version with code-specialized pretraining — companies host this for their team via `--pro`. Both are fine-tuned via the [DriftBench RLAIF pipeline](https://github.com/rigour-labs/driftbench).
 
 ### Rigour Brain — Local Project Memory
 
@@ -117,7 +119,7 @@ rigour brain --compact --retain 30    # Keep only last 30 days
 rigour brain --reset                  # Wipe all memory and start fresh
 ```
 
-**How it works:** scan → store findings in SQLite → reinforce patterns (+0.15 per sighting) → decay stale patterns (-0.05 after 30 days unseen) → prune dead patterns (< 0.1) → promote to hard rules (≥ 0.9). The central GGUF model provides general code knowledge; local memory provides project-specific history. Two sources of truth, code never leaves your machine.
+**How it works:** scan → store findings in SQLite → reinforce patterns (+0.15 per sighting) → decay stale patterns (-0.05 after 30 days unseen) → prune dead patterns (< 0.1) → promote to hard rules (≥ 0.9). The local GGUF model (lite or deep) provides general code knowledge; local memory provides project-specific history. Two sources of truth, code never leaves your machine.
 
 **Compression:** Memory does not grow unbounded. Automatic decay prunes weak patterns every scan. `rigour brain --compact` deletes old findings beyond the retention window (default 90 days), removes patterns that never grew (strength < 0.3, seen < 3 times), cleans orphaned records, and runs SQLite VACUUM to reclaim disk space.
 
@@ -127,8 +129,8 @@ Point Rigour at any repo — no config file needed. Auto-detects stack, applies 
 
 ```bash
 npx @rigour-labs/cli scan                     # AST-only, instant
-npx @rigour-labs/cli scan --deep              # + local LLM analysis (350MB one-time)
-npx @rigour-labs/cli scan --deep --pro        # + larger model (900MB, higher quality)
+npx @rigour-labs/cli scan --deep              # + local LLM analysis (lite, 500MB one-time)
+npx @rigour-labs/cli scan --deep --pro        # + full deep model (900MB, code-specialized)
 npx @rigour-labs/cli scan --deep -k sk-xxx    # + Claude API (BYOK)
 ```
 
@@ -204,8 +206,8 @@ rigour scan --deep -k sk-ant-xxx                         # Zero-config + Claude 
 rigour init                                              # Set up config, hooks, DLP, governance
 rigour check                                             # Full repository gates
 rigour check --ci                                        # CI mode (minimal output)
-rigour check --deep                                      # + local LLM analysis
-rigour check --deep --pro                                # + larger local model
+rigour check --deep                                      # + local LLM (lite: Qwen3.5-0.8B)
+rigour check --deep --pro                                # + full deep model (Qwen2.5-Coder-1.5B)
 rigour hooks init                                        # Install real-time hooks
 rigour hooks check --files src/app.ts                    # Fast file check
 rigour demo --cinematic --repo <github-url>              # Live demo on any repo
@@ -219,9 +221,10 @@ rigour doctor                                            # Diagnose install + de
 Rigour supports two deep-analysis paths:
 
 ### 1) Local deep (`--deep`, `--deep --pro`)
-- Uses local sidecar + local models
-- Intended for local/private execution
-- First run may download model assets
+- `--deep` uses the **lite** model (Qwen3.5-0.8B, 500MB) — default sidecar, runs on any CPU
+- `--deep --pro` uses the **deep** model (Qwen2.5-Coder-1.5B, 900MB) — code-specialized, higher accuracy
+- Both are fine-tuned via RLAIF (SFT + DPO on code quality findings)
+- First run downloads model assets once to `~/.rigour/models/`
 
 ### 2) Cloud deep (`--deep --provider ... -k ...`)
 - Uses your configured provider API
@@ -231,8 +234,10 @@ Rigour supports two deep-analysis paths:
 Examples:
 
 ```bash
-# Local (force local even if API keys are configured)
+# Local lite (default — lightweight, any CPU)
 rigour check --deep --provider local
+
+# Local deep (full power — code-specialized, company-hosted)
 rigour check --deep --pro --provider local
 
 # Cloud

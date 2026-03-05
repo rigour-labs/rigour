@@ -27,6 +27,8 @@ export function createProvider(options: DeepOptions): InferenceProvider {
     }
 
     // Default: local sidecar
-    const tier = options.pro ? 'pro' : 'deep';
+    // deep = Qwen2.5-Coder-1.5B (full power, company-hosted)
+    // lite = Qwen3.5-0.8B (lightweight, default CLI sidecar)
+    const tier = options.pro ? 'deep' : 'lite';
     return new SidecarProvider(tier);
 }

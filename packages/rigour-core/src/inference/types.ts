@@ -69,8 +69,12 @@ export interface DeepAnalysisResult {
 
 /**
  * Available model tiers.
+ *
+ * - deep: Qwen2.5-Coder-1.5B fine-tuned — full power, company-hosted
+ * - lite: Qwen3.5-0.8B fine-tuned — lightweight, ships as default CLI sidecar
+ * - legacy: Qwen2.5-Coder-0.5B fine-tuned — previous default, reproducibility
  */
-export type ModelTier = 'deep' | 'pro';
+export type ModelTier = 'deep' | 'lite' | 'legacy';
 
 /**
  * Model info for download/caching.
@@ -95,19 +99,27 @@ export const MODEL_VERSION = '1';
 export const MODELS: Record<ModelTier, ModelInfo> = {
     deep: {
         tier: 'deep',
-        name: 'Rigour-Deep-v1 (Qwen2.5-Coder-0.5B fine-tuned)',
+        name: 'Rigour-Deep-v1 (Qwen2.5-Coder-1.5B fine-tuned)',
         filename: `rigour-deep-v${MODEL_VERSION}-q4_k_m.gguf`,
         url: `https://huggingface.co/rigour-labs/rigour-deep-v1-gguf/resolve/main/rigour-deep-v${MODEL_VERSION}-q4_k_m.gguf`,
-        sizeBytes: 350_000_000,
-        sizeHuman: '350MB',
-    },
-    pro: {
-        tier: 'pro',
-        name: 'Rigour-Pro-v1 (Qwen2.5-Coder-1.5B fine-tuned)',
-        filename: `rigour-pro-v${MODEL_VERSION}-q4_k_m.gguf`,
-        url: `https://huggingface.co/rigour-labs/rigour-pro-v1-gguf/resolve/main/rigour-pro-v${MODEL_VERSION}-q4_k_m.gguf`,
         sizeBytes: 900_000_000,
         sizeHuman: '900MB',
+    },
+    lite: {
+        tier: 'lite',
+        name: 'Rigour-Lite-v1 (Qwen3.5-0.8B fine-tuned)',
+        filename: `rigour-lite-v${MODEL_VERSION}-q4_k_m.gguf`,
+        url: `https://huggingface.co/rigour-labs/rigour-lite-v1-gguf/resolve/main/rigour-lite-v${MODEL_VERSION}-q4_k_m.gguf`,
+        sizeBytes: 500_000_000,
+        sizeHuman: '500MB',
+    },
+    legacy: {
+        tier: 'legacy',
+        name: 'Rigour-Legacy-v1 (Qwen2.5-Coder-0.5B fine-tuned)',
+        filename: `rigour-legacy-v${MODEL_VERSION}-q4_k_m.gguf`,
+        url: `https://huggingface.co/rigour-labs/rigour-legacy-v1-gguf/resolve/main/rigour-legacy-v${MODEL_VERSION}-q4_k_m.gguf`,
+        sizeBytes: 350_000_000,
+        sizeHuman: '350MB',
     },
 };
 
@@ -118,18 +130,26 @@ export const MODELS: Record<ModelTier, ModelInfo> = {
 export const FALLBACK_MODELS: Record<ModelTier, ModelInfo> = {
     deep: {
         tier: 'deep',
-        name: 'Qwen2.5-Coder-0.5B-Instruct (stock)',
-        filename: 'qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
-        url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
-        sizeBytes: 350_000_000,
-        sizeHuman: '350MB',
-    },
-    pro: {
-        tier: 'pro',
         name: 'Qwen2.5-Coder-1.5B-Instruct (stock)',
         filename: 'qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
         url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
         sizeBytes: 900_000_000,
         sizeHuman: '900MB',
+    },
+    lite: {
+        tier: 'lite',
+        name: 'Qwen3.5-0.8B (stock)',
+        filename: 'qwen3.5-0.8b-q4_k_m.gguf',
+        url: 'https://huggingface.co/Qwen/Qwen3.5-0.8B-GGUF/resolve/main/qwen3.5-0.8b-q4_k_m.gguf',
+        sizeBytes: 500_000_000,
+        sizeHuman: '500MB',
+    },
+    legacy: {
+        tier: 'legacy',
+        name: 'Qwen2.5-Coder-0.5B-Instruct (stock)',
+        filename: 'qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
+        url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
+        sizeBytes: 350_000_000,
+        sizeHuman: '350MB',
     },
 };

@@ -28,7 +28,7 @@ describe('handleCheck deep routing', () => {
             ...baseReport,
             stats: {
                 ...baseReport.stats,
-                deep: { enabled: true, tier: 'deep', model: 'Qwen2.5-Coder-0.5B' },
+                deep: { enabled: true, tier: 'lite', model: 'Qwen3.5-0.8B' },
             },
         });
         const runner = { run } as any;

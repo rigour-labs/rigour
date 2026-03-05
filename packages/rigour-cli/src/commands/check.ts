@@ -148,7 +148,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                 if (db) {
                     const repoName = path.basename(cwd);
                     const scanId = insertScan(db, repoName, report, {
-                        deepTier: report.stats.deep?.tier || (options.pro ? 'pro' : (resolvedDeepMode?.isLocal ? 'deep' : 'cloud')),
+                        deepTier: report.stats.deep?.tier || (options.pro ? 'deep' : (resolvedDeepMode?.isLocal ? 'lite' : 'cloud')),
                         deepModel: report.stats.deep?.model,
                     });
                     insertFindings(db, scanId, report.failures);

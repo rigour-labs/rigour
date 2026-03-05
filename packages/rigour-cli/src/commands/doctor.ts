@@ -117,13 +117,13 @@ export async function doctorCommand(): Promise<void> {
     const provider = createProvider({ enabled: true, provider: 'local' } as any);
     const sidecarAvailable = await provider.isAvailable();
     provider.dispose();
+    const liteModelCached = await isModelCached('lite');
     const deepModelCached = await isModelCached('deep');
-    const proModelCached = await isModelCached('pro');
     console.log(`  - Local inference binary: ${sidecarAvailable ? chalk.green('ready') : chalk.yellow('missing')}`);
-    console.log(`  - Local deep model cache: ${deepModelCached ? chalk.green('ready') : chalk.yellow('not cached')}`);
-    console.log(`  - Local pro model cache: ${proModelCached ? chalk.green('ready') : chalk.dim('not cached')}`);
+    console.log(`  - Local lite model cache: ${liteModelCached ? chalk.green('ready') : chalk.yellow('not cached')}`);
+    console.log(`  - Local deep model cache: ${deepModelCached ? chalk.green('ready') : chalk.dim('not cached')}`);
 
-    if (!sidecarAvailable || !deepModelCached) {
+    if (!sidecarAvailable || !liteModelCached) {
         console.log(chalk.dim('\n  Local bootstrap command: rigour check --deep --provider local'));
     }
 

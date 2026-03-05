@@ -37,7 +37,7 @@ export function persistDeepResults(cwd: string, report: Report, isDeep: boolean,
             if (!db) return;
             const repoName = require('path').basename(cwd);
             const scanId = insertScan(db, repoName, report, {
-                deepTier: (report as any).stats.deep?.tier || (options.pro ? 'pro' : 'deep'),
+                deepTier: (report as any).stats.deep?.tier || (options.pro ? 'deep' : 'lite'),
                 deepModel: (report as any).stats.deep?.model,
             });
             insertFindings(db, scanId, report.failures);

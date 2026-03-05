@@ -225,15 +225,15 @@ export class GateRunner {
 
                 const isLocalDeepExecution =
                     !deepOptions.apiKey || (deepOptions.provider || '').toLowerCase() === 'local';
-                const deepTier: 'deep' | 'pro' | 'cloud' = isLocalDeepExecution
-                    ? (deepOptions.pro ? 'pro' : 'deep')
+                const deepTier: 'deep' | 'lite' | 'cloud' = isLocalDeepExecution
+                    ? (deepOptions.pro ? 'deep' : 'lite')
                     : 'cloud';
 
                 deepStats = {
                     enabled: true,
                     tier: deepTier,
                     model: isLocalDeepExecution
-                        ? (deepOptions.pro ? 'Qwen2.5-Coder-1.5B' : 'Qwen2.5-Coder-0.5B')
+                        ? (deepOptions.pro ? 'Qwen2.5-Coder-1.5B' : 'Qwen3.5-0.8B')
                         : (deepOptions.modelName || deepOptions.provider || 'cloud'),
                     total_ms: Date.now() - deepSetupStart,
                     findings_count: deepFailures.length,

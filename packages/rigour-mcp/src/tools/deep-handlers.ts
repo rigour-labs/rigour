@@ -60,7 +60,7 @@ export async function handleCheckDeep(
             if (db) {
                 const repoName = path.basename(cwd);
                 const scanId = insertScan(db, repoName, report, {
-                    deepTier: args.pro ? 'pro' : (execution.isLocal ? 'deep' : 'cloud'),
+                    deepTier: args.pro ? 'deep' : (execution.isLocal ? 'lite' : 'cloud'),
                     deepModel: report.stats.deep?.model,
                 });
                 insertFindings(db, scanId, report.failures);

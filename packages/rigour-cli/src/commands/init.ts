@@ -450,12 +450,12 @@ async function checkPrerequisites(): Promise<void> {
     }
 
     // Check 2: Local model availability
+    const hasLiteModel = await isModelCached('lite');
     const hasDeepModel = await isModelCached('deep');
-    const hasProModel = await isModelCached('pro');
-    if (hasDeepModel || hasProModel) {
+    if (hasLiteModel || hasDeepModel) {
         const models = [];
-        if (hasDeepModel) models.push('deep (350MB)');
-        if (hasProModel) models.push('pro (900MB)');
+        if (hasLiteModel) models.push('lite (500MB)');
+        if (hasDeepModel) models.push('deep (900MB)');
         console.log(chalk.green(`  ✔ Local models cached: ${models.join(', ')}`));
     } else {
         console.log(chalk.yellow('  ○ No local models cached'));

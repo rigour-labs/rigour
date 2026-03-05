@@ -30,7 +30,7 @@ describe('GateRunner deep stats execution mode', () => {
         } as any);
     }
 
-    it('reports local deep tier when provider=local even with apiKey', async () => {
+    it('reports local lite tier when provider=local even with apiKey', async () => {
         vi.spyOn(DeepAnalysisGate.prototype, 'run').mockResolvedValue([]);
         const runner = createRunner();
 
@@ -41,11 +41,11 @@ describe('GateRunner deep stats execution mode', () => {
             pro: false,
         });
 
-        expect(report.stats.deep?.tier).toBe('deep');
-        expect(report.stats.deep?.model).toBe('Qwen2.5-Coder-0.5B');
+        expect(report.stats.deep?.tier).toBe('lite');
+        expect(report.stats.deep?.model).toBe('Qwen3.5-0.8B');
     });
 
-    it('reports local pro tier when provider=local and pro=true', async () => {
+    it('reports local deep tier when provider=local and pro=true', async () => {
         vi.spyOn(DeepAnalysisGate.prototype, 'run').mockResolvedValue([]);
         const runner = createRunner();
 
@@ -56,7 +56,7 @@ describe('GateRunner deep stats execution mode', () => {
             pro: true,
         });
 
-        expect(report.stats.deep?.tier).toBe('pro');
+        expect(report.stats.deep?.tier).toBe('deep');
         expect(report.stats.deep?.model).toBe('Qwen2.5-Coder-1.5B');
     });
 

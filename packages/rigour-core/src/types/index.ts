@@ -407,7 +407,7 @@ export const ReportSchema = z.object({
         }).optional(),
         deep: z.object({
             enabled: z.boolean(),
-            tier: z.enum(['deep', 'pro', 'cloud']).optional(),
+            tier: z.enum(['deep', 'lite', 'legacy', 'cloud']).optional(),
             model: z.string().optional(),
             total_ms: z.number().optional(),
             files_analyzed: z.number().optional(),

@@ -70,8 +70,8 @@ program
     .option('--json', 'Output report in JSON format')
     .option('-i, --interactive', 'Run in interactive mode with rich output')
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
-    .option('--deep', 'Enable deep LLM-powered analysis (local, 350MB one-time download)')
-    .option('--pro', 'Use larger model for deep analysis (900MB, higher quality)')
+    .option('--deep', 'Enable deep LLM-powered analysis (local lite model, 500MB one-time download)')
+    .option('--pro', 'Use full deep model for analysis (Qwen2.5-Coder-1.5B, 900MB)')
     .option('-k, --api-key <key>', 'Use cloud API key instead of local model (BYOK)')
     .option('--provider <name>', 'Cloud provider: claude, openai, gemini, groq, mistral, together, deepseek, ollama, or any OpenAI-compatible')
     .option('--api-base-url <url>', 'Custom API base URL (for self-hosted or proxy endpoints)')
@@ -80,8 +80,8 @@ program
     .addHelpText('after', `
 Examples:
   $ rigour check                                          # AST only. Instant. Free.
-  $ rigour check --deep                                   # AST + local LLM (350MB one-time)
-  $ rigour check --deep --pro                             # AST + larger local LLM (900MB)
+  $ rigour check --deep                                   # AST + local LLM (lite, 500MB one-time)
+  $ rigour check --deep --pro                             # AST + full deep model (900MB)
   $ rigour check --deep -k sk-ant-xxx                     # AST + Claude API (BYOK)
   $ rigour check --deep -k gsk_xxx --provider groq        # Use Groq
   $ rigour check --deep -k xxx --provider ollama          # Use local Ollama
@@ -100,8 +100,8 @@ program
     .option('--ci', 'CI mode (minimal output, non-zero exit on fail)')
     .option('--json', 'Output report in JSON format')
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration (optional)')
-    .option('--deep', 'Enable deep LLM-powered analysis (local, 350MB one-time download)')
-    .option('--pro', 'Use larger model for deep analysis (900MB, higher quality)')
+    .option('--deep', 'Enable deep LLM-powered analysis (local lite model, 500MB one-time download)')
+    .option('--pro', 'Use full deep model for analysis (Qwen2.5-Coder-1.5B, 900MB)')
     .option('-k, --api-key <key>', 'Use cloud API key instead of local model (BYOK)')
     .option('--provider <name>', 'Cloud provider: claude, openai, gemini, groq, mistral, together, deepseek, ollama')
     .option('--api-base-url <url>', 'Custom API base URL')

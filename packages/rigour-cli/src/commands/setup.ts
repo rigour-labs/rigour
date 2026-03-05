@@ -50,10 +50,10 @@ export async function setupCommand() {
 
     // Check local models
     const hasDeep = await isModelCached('deep');
-    const hasPro = await isModelCached('pro');
-    if (hasDeep) console.log(chalk.green('    ✔ Local model: deep (Qwen2.5-Coder-0.5B, 350MB)'));
-    if (hasPro) console.log(chalk.green('    ✔ Local model: pro (Qwen2.5-Coder-1.5B, 900MB)'));
-    if (!hasDeep && !hasPro) {
+    const hasLite = await isModelCached('lite');
+    if (hasDeep) console.log(chalk.green('    ✔ Local model: deep (Qwen2.5-Coder-1.5B, 900MB)'));
+    if (hasLite) console.log(chalk.green('    ✔ Local model: lite (Qwen3.5-0.8B, 500MB)'));
+    if (!hasDeep && !hasLite) {
         console.log(chalk.yellow('    ○ No local models cached'));
         console.log(chalk.dim(`      Models dir: ${getModelsDir()}`));
     }
