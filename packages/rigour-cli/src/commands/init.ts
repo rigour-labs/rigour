@@ -480,7 +480,7 @@ async function checkPrerequisites(): Promise<void> {
     }
 
     // Summary: what can the user do?
-    const isReady = hasApiKey || (hasSidecar && (hasDeepModel || hasProModel));
+    const isReady = hasApiKey || (hasSidecar && (hasDeepModel || hasLiteModel));
 
     if (isReady) {
         console.log(chalk.green('\n  ✓ Deep analysis is ready!'));

@@ -81,7 +81,7 @@ export async function setupCommand() {
 
     // Cloud readiness
     const hasCloudKey = configuredKeys.length > 0;
-    const hasLocalReady = hasSidecar && (hasDeep || hasPro);
+    const hasLocalReady = hasSidecar && (hasDeep || hasLite);
 
     if (hasCloudKey || hasLocalReady) {
         console.log(chalk.green.bold('\n  ✓ Deep analysis is ready'));

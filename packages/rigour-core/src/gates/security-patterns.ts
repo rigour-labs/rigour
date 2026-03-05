@@ -292,9 +292,10 @@ export class SecurityPatternsGate extends Gate {
         const failures: Failure[] = [];
         const vulnerabilities: SecurityVulnerability[] = [];
 
+        const scanPatterns = context.patterns || ['**/*.{ts,js,tsx,jsx,py,java,go}'];
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,js,tsx,jsx,py,java,go}'],
+            patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/coverage/**'],
         });
 

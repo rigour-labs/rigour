@@ -75,16 +75,18 @@ export class TestQualityGate extends Gate {
         const failures: Failure[] = [];
         const issues: TestQualityIssue[] = [];
 
-        const files = await FileScanner.findFiles({
-            cwd: context.cwd,
-            patterns: [
+        const defaultPatterns = [
                 '**/*.test.{ts,js,tsx,jsx}', '**/*.spec.{ts,js,tsx,jsx}',
                 '**/__tests__/**/*.{ts,js,tsx,jsx}',
                 '**/test_*.py', '**/*_test.py', '**/tests/**/*.py',
                 '**/*_test.go',
                 '**/*Test.java', '**/*Tests.java', '**/src/test/**/*.java',
                 '**/*Test.kt', '**/*Tests.kt', '**/src/test/**/*.kt',
-            ],
+        ];
+        const scanPatterns = context.patterns || defaultPatterns;
+        const files = await FileScanner.findFiles({
+            cwd: context.cwd,
+            patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
                 '**/.venv/**', '**/venv/**', '**/vendor/**',
                 '**/target/**', '**/.gradle/**', '**/out/**'],

@@ -43,7 +43,7 @@ export function extractIndentedBody(content: string, startIdx: number): string |
 
 export function isInsideTryBlock(lines: string[], lineIdx: number): boolean {
     let braceDepth = 0;
-    for (let j = lineIdx - 1; j >= Math.max(0, lineIdx - 30); j--) {
+    for (let j = lineIdx - 1; j >= Math.max(0, lineIdx - 100); j--) {
         const prevLine = stripStrings(lines[j]);
         for (const ch of prevLine) {
             if (ch === '}') braceDepth++;
@@ -57,7 +57,7 @@ export function isInsideTryBlock(lines: string[], lineIdx: number): boolean {
 
 export function isInsidePythonTry(lines: string[], lineIdx: number): boolean {
     const lineIndent = lines[lineIdx].length - lines[lineIdx].trimStart().length;
-    for (let j = lineIdx - 1; j >= Math.max(0, lineIdx - 30); j--) {
+    for (let j = lineIdx - 1; j >= Math.max(0, lineIdx - 100); j--) {
         const trimmed = lines[j].trim();
         if (trimmed === '') continue;
         const indent = lines[j].length - lines[j].trimStart().length;
@@ -69,7 +69,7 @@ export function isInsidePythonTry(lines: string[], lineIdx: number): boolean {
 }
 
 export function isInsideRubyRescue(lines: string[], lineIdx: number): boolean {
-    for (let j = lineIdx - 1; j >= Math.max(0, lineIdx - 30); j--) {
+    for (let j = lineIdx - 1; j >= Math.max(0, lineIdx - 100); j--) {
         const trimmed = lines[j].trim();
         if (trimmed === 'begin') return true;
         if (/^rescue\b/.test(trimmed)) return false;
@@ -79,14 +79,14 @@ export function isInsideRubyRescue(lines: string[], lineIdx: number): boolean {
 }
 
 export function hasCatchAhead(lines: string[], idx: number): boolean {
-    for (let j = idx; j < Math.min(idx + 10, lines.length); j++) {
+    for (let j = idx; j < Math.min(idx + 50, lines.length); j++) {
         if (/\.catch\s*\(/.test(lines[j])) return true;
     }
     return false;
 }
 
 export function hasStatusCheckAhead(lines: string[], idx: number): boolean {
-    for (let j = idx; j < Math.min(idx + 10, lines.length); j++) {
+    for (let j = idx; j < Math.min(idx + 50, lines.length); j++) {
         if (/\.\s*ok\b/.test(lines[j]) || /\.status(?:Text)?\b/.test(lines[j])) return true;
     }
     return false;

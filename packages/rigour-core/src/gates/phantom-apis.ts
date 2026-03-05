@@ -70,9 +70,11 @@ export class PhantomApisGate extends Gate {
         const failures: Failure[] = [];
         const phantoms: PhantomApiCall[] = [];
 
+        const defaultPatterns = ['**/*.{ts,js,tsx,jsx,py,go,cs,java,kt}'];
+        const scanPatterns = context.patterns || defaultPatterns;
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,js,tsx,jsx,py,go,cs,java,kt}'],
+            patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
                 '**/*.test.*', '**/*.spec.*', '**/__tests__/**',
                 '**/.venv/**', '**/venv/**', '**/vendor/**', '**/__pycache__/**',

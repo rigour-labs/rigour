@@ -63,9 +63,10 @@ export class InconsistentErrorHandlingGate extends Gate {
         const failures: Failure[] = [];
         const handlers: ErrorHandler[] = [];
 
+        const scanPatterns = context.patterns || ['**/*.{ts,js,tsx,jsx}'];
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,js,tsx,jsx}'],
+            patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/*.test.*', '**/*.spec.*'],
         });
 

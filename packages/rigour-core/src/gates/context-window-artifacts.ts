@@ -69,9 +69,10 @@ export class ContextWindowArtifactsGate extends Gate {
 
         const failures: Failure[] = [];
 
+        const scanPatterns = context.patterns || ['**/*.{ts,js,tsx,jsx,py}'];
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,js,tsx,jsx,py}'],
+            patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/*.test.*', '**/*.spec.*', '**/*.min.*'],
         });
 

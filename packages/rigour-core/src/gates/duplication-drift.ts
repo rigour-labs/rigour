@@ -56,9 +56,10 @@ export class DuplicationDriftGate extends Gate {
         const failures: Failure[] = [];
         const functions: FunctionSignature[] = [];
 
+        const scanPatterns = context.patterns || ['**/*.{ts,js,tsx,jsx,py}'];
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,js,tsx,jsx,py}'],
+            patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/*.test.*', '**/*.spec.*'],
         });
 

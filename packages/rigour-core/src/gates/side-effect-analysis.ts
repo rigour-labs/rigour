@@ -129,9 +129,10 @@ export class SideEffectAnalysisGate extends Gate {
         if (!this.cfg.enabled) return [];
 
         const violations: SideEffectViolation[] = [];
+        const scanPatterns = context.patterns || FILE_GLOBS;
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: FILE_GLOBS,
+            patterns: scanPatterns,
             ignore: [
                 ...(context.ignore || []),
                 '**/node_modules/**', '**/dist/**', '**/build/**',

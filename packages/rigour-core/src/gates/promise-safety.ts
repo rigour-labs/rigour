@@ -52,9 +52,10 @@ export class PromiseSafetyGate extends Gate {
 
         const violations: PromiseViolation[] = [];
         const allPatterns = Object.values(LANG_GLOBS).flat();
+        const scanPatterns = context.patterns || allPatterns;
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: allPatterns,
+            patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
                      '**/*.test.*', '**/*.spec.*', '**/vendor/**', '**/__pycache__/**',
                      '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**', '**/venv/**', '**/.venv/**'],
@@ -101,7 +102,7 @@ export class PromiseSafetyGate extends Gate {
             const line = this.sanitizeLine(lines[i]);
             if (!/\.then\s*\(/.test(line)) continue;
             let hasCatch = false;
-            for (let j = i; j < Math.min(i + 10, lines.length); j++) {
+            for (let j = i; j < Math.min(i + 50, lines.length); j++) {
                 const lookahead = this.sanitizeLine(lines[j]);
                 if (/\.catch\s*\(/.test(lookahead)) { hasCatch = true; break; }
                 if (j > i && /^(?:const|let|var|function|class|export|import|if|for|while|return)\b/.test(lookahead.trim())) break;
@@ -206,7 +207,7 @@ export class PromiseSafetyGate extends Gate {
         for (let i = 0; i < lines.length; i++) {
             if (!httpPatterns.test(lines[i]) || isInsidePythonTry(lines, i)) continue;
             let hasCheck = false;
-            for (let j = i; j < Math.min(i + 10, lines.length); j++) {
+            for (let j = i; j < Math.min(i + 50, lines.length); j++) {
                 if (/raise_for_status|status_code/.test(lines[j])) { hasCheck = true; break; }
             }
             if (!hasCheck) {
@@ -316,7 +317,7 @@ export class PromiseSafetyGate extends Gate {
         for (let i = 0; i < lines.length; i++) {
             if (/\.(?:GetAsync|PostAsync|SendAsync)\s*\(/.test(lines[i]) && !isInsideTryBlock(lines, i)) {
                 let hasCheck = false;
-                for (let j = i; j < Math.min(i + 10, lines.length); j++) {
+                for (let j = i; j < Math.min(i + 50, lines.length); j++) {
                     if (/EnsureSuccess|IsSuccessStatusCode|StatusCode/.test(lines[j])) { hasCheck = true; break; }
                 }
                 if (!hasCheck) {

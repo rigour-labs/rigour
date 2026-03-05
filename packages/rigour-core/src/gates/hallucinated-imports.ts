@@ -82,9 +82,11 @@ export class HallucinatedImportsGate extends Gate {
         const failures: Failure[] = [];
         const hallucinated: HallucinatedImport[] = [];
 
+        const defaultPatterns = ['**/*.{ts,js,tsx,jsx,py,go,rb,cs,rs,java,kt}'];
+        const scanPatterns = context.patterns || defaultPatterns;
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,js,tsx,jsx,py,go,rb,cs,rs,java,kt}'],
+            patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
                      '**/examples/**',
                      '**/studio-dist/**', '**/.next/**', '**/coverage/**',

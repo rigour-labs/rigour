@@ -230,9 +230,10 @@ export class FrontendSecretExposureGate extends Gate {
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.cfg.enabled) return [];
 
+        const scanPatterns = context.patterns || ['**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte}'];
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: ['**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte}'],
+            patterns: scanPatterns,
             ignore: [
                 ...(context.ignore || []),
                 '**/node_modules/**', '**/dist/**', '**/build/**',
