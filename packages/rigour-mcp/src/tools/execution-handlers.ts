@@ -7,7 +7,8 @@
  */
 import fs from "fs-extra";
 import path from "path";
-import { GateRunner, Report } from "@rigour-labs/core";
+import { GateRunner, Report, FixPacketService } from "@rigour-labs/core";
+import type { Config } from "@rigour-labs/core";
 import { logStudioEvent } from '../utils/config.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
@@ -54,14 +55,15 @@ export async function handleRunSupervised(
     command: string,
     maxRetries: number,
     dryRun: boolean,
-    requestId: string
+    requestId: string,
+    config?: Config,
 ): Promise<ToolResult> {
     const { execa } = await import("execa");
 
     let iteration = 0;
     let lastReport: Report | null = null;
     let result: ToolResult | null = null;
-    const iterations: { iteration: number; status: string; failures: number }[] = [];
+    const iterations: { iteration: number; status: string; failures: number; failedGates: string[] }[] = [];
 
     await logStudioEvent(cwd, {
         type: "supervisor_started",
@@ -85,7 +87,13 @@ export async function handleRunSupervised(
         }
 
         lastReport = await runner.run(cwd);
-        iterations.push({ iteration, status: lastReport.status, failures: lastReport.failures.length });
+        const failedGateIds = [...new Set(lastReport.failures.map(f => f.id))];
+        iterations.push({
+            iteration,
+            status: lastReport.status,
+            failures: lastReport.failures.length,
+            failedGates: failedGateIds,
+        });
 
         await logStudioEvent(cwd, {
             type: "supervisor_iteration",
@@ -93,33 +101,39 @@ export async function handleRunSupervised(
             iteration,
             status: lastReport.status,
             failures: lastReport.failures.length,
+            failedGates: failedGateIds,
         });
 
         if (lastReport.status === "PASS") {
+            const score = lastReport.stats.score !== undefined ? ` | Score: ${lastReport.stats.score}/100` : '';
             result = {
                 content: [{
                     type: "text",
-                    text: `✅ SUPERVISOR MODE: PASSED on iteration ${iteration}/${maxRetries}\n\nIterations:\n${iterations.map(i => `  ${i.iteration}. ${i.status} (${i.failures} failures)`).join("\n")}\n\nAll quality gates have been satisfied.`,
+                    text: `✅ SUPERVISOR MODE: PASSED on iteration ${iteration}/${maxRetries}${score}\n\nIterations:\n${formatIterationHistory(iterations)}\n\nAll quality gates have been satisfied.`,
                 }],
             };
             break;
         }
 
         if (iteration >= maxRetries) {
-            const fixPacket = lastReport.failures.map((f, i) => {
-                const sevTag = `[${(f.severity || 'medium').toUpperCase()}]`;
-                const provTag = f.provenance ? `(${f.provenance})` : '';
-                let text = `FIX TASK ${i + 1}: ${sevTag} ${provTag} [${f.id.toUpperCase()}] ${f.title}\n`;
-                text += `   - CONTEXT: ${f.details}\n`;
-                if (f.files && f.files.length > 0) text += `   - TARGET FILES: ${f.files.join(", ")}\n`;
-                if (f.hint) text += `   - REFACTORING GUIDANCE: ${f.hint}\n`;
-                return text;
-            }).join("\n---\n");
+            // Use FixPacketService for structured output instead of ad-hoc formatting
+            let fixPacketText: string;
+            if (config) {
+                const fixPacketService = new FixPacketService();
+                const fixPacket = fixPacketService.generate(lastReport, config);
+                fixPacketText = formatFixPacketForSupervisor(fixPacket);
+            } else {
+                // Fallback if config not available
+                fixPacketText = lastReport.failures.map((f, i) => {
+                    const sevTag = `[${(f.severity || 'medium').toUpperCase()}]`;
+                    return `${i + 1}. ${sevTag} [${f.id}] ${f.title}: ${f.details}${f.files?.length ? ` (${f.files.join(', ')})` : ''}`;
+                }).join('\n');
+            }
 
             result = {
                 content: [{
                     type: "text",
-                    text: `❌ SUPERVISOR MODE: FAILED after ${iteration} iterations\n\nIterations:\n${iterations.map(i => `  ${i.iteration}. ${i.status} (${i.failures} failures)`).join("\n")}\n\nFINAL FIX PACKET:\n${fixPacket}`,
+                    text: `❌ SUPERVISOR MODE: FAILED after ${iteration} iterations\n\nIterations:\n${formatIterationHistory(iterations)}\n\n${fixPacketText}`,
                 }],
                 isError: true,
             };
@@ -134,6 +148,49 @@ export async function handleRunSupervised(
     });
 
     return result!;
+}
+
+function formatIterationHistory(iterations: { iteration: number; status: string; failures: number; failedGates: string[] }[]): string {
+    return iterations.map(i => {
+        const gates = i.failedGates.length > 0 ? ` [${i.failedGates.join(', ')}]` : '';
+        return `  ${i.iteration}. ${i.status} (${i.failures} failures)${gates}`;
+    }).join('\n');
+}
+
+function formatFixPacketForSupervisor(fixPacket: any): string {
+    const lines: string[] = [];
+    lines.push(`FINAL FIX PACKET (${fixPacket.violations.length} violations across gates: ${fixPacket.failed_gates.join(', ')})`);
+    lines.push('');
+
+    fixPacket.violations.forEach((v: any, i: number) => {
+        const sevTag = `[${(v.severity || 'medium').toUpperCase()}]`;
+        lines.push(`${i + 1}. ${sevTag} [${v.id}] ${v.title}`);
+        lines.push(`   PROBLEM: ${v.details}`);
+        if (v.locations?.length > 0) {
+            const locs = v.locations.map((l: any) => l.line ? `${l.file}:${l.line}` : l.file);
+            lines.push(`   WHERE: ${locs.join(', ')}`);
+        } else if (v.files?.length > 0) {
+            lines.push(`   FILES: ${v.files.join(', ')}`);
+        }
+        if (v.instructions?.length > 0) {
+            lines.push(`   FIX: ${v.instructions[0]}`);
+        }
+    });
+
+    if (fixPacket.verification?.commands?.length > 0) {
+        lines.push('');
+        lines.push('VERIFICATION COMMANDS (run after fixing):');
+        fixPacket.verification.commands.forEach((c: any) => {
+            lines.push(`  $ ${c.cmd}  — ${c.purpose}`);
+        });
+    }
+
+    if (fixPacket.constraints?.allowed_scope?.length > 0) {
+        lines.push('');
+        lines.push(`ALLOWED SCOPE: ${fixPacket.constraints.allowed_scope.join(', ')}`);
+    }
+
+    return lines.join('\n');
 }
 
 // ─── Private Helpers ──────────────────────────────────────────────

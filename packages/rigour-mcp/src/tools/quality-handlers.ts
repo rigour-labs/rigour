@@ -146,25 +146,91 @@ export async function handleGetFixPacket(runner: GateRunner, cwd: string, config
     const fixPacketService = new FixPacketService();
     const fixPacket = fixPacketService.generate(report, config);
 
-    const packet = fixPacket.violations.map((v: any, i: number) => {
-        const sevTag = `[${(v.severity || 'medium').toUpperCase()}]`;
-        const catTag = v.category ? `(${v.category})` : '';
-        let text = `FIX TASK ${i + 1}: ${sevTag} ${catTag} [${v.id.toUpperCase()}] ${v.title}\n`;
-        text += `   - CONTEXT: ${v.details}\n`;
-        if (v.files?.length > 0) text += `   - TARGET FILES: ${v.files.join(", ")}\n`;
-        if (v.hint) text += `   - REFACTORING GUIDANCE: ${v.hint}\n`;
-        return text;
-    }).join("\n---\n");
-
-    let scoreHeader = formatScoreText(report.stats).trim();
-    if (scoreHeader) scoreHeader += '\n';
-
     return {
-        content: [{
-            type: "text",
-            text: `ENGINEERING REFINEMENT REQUIRED:\n${scoreHeader}\nThe project state violated ${report.failures.length} quality gates. You MUST address these failures before declaring the task complete (critical issues first):\n\n${packet}`,
-        }],
+        content: [{ type: "text", text: formatFixPacketText(fixPacket, report) }],
     };
+}
+
+/**
+ * Formats a FixPacketV2 into a structured, agent-readable text block.
+ * Every violation includes: who failed, which files, what rule, where (line numbers),
+ * and what commands must pass after fixing.
+ */
+function formatFixPacketText(fixPacket: any, report: Report): string {
+    const lines: string[] = [];
+
+    // Header
+    let scoreHeader = formatScoreText(report.stats).trim();
+    lines.push('ENGINEERING REFINEMENT REQUIRED');
+    if (scoreHeader) lines.push(scoreHeader);
+    lines.push(`Violations: ${report.failures.length} | Failed gates: ${fixPacket.failed_gates.join(', ')}`);
+    lines.push('');
+
+    // Violations
+    fixPacket.violations.forEach((v: any, i: number) => {
+        const sevTag = `[${(v.severity || 'medium').toUpperCase()}]`;
+        const catTag = v.category ? ` (${v.category})` : '';
+        lines.push(`━━━ FIX ${i + 1}/${fixPacket.violations.length}: ${sevTag}${catTag} ${v.title} ━━━`);
+        lines.push(`GATE: ${v.id}`);
+        lines.push(`PROBLEM: ${v.details}`);
+
+        // Locations with line numbers (precise targeting)
+        if (v.locations && v.locations.length > 0) {
+            const locStrs = v.locations.map((loc: any) => {
+                let s = loc.file;
+                if (loc.line) s += `:${loc.line}`;
+                if (loc.endLine && loc.endLine !== loc.line) s += `-${loc.endLine}`;
+                return s;
+            });
+            lines.push(`WHERE: ${locStrs.join(', ')}`);
+        } else if (v.files && v.files.length > 0) {
+            lines.push(`FILES: ${v.files.join(', ')}`);
+        }
+
+        // Metrics (thresholds vs actuals)
+        if (v.metrics && Object.keys(v.metrics).length > 0) {
+            const metricStrs = Object.entries(v.metrics).map(([k, val]) => `${k}=${val}`);
+            lines.push(`METRICS: ${metricStrs.join(', ')}`);
+        }
+
+        // Instructions
+        if (v.instructions && v.instructions.length > 0) {
+            lines.push(`FIX:`);
+            v.instructions.forEach((inst: string, j: number) => {
+                lines.push(`  ${j + 1}. ${inst}`);
+            });
+        } else if (v.hint) {
+            lines.push(`HINT: ${v.hint}`);
+        }
+
+        lines.push('');
+    });
+
+    // Verification commands
+    if (fixPacket.verification?.commands?.length > 0) {
+        lines.push('━━━ VERIFICATION (run these after fixing) ━━━');
+        fixPacket.verification.commands.forEach((c: any) => {
+            lines.push(`  $ ${c.cmd}  — ${c.purpose}`);
+        });
+        lines.push('');
+    }
+
+    // Constraints
+    const c = fixPacket.constraints;
+    if (c) {
+        const constraintParts: string[] = [];
+        if (c.allowed_scope?.length > 0) constraintParts.push(`ALLOWED SCOPE: ${c.allowed_scope.join(', ')}`);
+        if (c.do_not_touch?.length > 0) constraintParts.push(`DO NOT TOUCH: ${c.do_not_touch.join(', ')}`);
+        if (c.max_files_changed) constraintParts.push(`MAX FILES CHANGED: ${c.max_files_changed}`);
+        if (c.no_new_deps) constraintParts.push('NO NEW DEPENDENCIES');
+        if (c.paradigm) constraintParts.push(`PARADIGM: ${c.paradigm}`);
+        if (constraintParts.length > 0) {
+            lines.push('━━━ CONSTRAINTS ━━━');
+            constraintParts.forEach(p => lines.push(`  ${p}`));
+        }
+    }
+
+    return lines.join('\n');
 }
 
 export function handleListGates(config: Config): ToolResult {
