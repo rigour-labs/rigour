@@ -71,7 +71,7 @@ export interface DeepAnalysisResult {
  * Available model tiers.
  *
  * - deep: Qwen2.5-Coder-1.5B fine-tuned — full power, company-hosted
- * - lite: Qwen3.5-0.8B fine-tuned — lightweight, ships as default CLI sidecar
+ * - lite: Qwen2.5-Coder-0.5B fine-tuned — lightweight, ships as default CLI sidecar
  * - legacy: Qwen2.5-Coder-0.5B fine-tuned — previous default, reproducibility
  */
 export type ModelTier = 'deep' | 'lite' | 'legacy';
@@ -89,39 +89,53 @@ export interface ModelInfo {
 }
 
 /**
- * Model version — bump when new fine-tuned GGUF is published.
- * The RLAIF pipeline uploads new models to HuggingFace, and
- * model-manager checks this version to auto-update.
+ * Minimum bundled model version — used as fallback when the auto-update
+ * check fails (offline, HF down, first run). The RLAIF training pipeline
+ * publishes new versions to HuggingFace and updates latest_version.json.
+ * At startup, model-manager checks HF for the latest version and downloads
+ * it automatically (like antivirus signature updates).
  */
-export const MODEL_VERSION = '1';
+export const BUNDLED_MODEL_VERSION = '1';
 
-/** All supported model definitions */
+/** HuggingFace dataset repo where latest_version.json lives */
+export const VERSION_CHECK_URL =
+    'https://huggingface.co/datasets/rigour-labs/rigour-rlaif-data/resolve/main/latest_version.json';
+
+/** Build model info for a given tier and version */
+export function buildModelInfo(tier: ModelTier, version: string): ModelInfo {
+    const meta: Record<ModelTier, { base: string; size: number; sizeH: string }> = {
+        deep:   { base: 'Qwen2.5-Coder-1.5B',     size: 900_000_000, sizeH: '900MB' },
+        lite:   { base: 'Qwen2.5-Coder-0.5B',      size: 500_000_000, sizeH: '500MB' },
+        legacy: { base: 'Qwen2.5-Coder-0.5B',      size: 350_000_000, sizeH: '350MB' },
+    };
+    const m = meta[tier];
+    return {
+        tier,
+        name: `Rigour-${tier[0].toUpperCase() + tier.slice(1)}-v${version} (${m.base} fine-tuned)`,
+        filename: `rigour-${tier}-v${version}-q4_k_m.gguf`,
+        url: `https://huggingface.co/rigour-labs/rigour-${tier}-v${version}-gguf/resolve/main/rigour-${tier}-v${version}-q4_k_m.gguf`,
+        sizeBytes: m.size,
+        sizeHuman: m.sizeH,
+    };
+}
+
+/** Current model definitions — initialized with bundled version, updated at runtime */
 export const MODELS: Record<ModelTier, ModelInfo> = {
-    deep: {
-        tier: 'deep',
-        name: 'Rigour-Deep-v1 (Qwen2.5-Coder-1.5B fine-tuned)',
-        filename: `rigour-deep-v${MODEL_VERSION}-q4_k_m.gguf`,
-        url: `https://huggingface.co/rigour-labs/rigour-deep-v1-gguf/resolve/main/rigour-deep-v${MODEL_VERSION}-q4_k_m.gguf`,
-        sizeBytes: 900_000_000,
-        sizeHuman: '900MB',
-    },
-    lite: {
-        tier: 'lite',
-        name: 'Rigour-Lite-v1 (Qwen3.5-0.8B fine-tuned)',
-        filename: `rigour-lite-v${MODEL_VERSION}-q4_k_m.gguf`,
-        url: `https://huggingface.co/rigour-labs/rigour-lite-v1-gguf/resolve/main/rigour-lite-v${MODEL_VERSION}-q4_k_m.gguf`,
-        sizeBytes: 500_000_000,
-        sizeHuman: '500MB',
-    },
-    legacy: {
-        tier: 'legacy',
-        name: 'Rigour-Legacy-v1 (Qwen2.5-Coder-0.5B fine-tuned)',
-        filename: `rigour-legacy-v${MODEL_VERSION}-q4_k_m.gguf`,
-        url: `https://huggingface.co/rigour-labs/rigour-legacy-v1-gguf/resolve/main/rigour-legacy-v${MODEL_VERSION}-q4_k_m.gguf`,
-        sizeBytes: 350_000_000,
-        sizeHuman: '350MB',
-    },
+    deep:   buildModelInfo('deep', BUNDLED_MODEL_VERSION),
+    lite:   buildModelInfo('lite', BUNDLED_MODEL_VERSION),
+    legacy: buildModelInfo('legacy', BUNDLED_MODEL_VERSION),
 };
+
+/**
+ * Update MODELS in-place to point to a newer version.
+ * Called by model-manager after checking latest_version.json.
+ */
+export function updateModelVersion(version: string): void {
+    for (const tier of ['deep', 'lite', 'legacy'] as ModelTier[]) {
+        const updated = buildModelInfo(tier, version);
+        MODELS[tier] = updated;
+    }
+}
 
 /**
  * Fallback stock models — used when fine-tuned model is not yet
@@ -138,9 +152,9 @@ export const FALLBACK_MODELS: Record<ModelTier, ModelInfo> = {
     },
     lite: {
         tier: 'lite',
-        name: 'Qwen3.5-0.8B (stock)',
-        filename: 'qwen3.5-0.8b-q4_k_m.gguf',
-        url: 'https://huggingface.co/Qwen/Qwen3.5-0.8B-GGUF/resolve/main/qwen3.5-0.8b-q4_k_m.gguf',
+        name: 'Qwen2.5-Coder-0.5B-Instruct (stock)',
+        filename: 'qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
+        url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
         sizeBytes: 500_000_000,
         sizeHuman: '500MB',
     },

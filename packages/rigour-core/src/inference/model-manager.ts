@@ -6,9 +6,12 @@ import path from 'path';
 import fs from 'fs-extra';
 import { createHash } from 'crypto';
 import { RIGOUR_DIR } from '../storage/db.js';
-import { MODELS, FALLBACK_MODELS, type ModelTier, type ModelInfo } from './types.js';
+import { MODELS, FALLBACK_MODELS, VERSION_CHECK_URL, BUNDLED_MODEL_VERSION, updateModelVersion, type ModelTier, type ModelInfo } from './types.js';
 
 const MODELS_DIR = path.join(RIGOUR_DIR, 'models');
+const VERSION_CACHE_PATH = path.join(MODELS_DIR, '.latest_version.json');
+const VERSION_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // Check once per day
+const VERSION_CHECK_TIMEOUT_MS = 5000; // 5s timeout — don't block startup
 const SHA256_RE = /^[a-f0-9]{64}$/i;
 
 interface ModelCacheMetadata {
@@ -203,14 +206,78 @@ async function downloadFromUrl(
 }
 
 /**
+ * Check HuggingFace for a newer model version (like antivirus signature updates).
+ * Reads latest_version.json from the RLAIF dataset repo. Non-blocking — if the
+ * check fails (offline, HF down), we silently use the cached/bundled version.
+ *
+ * Results are cached locally for 24 hours to avoid hammering HF on every run.
+ */
+export async function checkForUpdates(
+    onProgress?: (message: string, percent?: number) => void
+): Promise<string> {
+    fs.ensureDirSync(MODELS_DIR);
+
+    // Check local version cache first — avoid network on every run
+    try {
+        if (await fs.pathExists(VERSION_CACHE_PATH)) {
+            const cached = await fs.readJson(VERSION_CACHE_PATH);
+            const age = Date.now() - new Date(cached.checkedAt).getTime();
+            if (age < VERSION_CHECK_INTERVAL_MS && cached.version) {
+                const v = String(cached.version);
+                updateModelVersion(v);
+                return v;
+            }
+        }
+    } catch {
+        // Corrupted cache — proceed to network check
+    }
+
+    // Fetch latest version from HuggingFace (with timeout)
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), VERSION_CHECK_TIMEOUT_MS);
+
+        const response = await fetch(VERSION_CHECK_URL, { signal: controller.signal });
+        clearTimeout(timeout);
+
+        if (response.ok) {
+            const data = await response.json() as { version?: number; updated_by?: string };
+            const latestVersion = String(data.version || BUNDLED_MODEL_VERSION);
+
+            // Cache the result locally
+            await fs.writeJson(VERSION_CACHE_PATH, {
+                version: latestVersion,
+                checkedAt: new Date().toISOString(),
+                source: 'huggingface',
+            }, { spaces: 2 }).catch(() => {});
+
+            // Update in-memory model definitions
+            updateModelVersion(latestVersion);
+
+            if (latestVersion !== BUNDLED_MODEL_VERSION) {
+                onProgress?.(`Model update available: v${latestVersion}`, 0);
+            }
+            return latestVersion;
+        }
+    } catch {
+        // Offline / HF down / timeout — use bundled version silently
+    }
+
+    return BUNDLED_MODEL_VERSION;
+}
+
+/**
  * Download a model from HuggingFace CDN.
- * Tries fine-tuned model first, falls back to stock Qwen if unavailable.
+ * Checks for updates first, then tries fine-tuned model, falls back to stock Qwen.
  */
 export async function downloadModel(
     tier: ModelTier,
     onProgress?: (message: string, percent?: number) => void
 ): Promise<string> {
     fs.ensureDirSync(MODELS_DIR);
+
+    // Check for newer model version (non-blocking, cached 24h)
+    await checkForUpdates(onProgress);
 
     if (await isModelCached(tier)) {
         onProgress?.(`Model ${MODELS[tier].name} already cached`, 100);
