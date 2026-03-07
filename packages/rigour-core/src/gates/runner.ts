@@ -2,6 +2,7 @@ import { Gate } from './base.js';
 import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
 import { DeepAnalysisGate } from './deep-analysis.js';
 import { persistAndReinforce } from '../storage/local-memory.js';
+import { recordGateRun, type ProvenanceRunData } from '../services/adaptive-thresholds.js';
 import { FileGate } from './file.js';
 import { ContentGate } from './content.js';
 import { StructureGate } from './structure.js';
@@ -26,8 +27,11 @@ import { PhantomApisGate } from './phantom-apis.js';
 import { DeprecatedApisGate } from './deprecated-apis.js';
 import { TestQualityGate } from './test-quality.js';
 import { SideEffectAnalysisGate } from './side-effect-analysis.js';
+import { StyleDriftGate } from './style-drift.js';
+import { LogicDriftGate } from './logic-drift.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
+import { FileSystemCache } from '../services/filesystem-cache.js';
 
 export class GateRunner {
     private gates: Gate[] = [];
@@ -122,6 +126,16 @@ export class GateRunner {
             this.gates.push(new SideEffectAnalysisGate(this.config.gates.side_effect_analysis));
         }
 
+        // v5.0+ Style Drift Detection (enabled by default)
+        if (this.config.gates.style_drift?.enabled !== false) {
+            this.gates.push(new StyleDriftGate(this.config.gates.style_drift));
+        }
+
+        // v5.0+ Logic Drift Foundation (enabled by default)
+        if (this.config.gates.logic_drift?.enabled !== false) {
+            this.gates.push(new LogicDriftGate(this.config.gates.logic_drift));
+        }
+
         // Environment Alignment Gate (Should be prioritized)
         if (this.config.gates.environment?.enabled) {
             this.gates.unshift(new EnvironmentGate(this.config.gates));
@@ -149,10 +163,13 @@ export class GateRunner {
             record = await engine.discover(cwd);
         }
 
+        // Create shared file cache for all gates (solves memory bloat on large repos)
+        const fileCache = new FileSystemCache();
+
         // 1. Run internal gates
         for (const gate of this.gates) {
             try {
-                const gateFailures = await gate.run({ cwd, record, ignore, patterns });
+                const gateFailures = await gate.run({ cwd, record, ignore, patterns, fileCache });
                 if (gateFailures.length > 0) {
                     failures.push(...gateFailures);
                     summary[gate.id] = 'FAIL';
@@ -321,6 +338,20 @@ export class GateRunner {
             } : undefined);
         } catch {
             // Silent — local memory is advisory, never blocks scans
+        }
+
+        // v5: Record per-provenance data for adaptive thresholds + temporal drift
+        try {
+            const passedCount = Object.values(summary).filter(s => s === 'PASS').length;
+            const failedCount = Object.values(summary).filter(s => s === 'FAIL').length;
+            const provenanceData: ProvenanceRunData = {
+                aiDriftFailures: provenanceCounts['ai-drift'],
+                structuralFailures: provenanceCounts['traditional'],
+                securityFailures: provenanceCounts['security'],
+            };
+            recordGateRun(cwd, passedCount, failedCount, failures.length, provenanceData);
+        } catch {
+            // Silent — adaptive history is advisory
         }
 
         return report;

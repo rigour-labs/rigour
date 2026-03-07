@@ -109,12 +109,13 @@ describe('AdaptiveThresholds', () => {
         });
 
         it('should detect improving trend', () => {
-            // Record 20 runs: older ones with high failures, recent with low
-            for (let i = 0; i < 10; i++) {
-                recordGateRun(testDir, 3, 5, 20);
+            // Baseline: 15 runs with high failures (with variance for valid std dev)
+            for (let i = 0; i < 15; i++) {
+                recordGateRun(testDir, 3, 5, 15 + (i % 5) * 3); // 15,18,21,24,27 repeating
             }
-            for (let i = 0; i < 10; i++) {
-                recordGateRun(testDir, 7, 1, 5);
+            // Recent: 5 runs with very low failures (clear improvement)
+            for (let i = 0; i < 5; i++) {
+                recordGateRun(testDir, 7, 0, 1);
             }
 
             const trend = getQualityTrend(testDir);
@@ -122,12 +123,13 @@ describe('AdaptiveThresholds', () => {
         });
 
         it('should detect degrading trend', () => {
-            // Record 20 runs: older ones with low failures, recent with high
-            for (let i = 0; i < 10; i++) {
-                recordGateRun(testDir, 7, 1, 3);
+            // Baseline: 15 runs with low failures (with variance for valid std dev)
+            for (let i = 0; i < 15; i++) {
+                recordGateRun(testDir, 7, 1, 1 + (i % 3)); // 1,2,3 repeating
             }
-            for (let i = 0; i < 10; i++) {
-                recordGateRun(testDir, 3, 5, 20);
+            // Recent: 5 runs with high failures (clear degradation)
+            for (let i = 0; i < 5; i++) {
+                recordGateRun(testDir, 3, 5, 25);
             }
 
             const trend = getQualityTrend(testDir);
@@ -137,12 +139,13 @@ describe('AdaptiveThresholds', () => {
 
     describe('trend-based adjustments', () => {
         it('should relax thresholds for improving trend', () => {
-            // Create improving history
-            for (let i = 0; i < 10; i++) {
-                recordGateRun(testDir, 3, 5, 20);
+            // Baseline: 15 runs with high failures (with variance)
+            for (let i = 0; i < 15; i++) {
+                recordGateRun(testDir, 3, 5, 15 + (i % 5) * 3);
             }
-            for (let i = 0; i < 10; i++) {
-                recordGateRun(testDir, 7, 1, 5);
+            // Recent: 5 runs with very low failures
+            for (let i = 0; i < 5; i++) {
+                recordGateRun(testDir, 7, 0, 1);
             }
 
             const adjustments = calculateAdaptiveThresholds(
@@ -155,12 +158,13 @@ describe('AdaptiveThresholds', () => {
         });
 
         it('should tighten thresholds for degrading trend', () => {
-            // Create degrading history
-            for (let i = 0; i < 10; i++) {
-                recordGateRun(testDir, 7, 1, 3);
+            // Baseline: 15 runs with low failures (with variance)
+            for (let i = 0; i < 15; i++) {
+                recordGateRun(testDir, 7, 1, 1 + (i % 3));
             }
-            for (let i = 0; i < 10; i++) {
-                recordGateRun(testDir, 3, 5, 20);
+            // Recent: 5 runs with high failures
+            for (let i = 0; i < 5; i++) {
+                recordGateRun(testDir, 3, 5, 25);
             }
 
             const adjustments = calculateAdaptiveThresholds(

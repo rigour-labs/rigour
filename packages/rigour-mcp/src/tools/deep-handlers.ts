@@ -133,6 +133,7 @@ export async function handleCheckDeep(
 
 /**
  * Get deep analysis statistics from SQLite storage.
+ * v5: includes temporal drift report with per-provenance EWMA streams.
  */
 export async function handleDeepStats(cwd: string, limit = 10): Promise<ToolResult> {
     try {
@@ -176,6 +177,18 @@ export async function handleDeepStats(cwd: string, limit = 10): Promise<ToolResu
             for (const issue of topIssues) {
                 text += `  ${issue.category}: ${issue.count} occurrences\n`;
             }
+        }
+
+        // v5: Temporal Drift Report
+        try {
+            const { generateTemporalDriftReport, formatDriftSummary } = await import('@rigour-labs/core');
+            const driftReport = generateTemporalDriftReport(cwd);
+            if (driftReport && driftReport.totalScans >= 3) {
+                text += `\n${'═'.repeat(60)}\n`;
+                text += formatDriftSummary(driftReport);
+            }
+        } catch {
+            // Temporal drift is advisory — never blocks stats output
         }
 
         return { content: [{ type: "text", text }] };

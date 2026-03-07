@@ -98,12 +98,15 @@ describe('CheckpointGate', () => {
 
     describe('drift detection', () => {
         it('should detect quality degradation', () => {
-            // Record several checkpoints with declining quality
+            // Record checkpoints with a sharp quality drop.
+            // EWMA with α=0.3: after 95, 90, the EWMA ≈ 93.5.
+            // A sudden drop to 55 creates a gap of ~38 which exceeds the
+            // drift_drop_threshold of 15, triggering the "Sudden quality drop" warning.
             recordCheckpoint(testDir, 20, [], 'Start', 95);
             recordCheckpoint(testDir, 40, [], 'Middle', 90);
-            const result = recordCheckpoint(testDir, 60, [], 'Decline', 75);
+            const result = recordCheckpoint(testDir, 60, [], 'Decline', 55);
 
-            expect(result.warnings.some(w => w.includes('Drift detected'))).toBe(true);
+            expect(result.warnings.some(w => w.includes('Sudden quality drop'))).toBe(true);
         });
 
         it('should not flag stable quality', () => {

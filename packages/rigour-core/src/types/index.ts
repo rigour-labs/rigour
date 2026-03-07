@@ -37,6 +37,10 @@ export const GatesSchema = z.object({
     dependencies: z.object({
         forbid: z.array(z.string()).optional().default([]),
         trusted_registry: z.string().optional(),
+        detect_unused: z.boolean().optional().default(true),
+        detect_heavy_alternatives: z.boolean().optional().default(true),
+        detect_duplicate_purpose: z.boolean().optional().default(true),
+        unused_allowlist: z.array(z.string()).optional().default([]),
     }).optional().default({}),
     architecture: z.object({
         boundaries: z.array(z.object({
@@ -274,6 +278,21 @@ export const GatesSchema = z.object({
         check_circular_triggers: z.boolean().optional().default(true),
         check_auto_restart: z.boolean().optional().default(true),
         ignore_patterns: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
+    // v5.1+ Style Drift Detection
+    style_drift: z.object({
+        enabled: z.boolean().optional().default(true),
+        deviation_threshold: z.number().min(0).max(1).optional().default(0.25),
+        sample_size: z.number().optional().default(100),
+        baseline_path: z.string().optional().default('.rigour/style-baseline.json'),
+    }).optional().default({}),
+    // v5.1+ Logic Drift Foundation
+    logic_drift: z.object({
+        enabled: z.boolean().optional().default(true),
+        baseline_path: z.string().optional().default('.rigour/logic-baseline.json'),
+        track_operators: z.boolean().optional().default(true),
+        track_branches: z.boolean().optional().default(true),
+        track_returns: z.boolean().optional().default(true),
     }).optional().default({}),
     // v4.0+ Deep Analysis (LLM-powered)
     deep: z.object({

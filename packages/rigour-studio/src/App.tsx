@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Activity,
+    TrendingDown,
     ShieldCheck,
     Database,
     Cpu,
@@ -32,6 +33,7 @@ import { AuditLog, LogEntry } from './components/AuditLog';
 import { AgentTeams } from './components/AgentTeams';
 import { CheckpointTimeline } from './components/CheckpointTimeline';
 import { DeepAnalysis } from './components/DeepAnalysis';
+import { TemporalDrift } from './components/TemporalDrift';
 
 function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
@@ -159,6 +161,7 @@ function App() {
         { id: 'deep', label: 'Deep Analysis', icon: Brain },
         { id: 'patterns', label: 'Pattern Index', icon: Database },
         { id: 'memory', label: 'Memory Bank', icon: Cpu },
+        { id: 'drift', label: 'Temporal Drift', icon: TrendingDown },
         { id: 'agents', label: 'Agent Teams', icon: Users },
         { id: 'checkpoints', label: 'Checkpoints', icon: Flag },
     ];
@@ -279,6 +282,18 @@ function App() {
                                 className="full-view"
                             >
                                 <DeepAnalysis />
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'drift' && (
+                            <motion.div
+                                key="drift"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="full-view"
+                            >
+                                <TemporalDrift />
                             </motion.div>
                         )}
 

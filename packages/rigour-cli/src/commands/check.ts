@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { GateRunner, ConfigSchema, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings } from '@rigour-labs/core';
+import { GateRunner, ConfigSchema, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
 import inquirer from 'inquirer';
 import { randomUUID } from 'crypto';
@@ -321,6 +321,36 @@ function renderDeepOutput(
 
     console.log('');
 
+    // ── Temporal Drift Trends ──
+    try {
+        const driftCwd = process.cwd();
+        const trend = getQualityTrend(driftCwd);
+        const provTrends = getProvenanceTrends(driftCwd);
+        const hasTrends = trend !== 'stable' || provTrends.aiDrift !== 'stable' || provTrends.structural !== 'stable' || provTrends.security !== 'stable';
+
+        if (hasTrends) {
+            const trendIcon = trend === 'improving' ? chalk.green('↑') : trend === 'degrading' ? chalk.red('↓') : chalk.dim('→');
+            const trendColor = trend === 'improving' ? chalk.green : trend === 'degrading' ? chalk.red : chalk.dim;
+            console.log(`  ${chalk.bold('Trend:')}         ${trendIcon} ${trendColor(trend.toUpperCase())} (Z-score analysis)`);
+
+            if (provTrends.aiDrift !== 'stable') {
+                const c = provTrends.aiDrift === 'degrading' ? chalk.red : chalk.green;
+                console.log(`  ${chalk.dim('  AI Drift:')}    ${c(provTrends.aiDrift)} (Z=${provTrends.aiDriftZScore})`);
+            }
+            if (provTrends.structural !== 'stable') {
+                const c = provTrends.structural === 'degrading' ? chalk.red : chalk.green;
+                console.log(`  ${chalk.dim('  Structural:')}  ${c(provTrends.structural)} (Z=${provTrends.structuralZScore})`);
+            }
+            if (provTrends.security !== 'stable') {
+                const c = provTrends.security === 'degrading' ? chalk.red : chalk.green;
+                console.log(`  ${chalk.dim('  Security:')}    ${c(provTrends.security)} (Z=${provTrends.securityZScore})`);
+            }
+            console.log('');
+        }
+    } catch {
+        // Not enough historical data — skip silently
+    }
+
     // Categorize findings by provenance
     const deepFailures = report.failures.filter((f: any) => f.provenance === 'deep-analysis');
     const aiDriftFailures = report.failures.filter((f: any) => f.provenance === 'ai-drift');
@@ -454,6 +484,16 @@ function renderStandardOutput(report: any, config: any) {
                 console.log('Severity: ' + parts.join(', ') + '\n');
             }
         }
+
+        // ── Temporal Drift Trends (standard mode) ──
+        try {
+            const trend = getQualityTrend(process.cwd());
+            if (trend !== 'stable') {
+                const trendIcon = trend === 'improving' ? chalk.green('↑') : chalk.red('↓');
+                const trendColor = trend === 'improving' ? chalk.green : chalk.red;
+                console.log(`Trend: ${trendIcon} ${trendColor(trend)} (Z-score)\n`);
+            }
+        } catch { /* ignore */ }
 
         for (const failure of report.failures as Failure[]) {
             const sev = severityIcon(failure.severity);

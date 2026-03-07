@@ -315,6 +315,17 @@ async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath
             } catch (e: any) {
                 res.writeHead(500); res.end(e.message);
             }
+        } else if (url.pathname === '/api/drift') {
+            try {
+                const { generateTemporalDriftReport } = await import('@rigour-labs/core');
+                const report = generateTemporalDriftReport(cwd);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(report || { totalScans: 0 }));
+            } catch (e: any) {
+                // SQLite not available or no data
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ totalScans: 0 }));
+            }
         } else if (url.pathname === '/api/arbitrate' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => body += chunk);

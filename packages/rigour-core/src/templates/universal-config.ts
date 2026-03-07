@@ -20,6 +20,10 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         dependencies: {
             forbid: [],
+            detect_unused: true,
+            detect_heavy_alternatives: true,
+            detect_duplicate_purpose: true,
+            unused_allowlist: [],
         },
         architecture: {
             boundaries: [],
@@ -218,6 +222,19 @@ export const UNIVERSAL_CONFIG: Config = {
             custom_patterns: [],
             ignore_patterns: [],
             audit_log: true,
+        },
+        style_drift: {
+            enabled: true,
+            deviation_threshold: 0.25,
+            sample_size: 100,
+            baseline_path: '.rigour/style-baseline.json',
+        },
+        logic_drift: {
+            enabled: true,
+            baseline_path: '.rigour/logic-baseline.json',
+            track_operators: true,
+            track_branches: true,
+            track_returns: true,
         },
         side_effect_analysis: {
             enabled: true,

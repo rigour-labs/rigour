@@ -1,16 +1,25 @@
 /**
- * Checkpoint Supervision Gate
- * 
+ * Checkpoint Supervision Gate (v2)
+ *
  * Monitors agent quality during extended execution for frontier models
  * like GPT-5.3-Codex "coworking mode" that run autonomously for long periods.
- * 
- * Features:
- * - Time-based checkpoint triggers
- * - Quality score tracking
- * - Drift detection (quality degradation over time)
- * - Auto-save on failure
- * 
- * @since v2.14.0
+ *
+ * v2 upgrades:
+ * - EWMA (Exponentially Weighted Moving Average) replaces linear regression
+ * - One bad checkpoint no longer tanks the whole trend
+ * - Configurable smoothing factor (α=0.3 default — recent data weighted more)
+ * - Separate "sudden drop" detection from "gradual decline" detection
+ *
+ * EWMA formula:
+ *   ewma_t = α × score_t + (1 - α) × ewma_(t-1)
+ *
+ * Why EWMA > Linear Regression:
+ * - Linear regression on 5 points: one outlier shifts the slope dramatically
+ * - EWMA: one bad score dampened by history, persistent drops amplified
+ * - α=0.3: ~70% weight on history, 30% on new data → noise-resistant
+ *
+ * @since v2.14.0 (original, linear regression)
+ * @since v5.0.0  (EWMA drift detection)
  */
 
 import { Gate, GateContext } from './base.js';
@@ -27,6 +36,8 @@ export interface CheckpointEntry {
     summary: string;
     qualityScore: number;
     warnings: string[];
+    /** EWMA value at this checkpoint (computed on record) */
+    ewma?: number;
 }
 
 export interface CheckpointSession {
@@ -43,6 +54,10 @@ export interface CheckpointConfig {
     quality_threshold?: number;
     drift_detection?: boolean;
     auto_save_on_failure?: boolean;
+    /** EWMA smoothing factor. Higher = more weight on recent data. Default 0.3 */
+    ewma_alpha?: number;
+    /** Drop from EWMA that triggers drift warning. Default 15 */
+    drift_drop_threshold?: number;
 }
 
 // In-memory checkpoint store (persisted to .rigour/checkpoint-session.json)
@@ -52,8 +67,92 @@ let currentCheckpointSession: CheckpointSession | null = null;
  * Generate unique checkpoint ID
  */
 function generateCheckpointId(): string {
-    return `cp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    return `cp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 }
+
+// ─── EWMA Computation ──────────────────────────────────────────────
+
+/**
+ * Compute EWMA for a new data point.
+ *
+ * ewma_t = α × value + (1 - α) × ewma_(t-1)
+ *
+ * For the first data point, ewma = value (no history to smooth against).
+ */
+function computeEWMA(value: number, previousEWMA: number | undefined, alpha: number): number {
+    if (previousEWMA === undefined) return value;
+    return alpha * value + (1 - alpha) * previousEWMA;
+}
+
+/**
+ * Detect quality drift using EWMA.
+ *
+ * Two-signal detection:
+ *
+ * 1. Sudden Drop: Current score is significantly below the EWMA.
+ *    This catches "agent suddenly started producing garbage."
+ *    Threshold: score < ewma - drift_drop_threshold
+ *
+ * 2. Gradual Decline: EWMA itself is trending downward.
+ *    Compare current EWMA to EWMA from N checkpoints ago.
+ *    This catches "agent is slowly getting worse over 30 minutes."
+ *    Threshold: ewma_now < ewma_5ago - drift_drop_threshold
+ *
+ * Returns trend assessment and whether drift alarm should fire.
+ */
+function detectDrift(
+    checkpoints: CheckpointEntry[],
+    alpha: number,
+    dropThreshold: number
+): { hasDrift: boolean; trend: 'improving' | 'stable' | 'degrading'; ewma: number; reason?: string } {
+    if (checkpoints.length < 3) {
+        return { hasDrift: false, trend: 'stable', ewma: checkpoints.length > 0 ? checkpoints[checkpoints.length - 1].qualityScore : 0 };
+    }
+
+    // Recompute EWMA chain to ensure consistency
+    let ewma = checkpoints[0].qualityScore;
+    for (let i = 1; i < checkpoints.length; i++) {
+        ewma = computeEWMA(checkpoints[i].qualityScore, ewma, alpha);
+    }
+
+    const currentScore = checkpoints[checkpoints.length - 1].qualityScore;
+
+    // Signal 1: Sudden drop from smoothed average
+    if (currentScore < ewma - dropThreshold) {
+        return {
+            hasDrift: true,
+            trend: 'degrading',
+            ewma,
+            reason: `Sudden quality drop: score ${currentScore}% vs EWMA ${ewma.toFixed(1)}% (gap: ${(ewma - currentScore).toFixed(1)})`,
+        };
+    }
+
+    // Signal 2: Gradual EWMA decline (compare to EWMA 5 checkpoints ago)
+    if (checkpoints.length >= 6) {
+        let ewmaAt5Ago = checkpoints[0].qualityScore;
+        const stopAt = checkpoints.length - 5;
+        for (let i = 1; i <= stopAt; i++) {
+            ewmaAt5Ago = computeEWMA(checkpoints[i].qualityScore, ewmaAt5Ago, alpha);
+        }
+
+        if (ewma < ewmaAt5Ago - dropThreshold) {
+            return {
+                hasDrift: true,
+                trend: 'degrading',
+                ewma,
+                reason: `Gradual decline: EWMA dropped from ${ewmaAt5Ago.toFixed(1)}% to ${ewma.toFixed(1)}% over last 5 checkpoints`,
+            };
+        }
+
+        if (ewma > ewmaAt5Ago + dropThreshold) {
+            return { hasDrift: false, trend: 'improving', ewma };
+        }
+    }
+
+    return { hasDrift: false, trend: 'stable', ewma };
+}
+
+// ─── Session Management ─────────────────────────────────────────────
 
 /**
  * Get or create checkpoint session
@@ -82,13 +181,14 @@ export function recordCheckpoint(
     progressPct: number,
     filesChanged: string[],
     summary: string,
-    qualityScore: number
+    qualityScore: number,
+    config?: CheckpointConfig
 ): { continue: boolean; warnings: string[]; checkpoint: CheckpointEntry } {
     const session = getOrCreateCheckpointSession(cwd);
     const warnings: string[] = [];
+    const alpha = config?.ewma_alpha ?? 0.3;
 
-    // Default threshold
-    const qualityThreshold = 80;
+    const qualityThreshold = config?.quality_threshold ?? 80;
 
     // Check if quality is below threshold
     const shouldContinue = qualityScore >= qualityThreshold;
@@ -96,13 +196,20 @@ export function recordCheckpoint(
         warnings.push(`Quality score ${qualityScore}% is below threshold ${qualityThreshold}%`);
     }
 
-    // Detect drift (quality degradation over recent checkpoints)
-    if (session.checkpoints.length >= 2) {
-        const recentScores = session.checkpoints.slice(-3).map(cp => cp.qualityScore);
-        const avgRecent = recentScores.reduce((a, b) => a + b, 0) / recentScores.length;
+    // Compute EWMA for this checkpoint
+    const previousEWMA = session.checkpoints.length > 0
+        ? session.checkpoints[session.checkpoints.length - 1].ewma
+        : undefined;
+    const currentEWMA = computeEWMA(qualityScore, previousEWMA, alpha);
 
-        if (qualityScore < avgRecent - 10) {
-            warnings.push(`Drift detected: quality dropped from avg ${avgRecent.toFixed(0)}% to ${qualityScore}%`);
+    // Detect drift using EWMA
+    if (session.checkpoints.length >= 2) {
+        const dropThreshold = config?.drift_drop_threshold ?? 15;
+        // Temporarily add this checkpoint for drift analysis
+        const tempCheckpoints = [...session.checkpoints, { qualityScore } as CheckpointEntry];
+        const { hasDrift, reason } = detectDrift(tempCheckpoints, alpha, dropThreshold);
+        if (hasDrift && reason) {
+            warnings.push(reason);
         }
     }
 
@@ -114,6 +221,7 @@ export function recordCheckpoint(
         summary,
         qualityScore,
         warnings,
+        ewma: Math.round(currentEWMA * 10) / 10,
     };
 
     session.checkpoints.push(checkpoint);
@@ -149,7 +257,6 @@ export function completeCheckpointSession(cwd: string): void {
 export function abortCheckpointSession(cwd: string, reason: string): void {
     if (currentCheckpointSession) {
         currentCheckpointSession.status = 'aborted';
-        // Add final checkpoint with abort reason
         currentCheckpointSession.checkpoints.push({
             checkpointId: generateCheckpointId(),
             timestamp: new Date(),
@@ -214,33 +321,7 @@ function timeSinceLastCheckpoint(session: CheckpointSession): number {
     return (Date.now() - lastTime.getTime()) / 1000 / 60; // minutes
 }
 
-/**
- * Detect quality drift pattern
- */
-function detectDrift(checkpoints: CheckpointEntry[]): { hasDrift: boolean; trend: 'improving' | 'stable' | 'degrading' } {
-    if (checkpoints.length < 3) {
-        return { hasDrift: false, trend: 'stable' };
-    }
-
-    const recent = checkpoints.slice(-5);
-    const scores = recent.map(cp => cp.qualityScore);
-
-    // Calculate trend using simple linear regression
-    const n = scores.length;
-    const sumX = (n * (n - 1)) / 2;
-    const sumY = scores.reduce((a, b) => a + b, 0);
-    const sumXY = scores.reduce((sum, y, x) => sum + x * y, 0);
-    const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
-
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-
-    if (slope < -2) {
-        return { hasDrift: true, trend: 'degrading' };
-    } else if (slope > 2) {
-        return { hasDrift: false, trend: 'improving' };
-    }
-    return { hasDrift: false, trend: 'stable' };
-}
+// ─── Gate Implementation ────────────────────────────────────────────
 
 export class CheckpointGate extends Gate {
     private config: CheckpointConfig;
@@ -253,6 +334,8 @@ export class CheckpointGate extends Gate {
             quality_threshold: config.quality_threshold ?? 80,
             drift_detection: config.drift_detection ?? true,
             auto_save_on_failure: config.auto_save_on_failure ?? true,
+            ewma_alpha: config.ewma_alpha ?? 0.3,
+            drift_drop_threshold: config.drift_drop_threshold ?? 15,
         };
     }
 
@@ -267,7 +350,6 @@ export class CheckpointGate extends Gate {
         const session = getCheckpointSession(context.cwd);
 
         if (!session || session.checkpoints.length === 0) {
-            // No checkpoints yet, skip
             return [];
         }
 
@@ -298,12 +380,17 @@ export class CheckpointGate extends Gate {
             ));
         }
 
-        // Check 3: Drift detection
+        // Check 3: EWMA-based drift detection (v5)
         if (this.config.drift_detection) {
-            const { hasDrift, trend } = detectDrift(session.checkpoints);
+            const { hasDrift, trend, ewma, reason } = detectDrift(
+                session.checkpoints,
+                this.config.ewma_alpha ?? 0.3,
+                this.config.drift_drop_threshold ?? 15
+            );
+
             if (hasDrift && trend === 'degrading') {
                 failures.push(this.createFailure(
-                    `Quality drift detected: scores are degrading over time`,
+                    `Quality drift detected (EWMA: ${ewma.toFixed(1)}%): ${reason || 'scores are degrading over time'}`,
                     undefined,
                     'Agent performance is declining. Consider pausing and reviewing recent work.',
                     'Quality Drift Detected',

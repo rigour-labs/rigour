@@ -82,31 +82,73 @@ gates:
     block_native_memory: true  # hard block vs warning-only
 ```
 
-### Quality Gates (40+ checks)
+### Quality Gates (27+ deterministic gates)
 
-The original Rigour — deterministic PASS/FAIL gates that catch AI-generated code issues:
+The core of Rigour — deterministic PASS/FAIL gates that catch what AI agents get wrong:
 
-- Hallucinated imports (relative + package, language-aware)
-- Phantom APIs (non-existent stdlib/framework methods)
-- Deprecated API usage (Node, Python, Web, Go, C#, Java)
-- Security patterns (hardcoded secrets, command injection, SQL injection, XSS, path traversal)
-- Promise safety (unhandled async, unsafe JSON.parse, floating fetch)
-- Duplication drift, context-window artifacts, inconsistent error handling
-- AST-level: cyclomatic complexity, method count, nesting depth, function length
-- Test quality (empty tests, tautological assertions, mock-heavy, snapshot abuse)
+- **Hallucinated imports** — relative + package, language-aware resolution
+- **Phantom APIs** — non-existent stdlib/framework methods the LLM invented
+- **Deprecated API usage** — Node, Python, Web, Go, C#, Java
+- **Security patterns** — hardcoded secrets, command injection, SQL injection, XSS, path traversal
+- **Promise safety** — unhandled async, unsafe JSON.parse, floating fetch
+- **Three-pass duplication drift** — MD5 exact → AST Jaccard (tree-sitter) → semantic embedding (all-MiniLM-L6-v2, 384D cosine). Catches `.find()` vs `.filter()[0]` — same intent, different implementation
+- **Dependency bloat** — unused deps, heavy alternatives (moment→dayjs, axios→native fetch), duplicate purpose (two HTTP clients installed by different AI sessions)
+- **Style drift** — fingerprints naming conventions, error handling patterns, import style, quote style against a project baseline. Flags when AI switches from camelCase to snake_case mid-project
+- **Logic drift** — tracks comparison operators (>= silently became >), branch counts, return statements per function. Catches off-by-one mutations that still compile and pass tests
+- **Context-window artifacts** — degradation patterns in files too long for the context window
+- **Inconsistent error handling** — too many error strategies in one codebase
+- **AST-level** — cyclomatic complexity, method count, nesting depth, function length
+- **Test quality** — empty tests, tautological assertions, mock-heavy, snapshot abuse
+- **Side-effect safety** — unbounded timers, recursive depth, resource lifecycle, retry loops
 
-### Deep Analysis (LLM-Powered)
+### Temporal Drift Engine (v5.1)
 
-Optional LLM layer for SOLID principles, design patterns, language idioms, architecture review:
+Cross-session trend analysis that answers: "Is AI getting worse?" separately from "Is code quality dropping?"
+
+- **EWMA checkpoints** (alpha=0.3) — noise-resistant quality monitoring for long-running agents. One bad checkpoint doesn't tank the trend.
+- **Z-score adaptive thresholds** — size-independent anomaly detection. A 100-failure enterprise project and a 2-failure hobby project both get correct alerts.
+- **Per-provenance trending** — separate EWMA streams for AI drift, structural quality, and security. Pinpoints root cause instead of just "degrading."
+- **Monthly/weekly rollups** with anomaly detection from SQLite brain data.
+- **Semantic duplicate tracking** — embedding-based Pass 3 catches functions the AST misses (same intent, different implementation).
+- **Style + logic baselines** — fingerprints stored in `.rigour/` directory, evolve with human-approved changes, flag AI mutations.
 
 ```bash
-rigour check --deep           # Local Qwen3.5-0.8B lite (500MB one-time download)
-rigour check --deep --pro     # Local Qwen2.5-Coder-1.5B deep (900MB, company-hosted)
-rigour check --deep --provider claude -k sk-ant-xxx  # Cloud BYOK
+rigour check --deep    # Trend info appears automatically when enough history exists
+rigour studio          # Visual dashboard with EWMA sparklines and score rings
+```
+
+### Deep Analysis (LLM-Powered RLAIF Pipeline)
+
+Rigour does not wrap a generic LLM and hope for the best. It runs a **five-signal extraction → interpretation → verification pipeline** where the model is constrained by ground truth at every stage.
+
+**Stage 1 — Multi-signal fact extraction (deterministic, no LLM):**
+
+The extraction layer produces five independent signal streams before the LLM sees anything:
+
+- **AST facts** — tree-sitter parses every file → function signatures, complexity metrics, control flow graphs, dependency relationships. Ground truth, no hallucination possible.
+- **Semantic embeddings** — all-MiniLM-L6-v2 (384D) generates vector representations of every function body. Cosine similarity catches intent-level duplicates that AST alone misses (`.find()` vs `.filter()[0]`).
+- **Style fingerprints** — naming convention distributions, error handling patterns, import styles, quote preferences computed per-file and compared against the project baseline stored in `.rigour/`.
+- **Logic baselines** — comparison operators, branch counts, return statement counts, call sequences tracked per function across scans. Detects mutations that change behavior without changing structure.
+- **Dependency graph** — unused deps, heavy alternatives map, duplicate purpose groups, import frequency analysis from source scan.
+
+**Stage 2 — LLM interprets structured facts (not raw source):**
+
+The model receives the five signal streams — not raw code. It focuses on SOLID principles, design patterns, language idioms, and architecture. The constrained input format prevents it from inventing non-existent code or hallucinating patterns.
+
+**Stage 3 — Deterministic verification (no LLM):**
+
+Every LLM finding is cross-referenced against the AST and all five signal streams. Claims about non-existent functions → discarded. Wrong line numbers → discarded. Phantom patterns → discarded. Only verified findings with confidence scores make it to the report.
+
+This is why Rigour's deep analysis is not comparable to "ask an LLM to review code." The LLM operates within a cage of deterministic facts. It can reason, but it cannot hallucinate.
+
+```bash
+rigour check --deep           # Local sidecar (500MB one-time download, runs on any CPU)
+rigour check --deep --pro     # Full-power model (900MB, code-specialized pretraining)
+rigour check --deep --provider claude -k sk-ant-xxx  # Cloud BYOK (any provider)
 rigour scan --deep            # Zero-config + deep (no rigour.yml required)
 ```
 
-**Two model tiers:** The **lite** model (Qwen3.5-0.8B) ships as the default sidecar — runs on any laptop CPU. The **deep** model (Qwen2.5-Coder-1.5B) is the full-power version with code-specialized pretraining — companies host this for their team via `--pro`. Both are fine-tuned via the [DriftBench RLAIF pipeline](https://github.com/rigour-labs/driftbench).
+**Two model tiers:** The **lite** sidecar ships as the default — runs on any laptop CPU, no GPU needed. The **pro** model has code-specialized pretraining — companies host this for their team. Both are fine-tuned via the [DriftBench RLAIF pipeline](https://github.com/rigour-labs/driftbench) where the five signal streams serve as the teacher signal (SFT + DPO on real code quality findings). Cloud BYOK is available for any provider — your code context is sent to that API only when you explicitly opt in.
 
 ### Rigour Brain — Local Project Memory
 
@@ -268,7 +310,21 @@ gates:
       - "\\.svg$"
   duplication_drift:
     enabled: true
-    similarity_threshold: 0.8
+    similarity_threshold: 0.75   # Jaccard on AST node multisets (tree-sitter)
+    semantic_threshold: 0.85     # Embedding cosine similarity (Pass 3)
+    semantic_enabled: true       # Toggle semantic embedding pass
+  dependencies:
+    detect_unused: true          # Flag deps with 0 imports
+    detect_heavy_alternatives: true  # moment → dayjs, axios → fetch
+    detect_duplicate_purpose: true   # Two HTTP clients installed
+  style_drift:
+    enabled: true
+    deviation_threshold: 0.25    # 25% deviation from baseline triggers alert
+  logic_drift:
+    enabled: true
+    track_operators: true        # >= became > (off-by-one)
+    track_branches: true         # New if/else added or removed
+    track_returns: true          # Return statements changed
 ```
 
 Recommended policy for world-class quality:
@@ -278,19 +334,30 @@ Recommended policy for world-class quality:
 
 ## Real-Time Hooks
 
+Rigour uses a two-tier supervision model: inline hooks (<100ms, per file write) + checkpoint suite (2–5s, full gates). Hooks are the inline tier — they run inside your AI coding tool on every file write/edit.
+
+**Two hooks per tool:**
+- **Post-write hook** — quality checks (file size, secrets, hallucinated imports, command injection, governance)
+- **Pre-write hook** — DLP credential interception (29 patterns, <50ms)
+
 ```bash
-rigour hooks init
-rigour hooks init --tool all
-rigour hooks check --files src/a.ts,src/b.ts --block
+rigour hooks init                    # auto-detect tool, install hooks + DLP
+rigour hooks init --tool all         # all tools at once
+rigour hooks init --block            # exit code 2 on failures (strict mode)
+rigour hooks init --no-dlp           # skip DLP hooks
+rigour hooks check --files src/a.ts  # manual fast check
 ```
 
-Supported integrations:
-- Claude Code
-- Cursor
-- Cline
-- Windsurf
+**Protocol details per tool:**
 
-`--block` returns exit code `2` on failures for blocking workflows.
+| Tool | Config | Quality Event | DLP Event | Protocol |
+|------|--------|--------------|-----------|----------|
+| **Claude Code** | `.claude/settings.json` | `PostToolUse` (matcher: `Write\|Edit\|MultiEdit`) | `PreToolUse` (matcher: `.*`) | JSON stdin/stdout, exit codes |
+| **Cursor** | `.cursor/hooks.json` | `afterFileEdit` | `beforeFileEdit` | JSON stdin/stdout |
+| **Cline** | `.clinerules/hooks/PostToolUse` | `PostToolUse` (filters `write_to_file`) | `PreToolUse` | Executable scripts, JSON stdin/stdout |
+| **Windsurf** | `.windsurf/hooks.json` | `post_write_code` | `pre_write_code` | Command execution, JSON stdin |
+
+`--block` returns exit code `2` on failures for blocking workflows. Pre-hooks (DLP) block by default.
 
 ## CI
 

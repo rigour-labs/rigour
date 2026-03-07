@@ -3523,3 +3523,291 @@ header {
     color: var(--text-dim);
     text-align: center;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   Temporal Drift Engine — v5 EWMA Dashboard
+   ═══════════════════════════════════════════════════════════════ */
+
+.temporal-drift {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 0;
+}
+
+.temporal-drift .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.temporal-drift .panel-header .badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--accent-glow);
+    color: var(--accent-primary);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.temporal-drift .refresh-btn {
+    background: none;
+    border: 1px solid var(--border-dim);
+    color: var(--text-dim);
+    padding: 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.temporal-drift .refresh-btn:hover {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+/* Direction Badge */
+.direction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    border: 1px solid;
+    font-size: 13px;
+    font-weight: 600;
+}
+.direction-badge .z-score {
+    font-size: 11px;
+    opacity: 0.7;
+    font-weight: 400;
+}
+
+/* Drift Banner */
+.drift-banner {
+    padding: 16px 20px;
+    border-radius: 10px;
+    border: 1px solid var(--border-dim);
+    background: var(--bg-card);
+}
+.drift-banner.drift-improving {
+    border-color: rgba(52, 211, 153, 0.3);
+    background: rgba(52, 211, 153, 0.04);
+}
+.drift-banner.drift-degrading {
+    border-color: rgba(248, 113, 113, 0.3);
+    background: rgba(248, 113, 113, 0.04);
+}
+.banner-main {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.banner-repo {
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-primary);
+}
+.banner-meta {
+    font-size: 13px;
+    color: var(--text-dim);
+}
+.anomaly-alert {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: rgba(251, 191, 36, 0.1);
+    color: #fbbf24;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* Score Rings Row */
+.score-rings-row {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    padding: 16px 0;
+}
+.score-ring {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.ring-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Stream Cards Grid */
+.streams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+.stream-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    padding: 16px;
+    transition: border-color 0.2s;
+}
+.stream-card:hover {
+    border-color: var(--border-med);
+}
+.stream-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.stream-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.stream-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.ewma-sparkline {
+    width: 100%;
+    height: 50px;
+}
+.stream-stats {
+    display: flex;
+    gap: 24px;
+}
+.stream-stats .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.stream-stats .stat-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.stream-stats .stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Monthly Table */
+.monthly-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.section-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px 16px;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    text-align: left;
+}
+.section-toggle:hover {
+    background: var(--bg-accent);
+}
+.monthly-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.monthly-table th {
+    text-align: left;
+    padding: 8px 16px;
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-dim);
+    background: var(--bg-accent);
+}
+.monthly-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-dim);
+    color: var(--text-primary);
+}
+.monthly-table tr:last-child td {
+    border-bottom: none;
+}
+.monthly-table .month-cell {
+    font-weight: 600;
+    font-family: monospace;
+}
+.monthly-table .dim {
+    color: var(--text-dim);
+}
+
+/* Narrative Section */
+.narrative-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.narrative-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-dim);
+}
+.narrative-text {
+    padding: 16px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    font-family: inherit;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Retry Button */
+.retry-btn {
+    margin-top: 12px;
+    padding: 8px 20px;
+    background: var(--accent-primary);
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.retry-btn:hover {
+    opacity: 0.9;
+}
+
+/* Spin animation for loading */
+@keyframes spin-anim {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.spin {
+    animation: spin-anim 1s linear infinite;
+}

@@ -27,6 +27,12 @@ export type { RigourDB, CompactResult } from './storage/index.js';
 // Local Project Memory (hybrid intelligence — SQLite-backed per-project learning)
 export { checkLocalPatterns, persistAndReinforce, getProjectStats } from './storage/index.js';
 export type { ProjectStats } from './storage/index.js';
+// Temporal Drift Engine (v5 — cross-session trend analysis + per-provenance EWMA)
+export { generateTemporalDriftReport, formatDriftSummary } from './services/temporal-drift.js';
+export type { TemporalDriftReport, ProvenanceStream, MonthlyBucket, WeeklyBucket, DriftDirection } from './services/temporal-drift.js';
+// Adaptive Thresholds (v5 — Z-score + per-provenance trends)
+export { getProvenanceTrends, getQualityTrend } from './services/adaptive-thresholds.js';
+export type { ProvenanceTrends, ProvenanceRunData } from './services/adaptive-thresholds.js';
 // Pattern Index is intentionally NOT exported here to prevent
 // native dependency issues (sharp/transformers) from leaking into
 // non-AI parts of the system.

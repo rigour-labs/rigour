@@ -1,6 +1,7 @@
 import { globby } from 'globby';
 import fs from 'fs-extra';
 import path from 'path';
+import type { FileSystemCache } from '../services/filesystem-cache.js';
 
 export interface ScannerOptions {
     cwd: string;
@@ -37,7 +38,15 @@ export class FileScanner {
         });
     }
 
-    static async readFiles(cwd: string, files: string[]): Promise<Map<string, string>> {
+    /**
+     * Read file contents. When a FileSystemCache is provided, uses it for
+     * shared caching across gates (avoids re-loading per gate).
+     */
+    static async readFiles(cwd: string, files: string[], cache?: FileSystemCache): Promise<Map<string, string>> {
+        if (cache) {
+            return cache.getFiles(cwd, files);
+        }
+
         const contents = new Map<string, string>();
         for (const file of files) {
             const normalizedFile = file.replace(/\//g, path.sep);
