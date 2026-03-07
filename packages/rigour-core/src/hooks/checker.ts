@@ -349,8 +349,8 @@ function checkGovernance(
     );
 
     // ── Check skills paths ──
-    const skillsPaths = (gov as any).protected_skills_paths ?? [];
-    const isSkillsPath = skillsPaths.some((pattern: string) =>
+    const skillsPaths = gov.protected_skills_paths ?? [];
+    const isSkillsPath = skillsPaths.some(pattern =>
         simpleGlob(normalizedPath, pattern)
     );
 

@@ -56,6 +56,8 @@ interface CheckerCommandSpec {
 
 // ── Studio event logging ─────────────────────────────────────────────
 
+const MAX_EVENT_LOG_LINES = 2000;
+
 async function logStudioEvent(cwd: string, event: Record<string, unknown>): Promise<void> {
     try {
         const rigourDir = path.join(cwd, '.rigour');
@@ -67,8 +69,28 @@ async function logStudioEvent(cwd: string, event: Record<string, unknown>): Prom
             ...event,
         }) + '\n';
         await fs.appendFile(eventsPath, logEntry);
+
+        // Rotate: keep last MAX_EVENT_LOG_LINES entries to prevent unbounded growth
+        await rotateEventLog(eventsPath);
     } catch {
         // Silent fail
+    }
+}
+
+async function rotateEventLog(eventsPath: string): Promise<void> {
+    try {
+        const stat = await fs.stat(eventsPath);
+        // Only check rotation when file exceeds ~500KB (avoids reading on every append)
+        if (stat.size < 512 * 1024) return;
+
+        const content = await fs.readFile(eventsPath, 'utf-8');
+        const lines = content.trim().split('\n');
+        if (lines.length > MAX_EVENT_LOG_LINES) {
+            const trimmed = lines.slice(-MAX_EVENT_LOG_LINES).join('\n') + '\n';
+            await fs.writeFile(eventsPath, trimmed);
+        }
+    } catch {
+        // Silent fail — rotation is best-effort
     }
 }
 
@@ -310,6 +332,8 @@ process.stdin.on('end', async () => {
         const proc = spawnSync(
             command,
             [...baseArgs, '--mode', 'dlp', '--stdin'],
+            // Note: joining with \\n is safe — credential patterns match within single values.
+            // A credential split across two toolInput fields would be malformed regardless.
             { input: textsToScan.join('\\n'), encoding: 'utf-8', timeout: 3000 }
         );
         if (proc.error) throw proc.error;

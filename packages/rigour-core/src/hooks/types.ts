@@ -22,6 +22,7 @@ export interface HookConfig {
 
 /** The fast gates that can run per-file in <200ms */
 export const FAST_GATE_IDS = [
+    'governance',
     'hallucinated-imports',
     'promise-safety',
     'security-patterns',

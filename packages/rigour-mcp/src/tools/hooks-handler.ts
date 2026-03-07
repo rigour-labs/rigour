@@ -38,7 +38,7 @@ export async function handleHooksCheck(
             audit_log: true,
         });
 
-        // Log to audit trail
+        // Log to audit trail (with rotation to prevent unbounded growth)
         if (result.status !== 'clean') {
             try {
                 const rigourDir = path.join(cwd, '.rigour');
@@ -48,6 +48,16 @@ export async function handleHooksCheck(
                     agent: agent ?? 'mcp',
                 });
                 await fs.appendFile(eventsPath, JSON.stringify(auditEntry) + '\n');
+
+                // Rotate: only check when file exceeds ~500KB
+                const stat = await fs.stat(eventsPath);
+                if (stat.size >= 512 * 1024) {
+                    const content = await fs.readFile(eventsPath, 'utf-8');
+                    const lines = content.trim().split('\n');
+                    if (lines.length > 2000) {
+                        await fs.writeFile(eventsPath, lines.slice(-2000).join('\n') + '\n');
+                    }
+                }
             } catch {
                 // Silent
             }

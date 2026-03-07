@@ -7,6 +7,12 @@
  * - Cline: .clinerules/hooks/PostToolUse (executable script)
  * - Windsurf: .windsurf/hooks.json (post_write_code event)
  *
+ * NOTE: These templates use `require('@rigour-labs/core/...')` for direct library
+ * invocation (used by MCP `handleHooksInit`). The CLI `rigour hooks init` has its
+ * own generators in `packages/rigour-cli/src/commands/hooks.ts` that shell out to
+ * `rigour hooks check` instead — more portable but requires the CLI binary.
+ * Both produce functionally equivalent hook configs for each tool.
+ *
  * @since v3.0.0
  */
 
