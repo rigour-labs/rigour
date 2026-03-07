@@ -241,8 +241,12 @@ export async function checkForUpdates(
         clearTimeout(timeout);
 
         if (response.ok) {
-            const data = await response.json() as { version?: number; updated_by?: string };
-            const latestVersion = String(data.version || BUNDLED_MODEL_VERSION);
+            const data = await response.json() as { version?: number | string; updated_by?: string };
+            // Handle both legacy integer versions (5 → "5.0.0") and SemVer strings ("2.0.0")
+            let rawVersion = data.version ?? BUNDLED_MODEL_VERSION;
+            const latestVersion = typeof rawVersion === 'number'
+                ? `${rawVersion}.0.0`
+                : String(rawVersion);
 
             // Cache the result locally
             await fs.writeJson(VERSION_CACHE_PATH, {

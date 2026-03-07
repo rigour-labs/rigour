@@ -94,8 +94,13 @@ export interface ModelInfo {
  * publishes new versions to HuggingFace and updates latest_version.json.
  * At startup, model-manager checks HF for the latest version and downloads
  * it automatically (like antivirus signature updates).
+ *
+ * Version format: SemVer (MAJOR.MINOR.PATCH)
+ *   - MAJOR: Training data format change, base model change, pipeline architecture
+ *   - MINOR: New training repos, updated dataset, hyperparameter improvements
+ *   - PATCH: Bug fixes, retraining with same data/format
  */
-export const BUNDLED_MODEL_VERSION = '1';
+export const BUNDLED_MODEL_VERSION = '2.0.0';
 
 /** HuggingFace dataset repo where latest_version.json lives */
 export const VERSION_CHECK_URL =
