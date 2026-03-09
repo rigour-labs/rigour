@@ -1,8 +1,8 @@
 # 🛡️ Rigour MCP Server
 
-**The Quality Gate for AI-Assisted Engineering.**
+**AI Agent Governance via Model Context Protocol — quality gates, DLP, drift detection, and deep analysis.**
 
-Rigour is a local-first Model Context Protocol (MCP) server that forces AI agents (Claude, Cursor, Windsurf, etc.) to meet strict engineering standards before marking tasks as complete.
+Rigour is a local-first MCP server that governs AI agents (Claude, Cursor, Cline, Windsurf) with deterministic quality gates, credential interception, and memory governance.
 
 [![Registry](https://img.shields.io/badge/MCP-Registry-brightgreen)](https://github.com/mcp)
 [![npm version](https://img.shields.io/npm/v/@rigour-labs/mcp?color=cyan)](https://www.npmjs.com/package/@rigour-labs/mcp)
@@ -11,54 +11,76 @@ Rigour is a local-first Model Context Protocol (MCP) server that forces AI agent
 
 ## 🚀 Overview
 
-Rigour moves code quality enforcement from the "Post-Commit" phase to the "In-Progress" phase. By running as an MCP server inside your editor, it provides the AI with a deterministic PASS/FAIL loop, preventing "Vibe Coding" and broken builds.
+Rigour moves code quality enforcement from "Post-Commit" to "In-Progress." By running as an MCP server inside your editor, it provides the AI with a deterministic PASS/FAIL loop, preventing "Vibe Coding" and broken builds.
 
 ### Key Features:
-- **Quality Gates**: 23 deterministic checks for file size, complexity, hygiene, security, and AI-native drift detection.
-- **8-Language Support**: JS/TS, Python, Go, Ruby, C#/.NET, Rust, Java, and Kotlin — with stdlib whitelists, dependency manifest parsing, and project-relative import resolution.
+
+- **27+ Quality Gates**: Deterministic checks for file size, complexity, hygiene, security, and AI-native drift detection.
+- **8-Language Hallucination Detection**: JS/TS, Python, Go, Ruby, C#/.NET, Rust, Java, and Kotlin — with stdlib whitelists, dependency manifest parsing, and project-relative import resolution.
+- **AI Agent DLP**: 29 credential patterns intercepted before agents see them (<50ms). Anti-evasion: unicode normalization, entropy detection, bidi stripping.
+- **Memory & Skills Governance**: Blocks agent writes to native memory files (CLAUDE.md, .clinerules, .windsurf/memories/); forces DLP-scanned `rigour_remember` instead.
 - **Real-Time Hooks**: Sub-200ms file-write hooks for Claude Code, Cursor, Cline, and Windsurf — catches issues as the AI writes, not after CI.
-- **OWASP LLM Top 10**: Strong coverage on all 10 risks from the OWASP Top 10 for LLM-Generated Code, with 25+ security patterns.
-- **Two-Score System**: Separate AI Health Score and Structural Score with provenance tracking.
-- **Context Memory**: Persistent memory that tracks project rules and patterns across sessions.
-- **Pattern Reinvention Blocking**: Warns or blocks the AI when it tries to rewrite existing utilities.
-- **Security Audits**: Real-time CVE detection for dependencies the AI is suggesting.
-- **Multi-Agent Governance**: Agent registration, scope isolation, checkpoint supervision, and verified handoffs for multi-agent workflows.
+- **Two-Score System**: Separate AI Health Score and Structural Score with provenance tracking (`ai-drift`, `traditional`, `security`, `governance`).
+- **Deep Analysis**: Five-signal LLM pipeline (AST facts, embeddings, style fingerprints, logic baselines, dependency graphs) with deterministic verification.
+- **Multi-Agent Governance**: Agent registration, scope isolation, checkpoint supervision, and verified handoffs.
 - **Industry Presets**: SOC2, HIPAA, FedRAMP-ready gate configurations.
-- **Local-First**: Deterministic gates run locally. If deep analysis is configured with a cloud provider, code context may be sent to that provider.
+- **Local-First**: Deterministic gates run locally. Cloud deep analysis is opt-in BYOK.
 
 ---
 
-## 🛠️ Available Tools
+## 🛠️ Available Tools (25)
 
-### Core Tools
+### Core Quality Tools
 
 | Tool | Description |
 |:---|:---|
 | `rigour_check` | Runs all configured quality gates on the current workspace. |
-| `rigour_explain` | Explains why a specific gate failed and provides actionable fix instructions. |
+| `rigour_explain` | Explains why a specific gate failed with actionable fix instructions. |
 | `rigour_status` | Quick PASS/FAIL check with JSON-friendly output for polling. |
 | `rigour_get_fix_packet` | Retrieves prioritized Fix Packet (v2) with severity and provenance. |
 | `rigour_list_gates` | Lists all configured quality gates and their thresholds. |
 | `rigour_get_config` | Returns the current rigour.yml configuration. |
 | `rigour_check_pattern` | Checks if a proposed code pattern already exists in the codebase. |
-| `rigour_remember` | Stores project-specific context or rules in Rigour's persistent memory. |
-| `rigour_recall` | Retrieves stored context to guide AI generation. |
-| `rigour_forget` | Removes a stored memory by key. |
 | `rigour_security_audit` | Runs a live CVE check on project dependencies. |
-| `rigour_run` | Executes a command under Rigour supervision with human arbitration. |
-| `rigour_run_supervised` | Full supervisor mode — iterative command + gate check loop. |
 | `rigour_review` | High-fidelity code review on a PR diff against all quality gates. |
 
-### Real-Time Hooks (v3.0)
+### Memory & Context Tools
 
 | Tool | Description |
 |:---|:---|
-| `rigour_hooks_check` | Run fast hook checker on specific files (<100ms). Catches: hardcoded secrets, hallucinated imports, command injection, file size. |
-| `rigour_hooks_init` | Generate hook configs for Claude, Cursor, Cline, or Windsurf. Installs real-time checks on every file write. |
+| `rigour_remember` | DLP-gated persistent memory — scans values before storing. |
+| `rigour_recall` | DLP-gated recall — blocks tainted memories on read. |
+| `rigour_forget` | Removes a stored memory by key. |
 
-### Frontier Model Tools (v2.14+)
+### Real-Time Hooks & DLP
 
-For next-gen multi-agent workflows (Opus 4.6, GPT-5.3-Codex):
+| Tool | Description |
+|:---|:---|
+| `rigour_hooks_check` | Fast hook checker on specific files (<200ms). Also accepts `text` param for DLP mode — scans user input for credentials (AWS keys, API tokens, database URLs, private keys, JWTs) before agent processing. |
+| `rigour_hooks_init` | Generate hook configs for Claude, Cursor, Cline, or Windsurf. Installs quality hooks + DLP pre-input hooks by default. Pass `dlp: false` to skip DLP. |
+
+### Deep Analysis
+
+| Tool | Description |
+|:---|:---|
+| `rigour_check_deep` | LLM-powered code review with five-signal extraction → verification pipeline. Local-first or cloud BYOK. |
+| `rigour_deep_stats` | Score history, trend analysis, and top issues from SQLite storage. |
+
+### Supervisor & Execution
+
+| Tool | Description |
+|:---|:---|
+| `rigour_run` | Executes a command under Rigour supervision with human arbitration. |
+| `rigour_run_supervised` | Full supervisor mode — iterative command + gate check loop. |
+
+### Settings
+
+| Tool | Description |
+|:---|:---|
+| `rigour_mcp_get_settings` | Get MCP runtime settings (.rigour/mcp-settings.json). |
+| `rigour_mcp_set_settings` | Set MCP runtime settings (e.g., deep_default_mode). |
+
+### Multi-Agent Governance
 
 | Tool | Description |
 |:---|:---|

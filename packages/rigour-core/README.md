@@ -28,6 +28,14 @@ The core library powering [Rigour](https://rigour.run) — 27+ quality gates, fi
 
 **Agent Governance:** Multi-agent scope isolation, EWMA-based checkpoint supervision, context drift, retry loop breaker, memory & skills governance with DLP scanning.
 
+### Real-Time Hook Engine
+
+Sub-200ms per-file-write checker with 5 fast gates (governance, hallucinated imports, promise safety, security patterns, file size). Generates native hook configs for Claude Code, Cursor, Cline, and Windsurf.
+
+### AI Agent DLP (Data Loss Prevention)
+
+29 credential patterns with anti-evasion hardening (unicode normalization, zero-width char removal, bidi control stripping, Shannon entropy detection >4.5 bits). Compliance-mapped to SOC2-CC6.1, HIPAA-164.312, PCI-DSS-3.4/3.5/6.5, OWASP-A2, CWE-798.
+
 ### Five-Signal Deep Analysis Pipeline
 
 Rigour's deep analysis is not a wrapper around a generic LLM. The model operates within a cage of deterministic facts:
@@ -46,7 +54,7 @@ Key capabilities: per-provenance EWMA streams (alpha=0.3), Z-score anomaly detec
 
 ### Multi-Language Support
 
-All gates support: TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET.
+Hallucinated import detection supports 8 languages with stdlib whitelists and dependency manifest parsing: TypeScript, JavaScript, Python, Go, Ruby, C#/.NET, Rust, Java, and Kotlin. Core structural gates support all languages via AST analysis.
 
 ### Two-Score System
 
