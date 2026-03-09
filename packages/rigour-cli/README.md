@@ -105,7 +105,7 @@ rigour hooks check --files src/a.ts  # manual fast check
 Five-signal extraction → LLM interpretation → deterministic verification pipeline.
 
 ```bash
-rigour check --deep                  # Local sidecar (Qwen3.5-0.8B, any CPU)
+rigour check --deep                  # Local sidecar (Qwen2.5-Coder-0.5B, any CPU)
 rigour check --deep --pro            # Full model (Qwen2.5-Coder-1.5B)
 rigour check --deep --provider claude -k sk-ant-xxx  # Cloud BYOK
 ```

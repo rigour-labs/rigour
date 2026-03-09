@@ -42,7 +42,7 @@ describe('GateRunner deep stats execution mode', () => {
         });
 
         expect(report.stats.deep?.tier).toBe('lite');
-        expect(report.stats.deep?.model).toBe('Qwen3.5-0.8B');
+        expect(report.stats.deep?.model).toBe('Qwen2.5-Coder-0.5B');
     });
 
     it('reports local deep tier when provider=local and pro=true', async () => {

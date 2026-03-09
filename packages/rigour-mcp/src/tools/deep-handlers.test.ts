@@ -11,7 +11,7 @@ describe('handleCheckDeep privacy routing', () => {
             score: 100,
             ai_health_score: 100,
             structural_score: 100,
-            deep: { enabled: true, tier: 'lite', model: 'Qwen3.5-0.8B', total_ms: 1000 },
+            deep: { enabled: true, tier: 'lite', model: 'Qwen2.5-Coder-0.5B', total_ms: 1000 },
         },
     } as any;
 

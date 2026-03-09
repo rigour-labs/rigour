@@ -248,7 +248,7 @@ rigour scan --deep -k sk-ant-xxx                         # Zero-config + Claude 
 rigour init                                              # Set up config, hooks, DLP, governance
 rigour check                                             # Full repository gates
 rigour check --ci                                        # CI mode (minimal output)
-rigour check --deep                                      # + local LLM (lite: Qwen3.5-0.8B)
+rigour check --deep                                      # + local LLM (lite: Qwen2.5-Coder-0.5B)
 rigour check --deep --pro                                # + full deep model (Qwen2.5-Coder-1.5B)
 rigour hooks init                                        # Install real-time hooks
 rigour hooks check --files src/app.ts                    # Fast file check
@@ -263,7 +263,7 @@ rigour doctor                                            # Diagnose install + de
 Rigour supports two deep-analysis paths:
 
 ### 1) Local deep (`--deep`, `--deep --pro`)
-- `--deep` uses the **lite** model (Qwen3.5-0.8B, 500MB) — default sidecar, runs on any CPU
+- `--deep` uses the **lite** model (Qwen2.5-Coder-0.5B, 500MB) — default sidecar, runs on any CPU
 - `--deep --pro` uses the **deep** model (Qwen2.5-Coder-1.5B, 900MB) — code-specialized, higher accuracy
 - Both are fine-tuned via RLAIF (SFT + DPO on code quality findings)
 - First run downloads model assets once to `~/.rigour/models/`
