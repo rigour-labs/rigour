@@ -18,8 +18,6 @@
  * - EWMA: one bad score dampened by history, persistent drops amplified
  * - α=0.3: ~70% weight on history, 30% on new data → noise-resistant
  *
- * @since v2.14.0 (original, linear regression)
- * @since v5.0.0  (EWMA drift detection)
  */
 
 import { Gate, GateContext } from './base.js';

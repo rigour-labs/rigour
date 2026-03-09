@@ -12,8 +12,6 @@
  * - Per-provenance failure tracking (AI drift vs structural vs security)
  * - Statistical anomaly detection normalizes across project sizes
  *
- * @since v2.14.0 (original)
- * @since v5.0.0 (Z-score + provenance-aware trends)
  */
 
 import * as fs from 'fs';

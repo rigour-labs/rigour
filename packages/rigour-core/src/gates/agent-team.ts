@@ -9,7 +9,6 @@
  * - Task scope violations
  * - Handoff context loss
  * 
- * @since v2.14.0
  */
 
 import { Gate, GateContext } from './base.js';

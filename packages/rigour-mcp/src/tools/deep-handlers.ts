@@ -56,15 +56,15 @@ export async function handleCheckDeep(
     if (!isTestRuntime()) {
         try {
             const { openDatabase, insertScan, insertFindings } = await import('@rigour-labs/core');
-            const db = openDatabase();
+            const db = await openDatabase();
             if (db) {
                 const repoName = path.basename(cwd);
-                const scanId = insertScan(db, repoName, report, {
+                const scanId = await insertScan(db, repoName, report, {
                     deepTier: args.pro ? 'deep' : (execution.isLocal ? 'lite' : 'cloud'),
                     deepModel: report.stats.deep?.model,
                 });
-                insertFindings(db, scanId, report.failures);
-                db.close();
+                await insertFindings(db, scanId, report.failures);
+                await db.close();
             }
         } catch {
             // SQLite persistence is best-effort
@@ -138,7 +138,7 @@ export async function handleCheckDeep(
 export async function handleDeepStats(cwd: string, limit = 10): Promise<ToolResult> {
     try {
         const { openDatabase, getRecentScans, getScoreTrendFromDB, getTopIssues } = await import('@rigour-labs/core');
-        const db = openDatabase();
+        const db = await openDatabase();
 
         if (!db) {
             return {
@@ -147,10 +147,10 @@ export async function handleDeepStats(cwd: string, limit = 10): Promise<ToolResu
         }
 
         const repoName = path.basename(cwd);
-        const scans = getRecentScans(db, repoName, limit);
-        const trend = getScoreTrendFromDB(db, repoName, limit);
-        const topIssues = getTopIssues(db, repoName, 10);
-        db.close();
+        const scans = await getRecentScans(db, repoName, limit);
+        const trend = await getScoreTrendFromDB(db, repoName, limit);
+        const topIssues = await getTopIssues(db, repoName, 10);
+        await db.close();
 
         if (scans.length === 0) {
             return {
@@ -182,7 +182,7 @@ export async function handleDeepStats(cwd: string, limit = 10): Promise<ToolResu
         // v5: Temporal Drift Report
         try {
             const { generateTemporalDriftReport, formatDriftSummary } = await import('@rigour-labs/core');
-            const driftReport = generateTemporalDriftReport(cwd);
+            const driftReport = await generateTemporalDriftReport(cwd);
             if (driftReport && driftReport.totalScans >= 3) {
                 text += `\n${'═'.repeat(60)}\n`;
                 text += formatDriftSummary(driftReport);

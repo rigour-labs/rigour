@@ -12,8 +12,6 @@
  * - Using heavy/popular packages when lighter alternatives exist
  * - Installing multiple HTTP clients, date libs, etc. across different sessions
  *
- * @since v2.0.0 (forbidden deps)
- * @since v5.1.0 (unused, heavy alternatives, duplicate purpose)
  */
 
 import fs from 'fs-extra';
@@ -32,7 +30,7 @@ const HEAVY_ALTERNATIVES: Record<string, string> = {
     'lodash': 'lodash-es (tree-shakeable) or native Array/Object methods',
     'underscore': 'native ES6+ methods (Array.map, Object.entries, etc.)',
     'axios': 'native fetch API (built into Node 18+)',
-    'request': 'node-fetch or native fetch (deprecated since 2020)',
+    'request': 'got, undici, or native fetch (request deprecated since 2020)',
     'bluebird': 'native Promise (built-in since ES2015)',
     'jquery': 'native DOM APIs (querySelector, fetch, classList)',
     'classnames': 'clsx (0.3KB vs 1KB) or template literals',
@@ -41,6 +39,24 @@ const HEAVY_ALTERNATIVES: Record<string, string> = {
     'is-even': 'n % 2 === 0 (one-liner)',
     'is-odd': 'n % 2 !== 0 (one-liner)',
     'chalk': 'picocolors (14x smaller, faster)',
+    'colors': 'picocolors (colors has had supply chain attacks)',
+    'node-fetch': 'native fetch API (built into Node 18+)',
+    'cross-fetch': 'native fetch API (built into Node 18+)',
+    'isomorphic-fetch': 'native fetch API (built into Node 18+)',
+    'whatwg-fetch': 'native fetch API (built into Node 18+)',
+    'faker': '@faker-js/faker (faker was hijacked in supply chain attack)',
+    'glob': 'fast-glob or fs.glob (built into Node 22+)',
+    'rimraf': 'fs.rm with { recursive: true } (built into Node 14+)',
+    'mkdirp': 'fs.mkdir with { recursive: true } (built into Node 10+)',
+    'ncp': 'fs.cp with { recursive: true } (built into Node 16+)',
+    'node-uuid': 'crypto.randomUUID() (node-uuid is unmaintained)',
+    'q': 'native Promise (Q is legacy)',
+    'async': 'native Promise.all/allSettled/race (async lib is legacy)',
+    'superagent': 'native fetch API (built into Node 18+)',
+    'path-exists': 'fs.existsSync() or fs.access() (one-liner)',
+    'path-is-absolute': 'path.isAbsolute() (built-in)',
+    'string-width': 'Intl.Segmenter for grapheme-aware measurement',
+    'strip-ansi': 'picocolors includes strip (or regex one-liner)',
 };
 
 /**
@@ -220,10 +236,12 @@ export class DependencyGate extends Gate {
     ): Promise<Failure[]> {
         const failures: Failure[] = [];
 
-        // Only check production + dev dependencies (not peer)
+        // Check production + dev dependencies. Peer deps and optional deps are valid — skip them.
         const prodDeps = Object.keys(pkg.dependencies || {});
         const devDeps = Object.keys(pkg.devDependencies || {});
-        const checkDeps = [...prodDeps, ...devDeps];
+        const peerDeps = new Set(Object.keys(pkg.peerDependencies || {}));
+        const optionalDeps = new Set(Object.keys(pkg.optionalDependencies || {}));
+        const checkDeps = [...prodDeps, ...devDeps].filter(d => !peerDeps.has(d) && !optionalDeps.has(d));
 
         if (checkDeps.length === 0) return [];
 

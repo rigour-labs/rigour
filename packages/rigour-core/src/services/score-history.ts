@@ -7,7 +7,6 @@
  * Uses JSONL (not JSON) to avoid read-modify-write race conditions
  * when multiple agents run checks concurrently.
  *
- * @since v2.17.0
  */
 
 import * as fs from 'fs';

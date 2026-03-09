@@ -10,7 +10,7 @@ export interface ScannerOptions {
 }
 
 export class FileScanner {
-    private static DEFAULT_PATTERNS = ['**/*.{ts,js,py,css,html,md}'];
+    private static DEFAULT_PATTERNS = ['**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,rb,cs,java,kt,css,html,md,yaml,yml,toml,json}'];
     private static DEFAULT_IGNORE = [
         '**/node_modules/**',
         '**/dist/**',

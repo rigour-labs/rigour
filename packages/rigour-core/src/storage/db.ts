@@ -2,27 +2,31 @@
  * SQLite storage layer for Rigour Brain.
  * Single file at ~/.rigour/rigour.db stores all scan history, findings,
  * learned patterns, and feedback. ACID-safe, portable, queryable.
+ *
+ * Uses node-sqlite3 (async, widely supported, no native build issues).
+ * All public APIs are async. Graceful degradation if sqlite3 not installed.
  */
 import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
 import { createRequire } from 'module';
 
-// better-sqlite3 is optional — graceful degradation if not installed.
-// It's a native C++ addon that uses require() semantics, so we use createRequire.
-let Database: any = null;
-let _dbResolved = false;
+// ---------------------------------------------------------------------------
+// Optional dynamic import of sqlite3
+// ---------------------------------------------------------------------------
+let sqlite3Module: any = null;
+let _resolved = false;
 
-function loadDatabase(): any {
-    if (_dbResolved) return Database;
-    _dbResolved = true;
+function loadSqlite3(): any {
+    if (_resolved) return sqlite3Module;
+    _resolved = true;
     try {
         const require = createRequire(import.meta.url);
-        Database = require('better-sqlite3');
+        sqlite3Module = require('sqlite3');
     } catch {
-        Database = null;
+        sqlite3Module = null;
     }
-    return Database;
+    return sqlite3Module;
 }
 
 const RIGOUR_DIR = path.join(os.homedir(), '.rigour');
@@ -112,108 +116,178 @@ CREATE INDEX IF NOT EXISTS idx_patterns_repo ON patterns(repo);
 CREATE INDEX IF NOT EXISTS idx_patterns_strength ON patterns(strength);
 `;
 
+// ---------------------------------------------------------------------------
+// Async wrapper around node-sqlite3
+// ---------------------------------------------------------------------------
+
+/**
+ * Promisified wrapper around a node-sqlite3 Database instance.
+ * Provides run/get/all/exec methods that return Promises.
+ */
 export interface RigourDB {
-    db: any;
-    close(): void;
+    /** Execute a write statement (INSERT/UPDATE/DELETE). Returns { changes }. */
+    run(sql: string, ...params: any[]): Promise<{ changes: number; lastID: number }>;
+    /** Fetch a single row. */
+    get(sql: string, ...params: any[]): Promise<any>;
+    /** Fetch all rows. */
+    all(sql: string, ...params: any[]): Promise<any[]>;
+    /** Execute raw SQL (multi-statement OK). */
+    exec(sql: string): Promise<void>;
+    /** Close the database connection. */
+    close(): Promise<void>;
+    /** Run multiple operations atomically via BEGIN/COMMIT/ROLLBACK. */
+    transaction<T>(fn: (db: RigourDB) => Promise<T>): Promise<T>;
+}
+
+function wrapDatabase(raw: any): RigourDB {
+    const db: RigourDB = {
+        run(sql: string, ...params: any[]) {
+            return new Promise((resolve, reject) => {
+                raw.run(sql, ...params, function (this: any, err: Error | null) {
+                    if (err) return reject(err);
+                    resolve({ changes: this.changes, lastID: this.lastID });
+                });
+            });
+        },
+        get(sql: string, ...params: any[]) {
+            return new Promise((resolve, reject) => {
+                raw.get(sql, ...params, (err: Error | null, row: any) => {
+                    if (err) return reject(err);
+                    resolve(row);
+                });
+            });
+        },
+        all(sql: string, ...params: any[]) {
+            return new Promise((resolve, reject) => {
+                raw.all(sql, ...params, (err: Error | null, rows: any[]) => {
+                    if (err) return reject(err);
+                    resolve(rows || []);
+                });
+            });
+        },
+        exec(sql: string) {
+            return new Promise((resolve, reject) => {
+                raw.exec(sql, (err: Error | null) => {
+                    if (err) return reject(err);
+                    resolve();
+                });
+            });
+        },
+        close() {
+            return new Promise((resolve, reject) => {
+                raw.close((err: Error | null) => {
+                    if (err) return reject(err);
+                    resolve();
+                });
+            });
+        },
+        async transaction<T>(fn: (db: RigourDB) => Promise<T>): Promise<T> {
+            await db.exec('BEGIN TRANSACTION');
+            try {
+                const result = await fn(db);
+                await db.exec('COMMIT');
+                return result;
+            } catch (err) {
+                await db.exec('ROLLBACK');
+                throw err;
+            }
+        },
+    };
+    return db;
 }
 
 /**
  * Open (or create) the Rigour SQLite database.
- * Returns null if better-sqlite3 is not available.
+ * Returns null if sqlite3 is not available.
  */
-export function openDatabase(dbPath?: string): RigourDB | null {
-    const Db = loadDatabase();
-    if (!Db) return null;
+export async function openDatabase(dbPath?: string): Promise<RigourDB | null> {
+    const sqlite3 = loadSqlite3();
+    if (!sqlite3) return null;
 
     const resolvedPath = dbPath || DB_PATH;
     fs.ensureDirSync(path.dirname(resolvedPath));
 
-    const db = new Db(resolvedPath);
+    const raw = await new Promise<any>((resolve, reject) => {
+        const instance = new sqlite3.Database(resolvedPath, (err: Error | null) => {
+            if (err) return reject(err);
+            resolve(instance);
+        });
+    });
+
+    const db = wrapDatabase(raw);
 
     // WAL mode for better concurrent read performance
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
+    await db.exec('PRAGMA journal_mode = WAL');
+    await db.exec('PRAGMA foreign_keys = ON');
 
     // Run schema creation + migrations
-    db.exec(SCHEMA_SQL);
-    runMigrations(db);
+    await db.exec(SCHEMA_SQL);
+    await runMigrations(db);
 
-    return {
-        db,
-        close() {
-            db.close();
-        },
-    };
+    return db;
 }
 
 /**
  * Run incremental schema migrations based on stored version.
  */
-function runMigrations(db: any): void {
-    const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get();
+async function runMigrations(db: RigourDB): Promise<void> {
+    const row = await db.get("SELECT value FROM meta WHERE key = 'schema_version'");
     const current = row ? parseInt(row.value, 10) : 0;
 
     if (current < 1) {
-        // v1: base schema (already created by SCHEMA_SQL)
-        db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '1')").run();
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '1')");
     }
     if (current < 2) {
-        // v2: retention indexes for compaction queries
-        db.exec(`
+        await db.exec(`
             CREATE INDEX IF NOT EXISTS idx_findings_file ON findings(file);
             CREATE INDEX IF NOT EXISTS idx_scans_repo_ts ON scans(repo, timestamp);
         `);
-        db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')").run();
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')");
     }
     // Future: if (current < 3) { ... ALTER TABLE ... }
 }
 
 /**
  * Compact the database — prune old data, reclaim disk space.
- * Retention policy: keep last `retainDays` of findings, merge old patterns.
  */
-export function compactDatabase(retainDays = 90): CompactResult {
-    const Db = loadDatabase();
-    if (!Db) return { pruned: 0, patternsDecayed: 0, sizeBefore: 0, sizeAfter: 0 };
+export async function compactDatabase(retainDays = 90): Promise<CompactResult> {
+    const sqlite3 = loadSqlite3();
+    if (!sqlite3) return { pruned: 0, patternsDecayed: 0, sizeBefore: 0, sizeAfter: 0 };
 
     const resolvedPath = DB_PATH;
     const sizeBefore = fs.existsSync(resolvedPath) ? fs.statSync(resolvedPath).size : 0;
-    const db = new Db(resolvedPath);
-    db.pragma('journal_mode = WAL');
+
+    const db = await openDatabase(resolvedPath);
+    if (!db) return { pruned: 0, patternsDecayed: 0, sizeBefore, sizeAfter: sizeBefore };
 
     const cutoff = Date.now() - (retainDays * 24 * 60 * 60 * 1000);
     let pruned = 0;
     let patternsDecayed = 0;
 
     try {
-        db.transaction(() => {
-            // 1. Delete old findings (keep scan records for trend lines)
-            const r1 = db.prepare(`
+        await db.transaction(async (tx) => {
+            const r1 = await tx.run(`
                 DELETE FROM findings WHERE scan_id IN (
                     SELECT id FROM scans WHERE timestamp < ?
                 )
-            `).run(cutoff);
+            `, cutoff);
             pruned += r1.changes;
 
-            // 2. Prune weak patterns (never grew, seen < 3 times)
-            const r2 = db.prepare(
+            const r2 = await tx.run(
                 "DELETE FROM patterns WHERE strength < 0.3 AND times_seen < 3"
-            ).run();
+            );
             patternsDecayed += r2.changes;
 
-            // 3. Prune orphaned feedback
-            db.prepare(
+            await tx.run(
                 "DELETE FROM feedback WHERE finding_id NOT IN (SELECT id FROM findings)"
-            ).run();
+            );
 
-            // 4. Prune old codebase index entries
-            db.prepare("DELETE FROM codebase WHERE last_indexed < ?").run(cutoff);
-        })();
+            await tx.run("DELETE FROM codebase WHERE last_indexed < ?", cutoff);
+        });
 
-        // 5. Reclaim disk space
-        db.exec('VACUUM');
+        await db.exec('VACUUM');
     } finally {
-        db.close();
+        await db.close();
     }
 
     const sizeAfter = fs.existsSync(resolvedPath) ? fs.statSync(resolvedPath).size : 0;
@@ -244,10 +318,10 @@ export function resetDatabase(): void {
 }
 
 /**
- * Check if SQLite is available (better-sqlite3 installed)
+ * Check if SQLite is available (sqlite3 installed)
  */
 export function isSQLiteAvailable(): boolean {
-    return loadDatabase() !== null;
+    return loadSqlite3() !== null;
 }
 
 export { RIGOUR_DIR, DB_PATH };

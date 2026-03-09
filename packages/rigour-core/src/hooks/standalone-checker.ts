@@ -10,7 +10,6 @@
  *   0 = pass (or warn-only mode)
  *   2 = block (fail + block_on_failure enabled)
  *
- * @since v3.0.0
  */
 
 import { runHookChecker } from './checker.js';

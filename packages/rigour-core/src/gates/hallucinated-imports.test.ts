@@ -6,10 +6,9 @@
  * Tests the fix for Go stdlib false positives (PicoClaw regression)
  * and validates all 8 language checkers for false positive/negative accuracy.
  *
- * @since v3.0.1
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HallucinatedImportsGate } from './hallucinated-imports.js';
+import { HallucinatedImportsGate } from './hallucinated-imports/index.js';
 import type { GateContext } from './base.js';
 import path from 'path';
 

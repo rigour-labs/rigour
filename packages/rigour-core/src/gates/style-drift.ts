@@ -7,32 +7,36 @@
  *
  * What it checks:
  * 1. Naming conventions — camelCase vs snake_case vs PascalCase consistency
- * 2. Error handling patterns — try-catch vs .catch() vs Result type consistency
+ * 2. Error handling patterns — try-catch vs .catch()/except/rescue consistency
  * 3. Import style — named vs default vs wildcard import consistency
  * 4. Quote style — single vs double quote consistency
  *
  * How it works:
- * 1. First scan: sample source files → compute a style fingerprint → store baseline
- * 2. Subsequent scans: compare new/changed files against baseline
+ * 1. First scan: sample source files → compute per-language style fingerprints → store baseline
+ * 2. Subsequent scans: compare new/changed files against their language's baseline
  * 3. If a file deviates >25% on any dimension → flag as style drift
  *
- * The baseline is stored in .rigour/style-baseline.json and evolves with
- * human-approved changes (not AI drift).
- *
- * @since v5.0.0
+ * Baselines are per-language to avoid cross-language contamination
+ * (e.g., Python snake_case shouldn't flag JS camelCase).
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { languageAdapters, classifyCasing } from './language-adapters/index.js';
+import {
+    TRY_CATCH_PATTERN, CATCH_PATTERN, RESULT_TYPE_PATTERN,
+    NAMED_IMPORT_PATTERN, WILDCARD_IMPORT_PATTERN, SIDE_EFFECT_IMPORT_PATTERN, DEFAULT_IMPORT_PATTERN,
+    countQuotes,
+} from './style-drift-rules.js';
 import fs from 'fs-extra';
 import path from 'path';
 
 export interface StyleDriftConfig {
     enabled?: boolean;
     deviation_threshold?: number;  // 0-1, default 0.25 (25% deviation triggers alert)
-    sample_size?: number;          // Max files to sample for baseline, default 100
+    sample_size?: number;          // Max files to sample per language for baseline, default 50
     baseline_path?: string;        // Where to store baseline, default .rigour/style-baseline.json
 }
 
@@ -41,6 +45,8 @@ interface CasingDistribution {
     snake_case: number;
     PascalCase: number;
     SCREAMING_SNAKE: number;
+    'kebab-case'?: number;
+    other?: number;
 }
 
 interface StyleFingerprint {
@@ -68,6 +74,13 @@ interface StyleFingerprint {
     createdAt: string;
 }
 
+/** Per-language baselines — each language gets its own fingerprint */
+interface PerLanguageBaseline {
+    languages: Record<string, StyleFingerprint>;
+    createdAt: string;
+    version: 2;  // Distinguish from old single-fingerprint format
+}
+
 export class StyleDriftGate extends Gate {
     private config: Required<StyleDriftConfig>;
 
@@ -76,7 +89,7 @@ export class StyleDriftGate extends Gate {
         this.config = {
             enabled: config.enabled ?? true,
             deviation_threshold: config.deviation_threshold ?? 0.25,
-            sample_size: config.sample_size ?? 100,
+            sample_size: config.sample_size ?? 50,
             baseline_path: config.baseline_path ?? '.rigour/style-baseline.json',
         };
     }
@@ -92,51 +105,71 @@ export class StyleDriftGate extends Gate {
         // Find source files
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: context.patterns || ['**/*.{ts,tsx,js,jsx,py}'],
+            patterns: context.patterns || languageAdapters.getScanPatterns(),
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/*.test.*', '**/*.spec.*', '**/*.d.ts'],
         });
 
         if (files.length === 0) return [];
 
+        // Group files by language
+        const filesByLang = new Map<string, string[]>();
+        for (const file of files) {
+            const adapter = languageAdapters.getAdapter(file);
+            if (!adapter) continue;
+            const langFiles = filesByLang.get(adapter.id) || [];
+            langFiles.push(file);
+            filesByLang.set(adapter.id, langFiles);
+        }
+
         // Load or create baseline
-        let baseline: StyleFingerprint | null = null;
+        let baseline: PerLanguageBaseline | null = null;
         if (await fs.pathExists(baselinePath)) {
             try {
-                baseline = await fs.readJson(baselinePath);
+                const raw = await fs.readJson(baselinePath);
+                // Handle migration from old single-fingerprint format
+                if (raw.version === 2) {
+                    baseline = raw;
+                } else {
+                    Logger.debug('Old style baseline format detected, creating new per-language baseline');
+                }
             } catch {
                 Logger.debug('Failed to load style baseline, will create new one');
             }
         }
 
         if (!baseline) {
-            // First scan: create baseline from sampled files
-            const sampled = files.slice(0, this.config.sample_size);
-            baseline = await this.computeFingerprint(context, sampled);
-            baseline.createdAt = new Date().toISOString();
+            // First scan: create per-language baseline
+            baseline = await this.computePerLanguageBaseline(context, filesByLang);
 
-            // Ensure directory exists and save baseline
             await fs.ensureDir(path.dirname(baselinePath));
             await fs.writeJson(baselinePath, baseline, { spaces: 2 });
-            Logger.info(`Style Drift: Created baseline from ${sampled.length} files → ${baselinePath}`);
+
+            const langSummary = Object.entries(baseline.languages)
+                .map(([lang, fp]) => `${lang}:${fp.totalFilesAnalyzed}`)
+                .join(', ');
+            Logger.info(`Style Drift: Created baseline (${langSummary}) → ${baselinePath}`);
             return []; // No failures on first scan
         }
 
-        // Subsequent scan: compare each file against baseline
+        // Subsequent scan: compare each file against its own language's baseline
         const contents = await FileScanner.readFiles(context.cwd, files, context.fileCache);
 
         for (const [file, content] of contents) {
-            const ext = path.extname(file);
-            if (!['.ts', '.tsx', '.js', '.jsx', '.py'].includes(ext)) continue;
+            const adapter = languageAdapters.getAdapter(file);
+            if (!adapter) continue;
 
-            const fileFingerprint = this.analyzeFile(content, ext);
-            const deviations = this.compareToBaseline(fileFingerprint, baseline);
+            const langBaseline = baseline.languages[adapter.id];
+            if (!langBaseline) continue;  // No baseline for this language yet
+
+            const fileFingerprint = this.analyzeFile(content, file);
+            const deviations = this.compareToBaseline(fileFingerprint, langBaseline);
 
             for (const deviation of deviations) {
                 if (deviation.score > this.config.deviation_threshold) {
                     failures.push(this.createFailure(
-                        `Style drift in ${file}: ${deviation.dimension} deviates ${(deviation.score * 100).toFixed(0)}% from project baseline (${deviation.detail}).`,
+                        `Style drift in ${file}: ${deviation.dimension} deviates ${(deviation.score * 100).toFixed(0)}% from ${adapter.id} baseline (${deviation.detail}).`,
                         [file],
-                        `This file's ${deviation.dimension} doesn't match the project's established convention. ${deviation.suggestion}`,
+                        `This file's ${deviation.dimension} doesn't match the ${adapter.id} project convention. ${deviation.suggestion}`,
                         'Style Drift',
                         undefined,
                         undefined,
@@ -153,26 +186,36 @@ export class StyleDriftGate extends Gate {
         return failures;
     }
 
-    // ─── Fingerprint Computation ─────────────────────────────────────
+    // ─── Per-Language Baseline Computation ────────────────────────────
+
+    private async computePerLanguageBaseline(
+        context: GateContext,
+        filesByLang: Map<string, string[]>,
+    ): Promise<PerLanguageBaseline> {
+        const baseline: PerLanguageBaseline = {
+            languages: {},
+            createdAt: new Date().toISOString(),
+            version: 2,
+        };
+
+        for (const [langId, langFiles] of filesByLang) {
+            // Sample up to sample_size files per language
+            const sampled = langFiles.slice(0, this.config.sample_size);
+            const fingerprint = await this.computeFingerprint(context, sampled);
+            fingerprint.createdAt = baseline.createdAt;
+            baseline.languages[langId] = fingerprint;
+        }
+
+        return baseline;
+    }
 
     private async computeFingerprint(context: GateContext, files: string[]): Promise<StyleFingerprint> {
-        const fingerprint: StyleFingerprint = {
-            naming: {
-                functions: { camelCase: 0, snake_case: 0, PascalCase: 0, SCREAMING_SNAKE: 0 },
-                variables: { camelCase: 0, snake_case: 0, PascalCase: 0, SCREAMING_SNAKE: 0 },
-            },
-            errorHandling: { tryCatch: 0, promiseCatch: 0, resultType: 0 },
-            importStyle: { named: 0, default: 0, wildcard: 0, sideEffect: 0 },
-            quoteStyle: { single: 0, double: 0, backtick: 0 },
-            totalFilesAnalyzed: 0,
-            createdAt: '',
-        };
+        const fingerprint = this.emptyFingerprint();
 
         const contents = await FileScanner.readFiles(context.cwd, files, context.fileCache);
 
         for (const [file, content] of contents) {
-            const ext = path.extname(file);
-            const fileAnalysis = this.analyzeFile(content, ext);
+            const fileAnalysis = this.analyzeFile(content, file);
             this.mergeIntoFingerprint(fingerprint, fileAnalysis);
             fingerprint.totalFilesAnalyzed++;
         }
@@ -180,106 +223,80 @@ export class StyleDriftGate extends Gate {
         return fingerprint;
     }
 
-    private analyzeFile(content: string, ext: string): StyleFingerprint {
-        const fp: StyleFingerprint = {
+    private emptyFingerprint(): StyleFingerprint {
+        return {
             naming: {
-                functions: { camelCase: 0, snake_case: 0, PascalCase: 0, SCREAMING_SNAKE: 0 },
-                variables: { camelCase: 0, snake_case: 0, PascalCase: 0, SCREAMING_SNAKE: 0 },
+                functions: { camelCase: 0, snake_case: 0, PascalCase: 0, SCREAMING_SNAKE: 0, 'kebab-case': 0, other: 0 },
+                variables: { camelCase: 0, snake_case: 0, PascalCase: 0, SCREAMING_SNAKE: 0, 'kebab-case': 0, other: 0 },
             },
             errorHandling: { tryCatch: 0, promiseCatch: 0, resultType: 0 },
             importStyle: { named: 0, default: 0, wildcard: 0, sideEffect: 0 },
             quoteStyle: { single: 0, double: 0, backtick: 0 },
-            totalFilesAnalyzed: 1,
+            totalFilesAnalyzed: 0,
             createdAt: '',
         };
+    }
+
+    private analyzeFile(content: string, filePath: string): StyleFingerprint {
+        const fp = this.emptyFingerprint();
+        fp.totalFilesAnalyzed = 1;
 
         const lines = content.split('\n');
+        const adapter = languageAdapters.getAdapter(filePath);
+
+        // ── Naming conventions (via adapter) ──
+        if (adapter) {
+            const namingPatterns = adapter.extractNamingPatterns(content);
+            for (const pattern of namingPatterns) {
+                if (pattern.kind === 'function' || pattern.kind === 'method') {
+                    fp.naming.functions[pattern.convention]++;
+                } else if (pattern.kind === 'variable' || pattern.kind === 'constant') {
+                    fp.naming.variables[pattern.convention]++;
+                }
+            }
+        }
 
         for (const line of lines) {
-            // ── Naming conventions ──
-            // Function declarations
-            const fnMatch = line.match(/(?:function|async\s+function)\s+(\w+)/);
-            if (fnMatch) this.classifyCasing(fnMatch[1], fp.naming.functions);
-
-            // Method definitions
-            const methodMatch = line.match(/^\s+(?:async\s+)?(\w+)\s*\([^)]*\)\s*[{:]/);
-            if (methodMatch && !['if', 'for', 'while', 'switch', 'catch', 'constructor'].includes(methodMatch[1])) {
-                this.classifyCasing(methodMatch[1], fp.naming.functions);
-            }
-
-            // Arrow function assignments
-            const arrowMatch = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|(\w+))\s*=>/);
-            if (arrowMatch) this.classifyCasing(arrowMatch[1], fp.naming.functions);
-
-            // Variable declarations (non-function)
-            const varMatch = line.match(/(?:const|let|var)\s+(\w+)\s*=/);
-            if (varMatch && !arrowMatch) this.classifyCasing(varMatch[1], fp.naming.variables);
-
-            // Python function/variable
-            if (ext === '.py') {
-                const pyFn = line.match(/def\s+(\w+)/);
-                if (pyFn) this.classifyCasing(pyFn[1], fp.naming.functions);
-
-                const pyVar = line.match(/^(\w+)\s*=/);
-                if (pyVar && !pyFn) this.classifyCasing(pyVar[1], fp.naming.variables);
-            }
-
             // ── Error handling ──
-            if (/\btry\s*\{/.test(line) || /\btry\s*:/.test(line)) fp.errorHandling.tryCatch++;
-            if (/\.catch\s*\(/.test(line)) fp.errorHandling.promiseCatch++;
-            if (/Result<|Result\[|Err\(|Ok\(|Either</.test(line)) fp.errorHandling.resultType++;
+            if (TRY_CATCH_PATTERN.test(line)) fp.errorHandling.tryCatch++;
+            if (CATCH_PATTERN.test(line)) fp.errorHandling.promiseCatch++;
+            if (RESULT_TYPE_PATTERN.test(line)) fp.errorHandling.resultType++;
 
             // ── Import style ──
-            if (/^import\s+\{/.test(line.trim())) fp.importStyle.named++;
-            else if (/^import\s+\*\s+as/.test(line.trim())) fp.importStyle.wildcard++;
-            else if (/^import\s+['"]/.test(line.trim())) fp.importStyle.sideEffect++;
-            else if (/^import\s+\w/.test(line.trim())) fp.importStyle.default++;
+            if (NAMED_IMPORT_PATTERN.test(line.trim())) fp.importStyle.named++;
+            else if (WILDCARD_IMPORT_PATTERN.test(line.trim())) fp.importStyle.wildcard++;
+            else if (SIDE_EFFECT_IMPORT_PATTERN.test(line.trim())) fp.importStyle.sideEffect++;
+            else if (DEFAULT_IMPORT_PATTERN.test(line.trim())) fp.importStyle.default++;
 
             // ── Quote style ──
-            // Count quotes in non-import lines (imports are already counted above)
             if (!line.trim().startsWith('import')) {
-                const singles = (line.match(/'/g) || []).length;
-                const doubles = (line.match(/"/g) || []).length;
-                const backticks = (line.match(/`/g) || []).length;
-                fp.quoteStyle.single += singles;
-                fp.quoteStyle.double += doubles;
-                fp.quoteStyle.backtick += backticks;
+                const quotes = countQuotes(line);
+                fp.quoteStyle.single += quotes.single;
+                fp.quoteStyle.double += quotes.double;
+                fp.quoteStyle.backtick += quotes.backtick;
             }
         }
 
         return fp;
     }
 
-    private classifyCasing(name: string, dist: CasingDistribution): void {
-        if (name.startsWith('_') || name.length <= 1) return; // Skip private/single char
-
-        if (/^[A-Z][A-Z0-9_]+$/.test(name)) {
-            dist.SCREAMING_SNAKE++;
-        } else if (/^[A-Z]/.test(name)) {
-            dist.PascalCase++;
-        } else if (name.includes('_')) {
-            dist.snake_case++;
-        } else {
-            dist.camelCase++;
-        }
-    }
-
     private mergeIntoFingerprint(target: StyleFingerprint, source: StyleFingerprint): void {
-        // Naming
         for (const key of Object.keys(target.naming.functions) as (keyof CasingDistribution)[]) {
-            target.naming.functions[key] += source.naming.functions[key];
-            target.naming.variables[key] += source.naming.variables[key];
+            const targetVal = target.naming.functions[key] ?? 0;
+            const sourceVal = source.naming.functions[key] ?? 0;
+            target.naming.functions[key] = (targetVal as number) + (sourceVal as number);
+
+            const targetVarVal = target.naming.variables[key] ?? 0;
+            const sourceVarVal = source.naming.variables[key] ?? 0;
+            target.naming.variables[key] = (targetVarVal as number) + (sourceVarVal as number);
         }
-        // Error handling
         target.errorHandling.tryCatch += source.errorHandling.tryCatch;
         target.errorHandling.promiseCatch += source.errorHandling.promiseCatch;
         target.errorHandling.resultType += source.errorHandling.resultType;
-        // Import style
         target.importStyle.named += source.importStyle.named;
         target.importStyle.default += source.importStyle.default;
         target.importStyle.wildcard += source.importStyle.wildcard;
         target.importStyle.sideEffect += source.importStyle.sideEffect;
-        // Quote style
         target.quoteStyle.single += source.quoteStyle.single;
         target.quoteStyle.double += source.quoteStyle.double;
         target.quoteStyle.backtick += source.quoteStyle.backtick;
@@ -295,7 +312,6 @@ export class StyleDriftGate extends Gate {
     }[] {
         const deviations: { dimension: string; score: number; detail: string; suggestion: string }[] = [];
 
-        // Compare function naming
         const fnDev = this.distributionDeviation(this.toRecord(file.naming.functions), this.toRecord(baseline.naming.functions));
         if (fnDev.score > 0) {
             deviations.push({
@@ -306,7 +322,6 @@ export class StyleDriftGate extends Gate {
             });
         }
 
-        // Compare variable naming
         const varDev = this.distributionDeviation(this.toRecord(file.naming.variables), this.toRecord(baseline.naming.variables));
         if (varDev.score > 0) {
             deviations.push({
@@ -317,7 +332,6 @@ export class StyleDriftGate extends Gate {
             });
         }
 
-        // Compare error handling
         const errDev = this.distributionDeviation(
             file.errorHandling as Record<string, number>,
             baseline.errorHandling as Record<string, number>
@@ -331,7 +345,6 @@ export class StyleDriftGate extends Gate {
             });
         }
 
-        // Compare import style
         const impDev = this.distributionDeviation(
             file.importStyle as Record<string, number>,
             baseline.importStyle as Record<string, number>
@@ -348,13 +361,6 @@ export class StyleDriftGate extends Gate {
         return deviations;
     }
 
-    /**
-     * Compare two distributions and return a deviation score (0-1).
-     * 0 = perfect match, 1 = completely different predominant style.
-     *
-     * Method: find the predominant category in each distribution.
-     * If they differ, score = how far the file is from the baseline's predominant category.
-     */
     private distributionDeviation(
         file: Record<string, number>,
         baseline: Record<string, number>
@@ -366,7 +372,6 @@ export class StyleDriftGate extends Gate {
             return { score: 0, filePredominant: 'N/A', baselinePredominant: 'N/A' };
         }
 
-        // Find predominant category
         const filePredominant = Object.entries(file).sort((a, b) => b[1] - a[1])[0][0];
         const baselinePredominant = Object.entries(baseline).sort((a, b) => b[1] - a[1])[0][0];
 
@@ -374,11 +379,8 @@ export class StyleDriftGate extends Gate {
             return { score: 0, filePredominant, baselinePredominant };
         }
 
-        // Calculate how much the file uses the baseline's predominant style
         const fileUseOfBaseline = (file[baselinePredominant] || 0) / fileTotal;
         const baselineUseOfBaseline = (baseline[baselinePredominant] || 0) / baselineTotal;
-
-        // Score = how far the file deviates from baseline's predominant ratio
         const deviation = Math.max(0, baselineUseOfBaseline - fileUseOfBaseline);
 
         return { score: deviation, filePredominant, baselinePredominant };
@@ -388,13 +390,14 @@ export class StyleDriftGate extends Gate {
         return Object.values(obj).reduce((a: number, b: number) => a + b, 0) >= 3;
     }
 
-    /** Convert a typed distribution to a generic Record for comparison */
     private toRecord(dist: CasingDistribution): Record<string, number> {
         return {
             camelCase: dist.camelCase,
             snake_case: dist.snake_case,
             PascalCase: dist.PascalCase,
             SCREAMING_SNAKE: dist.SCREAMING_SNAKE,
+            'kebab-case': dist['kebab-case'] || 0,
+            other: dist.other || 0,
         };
     }
 }

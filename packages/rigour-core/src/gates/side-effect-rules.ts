@@ -10,7 +10,6 @@
  * - a check function that verifies context (surrounding lines)
  * - severity and description
  *
- * @since v4.3.0
  */
 
 export type SideEffectLang = 'js' | 'ts' | 'py' | 'go' | 'rs' | 'cs' | 'java' | 'rb';

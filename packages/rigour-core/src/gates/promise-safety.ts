@@ -4,7 +4,6 @@
  * Detects unsafe async/promise/error patterns that AI code generators commonly produce.
  * Supports: JS/TS, Python, Go, Ruby, C#/.NET
  *
- * @since v2.17.0
  */
 
 import { Gate, GateContext } from './base.js';
@@ -102,9 +101,19 @@ export class PromiseSafetyGate extends Gate {
             const line = this.sanitizeLine(lines[i]);
             if (!/\.then\s*\(/.test(line)) continue;
             let hasCatch = false;
-            for (let j = i; j < Math.min(i + 50, lines.length); j++) {
+            // Scan ahead until we hit a statement boundary (no arbitrary limit).
+            // A "statement boundary" is a new declaration, function, class, or blank line after content.
+            let braceDepth = 0;
+            for (let j = i; j < lines.length; j++) {
                 const lookahead = this.sanitizeLine(lines[j]);
+                // Track brace depth to stay within the same scope
+                for (const ch of lookahead) {
+                    if (ch === '{') braceDepth++;
+                    if (ch === '}') braceDepth--;
+                }
                 if (/\.catch\s*\(/.test(lookahead)) { hasCatch = true; break; }
+                // Also count .then().then().catch() chains — the catch at the end covers all
+                if (j > i && braceDepth < 0) break; // Exited enclosing scope
                 if (j > i && /^(?:const|let|var|function|class|export|import|if|for|while|return)\b/.test(lookahead.trim())) break;
             }
             if (!hasCatch && !isInsideTryBlock(lines, i) && !/(?:const|let|var)\s+\w+\s*=/.test(line)) {

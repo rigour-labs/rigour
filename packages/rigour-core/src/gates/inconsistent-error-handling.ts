@@ -17,13 +17,13 @@
  * - File C: catch(e) { return null }
  * - File D: catch(e) { [empty] }
  *
- * @since v2.16.0
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { languageAdapters } from './language-adapters/index.js';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -63,7 +63,7 @@ export class InconsistentErrorHandlingGate extends Gate {
         const failures: Failure[] = [];
         const handlers: ErrorHandler[] = [];
 
-        const scanPatterns = context.patterns || ['**/*.{ts,js,tsx,jsx}'];
+        const scanPatterns = context.patterns || languageAdapters.getScanPatterns();
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
             patterns: scanPatterns,
@@ -76,7 +76,19 @@ export class InconsistentErrorHandlingGate extends Gate {
             if (this.shouldSkipFile(file)) continue;
             try {
                 const content = await fs.readFile(path.join(context.cwd, file), 'utf-8');
-                this.extractErrorHandlers(content, file, handlers);
+                const adapter = languageAdapters.getAdapter(file);
+                if (!adapter) continue;
+
+                const errorHandlerFacts = adapter.extractErrorHandlers(content);
+                for (const fact of errorHandlerFacts) {
+                    handlers.push({
+                        file,
+                        line: fact.startLine,
+                        errorType: fact.type,
+                        strategy: fact.strategy,
+                        rawPattern: fact.body.split('\n')[0]?.trim() || '',
+                    });
+                }
             } catch (e) { }
         }
 
@@ -134,137 +146,6 @@ export class InconsistentErrorHandlingGate extends Gate {
         return failures;
     }
 
-    private extractErrorHandlers(content: string, file: string, handlers: ErrorHandler[]): void {
-        const lines = content.split('\n');
-
-        for (let i = 0; i < lines.length; i++) {
-            // Match catch clauses: catch (e), catch (error: Error), catch (e: TypeError)
-            const catchMatch = lines[i].match(/\bcatch\s*\(\s*(\w+)(?:\s*:\s*(\w+))?\s*\)/);
-            if (!catchMatch) continue;
-
-            const varName = catchMatch[1];
-            const explicitType = catchMatch[2] || 'any';
-
-            // Extract catch body (up to next closing brace at same level)
-            const body = this.extractCatchBody(lines, i);
-            if (!body) continue;
-
-            const strategy = this.classifyStrategy(body, varName);
-            const rawPattern = body.split('\n')[0]?.trim() || '';
-
-            handlers.push({
-                file,
-                line: i + 1,
-                errorType: explicitType,
-                strategy,
-                rawPattern,
-            });
-        }
-
-        // Also detect .catch() promise patterns
-        for (let i = 0; i < lines.length; i++) {
-            const catchMatch = lines[i].match(/\.catch\s*\(\s*(?:async\s+)?(?:\(\s*)?(\w+)/);
-            if (!catchMatch) continue;
-
-            const varName = catchMatch[1];
-
-            // Extract the callback body
-            const body = this.extractCatchCallbackBody(lines, i);
-            if (!body) continue;
-
-            const strategy = this.classifyStrategy(body, varName);
-
-            handlers.push({
-                file,
-                line: i + 1,
-                errorType: 'Promise',
-                strategy,
-                rawPattern: body.split('\n')[0]?.trim() || '',
-            });
-        }
-    }
-
-    private classifyStrategy(body: string, varName: string): string {
-        const trimmed = body.trim();
-
-        // Empty catch (swallow)
-        if (!trimmed || trimmed === '{}' || trimmed === '') {
-            return 'swallow';
-        }
-
-        // Re-throw
-        if (/\bthrow\b/.test(trimmed)) {
-            if (/\bthrow\s+new\b/.test(trimmed)) return 'wrap-and-throw';
-            if (new RegExp(`\\bthrow\\s+${varName}\\b`).test(trimmed)) return 'rethrow';
-            return 'throw-new';
-        }
-
-        // Return patterns
-        if (/\breturn\s+null\b/.test(trimmed)) return 'return-null';
-        if (/\breturn\s+undefined\b/.test(trimmed) || /\breturn\s*;/.test(trimmed)) return 'return-undefined';
-        if (/\breturn\s+\[\s*\]/.test(trimmed)) return 'return-empty-array';
-        if (/\breturn\s+\{\s*\}/.test(trimmed)) return 'return-empty-object';
-        if (/\breturn\s+false\b/.test(trimmed)) return 'return-false';
-        if (/\breturn\s+/.test(trimmed)) return 'return-value';
-
-        // Logging patterns
-        if (/console\.(error|warn)\b/.test(trimmed)) return 'log-error';
-        if (/console\.log\b/.test(trimmed)) return 'log-info';
-        if (/\blogger\b/i.test(trimmed) || /\blog\b/i.test(trimmed)) return 'log-custom';
-
-        // Process.exit
-        if (/process\.exit\b/.test(trimmed)) return 'exit';
-
-        // Response patterns (Express/HTTP)
-        if (/\bres\s*\.\s*status\b/.test(trimmed) || /\bres\s*\.\s*json\b/.test(trimmed)) return 'http-response';
-
-        // Notification patterns
-        if (/\bnotif|toast|alert|modal\b/i.test(trimmed)) return 'user-notification';
-
-        return 'other';
-    }
-
-    private extractCatchBody(lines: string[], catchLine: number): string | null {
-        let braceDepth = 0;
-        let started = false;
-        const body: string[] = [];
-
-        for (let i = catchLine; i < lines.length; i++) {
-            for (const ch of lines[i]) {
-                if (ch === '{') { braceDepth++; started = true; }
-                if (ch === '}') braceDepth--;
-            }
-            if (started && i > catchLine) body.push(lines[i]);
-            if (started && braceDepth === 0) break;
-        }
-
-        return body.length > 0 ? body.join('\n') : null;
-    }
-
-    private extractCatchCallbackBody(lines: string[], startLine: number): string | null {
-        // Detect if this is an arrow function (.catch(e => { ... }))
-        const hasArrow = lines[startLine]?.includes('=>');
-        let braceDepth = 0;
-        let started = false;
-        const body: string[] = [];
-
-        for (let i = startLine; i < Math.min(startLine + 20, lines.length); i++) {
-            for (const ch of lines[i]) {
-                // For arrow functions, only track braces (not parens) for body extraction
-                if (hasArrow) {
-                    if (ch === '{') { braceDepth++; started = true; }
-                    if (ch === '}') braceDepth--;
-                } else {
-                    if (ch === '{' || ch === '(') { braceDepth++; started = true; }
-                    if (ch === '}' || ch === ')') braceDepth--;
-                }
-            }
-            if (started && i > startLine) body.push(lines[i]);
-            if (started && braceDepth <= 0) break;
-        }
-
-        return body.length > 0 ? body.join('\n') : null;
-    }
 
     private shouldSkipFile(file: string): boolean {
         const normalized = file.replace(/\\/g, '/');

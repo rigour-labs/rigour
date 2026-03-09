@@ -32,42 +32,21 @@
  *
  * This is a CORE gate (enabled by default, provenance: ai-drift).
  * Supports: JS/TS, Python, Go, Rust, C#, Java, Ruby
- *
- * @since v4.3.0
  */
 
-import { Gate, GateContext } from './base.js';
-import { Failure, Provenance } from '../types/index.js';
-import { FileScanner } from '../utils/scanner.js';
-import { Logger } from '../utils/logger.js';
+import { Gate, GateContext } from '../base.js';
+import { Failure, Provenance } from '../../types/index.js';
+import { FileScanner } from '../../utils/scanner.js';
+import { Logger } from '../../utils/logger.js';
 import fs from 'fs-extra';
 import path from 'path';
 
 import {
     SideEffectLang,
     SideEffectViolation,
-    ResourceBinding,
     LANG_MAP,
     FILE_GLOBS,
     stripStrings,
-    // Scope analysis
-    findEnclosingFunction,
-    findBlockEndBrace,
-    findBlockEndIndent,
-    extractLoopBody,
-    extractFunctionDefs,
-    // Variable binding
-    extractVariableBinding,
-    hasCleanupForVariable,
-    // Framework awareness
-    isInUseEffectWithCleanup,
-    hasGoDefer,
-    isPythonWithStatement,
-    isJavaTryWithResources,
-    isCSharpUsing,
-    isRubyBlockForm,
-    isRustAutoDropped,
-    isInsideCleanupContext,
     // Detectors
     isTimerCreation,
     getTimerCleanupPatterns,
@@ -89,7 +68,34 @@ import {
     hasCatchWithContinue,
     hasBaseCase,
     hasDepthParameter,
-} from './side-effect-helpers.js';
+    // Variable binding
+    extractVariableBinding,
+    hasCleanupForVariable,
+    // Go defer
+    hasGoDefer,
+    // Python with
+    isPythonWithStatement,
+    // Java try-with
+    isJavaTryWithResources,
+    // C# using
+    isCSharpUsing,
+    // Ruby block
+    isRubyBlockForm,
+    // Rust
+    isRustAutoDropped,
+} from '../side-effect-helpers/index.js';
+
+import {
+    findFunctionScope,
+    getBlockBody,
+    isInFrameworkCleanup,
+    getAllFunctions,
+} from './scope-tracker.js';
+
+import {
+    getRuleTitle,
+    violationToFailure,
+} from './categorizer.js';
 
 export interface SideEffectAnalysisConfig {
     enabled?: boolean;
@@ -161,7 +167,9 @@ export class SideEffectAnalysisGate extends Gate {
             } catch { /* skip unreadable files */ }
         }
 
-        return this.buildFailures(violations);
+        return violations.map(v => violationToFailure(v, (msg, files, hint, title, sl, el, sev) =>
+            this.createFailure(msg, files, hint, title, sl, el, sev as 'critical' | 'high' | 'medium' | 'low' | 'info' | undefined),
+        ));
     }
 
     private scanFile(
@@ -217,16 +225,11 @@ export class SideEffectAnalysisGate extends Gate {
             const varName = extractVariableBinding(lines[i], lang);
 
             // Find enclosing function scope
-            const scope = findEnclosingFunction(lines, i, lang);
+            const scope = findFunctionScope(lines, i, lang);
 
-            // FRAMEWORK CHECK: React useEffect with cleanup return
-            if ((lang === 'js' || lang === 'ts') && isInUseEffectWithCleanup(lines, i)) {
-                continue;  // useEffect cleanup handles it
-            }
-
-            // FRAMEWORK CHECK: Inside a cleanup/teardown context already
-            if (isInsideCleanupContext(lines, i, lang)) {
-                continue;  // Timer in cleanup = intentional short-lived timer
+            // FRAMEWORK CHECK: React useEffect with cleanup return or cleanup context
+            if (isInFrameworkCleanup(lines, i, lang)) {
+                continue;  // Framework cleanup handles it
             }
 
             if (varName) {
@@ -280,7 +283,7 @@ export class SideEffectAnalysisGate extends Gate {
             if (!spawnMatch) continue;
 
             const varName = extractVariableBinding(lines[i], lang);
-            const scope = findEnclosingFunction(lines, i, lang);
+            const scope = findFunctionScope(lines, i, lang);
 
             // Check if the process result is awaited on the same line
             if (/\bawait\b/.test(lines[i])) continue;
@@ -346,7 +349,7 @@ export class SideEffectAnalysisGate extends Gate {
             if (!isUnboundedLoop(lines[i], lang)) continue;
 
             // Extract actual loop body using scope tracking
-            const { body, end } = extractLoopBody(lines, i, lang);
+            const { body, end } = getBlockBody(lines, i, lang);
 
             // Check for I/O inside the extracted body
             if (!containsIO(body, lang)) continue;
@@ -398,7 +401,7 @@ export class SideEffectAnalysisGate extends Gate {
             const isLoop = isUnboundedLoop(lines[i], lang) || /\bwhile\s*\(/.test(stripped);
             if (!isLoop) continue;
 
-            const { body, end } = extractLoopBody(lines, i, lang);
+            const { body, end } = getBlockBody(lines, i, lang);
 
             // Check if this is actually a retry pattern (catch + continue)
             if (!hasCatchWithContinue(body, lang)) continue;
@@ -438,7 +441,7 @@ export class SideEffectAnalysisGate extends Gate {
             const watchedPath = extractWatchedPath(lines[i]);
 
             // Extract the watcher callback body
-            const { body, end } = extractLoopBody(lines, i, lang);
+            const { body, end } = getBlockBody(lines, i, lang);
 
             // Check for file write operations in the callback body
             const writeCall = findWriteInBody(body, lang);
@@ -534,11 +537,11 @@ export class SideEffectAnalysisGate extends Gate {
             if (lang === 'rs' && isRustAutoDropped(lines, i)) continue;
 
             // Inside a cleanup context (finally, __exit__, Dispose, etc.)
-            if (isInsideCleanupContext(lines, i, lang)) continue;
+            if (isInFrameworkCleanup(lines, i, lang)) continue;
 
             // ── VARIABLE-BOUND CLEANUP CHECK ──
 
-            const scope = findEnclosingFunction(lines, i, lang);
+            const scope = findFunctionScope(lines, i, lang);
 
             if (varName) {
                 // Check for cleanup using the specific variable
@@ -587,7 +590,7 @@ export class SideEffectAnalysisGate extends Gate {
         lang: SideEffectLang, lines: string[],
         file: string, violations: SideEffectViolation[],
     ): void {
-        const funcDefs = extractFunctionDefs(lines, lang);
+        const funcDefs = getAllFunctions(lines, lang);
 
         for (const func of funcDefs) {
             const bodyLines = lines.slice(func.start + 1, func.end);
@@ -639,7 +642,7 @@ export class SideEffectAnalysisGate extends Gate {
             if (!isExitHandler(lines[i], lang)) continue;
 
             // Extract the handler body
-            const { body, end } = extractLoopBody(lines, i, lang);
+            const { body, end } = getBlockBody(lines, i, lang);
 
             // Check if the handler spawns a process
             const hasSpawn = body.split('\n').some(l => isProcessSpawn(l, lang) !== null);
@@ -665,31 +668,6 @@ export class SideEffectAnalysisGate extends Gate {
             });
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // OUTPUT
-    // ═══════════════════════════════════════════════════════════════
-
-    private buildFailures(violations: SideEffectViolation[]): Failure[] {
-        return violations.map(v => this.createFailure(
-            v.description,
-            [v.file],
-            v.hint,
-            `Side-Effect: ${RULE_TITLES[v.rule] || v.rule}`,
-            v.line,
-            v.line,
-            v.severity,
-        ));
-    }
 }
 
-const RULE_TITLES: Record<string, string> = {
-    'unbounded-timer': 'Unbounded Timer',
-    'orphan-process': 'Orphan Process',
-    'unbounded-io-loop': 'Unbounded I/O Loop',
-    'retry-without-limit': 'Retry Without Limit',
-    'circular-trigger': 'Circular File Trigger',
-    'resource-leak': 'Resource Leak',
-    'unbounded-recursion': 'Unbounded Recursion',
-    'auto-restart-bomb': 'Auto-Restart Bomb',
-};
+export { SideEffectViolation, SideEffectLang } from '../side-effect-helpers/index.js';

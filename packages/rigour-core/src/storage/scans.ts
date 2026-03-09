@@ -22,19 +22,16 @@ export interface ScanRecord {
 /**
  * Insert a scan record from a Rigour report.
  */
-export function insertScan(
+export async function insertScan(
     store: RigourDB,
     repo: string,
     report: Report,
     meta?: { commitHash?: string; filesScanned?: number; deepTier?: string; deepModel?: string }
-): string {
+): Promise<string> {
     const id = randomUUID();
-    const stmt = store.db.prepare(`
-        INSERT INTO scans (id, repo, commit_hash, timestamp, ai_health_score, code_quality_score, overall_score, files_scanned, duration_ms, deep_tier, deep_model)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
+    await store.run(
+        `INSERT INTO scans (id, repo, commit_hash, timestamp, ai_health_score, code_quality_score, overall_score, files_scanned, duration_ms, deep_tier, deep_model)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         repo,
         meta?.commitHash || null,
@@ -54,21 +51,21 @@ export function insertScan(
 /**
  * Get recent scans for a repo (newest first).
  */
-export function getRecentScans(store: RigourDB, repo: string, limit = 10): ScanRecord[] {
-    const stmt = store.db.prepare(`
-        SELECT * FROM scans WHERE repo = ? ORDER BY timestamp DESC LIMIT ?
-    `);
-    return stmt.all(repo, limit);
+export async function getRecentScans(store: RigourDB, repo: string, limit = 10): Promise<ScanRecord[]> {
+    return store.all(
+        'SELECT * FROM scans WHERE repo = ? ORDER BY timestamp DESC LIMIT ?',
+        repo, limit
+    );
 }
 
 /**
  * Get score trend for a repo.
  */
-export function getScoreTrendFromDB(store: RigourDB, repo: string, limit = 10): {
+export async function getScoreTrendFromDB(store: RigourDB, repo: string, limit = 10): Promise<{
     scores: number[];
     direction: 'improving' | 'degrading' | 'stable';
-} {
-    const scans = getRecentScans(store, repo, limit);
+}> {
+    const scans = await getRecentScans(store, repo, limit);
     const scores = scans
         .filter(s => s.overall_score != null)
         .map(s => s.overall_score!)
@@ -88,12 +85,12 @@ export function getScoreTrendFromDB(store: RigourDB, repo: string, limit = 10): 
 /**
  * Get most common issue categories for a repo.
  */
-export function getTopIssues(store: RigourDB, repo: string, limit = 10): { category: string; count: number }[] {
-    const stmt = store.db.prepare(`
-        SELECT f.category, COUNT(*) as count FROM findings f
-        JOIN scans s ON f.scan_id = s.id
-        WHERE s.repo = ?
-        GROUP BY f.category ORDER BY count DESC LIMIT ?
-    `);
-    return stmt.all(repo, limit);
+export async function getTopIssues(store: RigourDB, repo: string, limit = 10): Promise<{ category: string; count: number }[]> {
+    return store.all(
+        `SELECT f.category, COUNT(*) as count FROM findings f
+         JOIN scans s ON f.scan_id = s.id
+         WHERE s.repo = ?
+         GROUP BY f.category ORDER BY count DESC LIMIT ?`,
+        repo, limit
+    );
 }

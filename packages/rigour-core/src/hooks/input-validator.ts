@@ -15,7 +15,6 @@
  * - .env format strings (KEY=value)
  * - Azure / GCP / Stripe / Twilio keys
  *
- * @since v4.2.0 — AI Agent DLP layer
  */
 
 export interface CredentialDetection {

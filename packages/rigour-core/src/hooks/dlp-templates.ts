@@ -11,7 +11,6 @@
  * - Cline: PreToolUse executable script
  * - Windsurf: pre_write_code event
  *
- * @since v4.2.0 — AI Agent DLP layer
  */
 
 import type { HookTool } from './types.js';
@@ -91,7 +90,6 @@ function generateCursorDLPHooks(checkerCommand: string): GeneratedDLPHookFile[] 
  * Receives { file_path, new_content } on stdin.
  * Runs Rigour credential scanner on the content.
  *
- * @since v4.2.0 — AI Agent DLP
  */
 
 let data = '';
@@ -161,7 +159,6 @@ function generateClineDLPHooks(checkerCommand: string): GeneratedDLPHookFile[] {
  * Receives JSON on stdin with { toolName, toolInput }.
  * Scans tool input for credentials BEFORE execution.
  *
- * @since v4.2.0 — AI Agent DLP
  */
 
 let data = '';
@@ -248,7 +245,6 @@ function generateWindsurfDLPHooks(checkerCommand: string): GeneratedDLPHookFile[
  * Windsurf DLP hook — scans input for credentials before Cascade agent processing.
  * Receives { file_path, content } on stdin.
  *
- * @since v4.2.0 — AI Agent DLP
  */
 
 let data = '';

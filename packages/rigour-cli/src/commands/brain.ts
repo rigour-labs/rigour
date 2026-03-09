@@ -48,11 +48,11 @@ async function handleStatus(core: any): Promise<void> {
     console.log(chalk.dim(`   Size:     ${formatBytes(sizeBytes)}\n`));
 
     const cwd = process.cwd();
-    const stats = core.getProjectStats(cwd);
+    const stats = await core.getProjectStats(cwd);
 
     if (!stats) {
-        console.log(chalk.yellow('   SQLite not available (better-sqlite3 not installed).'));
-        console.log(chalk.dim('   Run: npm install better-sqlite3'));
+        console.log(chalk.yellow('   SQLite not available (sqlite3 not installed).'));
+        console.log(chalk.dim('   Run: npm install sqlite3'));
         return;
     }
 
@@ -81,7 +81,7 @@ async function handleStatus(core: any): Promise<void> {
 async function handleCompact(core: any, retainDays: number): Promise<void> {
     console.log(chalk.bold.cyan(`\n🧠 Compacting Rigour Brain (retain ${retainDays} days)...\n`));
 
-    const result = core.compactDatabase(retainDays);
+    const result = await core.compactDatabase(retainDays);
 
     console.log(`   Findings pruned:   ${chalk.yellow(result.pruned)}`);
     console.log(`   Patterns removed:  ${chalk.yellow(result.patternsDecayed)}`);

@@ -1,7 +1,6 @@
 /**
  * Tests for Input Validation Gate — AI Agent DLP (Data Loss Prevention)
  *
- * @since v4.2.0
  */
 import { describe, it, expect } from 'vitest';
 import {

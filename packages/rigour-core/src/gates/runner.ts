@@ -18,15 +18,15 @@ import { AgentTeamGate } from './agent-team.js';
 import { CheckpointGate } from './checkpoint.js';
 import { SecurityPatternsGate } from './security-patterns.js';
 import { FrontendSecretExposureGate } from './frontend-secret-exposure.js';
-import { DuplicationDriftGate } from './duplication-drift.js';
-import { HallucinatedImportsGate } from './hallucinated-imports.js';
+import { DuplicationDriftGate } from './duplication-drift/index.js';
+import { HallucinatedImportsGate } from './hallucinated-imports/index.js';
 import { InconsistentErrorHandlingGate } from './inconsistent-error-handling.js';
 import { ContextWindowArtifactsGate } from './context-window-artifacts.js';
 import { PromiseSafetyGate } from './promise-safety.js';
 import { PhantomApisGate } from './phantom-apis.js';
 import { DeprecatedApisGate } from './deprecated-apis.js';
 import { TestQualityGate } from './test-quality.js';
-import { SideEffectAnalysisGate } from './side-effect-analysis.js';
+import { SideEffectAnalysisGate } from './side-effect-analysis/index.js';
 import { StyleDriftGate } from './style-drift.js';
 import { LogicDriftGate } from './logic-drift.js';
 import { execa } from 'execa';
@@ -265,13 +265,37 @@ export class GateRunner {
 
         const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
 
-        // Severity-weighted scoring: each failure deducts based on its severity
+        // Severity-weighted scoring with per-gate cap and deduplication
+        // Step 1: Deduplicate — same file + line + gate should not stack
+        const deduped: Failure[] = [];
+        const seen = new Set<string>();
+        for (const f of failures) {
+            const key = `${f.id}:${(f.files || []).join(',')}:${f.line || 0}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                deduped.push(f);
+            }
+        }
+        // Replace failures array with deduplicated version
+        failures.length = 0;
+        failures.push(...deduped);
+
+        // Step 2: Calculate per-gate deductions with cap
+        const PER_GATE_CAP = 30; // No single gate can deduct more than 30 points
         const severityBreakdown: Record<string, number> = {};
-        let totalDeduction = 0;
+        const gateDeductions = new Map<string, number>();
         for (const f of failures) {
             const sev = (f.severity || 'medium') as Severity;
             severityBreakdown[sev] = (severityBreakdown[sev] || 0) + 1;
-            totalDeduction += SEVERITY_WEIGHTS[sev] ?? 5;
+            const weight = SEVERITY_WEIGHTS[sev] ?? 5;
+            const gateId = f.id || 'unknown';
+            gateDeductions.set(gateId, (gateDeductions.get(gateId) || 0) + weight);
+        }
+
+        // Step 3: Apply cap per gate and sum
+        let totalDeduction = 0;
+        for (const [_gateId, deduction] of gateDeductions) {
+            totalDeduction += Math.min(deduction, PER_GATE_CAP);
         }
         const score = Math.max(0, 100 - totalDeduction);
 
@@ -279,9 +303,10 @@ export class GateRunner {
         // IMPORTANT: Only ai-drift affects ai_health_score, only traditional affects structural_score.
         // Security and governance affect the overall score but NOT the sub-scores,
         // preventing security criticals from incorrectly zeroing structural_score.
-        let aiDeduction = 0;
-        let structuralDeduction = 0;
-        let deepDeduction = 0;
+        // Per-gate caps applied to sub-scores too for fairness.
+        const aiGateDeductions = new Map<string, number>();
+        const structuralGateDeductions = new Map<string, number>();
+        const deepGateDeductions = new Map<string, number>();
         const provenanceCounts = {
             'ai-drift': 0,
             'traditional': 0,
@@ -293,25 +318,32 @@ export class GateRunner {
             const sev = (f.severity || 'medium') as Severity;
             const weight = SEVERITY_WEIGHTS[sev] ?? 5;
             const prov = f.provenance || 'traditional';
+            const gateId = f.id || 'unknown';
             provenanceCounts[prov] = (provenanceCounts[prov] || 0) + 1;
 
             switch (prov) {
                 case 'ai-drift':
-                    aiDeduction += weight;
+                    aiGateDeductions.set(gateId, (aiGateDeductions.get(gateId) || 0) + weight);
                     break;
                 case 'traditional':
-                    structuralDeduction += weight;
+                    structuralGateDeductions.set(gateId, (structuralGateDeductions.get(gateId) || 0) + weight);
                     break;
                 case 'deep-analysis':
-                    deepDeduction += weight;
+                    deepGateDeductions.set(gateId, (deepGateDeductions.get(gateId) || 0) + weight);
                     break;
-                // security and governance contribute to overall score (totalDeduction)
-                // but do NOT pollute the sub-scores
                 case 'security':
                 case 'governance':
                     break;
             }
         }
+
+        // Apply per-gate cap to sub-scores
+        let aiDeduction = 0;
+        for (const [, d] of aiGateDeductions) aiDeduction += Math.min(d, PER_GATE_CAP);
+        let structuralDeduction = 0;
+        for (const [, d] of structuralGateDeductions) structuralDeduction += Math.min(d, PER_GATE_CAP);
+        let deepDeduction = 0;
+        for (const [, d] of deepGateDeductions) deepDeduction += Math.min(d, PER_GATE_CAP);
 
         // Persist findings + reinforce patterns in local SQLite (fire-and-forget)
         const report: Report = {
@@ -331,14 +363,12 @@ export class GateRunner {
         };
 
         // Store findings + reinforce patterns in local SQLite (non-blocking)
-        try {
-            persistAndReinforce(cwd, report, deepStats ? {
-                deepTier: deepStats.tier,
-                deepModel: deepStats.model,
-            } : undefined);
-        } catch {
+        persistAndReinforce(cwd, report, deepStats ? {
+            deepTier: deepStats.tier,
+            deepModel: deepStats.model,
+        } : undefined).catch(() => {
             // Silent — local memory is advisory, never blocks scans
-        }
+        });
 
         // v5: Record per-provenance data for adaptive thresholds + temporal drift
         try {
