@@ -16,8 +16,15 @@ export const studioCommand = new Command('studio')
         const eventsPath = path.join(cwd, '.rigour/events.jsonl');
 
         // Calculate the local dist path (where the pre-built Studio UI lives)
+        // When running from source: cli/dist/commands/studio.js → cli/studio-dist/
+        // When running via npx:     node_modules/@rigour-labs/cli/dist/commands/studio.js → cli/dist/studio-dist/
         const __dirname = path.dirname(new URL(import.meta.url).pathname);
-        const localStudioDist = path.join(__dirname, '../studio-dist');
+        const candidates = [
+            path.join(__dirname, '../studio-dist'),          // npm publish: cli/dist/studio-dist/
+            path.join(__dirname, '../../studio-dist'),       // monorepo: cli/studio-dist/
+            path.join(__dirname, '../../../studio-dist'),    // npx: @rigour-labs/cli/studio-dist/
+        ];
+        const localStudioDist = candidates.find(p => fs.pathExistsSync(p)) ?? candidates[0];
         const workspaceRoot = path.join(__dirname, '../../../../');
 
         console.log(chalk.bold.cyan('\n🛡️ Launching Rigour Studio...'));

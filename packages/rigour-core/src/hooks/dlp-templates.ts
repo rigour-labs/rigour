@@ -7,7 +7,7 @@
  *
  * Hook events:
  * - Claude Code: PreToolUse matcher (all tools)
- * - Cursor: beforeFileEdit event
+ * - Cursor: beforeSubmitPrompt event (scans user input before agent sees it)
  * - Cline: PreToolUse executable script
  * - Windsurf: pre_write_code event
  *
@@ -76,7 +76,7 @@ function generateCursorDLPHooks(checkerCommand: string): GeneratedDLPHookFile[] 
     const hooks = {
         version: 1,
         hooks: {
-            beforeFileEdit: [
+            beforeSubmitPrompt: [
                 {
                     command: `${checkerCommand} --mode dlp --stdin`,
                 }

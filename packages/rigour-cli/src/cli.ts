@@ -244,11 +244,14 @@ hooksCmd
     .option('--stdin', 'Read hook payload from stdin (Cursor/Windsurf/Cline format)')
     .option('--block', 'Exit code 2 on failures (for blocking hooks)')
     .option('--timeout <ms>', 'Timeout in milliseconds (default: 5000)')
+    .option('--mode <mode>', 'Check mode: "check" (default) or "dlp" (credential scanning)')
+    .option('--agent <name>', 'Agent name for DLP audit trail (e.g., cursor, claude)')
     .addHelpText('after', `
 Examples:
   $ rigour hooks check --files src/app.ts
   $ rigour hooks check --files src/a.ts,src/b.ts --block
   $ echo '{"file_path":"src/app.ts"}' | rigour hooks check --stdin
+  $ echo 'AWS_SECRET=AKIA...' | rigour hooks check --mode dlp --stdin
     `)
     .action(async (options: any) => {
         await hooksCheckCommand(process.cwd(), options);

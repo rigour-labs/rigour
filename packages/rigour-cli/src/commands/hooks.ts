@@ -211,7 +211,7 @@ function generateCursorHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         afterFileEdit: [{ command: `${checkerCommand} --stdin${blockFlag}` }],
     };
     if (dlp) {
-        hookEntries.beforeFileEdit = [{ command: `${checkerCommand} --mode dlp --stdin` }];
+        hookEntries.beforeSubmitPrompt = [{ command: `${checkerCommand} --mode dlp --stdin` }];
     }
     const hooks = { version: 1, hooks: hookEntries };
 
@@ -219,7 +219,7 @@ function generateCursorHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         path: '.cursor/hooks.json',
         content: JSON.stringify(hooks, null, 4),
         description: dlp
-            ? 'Cursor hooks — afterFileEdit quality checks + beforeFileEdit DLP credential interception'
+            ? 'Cursor hooks — afterFileEdit quality checks + beforeSubmitPrompt DLP credential interception'
             : 'Cursor afterFileEdit hook config',
     }];
 }
