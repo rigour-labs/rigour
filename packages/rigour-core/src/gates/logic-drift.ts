@@ -15,14 +15,14 @@
  * Strategy: Collect baselines for critical functions, then detect
  * mutations between scans. This foundation enables future LLM-powered
  * deeper analysis (feeding baselines into DriftBench training).
- *
- * @since v5.1.0
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { languageAdapters } from './language-adapters/index.js';
+import { extractCallSequence, isDangerousMutation } from './logic-drift-extractors.js';
 import fs from 'fs-extra';
 import path from 'path';
 import crypto from 'crypto';
@@ -75,10 +75,10 @@ export class LogicDriftGate extends Gate {
         const failures: Failure[] = [];
         const baselinePath = path.join(context.cwd, this.config.baseline_path);
 
-        // Find source files
+        // Find source files using adapter-supported patterns
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
-            patterns: context.patterns || ['**/*.{ts,tsx,js,jsx}'],
+            patterns: context.patterns || languageAdapters.getScanPatterns(),
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/*.test.*', '**/*.spec.*', '**/*.d.ts'],
         });
 
@@ -97,7 +97,13 @@ export class LogicDriftGate extends Gate {
         let previousBaseline: LogicBaseline | null = null;
         if (await fs.pathExists(baselinePath)) {
             try {
-                previousBaseline = await fs.readJson(baselinePath);
+                const raw = await fs.readJson(baselinePath);
+                // Validate baseline has required structure
+                if (raw && Array.isArray(raw.functions)) {
+                    previousBaseline = raw;
+                } else {
+                    Logger.debug('Invalid or empty logic baseline format, will recreate');
+                }
             } catch {
                 Logger.debug('Failed to load logic baseline');
             }
@@ -202,111 +208,38 @@ export class LogicDriftGate extends Gate {
 
     private extractFunctionBaselines(content: string, file: string): FunctionBaseline[] {
         const baselines: FunctionBaseline[] = [];
-        const lines = content.split('\n');
+        const adapter = languageAdapters.getAdapter(file);
 
-        const fnPatterns = [
-            /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/,
-            /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|(\w+))\s*=>/,
-            /^\s+(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{/,
-        ];
+        if (!adapter) {
+            return baselines; // Unsupported language
+        }
 
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            for (const pattern of fnPatterns) {
-                const match = line.match(pattern);
-                if (match) {
-                    const name = match[1];
-                    if (['if', 'for', 'while', 'switch', 'catch', 'constructor'].includes(name)) continue;
+        const skipKeywords = new Set(['if', 'for', 'while', 'switch', 'catch', 'constructor', 'else', 'elif', 'elsif', 'rescue']);
+        const functions = adapter.extractFunctions(content, file);
 
-                    const body = this.extractBody(lines, i);
-                    if (body.length < 3) continue; // Skip trivial functions
+        for (const fn of functions) {
+            // Skip control flow keywords
+            if (skipKeywords.has(fn.name)) continue;
+            // Skip very small functions
+            if (fn.body.length < 3) continue;
 
-                    const bodyText = body.join('\n');
-                    const normalized = bodyText
-                        .replace(/\/\/.*/g, '')
-                        .replace(/\/\*[\s\S]*?\*\//g, '')
-                        .replace(/\s+/g, ' ')
-                        .trim();
+            const normalized = adapter.stripComments(fn.body)
+                .replace(/\s+/g, ' ')
+                .trim();
 
-                    baselines.push({
-                        name,
-                        file,
-                        line: i + 1,
-                        comparisonOps: this.extractComparisonOps(bodyText),
-                        branchCount: this.countBranches(bodyText),
-                        returnCount: this.countReturns(bodyText),
-                        callSequence: this.extractCallSequence(bodyText),
-                        bodyHash: crypto.createHash('md5').update(normalized).digest('hex'),
-                    });
-                    break;
-                }
-            }
+            baselines.push({
+                name: fn.name,
+                file,
+                line: fn.startLine,
+                comparisonOps: adapter.extractComparisonOps(fn.body),
+                branchCount: adapter.countBranches(fn.body),
+                returnCount: adapter.countReturns(fn.body),
+                callSequence: extractCallSequence(fn.body),
+                bodyHash: crypto.createHash('md5').update(normalized).digest('hex'),
+            });
         }
 
         return baselines;
-    }
-
-    private extractBody(lines: string[], startIndex: number): string[] {
-        let braceDepth = 0;
-        let started = false;
-        const body: string[] = [];
-
-        for (let i = startIndex; i < lines.length; i++) {
-            const line = lines[i];
-            for (const ch of line) {
-                if (ch === '{') { braceDepth++; started = true; }
-                if (ch === '}') braceDepth--;
-            }
-            if (started) body.push(line);
-            if (started && braceDepth === 0) break;
-        }
-
-        return body;
-    }
-
-    /**
-     * Extract all comparison operators from function body in order.
-     * These are the most critical mutations: >= to > causes off-by-one.
-     */
-    private extractComparisonOps(body: string): string[] {
-        const ops: string[] = [];
-        const matches = body.matchAll(/(===|!==|==|!=|>=|<=|>(?!=)|<(?!=))/g);
-        for (const m of matches) {
-            ops.push(m[1]);
-        }
-        return ops;
-    }
-
-    private countBranches(body: string): number {
-        let count = 0;
-        // Count if, else if, else, switch, case, ternary
-        count += (body.match(/\bif\s*\(/g) || []).length;
-        count += (body.match(/\belse\s+if\s*\(/g) || []).length;
-        count += (body.match(/\belse\s*\{/g) || []).length;
-        count += (body.match(/\bswitch\s*\(/g) || []).length;
-        count += (body.match(/\bcase\s+/g) || []).length;
-        count += (body.match(/\?\s*[^?]/g) || []).length; // ternary (approximate)
-        return count;
-    }
-
-    private countReturns(body: string): number {
-        return (body.match(/\breturn\b/g) || []).length;
-    }
-
-    /**
-     * Extract ordered sequence of function calls.
-     * Useful for detecting when AI reorders operations.
-     */
-    private extractCallSequence(body: string): string[] {
-        const calls: string[] = [];
-        const matches = body.matchAll(/\b(\w+)\s*\(/g);
-        const keywords = new Set(['if', 'for', 'while', 'switch', 'catch', 'function', 'async', 'await', 'return', 'new', 'typeof', 'instanceof']);
-        for (const m of matches) {
-            if (!keywords.has(m[1])) {
-                calls.push(m[1]);
-            }
-        }
-        return calls;
     }
 
     // ─── Mutation Detection ──────────────────────────────────────────
@@ -315,45 +248,19 @@ export class LogicDriftGate extends Gate {
      * Detect specific operator mutations between two ordered operator lists.
      * Only reports CHANGED operators, not added/removed ones (those are
      * covered by branch count changes).
-     *
-     * Example:
-     * prev: ['>=', '===', '!==']
-     * curr: ['>',  '===', '!==']
-     * → [{from: '>=', to: '>'}]
      */
     private detectOperatorMutations(prev: string[], curr: string[]): { from: string; to: string }[] {
         const mutations: { from: string; to: string }[] = [];
 
-        // Use LCS-like alignment for best matching
         const minLen = Math.min(prev.length, curr.length);
         for (let i = 0; i < minLen; i++) {
             if (prev[i] !== curr[i]) {
-                // Check if this is a "dangerous" mutation (same family, different strictness)
-                if (this.isDangerousMutation(prev[i], curr[i])) {
+                if (isDangerousMutation(prev[i], curr[i])) {
                     mutations.push({ from: prev[i], to: curr[i] });
                 }
             }
         }
 
         return mutations;
-    }
-
-    /**
-     * Classify whether an operator change is "dangerous" (likely unintentional).
-     *
-     * Dangerous mutations:
-     * - >= to > (boundary change, off-by-one)
-     * - <= to < (boundary change)
-     * - === to == (type coercion change)
-     * - !== to != (type coercion change)
-     */
-    private isDangerousMutation(from: string, to: string): boolean {
-        const dangerous = new Set([
-            '>=:>', '>:>=',       // Boundary mutations
-            '<=:<', '<:<=',       // Boundary mutations
-            '===:==', '==:===',   // Type coercion mutations
-            '!==:!=', '!=:!==',   // Type coercion mutations
-        ]);
-        return dangerous.has(`${from}:${to}`);
     }
 }

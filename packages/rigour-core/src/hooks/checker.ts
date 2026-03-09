@@ -6,7 +6,6 @@
  *
  * Used by all tool-specific hooks (Claude, Cursor, Cline, Windsurf).
  *
- * @since v3.0.0
  */
 
 import fs from 'fs-extra';
@@ -322,7 +321,6 @@ function simpleGlob(filePath: string, pattern: string): boolean {
  *       enforce_memory: false   # allow native memory, still enforce skills
  *       enforce_skills: false   # allow native skills, still enforce memory
  *
- * @since v4.2.0
  */
 function checkGovernance(
     content: string,

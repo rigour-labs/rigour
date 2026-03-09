@@ -19,16 +19,20 @@
  *   Go     — testing package (t.Run, table-driven tests)
  *   Java   — JUnit 4/5, TestNG
  *   Kotlin — JUnit 5, kotlin.test
- *
- * @since v3.0.0
- * @since v3.0.3 — Go, Java, Kotlin support added
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { languageAdapters } from './language-adapters/index.js';
 import { checkGoTestQuality, checkJavaKotlinTestQuality } from './test-quality-lang.js';
+import {
+    JS_TEST_START_PATTERN, JS_ASSERTION_PATTERNS, JS_MOCK_PATTERNS,
+    JS_TAUTOLOGICAL_PATTERNS, JS_VAR_TAUTOLOGY_PATTERN, SNAPSHOT_PATTERNS,
+    PYTHON_TEST_FUNC_PATTERN, PYTHON_ASSERTION_PATTERNS, PYTHON_MOCK_PATTERNS,
+    PYTHON_TAUTOLOGICAL_PATTERNS, PYTHON_FIXTURE_PATTERN, PYTHON_CONFTEST_NAME,
+} from './test-quality-matchers.js';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -76,12 +80,14 @@ export class TestQualityGate extends Gate {
         const issues: TestQualityIssue[] = [];
 
         const defaultPatterns = [
-                '**/*.test.{ts,js,tsx,jsx}', '**/*.spec.{ts,js,tsx,jsx}',
-                '**/__tests__/**/*.{ts,js,tsx,jsx}',
+                '**/*.test.{ts,js,tsx,jsx,mjs,cjs}', '**/*.spec.{ts,js,tsx,jsx,mjs,cjs}',
+                '**/__tests__/**/*.{ts,js,tsx,jsx,mjs,cjs}',
                 '**/test_*.py', '**/*_test.py', '**/tests/**/*.py',
                 '**/*_test.go',
                 '**/*Test.java', '**/*Tests.java', '**/src/test/**/*.java',
                 '**/*Test.kt', '**/*Tests.kt', '**/src/test/**/*.kt',
+                '**/*_test.rs', '**/tests/**/*.rs',
+                '**/*_spec.rb', '**/spec/**/*.rb',
         ];
         const scanPatterns = context.patterns || defaultPatterns;
         const files = await FileScanner.findFiles({
@@ -99,25 +105,29 @@ export class TestQualityGate extends Gate {
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
                 const ext = path.extname(file);
+                const adapter = languageAdapters.getAdapter(file);
+                if (!adapter) continue;
 
-                if (['.ts', '.js', '.tsx', '.jsx'].includes(ext)) {
-                    this.checkJSTestQuality(content, file, issues);
-                } else if (ext === '.py') {
-                    this.checkPythonTestQuality(content, file, issues);
-                } else if (ext === '.go') {
-                    checkGoTestQuality(content, file, issues, {
-                        check_empty_tests: this.config.check_empty_tests,
-                        check_tautological: this.config.check_tautological,
-                        check_mock_heavy: this.config.check_mock_heavy,
-                        max_mocks_per_test: this.config.max_mocks_per_test,
-                    });
-                } else if (ext === '.java' || ext === '.kt') {
-                    checkJavaKotlinTestQuality(content, file, ext, issues, {
-                        check_empty_tests: this.config.check_empty_tests,
-                        check_tautological: this.config.check_tautological,
-                        check_mock_heavy: this.config.check_mock_heavy,
-                        max_mocks_per_test: this.config.max_mocks_per_test,
-                    });
+                const langConfig = {
+                    check_empty_tests: this.config.check_empty_tests,
+                    check_tautological: this.config.check_tautological,
+                    check_mock_heavy: this.config.check_mock_heavy,
+                    max_mocks_per_test: this.config.max_mocks_per_test,
+                };
+
+                switch (adapter.id) {
+                    case 'js':
+                        this.checkJSTestQuality(content, file, issues);
+                        break;
+                    case 'python':
+                        this.checkPythonTestQuality(content, file, issues);
+                        break;
+                    case 'go':
+                        checkGoTestQuality(content, file, issues, langConfig);
+                        break;
+                    case 'java':
+                        checkJavaKotlinTestQuality(content, file, ext, issues, langConfig);
+                        break;
                 }
             } catch { /* skip */ }
         }
@@ -164,7 +174,7 @@ export class TestQualityGate extends Gate {
             const trimmed = line.trim();
 
             // Detect test block start: it('...', () => { or test('...', async () => {
-            const testStart = trimmed.match(/^(?:it|test)\s*\(\s*['"`].*['"`]\s*,\s*(async\s+)?(?:\(\s*\)|function\s*\(\s*\)|\(\s*\{[^}]*\}\s*\))\s*(?:=>)?\s*\{/);
+            const testStart = trimmed.match(JS_TEST_START_PATTERN);
             if (testStart && !inTestBlock) {
                 inTestBlock = true;
                 testStartLine = i + 1;
@@ -199,13 +209,12 @@ export class TestQualityGate extends Gate {
                 }
 
                 // Check for assertions
-                if (/expect\s*\(/.test(line) || /assert\s*[.(]/.test(line) ||
-                    /\.toEqual|\.toBe|\.toContain|\.toMatch|\.toThrow|\.toHaveBeenCalled|\.toHaveLength|\.toBeTruthy|\.toBeFalsy|\.toBeDefined|\.toBeNull|\.toBeUndefined|\.toBeGreaterThan|\.toBeLessThan|\.toHaveProperty|\.toStrictEqual|\.rejects|\.resolves/.test(line)) {
+                if (JS_ASSERTION_PATTERNS.some(p => p.test(line))) {
                     hasAssertion = true;
                 }
 
                 // Check for mocks
-                if (/jest\.fn\(|vi\.fn\(|jest\.mock\(|vi\.mock\(|jest\.spyOn\(|vi\.spyOn\(|sinon\.(stub|mock|spy)\(/.test(line)) {
+                if (JS_MOCK_PATTERNS.some(p => p.test(line))) {
                     mockCount++;
                 }
 
@@ -216,20 +225,25 @@ export class TestQualityGate extends Gate {
 
                 // Check for tautological assertions
                 if (this.config.check_tautological) {
-                    if (/expect\s*\(\s*true\s*\)\s*\.toBe\s*\(\s*true\s*\)/.test(line) ||
-                        /expect\s*\(\s*false\s*\)\s*\.toBe\s*\(\s*false\s*\)/.test(line) ||
-                        /expect\s*\(\s*1\s*\)\s*\.toBe\s*\(\s*1\s*\)/.test(line) ||
-                        /expect\s*\(\s*['"].*['"]\s*\)\s*\.toBe\s*\(\s*['"].*['"]\s*\)/.test(line) && line.match(/expect\s*\(\s*(['"].*?['"])\s*\)\s*\.toBe\s*\(\s*\1\s*\)/)) {
+                    if (JS_TAUTOLOGICAL_PATTERNS.some(p => p.test(line))) {
                         issues.push({
                             file, line: i + 1, pattern: 'tautological-assertion',
                             reason: 'Tautological assertion — comparing a literal to itself proves nothing',
+                        });
+                    }
+                    // Variable tautology: expect(x).toBe(x), expect(foo).toEqual(foo)
+                    const varTautology = line.match(JS_VAR_TAUTOLOGY_PATTERN);
+                    if (varTautology && varTautology[1] === varTautology[2]) {
+                        issues.push({
+                            file, line: i + 1, pattern: 'tautological-assertion',
+                            reason: `Tautological assertion — expect(${varTautology[1]}).toBe(${varTautology[2]}) compares variable to itself`,
                         });
                     }
                 }
 
                 // Check for snapshot-only tests
                 if (this.config.check_snapshot_abuse) {
-                    if (/\.toMatchSnapshot\s*\(/.test(line) || /\.toMatchInlineSnapshot\s*\(/.test(line)) {
+                    if (SNAPSHOT_PATTERNS.some(p => p.test(line))) {
                         // This is fine IF there are also semantic assertions
                         // We'll check when the block ends
                     }
@@ -295,7 +309,7 @@ export class TestQualityGate extends Gate {
         const basename = path.basename(file);
 
         // Skip conftest.py entirely — these contain fixtures, not tests
-        if (basename === 'conftest.py') return;
+        if (basename === PYTHON_CONFTEST_NAME) return;
 
         let inTestFunc = false;
         let testStartLine = 0;
@@ -310,7 +324,7 @@ export class TestQualityGate extends Gate {
             const trimmed = line.trim();
 
             // Detect test function start
-            const testFuncMatch = line.match(/^(\s*)(?:def|async\s+def)\s+(test_\w+)\s*\(/);
+            const testFuncMatch = line.match(PYTHON_TEST_FUNC_PATTERN);
             if (testFuncMatch) {
                 // Check if this function has a @pytest.fixture decorator (not a real test)
                 hasFixtureDecorator = false;
@@ -318,7 +332,7 @@ export class TestQualityGate extends Gate {
                     const prevLine = lines[j].trim();
                     if (!prevLine || prevLine.startsWith('#')) continue;
                     if (!prevLine.startsWith('@')) break;
-                    if (/^@pytest\.fixture/.test(prevLine)) {
+                    if (PYTHON_FIXTURE_PATTERN.test(prevLine)) {
                         hasFixtureDecorator = true;
                         break;
                     }
@@ -359,21 +373,18 @@ export class TestQualityGate extends Gate {
                 testContent += line + '\n';
 
                 // Check for assertions
-                if (/\bassert\s+/.test(trimmed) || /self\.assert\w+\s*\(/.test(trimmed) ||
-                    /pytest\.raises\s*\(/.test(trimmed) || /\.assert_called|\.assert_any_call/.test(trimmed)) {
+                if (PYTHON_ASSERTION_PATTERNS.some(p => p.test(trimmed))) {
                     hasAssertion = true;
                 }
 
                 // Check for mocks
-                if (/mock\.|Mock\(|patch\(|MagicMock\(/.test(trimmed)) {
+                if (PYTHON_MOCK_PATTERNS.some(p => p.test(trimmed))) {
                     mockCount++;
                 }
 
                 // Tautological assertions
                 if (this.config.check_tautological) {
-                    if (/\bassert\s+True\s*$/.test(trimmed) || /\bassert\s+1\s*==\s*1/.test(trimmed) ||
-                        /self\.assertTrue\s*\(\s*True\s*\)/.test(trimmed) ||
-                        /self\.assertEqual\s*\(\s*(\d+|['"][^'"]*['"])\s*,\s*\1\s*\)/.test(trimmed)) {
+                    if (PYTHON_TAUTOLOGICAL_PATTERNS.some(p => p.test(trimmed))) {
                         issues.push({
                             file, line: i + 1, pattern: 'tautological-assertion',
                             reason: 'Tautological assertion — comparing a constant to itself proves nothing',

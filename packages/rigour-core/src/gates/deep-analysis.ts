@@ -14,9 +14,12 @@ import { createProvider, type InferenceProvider, type DeepFinding } from '../inf
 import { extractFacts, factsToPromptString, chunkFacts, buildAnalysisPrompt, buildCrossFilePrompt, verifyFindings } from '../deep/index.js';
 import { checkLocalPatterns } from '../storage/local-memory.js';
 import { Logger } from '../utils/logger.js';
+import path from 'path';
 
-/** Max files to analyze before truncating (prevents OOM on huge repos) */
-const MAX_ANALYZABLE_FILES = 500;
+/** Default batch size for streaming analysis of large repos.
+ *  Files are processed in batches to avoid OOM on huge repos.
+ *  Optional soft limit via rigour.yml: deep.maxFiles */
+const DEFAULT_BATCH_SIZE = 200;
 
 /** Setup timeout: 120s for model download, 30s for API connection */
 const SETUP_TIMEOUT_MS = 120_000;
@@ -42,6 +45,19 @@ export class DeepAnalysisGate extends Gate {
 
     protected get provenance(): Provenance {
         return 'deep-analysis';
+    }
+
+    /** Check if a file is a likely entry point (higher analysis priority) */
+    private isEntryPoint(filePath: string): boolean {
+        const basename = path.basename(filePath).toLowerCase();
+        const entryNames = [
+            'index.ts', 'index.js', 'index.tsx', 'index.jsx', 'index.mjs',
+            'main.ts', 'main.js', 'main.py', 'main.go', 'main.rs', 'main.java', 'main.kt',
+            'app.ts', 'app.js', 'app.py', 'app.go', 'app.rb',
+            'server.ts', 'server.js', 'server.py', 'server.go',
+            'mod.rs', 'lib.rs',
+        ];
+        return entryNames.includes(basename);
     }
 
     async run(context: GateContext): Promise<Failure[]> {
@@ -77,12 +93,19 @@ export class DeepAnalysisGate extends Gate {
                 return [];
             }
 
-            // Cap file count to prevent OOM on huge repos
-            if (allFacts.length > MAX_ANALYZABLE_FILES) {
-                onProgress?.(`  ⚠ Found ${allFacts.length} files, capping at ${MAX_ANALYZABLE_FILES} (largest files prioritized).`);
-                // Sort by line count descending — analyze the biggest files first
-                allFacts.sort((a, b) => b.lineCount - a.lineCount);
-                allFacts = allFacts.slice(0, MAX_ANALYZABLE_FILES);
+            // Smart prioritization: entry points first, then by complexity
+            allFacts.sort((a, b) => {
+                const aEntry = this.isEntryPoint(a.path) ? 1 : 0;
+                const bEntry = this.isEntryPoint(b.path) ? 1 : 0;
+                if (aEntry !== bEntry) return bEntry - aEntry;
+                return b.lineCount - a.lineCount;
+            });
+
+            // Optional soft limit — if user configures deep.maxFiles, respect it
+            // Otherwise process ALL files in batches (no hard cap)
+            if (this.config.options.maxFiles && allFacts.length > this.config.options.maxFiles) {
+                onProgress?.(`  Limiting to ${this.config.options.maxFiles} files (configured in rigour.yml).`);
+                allFacts = allFacts.slice(0, this.config.options.maxFiles);
             }
 
             const agentCount = this.config.options.agents || 1;
@@ -91,10 +114,17 @@ export class DeepAnalysisGate extends Gate {
             onProgress?.(`  Found ${allFacts.length} files to analyze${agentCount > 1 ? ` with ${agentCount} parallel agents` : ''}.`);
 
             // Step 1.5: Check local project memory for known patterns (instant, no LLM)
+            // Wrapped in try/catch: sqlite3 may not be available in all environments
             const fileList = allFacts.map(f => f.path).filter(Boolean);
-            const localFindings = checkLocalPatterns(context.cwd, fileList);
-            if (localFindings.length > 0) {
-                onProgress?.(`  🧠 Local memory: ${localFindings.length} known pattern(s) matched instantly.`);
+            let localFindings: DeepFinding[] = [];
+            try {
+                localFindings = await checkLocalPatterns(context.cwd, fileList);
+                if (localFindings.length > 0) {
+                    onProgress?.(`  🧠 Local memory: ${localFindings.length} known pattern(s) matched instantly.`);
+                }
+            } catch (error: any) {
+                Logger.debug(`Local memory check skipped (${error.message?.substring(0, 80)})`);
+                onProgress?.('  ℹ Local memory unavailable — continuing with LLM analysis only.');
             }
 
             // Step 2: LLM interprets facts (in chunks)

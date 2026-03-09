@@ -144,15 +144,15 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
         if (isDeep) {
             try {
                 const { openDatabase, insertScan, insertFindings } = await import('@rigour-labs/core');
-                const db = openDatabase();
+                const db = await openDatabase();
                 if (db) {
                     const repoName = path.basename(cwd);
-                    const scanId = insertScan(db, repoName, report, {
+                    const scanId = await insertScan(db, repoName, report, {
                         deepTier: report.stats.deep?.tier || (options.pro ? 'deep' : (resolvedDeepMode?.isLocal ? 'lite' : 'cloud')),
                         deepModel: report.stats.deep?.model,
                     });
-                    insertFindings(db, scanId, report.failures);
-                    db.close();
+                    await insertFindings(db, scanId, report.failures);
+                    await db.close();
                 }
             } catch (dbError: any) {
                 // SQLite persistence is best-effort — log but don't fail

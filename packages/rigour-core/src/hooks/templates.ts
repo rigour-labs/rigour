@@ -13,7 +13,6 @@
  * `rigour hooks check` instead — more portable but requires the CLI binary.
  * Both produce functionally equivalent hook configs for each tool.
  *
- * @since v3.0.0
  */
 
 import type { HookTool } from './types.js';

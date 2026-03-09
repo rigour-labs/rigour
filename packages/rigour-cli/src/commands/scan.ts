@@ -106,6 +106,7 @@ export async function scanCommand(cwd: string, files: string[] = [], options: Sc
         const report = await runner.run(cwd, files.length > 0 ? files : undefined, deepOpts);
 
         await writeReportArtifacts(cwd, report, scanCtx.config);
+        await writeLastScanJson(cwd, scanCtx, stackSignals, report, isDeep);
         persistDeepResults(cwd, report, isDeep, options);
 
         if (options.json) {
@@ -122,6 +123,7 @@ export async function scanCommand(cwd: string, files: string[] = [], options: Sc
         } else {
             renderScanResults(report, stackSignals, scanCtx.config.output.report_path, cwd);
         }
+        renderSummaryTable(report, isDeep);
         process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
     } catch (error: any) {
         if (error.name === 'ZodError') {
@@ -383,4 +385,124 @@ export function extractHallucinatedImports(failures: Failure[]): string[] {
     }
 
     return fakeImports;
+}
+
+
+/**
+ * Always write a comprehensive last-scan.json to .rigour/ for tooling and MCP consumption.
+ * This file is written regardless of --json, --ci, or --deep flags.
+ */
+async function writeLastScanJson(
+    cwd: string,
+    scanCtx: ScanContext,
+    stackSignals: StackSignals,
+    report: Report,
+    isDeep: boolean,
+): Promise<void> {
+    const rigourDir = path.join(cwd, '.rigour');
+    await fs.ensureDir(rigourDir);
+    const lastScanPath = path.join(rigourDir, 'last-scan.json');
+
+    const severity = report.stats.severity_breakdown || {};
+    const provenance = (report.stats as any).provenance_breakdown || {};
+
+    const payload = {
+        timestamp: new Date().toISOString(),
+        mode: scanCtx.mode,
+        preset: scanCtx.detectedPreset ?? scanCtx.config.preset,
+        paradigm: scanCtx.detectedParadigm ?? scanCtx.config.paradigm,
+        stack: stackSignals,
+        deep: isDeep,
+        status: report.status,
+        scores: {
+            overall: report.stats.score ?? 0,
+            ai_health: report.stats.ai_health_score ?? 0,
+            structural: report.stats.structural_score ?? 0,
+            code_quality: (report.stats as any).code_quality_score ?? 0,
+        },
+        severity_breakdown: severity,
+        provenance_breakdown: provenance,
+        total_findings: report.failures.length,
+        duration_ms: report.stats.duration_ms,
+        deep_stats: (report.stats as any).deep || null,
+        findings: report.failures.map(f => ({
+            id: f.id,
+            title: f.title,
+            severity: f.severity ?? 'medium',
+            provenance: (f as any).provenance ?? 'traditional',
+            files: f.files || [],
+            line: f.line,
+            hint: f.hint,
+            category: (f as any).category,
+            verified: (f as any).verified,
+            confidence: (f as any).confidence,
+        })),
+    };
+
+    await fs.writeJson(lastScanPath, payload, { spaces: 2 });
+}
+
+
+/**
+ * Render a compact summary table to the terminal after main scan output.
+ * Shows findings grouped by gate and provenance — always printed regardless of deep/standard mode.
+ */
+function renderSummaryTable(report: Report, isDeep: boolean): void {
+    if (report.failures.length === 0) return;
+
+    console.log('');
+    console.log(chalk.bold.underline('Summary by Gate'));
+    console.log('');
+
+    // Group failures by gate ID
+    const byGate = new Map<string, { count: number; critical: number; high: number; medium: number; low: number; provenance: string }>();
+    for (const f of report.failures) {
+        const existing = byGate.get(f.id) || { count: 0, critical: 0, high: 0, medium: 0, low: 0, provenance: (f as any).provenance || 'traditional' };
+        existing.count++;
+        const sev = f.severity ?? 'medium';
+        if (sev === 'critical') existing.critical++;
+        else if (sev === 'high') existing.high++;
+        else if (sev === 'medium') existing.medium++;
+        else existing.low++;
+        byGate.set(f.id, existing);
+    }
+
+    // Sort by total count descending
+    const sorted = [...byGate.entries()].sort((a, b) => b[1].count - a[1].count);
+
+    // Print header
+    const gateCol = 28;
+    const numCol = 6;
+    const header = `  ${'Gate'.padEnd(gateCol)} ${'Total'.padStart(numCol)} ${'Crit'.padStart(numCol)} ${'High'.padStart(numCol)} ${'Med'.padStart(numCol)} ${'Low'.padStart(numCol)}  Provenance`;
+    console.log(chalk.dim(header));
+    console.log(chalk.dim('  ' + '─'.repeat(header.length - 2)));
+
+    for (const [gateId, stats] of sorted) {
+        const provColor = stats.provenance === 'ai-drift' ? chalk.magenta
+            : stats.provenance === 'security' ? chalk.red
+            : stats.provenance === 'deep-analysis' ? chalk.blue
+            : chalk.dim;
+        const critStr = stats.critical > 0 ? chalk.red.bold(String(stats.critical).padStart(numCol)) : chalk.dim(String(stats.critical).padStart(numCol));
+        const highStr = stats.high > 0 ? chalk.yellow(String(stats.high).padStart(numCol)) : chalk.dim(String(stats.high).padStart(numCol));
+
+        console.log(
+            `  ${gateId.padEnd(gateCol)} ${String(stats.count).padStart(numCol)} ${critStr} ${highStr} ${chalk.dim(String(stats.medium).padStart(numCol))} ${chalk.dim(String(stats.low).padStart(numCol))}  ${provColor(stats.provenance)}`
+        );
+    }
+
+    // Totals row
+    const totals = sorted.reduce((acc, [, s]) => ({
+        count: acc.count + s.count,
+        critical: acc.critical + s.critical,
+        high: acc.high + s.high,
+        medium: acc.medium + s.medium,
+        low: acc.low + s.low,
+    }), { count: 0, critical: 0, high: 0, medium: 0, low: 0 });
+
+    console.log(chalk.dim('  ' + '─'.repeat(header.length - 2)));
+    console.log(chalk.bold(
+        `  ${'TOTAL'.padEnd(gateCol)} ${String(totals.count).padStart(numCol)} ${String(totals.critical).padStart(numCol)} ${String(totals.high).padStart(numCol)} ${String(totals.medium).padStart(numCol)} ${String(totals.low).padStart(numCol)}`
+    ));
+
+    console.log(chalk.dim(`\n  Details saved to: .rigour/last-scan.json`));
 }

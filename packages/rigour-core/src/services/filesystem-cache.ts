@@ -8,7 +8,6 @@
  * Now: one cache per scan, all gates share it. LRU eviction keeps
  * memory bounded. Hit rate >70% by the 2nd gate.
  *
- * @since v5.0.0
  */
 
 import fs from 'fs-extra';

@@ -29,20 +29,19 @@ export function buildDeepOpts(options: ScanOptions, isSilent: boolean): DeepOpti
     };
 }
 
-export function persistDeepResults(cwd: string, report: Report, isDeep: boolean, options: ScanOptions): void {
+export async function persistDeepResults(cwd: string, report: Report, isDeep: boolean, options: ScanOptions): Promise<void> {
     if (!isDeep) return;
     try {
-        import('@rigour-labs/core').then(({ openDatabase, insertScan, insertFindings }) => {
-            const db = openDatabase();
-            if (!db) return;
-            const repoName = require('path').basename(cwd);
-            const scanId = insertScan(db, repoName, report, {
-                deepTier: (report as any).stats.deep?.tier || (options.pro ? 'deep' : 'lite'),
-                deepModel: (report as any).stats.deep?.model,
-            });
-            insertFindings(db, scanId, report.failures);
-            db.close();
-        }).catch(() => { /* silent */ });
+        const { openDatabase, insertScan, insertFindings } = await import('@rigour-labs/core');
+        const db = await openDatabase();
+        if (!db) return;
+        const repoName = require('path').basename(cwd);
+        const scanId = await insertScan(db, repoName, report, {
+            deepTier: (report as any).stats.deep?.tier || (options.pro ? 'deep' : 'lite'),
+            deepModel: (report as any).stats.deep?.model,
+        });
+        await insertFindings(db, scanId, report.failures);
+        await db.close();
     } catch { /* silent */ }
 }
 

@@ -5,7 +5,7 @@
 
 import fs from 'fs-extra';
 import path from 'path';
-import { HallucinatedImport } from './hallucinated-imports.js';
+import { HallucinatedImport } from './hallucinated-imports/index.js';
 import { isGoStdlib, isRubyStdlib, isDotNetFramework, isRustStdCrate, isJavaStdlib, isKotlinStdlib } from './hallucinated-imports-stdlib.js';
 
 export function checkGoImports(
@@ -16,8 +16,8 @@ export function checkGoImports(
     let inImportBlock = false;
 
     // Find go.mod by walking up from the Go file's directory (monorepo support).
-    // A monorepo may have go.mod in subdirectories like kubernetes/go.mod, server/go.mod, etc.
     let modulePath: string | null = null;
+    const replaceModules = new Set<string>(); // Modules with local replace directives
     const fileAbsDir = path.dirname(path.resolve(cwd, file));
     const rootDir = path.resolve(cwd);
     let searchDir = fileAbsDir;
@@ -28,13 +28,56 @@ export function checkGoImports(
             if (fs.pathExistsSync(goModPath)) {
                 const goMod = fs.readFileSync(goModPath, 'utf-8');
                 const moduleMatch = goMod.match(/^module\s+(\S+)/m);
-                if (moduleMatch) { modulePath = moduleMatch[1]; break; }
+                if (moduleMatch) { modulePath = moduleMatch[1]; }
+
+                // Parse replace directives: replace github.com/foo/bar => ../local-bar
+                // These modules are valid even without being in go.sum
+                const replacePattern = /^replace\s+(\S+)\s+=>\s+/gm;
+                let rm;
+                while ((rm = replacePattern.exec(goMod)) !== null) {
+                    replaceModules.add(rm[1]);
+                }
+                // Also handle replace blocks: replace ( ... )
+                const replaceBlockMatch = goMod.match(/^replace\s*\(([\s\S]*?)\)/m);
+                if (replaceBlockMatch) {
+                    const blockLines = replaceBlockMatch[1].split('\n');
+                    for (const bl of blockLines) {
+                        const blMatch = bl.trim().match(/^(\S+)\s+=>/);
+                        if (blMatch) replaceModules.add(blMatch[1]);
+                    }
+                }
+
+                if (modulePath) break;
             }
         } catch { /* skip */ }
         const parent = path.dirname(searchDir);
         if (parent === searchDir) break;
         searchDir = parent;
     }
+
+    // Check for go.work file (Go workspace mode)
+    const goWorkModules = new Set<string>();
+    try {
+        const goWorkPath = path.join(rootDir, 'go.work');
+        if (fs.pathExistsSync(goWorkPath)) {
+            const goWork = fs.readFileSync(goWorkPath, 'utf-8');
+            // use directives: use ./service-a or use ( ./service-a ./service-b )
+            const usePattern = /use\s+(\.\S+)/g;
+            let um;
+            while ((um = usePattern.exec(goWork)) !== null) {
+                // Read go.mod from each workspace member
+                const memberModPath = path.join(rootDir, um[1], 'go.mod');
+                if (fs.pathExistsSync(memberModPath)) {
+                    const memberMod = fs.readFileSync(memberModPath, 'utf-8');
+                    const memberModMatch = memberMod.match(/^module\s+(\S+)/m);
+                    if (memberModMatch) goWorkModules.add(memberModMatch[1]);
+                }
+            }
+        }
+    } catch { /* skip */ }
+
+    // Check for vendor/ directory — if it exists, all vendored modules are valid
+    const hasVendor = fs.pathExistsSync(path.join(rootDir, 'vendor'));
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -53,7 +96,6 @@ export function checkGoImports(
         if (isGoStdlib(importPath)) continue;
 
         // 2. If we have a module path, check project-relative imports FIRST
-        //    (project imports like github.com/myorg/project/pkg also have dots)
         if (modulePath && importPath.startsWith(modulePath + '/')) {
             const relPath = importPath.slice(modulePath.length + 1);
             const hasMatchingFile = [...projectFiles].some(f =>
@@ -67,6 +109,29 @@ export function checkGoImports(
             }
             continue;
         }
+
+        // 2b. Check if import matches a go.work workspace member module
+        let matchesWorkspace = false;
+        for (const wm of goWorkModules) {
+            if (importPath === wm || importPath.startsWith(wm + '/')) {
+                matchesWorkspace = true;
+                break;
+            }
+        }
+        if (matchesWorkspace) continue;
+
+        // 2c. Check if import matches a replace directive (local replacement)
+        let matchesReplace = false;
+        for (const rm of replaceModules) {
+            if (importPath === rm || importPath.startsWith(rm + '/')) {
+                matchesReplace = true;
+                break;
+            }
+        }
+        if (matchesReplace) continue;
+
+        // 2d. If vendor/ exists, all external imports are valid (vendored)
+        if (hasVendor && importPath.includes('.')) continue;
 
         // 3. Skip external modules — any import containing a dot is a domain
         //    e.g. github.com/*, google.golang.org/*, go.uber.org/*
@@ -141,34 +206,59 @@ export function checkRubyImports(
     }
 }
 
-export function loadRubyGems(cwd: string): Set<string> {
+export function loadRubyGems(cwd: string, projectFiles?: Set<string>): Set<string> {
     const gems = new Set<string>();
-    try {
-        const gemfilePath = path.join(cwd, 'Gemfile');
-        if (fs.pathExistsSync(gemfilePath)) {
-            const content = fs.readFileSync(gemfilePath, 'utf-8');
+
+    const parseGemfile = (filePath: string) => {
+        try {
+            if (!fs.pathExistsSync(filePath)) return;
+            const content = fs.readFileSync(filePath, 'utf-8');
             const gemPattern = /gem\s+['"]([^'"]+)['"]/g;
             let m;
             while ((m = gemPattern.exec(content)) !== null) {
                 gems.add(m[1]);
             }
-        }
-        // Also check .gemspec
-        const gemspecs = [...new Set<string>()]; // placeholder
-        const files = fs.readdirSync?.(cwd) || [];
-        for (const f of files) {
-            if (typeof f === 'string' && f.endsWith('.gemspec')) {
-                try {
-                    const spec = fs.readFileSync(path.join(cwd, f), 'utf-8');
-                    const depPattern = /add_(?:runtime_)?dependency\s+['"]([^'"]+)['"]/g;
-                    let dm;
-                    while ((dm = depPattern.exec(spec)) !== null) {
-                        gems.add(dm[1]);
-                    }
-                } catch { /* skip */ }
+        } catch { /* skip */ }
+    };
+
+    const parseGemspec = (filePath: string) => {
+        try {
+            if (!fs.pathExistsSync(filePath)) return;
+            const spec = fs.readFileSync(filePath, 'utf-8');
+            // add_runtime_dependency, add_dependency, add_development_dependency
+            const depPattern = /add_(?:runtime_|development_)?dependency\s+['"]([^'"]+)['"]/g;
+            let dm;
+            while ((dm = depPattern.exec(spec)) !== null) {
+                gems.add(dm[1]);
+            }
+        } catch { /* skip */ }
+    };
+
+    // Parse root Gemfile
+    parseGemfile(path.join(cwd, 'Gemfile'));
+
+    // Discover ALL Gemfiles and .gemspec files in the project (monorepo support)
+    if (projectFiles) {
+        for (const f of projectFiles) {
+            if (f.endsWith('Gemfile') || f.endsWith('/Gemfile')) {
+                parseGemfile(path.join(cwd, f));
+            }
+            if (f.endsWith('.gemspec')) {
+                parseGemspec(path.join(cwd, f));
             }
         }
-    } catch { /* no Gemfile */ }
+    } else {
+        // Fallback: check root directory only
+        try {
+            const files = fs.readdirSync?.(cwd) || [];
+            for (const f of files) {
+                if (typeof f === 'string' && f.endsWith('.gemspec')) {
+                    parseGemspec(path.join(cwd, f));
+                }
+            }
+        } catch { /* skip */ }
+    }
+
     return gems;
 }
 
@@ -239,15 +329,59 @@ export function loadNuGetPackages(cwd: string): Set<string> {
             if (typeof f === 'string' && f.endsWith('.csproj')) {
                 try {
                     const content = fs.readFileSync(path.join(cwd, f), 'utf-8');
+
+                    // PackageReference — NuGet packages
                     const pkgPattern = /PackageReference\s+Include="([^"]+)"/g;
                     let m;
                     while ((m = pkgPattern.exec(content)) !== null) {
                         packages.add(m[1]);
-                        // Also add top-level namespace (e.g. Newtonsoft.Json → Newtonsoft)
+                        packages.add(m[1].split('.')[0]);
+                    }
+
+                    // ProjectReference — sibling projects (their namespaces become valid)
+                    const projRefPattern = /ProjectReference\s+Include="([^"]+)"/g;
+                    let pr;
+                    while ((pr = projRefPattern.exec(content)) !== null) {
+                        // Extract project name from path: "../MyLib/MyLib.csproj" → "MyLib"
+                        const projName = path.basename(pr[1], '.csproj');
+                        packages.add(projName);
+                    }
+
+                    // RootNamespace — project's own root namespace
+                    const nsMatch = content.match(/<RootNamespace>([^<]+)<\/RootNamespace>/);
+                    if (nsMatch) {
+                        packages.add(nsMatch[1]);
+                        packages.add(nsMatch[1].split('.')[0]);
+                    }
+                } catch { /* skip */ }
+            }
+
+            // Legacy packages.config format
+            if (typeof f === 'string' && f === 'packages.config') {
+                try {
+                    const content = fs.readFileSync(path.join(cwd, f), 'utf-8');
+                    const pkgPattern = /id="([^"]+)"/g;
+                    let m;
+                    while ((m = pkgPattern.exec(content)) !== null) {
+                        packages.add(m[1]);
                         packages.add(m[1].split('.')[0]);
                     }
                 } catch { /* skip */ }
             }
+        }
+
+        // Check Directory.Build.props for shared package references
+        const buildPropsPath = path.join(cwd, 'Directory.Build.props');
+        if (fs.pathExistsSync(buildPropsPath)) {
+            try {
+                const content = fs.readFileSync(buildPropsPath, 'utf-8');
+                const pkgPattern = /PackageReference\s+Include="([^"]+)"/g;
+                let m;
+                while ((m = pkgPattern.exec(content)) !== null) {
+                    packages.add(m[1]);
+                    packages.add(m[1].split('.')[0]);
+                }
+            } catch { /* skip */ }
         }
     } catch { /* no .csproj */ }
     return packages;
@@ -316,23 +450,77 @@ export function checkRustImports(
 
 export function loadCargoDeps(cwd: string): Set<string> {
     const deps = new Set<string>();
-    try {
-        const cargoPath = path.join(cwd, 'Cargo.toml');
-        if (fs.pathExistsSync(cargoPath)) {
-            const content = fs.readFileSync(cargoPath, 'utf-8');
-            // Match [dependencies] section entries: name = "version" or name = { ... }
-            const depPattern = /^\s*(\w[\w-]*)\s*=/gm;
+
+    const parseCargoToml = (filePath: string) => {
+        try {
+            if (!fs.pathExistsSync(filePath)) return;
+            const content = fs.readFileSync(filePath, 'utf-8');
+
+            // Parse ALL dependency sections: [dependencies], [dev-dependencies], [build-dependencies]
+            // Also handle [target.'cfg(...)'.dependencies]
             let inDeps = false;
             for (const line of content.split('\n')) {
-                if (/^\[(?:.*-)?dependencies/.test(line.trim())) { inDeps = true; continue; }
-                if (/^\[/.test(line.trim()) && inDeps) { inDeps = false; continue; }
+                const trimmed = line.trim();
+                // Match any dependencies section header
+                if (/^\[(?:(?:dev|build)-)?dependencies(?:\.]|\])/.test(trimmed) ||
+                    /^\[target\.[^\]]*\.(?:(?:dev|build)-)?dependencies\]/.test(trimmed) ||
+                    /^\[workspace\.dependencies\]/.test(trimmed)) {
+                    inDeps = true; continue;
+                }
+                if (/^\[/.test(trimmed) && inDeps) { inDeps = false; continue; }
                 if (inDeps) {
-                    const m = line.match(/^\s*([\w][\w-]*)\s*=/);
+                    const m = trimmed.match(/^([\w][\w-]*)\s*=/);
                     if (m) deps.add(m[1].replace(/-/g, '_')); // Rust uses _ in code for - in Cargo
                 }
             }
+
+            // Handle [dependencies.foo] format (inline table)
+            const inlineDepPattern = /^\[(?:(?:dev|build)-)?dependencies\.([\w][\w-]*)\]/gm;
+            let dm;
+            while ((dm = inlineDepPattern.exec(content)) !== null) {
+                deps.add(dm[1].replace(/-/g, '_'));
+            }
+
+            // Handle [features] section — optional deps are valid when feature is enabled
+            let inFeatures = false;
+            for (const line of content.split('\n')) {
+                const trimmed = line.trim();
+                if (trimmed === '[features]') { inFeatures = true; continue; }
+                if (/^\[/.test(trimmed) && inFeatures) { inFeatures = false; continue; }
+                if (inFeatures) {
+                    // Features reference dep names: feature = ["dep:foo", "bar/feature"]
+                    const depRefs = trimmed.match(/"dep:(\w[\w-]*)"/g);
+                    if (depRefs) {
+                        for (const ref of depRefs) {
+                            const name = ref.match(/"dep:(\w[\w-]*)"/)?.[1];
+                            if (name) deps.add(name.replace(/-/g, '_'));
+                        }
+                    }
+                }
+            }
+        } catch { /* skip */ }
+    };
+
+    // Parse the Cargo.toml in the working directory
+    parseCargoToml(path.join(cwd, 'Cargo.toml'));
+
+    // Walk up to find workspace Cargo.toml
+    let searchDir = cwd;
+    const rootDir = path.parse(cwd).root;
+    while (searchDir !== rootDir) {
+        const parentCargoPath = path.join(searchDir, 'Cargo.toml');
+        if (fs.pathExistsSync(parentCargoPath)) {
+            const content = fs.readFileSync(parentCargoPath, 'utf-8');
+            if (content.includes('[workspace]')) {
+                parseCargoToml(parentCargoPath);
+                break;
+            }
         }
-    } catch { /* no Cargo.toml */ }
+        const parent = path.dirname(searchDir);
+        if (parent === searchDir) break;
+        searchDir = parent;
+    }
+
     return deps;
 }
 
@@ -398,13 +586,47 @@ export function loadJavaDeps(cwd: string): Set<string> {
             if (fs.pathExistsSync(gradlePath)) {
                 const content = fs.readFileSync(gradlePath, 'utf-8');
                 // Match: implementation 'group:artifact:version' or "group:artifact:version"
-                const depPattern = /(?:implementation|api|compile|testImplementation|runtimeOnly)\s*[('"]([^:'"]+)/g;
+                const depPattern = /(?:implementation|api|compile|testImplementation|testCompile|runtimeOnly|compileOnly|annotationProcessor)\s*[('"]([^:'"]+)/g;
                 let m;
                 while ((m = depPattern.exec(content)) !== null) {
                     deps.add(m[1]); // group ID like "com.google.guava"
                 }
+                // Also match Kotlin DSL format: implementation("group:artifact:version")
+                const kotlinDslPattern = /(?:implementation|api|testImplementation|runtimeOnly|compileOnly)\s*\(\s*"([^:"]+)/g;
+                while ((m = kotlinDslPattern.exec(content)) !== null) {
+                    deps.add(m[1]);
+                }
             }
         }
+
+        // Gradle settings.gradle(.kts) — find included modules
+        for (const settingsFile of ['settings.gradle', 'settings.gradle.kts']) {
+            const settingsPath = path.join(cwd, settingsFile);
+            if (fs.pathExistsSync(settingsPath)) {
+                try {
+                    const content = fs.readFileSync(settingsPath, 'utf-8');
+                    // include ':module-a', ':module-b'
+                    const includePattern = /include\s*[('"]([^'"]+)/g;
+                    let im;
+                    while ((im = includePattern.exec(content)) !== null) {
+                        const moduleName = im[1].replace(/^:/, '');
+                        deps.add(moduleName);
+                    }
+                    // includeBuild('../composite-project')
+                    const compositePat = /includeBuild\s*\(\s*['"]([^'"]+)/g;
+                    while ((im = compositePat.exec(content)) !== null) {
+                        // Read the included build's group
+                        const compositePath = path.resolve(cwd, im[1], 'build.gradle');
+                        if (fs.pathExistsSync(compositePath)) {
+                            const compositeContent = fs.readFileSync(compositePath, 'utf-8');
+                            const groupMatch = compositeContent.match(/group\s*=\s*['"]([^'"]+)/);
+                            if (groupMatch) deps.add(groupMatch[1]);
+                        }
+                    }
+                } catch { /* skip */ }
+            }
+        }
+
         // Maven: pom.xml
         const pomPath = path.join(cwd, 'pom.xml');
         if (fs.pathExistsSync(pomPath)) {
@@ -413,6 +635,23 @@ export function loadJavaDeps(cwd: string): Set<string> {
             let m;
             while ((m = groupPattern.exec(content)) !== null) {
                 deps.add(m[1]);
+            }
+            // Maven <modules> — multi-module projects
+            const modulePattern = /<module>([^<]+)<\/module>/g;
+            while ((m = modulePattern.exec(content)) !== null) {
+                deps.add(m[1]);
+                // Also load deps from submodule pom.xml
+                const subPomPath = path.join(cwd, m[1], 'pom.xml');
+                if (fs.pathExistsSync(subPomPath)) {
+                    try {
+                        const subContent = fs.readFileSync(subPomPath, 'utf-8');
+                        const subGroupPattern = /<groupId>([^<]+)<\/groupId>/g;
+                        let sm;
+                        while ((sm = subGroupPattern.exec(subContent)) !== null) {
+                            deps.add(sm[1]);
+                        }
+                    } catch { /* skip */ }
+                }
             }
         }
     } catch { /* no build files */ }

@@ -15,7 +15,6 @@
  * Data source: ~/.rigour/rigour.db (scans + findings tables)
  * All computation is read-only — no writes to DB.
  *
- * @since v5.0.0
  */
 
 import { openDatabase, type RigourDB } from '../storage/db.js';
@@ -180,8 +179,8 @@ function toWeekKey(timestamp: number): string {
  * @param cwd - Project root path (used to derive repo name)
  * @param maxScans - Max scans to analyze (default 200)
  */
-export function generateTemporalDriftReport(cwd: string, maxScans = 200): TemporalDriftReport | null {
-    const db = openDatabase();
+export async function generateTemporalDriftReport(cwd: string, maxScans = 200): Promise<TemporalDriftReport | null> {
+    const db = await openDatabase();
     if (!db) {
         Logger.warn('Temporal drift: SQLite not available');
         return null;
@@ -191,10 +190,10 @@ export function generateTemporalDriftReport(cwd: string, maxScans = 200): Tempor
 
     try {
         // 1. Load all scans (oldest first)
-        const scans = db.db.prepare(`
+        const scans = await db.all(`
             SELECT * FROM scans WHERE repo = ?
             ORDER BY timestamp ASC LIMIT ?
-        `).all(repo, maxScans) as any[];
+        `, repo, maxScans) as any[];
 
         if (scans.length < 3) {
             return createEmptyReport(repo, scans.length);
@@ -203,10 +202,10 @@ export function generateTemporalDriftReport(cwd: string, maxScans = 200): Tempor
         // 2. Load per-scan provenance failure counts
         const provenanceByScan = new Map<string, { aiDrift: number; structural: number; security: number }>();
         for (const scan of scans) {
-            const counts = db.db.prepare(`
+            const counts = await db.all(`
                 SELECT provenance, COUNT(*) as cnt FROM findings
                 WHERE scan_id = ? GROUP BY provenance
-            `).all(scan.id) as any[];
+            `, scan.id) as any[];
 
             const breakdown = { aiDrift: 0, structural: 0, security: 0 };
             for (const row of counts) {
@@ -347,7 +346,7 @@ export function generateTemporalDriftReport(cwd: string, maxScans = 200): Tempor
         Logger.warn(`Temporal drift generation failed: ${error}`);
         return null;
     } finally {
-        db.close();
+        await db.close();
     }
 }
 

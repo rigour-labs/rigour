@@ -1,8 +1,6 @@
 /**
  * Hooks module — multi-tool hook integration for Rigour.
  *
- * @since v3.0.0
- * @since v4.2.0 — AI Agent DLP (Data Loss Prevention)
  */
 
 export { runHookChecker } from './checker.js';

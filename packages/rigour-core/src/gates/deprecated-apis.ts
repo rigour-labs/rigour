@@ -17,14 +17,13 @@
  *   C#     — Deprecated .NET APIs (WebClient, BinaryFormatter, etc.)
  *   Java   — Deprecated JDK APIs (Date, Vector, Hashtable, etc.)
  *
- * @since v3.0.0
- * @since v3.0.3 — Go, C#, Java deprecated API detection added
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { languageAdapters } from './language-adapters/index.js';
 import fs from 'fs-extra';
 import path from 'path';
 import { DeprecatedRule, NODE_DEPRECATED_RULES, WEB_DEPRECATED_RULES, PYTHON_DEPRECATED_RULES, GO_DEPRECATED_RULES, CSHARP_DEPRECATED_RULES, JAVA_DEPRECATED_RULES } from './deprecated-apis-rules.js';
@@ -95,19 +94,36 @@ export class DeprecatedApisGate extends Gate {
             try {
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
-                const ext = path.extname(file);
+                const adapter = languageAdapters.getAdapter(file);
+                if (!adapter) continue;
 
-                if (['.ts', '.js', '.tsx', '.jsx'].includes(ext)) {
-                    if (this.config.check_node) this.checkNodeDeprecated(content, file, deprecated);
-                    if (this.config.check_web) this.checkWebDeprecated(content, file, deprecated);
-                } else if (ext === '.py' && this.config.check_python) {
-                    this.checkPythonDeprecated(content, file, deprecated);
-                } else if (ext === '.go' && this.config.check_go) {
-                    this.checkGoDeprecated(content, file, deprecated);
-                } else if (ext === '.cs' && this.config.check_csharp) {
-                    this.checkCSharpDeprecated(content, file, deprecated);
-                } else if ((ext === '.java' || ext === '.kt') && this.config.check_java) {
-                    this.checkJavaDeprecated(content, file, deprecated);
+                /** Map adapter IDs to config flags */
+                const configCheck: Record<string, boolean> = {
+                    js: this.config.check_node,
+                    python: this.config.check_python,
+                    go: this.config.check_go,
+                    csharp: this.config.check_csharp,
+                    java: this.config.check_java,
+                };
+                if (configCheck[adapter.id] === false) continue;
+
+                switch (adapter.id) {
+                    case 'js':
+                        if (this.config.check_node) this.checkNodeDeprecated(content, file, deprecated);
+                        if (this.config.check_web) this.checkWebDeprecated(content, file, deprecated);
+                        break;
+                    case 'python':
+                        this.checkPythonDeprecated(content, file, deprecated);
+                        break;
+                    case 'go':
+                        this.checkGoDeprecated(content, file, deprecated);
+                        break;
+                    case 'csharp':
+                        this.checkCSharpDeprecated(content, file, deprecated);
+                        break;
+                    case 'java':
+                        this.checkJavaDeprecated(content, file, deprecated);
+                        break;
                 }
             } catch { /* skip */ }
         }

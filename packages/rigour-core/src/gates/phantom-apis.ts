@@ -16,14 +16,13 @@
  *   C#     — Common .NET hallucinated APIs (LINQ, File I/O, string methods)
  *   Java   — Common hallucinated JDK APIs (Collections, String, Stream, Files)
  *
- * @since v3.0.0
- * @since v3.0.3 — Go, C#, Java pattern-based detection added
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { languageAdapters } from './language-adapters/index.js';
 import fs from 'fs-extra';
 import path from 'path';
 import { PhantomRule, GO_PHANTOM_RULES, CSHARP_PHANTOM_RULES, JAVA_PHANTOM_RULES, NODE_STDLIB_METHODS, PYTHON_STDLIB_METHODS } from './phantom-apis-data.js';
@@ -90,19 +89,40 @@ export class PhantomApisGate extends Gate {
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
                 const ext = path.extname(file);
+                const adapter = languageAdapters.getAdapter(file);
+                if (!adapter) continue;
 
-                if (['.ts', '.js', '.tsx', '.jsx'].includes(ext) && this.config.check_node) {
-                    this.checkNodePhantomApis(content, file, phantoms);
-                } else if (ext === '.py' && this.config.check_python) {
-                    this.checkPythonPhantomApis(content, file, phantoms);
-                } else if (ext === '.go' && this.config.check_go) {
-                    this.checkGoPhantomApis(content, file, phantoms);
-                } else if (ext === '.cs' && this.config.check_csharp) {
-                    this.checkCSharpPhantomApis(content, file, phantoms);
-                } else if (ext === '.java' && this.config.check_java) {
-                    this.checkJavaPhantomApis(content, file, phantoms);
-                } else if (ext === '.kt' && this.config.check_java) {
-                    this.checkKotlinPhantomApis(content, file, phantoms);
+                /** Map adapter IDs to config flags */
+                const configCheck: Record<string, boolean> = {
+                    js: this.config.check_node,
+                    python: this.config.check_python,
+                    go: this.config.check_go,
+                    csharp: this.config.check_csharp,
+                    java: this.config.check_java,
+                };
+                if (configCheck[adapter.id] === false) continue;
+
+                switch (adapter.id) {
+                    case 'js':
+                        this.checkNodePhantomApis(content, file, phantoms);
+                        break;
+                    case 'python':
+                        this.checkPythonPhantomApis(content, file, phantoms);
+                        break;
+                    case 'go':
+                        this.checkGoPhantomApis(content, file, phantoms);
+                        break;
+                    case 'csharp':
+                        this.checkCSharpPhantomApis(content, file, phantoms);
+                        break;
+                    case 'java':
+                        // Java adapter handles both .java and .kt via extensions
+                        if (ext === '.kt') {
+                            this.checkKotlinPhantomApis(content, file, phantoms);
+                        } else {
+                            this.checkJavaPhantomApis(content, file, phantoms);
+                        }
+                        break;
                 }
             } catch { /* skip unreadable files */ }
         }
@@ -191,6 +211,14 @@ export class PhantomApisGate extends Gate {
             const requireImport = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*require\s*\(\s*['"](?:node:)?(fs|path|crypto|os|child_process|http|https|url|util|stream|events|buffer|querystring|net|dns|tls|zlib|readline|cluster|worker_threads|timers|perf_hooks|assert)['"]\s*\)/);
             if (requireImport) {
                 moduleAliases.set(requireImport[1], requireImport[2]);
+                continue;
+            }
+            // import { readFile, writeFile } from 'fs' — destructured imports are NOT phantom API candidates
+            // since they reference individual exports, not module.method() calls
+            // import fs/promises or fs.promises patterns
+            const promisesImport = line.match(/import\s+(?:\*\s+as\s+)?(\w+)\s+from\s+['"](?:node:)?(fs)\/promises['"]/);
+            if (promisesImport) {
+                moduleAliases.set(promisesImport[1], 'fs/promises');
             }
         }
 
@@ -297,7 +325,11 @@ export class PhantomApisGate extends Gate {
 
     private findClosest(target: string, candidates: string[]): string | null {
         let best: string | null = null;
-        let bestDist = 4; // max distance threshold
+        // Adaptive threshold: short names (< 6 chars) get max distance 1,
+        // medium names (6-10) get 2, long names get 3.
+        // This prevents false suggestions like "read" → "readdir" for short phantoms.
+        const maxDist = target.length < 6 ? 2 : target.length <= 10 ? 3 : 4;
+        let bestDist = maxDist;
         for (const c of candidates) {
             const dist = this.levenshtein(target.toLowerCase(), c.toLowerCase());
             if (dist < bestDist) {

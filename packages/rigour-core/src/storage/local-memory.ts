@@ -43,22 +43,22 @@ function buildFileIssueMap(recentFindings: any[]): Map<string, any[]> {
  * @param cwd     - Absolute project root path
  * @param fileList - Relative file paths (from FileFacts.path or globby)
  */
-export function checkLocalPatterns(
+export async function checkLocalPatterns(
     cwd: string,
     fileList: string[],
-): DeepFinding[] {
-    const db = openDatabase();
+): Promise<DeepFinding[]> {
+    const db = await openDatabase();
     if (!db) return [];
 
     const repoName = path.basename(cwd);
     const findings: DeepFinding[] = [];
 
     try {
-        const patterns = getStrongPatterns(db, repoName, INSTANT_MATCH_THRESHOLD);
+        const patterns = await getStrongPatterns(db, repoName, INSTANT_MATCH_THRESHOLD);
         if (patterns.length === 0) return [];
 
         // Include both AST and LLM findings from history
-        const recentFindings = getDeepFindings(db, repoName, 200);
+        const recentFindings = await getDeepFindings(db, repoName, 200);
         if (recentFindings.length === 0) return [];
 
         const fileIssueMap = buildFileIssueMap(recentFindings);
@@ -93,7 +93,7 @@ export function checkLocalPatterns(
     } catch (error) {
         Logger.warn(`Local memory check failed: ${error}`);
     } finally {
-        db?.db.close();
+        await db?.close();
     }
 
     return findings;
@@ -101,42 +101,39 @@ export function checkLocalPatterns(
 
 /**
  * Post-scan: persist findings and reinforce patterns.
- * Wrapped in a single transaction for atomicity.
+ * Uses a transaction for atomicity.
  * Called after every scan (check, scan, scan --deep).
  */
-export function persistAndReinforce(
+export async function persistAndReinforce(
     cwd: string,
     report: { status: string; failures: Failure[]; stats: any },
     meta?: { deepTier?: string; deepModel?: string },
-): void {
-    const db = openDatabase();
+): Promise<void> {
+    const db = await openDatabase();
     if (!db) return;
 
     const repoName = path.basename(cwd);
 
     try {
-        // Wrap all writes in a single transaction for atomicity
-        const persist = db.db.transaction(() => {
-            const scanId = insertScan(db, repoName, report as any, meta);
+        await db.transaction(async (tx) => {
+            const scanId = await insertScan(tx, repoName, report as any, meta);
 
             if (report.failures.length > 0) {
-                insertFindings(db, scanId, report.failures);
+                await insertFindings(tx, scanId, report.failures);
             }
 
             for (const f of report.failures) {
                 const category = f.category || f.id;
                 const source: 'ast' | 'llm' = f.source === 'llm' ? 'llm' : 'ast';
-                reinforcePattern(
-                    db, repoName, category,
+                await reinforcePattern(
+                    tx, repoName, category,
                     `${f.title}: ${f.details?.substring(0, 120)}`,
                     source,
                 );
             }
 
-            decayPatterns(db, 30);
+            await decayPatterns(tx, 30);
         });
-
-        persist();
 
         Logger.info(
             `Local memory: stored ${report.failures.length} findings, ` +
@@ -145,23 +142,23 @@ export function persistAndReinforce(
     } catch (error) {
         Logger.warn(`Local memory persist failed: ${error}`);
     } finally {
-        db?.db.close();
+        await db?.close();
     }
 }
 
 /**
  * Get project learning stats (for display in scan output).
  */
-export function getProjectStats(cwd: string): ProjectStats | null {
-    const db = openDatabase();
+export async function getProjectStats(cwd: string): Promise<ProjectStats | null> {
+    const db = await openDatabase();
     if (!db) return null;
 
     const repoName = path.basename(cwd);
 
     try {
-        const scans = getRecentScans(db, repoName, 100);
-        const patterns = getStrongPatterns(db, repoName, 0.3);
-        const hardRules = getHardRules(db, repoName);
+        const scans = await getRecentScans(db, repoName, 100);
+        const patterns = await getStrongPatterns(db, repoName, 0.3);
+        const hardRules = await getHardRules(db, repoName);
 
         return {
             totalScans: scans.length,
@@ -176,7 +173,7 @@ export function getProjectStats(cwd: string): ProjectStats | null {
     } catch {
         return null;
     } finally {
-        db?.db.close();
+        await db?.close();
     }
 }
 

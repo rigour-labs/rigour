@@ -1,9 +1,9 @@
 /**
  * Security Patterns Gate
- * 
+ *
  * Detects code-level security vulnerabilities for frontier models
  * that may generate insecure patterns at scale.
- * 
+ *
  * Patterns covered:
  * - SQL Injection
  * - XSS (Cross-Site Scripting)
@@ -11,14 +11,13 @@
  * - Hardcoded Secrets
  * - Insecure Randomness
  * - Command Injection
- * 
- * @since v2.14.0
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { VULNERABILITY_PATTERNS } from './security-patterns-data.js';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -47,218 +46,6 @@ export interface SecurityPatternsConfig {
     block_on_severity?: 'critical' | 'high' | 'medium' | 'low';
 }
 
-// Pattern definitions with regex and metadata
-const VULNERABILITY_PATTERNS: {
-    type: string;
-    regex: RegExp;
-    severity: 'critical' | 'high' | 'medium' | 'low';
-    description: string;
-    cwe: string;
-    languages: string[];
-}[] = [
-        // SQL Injection
-        {
-            type: 'sql_injection',
-            regex: /(?:execute|query|raw|exec)\s*\(\s*`[^`]*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|WITH)[^`]*\$\{[^}]+\}[^`]*`/gi,
-            severity: 'critical',
-            description: 'Potential SQL injection: User input concatenated into SQL query',
-            cwe: 'CWE-89',
-            languages: ['ts', 'js', 'py']
-        },
-        {
-            type: 'sql_injection',
-            regex: /(?:execute|query|raw|exec)\s*\(\s*['"`][^'"`]*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|WITH)[^'"`]*['"`]\s*\+\s*[^)]+\)/gi,
-            severity: 'critical',
-            description: 'SQL query built with string concatenation',
-            cwe: 'CWE-89',
-            languages: ['ts', 'js']
-        },
-        // XSS
-        {
-            type: 'xss',
-            regex: /innerHTML\s*=\s*(?!\s*['"`]\s*['"`])[^;]+/g,
-            severity: 'high',
-            description: 'Potential XSS: innerHTML assignment with dynamic content',
-            cwe: 'CWE-79',
-            languages: ['ts', 'js', 'tsx', 'jsx']
-        },
-        {
-            type: 'xss',
-            regex: /dangerouslySetInnerHTML\s*=\s*\{/g,
-            severity: 'high',
-            description: 'dangerouslySetInnerHTML usage (ensure content is sanitized)',
-            cwe: 'CWE-79',
-            languages: ['tsx', 'jsx']
-        },
-        {
-            type: 'xss',
-            regex: /document\.write\s*\(/g,
-            severity: 'high',
-            description: 'document.write is dangerous for XSS',
-            cwe: 'CWE-79',
-            languages: ['ts', 'js']
-        },
-        // Path Traversal
-        {
-            type: 'path_traversal',
-            regex: /(?:readFile|writeFile|readdir|unlink|rmdir)\s*\([^)]*(?:req\.(?:params|query|body)|\.\.\/)/g,
-            severity: 'high',
-            description: 'Potential path traversal: File operation with user input',
-            cwe: 'CWE-22',
-            languages: ['ts', 'js']
-        },
-        {
-            type: 'path_traversal',
-            regex: /path\.join\s*\([^)]*req\./g,
-            severity: 'medium',
-            description: 'path.join with request data (verify input sanitization)',
-            cwe: 'CWE-22',
-            languages: ['ts', 'js']
-        },
-        // Hardcoded Secrets
-        {
-            type: 'hardcoded_secrets',
-            regex: /(?:password|secret|api_key|apikey|auth_token|access_token|private_key)\s*[:=]\s*['"][^'"]{8,}['"]/gi,
-            severity: 'critical',
-            description: 'Hardcoded secret detected in code',
-            cwe: 'CWE-798',
-            languages: ['ts', 'js', 'py', 'java', 'go']
-        },
-        {
-            type: 'hardcoded_secrets',
-            regex: /(?:sk-|pk-|rk-|ghp_|gho_|ghu_|ghs_|ghr_)[a-zA-Z0-9]{20,}/g,
-            severity: 'critical',
-            description: 'API key pattern detected (OpenAI, GitHub, etc.)',
-            cwe: 'CWE-798',
-            languages: ['*']
-        },
-        {
-            type: 'hardcoded_secrets',
-            regex: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
-            severity: 'critical',
-            description: 'Private key embedded in source code',
-            cwe: 'CWE-798',
-            languages: ['*']
-        },
-        // Insecure Randomness
-        {
-            type: 'insecure_randomness',
-            regex: /Math\.random\s*\(\s*\)/g,
-            severity: 'medium',
-            description: 'Math.random() is not cryptographically secure',
-            cwe: 'CWE-338',
-            languages: ['ts', 'js', 'tsx', 'jsx']
-        },
-        // Command Injection
-        {
-            type: 'command_injection',
-            regex: /(?:exec|execSync|spawn|spawnSync)\s*\(\s*(?:`[^`]*\$\{[^}]*(?:req\.|query|params|body|input|user|argv|process\.env)[^}]*\}[^`]*`|[^)]*(?:req\.|query|params|body|input|user|argv|process\.env)[^)]*)\)/g,
-            severity: 'critical',
-            description: 'Potential command injection: shell execution with user input',
-            cwe: 'CWE-78',
-            languages: ['ts', 'js']
-        },
-        {
-            type: 'command_injection',
-            regex: /child_process.*\s*\.\s*(?:exec|spawn)\s*\([^)]*(?:req\.|query|params|body|input|user|argv|process\.env)/g,
-            severity: 'high',
-            description: 'child_process usage detected (verify input sanitization)',
-            cwe: 'CWE-78',
-            languages: ['ts', 'js']
-        },
-        // ReDoS — Denial of Service via regex (OWASP #7)
-        {
-            type: 'redos',
-            regex: /new RegExp\s*\([^)]*(?:req\.|params|query|body|input|user)/g,
-            severity: 'high',
-            description: 'Dynamic regex from user input — potential ReDoS',
-            cwe: 'CWE-1333',
-            languages: ['ts', 'js']
-        },
-        {
-            type: 'redos',
-            regex: /\(\?:[^)]*\+[^)]*\)\+|\([^)]*\*[^)]*\)\+|\(\.\*\)\{/g,
-            severity: 'medium',
-            description: 'Regex with nested quantifiers — potential ReDoS',
-            cwe: 'CWE-1333',
-            languages: ['ts', 'js', 'py']
-        },
-        // Overly Permissive Code (OWASP #9)
-        {
-            type: 'overly_permissive',
-            regex: /cors\s*\(\s*\{[^}]*origin\s*:\s*(?:true|['"`]\*['"`])/g,
-            severity: 'high',
-            description: 'CORS wildcard origin — allows any domain',
-            cwe: 'CWE-942',
-            languages: ['ts', 'js']
-        },
-        {
-            type: 'overly_permissive',
-            regex: /(?:listen|bind)\s*\(\s*(?:\d+\s*,\s*)?['"`]0\.0\.0\.0['"`]/g,
-            severity: 'medium',
-            description: 'Binding to 0.0.0.0 exposes service to all interfaces',
-            cwe: 'CWE-668',
-            languages: ['ts', 'js', 'py', 'go']
-        },
-        {
-            type: 'overly_permissive',
-            regex: /chmod\s*\(\s*[^,]*,\s*['"`]?(?:0o?)?777['"`]?\s*\)/g,
-            severity: 'high',
-            description: 'chmod 777 — world-readable/writable permissions',
-            cwe: 'CWE-732',
-            languages: ['ts', 'js', 'py']
-        },
-        {
-            type: 'overly_permissive',
-            regex: /(?:Access-Control-Allow-Origin|x-powered-by)['"`,\s:]+\*/gi,
-            severity: 'high',
-            description: 'Wildcard Access-Control-Allow-Origin header',
-            cwe: 'CWE-942',
-            languages: ['ts', 'js', 'py']
-        },
-        // Unsafe Output Handling (OWASP #6)
-        {
-            type: 'unsafe_output',
-            regex: /res\.(?:send|write|end)\s*\(\s*(?:req\.|params|query|body|input|user)/g,
-            severity: 'high',
-            description: 'Reflecting user input in response without sanitization',
-            cwe: 'CWE-79',
-            languages: ['ts', 'js']
-        },
-        {
-            type: 'unsafe_output',
-            regex: /\$\{[^}]*(?:req\.|params|query|body|input|user)[^}]*\}.*(?:html|template|render)/gi,
-            severity: 'high',
-            description: 'User input interpolated into template/HTML output',
-            cwe: 'CWE-79',
-            languages: ['ts', 'js', 'py']
-        },
-        {
-            type: 'unsafe_output',
-            regex: /eval\s*\(\s*(?:req\.|params|query|body|input|user)/g,
-            severity: 'critical',
-            description: 'eval() with user input — code injection',
-            cwe: 'CWE-94',
-            languages: ['ts', 'js', 'py']
-        },
-        // Missing Input Validation (OWASP #8)
-        {
-            type: 'missing_input_validation',
-            regex: /JSON\.parse\s*\(\s*(?:req\.body|request\.body|body|data|input)\s*\)/g,
-            severity: 'medium',
-            description: 'JSON.parse on raw input without schema validation',
-            cwe: 'CWE-20',
-            languages: ['ts', 'js']
-        },
-        {
-            type: 'missing_input_validation',
-            regex: /(?:as\s+any|:\s*any)\s*(?:[;,)\]}])/g,
-            severity: 'medium',
-            description: 'Type assertion to "any" bypasses type safety',
-            cwe: 'CWE-20',
-            languages: ['ts']
-        },
-    ];
 
 export class SecurityPatternsGate extends Gate {
     private config: SecurityPatternsConfig;
@@ -406,6 +193,16 @@ export class SecurityPatternsGate extends Gate {
                     continue;
                 }
 
+                // For XSS: check if innerHTML/dangerouslySetInnerHTML is wrapped in a sanitizer
+                if (pattern.type === 'xss' && this.isSanitizedAssignment(match[0])) {
+                    continue;
+                }
+
+                // For command_injection: check if spawn/exec uses { shell: false } (safe)
+                if (pattern.type === 'command_injection' && this.isSafeShellCall(match[0], content, match.index)) {
+                    continue;
+                }
+
                 // Find line number
                 const beforeMatch = content.slice(0, match.index);
                 const lineNumber = beforeMatch.split('\n').length;
@@ -425,7 +222,8 @@ export class SecurityPatternsGate extends Gate {
 
     /**
      * Check if a hardcoded secret match is actually a dummy/placeholder value.
-     * Filters out test values, placeholder defaults, and env-var-name assignments.
+     * Filters out test values, placeholder defaults, env-var-name assignments,
+     * store action types, and low-entropy constants.
      */
     private isDummySecretValue(matchText: string): boolean {
         // Extract the quoted value from the match (e.g., api_key="test-api-key" → test-api-key)
@@ -441,12 +239,77 @@ export class SecurityPatternsGate extends Gate {
         if (/^(?:test[_-]|e2e[_-]|mock[_-]|stub[_-]|dev[_-])/i.test(value)) return true;
         if (/^testpass(?:word)?$/i.test(value)) return true;
 
-        // All-caps with underscores = env var names, not actual secrets
-        // e.g., API_KEY = "OPEN_SANDBOX_API_KEY" is referencing a var name, not a real key
-        if (/^[A-Z][A-Z0-9_]{7,}$/.test(value)) return true;
+        // All-caps with underscores/dollars = env var names or constants, not actual secrets
+        // e.g., API_KEY = "OPEN_SANDBOX_API_KEY", SECRETS$ADD_SECRET (Redux action types)
+        if (/^[A-Z][A-Z0-9_$]{7,}$/.test(value)) return true;
+
+        // Store action type patterns: NAMESPACE$ACTION or namespace/ACTION (Redux, Zustand, Flux)
+        if (/^\w+\$\w+$/.test(value)) return true;
+        if (/^[a-z][\w-]*\/[A-Z_]+$/.test(value)) return true;
 
         // Common documentation/tutorial dummy values
         if (/^(?:sk_test_|pk_test_|sk_live_xxx|password123|secret123|abcdef|abc123)/i.test(value)) return true;
+
+        // Shannon entropy check: low-entropy values are likely constants, not real secrets
+        // Real secrets have high entropy (>4.0 bits/char); constants and names have low entropy
+        if (this.shannonEntropy(value) < 3.0) return true;
+
+        // ALL_CAPS_SNAKE_CASE without any lowercase/special chars = likely enum or constant
+        if (/^[A-Z][A-Z0-9_$]*$/.test(value) && value.length >= 6) return true;
+
+        // URL-like values that are just config (not secrets): localhost, 127.0.0.1, etc.
+        if (/^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0)/.test(value)) return true;
+
+        // Common non-secret patterns: UUIDs, semver, file paths
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return true;
+        if (/^\d+\.\d+\.\d+/.test(value)) return true; // semver
+
+        return false;
+    }
+
+    /**
+     * Calculate Shannon entropy (bits per character) of a string.
+     * Real secrets have high entropy (>4.5); constants/names have low entropy (<3.0).
+     */
+    private shannonEntropy(str: string): number {
+        if (!str || str.length === 0) return 0;
+        const freq = new Map<string, number>();
+        for (const ch of str) {
+            freq.set(ch, (freq.get(ch) || 0) + 1);
+        }
+        let entropy = 0;
+        for (const count of freq.values()) {
+            const p = count / str.length;
+            if (p > 0) entropy -= p * Math.log2(p);
+        }
+        return entropy;
+    }
+
+    /**
+     * Check if an innerHTML or dangerouslySetInnerHTML assignment is wrapped in a sanitizer.
+     * Known sanitizers: DOMPurify.sanitize(), sanitize(), xss(), escapeHtml(), htmlEncode().
+     */
+    private isSanitizedAssignment(matchText: string): boolean {
+        const sanitizers = [
+            'sanitize(', 'DOMPurify.sanitize(', 'dompurify.sanitize(',
+            'xss(', 'escape(', 'escapeHtml(', 'htmlEncode(',
+            'sanitizeHtml(', 'clean(', 'purify(',
+        ];
+        const rhs = matchText.includes('=') ? matchText.split('=').slice(1).join('=') : matchText;
+        return sanitizers.some(s => rhs.toLowerCase().includes(s.toLowerCase()));
+    }
+
+    /**
+     * Check if a shell execution call is using { shell: false } option (safe pattern).
+     * Also, spawn() without { shell: true } is safe by default — don't flag it.
+     */
+    private isSafeShellCall(matchText: string, fullContent: string, matchIndex: number): boolean {
+        // Check surrounding context (100 chars after match) for shell: false
+        const context = fullContent.slice(matchIndex, matchIndex + matchText.length + 100);
+        if (/shell\s*:\s*false/.test(context)) return true;
+
+        // spawn() without shell: true is safe by default
+        if (/\bspawn(?:Sync)?\s*\(/.test(matchText) && !/shell\s*:\s*true/.test(context)) return true;
 
         return false;
     }

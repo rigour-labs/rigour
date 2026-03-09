@@ -4,7 +4,6 @@
  * Each AI coding tool (Claude Code, Cursor, Cline, Windsurf)
  * has its own hook format. These types unify the config generation.
  *
- * @since v3.0.0
  */
 
 export type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';

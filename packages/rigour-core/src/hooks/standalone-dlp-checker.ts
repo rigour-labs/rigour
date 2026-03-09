@@ -13,7 +13,6 @@
  *   echo "my api_key = sk-abc123..." | node standalone-dlp-checker.js
  *   echo '{"content":"..."}' | node standalone-dlp-checker.js --json
  *
- * @since v4.2.0 — AI Agent DLP
  */
 
 import { scanInputForCredentials, formatDLPAlert, createDLPAuditEntry } from './input-validator.js';

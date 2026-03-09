@@ -13,13 +13,13 @@
  * 4. Error handling becomes sparser toward the bottom
  * 5. Code style inconsistencies emerge (indentation, spacing)
  *
- * @since v2.16.0
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { languageAdapters } from './language-adapters/index.js';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -69,7 +69,7 @@ export class ContextWindowArtifactsGate extends Gate {
 
         const failures: Failure[] = [];
 
-        const scanPatterns = context.patterns || ['**/*.{ts,js,tsx,jsx,py}'];
+        const scanPatterns = context.patterns || languageAdapters.getScanPatterns();
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
             patterns: scanPatterns,
@@ -86,7 +86,7 @@ export class ContextWindowArtifactsGate extends Gate {
 
                 if (lines.length < this.config.min_file_lines) continue;
 
-                const metrics = this.analyzeFile(content, file);
+                const metrics = this.analyzeFile(content, file, path.join(context.cwd, file));
                 if (metrics && metrics.signals.length >= this.config.signals_required &&
                     metrics.degradationScore >= this.config.degradation_threshold) {
 
@@ -117,15 +117,15 @@ export class ContextWindowArtifactsGate extends Gate {
         );
     }
 
-    private analyzeFile(content: string, file: string): FileQualityMetrics | null {
+    private analyzeFile(content: string, file: string, fullPath: string): FileQualityMetrics | null {
         const lines = content.split('\n');
         const midpoint = Math.floor(lines.length / 2);
 
         const topContent = lines.slice(0, midpoint).join('\n');
         const bottomContent = lines.slice(midpoint).join('\n');
 
-        const topMetrics = this.measureHalf(topContent);
-        const bottomMetrics = this.measureHalf(bottomContent);
+        const topMetrics = this.measureHalf(topContent, fullPath);
+        const bottomMetrics = this.measureHalf(bottomContent, fullPath);
 
         const signals: string[] = [];
         let degradationScore = 0;
@@ -198,11 +198,16 @@ export class ContextWindowArtifactsGate extends Gate {
         };
     }
 
-    private measureHalf(content: string): HalfMetrics {
+    private measureHalf(content: string, fullPath: string): HalfMetrics {
+        const adapter = languageAdapters.getAdapter(fullPath);
         const lines = content.split('\n');
-        const codeLines = lines.filter(l => l.trim() && !l.trim().startsWith('//') && !l.trim().startsWith('#') && !l.trim().startsWith('*'));
-        // Only count inline comments (//), not JSDoc/block comments (/** ... */ or * ...)
-        // JSDoc tends to cluster at file top, skewing "degradation" unfairly
+
+        // Strip comments using adapter if available, otherwise fallback
+        const codeWithoutComments = adapter ? adapter.stripComments(content) : content;
+        const codeLines = codeWithoutComments.split('\n').filter(l => l.trim());
+
+        // Count inline comments (// for C-style, # for Python/Ruby)
+        // Exclude JSDoc/block comments (/** ... */ or * ...) which cluster at top unfairly
         const commentLines = lines.filter(l => {
             const trimmed = l.trim();
             return trimmed.startsWith('//') || trimmed.startsWith('#');
@@ -211,20 +216,24 @@ export class ContextWindowArtifactsGate extends Gate {
         // Comment density
         const commentDensity = codeLines.length > 0 ? commentLines.length / codeLines.length : 0;
 
-        // Function lengths
-        const funcLengths = this.measureFunctionLengths(content);
+        // Function lengths using adapter if available
+        const funcLengths = adapter
+            ? this.measureFunctionLengthsFromAdapter(content, adapter)
+            : this.measureFunctionLengthsLegacy(content);
         const avgFunctionLength = funcLengths.length > 0
             ? funcLengths.reduce((a, b) => a + b, 0) / funcLengths.length
             : 0;
 
-        // Single-char variables (excluding common loop vars i, j, k in for loops)
-        const singleCharMatches = content.match(/\b(?:const|let|var)\s+([a-z])\b/g) || [];
-        const singleCharVarCount = singleCharMatches.length;
+        // Single-char variables — using naming patterns from adapter if available
+        const singleCharVarCount = adapter
+            ? this.countSingleCharVariablesFromAdapter(adapter, content)
+            : this.countSingleCharVariablesLegacy(content);
 
-        // Error handling density
-        const tryCount = (content.match(/\btry\s*\{/g) || []).length;
+        // Error handling density — use adapter if available
+        const errorHandlers = adapter ? adapter.extractErrorHandlers(content) : [];
+        const totalErrHandling = errorHandlers.length;
         const funcCount = Math.max(1, funcLengths.length);
-        const errorHandlingDensity = tryCount / funcCount;
+        const errorHandlingDensity = totalErrHandling / funcCount;
 
         // Empty blocks
         const emptyBlockCount = (content.match(/\{\s*\}/g) || []).length;
@@ -232,15 +241,10 @@ export class ContextWindowArtifactsGate extends Gate {
         // TODO/FIXME/HACK count
         const todoCount = (content.match(/\b(TODO|FIXME|HACK|XXX)\b/gi) || []).length;
 
-        // Average identifier length
-        const identifiers = content.match(/\b(?:const|let|var|function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g) || [];
-        const identNames = identifiers.map(m => {
-            const parts = m.split(/\s+/);
-            return parts[parts.length - 1];
-        });
-        const avgIdentifierLength = identNames.length > 0
-            ? identNames.reduce((sum, n) => sum + n.length, 0) / identNames.length
-            : 0;
+        // Average identifier length using naming patterns from adapter if available
+        const avgIdentifierLength = adapter
+            ? this.getAvgIdentifierLengthFromAdapter(adapter, content)
+            : this.getAvgIdentifierLengthLegacy(content);
 
         return {
             commentDensity,
@@ -253,20 +257,50 @@ export class ContextWindowArtifactsGate extends Gate {
         };
     }
 
-    private measureFunctionLengths(content: string): number[] {
+    private measureFunctionLengthsFromAdapter(content: string, adapter: ReturnType<typeof languageAdapters.getAdapter>): number[] {
+        if (!adapter) return [];
+        const functions = adapter.extractFunctions(content);
+        return functions.map(func => func.endLine - func.startLine + 1);
+    }
+
+    private countSingleCharVariablesFromAdapter(adapter: ReturnType<typeof languageAdapters.getAdapter>, content: string): number {
+        if (!adapter) return 0;
+        const patterns = adapter.extractNamingPatterns(content);
+        return patterns.filter(p => p.name.length === 1 && p.kind === 'variable').length;
+    }
+
+    private getAvgIdentifierLengthFromAdapter(adapter: ReturnType<typeof languageAdapters.getAdapter>, content: string): number {
+        if (!adapter) return 0;
+        const patterns = adapter.extractNamingPatterns(content);
+        if (patterns.length === 0) return 0;
+        const totalLength = patterns.reduce((sum, p) => sum + p.name.length, 0);
+        return totalLength / patterns.length;
+    }
+
+    private measureFunctionLengthsLegacy(content: string): number[] {
         const lines = content.split('\n');
         const lengths: number[] = [];
 
-        const funcStarts = [
+        // Brace-based function patterns (JS/TS, Go, Rust, Java, Kotlin, C#)
+        const bracePatterns = [
             /^(?:export\s+)?(?:async\s+)?function\s+\w+/,
             /^(?:export\s+)?(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>/,
             /^\s+(?:async\s+)?\w+\s*\([^)]*\)\s*\{/,
+            /^func\s+/,              // Go
+            /^\s*(?:pub\s+)?(?:async\s+)?fn\s+/, // Rust
+            /^\s*(?:public|private|protected|internal|static|override)\s+.*\w+\s*\(/, // Java/C#/Kotlin
+        ];
+
+        // Indent-based function patterns (Python, Ruby)
+        const indentPatterns = [
+            /^\s*(?:async\s+)?def\s+\w+/,   // Python/Ruby
         ];
 
         for (let i = 0; i < lines.length; i++) {
-            for (const pattern of funcStarts) {
+            // Try brace-based languages first
+            let matched = false;
+            for (const pattern of bracePatterns) {
                 if (pattern.test(lines[i])) {
-                    // Count function body length
                     let braceDepth = 0;
                     let started = false;
                     let bodyLines = 0;
@@ -281,6 +315,24 @@ export class ContextWindowArtifactsGate extends Gate {
                     }
 
                     if (bodyLines > 0) lengths.push(bodyLines);
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) continue;
+
+            // Try indent-based languages
+            for (const pattern of indentPatterns) {
+                if (pattern.test(lines[i])) {
+                    const indent = lines[i].match(/^(\s*)/)?.[1]?.length || 0;
+                    let bodyLines = 0;
+                    for (let j = i + 1; j < lines.length; j++) {
+                        if (lines[j].trim() === '') { bodyLines++; continue; }
+                        const curIndent = lines[j].match(/^(\s*)/)?.[1]?.length || 0;
+                        if (curIndent <= indent) break;
+                        bodyLines++;
+                    }
+                    if (bodyLines > 0) lengths.push(bodyLines);
                     break;
                 }
             }
@@ -288,4 +340,28 @@ export class ContextWindowArtifactsGate extends Gate {
 
         return lengths;
     }
+
+    private countSingleCharVariablesLegacy(content: string): number {
+        const singleCharPatternsJS = content.match(/\b(?:const|let|var)\s+([a-z])\b/g) || [];
+        const singleCharPatternsPy = content.match(/^\s*([a-z])\s*=/gm) || [];
+        const singleCharPatternsGo = content.match(/\b(\w)\s*:=/g) || [];
+        return singleCharPatternsJS.length + singleCharPatternsPy.length + singleCharPatternsGo.length;
+    }
+
+    private getAvgIdentifierLengthLegacy(content: string): number {
+        const identPatternsJS = content.match(/\b(?:const|let|var|function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g) || [];
+        const identPatternsPy = content.match(/\bdef\s+([a-zA-Z_]\w*)/g) || [];
+        const identPatternsGo = content.match(/\bfunc\s+(?:\([^)]+\)\s+)?([a-zA-Z_]\w*)/g) || [];
+        const identPatternsRs = content.match(/\bfn\s+([a-zA-Z_]\w*)/g) || [];
+        const identPatternsRb = content.match(/\bdef\s+(?:self\.)?([a-zA-Z_]\w*)/g) || [];
+        const allIdents = [...identPatternsJS, ...identPatternsPy, ...identPatternsGo, ...identPatternsRs, ...identPatternsRb];
+        const identNames = allIdents.map(m => {
+            const parts = m.split(/\s+/);
+            return parts[parts.length - 1];
+        });
+        return identNames.length > 0
+            ? identNames.reduce((sum, n) => sum + n.length, 0) / identNames.length
+            : 0;
+    }
+
 }
