@@ -36,7 +36,7 @@ describe('hooksInitCommand', () => {
         const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
         expect(settings.hooks).toBeDefined();
         expect(settings.hooks.PostToolUse).toBeDefined();
-        expect(settings.hooks.PostToolUse[0].hooks[0].command).toContain('rigour hooks check');
+        expect(settings.hooks.PostToolUse[0].hooks[0].command).toContain('hooks check');
     });
 
     it('should generate Cursor hooks', async () => {
@@ -146,7 +146,7 @@ describe('hooksInitCommand — DLP integration', () => {
         const hooksPath = path.join(testDir, '.cursor', 'hooks.json');
         const hooks = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
         expect(hooks.hooks.afterFileEdit).toBeDefined();
-        expect(hooks.hooks.beforeFileEdit).toBeDefined();
+        expect(hooks.hooks.beforeSubmitPrompt).toBeDefined();
     });
 
     it('should generate Windsurf hooks with DLP by default', async () => {

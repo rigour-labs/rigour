@@ -49,7 +49,6 @@ export const studioCommand = new Command('studio')
                 // Start the Studio dev server in the workspace root
                 const studioProcess = execa('pnpm', ['--filter', '@rigour-labs/studio', 'dev', '--port', options.port], {
                     stdio: 'inherit',
-                    shell: true,
                     cwd: workspaceRoot
                 });
 

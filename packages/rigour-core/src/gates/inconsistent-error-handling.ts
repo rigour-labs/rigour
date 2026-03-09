@@ -72,16 +72,19 @@ export class InconsistentErrorHandlingGate extends Gate {
 
         Logger.info(`Inconsistent Error Handling: Scanning ${files.length} files`);
 
-        for (const file of files) {
-            if (this.shouldSkipFile(file)) continue;
-            try {
+        const CONCURRENCY = 16;
+        for (let i = 0; i < files.length; i += CONCURRENCY) {
+            const batch = files.slice(i, i + CONCURRENCY);
+            const results = await Promise.allSettled(batch.map(async (file) => {
+                if (this.shouldSkipFile(file)) return [];
                 const content = await fs.readFile(path.join(context.cwd, file), 'utf-8');
                 const adapter = languageAdapters.getAdapter(file);
-                if (!adapter) continue;
+                if (!adapter) return [];
 
+                const localHandlers: typeof handlers = [];
                 const errorHandlerFacts = adapter.extractErrorHandlers(content);
                 for (const fact of errorHandlerFacts) {
-                    handlers.push({
+                    localHandlers.push({
                         file,
                         line: fact.startLine,
                         errorType: fact.type,
@@ -89,7 +92,11 @@ export class InconsistentErrorHandlingGate extends Gate {
                         rawPattern: fact.body.split('\n')[0]?.trim() || '',
                     });
                 }
-            } catch (e) { }
+                return localHandlers;
+            }));
+            for (const result of results) {
+                if (result.status === 'fulfilled') handlers.push(...result.value);
+            }
         }
 
         // Group by error type

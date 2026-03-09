@@ -43,8 +43,8 @@ describe('Init Command Rules Verification', () => {
         expect(instructionsContent).toContain('# 🛡️ Rigour: Mandatory Engineering Governance Protocol');
         expect(instructionsContent).toContain('# Code Quality Standards');
 
-        // Check that MDC includes agnostic rules
-        expect(mdcContent).toContain('# 🤖 CRITICAL INSTRUCTION FOR AI');
+        // Check that MDC includes governance rules
+        expect(mdcContent).toContain('# Rigour Governance');
     });
 
     it('should create .clinerules when ide is cline or all', async () => {

@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { GateRunner, ConfigSchema, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend } from '@rigour-labs/core';
+import { GateRunner, ConfigSchema, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend, IncrementalCache } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
 import inquirer from 'inquirer';
 import { randomUUID } from 'crypto';
@@ -18,6 +18,8 @@ export interface CheckOptions {
     json?: boolean;
     interactive?: boolean;
     config?: string;
+    noCache?: boolean;
+    cache?: boolean; // Commander sets this to false for --no-cache
     // Deep analysis options
     deep?: boolean;
     pro?: boolean;
@@ -64,6 +66,58 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
 
         const isDeep = !!options.deep || !!options.pro || !!options.apiKey;
         const isSilent = !!options.ci || !!options.json;
+        const useCache = options.cache !== false && !options.noCache && !isDeep; // Cache only for non-deep runs
+
+        // ── Incremental Cache: skip scan if no files changed ──
+        if (useCache && files.length === 0) {
+            try {
+                const cache = new IncrementalCache(cwd);
+                const { FileScanner } = await import('@rigour-labs/core');
+                const allFiles = await FileScanner.findFiles({ cwd, ignore: config.ignore });
+                const result = await cache.check(allFiles, configContent);
+
+                if (result.hit && result.report) {
+                    if (!isSilent) {
+                        console.log(chalk.green(`⚡ No files changed — returning cached result (${result.checkMs}ms)\n`));
+                    }
+
+                    // Still write the report and record score
+                    const reportPath = path.join(cwd, config.output.report_path);
+                    await fs.writeJson(reportPath, result.report, { spaces: 2 });
+                    recordScore(cwd, result.report);
+
+                    if (options.json) {
+                        process.stdout.write(JSON.stringify(result.report, null, 2) + '\n', () => {
+                            process.exit(result.report!.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+                        });
+                        return;
+                    }
+
+                    if (options.ci) {
+                        const scoreStr = result.report.stats.score !== undefined ? ` (${result.report.stats.score}/100)` : '';
+                        console.log(`${result.report.status}${scoreStr} (cached)`);
+                        process.exit(result.report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+                    }
+
+                    renderStandardOutput(result.report, config);
+
+                    const trend = getScoreTrend(cwd);
+                    if (trend && trend.recentScores.length >= 3) {
+                        const arrow = trend.direction === 'improving' ? chalk.green('↑') :
+                                      trend.direction === 'degrading' ? chalk.red('↓') : chalk.dim('→');
+                        const trendColor = trend.direction === 'improving' ? chalk.green :
+                                           trend.direction === 'degrading' ? chalk.red : chalk.dim;
+                        const scoresStr = trend.recentScores.map(s => String(s)).join(' → ');
+                        console.log(trendColor(`\nScore Trend: ${scoresStr} (${trend.direction} ${arrow})`));
+                    }
+
+                    console.log(chalk.dim(`\nFinished in ${result.checkMs}ms (cached) | Score: ${result.report.stats.score ?? '?'}/100`));
+                    process.exit(result.report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+                }
+            } catch {
+                // Cache check failed — proceed with full scan silently
+            }
+        }
 
         if (!isSilent) {
             if (isDeep) {
@@ -139,6 +193,18 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
 
         // Record score for trend tracking
         recordScore(cwd, report);
+
+        // Save incremental cache for next run (non-deep only)
+        if (useCache && files.length === 0) {
+            try {
+                const cache = new IncrementalCache(cwd);
+                const { FileScanner } = await import('@rigour-labs/core');
+                const allFiles = await FileScanner.findFiles({ cwd, ignore: config.ignore });
+                await cache.save(allFiles, configContent, report);
+            } catch {
+                // Cache save is best-effort
+            }
+        }
 
         // Persist to SQLite if deep analysis was used
         if (isDeep) {

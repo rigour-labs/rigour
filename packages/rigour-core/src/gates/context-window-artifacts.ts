@@ -78,13 +78,15 @@ export class ContextWindowArtifactsGate extends Gate {
 
         Logger.info(`Context Window Artifacts: Scanning ${files.length} files`);
 
-        for (const file of files) {
-            if (this.shouldSkipFile(file)) continue;
-            try {
+        const CONCURRENCY = 16;
+        for (let i = 0; i < files.length; i += CONCURRENCY) {
+            const batch = files.slice(i, i + CONCURRENCY);
+            const results = await Promise.allSettled(batch.map(async (file) => {
+                if (this.shouldSkipFile(file)) return null;
                 const content = await fs.readFile(path.join(context.cwd, file), 'utf-8');
                 const lines = content.split('\n');
 
-                if (lines.length < this.config.min_file_lines) continue;
+                if (lines.length < this.config.min_file_lines) return null;
 
                 const metrics = this.analyzeFile(content, file, path.join(context.cwd, file));
                 if (metrics && metrics.signals.length >= this.config.signals_required &&
@@ -93,7 +95,7 @@ export class ContextWindowArtifactsGate extends Gate {
                     const signalList = metrics.signals.map(s => `  • ${s}`).join('\n');
                     const midpoint = Math.floor(metrics.totalLines / 2);
 
-                    failures.push(this.createFailure(
+                    return this.createFailure(
                         `Context window artifact detected in ${file} (${metrics.totalLines} lines, degradation: ${(metrics.degradationScore * 100).toFixed(0)}%):\n${signalList}`,
                         [file],
                         `This file shows quality degradation from top to bottom, a pattern typical of AI context window exhaustion. Consider refactoring the bottom half or splitting the file. The quality drop begins around line ${midpoint}.`,
@@ -101,9 +103,13 @@ export class ContextWindowArtifactsGate extends Gate {
                         midpoint,
                         undefined,
                         'high'
-                    ));
+                    );
                 }
-            } catch (e) { }
+                return null;
+            }));
+            for (const result of results) {
+                if (result.status === 'fulfilled' && result.value) failures.push(result.value);
+            }
         }
 
         return failures;

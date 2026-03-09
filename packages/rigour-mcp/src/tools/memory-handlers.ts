@@ -51,6 +51,20 @@ function extractStrings(obj: unknown, out: string[]): void {
 }
 
 export async function handleRemember(cwd: string, key: string, value: string): Promise<ToolResult> {
+    // Fallback: if key is missing but value exists, auto-generate a key
+    if (!key && value) {
+        key = value.slice(0, 40).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'convention';
+    }
+    // If value is missing but key exists, something is wrong
+    if (!value) {
+        return {
+            content: [{
+                type: "text",
+                text: `ERROR: Missing 'value' parameter. Call rigour_remember with both 'key' (short identifier) and 'value' (the instruction text to persist).`,
+            }],
+        };
+    }
+
     // ── DLP Gate: deep-scan key + value (including JSON interiors) ──
     const textToScan = deepScanValue(key, value);
     const dlpResult = scanInputForCredentials(textToScan);

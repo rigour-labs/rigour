@@ -62,18 +62,21 @@ export class PromiseSafetyGate extends Gate {
 
         Logger.info(`Async Safety: Scanning ${files.length} files across all languages`);
 
-        for (const file of files) {
-            if (this.config.ignore_patterns.some(p => new RegExp(p).test(file))) continue;
-            if (this.shouldSkipFile(file)) continue;
-            const lang = detectLang(file);
-            if (lang === 'unknown') continue;
-
-            try {
+        const CONCURRENCY = 16;
+        const filteredFiles = files.filter(file =>
+            !this.config.ignore_patterns.some(p => new RegExp(p).test(file)) &&
+            !this.shouldSkipFile(file) &&
+            detectLang(file) !== 'unknown'
+        );
+        for (let i = 0; i < filteredFiles.length; i += CONCURRENCY) {
+            const batch = filteredFiles.slice(i, i + CONCURRENCY);
+            await Promise.allSettled(batch.map(async (file) => {
+                const lang = detectLang(file);
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
                 const lines = content.split('\n');
                 this.scanFile(lang, lines, content, file, violations);
-            } catch { /* skip */ }
+            }));
         }
 
         return this.buildFailures(violations);

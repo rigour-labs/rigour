@@ -117,13 +117,23 @@ function detectTools(cwd: string): HookTool[] {
 }
 
 function resolveCheckerCommand(cwd: string): CheckerCommandSpec {
+    // 1. Try project-local node_modules (installed as dependency)
     const localPath = path.join(
         cwd, 'node_modules', '@rigour-labs', 'core', 'dist', 'hooks', 'standalone-checker.js'
     );
     if (fs.existsSync(localPath)) {
         return { command: 'node', args: [localPath] };
     }
-    return { command: 'rigour', args: ['hooks', 'check'] };
+
+    // 2. Try dev checkout: ESM has no __dirname, derive from import.meta.url
+    const thisDir = path.dirname(new URL(import.meta.url).pathname);
+    const localCli = path.resolve(thisDir, '../cli.js');
+    if (fs.existsSync(localCli)) {
+        return { command: 'node', args: [localCli, 'hooks', 'check'] };
+    }
+
+    // 3. Fallback: assume globally installed or aliased
+    return { command: 'npx', args: ['@rigour-labs/cli', 'hooks', 'check'] };
 }
 
 function shellEscape(arg: string): string {
@@ -522,14 +532,33 @@ function parseStdinFiles(input: string): string[] {
         if (Array.isArray(payload.files)) {
             return payload.files;
         }
+        // Direct file_path (Cursor afterFileEdit, Claude Code)
         if (payload.file_path) {
             return [payload.file_path];
         }
+        // Claude Code camelCase format
         if (payload.toolInput?.path) {
             return [payload.toolInput.path];
         }
         if (payload.toolInput?.file_path) {
             return [payload.toolInput.file_path];
+        }
+        // Cursor postToolUse: snake_case tool_input (may be object or string)
+        if (payload.tool_input) {
+            const ti = payload.tool_input;
+            if (typeof ti === 'object' && ti !== null) {
+                if (ti.file_path) return [ti.file_path];
+                if (ti.path) return [ti.path];
+            }
+        }
+        // Cursor postToolUse: file_path inside tool_output (JSON string)
+        if (typeof payload.tool_output === 'string') {
+            try {
+                const toolOut = JSON.parse(payload.tool_output);
+                if (toolOut.file_path) return [toolOut.file_path];
+            } catch {
+                // tool_output wasn't JSON
+            }
         }
         return [];
     } catch {
@@ -537,24 +566,81 @@ function parseStdinFiles(input: string): string[] {
     }
 }
 
+/**
+ * Detect if stdin payload is from a Cursor hook (has hook_event_name or prompt field).
+ * Cursor hooks send structured JSON with specific fields and expect
+ * { continue: boolean, user_message?: string } back.
+ */
+function isCursorHookPayload(payload: any): boolean {
+    return payload && (
+        typeof payload.hook_event_name === 'string' ||
+        typeof payload.prompt === 'string' ||
+        typeof payload.conversation_id === 'string'
+    );
+}
+
+/**
+ * Extract text to scan from a Cursor beforeSubmitPrompt payload.
+ * The prompt field contains the user's input text.
+ */
+function extractCursorPromptText(payload: any): string {
+    if (typeof payload.prompt === 'string') return payload.prompt;
+    if (typeof payload.content === 'string') return payload.content;
+    if (typeof payload.new_content === 'string') return payload.new_content;
+    return '';
+}
+
 export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions = {}): Promise<void> {
     // ── DLP Mode: Scan text for credentials ──────────────────
     if (options.mode === 'dlp') {
-        const input = options.stdin
+        let rawInput = options.stdin
             ? await readStdin()
             : (options.files ?? ''); // Reuse files param as text in DLP mode
 
-        if (!input) {
-            process.stdout.write(JSON.stringify({ status: 'clean', detections: [], duration_ms: 0, scanned_length: 0 }));
+        if (!rawInput) {
+            process.stdout.write(JSON.stringify({ continue: true }));
             return;
         }
 
-        const result = scanInputForCredentials(input, {
+        // Parse Cursor's structured payload to extract prompt text
+        let textToScan = rawInput;
+        let cursorMode = false;
+        try {
+            const payload = JSON.parse(rawInput);
+            if (isCursorHookPayload(payload)) {
+                cursorMode = true;
+                textToScan = extractCursorPromptText(payload);
+            }
+        } catch {
+            // Not JSON — scan raw text as-is
+        }
+
+        if (!textToScan) {
+            process.stdout.write(JSON.stringify(cursorMode ? { continue: true } : { status: 'clean', detections: [], duration_ms: 0, scanned_length: 0 }));
+            return;
+        }
+
+        const result = scanInputForCredentials(textToScan, {
             enabled: true,
             block_on_detection: options.block ?? true,
         });
 
-        process.stdout.write(JSON.stringify(result));
+        // Return Cursor-compatible format if detected as Cursor hook
+        if (cursorMode) {
+            if (result.status === 'blocked') {
+                const messages = result.detections
+                    .map((d: any) => `[${d.type}] ${d.description} → ${d.recommendation}`)
+                    .join('\n');
+                process.stdout.write(JSON.stringify({
+                    continue: false,
+                    user_message: `🛑 Rigour DLP: ${result.detections.length} credential(s) detected in your prompt:\n${messages}\n\nReplace with environment variable references before submitting.`,
+                }));
+            } else {
+                process.stdout.write(JSON.stringify({ continue: true }));
+            }
+        } else {
+            process.stdout.write(JSON.stringify(result));
+        }
 
         if (result.status !== 'clean') {
             process.stderr.write('\n' + formatDLPAlert(result) + '\n');
@@ -578,12 +664,29 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
 
     // ── Standard Mode: Check files ───────────────────────────
     const timeout = options.timeout ? Number(options.timeout) : 5000;
+    let rawStdin = '';
+    let cursorMode = false;
+
+    if (options.stdin) {
+        rawStdin = await readStdin();
+        // Detect Cursor/IDE hook payload format
+        try {
+            const payload = JSON.parse(rawStdin);
+            if (isCursorHookPayload(payload) || typeof payload.new_content === 'string') {
+                cursorMode = true;
+            }
+        } catch (parseErr: any) {
+            // Not valid JSON — log for debugging (stderr only, stdout must stay clean)
+            process.stderr.write(`[rigour-hook-debug] stdin JSON parse failed: ${parseErr?.message?.slice(0, 100)}\n`);
+        }
+    }
+
     const files = options.stdin
-        ? parseStdinFiles(await readStdin())
+        ? parseStdinFiles(rawStdin)
         : (options.files ?? '').split(',').map(f => f.trim()).filter(Boolean);
 
     if (files.length === 0) {
-        process.stdout.write(JSON.stringify({ status: 'pass', failures: [], duration_ms: 0 }));
+        process.stdout.write(JSON.stringify(cursorMode ? { continue: true } : { status: 'pass', failures: [], duration_ms: 0 }));
         return;
     }
 
@@ -593,7 +696,25 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         timeout_ms: Number.isFinite(timeout) ? timeout : 5000,
     });
 
-    process.stdout.write(JSON.stringify(result));
+    // Return Cursor-compatible format if detected as Cursor hook
+    if (cursorMode) {
+        if (result.status === 'fail') {
+            const messages = result.failures
+                .map(f => {
+                    const loc = f.line ? `:${f.line}` : '';
+                    return `[${f.gate}] ${f.file}${loc}: ${f.message}`;
+                })
+                .join('\n');
+            process.stdout.write(JSON.stringify({
+                continue: !options.block, // block mode = stop, otherwise warn
+                user_message: `⚠️ Rigour: ${result.failures.length} issue(s) found:\n${messages}`,
+            }));
+        } else {
+            process.stdout.write(JSON.stringify({ continue: true }));
+        }
+    } else {
+        process.stdout.write(JSON.stringify(result));
+    }
 
     if (result.status === 'fail') {
         for (const failure of result.failures) {

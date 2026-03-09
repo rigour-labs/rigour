@@ -35,70 +35,62 @@ export interface InitOptions {
 
 type DetectedIDE = 'cursor' | 'vscode' | 'cline' | 'claude' | 'gemini' | 'codex' | 'windsurf' | 'unknown';
 
-function detectIDE(cwd: string): DetectedIDE {
-    // Check for Claude Code markers
+/**
+ * Detect ALL IDEs/agents present in the project (not just the first match).
+ * A project using Cursor often also has CLAUDE.md, .clinerules, etc.
+ * We need hooks for every tool that has markers.
+ */
+function detectAllIDEs(cwd: string): DetectedIDE[] {
+    const detected: DetectedIDE[] = [];
+
     if (fs.existsSync(path.join(cwd, 'CLAUDE.md')) || fs.existsSync(path.join(cwd, '.claude'))) {
-        return 'claude';
+        detected.push('claude');
     }
-
-    // Check for Gemini Code Assist markers
-    if (fs.existsSync(path.join(cwd, '.gemini'))) {
-        return 'gemini';
-    }
-
-    // Check for Codex/Aider AGENTS.md (universal standard)
-    if (fs.existsSync(path.join(cwd, 'AGENTS.md'))) {
-        return 'codex';
-    }
-
-    // Check for Windsurf markers
-    if (fs.existsSync(path.join(cwd, '.windsurfrules')) || fs.existsSync(path.join(cwd, '.windsurf'))) {
-        return 'windsurf';
-    }
-
-    // Check for Cline-specific markers
-    if (fs.existsSync(path.join(cwd, '.clinerules'))) {
-        return 'cline';
-    }
-
-    // Check for Cursor-specific markers
     if (fs.existsSync(path.join(cwd, '.cursor'))) {
-        return 'cursor';
+        detected.push('cursor');
     }
-
-    // Check for VS Code markers
+    if (fs.existsSync(path.join(cwd, '.clinerules'))) {
+        detected.push('cline');
+    }
+    if (fs.existsSync(path.join(cwd, '.windsurfrules')) || fs.existsSync(path.join(cwd, '.windsurf'))) {
+        detected.push('windsurf');
+    }
+    if (fs.existsSync(path.join(cwd, '.gemini'))) {
+        detected.push('gemini');
+    }
+    if (fs.existsSync(path.join(cwd, 'AGENTS.md'))) {
+        detected.push('codex');
+    }
     if (fs.existsSync(path.join(cwd, '.vscode'))) {
-        return 'vscode';
+        detected.push('vscode');
     }
 
-    // Check environment variables that IDEs/Agents set
-    const termProgram = process.env.TERM_PROGRAM || '';
-    const terminal = process.env.TERMINAL_EMULATOR || '';
-    const appName = process.env.APP_NAME || '';
+    // Fallback: check environment variables if no file markers found
+    if (detected.length === 0) {
+        const termProgram = process.env.TERM_PROGRAM || '';
+        const terminal = process.env.TERMINAL_EMULATOR || '';
+        const appName = process.env.APP_NAME || '';
 
-    if (termProgram.toLowerCase().includes('cursor') || terminal.toLowerCase().includes('cursor')) {
-        return 'cursor';
+        if (termProgram.toLowerCase().includes('cursor') || terminal.toLowerCase().includes('cursor')) {
+            detected.push('cursor');
+        } else if (termProgram.toLowerCase().includes('cline') || appName.toLowerCase().includes('cline')) {
+            detected.push('cline');
+        } else if (termProgram.toLowerCase().includes('vscode') || process.env.VSCODE_INJECTION) {
+            detected.push('vscode');
+        } else if (process.env.CLAUDE_CODE || process.env.ANTHROPIC_API_KEY) {
+            detected.push('claude');
+        } else if (process.env.GEMINI_API_KEY || process.env.GOOGLE_CLOUD_PROJECT) {
+            detected.push('gemini');
+        }
     }
 
-    if (termProgram.toLowerCase().includes('cline') || appName.toLowerCase().includes('cline')) {
-        return 'cline';
-    }
+    return detected.length > 0 ? detected : ['unknown'];
+}
 
-    if (termProgram.toLowerCase().includes('vscode') || process.env.VSCODE_INJECTION) {
-        return 'vscode';
-    }
-
-    // Check for Claude Code environment
-    if (process.env.CLAUDE_CODE || process.env.ANTHROPIC_API_KEY) {
-        return 'claude';
-    }
-
-    // Check for Gemini environment
-    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_CLOUD_PROJECT) {
-        return 'gemini';
-    }
-
-    return 'unknown';
+/** Legacy single-IDE detection for backward compatibility (returns primary IDE). */
+function detectIDE(cwd: string): DetectedIDE {
+    const all = detectAllIDEs(cwd);
+    return all[0] || 'unknown';
 }
 
 
@@ -184,6 +176,18 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
     }
     console.log('');
 
+    // Always enable hooks for ALL supported tools.
+    // Detection is unreliable (Cursor doesn't create .cursor/ by default,
+    // its terminal reports as vscode). The config files are tiny and harmless
+    // if the tool isn't used, but critical if it is.
+    type HookToolName = 'claude' | 'cursor' | 'cline' | 'windsurf';
+    const ALL_HOOK_TOOLS: HookToolName[] = ['claude', 'cursor', 'cline', 'windsurf'];
+    recommendedConfig.hooks = {
+        ...recommendedConfig.hooks,
+        enabled: true,
+        tools: ALL_HOOK_TOOLS,
+    };
+
     const yamlHeader = `# ⚠️ TEAM STANDARD - DO NOT MODIFY WITHOUT TEAM APPROVAL
 # AI Assistants: Adjust YOUR code to meet these standards, not the other way around.
 # Modifying thresholds or adding ignores to pass checks defeats the purpose of Rigour.
@@ -211,21 +215,47 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
 
     const ruleContent = `# 🛡️ Rigour: Mandatory Engineering Governance Protocol
 
-**You are an AI Engineering Agent governed by Rigour.** 
+**You are an AI Engineering Agent governed by Rigour.** You MUST use the Rigour MCP tools at specific points in your workflow. This is non-negotiable.
 
-Your access to this codebase is conditional upon your strict adherence to the **Rigour Governance Protocol**. This is an automated requirement for every engineering task.
+## 🚦 BEFORE Writing Any Code
 
-## 🚦 The Mandatory Governance Loop
-You MUST execute this loop for every task. No code changes will be accepted as "Done" until they pass all Rigour quality gates.
+1. **Load Context**: Call the \`rigour_recall\` MCP tool to load project memory and conventions.
+2. **Check Patterns**: Call the \`rigour_check_pattern\` MCP tool with the name and type of what you're about to create (e.g., name: "capitalize", type: "function"). This prevents reinventing existing utilities and catches security issues (CVEs).
 
-1.  **Context Loading**: Call \`rigour_recall\` (MCP) to align with project-specific engineering memory.
-2.  **Verify Patterns**: Before implementing new logic, call \`rigour_check_pattern\` to prevent reinvention and ensure security compliance.
-3.  **Audit Enforcement**: Before finishing, you MUST call \`npx @rigour-labs/cli check\`.
-4.  **Failure Remediation**: If the check returns **FAIL**, you MUST implement all required engineering refinements.
-5.  **PASS or REJECT**: You may only declare a task complete when the check returns **PASS**.
+## ✍️ AFTER Writing Code (Automatic)
+
+Real-time hooks run automatically after every file edit. If a hook returns a violation, you MUST fix the issue before continuing. Do NOT ignore hook warnings or errors.
+
+## ✅ BEFORE Declaring "Done"
+
+1. **Run Quality Gates**: Call the \`rigour_check\` MCP tool to verify all quality gates pass.
+2. **If FAIL**: Read the failure details, fix the code, and call \`rigour_check\` again.
+3. **Only declare a task complete when \`rigour_check\` returns PASS.**
+
+## 📋 Available Rigour MCP Tools
+
+You MUST use these tools. They are registered via MCP and available in your tool list:
+
+- \`rigour_recall\` — Load project memory and conventions (call at the START of every task)
+- \`rigour_check_pattern\` — Check if a function/component/hook already exists BEFORE creating a new one
+- \`rigour_check\` — Run all quality gates (call BEFORE declaring done)
+- \`rigour_explain\` — Get detailed, actionable fix instructions for gate failures
+- \`rigour_get_fix_packet\` — Get machine-readable fix data for automated remediation
+- \`rigour_remember\` — Save important decisions, conventions, or context for future tasks
+- \`rigour_security_audit\` — Audit project dependencies for known CVEs
+- \`rigour_review\` — Review a code diff against quality gates
+- \`rigour_hooks_check\` — Run the fast hook checker on specific files manually
 
 ## ⚖️ Transparency & Accountability
-**Every action, tool call, and logic shift you perform is automatically logged to the project's local audit trail.** This data is visible in real-time in the human-monitored **Rigour Studio**.
+
+Every action, tool call, and code change is automatically logged to the project's local audit trail. This data is visible in real-time in **Rigour Studio** (the human-monitored governance dashboard).
+
+## ⚠️ CRITICAL RULES
+
+- NEVER skip the governance loop (recall → check_pattern → write → rigour_check)
+- NEVER modify \`rigour.yml\` thresholds or ignore lists to make checks pass
+- NEVER claim "done" without a passing \`rigour_check\` result
+- If you're unsure whether to proceed, call \`rigour_check\` — it's fast and free
 
 ${AGNOSTIC_AI_INSTRUCTIONS}
 ${CODE_QUALITY_RULES}
@@ -234,84 +264,113 @@ ${COLLABORATION_RULES}
 `;
 
     // 1. Create Universal Instructions
-    if (!(await fs.pathExists(instructionsPath))) {
+    if (!(await fs.pathExists(instructionsPath)) || options.force) {
         await fs.writeFile(instructionsPath, ruleContent);
         console.log(chalk.green('✔ Initialized Universal Agent Handshake (docs/AGENT_INSTRUCTIONS.md)'));
     }
 
-    // 2. Create IDE-Specific Rules based on detection or user preference
-    const detectedIDE = detectIDE(cwd);
-    const targetIDE = options.ide || (detectedIDE !== 'unknown' ? detectedIDE : 'all');
+    // 2. Create IDE-Specific Rules for ALL supported tools.
+    //    Detection is unreliable (Cursor reports as vscode, doesn't create .cursor/),
+    //    so we always set up everything. The files are tiny and inert if unused.
+    const shouldSetup = (_ide: DetectedIDE) => true;
 
-    if (detectedIDE !== 'unknown' && !options.ide) {
-        console.log(chalk.dim(`   (Auto-detected IDE: ${detectedIDE})`));
-    }
-
-    if (targetIDE === 'cursor' || targetIDE === 'all') {
+    if (shouldSetup('cursor')) {
         const cursorRulesDir = path.join(cwd, '.cursor', 'rules');
         await fs.ensureDir(cursorRulesDir);
         const mdcPath = path.join(cursorRulesDir, 'rigour.mdc');
+        // Cursor .mdc must be SHORT and forceful — long rules get ignored.
+        // Keep ONLY the mandatory MCP tool workflow, no generic coding advice.
         const mdcContent = `---
-description: Enforcement of Rigour quality gates and best practices.
+description: MANDATORY - Rigour governance. You MUST call Rigour MCP tools before and after every code task.
 globs: **/*
+alwaysApply: true
 ---
 
-${ruleContent}`;
+# Rigour Governance — MANDATORY for every task
 
-        if (!(await fs.pathExists(mdcPath))) {
+You MUST follow this exact sequence for EVERY coding task. No exceptions.
+
+## Step 1: BEFORE writing any code
+\`\`\`
+Call rigour_recall        → loads project memory and conventions
+Call rigour_check_pattern → checks if the thing you're creating already exists
+\`\`\`
+Both calls are REQUIRED before you write a single line of code.
+
+## Step 2: Write your code
+Hooks will automatically check your code after each file edit. If a hook blocks you, fix the issue immediately.
+
+## Step 3: BEFORE saying "done"
+\`\`\`
+Call rigour_check → runs all quality gates
+\`\`\`
+If it returns FAIL, fix the issues and call rigour_check again. You may ONLY declare done when it returns PASS.
+
+## When the user asks you to remember something
+\`\`\`
+Call rigour_remember with key="short_snake_case_id" and value="the full text to remember"
+\`\`\`
+
+## NEVER do these
+- Never skip rigour_recall at the start of a task
+- Never skip rigour_check before declaring done
+- Never modify rigour.yml to make checks pass
+`;
+
+        if (!(await fs.pathExists(mdcPath)) || options.force) {
             await fs.writeFile(mdcPath, mdcContent);
             console.log(chalk.green('✔ Initialized Cursor Handshake (.cursor/rules/rigour.mdc)'));
         }
     }
 
-    if (targetIDE === 'vscode' || targetIDE === 'all') {
+    if (shouldSetup('vscode')) {
         // VS Code users use the universal AGENT_INSTRUCTIONS.md (already created above)
         // We could also add .vscode/settings.json or snippets here if needed
         console.log(chalk.green('✔ VS Code mode - using Universal Handshake (docs/AGENT_INSTRUCTIONS.md)'));
     }
 
-    if (targetIDE === 'cline' || targetIDE === 'all') {
+    if (shouldSetup('cline')) {
         const clineRulesPath = path.join(cwd, '.clinerules');
-        if (!(await fs.pathExists(clineRulesPath))) {
+        if (!(await fs.pathExists(clineRulesPath)) || options.force) {
             await fs.writeFile(clineRulesPath, ruleContent);
             console.log(chalk.green('✔ Initialized Cline Handshake (.clinerules)'));
         }
     }
 
     // Claude Code (CLAUDE.md)
-    if (targetIDE === 'claude' || targetIDE === 'all') {
+    if (shouldSetup('claude')) {
         const claudePath = path.join(cwd, 'CLAUDE.md');
         const claudeContent = `# CLAUDE.md - Project Instructions for Claude Code
 
 This file provides Claude Code with context about this project.
 
-## Project Overview
-
-This project uses Rigour for quality gates. Always run \`npx @rigour-labs/cli check\` before marking tasks complete.
-
-## Commands
+## Quick Commands
 
 \`\`\`bash
-# Verify quality gates
+# Run quality gates (CLI alternative to MCP)
 npx @rigour-labs/cli check
 
-# Get fix packet for failures
+# Get fix instructions
 npx @rigour-labs/cli explain
 
 # Self-healing agent loop
 npx @rigour-labs/cli run -- claude "<task>"
 \`\`\`
 
+## Rigour MCP Tools (PREFERRED over CLI)
+
+Use the Rigour MCP tools instead of CLI commands when available. They are faster and integrated into your workflow.
+
 ${ruleContent}`;
 
-        if (!(await fs.pathExists(claudePath))) {
+        if (!(await fs.pathExists(claudePath)) || options.force) {
             await fs.writeFile(claudePath, claudeContent);
             console.log(chalk.green('✔ Initialized Claude Code Handshake (CLAUDE.md)'));
         }
     }
 
     // Gemini Code Assist (.gemini/styleguide.md)
-    if (targetIDE === 'gemini' || targetIDE === 'all') {
+    if (shouldSetup('gemini')) {
         const geminiDir = path.join(cwd, '.gemini');
         await fs.ensureDir(geminiDir);
         const geminiStylePath = path.join(geminiDir, 'styleguide.md');
@@ -325,14 +384,14 @@ Always run \`npx @rigour-labs/cli check\` before marking any task complete.
 
 ${ruleContent}`;
 
-        if (!(await fs.pathExists(geminiStylePath))) {
+        if (!(await fs.pathExists(geminiStylePath)) || options.force) {
             await fs.writeFile(geminiStylePath, geminiContent);
             console.log(chalk.green('✔ Initialized Gemini Handshake (.gemini/styleguide.md)'));
         }
     }
 
     // OpenAI Codex / Aider (AGENTS.md - Universal Standard)
-    if (targetIDE === 'codex' || targetIDE === 'all') {
+    if (shouldSetup('codex')) {
         const agentsPath = path.join(cwd, 'AGENTS.md');
         const agentsContent = `# AGENTS.md - Universal AI Agent Instructions
 
@@ -356,25 +415,29 @@ npx @rigour-labs/cli check
 
 ${ruleContent}`;
 
-        if (!(await fs.pathExists(agentsPath))) {
+        if (!(await fs.pathExists(agentsPath)) || options.force) {
             await fs.writeFile(agentsPath, agentsContent);
             console.log(chalk.green('✔ Initialized Universal Agent Handshake (AGENTS.md)'));
         }
     }
 
     // Windsurf (.windsurfrules)
-    if (targetIDE === 'windsurf' || targetIDE === 'all') {
+    if (shouldSetup('windsurf')) {
         const windsurfPath = path.join(cwd, '.windsurfrules');
-        if (!(await fs.pathExists(windsurfPath))) {
+        if (!(await fs.pathExists(windsurfPath)) || options.force) {
             await fs.writeFile(windsurfPath, ruleContent);
             console.log(chalk.green('✔ Initialized Windsurf Handshake (.windsurfrules)'));
         }
     }
 
-    // 3. Auto-initialize hooks for detected AI coding tools
-    await initHooksForDetectedTools(cwd, detectedIDE);
+    // 3. Auto-initialize hooks for ALL supported AI coding tools
+    const allSupportedIDEs: DetectedIDE[] = ['claude', 'cursor', 'cline', 'windsurf'];
+    await initHooksForAllDetectedTools(cwd, allSupportedIDEs);
 
-    // 4. Update .gitignore
+    // 4. Auto-register MCP server for all supported tools
+    await initMCPForDetectedTools(cwd, allSupportedIDEs, options.force);
+
+    // 5. Update .gitignore
     const gitignorePath = path.join(cwd, '.gitignore');
     const ignorePatterns = ['rigour-report.json', 'rigour-fix-packet.json', '.rigour/'];
     try {
@@ -394,8 +457,10 @@ ${ruleContent}`;
         // Failing to update .gitignore isn't fatal
     }
 
+    // 6. Auto-build pattern index (with semantic embeddings)
+    await buildPatternIndex(cwd, options.force);
+
     console.log(chalk.blue('\nRigour is ready. Run `npx @rigour-labs/cli check` to verify your project.'));
-    console.log(chalk.cyan('Next Step: ') + chalk.bold('rigour index') + chalk.dim(' (Populate the Pattern Index)'));
 
     // Bootstrap initial memory for the Studio
     const rigourDir = path.join(cwd, ".rigour");
@@ -484,27 +549,32 @@ async function checkPrerequisites(): Promise<void> {
 
     if (isReady) {
         console.log(chalk.green('\n  ✓ Deep analysis is ready!'));
+        if (hasSidecar && hasDeepModel) {
+            console.log(chalk.dim('    Run: rigour check --deep              (Rigour local engine)'));
+            console.log(chalk.dim('    Run: rigour check --deep --pro        (full model, code-specialized)'));
+        } else if (hasSidecar && hasLiteModel) {
+            console.log(chalk.dim('    Run: rigour check --deep              (Rigour local engine — lite)'));
+        }
         if (hasApiKey) {
             const defaultProvider = settings.deep?.defaultProvider || configuredKeys[0]?.[0] || 'unknown';
-            console.log(chalk.dim(`    Run: rigour check --deep --provider ${defaultProvider}`));
-        }
-        if (hasSidecar && hasDeepModel) {
-            console.log(chalk.dim('    Run: rigour check --deep              (100% local, free)'));
+            console.log(chalk.dim(`    Run: rigour check --deep --provider ${defaultProvider}  (cloud BYOK)`));
         }
     } else {
         console.log(chalk.bold.yellow('\n  ⚡ Set up deep analysis (optional):'));
         console.log('');
-        console.log(chalk.bold('  Option A: Cloud API (Recommended — instant, high quality)'));
+        console.log(chalk.bold('  Option A: Rigour Local Engine (Recommended — private, no API key needed)'));
+        console.log(chalk.dim('    rigour check --deep                              # Lite model (500MB, any CPU)'));
+        console.log(chalk.dim('    rigour check --deep --pro                        # Full model (900MB, code-specialized)'));
+        console.log(chalk.dim('    Fine-tuned on real code quality findings via RLAIF pipeline.'));
+        console.log(chalk.dim('    100% local — your code never leaves your machine.'));
+        console.log('');
+        console.log(chalk.bold('  Option B: Cloud BYOK (bring your own API key)'));
         console.log(chalk.dim('    rigour settings set-key anthropic sk-ant-xxx     # Claude'));
         console.log(chalk.dim('    rigour settings set-key openai sk-xxx            # OpenAI'));
-        console.log(chalk.dim('    rigour settings set-key groq gsk_xxx            # Groq (fast + free tier)'));
-        console.log(chalk.dim('    Then: rigour check --deep'));
+        console.log(chalk.dim('    rigour settings set-key groq gsk_xxx            # Groq'));
+        console.log(chalk.dim('    Then: rigour check --deep --provider <name>'));
         console.log('');
-        console.log(chalk.bold('  Option B: 100% Local (Free, private, 350MB download)'));
-        console.log(chalk.dim('    rigour check --deep                              # Auto-downloads model'));
-        console.log(chalk.dim('    rigour check --deep --pro                        # Larger model (900MB)'));
-        console.log('');
-        console.log(chalk.dim('  Without deep analysis, Rigour still runs 15+ AST-based quality gates.'));
+        console.log(chalk.dim('  Without deep analysis, Rigour still runs 27+ deterministic quality gates.'));
     }
     console.log('');
 }
@@ -517,21 +587,169 @@ const IDE_TO_HOOK_TOOL: Record<string, string> = {
     windsurf: 'windsurf',
 };
 
-async function initHooksForDetectedTools(
+/**
+ * Build the pattern index so rigour_check_pattern can detect duplicates.
+ * Uses semantic embeddings by default for fuzzy matching.
+ * Non-fatal — if indexing fails, init still succeeds.
+ */
+async function buildPatternIndex(cwd: string, force?: boolean): Promise<void> {
+    try {
+        console.log(chalk.dim('\n   Building pattern index (this enables duplicate detection)...'));
+        const {
+            PatternIndexer,
+            savePatternIndex,
+            loadPatternIndex,
+            getDefaultIndexPath
+        } = await import('@rigour-labs/core/pattern-index');
+
+        const indexPath = getDefaultIndexPath(cwd);
+        const existingIndex = await loadPatternIndex(indexPath);
+
+        const indexer = new PatternIndexer(cwd, { useEmbeddings: false });
+
+        let index;
+        if (existingIndex && !force) {
+            index = await indexer.updateIndex(existingIndex);
+        } else {
+            index = await indexer.buildIndex();
+        }
+
+        await savePatternIndex(index, indexPath);
+        console.log(chalk.green(`✔ Pattern index built: ${index.stats.totalPatterns} patterns across ${index.stats.totalFiles} files`));
+    } catch (err: any) {
+        console.log(chalk.dim(`   (Pattern index build skipped: ${err?.message || err})`));
+    }
+}
+
+/**
+ * Initialize hooks for ALL detected IDEs/agents.
+ * Returns the list of hook tool names that were successfully initialized.
+ */
+async function initHooksForAllDetectedTools(
     cwd: string,
-    detectedIDE: DetectedIDE
-): Promise<void> {
-    const hookTool = IDE_TO_HOOK_TOOL[detectedIDE];
-    if (!hookTool) {
-        return; // Unknown IDE or no hook support (vscode, gemini, codex)
+    detectedIDEs: DetectedIDE[]
+): Promise<string[]> {
+    const enabledTools: string[] = [];
+
+    for (const ide of detectedIDEs) {
+        const hookTool = IDE_TO_HOOK_TOOL[ide];
+        if (!hookTool) continue; // No hook support (vscode, gemini, codex)
+
+        try {
+            console.log(chalk.dim(`\n   Setting up real-time hooks for ${ide}...`));
+            await hooksInitCommand(cwd, { tool: hookTool, dlp: true, force: true, block: true });
+            enabledTools.push(hookTool);
+        } catch (err: any) {
+            console.log(chalk.dim(`   (Hooks setup for ${ide} failed: ${err?.message || err})`));
+        }
     }
 
-    try {
-        console.log(chalk.dim(`\n   Setting up real-time hooks for ${detectedIDE}...`));
-        await hooksInitCommand(cwd, { tool: hookTool, dlp: true });
-        console.log(chalk.dim(`   🛑 DLP protection active — credentials intercepted before reaching agents`));
-    } catch {
-        // Non-fatal — hooks are a bonus, not a requirement
-        console.log(chalk.dim(`   (Hooks setup skipped — run 'rigour hooks init' manually)`));
+    if (enabledTools.length > 0) {
+        console.log(chalk.dim(`   🛑 DLP protection active for: ${enabledTools.join(', ')}`));
     }
+
+    return enabledTools;
+}
+
+/**
+ * Auto-register the Rigour MCP server for detected AI coding tools.
+ *
+ * Cursor: .cursor/mcp.json  → { mcpServers: { rigour: { command, args } } }
+ * Claude: .claude/settings.json → merge mcpServers into existing settings
+ */
+/**
+ * Resolve the MCP server config. If the CLI is running from a local dev
+ * checkout (not npx/global), point MCP at the sibling rigour-mcp dist
+ * so it works without publishing. Otherwise use npx.
+ */
+function resolveMCPServerConfig(): { command: string; args: string[] } {
+    // ESM has no __dirname — derive from import.meta.url
+    const thisDir = path.dirname(new URL(import.meta.url).pathname);
+    // thisDir is packages/rigour-cli/dist/commands/
+    // Sibling MCP package is at packages/rigour-mcp/dist/index.js
+    const localMcpEntry = path.resolve(thisDir, '../../../rigour-mcp/dist/index.js');
+    if (fs.existsSync(localMcpEntry)) {
+        // Running from local dev checkout — use local path
+        return { command: 'node', args: [localMcpEntry] };
+    }
+    // Fallback: published npm package
+    return { command: 'npx', args: ['-y', '@rigour-labs/mcp'] };
+}
+
+async function initMCPForDetectedTools(
+    cwd: string,
+    detectedIDEs: DetectedIDE[],
+    force?: boolean,
+): Promise<void> {
+    const mcpServerConfig = resolveMCPServerConfig();
+
+    for (const ide of detectedIDEs) {
+        try {
+            if (ide === 'cursor') {
+                await setupCursorMCP(cwd, mcpServerConfig, force);
+            } else if (ide === 'claude') {
+                await setupClaudeMCP(cwd, mcpServerConfig, force);
+            }
+            // Other IDEs: MCP not yet supported or handled differently
+        } catch {
+            // Non-fatal
+        }
+    }
+}
+
+async function setupCursorMCP(
+    cwd: string,
+    serverConfig: { command: string; args: string[] },
+    force?: boolean,
+): Promise<void> {
+    const mcpPath = path.join(cwd, '.cursor', 'mcp.json');
+    await fs.ensureDir(path.dirname(mcpPath));
+
+    let existing: any = {};
+    if (await fs.pathExists(mcpPath)) {
+        try {
+            existing = await fs.readJson(mcpPath);
+        } catch {
+            existing = {};
+        }
+        // Don't overwrite if rigour already registered (unless --force)
+        if (existing?.mcpServers?.rigour && !force) {
+            return;
+        }
+    }
+
+    if (!existing.mcpServers) existing.mcpServers = {};
+    existing.mcpServers.rigour = serverConfig;
+
+    await fs.writeJson(mcpPath, existing, { spaces: 4 });
+    console.log(chalk.green('✔ Registered Rigour MCP server (.cursor/mcp.json)'));
+}
+
+async function setupClaudeMCP(
+    cwd: string,
+    serverConfig: { command: string; args: string[] },
+    force?: boolean,
+): Promise<void> {
+    const settingsPath = path.join(cwd, '.claude', 'settings.json');
+    await fs.ensureDir(path.dirname(settingsPath));
+
+    // Always read existing settings (hooks may have written this file already)
+    let existing: any = {};
+    if (await fs.pathExists(settingsPath)) {
+        try {
+            existing = await fs.readJson(settingsPath);
+        } catch {
+            existing = {};
+        }
+        if (existing?.mcpServers?.rigour && !force) {
+            return;
+        }
+    }
+
+    // Merge — preserve existing hooks config, just add/update mcpServers.rigour
+    if (!existing.mcpServers) existing.mcpServers = {};
+    existing.mcpServers.rigour = serverConfig;
+
+    await fs.writeJson(settingsPath, existing, { spaces: 4 });
+    console.log(chalk.green('✔ Registered Rigour MCP server (.claude/settings.json)'));
 }

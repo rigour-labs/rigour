@@ -9,6 +9,7 @@ export { RetryLoopBreakerGate } from './gates/retry-loop-breaker.js';
 export { SideEffectAnalysisGate } from './gates/side-effect-analysis/index.js';
 export { FrontendSecretExposureGate } from './gates/frontend-secret-exposure.js';
 export * from './utils/logger.js';
+export { FileScanner } from './utils/scanner.js';
 export * from './services/score-history.js';
 export * from './hooks/index.js';
 // Settings Module (Global user config at ~/.rigour/settings.json)
@@ -33,6 +34,9 @@ export type { TemporalDriftReport, ProvenanceStream, MonthlyBucket, WeeklyBucket
 // Adaptive Thresholds (v5 — Z-score + per-provenance trends)
 export { getProvenanceTrends, getQualityTrend } from './services/adaptive-thresholds.js';
 export type { ProvenanceTrends, ProvenanceRunData } from './services/adaptive-thresholds.js';
+// Incremental Cache (cross-run file change detection)
+export { IncrementalCache } from './services/incremental-cache.js';
+export type { IncrementalResult } from './services/incremental-cache.js';
 // Pattern Index is intentionally NOT exported here to prevent
 // native dependency issues (sharp/transformers) from leaking into
 // non-AI parts of the system.

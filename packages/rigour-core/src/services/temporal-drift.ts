@@ -170,6 +170,8 @@ function toWeekKey(timestamp: number): string {
 
 // ─── Main Engine ────────────────────────────────────────────────────
 
+let _sqliteWarningShown = false;
+
 /**
  * Generate a complete temporal drift report for a project.
  *
@@ -182,7 +184,10 @@ function toWeekKey(timestamp: number): string {
 export async function generateTemporalDriftReport(cwd: string, maxScans = 200): Promise<TemporalDriftReport | null> {
     const db = await openDatabase();
     if (!db) {
-        Logger.warn('Temporal drift: SQLite not available');
+        if (!_sqliteWarningShown) {
+            _sqliteWarningShown = true;
+            Logger.warn('Temporal drift: SQLite not available — install sqlite3 to enable scan history');
+        }
         return null;
     }
 

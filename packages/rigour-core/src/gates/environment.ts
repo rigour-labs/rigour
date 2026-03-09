@@ -23,7 +23,7 @@ export class EnvironmentGate extends Gate {
             // Ensure range is a string
             const semverRange = String(range);
             try {
-                const { stdout } = await execa(tool, ['--version'], { shell: true });
+                const { stdout } = await execa(tool, ['--version']);
                 const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
 
                 if (versionMatch) {

@@ -63,7 +63,7 @@ export async function runLoop(cwd: string, agentArgs: string[], options: { itera
                 console.log(chalk.cyan(`\n🚀 DEPLOYING AGENT:`));
                 console.log(chalk.dim(`   Command: ${currentArgs.join(' ')}`));
                 try {
-                    await execa(currentArgs[0], currentArgs.slice(1), { shell: true, stdio: 'inherit', cwd });
+                    await execa(currentArgs[0], currentArgs.slice(1), { stdio: 'inherit', cwd });
                 } catch (error: any) {
                     console.warn(chalk.yellow(`\n⚠️  Agent command finished with non-zero exit code. Rigour will now verify state...`));
                 }

@@ -51,8 +51,24 @@ async function handleStatus(core: any): Promise<void> {
     const stats = await core.getProjectStats(cwd);
 
     if (!stats) {
-        console.log(chalk.yellow('   SQLite not available (sqlite3 not installed).'));
-        console.log(chalk.dim('   Run: npm install sqlite3'));
+        const os = await import('os');
+        const path = await import('path');
+        const fs = await import('fs-extra');
+        const rigourDir = path.default.join(os.default.homedir(), '.rigour');
+        console.log(chalk.yellow('   SQLite not available — installing sqlite3...'));
+        try {
+            const { execSync } = await import('child_process');
+            // Install into ~/.rigour/ so it's always findable regardless of cwd
+            await fs.default.ensureDir(rigourDir);
+            if (!fs.default.existsSync(path.default.join(rigourDir, 'package.json'))) {
+                fs.default.writeJsonSync(path.default.join(rigourDir, 'package.json'), { name: 'rigour-deps', private: true });
+            }
+            execSync('npm install sqlite3 --no-save', { cwd: rigourDir, stdio: 'pipe', timeout: 120000 });
+            console.log(chalk.green('   ✔ sqlite3 installed to ~/.rigour/. Re-run `rigour brain` to see stats.'));
+        } catch (err: any) {
+            console.log(chalk.red(`   Auto-install failed: ${err?.message?.slice(0, 100) || 'unknown error'}`));
+            console.log(chalk.dim('   Manual fix: cd ~/.rigour && npm install sqlite3'));
+        }
         return;
     }
 

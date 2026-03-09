@@ -167,8 +167,13 @@ export class GateRunner {
         const fileCache = new FileSystemCache();
 
         // 1. Run internal gates
+        const onProgress = deepOptions?.onProgress;
+        const totalGates = this.gates.length;
+        let gateIndex = 0;
         for (const gate of this.gates) {
+            gateIndex++;
             try {
+                onProgress?.(`  [${gateIndex}/${totalGates}] Running ${gate.id}...`);
                 const gateFailures = await gate.run({ cwd, record, ignore, patterns, fileCache });
                 if (gateFailures.length > 0) {
                     failures.push(...gateFailures);
@@ -201,7 +206,10 @@ export class GateRunner {
 
                 try {
                     Logger.info(`Running command gate: ${key} (${cmd})`);
-                    await execa(cmd, { shell: true, cwd });
+                    const parts = cmd.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [cmd];
+                    const bin = parts[0];
+                    const args = parts.slice(1).map(a => a.replace(/^["']|["']$/g, ''));
+                    await execa(bin, args, { cwd });
                     summary[key] = 'PASS';
                 } catch (error: any) {
                     summary[key] = 'FAIL';
@@ -280,8 +288,10 @@ export class GateRunner {
         failures.length = 0;
         failures.push(...deduped);
 
-        // Step 2: Calculate per-gate deductions with cap
-        const PER_GATE_CAP = 30; // No single gate can deduct more than 30 points
+        // Step 2: Calculate per-gate deductions with dynamic cap
+        // Cap scales with number of failing gates so score doesn't floor at 0 too easily
+        const uniqueFailingGates = new Set(failures.map(f => f.id || 'unknown')).size;
+        const PER_GATE_CAP = uniqueFailingGates > 0 ? Math.max(5, Math.floor(80 / uniqueFailingGates)) : 30;
         const severityBreakdown: Record<string, number> = {};
         const gateDeductions = new Map<string, number>();
         for (const f of failures) {
@@ -292,12 +302,16 @@ export class GateRunner {
             gateDeductions.set(gateId, (gateDeductions.get(gateId) || 0) + weight);
         }
 
-        // Step 3: Apply cap per gate and sum
+        // Step 3: Apply cap per gate and sum (max deduction capped at 90 so score never hits 0)
         let totalDeduction = 0;
         for (const [_gateId, deduction] of gateDeductions) {
             totalDeduction += Math.min(deduction, PER_GATE_CAP);
         }
-        const score = Math.max(0, 100 - totalDeduction);
+        // Cap total deduction at 90 so score has a meaningful floor
+        // (0 is reserved for catastrophic failures only)
+        const hasCritical = failures.some(f => f.severity === 'critical');
+        const maxDeduction = hasCritical ? 100 : 90;
+        const score = Math.max(0, 100 - Math.min(totalDeduction, maxDeduction));
 
         // Two-score system: separate AI health from structural quality
         // IMPORTANT: Only ai-drift affects ai_health_score, only traditional affects structural_score.

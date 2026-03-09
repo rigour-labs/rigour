@@ -127,10 +127,19 @@ export function getScoreTrend(cwd: string): ScoreTrend | null {
     const previousAvg = previousScores.reduce((a, b) => a + b, 0) / previousScores.length;
     const delta = recentAvg - previousAvg;
 
+    // If all recent scores are the same (e.g. all 0 or all 100), trend is stable
+    const allSame = recentScores.every(s => s === recentScores[0]);
+
     let direction: ScoreTrend['direction'];
-    if (delta > 3) direction = 'improving';
-    else if (delta < -3) direction = 'degrading';
-    else direction = 'stable';
+    if (allSame && previousScores.length > 0 && previousScores.every(s => s === recentScores[0])) {
+        direction = 'stable';
+    } else if (delta > 3) {
+        direction = 'improving';
+    } else if (delta < -3) {
+        direction = 'degrading';
+    } else {
+        direction = 'stable';
+    }
 
     return {
         direction,

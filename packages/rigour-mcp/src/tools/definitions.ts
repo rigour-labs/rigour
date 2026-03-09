@@ -29,7 +29,7 @@ export const TOOL_DEFINITIONS = [
     // ─── Core Quality Gates ───────────────────────────────
     {
         name: "rigour_check",
-        description: "Run quality gate checks on the project. Deep modes: off (fast deterministic gates only), quick (deep enabled with lite local model unless cloud provider is configured), full (deep enabled, optional pro flag for full deep model).",
+        description: "Run quality gate checks on the project. MUST be called before declaring any coding task complete. Checks code complexity, file size, required docs, security patterns, and more. Returns PASS or FAIL with details.",
         inputSchema: {
             type: "object",
             properties: {
@@ -175,13 +175,13 @@ export const TOOL_DEFINITIONS = [
     // ─── Memory Persistence ───────────────────────────────
     {
         name: "rigour_remember",
-        description: "Store a persistent instruction or context that the AI should remember across sessions. Use this to persist user preferences, project conventions, or critical instructions.",
+        description: "Store a persistent instruction or context that the AI should remember across sessions. Use this to persist user preferences, project conventions, or critical instructions. IMPORTANT: You must provide both 'key' (a short snake_case identifier) and 'value' (the full text to remember).",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
-                key: { type: "string", description: "A unique key for this memory (e.g., 'user_preferences', 'coding_style')." },
-                value: { type: "string", description: "The instruction or context to remember." },
+                key: { type: "string", description: "A short snake_case identifier for this memory, e.g. 'api_response_format', 'naming_convention', 'testing_strategy'. This is used to retrieve the memory later." },
+                value: { type: "string", description: "The full instruction or convention text to persist. This is the content that will be recalled in future sessions." },
             },
             required: ["cwd", "key", "value"],
         },
@@ -195,7 +195,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_recall",
-        description: "Retrieve stored instructions or context. Call this at the start of each session to restore memory. Returns all stored memories if no key specified.",
+        description: "Load project memory and stored conventions. CALL THIS at the start of every coding task to restore team decisions, naming conventions, and architectural preferences stored from previous sessions.",
         inputSchema: {
             type: "object",
             properties: {
@@ -235,7 +235,7 @@ export const TOOL_DEFINITIONS = [
     // ─── Pattern Intelligence ─────────────────────────────
     {
         name: "rigour_check_pattern",
-        description: "Checks if a proposed code pattern (function, component, etc.) already exists, is stale, or has security vulnerabilities (CVEs). CALL THIS BEFORE CREATING NEW CODE.",
+        description: "CALL THIS BEFORE creating any new function, component, hook, or class. Checks if it already exists in the codebase (prevents duplication), and checks for known security vulnerabilities. Pass the name and type of what you plan to create.",
         inputSchema: {
             type: "object",
             properties: {

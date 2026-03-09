@@ -151,20 +151,21 @@ export class SideEffectAnalysisGate extends Gate {
 
         Logger.info(`Side-Effect Analysis: Scanning ${files.length} files`);
 
-        for (const file of files) {
-            if (this.cfg.ignore_patterns.some(p => new RegExp(p).test(file))) continue;
-
-            const ext = path.extname(file).toLowerCase();
-            const lang = LANG_MAP[ext];
-            if (!lang) continue;
-
-            try {
+        const CONCURRENCY = 16;
+        const filteredFiles = files.filter(file =>
+            !this.cfg.ignore_patterns.some(p => new RegExp(p).test(file)) &&
+            LANG_MAP[path.extname(file).toLowerCase()]
+        );
+        for (let i = 0; i < filteredFiles.length; i += CONCURRENCY) {
+            const batch = filteredFiles.slice(i, i + CONCURRENCY);
+            await Promise.allSettled(batch.map(async (file) => {
+                const ext = path.extname(file).toLowerCase();
+                const lang = LANG_MAP[ext]!;
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
                 const lines = content.split('\n');
-
                 this.scanFile(lang, lines, content, file, violations);
-            } catch { /* skip unreadable files */ }
+            }));
         }
 
         return violations.map(v => violationToFailure(v, (msg, files, hint, title, sl, el, sev) =>

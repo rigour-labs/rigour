@@ -45,21 +45,26 @@ export class ASTGate extends Gate {
             ignore: ignore,
         });
 
-        for (const file of files) {
-            const handler = this.handlers.find(h => h.supports(file));
-            if (!handler) continue;
+        // Process files concurrently in batches for performance
+        const CONCURRENCY = 16;
+        for (let i = 0; i < files.length; i += CONCURRENCY) {
+            const batch = files.slice(i, i + CONCURRENCY);
+            const results = await Promise.allSettled(batch.map(async (file) => {
+                const handler = this.handlers.find(h => h.supports(file));
+                if (!handler) return [];
 
-            const fullPath = path.join(context.cwd, file);
-            try {
+                const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
-                const gateFailures = await handler.run({
+                return handler.run({
                     cwd: context.cwd,
                     file: file,
                     content
                 });
-                failures.push(...gateFailures);
-            } catch (error: any) {
-                // Individual file read failures shouldn't crash the whole run
+            }));
+            for (const result of results) {
+                if (result.status === 'fulfilled' && result.value.length > 0) {
+                    failures.push(...result.value);
+                }
             }
         }
 

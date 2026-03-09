@@ -44,8 +44,22 @@ const server = new Server(
 
 // ─── Tool Listing ─────────────────────────────────────────────────
 
+// Only expose essential tools by default to improve agent tool selection.
+// Research shows agents degrade at 30+ tools (wrong picks, hallucinated args).
+// Power-user tools are still callable — they just aren't advertised in the tool list.
+const ESSENTIAL_TOOLS = new Set([
+    'rigour_check',           // Run quality gates (BEFORE declaring done)
+    'rigour_check_pattern',   // Check if code exists (BEFORE creating new code)
+    'rigour_recall',          // Load project memory (START of every task)
+    'rigour_remember',        // Store conventions/decisions
+    'rigour_explain',         // Explain gate failures
+    'rigour_review',          // Review diffs
+    'rigour_security_audit',  // CVE check
+    'rigour_forget',          // Remove stored memory
+]);
+
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOL_DEFINITIONS,
+    tools: TOOL_DEFINITIONS.filter(t => ESSENTIAL_TOOLS.has(t.name)),
 }));
 
 // ─── Tool Dispatch ────────────────────────────────────────────────
@@ -87,7 +101,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "rigour_mcp_set_settings": result = await handleMcpSetSettings(cwd, args as any); break;
 
             // Memory
-            case "rigour_remember":      result = await handleRemember(cwd, (args as any).key, (args as any).value); break;
+            case "rigour_remember":      result = await handleRemember(cwd, (args as any).key, (args as any).value || (args as any).content); break;
             case "rigour_recall":        result = await handleRecall(cwd, (args as any).key); break;
             case "rigour_forget":        result = await handleForget(cwd, (args as any).key); break;
 

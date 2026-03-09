@@ -100,36 +100,46 @@ export class TestQualityGate extends Gate {
 
         Logger.info(`Test Quality: Scanning ${files.length} test files`);
 
-        for (const file of files) {
-            try {
+        const CONCURRENCY = 16;
+        for (let i = 0; i < files.length; i += CONCURRENCY) {
+            const batch = files.slice(i, i + CONCURRENCY);
+            const results = await Promise.allSettled(batch.map(async (file) => {
                 const fullPath = path.join(context.cwd, file);
                 const content = await fs.readFile(fullPath, 'utf-8');
                 const ext = path.extname(file);
                 const adapter = languageAdapters.getAdapter(file);
-                if (!adapter) continue;
+                if (!adapter) return [];
 
-                const langConfig = {
-                    check_empty_tests: this.config.check_empty_tests,
-                    check_tautological: this.config.check_tautological,
-                    check_mock_heavy: this.config.check_mock_heavy,
-                    max_mocks_per_test: this.config.max_mocks_per_test,
-                };
-
+                const localIssues: typeof issues = [];
                 switch (adapter.id) {
                     case 'js':
-                        this.checkJSTestQuality(content, file, issues);
+                        this.checkJSTestQuality(content, file, localIssues);
                         break;
                     case 'python':
-                        this.checkPythonTestQuality(content, file, issues);
+                        this.checkPythonTestQuality(content, file, localIssues);
                         break;
                     case 'go':
-                        checkGoTestQuality(content, file, issues, langConfig);
+                        checkGoTestQuality(content, file, localIssues, {
+                            check_empty_tests: this.config.check_empty_tests,
+                            check_tautological: this.config.check_tautological,
+                            check_mock_heavy: this.config.check_mock_heavy,
+                            max_mocks_per_test: this.config.max_mocks_per_test,
+                        });
                         break;
                     case 'java':
-                        checkJavaKotlinTestQuality(content, file, ext, issues, langConfig);
+                        checkJavaKotlinTestQuality(content, file, ext, localIssues, {
+                            check_empty_tests: this.config.check_empty_tests,
+                            check_tautological: this.config.check_tautological,
+                            check_mock_heavy: this.config.check_mock_heavy,
+                            max_mocks_per_test: this.config.max_mocks_per_test,
+                        });
                         break;
                 }
-            } catch { /* skip */ }
+                return localIssues;
+            }));
+            for (const result of results) {
+                if (result.status === 'fulfilled') issues.push(...result.value);
+            }
         }
 
         // Group by file

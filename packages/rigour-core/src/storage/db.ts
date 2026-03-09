@@ -20,12 +20,28 @@ let _resolved = false;
 function loadSqlite3(): any {
     if (_resolved) return sqlite3Module;
     _resolved = true;
-    try {
-        const require = createRequire(import.meta.url);
-        sqlite3Module = require('sqlite3');
-    } catch {
-        sqlite3Module = null;
+
+    // Try multiple resolution paths:
+    // 1. Relative to this package (works when sqlite3 is installed in monorepo)
+    // 2. Relative to cwd (works when user installs sqlite3 in their project)
+    // 3. Relative to global node_modules (works for global installs)
+    const searchPaths = [
+        import.meta.url,
+        `file://${process.cwd()}/package.json`,
+        `file://${path.join(os.homedir(), '.rigour', 'package.json')}`,
+    ];
+
+    for (const base of searchPaths) {
+        try {
+            const req = createRequire(base);
+            sqlite3Module = req('sqlite3');
+            if (sqlite3Module) return sqlite3Module;
+        } catch {
+            // Try next path
+        }
     }
+
+    sqlite3Module = null;
     return sqlite3Module;
 }
 

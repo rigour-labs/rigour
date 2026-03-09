@@ -15,6 +15,7 @@ import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
+import { deepStatsCommand } from './commands/deep-stats.js';
 import { checkForUpdates } from './utils/version.js';
 import { getCliVersion } from './utils/cli-version.js';
 import chalk from 'chalk';
@@ -26,6 +27,7 @@ const program = new Command();
 program.addCommand(indexCommand);
 program.addCommand(studioCommand);
 program.addCommand(brainCommand);
+program.addCommand(deepStatsCommand);
 
 program
     .name('rigour')
@@ -77,6 +79,7 @@ program
     .option('--api-base-url <url>', 'Custom API base URL (for self-hosted or proxy endpoints)')
     .option('--model-name <name>', 'Override cloud model name')
     .option('--agents <count>', 'Number of parallel agents for deep scan (cloud-only, default: 1)', '1')
+    .option('--no-cache', 'Force full scan even if no files changed')
     .addHelpText('after', `
 Examples:
   $ rigour check                                          # AST only. Instant. Free.
@@ -307,11 +310,15 @@ settingsCmd
 (async () => {
     try {
         const updateInfo = await checkForUpdates(CLI_VERSION);
-        // Suppress update message in JSON/CI mode to keep stdout clean
-        const isSilent = process.argv.includes('--json') || process.argv.includes('--ci');
-        if (updateInfo?.hasUpdate && !isSilent) {
-            console.log(chalk.yellow(`\n⚡ Update available: ${updateInfo.currentVersion} → ${updateInfo.latestVersion}`));
-            console.log(chalk.dim(`   Run: npx @rigour-labs/cli@latest init --force\n`));
+        // Suppress update message when stdout must be clean JSON:
+        // --json, --ci flags, or hooks subcommand (Cursor/Claude parse stdout as JSON)
+        const isSilent = process.argv.includes('--json') || process.argv.includes('--ci') || process.argv.includes('hooks');
+        // Skip for local dev builds where package.json version hasn't been bumped
+        const isDevBuild = CLI_VERSION === '1.0.0' || CLI_VERSION === '0.0.0';
+        if (updateInfo?.hasUpdate && !isSilent && !isDevBuild) {
+            // Use stderr so stdout stays clean for programmatic consumers
+            console.error(chalk.yellow(`\n⚡ Update available: ${updateInfo.currentVersion} → ${updateInfo.latestVersion}`));
+            console.error(chalk.dim(`   Run: npx @rigour-labs/cli@latest init --force\n`));
         }
     } catch {
         // Ignore version check errors

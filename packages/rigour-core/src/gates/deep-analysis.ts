@@ -70,10 +70,24 @@ export class DeepAnalysisGate extends Gate {
             onProgress?.('\n  Setting up Rigour Brain...\n');
             this.provider = createProvider(this.config.options);
 
+            // Pre-check availability to fail fast instead of hanging on install
+            const isLocalProvider = !this.config.options.apiKey || this.config.options.provider === 'local';
+            if (isLocalProvider) {
+                const available = await this.provider.isAvailable();
+                if (!available) {
+                    onProgress?.('  ⚠ Local inference binary not found. Attempting auto-install...');
+                    onProgress?.('  (This may take a moment on first run)');
+                }
+            }
+
             await Promise.race([
                 this.provider.setup(onProgress),
                 new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Setup timed out. Check network or model availability.')), SETUP_TIMEOUT_MS)
+                    setTimeout(() => reject(new Error(
+                        'Deep analysis setup timed out.\n' +
+                        '  If local: run `rigour doctor` to check sidecar binary status.\n' +
+                        '  If cloud: check your API key with `rigour settings show`.'
+                    )), SETUP_TIMEOUT_MS)
                 ),
             ]);
 
