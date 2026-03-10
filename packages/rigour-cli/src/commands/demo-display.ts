@@ -285,7 +285,26 @@ export function printClosing(cinematic: boolean): void {
     console.log(chalk.white('  $ npx @rigour-labs/cli check'));
     console.log(chalk.white('  $ npx @rigour-labs/cli hooks init'));
     console.log('');
-    console.log(chalk.dim('GitHub: https://github.com/rigour-labs/rigour'));
+
+    // ── Rigovo Ecosystem ──
+    console.log(divider);
+    console.log(chalk.bold('Rigovo Ecosystem — AI-Native Engineering Platform\n'));
+
+    console.log(chalk.bold('  Rigour'));
+    console.log(chalk.dim('  Quality gates for AI-generated code (this tool)'));
+    console.log(chalk.dim('  27+ deterministic gates + local LLM deep analysis'));
+    console.log(chalk.white('  https://github.com/rigour-labs/rigour\n'));
+
+    console.log(chalk.bold('  Rigovo HR'));
+    console.log(chalk.dim('  AI-powered technical hiring — Maya AI interviewer'));
+    console.log(chalk.dim('  15-signal verification, job success prediction, evidence reports'));
+    console.log(chalk.white('  https://rigovo.com\n'));
+
+    console.log(chalk.bold('  Rigovo Virtual Team'));
+    console.log(chalk.dim('  Multi-agent software delivery with deterministic quality gates'));
+    console.log(chalk.dim('  Planning → Coding → Review → QA → Security → DevOps pipeline'));
+    console.log(chalk.white('  https://github.com/rigovo/rigovo-virtual-team\n'));
+
     console.log(chalk.dim('Docs:   https://docs.rigour.run'));
     console.log(chalk.dim('Paper:  https://zenodo.org/records/18673564\n'));
 

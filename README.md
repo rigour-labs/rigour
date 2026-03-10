@@ -151,10 +151,20 @@ Add Rigour as an MCP server — agents get quality gates, governed memory, and p
 ## Demo
 
 ```bash
-rigour demo --cinematic --repo https://github.com/fastapi/fastapi
+rigour demo                                              # Quick demo with hooks + gates
+rigour demo --cinematic                                  # Full demo: hooks, fix, cache hit
+rigour demo --repo https://github.com/fastapi/fastapi    # Run on any public repo
 ```
 
-Clones any public repo, injects realistic AI drift (hardcoded secrets, hallucinated imports, floating promises), and shows Rigour catching each issue live.
+## Rigovo Ecosystem
+
+Rigour is part of the **Rigovo AI-Native Engineering Platform**:
+
+| Product | What it does | Link |
+|---|---|---|
+| **Rigour** | Quality gates for AI-generated code (27+ gates + local LLM) | [GitHub](https://github.com/rigour-labs/rigour) |
+| **Rigovo HR** | AI-powered technical hiring — Maya AI interviewer, 15-signal verification | [rigovo.com](https://rigovo.com) |
+| **Rigovo Virtual Team** | Multi-agent software delivery with deterministic quality gates | [GitHub](https://github.com/rigovo/rigovo-virtual-team) |
 
 ## Documentation
 

@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { GateRunner, ConfigSchema } from '@rigour-labs/core';
+import { GateRunner, ConfigSchema, IncrementalCache, FileScanner } from '@rigour-labs/core';
 import { recordScore, getScoreTrend } from '@rigour-labs/core';
 import type { DemoOptions } from './demo-helpers.js';
 import { pause, typewrite } from './demo-helpers.js';
@@ -293,6 +293,30 @@ export async function handleRequest(req: express.Request, res: express.Response)
             console.log(chalk.green.bold('  All issues resolved!'));
         }
         console.log('');
+
+        // ── Incremental Cache Demo ──
+        // Save cache after the rescan, then run a third scan to show cache hit
+        try {
+            const allFiles = await FileScanner.findFiles({ cwd: demoDir, ignore: config.ignore });
+            const cache = new IncrementalCache(demoDir);
+            await cache.save(allFiles, configContent, report2);
+
+            await pause(300, options);
+            console.log(chalk.bold.blue('Running scan again (no changes)...\n'));
+            await pause(200, options);
+
+            const cacheStart = Date.now();
+            const cacheResult = await cache.check(allFiles, configContent);
+            const cacheMs = Date.now() - cacheStart;
+
+            if (cacheResult.hit) {
+                console.log(chalk.green.bold(`  ⚡ Incremental cache hit — ${cacheMs}ms (no files changed)`));
+                console.log(chalk.dim(`  Skipped all 27+ gates. Same result returned instantly.`));
+                console.log(chalk.dim(`  Use --no-cache to force a full re-scan.\n`));
+            }
+        } catch {
+            // Cache demo is best-effort
+        }
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error(chalk.red(`Re-check error: ${msg}`));
