@@ -17,6 +17,11 @@ interface SecurityCache {
     result: SecurityResult;
 }
 
+interface AuditCommand {
+    cmd: string;
+    args: string[];
+}
+
 export class SecurityDetector {
     private rootDir: string;
     private cachePath: string;
@@ -40,33 +45,8 @@ export class SecurityDetector {
                 return cached;
             }
 
-            // Run npm audit --json for machine-readable CVE data
-            const { stdout } = await execa('npm', ['audit', '--json'], {
-                cwd: this.rootDir,
-                reject: false // npm audit returns non-zero for found vulnerabilities
-            });
-
-            const auditData = JSON.parse(stdout);
-            const vulnerabilities: SecurityEntry[] = [];
-
-            if (auditData.vulnerabilities) {
-                for (const [name, vuln] of Object.entries(auditData.vulnerabilities as any)) {
-                    const v = vuln as any;
-
-                    // Dig into the advisory data
-                    const via = v.via && Array.isArray(v.via) ? v.via[0] : null;
-
-                    vulnerabilities.push({
-                        cveId: via?.name || 'N/A',
-                        packageName: name,
-                        vulnerableRange: v.range,
-                        severity: v.severity,
-                        title: via?.title || `Vulnerability in ${name}`,
-                        url: via?.url || `https://www.npmjs.com/package/${name}/vulnerability`,
-                        currentVersion: v.nodes && v.nodes[0] ? v.version : undefined
-                    });
-                }
-            }
+            const auditData = await this.runBestAvailableAudit();
+            const vulnerabilities = this.extractVulnerabilities(auditData);
 
             const result: SecurityResult = {
                 status: vulnerabilities.length > 0 ? 'VULNERABLE' : 'SECURE',
@@ -133,6 +113,79 @@ export class SecurityDetector {
             // No cache or invalid cache
         }
         return null;
+    }
+
+    private async runBestAvailableAudit(): Promise<any> {
+        const candidates = await this.getAuditCommandCandidates();
+
+        let lastError: unknown = null;
+        for (const candidate of candidates) {
+            try {
+                const { stdout, stderr } = await execa(candidate.cmd, candidate.args, {
+                    cwd: this.rootDir,
+                    reject: false // audit tools return non-zero when vulnerabilities are found
+                });
+                const output = stdout || stderr;
+                return JSON.parse(output);
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        throw lastError || new Error('No audit command available');
+    }
+
+    private async getAuditCommandCandidates(): Promise<AuditCommand[]> {
+        const hasPnpmLock = await fs.access(path.join(this.rootDir, 'pnpm-lock.yaml')).then(() => true).catch(() => false);
+        if (hasPnpmLock) {
+            return [
+                { cmd: 'pnpm', args: ['audit', '--json'] },
+                { cmd: 'npm', args: ['audit', '--json'] }
+            ];
+        }
+
+        const hasYarnLock = await fs.access(path.join(this.rootDir, 'yarn.lock')).then(() => true).catch(() => false);
+        if (hasYarnLock) {
+            return [
+                { cmd: 'yarn', args: ['npm', 'audit', '--json'] },
+                { cmd: 'npm', args: ['audit', '--json'] }
+            ];
+        }
+
+        return [{ cmd: 'npm', args: ['audit', '--json'] }];
+    }
+
+    private extractVulnerabilities(auditData: any): SecurityEntry[] {
+        const vulnerabilities: SecurityEntry[] = [];
+
+        if (!auditData || !auditData.vulnerabilities || typeof auditData.vulnerabilities !== 'object') {
+            return vulnerabilities;
+        }
+
+        for (const [name, vuln] of Object.entries(auditData.vulnerabilities as any)) {
+            vulnerabilities.push(this.toSecurityEntry(name, vuln));
+        }
+
+        return vulnerabilities;
+    }
+
+    private toSecurityEntry(name: string, vuln: any): SecurityEntry {
+        const viaList = Array.isArray(vuln?.via) ? vuln.via : [];
+        const via = viaList[0];
+        const cveId = via?.name ?? 'N/A';
+        const title = via?.title ?? `Vulnerability in ${name}`;
+        const url = via?.url ?? `https://www.npmjs.com/package/${name}/vulnerability`;
+        const currentVersion = vuln?.nodes?.[0] ? vuln.version : undefined;
+
+        return {
+            cveId,
+            packageName: name,
+            vulnerableRange: vuln.range,
+            severity: vuln.severity,
+            title,
+            url,
+            currentVersion,
+        };
     }
 
     private async saveCache(hash: string, result: SecurityResult): Promise<void> {
