@@ -16,6 +16,9 @@ import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, s
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
 import { deepStatsCommand } from './commands/deep-stats.js';
+import { reviewCommand } from './commands/review.js';
+import { checkPatternCommand } from './commands/check-pattern.js';
+import { securityAuditCommand } from './commands/security-audit.js';
 import { checkForUpdates } from './utils/version.js';
 import { getCliVersion } from './utils/cli-version.js';
 import chalk from 'chalk';
@@ -215,6 +218,63 @@ program
     .description('Diagnose install conflicts and deep-mode readiness')
     .action(async () => {
         await doctorCommand();
+    });
+
+program
+    .command('review')
+    .description('Review a diff against quality gates (filter to changed lines)')
+    .option('--json', 'Output report in JSON format')
+    .option('--ci', 'CI mode (minimal output)')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .option('--diff <path>', 'Path to diff file (reads stdin if omitted)')
+    .option('--files <paths>', 'Comma-separated list of changed files (auto-detected from diff if omitted)')
+    .option('--deep', 'Enable deep LLM-powered analysis')
+    .option('--pro', 'Use full deep model for analysis')
+    .option('-k, --api-key <key>', 'Cloud API key for deep analysis')
+    .option('--provider <name>', 'Cloud provider for deep analysis')
+    .option('--api-base-url <url>', 'Custom API base URL')
+    .option('--model-name <name>', 'Override cloud model name')
+    .addHelpText('after', `
+Examples:
+  $ git diff | rigour review --json                    # Review staged changes (JSON)
+  $ git diff main..HEAD | rigour review                # Review branch changes
+  $ rigour review --diff changes.patch --deep          # Review diff file with deep analysis
+  $ git diff | rigour review --ci                      # CI-friendly review
+    `)
+    .action(async (options: any) => {
+        await reviewCommand(process.cwd(), options);
+    });
+
+program
+    .command('check-pattern')
+    .description('Check if a pattern already exists, is stale, or has security issues')
+    .requiredOption('-n, --name <name>', 'Name of the function, class, or component to create')
+    .option('-t, --type <type>', 'Pattern type (function, component, hook, class)')
+    .option('-i, --intent <intent>', 'What the code is for (e.g., "format dates", "import lodash")')
+    .option('--json', 'Output report in JSON format')
+    .addHelpText('after', `
+Examples:
+  $ rigour check-pattern --name useDebounce --type hook             # Check before creating hook
+  $ rigour check-pattern --name formatDate --type function --json   # JSON output
+  $ rigour check-pattern --name lodash --intent "import lodash"     # Checks CVEs too
+    `)
+    .action(async (options: any) => {
+        await checkPatternCommand(process.cwd(), options);
+    });
+
+program
+    .command('security-audit')
+    .description('Run a CVE security audit on project dependencies')
+    .option('--json', 'Output report in JSON format')
+    .option('--ci', 'CI mode (minimal output)')
+    .addHelpText('after', `
+Examples:
+  $ rigour security-audit                 # Human-readable security report
+  $ rigour security-audit --json          # Machine-readable JSON
+  $ rigour security-audit --ci            # CI pipeline integration
+    `)
+    .action(async (options: any) => {
+        await securityAuditCommand(process.cwd(), options);
     });
 
 const hooksCmd = program
