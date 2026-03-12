@@ -115,25 +115,23 @@ export async function persistAndReinforce(
     const repoName = path.basename(cwd);
 
     try {
-        await db.transaction(async (tx) => {
-            const scanId = await insertScan(tx, repoName, report as any, meta);
+        const scanId = await insertScan(db, repoName, report as any, meta);
 
-            if (report.failures.length > 0) {
-                await insertFindings(tx, scanId, report.failures);
-            }
+        if (report.failures.length > 0) {
+            await insertFindings(db, scanId, report.failures);
+        }
 
-            for (const f of report.failures) {
-                const category = f.category || f.id;
-                const source: 'ast' | 'llm' = f.source === 'llm' ? 'llm' : 'ast';
-                await reinforcePattern(
-                    tx, repoName, category,
-                    `${f.title}: ${f.details?.substring(0, 120)}`,
-                    source,
-                );
-            }
+        for (const f of report.failures) {
+            const category = f.category || f.id;
+            const source: 'ast' | 'llm' = f.source === 'llm' ? 'llm' : 'ast';
+            await reinforcePattern(
+                db, repoName, category,
+                `${f.title}: ${f.details?.substring(0, 120)}`,
+                source,
+            );
+        }
 
-            await decayPatterns(tx, 30);
-        });
+        await decayPatterns(db, 30);
 
         Logger.info(
             `Local memory: stored ${report.failures.length} findings, ` +

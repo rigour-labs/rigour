@@ -206,28 +206,6 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
             }
         }
 
-        // Persist to SQLite if deep analysis was used
-        if (isDeep) {
-            try {
-                const { openDatabase, insertScan, insertFindings } = await import('@rigour-labs/core');
-                const db = await openDatabase();
-                if (db) {
-                    const repoName = path.basename(cwd);
-                    const scanId = await insertScan(db, repoName, report, {
-                        deepTier: report.stats.deep?.tier || (options.pro ? 'deep' : (resolvedDeepMode?.isLocal ? 'lite' : 'cloud')),
-                        deepModel: report.stats.deep?.model,
-                    });
-                    await insertFindings(db, scanId, report.failures);
-                    await db.close();
-                }
-            } catch (dbError: any) {
-                // SQLite persistence is best-effort — log but don't fail
-                if (process.env.RIGOUR_DEBUG) {
-                    console.error(`[rigour] SQLite persistence failed: ${dbError.message}`);
-                }
-            }
-        }
-
         await logStudioEvent(cwd, {
             type: "tool_response",
             requestId,

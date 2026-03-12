@@ -14,7 +14,7 @@ import {
     recordScore,
     getScoreTrend,
 } from '@rigour-labs/core';
-import { buildDeepOpts, persistDeepResults, renderDeepScanResults } from './scan-deep.js';
+import { buildDeepOpts, renderDeepScanResults } from './scan-deep.js';
 
 // Exit codes per spec
 const EXIT_PASS = 0;
@@ -107,8 +107,6 @@ export async function scanCommand(cwd: string, files: string[] = [], options: Sc
 
         await writeReportArtifacts(cwd, report, scanCtx.config);
         await writeLastScanJson(cwd, scanCtx, stackSignals, report, isDeep);
-        persistDeepResults(cwd, report, isDeep, options);
-
         if (options.json) {
             outputJson(scanCtx, stackSignals, report);
             return;

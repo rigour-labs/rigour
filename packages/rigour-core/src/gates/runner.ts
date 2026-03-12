@@ -376,13 +376,16 @@ export class GateRunner {
             },
         };
 
-        // Store findings + reinforce patterns in local SQLite (non-blocking)
-        persistAndReinforce(cwd, report, deepStats ? {
-            deepTier: deepStats.tier,
-            deepModel: deepStats.model,
-        } : undefined).catch(() => {
+        // Store findings + reinforce patterns in local SQLite before returning.
+        // CLI commands call process.exit(), so fire-and-forget writes can be dropped.
+        try {
+            await persistAndReinforce(cwd, report, deepStats ? {
+                deepTier: deepStats.tier,
+                deepModel: deepStats.model,
+            } : undefined);
+        } catch {
             // Silent — local memory is advisory, never blocks scans
-        });
+        }
 
         // v5: Record per-provenance data for adaptive thresholds + temporal drift
         try {
