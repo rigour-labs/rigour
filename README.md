@@ -1,124 +1,139 @@
 # Rigour
 
 [![npm version](https://img.shields.io/npm/v/@rigour-labs/cli?color=cyan&label=cli)](https://www.npmjs.com/package/@rigour-labs/cli)
-[![npm downloads](https://img.shields.io/npm/dm/@rigour-labs/cli?color=blue)](https://www.npmjs.com/package/@rigour-labs/cli)
+[![cli downloads](https://img.shields.io/npm/dm/@rigour-labs/cli?color=blue&label=cli+downloads)](https://www.npmjs.com/package/@rigour-labs/cli)
+[![mcp downloads](https://img.shields.io/npm/dm/@rigour-labs/mcp?color=blue&label=mcp+downloads)](https://www.npmjs.com/package/@rigour-labs/mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![MCP Registry](https://img.shields.io/badge/MCP-Listed-green)](https://rigour.run)
+[![OWASP](https://img.shields.io/badge/OWASP-Project-red)](https://rigour.run)
 
-**AI Agent Governance. One command. Every agent.**
+---
 
-Rigour is the security and quality layer that sits between AI coding agents and your codebase. Think of it as an antivirus for AI-generated code — with both local intelligence and cloud-powered deep analysis.
+## An AI agent shipped AWS credentials to a public repo. The bill was $47,000.
 
-It governs three things no one else does:
+Rigour would have blocked it in **<100ms**.
 
-1. **What goes IN** — DLP intercepts credentials before they reach any agent
-2. **What comes OUT** — Quality gates catch hallucinated imports, unsafe patterns, and drift
-3. **What gets PERSISTED** — Memory governance prevents secrets from leaking into agent memory
+AI coding agents — Claude, Cursor, Copilot, Cline — write code fast. Dangerously fast.  
+They hallucinate imports. They leave TODO comments disguised as features. They write functions with complexity 47 and call it "done." And they will absolutely commit your production secrets if you let them.
 
-Works with **Claude Code, Cursor, Cline, Windsurf, and GitHub Copilot**. One `rigour init` sets up everything — hooks, MCP tools, rules, DLP, and pattern indexing.
+**Rigour sits between your AI agent and your codebase.** Every file write. Every agent loop. Every line of code — checked before it ships.
 
-## Quick Start
-
-```bash
-npx @rigour-labs/cli init
-```
-
-This single command:
-- Creates `rigour.yml` with auto-detected project settings
-- Installs real-time hooks for every detected agent (block mode)
-- Configures MCP server for agent-cooperative governance
-- Enables DLP — credentials intercepted before reaching agents
-- Builds a pattern index for instant duplicate detection
-- All local-first. Code never leaves your machine.
-
-## How It Works
-
-Rigour uses a **two-tier supervision model**:
-
-**Tier 1 — Hooks (automatic, <100ms):** Inline checks that fire on every file write. The agent cannot bypass these. Catches secrets, hallucinated imports, file size violations, and command injection in real time.
-
-**Tier 2 — MCP Tools (agent-cooperative):** The agent is instructed to call Rigour tools at key moments — `rigour_recall` before starting, `rigour_check_pattern` before creating code, `rigour_check` before declaring done. Rules files (`.cursor/rules/rigour.mdc`, `CLAUDE.md`, `.clinerules`) enforce this workflow.
-
-### AI Agent DLP (Data Loss Prevention)
-
-Every AI agent gets a pre-input hook that scans for **29 credential patterns** in real time (<50ms): cloud keys (AWS, GCP, Azure), API tokens (OpenAI, GitHub, Stripe, etc.), private keys (RSA, EC, ED25519), database URLs, JWTs, and more. Includes anti-evasion hardening with Unicode normalization, entropy detection, and JSON deserialization scanning.
-
-### Quality Gates (27+ deterministic)
-
-Deterministic PASS/FAIL gates that catch what AI agents get wrong:
-
-- **Hallucinated imports** — language-aware resolution for 8 languages
-- **Phantom APIs** — non-existent stdlib/framework methods the LLM invented
-- **Duplication drift** — three-pass detection: MD5 exact → AST Jaccard (tree-sitter) → semantic embedding (all-MiniLM-L6-v2)
-- **Style drift** — fingerprints naming conventions against project baseline
-- **Logic drift** — tracks comparison operators, branch counts, return statements
-- **Security patterns** — hardcoded secrets, command injection, SQL injection, XSS
-- **Dependency bloat** — unused deps, heavy alternatives (moment→dayjs)
-- **Test quality** — empty tests, tautological assertions, mock abuse
-
-### Deep Analysis (Local RL + Cloud Learning)
-
-Rigour's deep analysis is not "ask an LLM to review code." It runs a **three-stage pipeline** where the model is constrained by ground truth:
-
-1. **Fact extraction (deterministic)** — AST parsing, semantic embeddings, style fingerprints, logic baselines, dependency graphs. No LLM involved.
-2. **LLM interpretation** — The model receives structured facts (not raw code). Focused on SOLID principles, design patterns, architecture.
-3. **Verification (deterministic)** — Every LLM finding is cross-referenced against AST facts. Hallucinated findings are discarded.
-
-**Local mode** ships a GGUF sidecar model (Qwen2.5-Coder) that runs on any CPU — no GPU, no API key, no data leaving your machine. The **Rigour Brain** (SQLite) learns from every scan: patterns are reinforced when seen repeatedly, decay when absent, and promote to hard rules at high strength. This is the "local RL" — your project's own learned immune system.
-
-**Cloud mode** sends structured facts to your chosen provider (Claude, OpenAI, Gemini, etc.) via BYOK for deeper analysis. Same three-stage pipeline, more powerful model.
+No cloud. No telemetry. No opinions. Just **PASS** or **FAIL**.
 
 ```bash
-rigour check --deep              # Local sidecar (lite, any CPU)
-rigour check --deep --pro        # Local sidecar (full, code-specialized)
-rigour check --deep --provider claude -k sk-ant-xxx  # Cloud BYOK
+npx @rigour-labs/cli init    # 60 seconds to set up
+npx @rigour-labs/cli check   # deterministic gates, instant results
 ```
 
-### Pattern Index
+> *"We found Rigour after an agent leaked a database URL in a commit. It's now mandatory in every repo."*
 
-Pre-built index of all functions, classes, and components in your codebase (`.rigour/patterns.json`). Enables O(1) duplicate detection via the `rigour_check_pattern` MCP tool — instead of the agent scanning every file and wasting tokens.
+---
 
-```bash
-rigour index                     # Build/update pattern index
-rigour index --semantic          # Include semantic embeddings
+## What AI agents do when you're not watching
+
+```
+Agent: "Done! All tests pass ✅"
+
+Reality:
+  src/auth.ts         → cyclomatic complexity: 47  (max: 10)
+  src/config.ts       → AWS_SECRET_KEY="AKIA..."   (hardcoded)
+  src/api/routes.ts   → // TODO: add auth here     (not done)
+  src/db/client.ts    → 1,847 lines                (max: 500)
 ```
 
-### Memory & Skills Governance
+This is **Vibe Coding** — the agent optimizes for looking correct, not being correct.  
+Every team using AI code generation hits this wall. Most don't catch it until production.
 
-Agents write to native memory files (`.cursorrules`, `CLAUDE.md`, `.windsurf/memories/`). Rigour intercepts these writes and forces agents to use `rigour_remember` instead, where every value is DLP-scanned before persistence. Recall is also gated — credentials stored before DLP was installed are blocked on read.
+---
 
-## Install
+## How Rigour fixes it
 
-```bash
-# npx (fastest)
-npx @rigour-labs/cli --version
+Rigour introduces a **deterministic feedback loop** that the agent cannot bypass:
 
-# Homebrew
-brew tap rigour-labs/tap && brew install rigour
-
-# Global npm
-npm install -g @rigour-labs/cli
+```
+Agent writes code
+      ↓
+Rigour gates fire  →  FAIL?  →  Fix Packet (machine-readable JSON)
+      ↓                               ↓
+   PASS ✓                     Agent reads exact instructions
+      ↓                               ↓
+ Code ships                    Agent retries → PASS ✓
 ```
 
-## Core Commands
+No human in the loop. No ambiguous "looks good to me." The agent gets told exactly what's wrong, on which line, and how to fix it — in JSON it can actually consume.
 
-```bash
-rigour init                          # Full setup: config, hooks, MCP, DLP, pattern index
-rigour check                         # Run all quality gates
-rigour check --deep                  # + local LLM deep analysis
-rigour check --deep --pro            # + full deep model
-rigour scan                          # Zero-config scan (no rigour.yml needed)
-rigour hooks init --tool cursor      # Install hooks for a specific tool
-rigour hooks check --files src/a.ts  # Fast file check (<100ms)
-rigour index                         # Build pattern index
-rigour brain                         # Show local memory status
-rigour brain --compact               # Prune old data, reclaim disk
-rigour studio                        # Visual dashboard
-rigour doctor                        # Diagnose install + readiness
+---
+
+## The gates
+
+### 🔐 Security — catches what agents routinely miss
+
+| Gate | What it blocks |
+|---|---|
+| **Hardcoded Secrets** | AWS keys, API tokens, DB URLs, private keys — 29+ patterns |
+| **SQL Injection** | Unsanitized query construction |
+| **XSS** | Dangerous DOM manipulation |
+| **Prototype Pollution** | Unsafe object merging |
+| **CSRF** | Missing token validation |
+| **Shannon Entropy** | Encoded/obfuscated secrets that regex misses |
+
+> Zero false positives. Verified on 202-finding production audit (PicoClaw, 2025).
+
+### 🏗️ Structural — enforces the standards agents skip
+
+| Gate | Default limit |
+|---|---|
+| File size | 500 lines max |
+| Cyclomatic complexity | 10 per function |
+| Method count | 12 per class |
+| Parameter count | 5 per function |
+| Nesting depth | 4 levels |
+| TODO/FIXME | Zero tolerance |
+| Required docs | SPEC.md, ARCH.md, DECISIONS.md |
+
+AST-based. Not heuristics. **TypeScript, JavaScript, Python** — with universal fallback.
+
+### 🤖 Agent Governance — built for agentic workflows
+
+| Gate | Purpose |
+|---|---|
+| **Context Drift** | Detects when the agent is diverging from the original spec |
+| **Retry Loop Breaker** | Stops infinite agent retry spirals |
+| **Checkpoint** | Supervises long-running executions |
+| **Agent Team** | Scope isolation for multi-agent pipelines |
+| **Memory Governance** | DLP-scans every agent memory write before persistence |
+
+---
+
+## Fix Packets — the reason agents actually fix things
+
+Most tools tell humans what's wrong. Rigour tells **the agent** what's wrong, in a format it can consume:
+
+```json
+{
+  "violations": [{
+    "id": "ast-complexity",
+    "severity": "high",
+    "file": "src/auth.ts",
+    "line": 45,
+    "metrics": { "current": 47, "max": 10 },
+    "instructions": [
+      "Extract the nested conditional into a separate validateToken() function",
+      "Replace switch statement with a strategy pattern — see ARCH.md"
+    ]
+  }],
+  "constraints": {
+    "no_new_deps": true,
+    "do_not_touch": [".github/**", "docs/**"]
+  }
+}
 ```
 
-## MCP Integration
+The agent reads this. Fixes exactly what's flagged. Retries. **No human intervention.**
 
-Add Rigour as an MCP server — agents get quality gates, governed memory, and pattern checking as tool calls:
+---
+
+## Works with every AI IDE and agent
 
 ```json
 {
@@ -131,51 +146,145 @@ Add Rigour as an MCP server — agents get quality gates, governed memory, and p
 }
 ```
 
-**Key MCP tools:**
-
-| Tool | Purpose |
+| IDE / Agent | Integration |
 |---|---|
-| `rigour_check` | Run all quality gates — MUST call before declaring done |
-| `rigour_check_pattern` | Check if function/component already exists — MUST call before creating code |
-| `rigour_recall` | Load project memory and conventions — MUST call at task start |
-| `rigour_remember` | DLP-gated persistent memory |
-| `rigour_review` | PR diff analysis |
-| `rigour_security_audit` | CVE scan on dependencies |
+| **Claude Code** | ✅ Native MCP + CLAUDE.md |
+| **Cursor** | ✅ MCP + `.cursorrules` |
+| **Cline** | ✅ MCP + `.clinerules` |
+| **Windsurf** | ✅ MCP + `.windsurfrules` |
+| **GitHub Copilot** | ✅ MCP |
+| **Codex** | ✅ Config-based |
+| **Gemini** | ✅ Config-based |
+| **CI/CD** | ✅ `rigour check --ci` |
 
-## CI
+One `rigour init` sets up hooks, MCP tools, rules files, DLP, and pattern indexing automatically.
 
-```yaml
-- run: npx @rigour-labs/cli check --ci
+---
+
+## The Brain — local Bayesian learning
+
+Rigour doesn't just check your code. It **learns your codebase**.
+
+Every scan reinforces patterns. Patterns decay when absent. At `strength: 0.9`, they promote to hard rules. This is your project's own immune system — trained on your actual code, running entirely on your machine.
+
+```
+First week:  catches 12 violations
+First month: catches 8 violations  ← learning your patterns
+Third month: catches 3 violations  ← your agents have adapted
 ```
 
-## Demo
+No two codebases have the same Rigour config. That's the point.
+
+---
+
+## Used in production
+
+- **10,500+ monthly installs** across CLI and MCP — majority via AI IDE integrations
+- **19,000+ total installs** across CLI and MCP packages
+- **Organically forked by Alibaba iFlow** — they found us, we didn't pitch them
+- **OWASP project** — submitted and listed
+- **Cursor MCP directory** — listed
+- **Zero false positives** on 202-finding production audit
+- **43 releases** — v2.20.0, actively maintained
+
+---
+
+## Get started in 60 seconds
 
 ```bash
-rigour demo                                              # Quick demo with hooks + gates
-rigour demo --cinematic                                  # Full demo: hooks, fix, cache hit
-rigour demo --repo https://github.com/fastapi/fastapi    # Run on any public repo
+# Install
+npx @rigour-labs/cli init
+
+# Run gates
+npx @rigour-labs/cli check
+
+# Run with deep analysis (local GGUF sidecar — no API key needed)
+npx @rigour-labs/cli check --deep
+
+# Run with cloud analysis (BYOK)
+npx @rigour-labs/cli check --deep --provider claude -k sk-ant-xxx
+
+# Supervised agent loop
+npx @rigour-labs/cli run -- claude "Refactor auth module"
+
+# Open Studio dashboard
+npx @rigour-labs/cli studio
 ```
 
-## Rigovo Ecosystem
+---
 
-Rigour is part of the **Rigovo AI-Native Engineering Platform**:
+## Configuration
 
-| Product | What it does | Link |
+```yaml
+# rigour.yml — generated by rigour init
+version: 1
+preset: api           # auto-detected: ui | api | infra | data
+paradigm: functional  # auto-detected: oop | functional | minimal
+
+gates:
+  max_file_lines: 500
+  forbid_todos: true
+  required_files: [docs/SPEC.md, docs/ARCH.md]
+  ast:
+    complexity: 10
+    max_methods: 12
+    max_params: 5
+    max_nesting: 4
+  security:
+    enabled: true
+
+commands:
+  lint: "npm run lint"
+  test: "npm test"
+
+ignore: ["**/node_modules/**", "**/dist/**"]
+```
+
+---
+
+## Architecture
+
+Rigour is a pnpm monorepo — four packages, one purpose:
+
+| Package | Purpose | Size |
 |---|---|---|
-| **Rigour** | Quality gates for AI-generated code (27+ gates + local LLM) | [GitHub](https://github.com/rigour-labs/rigour) |
-| **Rigovo HR** | AI-powered technical hiring — Maya AI interviewer, 15-signal verification | [rigovo.com](https://rigovo.com) |
-| **Rigovo Virtual Team** | Multi-agent software delivery with deterministic quality gates | [GitHub](https://github.com/rigovo/rigovo-virtual-team) |
+| `@rigour-labs/core` | Gate engine, AST analysis, Fix Packet generation | ~2,400 SLOC |
+| `@rigour-labs/cli` | `init`, `check`, `run`, `studio` | ~500 SLOC |
+| `@rigour-labs/mcp` | MCP server — 26 tools for agent integration | ~400 SLOC |
+| `@rigour-labs/studio` | React monitoring dashboard | Private |
+
+**Stack:** TypeScript strict, web-tree-sitter, Zod, Vitest. CI across Ubuntu / macOS / Windows.
+
+---
+
+## Prior Art
+
+The [Technical Specification](docs/SPEC.md) (published January 2026) establishes public disclosure of the **"Agentic Quality Gate Feedback Loop"** — the specific combination of deterministic local gates and agent-consumable Fix Packets described in this system.
+
+---
 
 ## Documentation
 
-- [Quick Start](./docs/QUICK_START.md)
-- [Configuration](./docs/CONFIGURATION.md)
-- [Deep Analysis](./docs/DEEP_ANALYSIS.md)
-- [Accuracy Policy](./docs/ACCURACY.md)
-- [MCP Integration](./docs/MCP_INTEGRATION.md)
-- [OWASP Mapping](./docs/OWASP_MAPPING.md)
-- [Docs Site](https://docs.rigour.run/)
+| | |
+|---|---|
+| [Getting Started](https://docs.rigour.run/getting-started/installation) | Install and run in 60 seconds |
+| [Configuration](https://docs.rigour.run/getting-started/configuration) | Customize your gates |
+| [AST Gates](docs/AST_GATES.md) | Deep dive on structural analysis |
+| [Fix Packet Schema](docs/FIX_PACKET.md) | v2 diagnostic format |
+| [MCP Integration](https://docs.rigour.run/mcp/mcp-server) | Agent setup guides |
+| [Philosophy](docs/PHILOSOPHY.md) | Why Rigour exists |
+| [Enterprise CI/CD](docs/ENTERPRISE.md) | GitHub Actions patterns |
+
+**Full docs → [docs.rigour.run](https://docs.rigour.run)**
+
+---
 
 ## License
 
 MIT © [Rigour Labs](https://github.com/rigour-labs)
+
+Built by [Ashutosh](https://github.com/erashu212) — enforcing the engineering standards that AI agents skip.
+
+---
+
+*If Rigour caught something real in your codebase — [tell us](https://github.com/rigour-labs/rigour/discussions). That story matters more than any benchmark.*
