@@ -53,6 +53,7 @@ const ESSENTIAL_TOOLS = new Set([
     'rigour_recall',          // Load project memory (START of every task)
     'rigour_remember',        // Store conventions/decisions
     'rigour_explain',         // Explain gate failures
+    'rigour_get_fix_packet',  // Get structured fix instructions on FAIL
     'rigour_review',          // Review diffs
     'rigour_security_audit',  // CVE check
     'rigour_forget',          // Remove stored memory

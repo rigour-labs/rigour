@@ -213,49 +213,16 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
     await fs.ensureDir(rigourDocsDir);
     const instructionsPath = path.join(rigourDocsDir, 'AGENT_INSTRUCTIONS.md');
 
-    const ruleContent = `# 🛡️ Rigour: Mandatory Engineering Governance Protocol
+    const ruleContent = `# Rigour: Engineering Governance
 
-**You are an AI Engineering Agent governed by Rigour.** You MUST use the Rigour MCP tools at specific points in your workflow. This is non-negotiable.
+This project uses **Rigour MCP tools** for automated quality governance. The tools are self-describing — read their descriptions to discover the correct workflow automatically.
 
-## 🚦 BEFORE Writing Any Code
+## Key Rules
 
-1. **Load Context**: Call the \`rigour_recall\` MCP tool to load project memory and conventions.
-2. **Check Patterns**: Call the \`rigour_check_pattern\` MCP tool with the name and type of what you're about to create (e.g., name: "capitalize", type: "function"). This prevents reinventing existing utilities and catches security issues (CVEs).
-
-## ✍️ AFTER Writing Code (Automatic)
-
-Real-time hooks run automatically after every file edit. If a hook returns a violation, you MUST fix the issue before continuing. Do NOT ignore hook warnings or errors.
-
-## ✅ BEFORE Declaring "Done"
-
-1. **Run Quality Gates**: Call the \`rigour_check\` MCP tool to verify all quality gates pass.
-2. **If FAIL**: Read the failure details, fix the code, and call \`rigour_check\` again.
-3. **Only declare a task complete when \`rigour_check\` returns PASS.**
-
-## 📋 Available Rigour MCP Tools
-
-You MUST use these tools. They are registered via MCP and available in your tool list:
-
-- \`rigour_recall\` — Load project memory and conventions (call at the START of every task)
-- \`rigour_check_pattern\` — Check if a function/component/hook already exists BEFORE creating a new one
-- \`rigour_check\` — Run all quality gates (call BEFORE declaring done)
-- \`rigour_explain\` — Get detailed, actionable fix instructions for gate failures
-- \`rigour_get_fix_packet\` — Get machine-readable fix data for automated remediation
-- \`rigour_remember\` — Save important decisions, conventions, or context for future tasks
-- \`rigour_security_audit\` — Audit project dependencies for known CVEs
-- \`rigour_review\` — Review a code diff against quality gates
-- \`rigour_hooks_check\` — Run the fast hook checker on specific files manually
-
-## ⚖️ Transparency & Accountability
-
-Every action, tool call, and code change is automatically logged to the project's local audit trail. This data is visible in real-time in **Rigour Studio** (the human-monitored governance dashboard).
-
-## ⚠️ CRITICAL RULES
-
-- NEVER skip the governance loop (recall → check_pattern → write → rigour_check)
-- NEVER modify \`rigour.yml\` thresholds or ignore lists to make checks pass
-- NEVER claim "done" without a passing \`rigour_check\` result
-- If you're unsure whether to proceed, call \`rigour_check\` — it's fast and free
+- **Never** modify \`rigour.yml\` thresholds or ignore lists to make checks pass — fix the code instead.
+- **Never** claim "done" without a passing quality gate result.
+- Real-time hooks run automatically after every file edit. If a hook blocks you, fix the issue before continuing.
+- All actions are logged to the project's audit trail, visible in **Rigour Studio**.
 
 ${AGNOSTIC_AI_INSTRUCTIONS}
 ${CODE_QUALITY_RULES}
@@ -281,40 +248,20 @@ ${COLLABORATION_RULES}
         // Cursor .mdc must be SHORT and forceful — long rules get ignored.
         // Keep ONLY the mandatory MCP tool workflow, no generic coding advice.
         const mdcContent = `---
-description: MANDATORY - Rigour governance. You MUST call Rigour MCP tools before and after every code task.
+description: Rigour governance — use Rigour MCP tools for quality gates.
 globs: **/*
 alwaysApply: true
 ---
 
-# Rigour Governance — MANDATORY for every task
+# Rigour Governance
 
-You MUST follow this exact sequence for EVERY coding task. No exceptions.
+This project uses **Rigour MCP tools** for automated quality governance. The tools are self-describing — read their descriptions to discover the correct workflow automatically.
 
-## Step 1: BEFORE writing any code
-\`\`\`
-Call rigour_recall        → loads project memory and conventions
-Call rigour_check_pattern → checks if the thing you're creating already exists
-\`\`\`
-Both calls are REQUIRED before you write a single line of code.
+Hooks run automatically after every file edit. If a hook blocks you, fix the issue before continuing.
 
-## Step 2: Write your code
-Hooks will automatically check your code after each file edit. If a hook blocks you, fix the issue immediately.
-
-## Step 3: BEFORE saying "done"
-\`\`\`
-Call rigour_check → runs all quality gates
-\`\`\`
-If it returns FAIL, fix the issues and call rigour_check again. You may ONLY declare done when it returns PASS.
-
-## When the user asks you to remember something
-\`\`\`
-Call rigour_remember with key="short_snake_case_id" and value="the full text to remember"
-\`\`\`
-
-## NEVER do these
-- Never skip rigour_recall at the start of a task
-- Never skip rigour_check before declaring done
-- Never modify rigour.yml to make checks pass
+## Rules
+- Never modify rigour.yml to make checks pass — fix the code instead.
+- Never claim "done" without a passing quality gate result.
 `;
 
         if (!(await fs.pathExists(mdcPath)) || options.force) {
@@ -342,24 +289,15 @@ Call rigour_remember with key="short_snake_case_id" and value="the full text to 
         const claudePath = path.join(cwd, 'CLAUDE.md');
         const claudeContent = `# CLAUDE.md - Project Instructions for Claude Code
 
-This file provides Claude Code with context about this project.
+This project uses Rigour for quality gates. Rigour MCP tools are available — they are self-describing.
 
-## Quick Commands
+## CLI Commands (alternative to MCP tools)
 
 \`\`\`bash
-# Run quality gates (CLI alternative to MCP)
-npx @rigour-labs/cli check
-
-# Get fix instructions
-npx @rigour-labs/cli explain
-
-# Self-healing agent loop
-npx @rigour-labs/cli run -- claude "<task>"
+npx @rigour-labs/cli check      # Run quality gates
+npx @rigour-labs/cli explain    # Explain failures
+npx @rigour-labs/cli run -- claude "<task>"  # Self-healing agent loop
 \`\`\`
-
-## Rigour MCP Tools (PREFERRED over CLI)
-
-Use the Rigour MCP tools instead of CLI commands when available. They are faster and integrated into your workflow.
 
 ${ruleContent}`;
 
@@ -376,11 +314,7 @@ ${ruleContent}`;
         const geminiStylePath = path.join(geminiDir, 'styleguide.md');
         const geminiContent = `# Gemini Code Assist Style Guide
 
-This project uses Rigour for quality gates.
-
-## Required Before Completion
-
-Always run \`npx @rigour-labs/cli check\` before marking any task complete.
+This project uses Rigour for quality gates. If Rigour MCP tools are available, they are self-describing — use them.
 
 ${ruleContent}`;
 
@@ -393,24 +327,13 @@ ${ruleContent}`;
     // OpenAI Codex / Aider (AGENTS.md - Universal Standard)
     if (shouldSetup('codex')) {
         const agentsPath = path.join(cwd, 'AGENTS.md');
-        const agentsContent = `# AGENTS.md - Universal AI Agent Instructions
+        const agentsContent = `# AGENTS.md - AI Agent Instructions
 
-This file provides instructions for AI coding agents (Codex, Aider, and others).
-
-## Setup
+This project uses Rigour for quality gates. If Rigour MCP tools are available, they are self-describing — use them. Otherwise use the CLI:
 
 \`\`\`bash
-npm install
-npm run dev
-npm test
-\`\`\`
-
-## Quality Gates
-
-This project uses Rigour. Before completing any task:
-
-\`\`\`bash
-npx @rigour-labs/cli check
+npx @rigour-labs/cli check   # Run quality gates (must PASS before task is done)
+npx @rigour-labs/cli explain # Explain failures
 \`\`\`
 
 ${ruleContent}`;

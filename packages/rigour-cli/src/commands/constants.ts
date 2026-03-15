@@ -187,23 +187,19 @@ If thresholds genuinely need adjustment, escalate to the team lead with justific
 `;
 
 export const AGNOSTIC_AI_INSTRUCTIONS = `
-# 🤖 CRITICAL INSTRUCTION FOR AI
+# Rigour Quality Gates
 
-When asked to implement a feature or fix an issue:
+This project uses **Rigour MCP tools** for automated quality governance.
+The tools are self-describing — follow their descriptions to discover the correct workflow.
 
-1. **FIRST**: Read ALL relevant rules files (e.g., \`.cursor/rules/*.mdc\`, \`.clinerules\`, \`docs/AGENT_INSTRUCTIONS.md\`).
-2. **NEVER** claim "done" until you can demonstrate the feature WORKS or the fix is verified.
-3. **ALWAYS** run \`npx @rigour-labs/cli check\` before claiming completion.
-4. **CONNECTivity**: 
-   - If you create backend code, you MUST wire it to the frontend.
-   - If you create a service, you MUST connect it to the UI.
+## Key Rules
+- **Never** modify \`rigour.yml\` to pass checks — fix the code instead.
+- **Never** claim "done" until you can demonstrate the feature works or the fix is verified.
+- If you create backend code, wire it to the frontend. If you create a service, connect it to the UI.
 
-## ✅ VERIFICATION PROOF REQUIRED
-
+## Verification
 Before saying "done", show ONE of:
-- Screenshot/output proving it works.
+- Output proving it works.
 - The exact commands the user can run to verify.
-- The full flow from initiation (e.g., button click) to result.
-
-"Code exists" ≠ "Feature works"
+- The full flow from initiation to result.
 `;
