@@ -395,6 +395,8 @@ export class GateRunner {
                 aiDriftFailures: provenanceCounts['ai-drift'],
                 structuralFailures: provenanceCounts['traditional'],
                 securityFailures: provenanceCounts['security'],
+                governanceFailures: provenanceCounts['governance'],
+                deepAnalysisFailures: provenanceCounts['deep-analysis'],
             };
             recordGateRun(cwd, passedCount, failedCount, failures.length, provenanceData);
         } catch {

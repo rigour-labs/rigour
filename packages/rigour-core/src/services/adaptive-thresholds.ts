@@ -55,6 +55,8 @@ export interface ProvenanceRunData {
     aiDriftFailures: number;
     structuralFailures: number;
     securityFailures: number;
+    governanceFailures?: number;
+    deepAnalysisFailures?: number;
 }
 
 export interface ProvenanceTrends {
@@ -250,9 +252,9 @@ export function getProvenanceTrends(cwd: string): ProvenanceTrends {
     const baseline = withProvenance.slice(0, -RECENT_WINDOW);
 
     const computeForField = (field: keyof ProvenanceRunData): { trend: QualityTrend; z: number } => {
-        const baselineValues = baseline.map(r => r.provenance![field]);
+        const baselineValues = baseline.map(r => r.provenance![field] ?? 0);
         const { mean, std } = meanAndStd(baselineValues);
-        const recentAvg = recent.reduce((sum, r) => sum + r.provenance![field], 0) / recent.length;
+        const recentAvg = recent.reduce((sum, r) => sum + (r.provenance![field] ?? 0), 0) / recent.length;
         const z = zScore(recentAvg, mean, std);
         return { trend: trendFromZScore(z), z: Math.round(z * 100) / 100 };
     };
