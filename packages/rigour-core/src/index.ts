@@ -37,6 +37,9 @@ export type { ProvenanceTrends, ProvenanceRunData } from './services/adaptive-th
 // Incremental Cache (cross-run file change detection)
 export { IncrementalCache } from './services/incremental-cache.js';
 export type { IncrementalResult } from './services/incremental-cache.js';
+// Terminal Renderer (rich CLI/MCP output)
+export { renderScoreGauge, renderSeveritySection, renderGateGrid, renderBrainStatus, renderFullReport, renderMcpHeadline, renderFixAttribution } from './services/terminal-renderer.js';
+export type { RenderOptions, GateResult } from './services/terminal-renderer.js';
 // Pattern Index is intentionally NOT exported here to prevent
 // native dependency issues (sharp/transformers) from leaking into
 // non-AI parts of the system.

@@ -6,7 +6,7 @@
  *
  * @since v2.17.0 — extracted from monolithic index.ts
  */
-import { GateRunner, Report } from "@rigour-labs/core";
+import { GateRunner, Report, renderMcpHeadline, renderFixAttribution } from "@rigour-labs/core";
 import type { Config, DeepOptions } from "@rigour-labs/core";
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean; _rigour_report?: Report };
@@ -79,10 +79,13 @@ export async function handleCheck(runner: GateRunner, cwd: string, args: CheckAr
               ? '\nPrivacy: Local sidecar/model execution. Code remains on this machine.'
               : `\nPrivacy: Cloud provider execution. Code context may be sent to ${execution.provider} API.`}`;
 
+    // Human-facing headline — agents naturally pass this through to users
+    const headline = renderMcpHeadline(report);
+
     const result: ToolResult = {
         content: [{
             type: "text",
-            text: `RIGOUR AUDIT RESULT: ${report.status}${scoreText}${sevText}${deepText}\n\nSummary:\n${Object.entries(report.summary).map(([k, v]) => `- ${k}: ${v}`).join("\n")}`,
+            text: `${headline}\n\n${scoreText.trim()}${sevText}${deepText}\n\nSummary:\n${Object.entries(report.summary).map(([k, v]) => `- ${k}: ${v}`).join("\n")}`,
         }],
     };
     result._rigour_report = report;
@@ -146,8 +149,15 @@ export async function handleGetFixPacket(runner: GateRunner, cwd: string, config
     const fixPacketService = new FixPacketService();
     const fixPacket = fixPacketService.generate(report, config);
 
+    // Find worst violation for attribution
+    const worst = report.failures.find(f => f.severity === 'critical')
+        || report.failures.find(f => f.severity === 'high')
+        || report.failures[0];
+    const worstLabel = worst ? worst.title : 'quality violations';
+    const attribution = renderFixAttribution(report.failures.length, worstLabel);
+
     return {
-        content: [{ type: "text", text: formatFixPacketText(fixPacket, report) }],
+        content: [{ type: "text", text: formatFixPacketText(fixPacket, report) + attribution }],
     };
 }
 

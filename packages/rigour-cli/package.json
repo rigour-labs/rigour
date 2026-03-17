@@ -1,21 +1,30 @@
 {
     "name": "@rigour-labs/cli",
     "version": "1.0.0",
-    "description": "CLI quality gates for AI-generated code. Forces AI agents (Claude, Cursor, Copilot) to meet strict engineering standards with PASS/FAIL enforcement.",
+    "description": "AI-native quality gates with local LLM analysis. Forces AI agents (Claude, Cursor, Copilot, Cline, Windsurf) to meet engineering standards. Bayesian Brain learns your codebase. Zero config: npx rigour-scan.",
     "license": "MIT",
     "homepage": "https://rigour.run",
     "keywords": [
-        "quality-gates",
+        "ai",
+        "llm",
         "ai-code-quality",
+        "ai-agent",
+        "quality-gates",
         "cli",
         "linter",
         "static-analysis",
+        "security",
+        "vibe-coding",
         "claude",
         "cursor",
         "copilot",
+        "cline",
+        "windsurf",
         "mcp",
         "code-review",
-        "ci-cd"
+        "ci-cd",
+        "fix-packets",
+        "agent-governance"
     ],
     "type": "module",
     "bin": {

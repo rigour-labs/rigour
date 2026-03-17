@@ -1,21 +1,28 @@
 {
     "name": "@rigour-labs/core",
     "version": "1.0.0",
-    "description": "Deterministic quality gate engine for AI-generated code. AST analysis, drift detection, and Fix Packet generation across TypeScript, JavaScript, Python, Go, Ruby, and C#.",
+    "description": "AI-native quality gate engine with local Bayesian learning. AST analysis, drift detection, Fix Packet generation, and agent self-healing across TypeScript, JavaScript, Python, Go, Ruby, and C#.",
     "license": "MIT",
     "homepage": "https://rigour.run",
     "keywords": [
-        "quality-gates",
+        "ai",
+        "llm",
         "ai-code-quality",
+        "quality-gates",
         "static-analysis",
         "ast",
         "drift-detection",
         "code-review",
         "linter",
+        "machine-learning",
+        "bayesian-learning",
+        "fix-packets",
+        "agent-governance",
+        "vibe-coding",
+        "security",
         "typescript",
         "python",
-        "golang",
-        "csharp"
+        "golang"
     ],
     "type": "module",
     "files": [

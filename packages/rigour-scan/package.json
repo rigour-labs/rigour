@@ -1,0 +1,38 @@
+{
+    "name": "rigour-scan",
+    "version": "1.0.0",
+    "description": "AI-native code quality scanner. npx rigour-scan → instant security, drift, and structural analysis on any repo. Zero config. Local Bayesian learning. Catches what AI agents miss.",
+    "license": "MIT",
+    "homepage": "https://rigour.run",
+    "keywords": [
+        "ai",
+        "llm",
+        "rigour",
+        "ai-agent",
+        "ai-code-quality",
+        "quality-gates",
+        "static-analysis",
+        "security",
+        "vibe-coding",
+        "code-review",
+        "claude",
+        "cursor",
+        "copilot",
+        "cline",
+        "mcp"
+    ],
+    "bin": {
+        "rigour-scan": "./bin.js"
+    },
+    "files": [
+        "bin.js"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/rigour-labs/rigour"
+    },
+    "publishConfig": {
+        "access": "public",
+        "provenance": true
+    }
+}

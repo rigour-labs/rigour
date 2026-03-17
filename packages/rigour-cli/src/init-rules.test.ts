@@ -36,11 +36,11 @@ describe('Init Command Rules Verification', () => {
         const mdcContent = await fs.readFile(mdcPath, 'utf-8');
 
         // Check for agnostic instructions
-        expect(instructionsContent).toContain('# 🤖 CRITICAL INSTRUCTION FOR AI');
-        expect(instructionsContent).toContain('VERIFICATION PROOF REQUIRED');
+        expect(instructionsContent).toContain('# Rigour Quality Gates');
+        expect(instructionsContent).toContain('Verification');
 
         // Check for key sections in universal instructions
-        expect(instructionsContent).toContain('# 🛡️ Rigour: Mandatory Engineering Governance Protocol');
+        expect(instructionsContent).toContain('# Rigour: Engineering Governance');
         expect(instructionsContent).toContain('# Code Quality Standards');
 
         // Check that MDC includes governance rules
@@ -54,7 +54,7 @@ describe('Init Command Rules Verification', () => {
         expect(await fs.pathExists(clineRulesPath)).toBe(true);
 
         const content = await fs.readFile(clineRulesPath, 'utf-8');
-        expect(content).toContain('# 🤖 CRITICAL INSTRUCTION FOR AI');
+        expect(content).toContain('# Rigour: Engineering Governance');
     });
 
 });

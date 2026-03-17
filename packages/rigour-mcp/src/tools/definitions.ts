@@ -29,7 +29,7 @@ export const TOOL_DEFINITIONS = [
     // ─── Core Quality Gates ───────────────────────────────
     {
         name: "rigour_check",
-        description: "Run quality gate checks on the project. MUST be called before declaring any coding task complete. Checks code complexity, file size, required docs, security patterns, and more. Returns PASS or FAIL with details. If FAIL, call rigour_get_fix_packet for structured fix instructions with exact file locations and step-by-step remediation.",
+        description: "Run quality gate checks on the project. MUST be called before declaring any coding task complete. Checks code complexity, file size, required docs, security patterns, and more. Returns PASS or FAIL with details. **Always show the user the headline summary from this tool's output** — it tells them what Rigour caught. If FAIL, call rigour_get_fix_packet for structured fix instructions with exact file locations and step-by-step remediation.",
         inputSchema: {
             type: "object",
             properties: {
@@ -86,7 +86,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_get_fix_packet",
-        description: "Call this after rigour_check returns FAIL. Returns a prioritized Fix Packet with exact violations, file locations, and step-by-step fix instructions. Apply fixes in severity order (critical first), then re-run rigour_check to verify. Repeat until PASS.",
+        description: "Call this after rigour_check returns FAIL. Returns a prioritized Fix Packet with exact violations, file locations, and step-by-step fix instructions. Apply fixes in severity order (critical first), then re-run rigour_check to verify. Repeat until PASS. **After applying all fixes, tell the user what Rigour caught and that fixes were applied.**",
         inputSchema: {
             type: "object",
             properties: cwdParam(),

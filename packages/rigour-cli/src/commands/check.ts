@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { GateRunner, ConfigSchema, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend, IncrementalCache } from '@rigour-labs/core';
+import { GateRunner, ConfigSchema, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend, IncrementalCache, renderFullReport, type RenderOptions } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
 import inquirer from 'inquirer';
 import { randomUUID } from 'crypto';
@@ -498,64 +498,22 @@ function renderDeepOutput(
 }
 
 /**
- * Render standard AST-only output (existing behavior).
+ * Render standard AST-only output — uses shared terminal renderer.
  */
-function renderStandardOutput(report: any, config: any) {
-    if (report.status === 'PASS') {
-        console.log(chalk.green.bold('✔ PASS - All quality gates satisfied.'));
-    } else {
-        console.log(chalk.red.bold('✘ FAIL - Quality gate violations found.\n'));
+function renderStandardOutput(report: any, _config: any) {
+    const trend = getScoreTrend(process.cwd());
+    const renderOpts: RenderOptions = {
+        showBrain: true,
+        brainPatterns: 0,
+        brainTrend: 'stable',
+    };
 
-        // Score summary line
-        const stats = report.stats;
-        const scoreParts: string[] = [];
-        if (stats.score !== undefined) scoreParts.push(`Score: ${stats.score}/100`);
-        if (stats.ai_health_score !== undefined) scoreParts.push(`AI Health: ${stats.ai_health_score}/100`);
-        if (stats.structural_score !== undefined) scoreParts.push(`Structural: ${stats.structural_score}/100`);
-        if (scoreParts.length > 0) {
-            console.log(chalk.bold(scoreParts.join(' | ')) + '\n');
-        }
-
-        // Severity breakdown
-        if (stats.severity_breakdown) {
-            const parts = Object.entries(stats.severity_breakdown)
-                .filter(([, count]) => (count as number) > 0)
-                .map(([sev, count]) => {
-                    const color = sev === 'critical' ? chalk.red.bold : sev === 'high' ? chalk.red : sev === 'medium' ? chalk.yellow : chalk.dim;
-                    return color(`${sev}: ${count}`);
-                });
-            if (parts.length > 0) {
-                console.log('Severity: ' + parts.join(', ') + '\n');
-            }
-        }
-
-        // ── Temporal Drift Trends (standard mode) ──
-        try {
-            const trend = getQualityTrend(process.cwd());
-            if (trend !== 'stable') {
-                const trendIcon = trend === 'improving' ? chalk.green('↑') : chalk.red('↓');
-                const trendColor = trend === 'improving' ? chalk.green : chalk.red;
-                console.log(`Trend: ${trendIcon} ${trendColor(trend)} (Z-score)\n`);
-            }
-        } catch { /* ignore */ }
-
-        for (const failure of report.failures as Failure[]) {
-            const sev = severityIcon(failure.severity);
-            const prov = (failure as any).provenance ? chalk.dim(`[${(failure as any).provenance}]`) : '';
-            console.log(`${sev} ${prov} ${chalk.red(`[${failure.id}]`)} ${failure.title}`);
-            console.log(chalk.dim(`      Details: ${failure.details}`));
-            if (failure.files && failure.files.length > 0) {
-                console.log(chalk.dim('      Files:'));
-                failure.files.forEach((f: string) => console.log(chalk.dim(`        - ${f}`)));
-            }
-            if (failure.hint) {
-                console.log(chalk.cyan(`      Hint: ${failure.hint}`));
-            }
-            console.log('');
-        }
-
-        console.log(chalk.yellow(`See ${config.output.report_path} for full details.`));
+    if (trend && trend.recentScores.length >= 3) {
+        renderOpts.recentScores = trend.recentScores;
+        renderOpts.brainTrend = trend.direction as 'improving' | 'degrading' | 'stable';
     }
+
+    console.log(renderFullReport(report, renderOpts));
 }
 
 function severityIcon(s?: string): string {

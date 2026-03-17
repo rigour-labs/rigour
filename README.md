@@ -7,146 +7,37 @@
 [![MCP Registry](https://img.shields.io/badge/MCP-Listed-green)](https://rigour.run)
 [![OWASP](https://img.shields.io/badge/OWASP-Project-red)](https://rigour.run)
 
----
+**Your AI agent just tried to commit an AWS secret. Rigour blocked it in <100ms.**
 
-## An AI agent shipped AWS credentials to a public repo. The bill was $47,000.
-
-Rigour would have blocked it in **<100ms**.
-
-AI coding agents — Claude, Cursor, Copilot, Cline — write code fast. Dangerously fast.  
-They hallucinate imports. They leave TODO comments disguised as features. They write functions with complexity 47 and call it "done." And they will absolutely commit your production secrets if you let them.
-
-**Rigour sits between your AI agent and your codebase.** Every file write. Every agent loop. Every line of code — checked before it ships.
-
-No cloud. No telemetry. No opinions. Just **PASS** or **FAIL**.
+## Try it now (zero config)
 
 ```bash
-npx @rigour-labs/cli init    # 60 seconds to set up
-npx @rigour-labs/cli check   # deterministic gates, instant results
+npx rigour-scan
 ```
 
-> *"We found Rigour after an agent leaked a database URL in a commit. It's now mandatory in every repo."*
-
----
-
-## What AI agents do when you're not watching
+Works on any repo. No init, no config, no setup. Instant results in your terminal:
 
 ```
-Agent: "Done! All tests pass ✅"
+  HARDCODED SECRET DETECTED
+  AWS_SECRET_ACCESS_KEY found in src/config.ts:23
 
-Reality:
-  src/auth.ts         → cyclomatic complexity: 47  (max: 10)
-  src/config.ts       → AWS_SECRET_KEY="AKIA..."   (hardcoded)
-  src/api/routes.ts   → // TODO: add auth here     (not done)
-  src/db/client.ts    → 1,847 lines                (max: 500)
+  + 22 more violations across 847 files (2.1s)
+
+  Score        ████░░░░░░░░░░░░░░░░  34/100
+  AI Health    ███░░░░░░░░░░░░░░░░░░  28/100
+
+  Gates:  ✅ file-size  ❌ security  ❌ ast  ✅ deps
+
+  Brain: learned 12 patterns · trend: improving ↑
 ```
 
-This is **Vibe Coding** — the agent optimizes for looking correct, not being correct.  
-Every team using AI code generation hits this wall. Most don't catch it until production.
-
----
-
-## How Rigour fixes it
-
-Rigour introduces a **deterministic feedback loop** that the agent cannot bypass:
-
-```
-Agent writes code
-      ↓
-Rigour gates fire  →  FAIL?  →  Fix Packet (machine-readable JSON)
-      ↓                               ↓
-   PASS ✓                     Agent reads exact instructions
-      ↓                               ↓
- Code ships                    Agent retries → PASS ✓
-```
-
-No human in the loop. No ambiguous "looks good to me." The agent gets told exactly what's wrong, on which line, and how to fix it — in JSON it can actually consume.
-
----
-
-## The gates
-
-### 🔐 Security — catches what agents routinely miss
-
-| Gate | What it blocks |
-|---|---|
-| **Hardcoded Secrets** | AWS keys, API tokens, DB URLs, private keys — 29+ patterns |
-| **SQL Injection** | Unsanitized query construction |
-| **XSS** | Dangerous DOM manipulation |
-| **Prototype Pollution** | Unsafe object merging |
-| **CSRF** | Missing token validation |
-| **Shannon Entropy** | Encoded/obfuscated secrets that regex misses |
-
-> Zero false positives. Verified on 202-finding production audit (PicoClaw, 2025).
-
-### 🏗️ Structural — enforces the standards agents skip
-
-| Gate | Default limit |
-|---|---|
-| File size | 500 lines max |
-| Cyclomatic complexity | 10 per function |
-| Method count | 12 per class |
-| Parameter count | 5 per function |
-| Nesting depth | 4 levels |
-| TODO/FIXME | Zero tolerance |
-| Required docs | SPEC.md, ARCH.md, DECISIONS.md |
-
-AST-based. Not heuristics. **TypeScript, JavaScript, Python** — with universal fallback.
-
-### 🤖 Agent Governance — built for agentic workflows
-
-| Gate | Purpose |
-|---|---|
-| **Context Drift** | Detects when the agent is diverging from the original spec |
-| **Retry Loop Breaker** | Stops infinite agent retry spirals |
-| **Checkpoint** | Supervises long-running executions |
-| **Agent Team** | Scope isolation for multi-agent pipelines |
-| **Memory Governance** | DLP-scans every agent memory write before persistence |
-
----
-
-## Fix Packets — the reason agents actually fix things
-
-Most tools tell humans what's wrong. Rigour tells **the agent** what's wrong, in a format it can consume:
+## Add to your AI IDE (30 seconds)
 
 ```json
-{
-  "violations": [{
-    "id": "ast-complexity",
-    "severity": "high",
-    "file": "src/auth.ts",
-    "line": 45,
-    "metrics": { "current": 47, "max": 10 },
-    "instructions": [
-      "Extract the nested conditional into a separate validateToken() function",
-      "Replace switch statement with a strategy pattern — see ARCH.md"
-    ]
-  }],
-  "constraints": {
-    "no_new_deps": true,
-    "do_not_touch": [".github/**", "docs/**"]
-  }
-}
+{ "mcpServers": { "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp"] } } }
 ```
 
-The agent reads this. Fixes exactly what's flagged. Retries. **No human intervention.**
-
----
-
-## Works with every AI IDE and agent
-
-```json
-{
-  "mcpServers": {
-    "rigour": {
-      "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp"]
-    }
-  }
-}
-```
-
-| IDE / Agent | Integration |
+| IDE / Agent | Status |
 |---|---|
 | **Claude Code** | ✅ Native MCP + CLAUDE.md |
 | **Cursor** | ✅ MCP + `.cursorrules` |
@@ -155,17 +46,33 @@ The agent reads this. Fixes exactly what's flagged. Retries. **No human interven
 | **GitHub Copilot** | ✅ MCP |
 | **Codex** | ✅ Config-based |
 | **Gemini** | ✅ Config-based |
-| **CI/CD** | ✅ `rigour check --ci` |
 
-One `rigour init` sets up hooks, MCP tools, rules files, DLP, and pattern indexing automatically.
+## What it catches
 
----
+| Category | Gates |
+|---|---|
+| **Security** | Hardcoded secrets (29+ patterns), SQL injection, XSS, CSRF, prototype pollution, Shannon entropy |
+| **Structural** | File size, cyclomatic complexity, method count, parameter count, nesting depth, TODO/FIXME |
+| **AI Drift** | Hallucinated imports, phantom APIs, context drift, retry loop detection |
+| **Governance** | Agent team isolation, checkpoint supervision, memory DLP |
 
-## The Brain — local Bayesian learning
+AST-based. Not heuristics. **TypeScript, JavaScript, Python, Go, Ruby, C#, Java, Kotlin, Rust.**
 
-Rigour doesn't just check your code. It **learns your codebase**.
+## How it works
 
-Every scan reinforces patterns. Patterns decay when absent. At `strength: 0.9`, they promote to hard rules. This is your project's own immune system — trained on your actual code, running entirely on your machine.
+```
+Agent writes code → Rigour gates fire → FAIL? → Fix Packet (JSON)
+                                           ↓
+                                    Agent reads exact instructions
+                                           ↓
+                                    Agent fixes → PASS ✓
+```
+
+No human in the loop. The agent gets told exactly what's wrong, on which line, and how to fix it — in JSON it can consume.
+
+## The Brain — learns your codebase
+
+Every scan reinforces patterns. Patterns decay when absent. At `strength: 0.9`, they promote to hard rules. Your project's own immune system — trained locally, zero telemetry.
 
 ```
 First week:  catches 12 violations
@@ -173,118 +80,51 @@ First month: catches 8 violations  ← learning your patterns
 Third month: catches 3 violations  ← your agents have adapted
 ```
 
-No two codebases have the same Rigour config. That's the point.
+## How it's different
 
----
+| | Rigour | ESLint | Cloud tools |
+|---|---|---|---|
+| Runs locally, zero telemetry | ✅ | ✅ | ❌ |
+| Learns YOUR codebase (Brain) | ✅ | ❌ | ❌ |
+| Agent self-healing (Fix Packets) | ✅ | ❌ | ❌ |
+| Works offline (GGUF sidecar) | ✅ | ✅ | ❌ |
+| AI-native drift detection | ✅ | ❌ | ❌ |
+| MCP-native (26 tools) | ✅ | ❌ | ❌ |
 
 ## Used in production
 
-- **10,500+ monthly installs** across CLI and MCP — majority via AI IDE integrations
-- **19,000+ total installs** across CLI and MCP packages
-- **Organically forked by Alibaba iFlow** — they found us, we didn't pitch them
-- **OWASP project** — submitted and listed
+- **19,000+ total installs** across CLI and MCP
+- **Organically forked by Alibaba iFlow**
+- **OWASP project** — listed
 - **Cursor MCP directory** — listed
 - **Zero false positives** on 202-finding production audit
-- **43 releases** — v2.20.0, actively maintained
 
----
-
-## Get started in 60 seconds
+## Quick reference
 
 ```bash
-# Install
-npx @rigour-labs/cli init
-
-# Run gates
-npx @rigour-labs/cli check
-
-# Run with deep analysis (local GGUF sidecar — no API key needed)
-npx @rigour-labs/cli check --deep
-
-# Run with cloud analysis (BYOK)
-npx @rigour-labs/cli check --deep --provider claude -k sk-ant-xxx
-
-# Supervised agent loop
-npx @rigour-labs/cli run -- claude "Refactor auth module"
-
-# Open Studio dashboard
-npx @rigour-labs/cli studio
+npx rigour-scan                              # zero-config scan
+npx @rigour-labs/cli init                    # add gates to your project
+npx @rigour-labs/cli check                   # run gates
+npx @rigour-labs/cli check --deep            # + local AI analysis
+npx @rigour-labs/cli check --deep --provider claude -k sk-ant-xxx  # cloud AI
+npx @rigour-labs/cli studio                  # monitoring dashboard
 ```
-
----
-
-## Configuration
-
-```yaml
-# rigour.yml — generated by rigour init
-version: 1
-preset: api           # auto-detected: ui | api | infra | data
-paradigm: functional  # auto-detected: oop | functional | minimal
-
-gates:
-  max_file_lines: 500
-  forbid_todos: true
-  required_files: [docs/SPEC.md, docs/ARCH.md]
-  ast:
-    complexity: 10
-    max_methods: 12
-    max_params: 5
-    max_nesting: 4
-  security:
-    enabled: true
-
-commands:
-  lint: "npm run lint"
-  test: "npm test"
-
-ignore: ["**/node_modules/**", "**/dist/**"]
-```
-
----
 
 ## Architecture
 
-Rigour is a pnpm monorepo — four packages, one purpose:
-
-| Package | Purpose | Size |
-|---|---|---|
-| `@rigour-labs/core` | Gate engine, AST analysis, Fix Packet generation | ~2,400 SLOC |
-| `@rigour-labs/cli` | `init`, `check`, `run`, `studio` | ~500 SLOC |
-| `@rigour-labs/mcp` | MCP server — 26 tools for agent integration | ~400 SLOC |
-| `@rigour-labs/studio` | React monitoring dashboard | Private |
-
-**Stack:** TypeScript strict, web-tree-sitter, Zod, Vitest. CI across Ubuntu / macOS / Windows.
-
----
-
-## Prior Art
-
-The [Technical Specification](docs/SPEC.md) (published January 2026) establishes public disclosure of the **"Agentic Quality Gate Feedback Loop"** — the specific combination of deterministic local gates and agent-consumable Fix Packets described in this system.
-
----
-
-## Documentation
-
-| | |
+| Package | Purpose |
 |---|---|
-| [Getting Started](https://docs.rigour.run/getting-started/installation) | Install and run in 60 seconds |
-| [Configuration](https://docs.rigour.run/getting-started/configuration) | Customize your gates |
-| [AST Gates](docs/AST_GATES.md) | Deep dive on structural analysis |
-| [Fix Packet Schema](docs/FIX_PACKET.md) | v2 diagnostic format |
-| [MCP Integration](https://docs.rigour.run/mcp/mcp-server) | Agent setup guides |
-| [Philosophy](docs/PHILOSOPHY.md) | Why Rigour exists |
-| [Enterprise CI/CD](docs/ENTERPRISE.md) | GitHub Actions patterns |
+| `@rigour-labs/core` | Gate engine, AST analysis, Fix Packets, Brain |
+| `@rigour-labs/cli` | `init`, `check`, `scan`, `run`, `studio` |
+| `@rigour-labs/mcp` | MCP server — 26 tools for agent integration |
+| `rigour-scan` | Zero-config shortcut: `npx rigour-scan` |
 
-**Full docs → [docs.rigour.run](https://docs.rigour.run)**
+**Stack:** TypeScript strict, web-tree-sitter, Zod, Vitest.
 
 ---
 
-## License
+**[Full docs](https://docs.rigour.run)** | **[Technical Spec](docs/SPEC.md)** | **[Philosophy](docs/PHILOSOPHY.md)**
 
-MIT © [Rigour Labs](https://github.com/rigour-labs)
+MIT © [Rigour Labs](https://github.com/rigour-labs) — Built by [Ashutosh](https://github.com/erashu212)
 
-Built by [Ashutosh](https://github.com/erashu212) — enforcing the engineering standards that AI agents skip.
-
----
-
-*If Rigour caught something real in your codebase — [tell us](https://github.com/rigour-labs/rigour/discussions). That story matters more than any benchmark.*
+*If Rigour caught something real in your codebase — [tell us](https://github.com/rigour-labs/rigour/discussions).*
