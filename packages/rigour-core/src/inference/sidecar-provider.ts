@@ -1,7 +1,7 @@
 /**
  * Sidecar Binary Provider — runs inference via pre-compiled llama.cpp binary.
- * Binary ships as @rigour-labs/brain-{platform} optional npm dependency.
- * Falls back to PATH lookup for development/manual installs.
+ * Auto-downloads llama-cli from GitHub releases on first use.
+ * Falls back to npm packages or PATH lookup for development/manual installs.
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -15,14 +15,27 @@ import { ensureExecutableBinary } from './executable.js';
 
 const execFileAsync = promisify(execFile);
 const SIDECAR_INSTALL_DIR = path.join(os.homedir(), '.rigour', 'sidecar');
+const BINARY_DIR = path.join(os.homedir(), '.rigour', 'bin');
 
-/** Platform → npm package mapping */
+/** Platform → npm package mapping (legacy, still checked) */
 const PLATFORM_PACKAGES: Record<string, string> = {
     'darwin-arm64': '@rigour-labs/brain-darwin-arm64',
     'darwin-x64': '@rigour-labs/brain-darwin-x64',
     'linux-x64': '@rigour-labs/brain-linux-x64',
     'linux-arm64': '@rigour-labs/brain-linux-arm64',
     'win32-x64': '@rigour-labs/brain-win-x64',
+};
+
+const LLAMA_RELEASE_TAG = 'b5604';
+const LLAMA_RELEASE_BASE = `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE_TAG}`;
+
+/** Platform → llama.cpp release asset name */
+const LLAMA_RELEASE_ASSETS: Record<string, string> = {
+    'darwin-arm64': `llama-${LLAMA_RELEASE_TAG}-bin-macos-arm64.zip`,
+    'darwin-x64': `llama-${LLAMA_RELEASE_TAG}-bin-macos-x64.zip`,
+    'linux-x64': `llama-${LLAMA_RELEASE_TAG}-bin-ubuntu-x64.zip`,
+    'win32-x64': `llama-${LLAMA_RELEASE_TAG}-bin-win-cpu-x64.zip`,
+    // linux-arm64 not published by llama.cpp — users must build from source or use cloud provider
 };
 
 export class SidecarProvider implements InferenceProvider {
@@ -43,30 +56,39 @@ export class SidecarProvider implements InferenceProvider {
     }
 
     async setup(onProgress?: (message: string) => void): Promise<void> {
-        const packageName = this.getPlatformPackageName();
-
         // 1. Check/resolve binary
         this.binaryPath = await this.resolveBinaryPath();
 
-        // Auto-bootstrap local sidecar when missing.
-        if (!this.binaryPath && packageName) {
-            const installed = await this.installSidecarBinary(packageName, onProgress);
-            if (installed) {
+        // Auto-bootstrap: download llama-cli directly from GitHub releases
+        if (!this.binaryPath) {
+            const downloaded = await this.downloadLlamaCli(onProgress);
+            if (downloaded) {
                 this.binaryPath = await this.resolveBinaryPath();
             }
         }
 
+        // Legacy fallback: try npm package install
         if (!this.binaryPath) {
-            onProgress?.('⚠ Inference engine not found. Install @rigour-labs/brain-* or add llama-cli to PATH');
-            const installHint = packageName || `@rigour-labs/brain-${this.getPlatformKey()}`;
-            throw new Error(`Sidecar binary not found. Run: npm install ${installHint}`);
+            const packageName = this.getPlatformPackageName();
+            if (packageName) {
+                const installed = await this.installSidecarBinary(packageName, onProgress);
+                if (installed) {
+                    this.binaryPath = await this.resolveBinaryPath();
+                }
+            }
+        }
+
+        if (!this.binaryPath) {
+            onProgress?.('⚠ Inference engine not found. Rigour will auto-download on next attempt.');
+            throw new Error(`Sidecar binary not found. Check network connection and retry.`);
         }
 
         let executableCheck = ensureExecutableBinary(this.binaryPath);
         // If the discovered binary is not executable, try a managed reinstall once.
-        if (!executableCheck.ok && packageName) {
+        const retryPackage = this.getPlatformPackageName();
+        if (!executableCheck.ok && retryPackage) {
             onProgress?.('⚠ Inference engine is present but not executable. Reinstalling managed sidecar...');
-            const installed = await this.installSidecarBinary(packageName, onProgress);
+            const installed = await this.installSidecarBinary(retryPackage, onProgress);
             if (installed) {
                 const refreshedPath = await this.resolveBinaryPath();
                 if (refreshedPath) {
@@ -194,6 +216,13 @@ export class SidecarProvider implements InferenceProvider {
     private async resolveBinaryPath(): Promise<string | null> {
         const platformKey = this.getPlatformKey();
 
+        // Strategy 0: Check ~/.rigour/bin/llama-cli (auto-downloaded from GitHub releases)
+        const binaryName = os.platform() === 'win32' ? 'llama-cli.exe' : 'llama-cli';
+        const autoDownloadedPath = path.join(BINARY_DIR, binaryName);
+        if (await fs.pathExists(autoDownloadedPath)) {
+            return autoDownloadedPath;
+        }
+
         // Strategy 1: Check @rigour-labs/brain-{platform} optional dependency
         const packageName = PLATFORM_PACKAGES[platformKey];
         if (packageName) {
@@ -289,8 +318,83 @@ export class SidecarProvider implements InferenceProvider {
         return null;
     }
 
+    /**
+     * Download llama-cli directly from llama.cpp GitHub releases.
+     * Extracts the binary to ~/.rigour/bin/llama-cli
+     */
+    private async downloadLlamaCli(onProgress?: (message: string) => void): Promise<boolean> {
+        const platformKey = this.getPlatformKey();
+        const assetName = LLAMA_RELEASE_ASSETS[platformKey];
+        if (!assetName) return false;
+
+        const url = `${LLAMA_RELEASE_BASE}/${assetName}`;
+        const zipPath = path.join(BINARY_DIR, assetName);
+        const binaryName = os.platform() === 'win32' ? 'llama-cli.exe' : 'llama-cli';
+        const destPath = path.join(BINARY_DIR, binaryName);
+
+        // Already downloaded
+        if (await fs.pathExists(destPath)) return true;
+
+        onProgress?.(`⬇ Downloading inference engine (llama.cpp ${LLAMA_RELEASE_TAG})...`);
+        try {
+            await fs.ensureDir(BINARY_DIR);
+
+            // Download zip
+            const response = await fetch(url, { redirect: 'follow' });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const buffer = Buffer.from(await response.arrayBuffer());
+            await fs.writeFile(zipPath, buffer);
+
+            onProgress?.('  Extracting...');
+
+            // Extract llama-cli from zip
+            if (os.platform() === 'win32') {
+                await execFileAsync('powershell', [
+                    '-Command',
+                    `Expand-Archive -Path "${zipPath}" -DestinationPath "${BINARY_DIR}/llama-extract" -Force`,
+                ], { timeout: 60000 });
+            } else {
+                await execFileAsync('unzip', ['-o', zipPath, '-d', path.join(BINARY_DIR, 'llama-extract')], {
+                    timeout: 60000,
+                });
+            }
+
+            // Find llama-cli in extracted files
+            const extractDir = path.join(BINARY_DIR, 'llama-extract');
+            const llamaBin = await findFileRecursive(extractDir, binaryName);
+
+            if (!llamaBin) {
+                throw new Error(`${binaryName} not found in release archive`);
+            }
+
+            await fs.copy(llamaBin, destPath);
+
+            if (os.platform() !== 'win32') {
+                await fs.chmod(destPath, 0o755);
+            }
+
+            // Cleanup
+            await fs.remove(zipPath);
+            await fs.remove(extractDir);
+
+            onProgress?.(`✓ Inference engine ready (${LLAMA_RELEASE_TAG})`);
+            return true;
+        } catch (error: any) {
+            const reason = typeof error?.message === 'string' ? error.message : 'unknown error';
+            onProgress?.(`⚠ Download failed: ${reason}`);
+            // Cleanup partial downloads
+            await fs.remove(zipPath).catch(() => {});
+            await fs.remove(path.join(BINARY_DIR, 'llama-extract')).catch(() => {});
+            return false;
+        }
+    }
+
+    /** Legacy: install via npm brain package */
     private async installSidecarBinary(packageName: string, onProgress?: (message: string) => void): Promise<boolean> {
-        onProgress?.(`⬇ Inference engine missing. Attempting automatic install: ${packageName}`);
+        onProgress?.(`⬇ Trying npm fallback: ${packageName}`);
         try {
             await fs.ensureDir(SIDECAR_INSTALL_DIR);
             await execFileAsync(
@@ -304,7 +408,7 @@ export class SidecarProvider implements InferenceProvider {
             );
         } catch (error: any) {
             const reason = typeof error?.message === 'string' ? error.message : 'unknown install error';
-            onProgress?.(`⚠ Auto-install failed: ${reason}`);
+            onProgress?.(`⚠ npm install failed: ${reason}`);
             return false;
         }
 
@@ -315,4 +419,19 @@ export class SidecarProvider implements InferenceProvider {
 
 function quoteCmdArg(value: string): string {
     return `"${value.replace(/"/g, '\\"')}"`;
+}
+
+/** Recursively find a file by name in a directory */
+async function findFileRecursive(dir: string, filename: string): Promise<string | null> {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            const found = await findFileRecursive(fullPath, filename);
+            if (found) return found;
+        } else if (entry.name === filename) {
+            return fullPath;
+        }
+    }
+    return null;
 }
