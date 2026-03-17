@@ -10,6 +10,7 @@ import path from "path";
 import { GateRunner, Report, FixPacketService } from "@rigour-labs/core";
 import type { Config } from "@rigour-labs/core";
 import { logStudioEvent } from '../utils/config.js';
+import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
 
@@ -73,8 +74,11 @@ export async function handleRunSupervised(
         dryRun,
     });
 
+    notifyProgress("info", `Supervisor started: ${command} (max ${maxRetries} retries)`);
+
     while (iteration < maxRetries) {
         iteration++;
+        notifyProgress("info", `Supervisor iteration ${iteration}/${maxRetries}...`);
 
         if (!dryRun) {
             try {
@@ -105,6 +109,7 @@ export async function handleRunSupervised(
         });
 
         if (lastReport.status === "PASS") {
+            notifyProgress("info", `Supervisor PASSED on iteration ${iteration} \u2014 Score: ${lastReport.stats.score ?? '?'}/100`);
             const score = lastReport.stats.score !== undefined ? ` | Score: ${lastReport.stats.score}/100` : '';
             result = {
                 content: [{
@@ -116,6 +121,7 @@ export async function handleRunSupervised(
         }
 
         if (iteration >= maxRetries) {
+            notifyProgress("error", `Supervisor FAILED after ${iteration} iterations \u2014 ${lastReport.failures.length} violations remain`);
             // Use FixPacketService for structured output instead of ad-hoc formatting
             let fixPacketText: string;
             if (config) {

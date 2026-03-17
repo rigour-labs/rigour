@@ -14,12 +14,18 @@ import {
     ListToolsRequestSchema,
     ListPromptsRequestSchema,
     GetPromptRequestSchema,
+    ListResourcesRequestSchema,
+    ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
 import { GateRunner } from "@rigour-labs/core";
 
 // Utils
 import { loadConfig, loadMcpSettings, logStudioEvent } from './utils/config.js';
+import { bindServer } from './utils/notifications.js';
+
+// Dashboard (MCP App)
+import { DASHBOARD_URI, getDashboardHtml, pushTimelineEntry, updateScore } from './dashboard/index.js';
 
 // Tool definitions
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
@@ -39,8 +45,11 @@ import { handleMcpGetSettings, handleMcpSetSettings } from './tools/mcp-settings
 
 const server = new Server(
     { name: "rigour-mcp", version: "3.0.1" },
-    { capabilities: { tools: {}, prompts: {} } }
+    { capabilities: { tools: {}, prompts: {}, logging: {}, resources: {} } }
 );
+
+// Bind server for logging notifications from handlers
+bindServer(server);
 
 // ─── Tool Listing ─────────────────────────────────────────────────
 
@@ -62,6 +71,30 @@ const ESSENTIAL_TOOLS = new Set([
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOL_DEFINITIONS.filter(t => ESSENTIAL_TOOLS.has(t.name)),
 }));
+
+// ─── Resource Listing (MCP App Dashboard) ────────────────────────
+
+server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [{
+        uri: DASHBOARD_URI,
+        name: "Rigour Governance Dashboard",
+        description: "Real-time governance dashboard — quality scores, agent activity timeline, severity breakdown",
+        mimeType: "text/html",
+    }],
+}));
+
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    if (request.params.uri === DASHBOARD_URI) {
+        return {
+            contents: [{
+                uri: DASHBOARD_URI,
+                mimeType: "text/html",
+                text: getDashboardHtml(),
+            }],
+        };
+    }
+    throw new Error(`Unknown resource: ${request.params.uri}`);
+});
 
 // ─── Tool Dispatch ────────────────────────────────────────────────
 
@@ -156,6 +189,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "tool_response", requestId, tool: name, status: "success",
             content: result.content, _rigour_report: result._rigour_report,
         });
+
+        // ─── Dashboard State + MCP App UI Hint ──────────────
+        const report = result._rigour_report;
+        const details = report
+            ? `${report.status.toUpperCase()} — Score: ${report.stats?.score ?? '?'}/100`
+            : "completed";
+        pushTimelineEntry(name, result.isError ? "error" : "success", details);
+
+        if (report?.stats) {
+            updateScore(
+                report.stats.score ?? 0,
+                report.status === "PASS" ? "pass" : "fail",
+                report.stats.severity_breakdown,
+            );
+        }
+
+        // Attach UI hint for MCP-App-capable clients (Claude Desktop, VS Code, ChatGPT, Goose)
+        if (!result.isError) {
+            result._meta = { ui: { resourceUri: DASHBOARD_URI } };
+        }
+
+        // Notify clients that the dashboard resource has updated
+        try {
+            await server.notification({
+                method: "notifications/resources/updated",
+                params: { uri: DASHBOARD_URI },
+            });
+        } catch {
+            // Client doesn't support resource notifications — fine
+        }
 
         return result;
 

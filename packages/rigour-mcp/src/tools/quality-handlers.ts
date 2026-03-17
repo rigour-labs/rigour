@@ -8,6 +8,7 @@
  */
 import { GateRunner, Report, renderMcpHeadline, renderFixAttribution } from "@rigour-labs/core";
 import type { Config, DeepOptions } from "@rigour-labs/core";
+import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean; _rigour_report?: Report };
 type DeepMode = 'off' | 'quick' | 'full';
@@ -69,7 +70,23 @@ export async function handleCheck(runner: GateRunner, cwd: string, args: CheckAr
         };
     }
 
+    notifyProgress("info", fileTargets ? `Scanning ${fileTargets.length} files...` : "Scanning project...");
+    if (deepMode !== 'off') {
+        notifyProgress("info", `Deep analysis: ${execution.isLocal ? 'local sidecar' : execution.provider} (${deepMode} mode)`);
+    }
+
     const report = await runner.run(cwd, fileTargets, deepOpts);
+
+    if (report.status === "PASS") {
+        notifyProgress("info", `PASS \u2014 Score: ${report.stats.score ?? '?'}/100`);
+    } else {
+        const sev = report.stats.severity_breakdown || {};
+        const sevParts = Object.entries(sev).filter(([, c]) => c > 0).map(([s, c]) => `${c} ${s}`).join(', ');
+        notifyProgress("warning", `FAIL \u2014 ${sevParts || report.failures.length + ' violations'} (Score: ${report.stats.score ?? '?'}/100)`);
+        const worst = report.failures.find(f => f.severity === 'critical') || report.failures[0];
+        if (worst) notifyProgress("warning", `${worst.title}${worst.files?.[0] ? ' in ' + worst.files[0] : ''}`);
+    }
+
     const scoreText = formatScoreText(report.stats);
     const sevText = formatSeverityText(report.stats);
     const deepText = deepMode === 'off'
@@ -144,6 +161,8 @@ export async function handleGetFixPacket(runner: GateRunner, cwd: string, config
             content: [{ type: "text", text: `ALL QUALITY GATES PASSED.${passScore} The current state meets the required engineering standards.` }],
         };
     }
+
+    notifyProgress("info", `Generating fix packet for ${report.failures.length} violations...`);
 
     const { FixPacketService } = await import("@rigour-labs/core");
     const fixPacketService = new FixPacketService();

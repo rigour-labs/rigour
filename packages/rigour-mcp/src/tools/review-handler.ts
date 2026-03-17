@@ -7,6 +7,7 @@
  */
 import { GateRunner } from "@rigour-labs/core";
 import { parseDiff } from '../utils/config.js';
+import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[] };
 
@@ -21,6 +22,7 @@ export async function handleReview(
     const targetFiles = changedFiles || Object.keys(diffMapping);
 
     // 2. Run high-fidelity analysis on changed files
+    notifyProgress("info", `Reviewing ${targetFiles.length} changed files...`);
     const report = await runner.run(cwd, targetFiles);
 
     // 3. Filter failures to only those on changed lines (or global gate failures)

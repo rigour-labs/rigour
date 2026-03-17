@@ -8,6 +8,7 @@
 import path from "path";
 import { GateRunner, Report } from "@rigour-labs/core";
 import type { Config, DeepOptions } from "@rigour-labs/core";
+import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean; _rigour_report?: Report };
 
@@ -50,7 +51,15 @@ export async function handleCheckDeep(
         modelName: args.modelName,
     };
 
+    notifyProgress("info", `Deep analysis starting (${execution.isLocal ? 'local sidecar' : execution.provider})...`);
+
     const report = await runner.run(cwd, undefined, deepOpts);
+
+    const notifyScore = report.stats.score ?? 100;
+    notifyProgress(
+        report.status === "PASS" ? "info" : "warning",
+        `Deep analysis complete: ${notifyScore}/100 \u2014 ${report.failures.length} findings`,
+    );
 
     // Persist to SQLite (best-effort). Skip during tests to avoid CI timing flakes.
     if (!isTestRuntime()) {

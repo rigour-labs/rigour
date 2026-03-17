@@ -12,6 +12,7 @@ import {
     StalenessDetector,
     SecurityDetector,
 } from "@rigour-labs/core/pattern-index";
+import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[] };
 
@@ -84,7 +85,9 @@ export async function handleCheckPattern(
 }
 
 export async function handleSecurityAudit(cwd: string): Promise<ToolResult> {
+    notifyProgress("info", "Running CVE security audit...");
     const security = new SecurityDetector(cwd);
     const summary = await security.getSecuritySummary();
+    notifyProgress("info", "Security audit complete");
     return { content: [{ type: "text", text: summary }] };
 }

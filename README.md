@@ -37,15 +37,36 @@ Works on any repo. No init, no config, no setup. Instant results in your termina
 { "mcpServers": { "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp"] } } }
 ```
 
-| IDE / Agent | Status |
-|---|---|
-| **Claude Code** | ✅ Native MCP + CLAUDE.md |
-| **Cursor** | ✅ MCP + `.cursorrules` |
-| **Cline** | ✅ MCP + `.clinerules` |
-| **Windsurf** | ✅ MCP + `.windsurfrules` |
-| **GitHub Copilot** | ✅ MCP |
-| **Codex** | ✅ Config-based |
-| **Gemini** | ✅ Config-based |
+| IDE / Agent | MCP Tools | Live Dashboard | Real-Time Feed |
+|---|---|---|---|
+| **Claude Desktop** | ✅ | ✅ MCP App | ✅ Logging |
+| **VS Code Copilot** | ✅ | ✅ MCP App | ✅ Logging |
+| **ChatGPT** | ✅ | ✅ MCP App | ✅ Logging |
+| **Goose** | ✅ | ✅ MCP App | ✅ Logging |
+| **Claude Code** | ✅ | — | ✅ Logging |
+| **Cursor** | ✅ | — | ✅ Logging |
+| **Cline** | ✅ | — | ✅ Logging |
+| **Windsurf** | ✅ | — | ✅ Logging |
+| **Codex** | ✅ | — | ✅ Logging |
+
+## Live governance dashboard (MCP App)
+
+In supported editors, a real-time dashboard appears automatically as your agent works:
+
+```
+┌─ Rigour Governance ──────────────────────────┐
+│  Score: 94/100  ✅ PASS                      │
+│                                               │
+│  14:32:01  rigour_check → FAIL (34/100)       │
+│  14:32:03  fix_packet → 8 fixes               │
+│  14:32:15  rigour_check → 71/100 (+37)        │
+│  14:32:22  rigour_check → ✅ PASS 94/100      │
+│                                               │
+│  Brain: 47 patterns · trend: improving ↑      │
+└───────────────────────────────────────────────┘
+```
+
+No extra commands. The dashboard appears when the agent calls Rigour tools. Watch your agent self-heal in real time.
 
 ## What it catches
 
