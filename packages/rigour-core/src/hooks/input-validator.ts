@@ -301,6 +301,81 @@ function shannonEntropy(str: string): number {
     }, 0);
 }
 
+/**
+ * Smart context filter — decides if a detection is a real credential or a false positive.
+ *
+ * The challenge: build logs can contain BOTH false positives (variable names mentioned
+ * in npm warnings) AND real leaks (a password accidentally echoed in CI output).
+ *
+ * Strategy:
+ * 1. If the match has an actual SECRET VALUE (high entropy, long random string) → KEEP IT
+ * 2. If the match is just a variable NAME reference with no real value → SKIP IT
+ * 3. If the match is in a documentation/comment context → SKIP IT
+ */
+function isLikelyFalsePositive(detection: CredentialDetection, input: string): boolean {
+    const { match, type, position } = detection;
+
+    // Provider-specific prefixed keys are ALWAYS real (AKIA*, sk-*, ghp_*, etc.)
+    const prefixedTypes = [
+        'aws_access_key', 'openai_key', 'anthropic_key', 'github_token',
+        'stripe_key', 'slack_token', 'sendgrid_key', 'private_key',
+        'private_key_full', 'jwt_token', 'bearer_token', 'database_url',
+        'credentials_in_url', 'gcp_service_account',
+    ];
+    if (prefixedTypes.includes(type)) return false;
+
+    // Get the line containing the match
+    const lineStart = input.lastIndexOf('\n', (position?.start ?? 0)) + 1;
+    const lineEnd = input.indexOf('\n', (position?.end ?? match.length));
+    const line = input.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim();
+
+    // npm notice/warn lines mentioning variable names (not values)
+    if (/^npm\s+(?:notice|warn|WARN|ERR!)/i.test(line)) return true;
+
+    // Docker build step output referencing env var names
+    if (/^#\d+\s+[\d.]+\s/.test(line)) {
+        // But if there's an actual assignment with a value, keep it
+        if (/[:=]\s*['"]?[A-Za-z0-9+/=_-]{20,}/.test(match)) return false;
+        return true;
+    }
+
+    // "digest:", "hash:", "checksum:" followed by hex — not credentials
+    if (/(?:digest|hash|checksum|sha256|sha1|md5)\s*[:=]/i.test(line)) return true;
+
+    // Error messages referencing env var names without values
+    if (/(?:missing|undefined|not set|not found|required)\s+.*(?:NPM_TOKEN|DOCKER_PASSWORD|PYPI_TOKEN)/i.test(line)) return true;
+
+    // For generic patterns (password_assignment, env_variable, ci_secret, base64/hex_secret):
+    // Check if the captured VALUE has enough entropy to be a real secret
+    const genericTypes = ['password_assignment', 'env_variable', 'ci_secret', 'base64_secret', 'hex_secret', 'high_entropy_secret'];
+    if (genericTypes.includes(type)) {
+        // Extract the value portion (after = or : )
+        const valueMatch = match.match(/[:=]\s*['"]?(.+?)['"]?\s*$/);
+        if (valueMatch) {
+            const value = valueMatch[1];
+            const entropy = shannonEntropyForFilter(value);
+            // Low entropy + short = likely a placeholder, example, or variable name
+            if (entropy < 3.0 && value.length < 16) return true;
+            // Pure numeric strings in log context (build numbers, timestamps)
+            if (/^\d+$/.test(value)) return true;
+        }
+    }
+
+    return false;
+}
+
+/** Shannon entropy helper for the context filter */
+function shannonEntropyForFilter(str: string): number {
+    if (str.length === 0) return 0;
+    const freq: Record<string, number> = {};
+    for (const c of str) freq[c] = (freq[c] || 0) + 1;
+    const len = str.length;
+    return Object.values(freq).reduce((sum, f) => {
+        const p = f / len;
+        return sum - p * Math.log2(p);
+    }, 0);
+}
+
 // ── Core Scanner ──────────────────────────────────────────────────
 
 /**
@@ -436,8 +511,11 @@ export function scanInputForCredentials(
         }
     }
 
+    // ── Context filter: remove false positives from log/doc/CI output ──
+    const filtered = detections.filter(d => !isLikelyFalsePositive(d, input));
+
     // Deduplicate overlapping detections (keep highest severity)
-    const deduped = deduplicateDetections(detections);
+    const deduped = deduplicateDetections(filtered);
 
     // Sort by severity (critical first)
     const severityOrder = { critical: 0, high: 1, medium: 2 };
