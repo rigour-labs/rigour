@@ -5,6 +5,9 @@
  *
  * @since v2.17.0 — extracted from monolithic index.ts
  */
+import path from "path";
+import yaml from "yaml";
+import fs from "fs-extra";
 import {
     PatternMatcher,
     loadPatternIndex,
@@ -12,21 +15,65 @@ import {
     StalenessDetector,
     SecurityDetector,
 } from "@rigour-labs/core/pattern-index";
+import { ConfigSchema } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[] };
+
+/**
+ * Check if a file path is protected by safety.protected_paths in rigour.yml.
+ * Returns the matched pattern or null.
+ */
+async function checkFileGuard(cwd: string, filePath: string): Promise<string | null> {
+    const configPath = path.join(cwd, 'rigour.yml');
+    let protectedPaths: string[] = [];
+    try {
+        if (await fs.pathExists(configPath)) {
+            const raw = yaml.parse(await fs.readFile(configPath, 'utf-8'));
+            const config = ConfigSchema.parse(raw);
+            protectedPaths = config.gates.safety?.protected_paths ?? [];
+        }
+    } catch {
+        // Default protected paths if no config
+        protectedPaths = ['.github/**', 'rigour.yml'];
+    }
+
+    if (protectedPaths.length === 0) return null;
+
+    const normalized = filePath.replace(/\\/g, '/');
+    return protectedPaths.find(pattern => {
+        const clean = pattern.replace('/**', '').replace('/*', '');
+        if (normalized === clean) return true;
+        if (clean.endsWith('/')) return normalized.startsWith(clean);
+        return normalized.startsWith(clean + '/');
+    }) ?? null;
+}
 
 export async function handleCheckPattern(
     cwd: string,
     patternName: string,
     type?: string,
-    intent?: string
+    intent?: string,
+    file?: string,
 ): Promise<ToolResult> {
-    const indexPath = getDefaultIndexPath(cwd);
-    const index = await loadPatternIndex(indexPath);
     let resultText = "";
 
+    // 0. File Guard — BLOCK writes to protected paths
+    if (file) {
+        const matched = await checkFileGuard(cwd, file);
+        if (matched) {
+            notifyProgress("error", `BLOCKED: Write to protected path ${file}`);
+            resultText = `🛑 BLOCKED: You CANNOT write to "${file}".\n`;
+            resultText += `This path matches protected pattern "${matched}" in rigour.yml.\n`;
+            resultText += `CI/CD pipelines, governance configs, and protected docs require human review.\n\n`;
+            resultText += `RECOMMENDED ACTION: STOP. Do not create or modify this file. Ask the human to make this change manually.`;
+            return { content: [{ type: "text", text: resultText }] };
+        }
+    }
+
     // 1. Check for Reinvention
+    const indexPath = getDefaultIndexPath(cwd);
+    const index = await loadPatternIndex(indexPath);
     if (index) {
         const matcher = new PatternMatcher(index);
         const matchResult = await matcher.match({ name: patternName, type, intent });

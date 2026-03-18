@@ -235,7 +235,7 @@ export const TOOL_DEFINITIONS = [
     // ─── Pattern Intelligence ─────────────────────────────
     {
         name: "rigour_check_pattern",
-        description: "CALL THIS BEFORE creating any new function, component, hook, or class. Checks if it already exists in the codebase (prevents duplication), and checks for known security vulnerabilities. Pass the name and type of what you plan to create.",
+        description: "CALL THIS BEFORE creating any new function, component, hook, or class. Checks if it already exists in the codebase (prevents duplication), checks for known security vulnerabilities, and BLOCKS writes to protected paths (.github/, CI/CD configs, rigour.yml). Always pass the target file path.",
         inputSchema: {
             type: "object",
             properties: {
@@ -243,6 +243,7 @@ export const TOOL_DEFINITIONS = [
                 name: { type: "string", description: "The name of the function, class, or component you want to create." },
                 type: { type: "string", description: "The type of pattern (e.g., 'function', 'component', 'hook', 'type')." },
                 intent: { type: "string", description: "What the code is for (e.g., 'format dates', 'user authentication')." },
+                file: { type: "string", description: "Target file path (relative to cwd) where the code will be written. Used to enforce protected path rules — writes to .github/, rigour.yml, etc. will be BLOCKED." },
             },
             required: ["cwd", "name"],
         },
