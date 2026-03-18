@@ -27,6 +27,23 @@ interface CheckerOptions {
 const JS_TS_PATTERN = /\.(ts|tsx|js|jsx|mts|mjs)$/;
 
 /**
+ * Check if a file matches any ignore pattern from rigour.yml.
+ */
+function isIgnored(relPath: string, patterns: string[]): boolean {
+    const normalized = relPath.replace(/\\/g, '/');
+    return patterns.some(pattern => {
+        const clean = pattern.replace(/\\/g, '/');
+        if (normalized === clean) return true;
+        // Glob: foo/** matches foo/bar/baz
+        const prefix = clean.replace('/**', '').replace('/*', '');
+        if (prefix !== clean) {
+            return normalized.startsWith(prefix + '/') || normalized === prefix;
+        }
+        return false;
+    });
+}
+
+/**
  * Load rigour config from cwd, falling back to defaults.
  */
 async function loadConfig(cwd: string): Promise<Config> {
@@ -106,6 +123,8 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
         const config = await loadConfig(cwd);
         const deadline = start + timeout_ms;
 
+        const ignorePatterns = config.ignore ?? [];
+
         for (const filePath of files) {
             if (Date.now() > deadline) {
                 break;
@@ -113,6 +132,11 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
 
             const resolved = await resolveFile(filePath, cwd);
             if (!resolved) {
+                continue;
+            }
+
+            // Respect rigour.yml ignore patterns
+            if (isIgnored(resolved.relPath, ignorePatterns)) {
                 continue;
             }
 
