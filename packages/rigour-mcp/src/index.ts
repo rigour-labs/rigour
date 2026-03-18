@@ -106,6 +106,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
         await logStudioEvent(cwd, { type: "tool_call", requestId, tool: name, arguments: args });
 
+        // ── Image DLP warning ──────────────────────────────
+        // MCP args may contain base64 image data. Text DLP cannot scan images.
+        const argsStr = JSON.stringify(args ?? {});
+        const hasImageContent = /data:image\/|base64,[A-Za-z0-9+/=]{100,}/.test(argsStr);
+
         const config = await loadConfig(cwd);
         const runner = new GateRunner(config);
         let result: any;
@@ -183,6 +188,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             default:
                 throw new Error(`Unknown tool: ${name}`);
+        }
+
+        // ── Prepend image DLP warning if image content was detected ──
+        if (hasImageContent && Array.isArray(result.content)) {
+            result.content.unshift({
+                type: "text",
+                text: "⚠ DLP Notice: Image content detected in this request. Text-based credential scanning cannot analyze images. Avoid sharing screenshots containing API keys, tokens, or passwords.",
+            });
         }
 
         await logStudioEvent(cwd, {
