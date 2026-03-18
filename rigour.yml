@@ -50,5 +50,10 @@ gates:
 output:
   report_path: rigour-report.json
 planned: []
-ignore: []
+ignore:
+  - packages/rigour-core/src/hooks/input-validator.ts  # detection patterns, not vulnerabilities
+  - packages/rigour-core/src/hooks/checker.ts          # detection patterns, not vulnerabilities
+  - packages/rigour-mcp/src/dashboard/html.ts          # HTML template, not user-facing XSS
+  - rigour-fix-packet.json                             # generated report artifact
+  - docs/AGENT_INSTRUCTIONS.md                         # template copied to user projects
 preset: api

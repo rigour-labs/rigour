@@ -58,7 +58,10 @@ function checkFile(content: string, relPath: string, cwd: string, config: Config
     const failures: FailureEntry[] = [];
     const lines = content.split('\n');
 
-    // Gate 0: Memory & Skills Governance — block writes to agent-native memory paths
+    // Gate 0a: Protected paths — BLOCK writes to .github/, rigour.yml, etc.
+    checkProtectedPaths(relPath, config, failures);
+
+    // Gate 0b: Memory & Skills Governance — block writes to agent-native memory paths
     checkGovernance(content, relPath, config, failures);
 
     // Gate 1: File size
@@ -279,6 +282,39 @@ function checkCommandInjection(
             message: 'Potential command injection: user input in shell command',
             severity: 'critical',
             line: i + 1,
+        });
+    }
+}
+
+// ── Protected Paths Enforcement (real-time) ───────────────────────
+
+/**
+ * Block writes to protected paths defined in rigour.yml safety.protected_paths.
+ * This runs in real-time via hooks — BEFORE the agent commits the write.
+ */
+function checkProtectedPaths(
+    relPath: string,
+    config: Config,
+    failures: FailureEntry[]
+): void {
+    const protectedPaths = config.gates.safety?.protected_paths ?? [];
+    if (protectedPaths.length === 0) return;
+
+    const normalizedPath = relPath.replace(/\\/g, '/');
+
+    const matched = protectedPaths.find(pattern => {
+        const clean = pattern.replace('/**', '').replace('/*', '');
+        if (normalizedPath === clean) return true;
+        if (clean.endsWith('/')) return normalizedPath.startsWith(clean);
+        return normalizedPath.startsWith(clean + '/');
+    });
+
+    if (matched) {
+        failures.push({
+            gate: 'file-guard',
+            file: relPath,
+            message: `BLOCKED: Agent cannot write to protected path "${relPath}" (matches ${matched}). CI/CD, docs, and config files require human review.`,
+            severity: 'critical',
         });
     }
 }
