@@ -13,15 +13,17 @@ import {
 
 describe('scanInputForCredentials — AWS', () => {
     it('detects AWS Access Key IDs', () => {
-        const result = scanInputForCredentials('Here is my key: AKIAIOSFODNN7EXAMPLE');
+        const result = scanInputForCredentials('Here is my key: AKIAZ9Y8X7W6V5U4T3Q2');
         expect(result.status).toBe('blocked');
         expect(result.detections).toHaveLength(1);
         expect(result.detections[0].type).toBe('aws_access_key');
         expect(result.detections[0].severity).toBe('critical');
+        expect(result.detections[0].decision).toBe('block');
+        expect(result.detections[0].confidence).toBeGreaterThanOrEqual(80);
     });
 
     it('detects AWS Secret Key assignments', () => {
-        const result = scanInputForCredentials('aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"');
+        const result = scanInputForCredentials('aws_secret_access_key = "Z9Y8X7W6V5U4T3S2R1Q0P9O8N7M6B5C4A3D2E1F0"');
         expect(result.status).toBe('blocked');
         expect(result.detections.some(d => d.type === 'aws_secret_key')).toBe(true);
     });
@@ -49,31 +51,31 @@ describe('scanInputForCredentials — Azure', () => {
 
 describe('scanInputForCredentials — API keys', () => {
     it('detects OpenAI key', () => {
-        const result = scanInputForCredentials('sk-proj-abc1234567890ABCDEFGH');
+        const result = scanInputForCredentials('sk-proj-Z9Y8X7W6V5U4T3S2R1Q0P9O8N7M6');
         expect(result.status).toBe('blocked');
         expect(result.detections[0].type).toBe('openai_key');
     });
 
     it('detects Anthropic key', () => {
-        const result = scanInputForCredentials('sk-ant-api03-abcdefghijklmnop123456');
+        const result = scanInputForCredentials('sk-ant-api03-Z9Y8X7W6V5U4T3S2R1Q0');
         expect(result.status).toBe('blocked');
         expect(result.detections[0].type).toBe('anthropic_key');
     });
 
     it('detects GitHub PAT', () => {
-        const result = scanInputForCredentials('ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh12');
+        const result = scanInputForCredentials('ghp_Z9Y8X7W6V5U4T3S2R1Q0P9O8N7M6B5C4A3D2');
         expect(result.status).toBe('blocked');
         expect(result.detections[0].type).toBe('github_token');
     });
 
     it('detects Stripe live key', () => {
-        const result = scanInputForCredentials('sk_live_51HxAbCdEfGhIjKlMnOpQrStU');
+        const result = scanInputForCredentials('sk_live_Z9Y8X7W6V5U4T3S2R1Q0P9O8');
         expect(result.status).toBe('blocked');
         expect(result.detections[0].type).toBe('stripe_key');
     });
 
     it('detects SendGrid key', () => {
-        const result = scanInputForCredentials('SG.abcdefghijklmnopqrstuv.1234567890abcdefghijklmnopqrstuvwxyz1234567');
+        const result = scanInputForCredentials('SG.Z9Y8X7W6V5U4T3S2R1Q0P9.Z9Y8X7W6V5U4T3S2R1Q0P9O8N7M6B5C4A3D2E1F0GH7');
         expect(result.status).toBe('blocked');
         expect(result.detections[0].type).toBe('sendgrid_key');
     });
@@ -110,7 +112,7 @@ describe('scanInputForCredentials — Database URLs', () => {
     });
 
     it('detects MongoDB connection string', () => {
-        const result = scanInputForCredentials('mongodb+srv://admin:s3cret@cluster0.abc123.mongodb.net/production');
+        const result = scanInputForCredentials('mongodb+srv://admin:s3cret@cluster0.prod.mongodb.net/production');
         expect(result.status).toBe('blocked');
     });
 
@@ -129,32 +131,42 @@ describe('scanInputForCredentials — Tokens', () => {
         expect(result.status).toBe('blocked');
         expect(result.detections.some(d => d.type === 'jwt_token')).toBe(true);
     });
+
 });
 
 // ── Generic Patterns ─────────────────────────────────────────────
 
 describe('scanInputForCredentials — Generic patterns', () => {
-    it('detects password assignment', () => {
-        const result = scanInputForCredentials("password = 'SuperSecret123!'");
-        expect(result.status).toBe('blocked');
+    it('warns on ambiguous password assignment', () => {
+        const result = scanInputForCredentials("password = 'WinterAccess987!'");
+        expect(result.status).toBe('warning');
         expect(result.detections[0].type).toBe('password_assignment');
+        expect(result.detections[0].decision).toBe('warn');
     });
 
-    it('detects api_key assignment', () => {
+    it('allows placeholder api_key assignment', () => {
         const result = scanInputForCredentials('api_key: "abcdefghijklmnopqrstuvwxyz"');
+        expect(result.status).toBe('clean');
+        expect(result.detections).toHaveLength(0);
+        expect(result.allowed_detections?.[0].reason_codes).toContain('safe_example_value');
+    });
+
+    it('blocks high-entropy api_key assignment', () => {
+        const result = scanInputForCredentials('api_key: "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6B5c4"');
         expect(result.status).toBe('blocked');
+        expect(result.detections[0].decision).toBe('block');
+        expect(result.detections[0].reason_codes).toContain('high_entropy');
     });
 
     it('detects .env format', () => {
         const result = scanInputForCredentials('DATABASE_PASSWORD=myS3cr3tP@ssw0rd!');
-        expect(result.status).toBe('blocked');
+        expect(result.status).toBe('warning');
         expect(result.detections.some(d => d.type === 'env_variable')).toBe(true);
     });
 
-    it('detects URL with embedded credentials', () => {
+    it('allows placeholder URL with embedded credentials', () => {
         const result = scanInputForCredentials('http://admin:password123@internal-api.company.com/v1');
-        expect(result.status).toBe('blocked');
-        expect(result.detections.some(d => d.type === 'credentials_in_url')).toBe(true);
+        expect(result.status).toBe('clean');
     });
 });
 
@@ -176,6 +188,32 @@ describe('scanInputForCredentials — Clean input', () => {
         const result = scanInputForCredentials('password = "xxx"');
         expect(result.status).toBe('clean'); // too short
     });
+
+    it('returns clean for SSH host aliases without sensitive options', () => {
+        const result = scanInputForCredentials('ssh deploy@staging');
+        expect(result.status).toBe('clean');
+    });
+
+    it('returns clean for public Stripe keys', () => {
+        const result = scanInputForCredentials('STRIPE_PUBLIC_KEY=pk_test_123456789012345678901234');
+        expect(result.status).toBe('clean');
+        expect(result.allowed_detections?.[0].reason_codes).toContain('public_or_test_key');
+    });
+
+    it('returns clean for fake provider samples in docs', () => {
+        const result = scanInputForCredentials('// example: AKIAIOSFODNN7EXAMPLE');
+        expect(result.status).toBe('clean');
+    });
+
+    it('returns clean for checksum lines', () => {
+        const result = scanInputForCredentials('sha256:abcdefabcdefabcdefabcdefabcdefabcdef');
+        expect(result.status).toBe('clean');
+    });
+
+    it('returns clean for env variable references', () => {
+        const result = scanInputForCredentials('NPM_TOKEN=${NPM_TOKEN}');
+        expect(result.status).toBe('clean');
+    });
 });
 
 // ── Config Options ───────────────────────────────────────────────
@@ -187,7 +225,7 @@ describe('scanInputForCredentials — Config', () => {
     });
 
     it('returns warning instead of blocked when block_on_detection is false', () => {
-        const result = scanInputForCredentials('AKIAIOSFODNN7EXAMPLE', { block_on_detection: false });
+        const result = scanInputForCredentials('AKIAZ9Y8X7W6V5U4T3Q2', { block_on_detection: false });
         expect(result.status).toBe('warning');
         expect(result.detections).toHaveLength(1);
     });
@@ -202,7 +240,7 @@ describe('scanInputForCredentials — Config', () => {
         const result = scanInputForCredentials('internal-token-XYZ123456', {
             custom_patterns: ['internal-token-[A-Z0-9]+'],
         });
-        expect(result.status).toBe('blocked');
+        expect(result.status).toBe('warning');
         expect(result.detections[0].type).toBe('custom_pattern');
     });
 
@@ -235,13 +273,12 @@ describe('scanInputForCredentials — Performance', () => {
 describe('scanInputForCredentials — Deduplication', () => {
     it('deduplicates overlapping detections and keeps higher severity', () => {
         // Input that might trigger both generic password_assignment and a more specific pattern
-        const input = 'api_key = "sk-proj-abc1234567890ABCDEFGH"';
+        const input = 'api_key = "sk-proj-Z9Y8X7W6V5U4T3S2R1Q0P9O8N7M6"';
         const result = scanInputForCredentials(input);
         // Should not have duplicate detections for the same match region
         const positions = result.detections.map(d => d.position?.start);
         const uniquePositions = new Set(positions);
-        // The exact count depends on pattern overlaps, but there should be some deduplication
-        expect(result.detections.length).toBeLessThanOrEqual(positions.length);
+        expect(uniquePositions.size).toBe(positions.length);
     });
 });
 
@@ -249,9 +286,9 @@ describe('scanInputForCredentials — Deduplication', () => {
 
 describe('scanInputForCredentials — Redaction', () => {
     it('redacts matched credentials', () => {
-        const result = scanInputForCredentials('AKIAIOSFODNN7EXAMPLE');
+        const result = scanInputForCredentials('AKIAZ9Y8X7W6V5U4T3Q2');
         expect(result.detections[0].redacted).toContain('****');
-        expect(result.detections[0].redacted).not.toBe('AKIAIOSFODNN7EXAMPLE');
+        expect(result.detections[0].redacted).not.toBe('AKIAZ9Y8X7W6V5U4T3Q2');
     });
 });
 
@@ -259,7 +296,7 @@ describe('scanInputForCredentials — Redaction', () => {
 
 describe('scanInputForCredentials — Compliance', () => {
     it('includes compliance tags for AWS keys', () => {
-        const result = scanInputForCredentials('AKIAIOSFODNN7EXAMPLE');
+        const result = scanInputForCredentials('AKIAZ9Y8X7W6V5U4T3Q2');
         expect(result.detections[0].compliance).toContain('SOC2-CC6.1');
         expect(result.detections[0].compliance).toContain('HIPAA-164.312');
         expect(result.detections[0].compliance).toContain('PCI-DSS-3.4');
@@ -276,23 +313,25 @@ describe('formatDLPAlert', () => {
     });
 
     it('shows BLOCKED header when credentials found', () => {
-        const result = scanInputForCredentials('AKIAIOSFODNN7EXAMPLE');
+        const result = scanInputForCredentials('AKIAZ9Y8X7W6V5U4T3Q2');
         const alert = formatDLPAlert(result);
         expect(alert).toContain('BLOCKED');
-        expect(alert).toContain('credential');
+        expect(alert).toContain('likely live secret');
     });
 
     it('shows WARNING header when block_on_detection is false', () => {
-        const result = scanInputForCredentials('AKIAIOSFODNN7EXAMPLE', { block_on_detection: false });
+        const result = scanInputForCredentials('AKIAZ9Y8X7W6V5U4T3Q2', { block_on_detection: false });
         const alert = formatDLPAlert(result);
         expect(alert).toContain('WARNING');
     });
 
     it('includes severity, redacted value, and recommendation', () => {
-        const result = scanInputForCredentials('AKIAIOSFODNN7EXAMPLE');
+        const result = scanInputForCredentials('AKIAZ9Y8X7W6V5U4T3Q2');
         const alert = formatDLPAlert(result);
         expect(alert).toContain('CRITICAL');
         expect(alert).toContain('****');
+        expect(alert).toContain('Confidence');
+        expect(alert).toContain('Why');
         expect(alert).toContain('process.env');
     });
 });
@@ -301,7 +340,7 @@ describe('formatDLPAlert', () => {
 
 describe('createDLPAuditEntry', () => {
     it('creates structured audit entry', () => {
-        const result = scanInputForCredentials('AKIAIOSFODNN7EXAMPLE');
+        const result = scanInputForCredentials('AKIAZ9Y8X7W6V5U4T3Q2');
         const entry = createDLPAuditEntry(result, { agent: 'claude', userId: 'test-user' });
 
         expect(entry.type).toBe('dlp_event');
@@ -320,11 +359,14 @@ describe('createDLPAuditEntry', () => {
     });
 
     it('redacts credentials in audit log (no raw match)', () => {
-        const result = scanInputForCredentials('AKIAIOSFODNN7EXAMPLE');
+        const result = scanInputForCredentials('AKIAZ9Y8X7W6V5U4T3Q2');
         const entry = createDLPAuditEntry(result, { agent: 'claude' });
         const detections = entry.detections as any[];
         // Audit entry should have redacted field but NOT the raw match
         expect(detections[0].redacted).toBeDefined();
         expect(detections[0].match).toBeUndefined();
+        expect(detections[0].confidence).toBeDefined();
+        expect(detections[0].decision).toBe('block');
     });
+
 });

@@ -17,6 +17,8 @@
  *
  */
 
+import { classifyDLPDetection } from './dlp-confidence.js';
+
 export interface CredentialDetection {
     type: string;
     severity: 'critical' | 'high' | 'medium';
@@ -26,11 +28,15 @@ export interface CredentialDetection {
     recommendation: string;
     compliance: string[];
     position?: { start: number; end: number };
+    confidence?: number;
+    decision?: 'block' | 'warn' | 'allow';
+    reason_codes?: string[];
 }
 
 export interface InputValidationResult {
     status: 'clean' | 'blocked' | 'warning';
     detections: CredentialDetection[];
+    allowed_detections?: CredentialDetection[];
     duration_ms: number;
     scanned_length: number;
 }
@@ -301,81 +307,6 @@ function shannonEntropy(str: string): number {
     }, 0);
 }
 
-/**
- * Smart context filter — decides if a detection is a real credential or a false positive.
- *
- * The challenge: build logs can contain BOTH false positives (variable names mentioned
- * in npm warnings) AND real leaks (a password accidentally echoed in CI output).
- *
- * Strategy:
- * 1. If the match has an actual SECRET VALUE (high entropy, long random string) → KEEP IT
- * 2. If the match is just a variable NAME reference with no real value → SKIP IT
- * 3. If the match is in a documentation/comment context → SKIP IT
- */
-function isLikelyFalsePositive(detection: CredentialDetection, input: string): boolean {
-    const { match, type, position } = detection;
-
-    // Provider-specific prefixed keys are ALWAYS real (AKIA*, sk-*, ghp_*, etc.)
-    const prefixedTypes = [
-        'aws_access_key', 'openai_key', 'anthropic_key', 'github_token',
-        'stripe_key', 'slack_token', 'sendgrid_key', 'private_key',
-        'private_key_full', 'jwt_token', 'bearer_token', 'database_url',
-        'credentials_in_url', 'gcp_service_account',
-    ];
-    if (prefixedTypes.includes(type)) return false;
-
-    // Get the line containing the match
-    const lineStart = input.lastIndexOf('\n', (position?.start ?? 0)) + 1;
-    const lineEnd = input.indexOf('\n', (position?.end ?? match.length));
-    const line = input.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim();
-
-    // npm notice/warn lines mentioning variable names (not values)
-    if (/^npm\s+(?:notice|warn|WARN|ERR!)/i.test(line)) return true;
-
-    // Docker build step output referencing env var names
-    if (/^#\d+\s+[\d.]+\s/.test(line)) {
-        // But if there's an actual assignment with a value, keep it
-        if (/[:=]\s*['"]?[A-Za-z0-9+/=_-]{20,}/.test(match)) return false;
-        return true;
-    }
-
-    // "digest:", "hash:", "checksum:" followed by hex — not credentials
-    if (/(?:digest|hash|checksum|sha256|sha1|md5)\s*[:=]/i.test(line)) return true;
-
-    // Error messages referencing env var names without values
-    if (/(?:missing|undefined|not set|not found|required)\s+.*(?:NPM_TOKEN|DOCKER_PASSWORD|PYPI_TOKEN)/i.test(line)) return true;
-
-    // For generic patterns (password_assignment, env_variable, ci_secret, base64/hex_secret):
-    // Check if the captured VALUE has enough entropy to be a real secret
-    const genericTypes = ['password_assignment', 'env_variable', 'ci_secret', 'base64_secret', 'hex_secret', 'high_entropy_secret'];
-    if (genericTypes.includes(type)) {
-        // Extract the value portion (after = or : )
-        const valueMatch = match.match(/[:=]\s*['"]?(.+?)['"]?\s*$/);
-        if (valueMatch) {
-            const value = valueMatch[1];
-            const entropy = shannonEntropyForFilter(value);
-            // Low entropy + short = likely a placeholder, example, or variable name
-            if (entropy < 3.0 && value.length < 16) return true;
-            // Pure numeric strings in log context (build numbers, timestamps)
-            if (/^\d+$/.test(value)) return true;
-        }
-    }
-
-    return false;
-}
-
-/** Shannon entropy helper for the context filter */
-function shannonEntropyForFilter(str: string): number {
-    if (str.length === 0) return 0;
-    const freq: Record<string, number> = {};
-    for (const c of str) freq[c] = (freq[c] || 0) + 1;
-    const len = str.length;
-    return Object.values(freq).reduce((sum, f) => {
-        const p = f / len;
-        return sum - p * Math.log2(p);
-    }, 0);
-}
-
 // ── Core Scanner ──────────────────────────────────────────────────
 
 /**
@@ -511,26 +442,34 @@ export function scanInputForCredentials(
         }
     }
 
-    // ── Context filter: remove false positives from log/doc/CI output ──
-    const filtered = detections.filter(d => !isLikelyFalsePositive(d, input));
+    // ── Confidence engine: score candidates and suppress allowed false positives ──
+    const classified = detections.map(d => ({
+        ...d,
+        ...classifyDLPDetection(d, input),
+    }));
+    const actionable = classified.filter(d => d.decision !== 'allow');
+    const allowed = classified.filter(d => d.decision === 'allow');
 
     // Deduplicate overlapping detections (keep highest severity)
-    const deduped = deduplicateDetections(filtered);
+    const deduped = deduplicateDetections(actionable);
+    const allowedDeduped = deduplicateDetections(allowed);
 
     // Sort by severity (critical first)
     const severityOrder = { critical: 0, high: 1, medium: 2 };
     deduped.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
     const blockOnDetection = config.block_on_detection ?? true;
+    const hasBlock = deduped.some(d => d.decision === 'block');
     const status = deduped.length === 0
         ? 'clean'
-        : blockOnDetection
+        : blockOnDetection && hasBlock
             ? 'blocked'
             : 'warning';
 
     return {
         status,
         detections: deduped,
+        ...(allowedDeduped.length > 0 ? { allowed_detections: allowedDeduped } : {}),
         duration_ms: Date.now() - start,
         scanned_length: input.length,
     };
@@ -549,8 +488,6 @@ function deduplicateDetections(detections: CredentialDetection[]): CredentialDet
     });
 
     const result: CredentialDetection[] = [];
-    const severityOrder = { critical: 0, high: 1, medium: 2 };
-
     for (const detection of sorted) {
         const overlapping = result.find(existing => {
             if (!existing.position || !detection.position) return false;
@@ -560,7 +497,7 @@ function deduplicateDetections(detections: CredentialDetection[]): CredentialDet
 
         if (overlapping) {
             // Keep the higher severity detection
-            if (severityOrder[detection.severity] < severityOrder[overlapping.severity]) {
+            if (shouldReplaceDetection(detection, overlapping)) {
                 const idx = result.indexOf(overlapping);
                 result[idx] = detection;
             }
@@ -572,27 +509,49 @@ function deduplicateDetections(detections: CredentialDetection[]): CredentialDet
     return result;
 }
 
+function shouldReplaceDetection(candidate: CredentialDetection, existing: CredentialDetection): boolean {
+    const severityOrder = { critical: 0, high: 1, medium: 2 };
+    const decisionOrder = { block: 0, warn: 1, allow: 2 };
+    const severityDelta = severityOrder[candidate.severity] - severityOrder[existing.severity];
+
+    if (severityDelta !== 0) return severityDelta < 0;
+
+    const candidateDecision = decisionOrder[candidate.decision ?? 'warn'];
+    const existingDecision = decisionOrder[existing.decision ?? 'warn'];
+    if (candidateDecision !== existingDecision) return candidateDecision < existingDecision;
+
+    return (candidate.confidence ?? 0) > (existing.confidence ?? 0);
+}
+
 /**
  * Format a blocked input result for display in IDE/terminal.
  * Used by hooks and CLI for human-readable output.
  */
 export function formatDLPAlert(result: InputValidationResult): string {
     if (result.status === 'clean') {
+        const allowedCount = result.allowed_detections?.length ?? 0;
+        if (allowedCount > 0) {
+            return `✓ Input clean — allowed ${allowedCount} sample or safe credential-like value${allowedCount === 1 ? '' : 's'}.`;
+        }
         return '✓ Input clean — no credentials detected.';
     }
 
     const icon = result.status === 'blocked' ? '🛑' : '⚠️';
     const header = result.status === 'blocked'
-        ? `${icon} BLOCKED — ${result.detections.length} credential(s) detected in agent input`
-        : `${icon} WARNING — ${result.detections.length} credential(s) detected in agent input`;
+        ? `${icon} BLOCKED — likely live secret (${result.detections.length} finding${result.detections.length === 1 ? '' : 's'})`
+        : `${icon} WARNING — token-like value needs review (${result.detections.length} finding${result.detections.length === 1 ? '' : 's'})`;
 
     const details = result.detections.map(d => {
-        const complianceStr = d.compliance.length > 0
+        const showCompliance = result.status === 'blocked' && d.compliance.length > 0;
+        const confidence = d.confidence !== undefined ? ` | Confidence: ${d.confidence}%` : '';
+        const reasons = d.reason_codes?.length ? `\n    Why: ${formatReasonCodes(d.reason_codes)}` : '';
+        const complianceStr = showCompliance
             ? `\n    Compliance: ${d.compliance.join(', ')}`
             : '';
         return [
-            `  [${d.severity.toUpperCase()}] ${d.description}`,
+            `  [${d.severity.toUpperCase()}] ${d.description}${confidence}`,
             `    Detected: ${d.redacted}`,
+            reasons,
             `    → ${d.recommendation}`,
             complianceStr,
         ].filter(Boolean).join('\n');
@@ -625,7 +584,23 @@ export function createDLPAuditEntry(
             severity: d.severity,
             redacted: d.redacted,
             description: d.description,
+            confidence: d.confidence,
+            decision: d.decision,
+            reason_codes: d.reason_codes,
             compliance: d.compliance,
         })),
+        allowed_detections: (result.allowed_detections ?? []).map(d => ({
+            type: d.type,
+            severity: d.severity,
+            redacted: d.redacted,
+            description: d.description,
+            confidence: d.confidence,
+            decision: d.decision,
+            reason_codes: d.reason_codes,
+        })),
     };
+}
+
+function formatReasonCodes(reasonCodes: string[]): string {
+    return reasonCodes.map(reason => reason.replace(/_/g, ' ')).join(', ');
 }
