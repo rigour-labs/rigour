@@ -58,7 +58,7 @@
         "globby": "^14.0.1",
         "inquirer": "9.2.16",
         "ora": "^8.0.1",
-        "yaml": "^2.8.2"
+        "yaml": "^2.8.3"
     },
     "devDependencies": {
         "@types/fs-extra": "^11.0.4",
