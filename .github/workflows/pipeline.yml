@@ -60,6 +60,7 @@ jobs:
         with:
           node-version: 22
           cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: pnpm install
@@ -100,11 +101,21 @@ jobs:
         if: steps.release_guard.outputs.skip_release != 'true'
         run: npm install -g npm@latest
 
+      - name: Verify npm publish credentials
+        if: steps.release_guard.outputs.skip_release != 'true'
+        run: |
+          set -euo pipefail
+          if ! npm whoami; then
+            echo "::error::NPM publish auth failed. Update the NPM_TOKEN GitHub secret with a current npm automation token that can publish to @rigour-labs/*, or configure npm trusted publishing for workflow pipeline.yml."
+            exit 1
+          fi
+
       - name: Release
         if: steps.release_guard.outputs.skip_release != 'true'
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Capture released CLI version
         id: capture_version
