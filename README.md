@@ -34,7 +34,7 @@ Works on any repo. No init, no config, no setup. Instant results in your termina
 ## Add to your AI IDE (30 seconds)
 
 ```json
-{ "mcpServers": { "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp"] } } }
+{ "mcpServers": { "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp@5.3.2"] } } }
 ```
 
 | IDE / Agent | MCP Tools | Live Dashboard | Real-Time Feed |

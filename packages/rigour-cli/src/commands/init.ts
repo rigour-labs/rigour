@@ -608,8 +608,20 @@ function resolveMCPServerConfig(): { command: string; args: string[] } {
         // Running from local dev checkout — use local path
         return { command: 'node', args: [localMcpEntry] };
     }
-    // Fallback: published npm package
-    return { command: 'npx', args: ['-y', '@rigour-labs/mcp'] };
+    // Fallback: pin published npm package so Cursor resolves a known build
+    let mcpSpec = '@rigour-labs/mcp@5.3.2';
+    try {
+        const mcpPkgPath = path.resolve(thisDir, '../../../rigour-mcp/package.json');
+        if (fs.existsSync(mcpPkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(mcpPkgPath, 'utf-8')) as { version?: string };
+            if (pkg.version && pkg.version.trim().length > 0) {
+                mcpSpec = `@rigour-labs/mcp@${pkg.version}`;
+            }
+        }
+    } catch {
+        // Keep pinned fallback.
+    }
+    return { command: 'npx', args: ['-y', mcpSpec] };
 }
 
 async function initMCPForDetectedTools(

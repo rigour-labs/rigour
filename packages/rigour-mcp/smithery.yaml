@@ -42,5 +42,5 @@ startCommand:
       if (config.scoreThreshold !== undefined) env.RIGOUR_SCORE_THRESHOLD = String(config.scoreThreshold);
       if (config.enableHooks !== undefined) env.RIGOUR_HOOKS_ENABLED = String(config.enableHooks);
       if (config.securityAudit !== undefined) env.RIGOUR_SECURITY_AUDIT = String(config.securityAudit);
-      return { command: 'npx', args: ['-y', '@rigour-labs/mcp'], env };
+      return { command: 'npx', args: ['-y', '@rigour-labs/mcp@5.3.2'], env };
     }

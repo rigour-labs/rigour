@@ -125,7 +125,7 @@ Add the following to your MCP settings:
   "mcpServers": {
     "rigour": {
       "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp"],
+      "args": ["-y", "@rigour-labs/mcp@5.3.2"],
       "env": {
         "RIGOUR_CWD": "/path/to/your/project"
       }

@@ -23,6 +23,7 @@ import { GateRunner } from "@rigour-labs/core";
 // Utils
 import { loadConfig, loadMcpSettings, logStudioEvent } from './utils/config.js';
 import { bindServer } from './utils/notifications.js';
+import { getMcpVersion } from './utils/package-version.js';
 
 // Dashboard (MCP App)
 import { DASHBOARD_URI, getDashboardHtml, pushTimelineEntry, updateScore } from './dashboard/index.js';
@@ -47,7 +48,7 @@ import { recordContextEvent, estimateTokenCount } from '@rigour-labs/core';
 // ─── Server Setup ─────────────────────────────────────────────────
 
 const server = new Server(
-    { name: "rigour-mcp", version: "3.0.1" },
+    { name: "rigour-mcp", version: getMcpVersion('5.3.2') },
     { capabilities: { tools: {}, prompts: {}, logging: {}, resources: {} } }
 );
 
