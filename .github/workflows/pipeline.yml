@@ -260,5 +260,6 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew tap rigour-labs/tap
+          brew trust rigour-labs/tap
           brew install rigour
           node -e 'const { execSync } = require("child_process"); const expected = process.env.EXPECTED_CLI_VERSION; const out = execSync("rigour --version", { encoding: "utf8" }); const versions = out.match(/\d+\.\d+\.\d+/g) || []; const actual = versions[versions.length - 1]; if (!actual) { console.error("No brew CLI version found in output"); process.exit(1); } if (expected && actual !== expected) { console.error("brew version mismatch: expected " + expected + ", got " + actual); process.exit(1); } console.log("brew version OK: " + actual);'
