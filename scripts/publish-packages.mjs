@@ -22,6 +22,10 @@ for (const dir of packageDirs) {
   if (pkg.private) {
     continue;
   }
+  if (!pkg.name?.startsWith('@rigour-labs/')) {
+    console.log(`Skipping ${pkg.name ?? path.basename(dir)} (not published by org release token).`);
+    continue;
+  }
 
   const name = pkg.name || path.basename(dir);
   console.log(`\nPublishing ${name} from ${path.relative(root, dir)}...`);
