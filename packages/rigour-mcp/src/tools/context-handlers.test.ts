@@ -1,36 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
-
-vi.mock('@rigour-labs/core', async () => {
-    const telemetry = await import('../../../rigour-core/src/services/context-telemetry-service.js');
-    const storage = await import('../../../rigour-core/src/storage/context-telemetry.js');
-    const cache = await import('../../../rigour-core/src/context/cache-engine.js');
-    const settings = await import('../../../rigour-core/src/settings.js');
-    return {
-        ...telemetry,
-        ...storage,
-        ...cache,
-        getCursorApiKey: settings.getCursorApiKey,
-        updateCursorApiKey: settings.updateCursorApiKey,
-    };
-});
-
-vi.mock('../../../rigour-core/src/storage/db.js', () => ({
-    isSQLiteAvailable: () => false,
-    openDatabase: async () => null,
-    DB_PATH: '/tmp/rigour-test.db',
-    RIGOUR_DIR: '/tmp/.rigour',
-}));
-
+import { recordContextEvent, getContextEvents } from '@rigour-labs/core';
 import {
     handleContextStats,
     handleTaskCost,
     handleCacheStats,
     handleContextExplain,
 } from './context-handlers.js';
-import { recordContextEvent } from '../../../rigour-core/src/storage/context-telemetry.js';
 
 describe('context MCP handlers', () => {
     const testCwd = path.join(os.tmpdir(), `rigour-ctx-handlers-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -82,8 +60,7 @@ describe('context MCP handlers', () => {
             returnedTokens: 250,
         }, testCwd);
 
-        const events = await import('../../../rigour-core/src/storage/context-telemetry.js')
-            .then(m => m.getContextEvents(cacheTaskId, testCwd));
+        const events = await getContextEvents(cacheTaskId, testCwd);
         const result = await handleCacheStats(testCwd);
         const cache = JSON.parse(result.content[0].text);
 
