@@ -76,6 +76,8 @@ export function CostContext() {
     const [importStatus, setImportStatus] = useState<string | null>(null);
     const [cursorApiKey, setCursorApiKey] = useState('');
     const [cursorKeyConfigured, setCursorKeyConfigured] = useState(false);
+    const [cursorImportedCount, setCursorImportedCount] = useState(0);
+    const [cursorSyncLoading, setCursorSyncLoading] = useState(false);
     const [cursorKeyStatus, setCursorKeyStatus] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -96,6 +98,7 @@ export function CostContext() {
             setScopeSummary(scopeRes);
             setCheckpointSummary(checkpointRes);
             setCursorKeyConfigured(Boolean(keyStatusRes?.configured));
+            setCursorImportedCount(Number(keyStatusRes?.importedCount ?? 0));
         } catch (e) {
             console.error('Failed to fetch cost & context telemetry', e);
         } finally {
@@ -141,6 +144,7 @@ export function CostContext() {
 
     const handleSaveCursorApiKey = async () => {
         if (!cursorApiKey.trim()) return;
+        setCursorSyncLoading(true);
         try {
             const res = await fetch('/api/cursor-api-key', {
                 method: 'POST',
@@ -151,13 +155,42 @@ export function CostContext() {
             if (data.success) {
                 setCursorKeyConfigured(true);
                 setCursorApiKey('');
-                setCursorKeyStatus('Cursor Admin API key saved.');
+                setCursorImportedCount(Number(data.importedCount ?? 0));
+                if (data.syncError) {
+                    setCursorKeyStatus(`Key saved. Initial sync failed: ${data.syncError}`);
+                } else {
+                    setCursorKeyStatus(
+                        `Cursor Admin API key saved. Imported ${data.importedCount ?? 0} usage event(s).`,
+                    );
+                }
                 fetchData();
             } else {
                 setCursorKeyStatus(`Save failed: ${data.error}`);
             }
         } catch (e: any) {
             setCursorKeyStatus(`Save failed: ${e.message}`);
+        } finally {
+            setCursorSyncLoading(false);
+        }
+    };
+
+    const handleCursorSync = async () => {
+        setCursorSyncLoading(true);
+        setCursorKeyStatus(null);
+        try {
+            const res = await fetch('/api/cursor-sync', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                setCursorImportedCount(Number(data.importedCount ?? 0));
+                setCursorKeyStatus(`Synced ${data.importedCount ?? 0} new Cursor usage event(s).`);
+                fetchData();
+            } else {
+                setCursorKeyStatus(`Sync failed: ${data.error || 'Unknown error'}`);
+            }
+        } catch (e: any) {
+            setCursorKeyStatus(`Sync failed: ${e.message}`);
+        } finally {
+            setCursorSyncLoading(false);
         }
     };
 
@@ -398,8 +431,9 @@ export function CostContext() {
                     <KeyRound size={18} className="text-cyan-400" /> Cursor Admin API Key
                 </h3>
                 <p className="text-xs text-muted-foreground mb-3">
-                    Optional: save your Cursor Admin API key to enable verified usage sync on refresh.
+                    Optional: save your Cursor Admin API key to enable verified usage sync.
                     {cursorKeyConfigured ? ' Key is configured.' : ' No key configured yet.'}
+                    {cursorImportedCount > 0 ? ` ${cursorImportedCount} Admin API event(s) imported.` : ''}
                 </p>
                 <div className="flex gap-2 mb-2">
                     <input
@@ -407,13 +441,30 @@ export function CostContext() {
                         value={cursorApiKey}
                         onChange={(e) => setCursorApiKey(e.target.value)}
                         placeholder="Cursor Admin API key"
-                        className="flex-1 px-3 py-2 bg-background border border-border rounded-md text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        disabled={cursorSyncLoading}
+                        className="flex-1 px-3 py-2 bg-background border border-border rounded-md text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
                     />
-                    <button onClick={handleSaveCursorApiKey} className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 font-medium">
-                        Save Key
+                    <button
+                        onClick={handleSaveCursorApiKey}
+                        disabled={cursorSyncLoading || !cursorApiKey.trim()}
+                        className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 font-medium disabled:opacity-60"
+                    >
+                        {cursorSyncLoading ? 'Saving…' : 'Save Key'}
+                    </button>
+                    <button
+                        onClick={handleCursorSync}
+                        disabled={cursorSyncLoading || !cursorKeyConfigured}
+                        className="px-4 py-2 bg-secondary text-secondary-foreground text-sm rounded-md hover:bg-secondary/80 font-medium disabled:opacity-60 flex items-center gap-2"
+                    >
+                        <RefreshCw size={14} className={cursorSyncLoading ? 'animate-spin' : ''} />
+                        {cursorSyncLoading ? 'Syncing…' : 'Sync Cursor'}
                     </button>
                 </div>
-                {cursorKeyStatus && <span className="text-xs font-semibold text-emerald-400">{cursorKeyStatus}</span>}
+                {cursorKeyStatus && (
+                    <span className={`text-xs font-semibold ${cursorKeyStatus.includes('failed') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {cursorKeyStatus}
+                    </span>
+                )}
             </div>
 
             <div className="p-5 bg-card border border-border rounded-lg shadow-sm">

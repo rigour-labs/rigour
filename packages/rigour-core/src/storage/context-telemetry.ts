@@ -33,6 +33,7 @@ export interface ModelUsage {
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens?: number;
+    cacheWriteTokens?: number;
     observedCostUsd?: number;
     source: string;
     createdAt?: number;

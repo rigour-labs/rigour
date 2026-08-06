@@ -122,6 +122,23 @@ describe('context-telemetry-service', () => {
         expect(cost.actual.inputTokens).toBe(2500);
     });
 
+    it('imports Admin API JSON events with chargedCents and dedupes against sync IDs', async () => {
+        const adminEvent = {
+            timestamp: '1750979225854',
+            conversationId: 'conv-dedupe',
+            model: 'composer-2.5-standard',
+            chargedCents: 42.5,
+            tokenUsage: { inputTokens: 100, outputTokens: 50 },
+        };
+
+        expect(await importCursorUsageJson([adminEvent], testCwd)).toBe(1);
+        expect(await importCursorUsageJson([adminEvent], testCwd)).toBe(0);
+
+        const cost = await getTaskCostStats('conv-dedupe', testCwd);
+        expect(cost.actual.costUsd).toBeCloseTo(0.425, 3);
+        expect(cost.actual.isEstimated).toBe(false);
+    });
+
     it('summarizes agent scope overlap from session file', async () => {
         await fs.writeJson(path.join(testCwd, '.rigour', 'agent-session.json'), {
             agents: [
@@ -158,5 +175,33 @@ describe('context-telemetry-service', () => {
         expect(summary.rawStateTokens).toBe(10000);
         expect(summary.compressionRatio).toBe(20);
         expect(summary.replayTokensAvoided).toBe(9500);
+    });
+
+    it('marks observed cost from usages and estimates avoided cost by model', async () => {
+        const jsonTaskId = `${taskId}-composer-${Math.random().toString(36).slice(2)}`;
+        await importCursorUsageJson([{
+            id: `json-composer-${jsonTaskId}`,
+            taskId: jsonTaskId,
+            inputTokens: 2_000_000,
+            outputTokens: 0,
+            observedCostUsd: 1.25,
+            model: 'composer-2.5-standard',
+            source: 'cursor-admin-api',
+        }], testCwd);
+
+        await recordContextEvent({
+            taskId: jsonTaskId,
+            toolName: 'rigour_context_scope',
+            cacheStatus: 'miss',
+            candidateTokens: 3_000_000,
+            returnedTokens: 1_000_000,
+        }, testCwd);
+
+        const cost = await getTaskCostStats(jsonTaskId, testCwd);
+        expect(cost.actual.isEstimated).toBe(false);
+        expect(cost.actual.costUsd).toBe(1.25);
+        expect(cost.estimated.isEstimated).toBe(true);
+        expect(cost.estimated.inputPricePerMillionUsd).toBe(0.5);
+        expect(cost.estimated.estimatedCostAvoidedUsd).toBeGreaterThan(0);
     });
 });

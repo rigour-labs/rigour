@@ -11,6 +11,7 @@
 
 import fs from 'fs-extra';
 import path from 'path';
+import { createHash } from 'crypto';
 import {
     getTaskContextStats,
     getTaskCostStats,
@@ -110,6 +111,30 @@ export async function handleContextExplain(cwd: string, target: string, taskId?:
     }
 }
 
+function hashScopeQuery(query: string): string {
+    return createHash('sha256').update(query.trim().toLowerCase()).digest('hex').slice(0, 16);
+}
+
+function scopeTelemetryMeta(opts: {
+    candidateText: string;
+    returnedText: string;
+    cacheStatus: 'exact-hit' | 'semantic-hit' | 'partial-hit' | 'miss' | 'none';
+    deduplicatedTokens?: number;
+    query: string;
+    taskId?: string;
+    agentId?: string;
+}) {
+    return buildTelemetryMeta({
+        candidateText: opts.candidateText,
+        returnedText: opts.returnedText,
+        cacheStatus: opts.cacheStatus,
+        deduplicatedTokens: opts.deduplicatedTokens,
+        taskId: opts.taskId,
+        agentId: opts.agentId,
+        queryHash: hashScopeQuery(opts.query),
+    });
+}
+
 function textMatchPatterns(query: string, patterns: PatternEntry[], limit: number): PatternEntry[] {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     const scored = patterns.map(p => {
@@ -129,6 +154,8 @@ export async function handleContextScope(
     cwd: string,
     query: string,
     limit = 10,
+    taskId?: string,
+    agentId?: string,
 ): Promise<ToolResult> {
     const commitSha = await getWorkspaceCommitSha(cwd);
     const indexPath = getDefaultIndexPath(cwd);
@@ -137,10 +164,13 @@ export async function handleContextScope(
     const cached = await getSemanticQueryCache(query, commitSha, cwd);
     if (cached) {
         const cachedText = JSON.stringify(cached, null, 2);
-        const telemetry = buildTelemetryMeta({
+        const telemetry = scopeTelemetryMeta({
             candidateText: fullIndexCandidate,
             returnedText: cachedText,
             cacheStatus: 'semantic-hit',
+            query,
+            taskId,
+            agentId,
         });
         const text = `CONTEXT SCOPE (cached)\n\n${cachedText}`;
         return {
@@ -155,10 +185,13 @@ export async function handleContextScope(
             + 'Without an index, agents tend to read entire directories — wasting tokens.';
         return {
             content: [{ type: 'text', text }],
-            _telemetry: buildTelemetryMeta({
+            _telemetry: scopeTelemetryMeta({
                 candidateText: fullIndexCandidate,
                 returnedText: text,
                 cacheStatus: 'miss',
+                query,
+                taskId,
+                agentId,
             }),
         };
     }
@@ -232,11 +265,14 @@ export async function handleContextScope(
     }, cwd);
 
     const resultText = JSON.stringify(scopePayload, null, 2);
-    const telemetry = buildTelemetryMeta({
+    const telemetry = scopeTelemetryMeta({
         candidateText: fullIndexCandidate,
         returnedText: resultText,
         cacheStatus: 'miss',
         deduplicatedTokens: scopePayload.estimatedTokensSaved,
+        query,
+        taskId,
+        agentId,
     });
 
     return {

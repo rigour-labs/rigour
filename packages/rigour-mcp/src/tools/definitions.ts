@@ -646,6 +646,8 @@ export const TOOL_DEFINITIONS = [
                 ...cwdParam(),
                 query: { type: "string", description: "Natural-language description of what you need to work on (e.g. 'add priority field to task service')." },
                 limit: { type: "number", description: "Maximum number of pattern matches to return (default: 10)." },
+                taskId: { type: "string", description: "Optional task ID for context telemetry attribution." },
+                agentId: { type: "string", description: "Optional agent ID for context telemetry attribution." },
             },
             required: ["cwd", "query"],
         },

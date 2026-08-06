@@ -13,6 +13,10 @@ export type TelemetryMeta = {
     cacheStatus: CacheStatus;
     deduplicatedTokens?: number;
     isEstimated?: boolean;
+    taskId?: string;
+    agentId?: string;
+    queryHash?: string;
+    skipRecording?: boolean;
 };
 
 export type ToolResult = {
@@ -29,6 +33,10 @@ export function buildTelemetryMeta(opts: {
     returnedText: string;
     cacheStatus: CacheStatus;
     deduplicatedTokens?: number;
+    taskId?: string;
+    agentId?: string;
+    queryHash?: string;
+    skipRecording?: boolean;
 }): TelemetryMeta {
     return {
         candidateTokens: estimateTokenCount(opts.candidateText),
@@ -36,6 +44,10 @@ export function buildTelemetryMeta(opts: {
         cacheStatus: opts.cacheStatus,
         deduplicatedTokens: opts.deduplicatedTokens ?? 0,
         isEstimated: true,
+        taskId: opts.taskId,
+        agentId: opts.agentId,
+        queryHash: opts.queryHash,
+        skipRecording: opts.skipRecording,
     };
 }
 

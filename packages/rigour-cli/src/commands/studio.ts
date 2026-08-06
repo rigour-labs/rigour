@@ -393,12 +393,26 @@ async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath
             }
         } else if (url.pathname === '/api/cursor-api-key/status') {
             try {
-                const { getCursorApiKey } = await import('@rigour-labs/core');
+                const { getCursorApiKey, countCursorAdminImportedEvents } = await import('@rigour-labs/core');
                 const configured = Boolean(getCursorApiKey());
+                const importedCount = await countCursorAdminImportedEvents(cwd);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ configured }));
+                res.end(JSON.stringify({ configured, importedCount }));
             } catch (e: any) {
                 res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+            }
+        } else if (url.pathname === '/api/cursor-sync' && req.method === 'POST') {
+            try {
+                const { syncCursorUsageFromAdminApi } = await import('@rigour-labs/core');
+                const result = await syncCursorUsageFromAdminApi(cwd);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, ...result }));
+            } catch (e: any) {
+                res.writeHead(502, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: false,
+                    error: e.message || 'Cursor usage sync failed',
+                }));
             }
         } else if (url.pathname === '/api/cursor-api-key' && req.method === 'POST') {
             let body = '';
@@ -411,10 +425,25 @@ async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath
                         res.end(JSON.stringify({ error: 'Missing apiKey' }));
                         return;
                     }
-                    const { updateCursorApiKey } = await import('@rigour-labs/core');
+                    const { updateCursorApiKey, syncCursorUsageFromAdminApi } = await import('@rigour-labs/core');
                     updateCursorApiKey(apiKey.trim());
+
+                    let syncResult = { importedCount: 0, totalEvents: 0 };
+                    let syncError: string | undefined;
+                    try {
+                        syncResult = await syncCursorUsageFromAdminApi(cwd);
+                    } catch (syncErr: any) {
+                        syncError = syncErr?.message || 'Initial Cursor sync failed';
+                    }
+
                     res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: true, configured: true }));
+                    res.end(JSON.stringify({
+                        success: true,
+                        configured: true,
+                        importedCount: syncResult.importedCount,
+                        totalEvents: syncResult.totalEvents,
+                        syncError,
+                    }));
                 } catch (e: any) {
                     res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
                 }

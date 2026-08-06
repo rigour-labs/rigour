@@ -2,13 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
-import { recordContextEvent, getContextEvents } from '@rigour-labs/core';
+import { recordContextEvent, getContextEvents, setSemanticQueryCache } from '@rigour-labs/core';
 import {
     handleContextStats,
     handleTaskCost,
     handleCacheStats,
     handleContextExplain,
+    handleContextScope,
 } from './context-handlers.js';
+import { getWorkspaceCommitSha } from '../utils/context-telemetry.js';
 
 describe('context MCP handlers', () => {
     const testCwd = path.join(os.tmpdir(), `rigour-ctx-handlers-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -94,5 +96,80 @@ describe('context MCP handlers', () => {
 
         expect(explanation.status).toBe('included');
         expect(explanation.servedFromCache).toBe(true);
+    });
+
+    it('handleContextScope works without task and agent IDs', async () => {
+        const result = await handleContextScope(testCwd, 'task service priority field', 5);
+        expect(result.isError).toBeUndefined();
+        expect(result._telemetry?.queryHash).toBeDefined();
+        expect(result._telemetry?.taskId).toBeUndefined();
+    });
+
+    it('handleContextScope attaches task and agent attribution for telemetry', async () => {
+        const scopeTaskId = `${taskId}-scope`;
+        const agentId = 'agent-scope-1';
+        const result = await handleContextScope(
+            testCwd,
+            'authentication middleware',
+            5,
+            scopeTaskId,
+            agentId,
+        );
+
+        expect(result._telemetry?.taskId).toBe(scopeTaskId);
+        expect(result._telemetry?.agentId).toBe(agentId);
+        expect(result._telemetry?.queryHash).toHaveLength(16);
+    });
+
+    it('records scoped context events filterable by taskId', async () => {
+        const scopeTaskId = `${taskId}-filter`;
+        const agentId = 'agent-filter';
+        const result = await handleContextScope(
+            testCwd,
+            'cache layer telemetry',
+            5,
+            scopeTaskId,
+            agentId,
+        );
+
+        await recordContextEvent({
+            taskId: result._telemetry?.taskId,
+            agentId: result._telemetry?.agentId,
+            toolName: 'rigour_context_scope',
+            queryHash: result._telemetry?.queryHash,
+            cacheStatus: result._telemetry?.cacheStatus ?? 'miss',
+            candidateTokens: result._telemetry?.candidateTokens ?? 0,
+            returnedTokens: result._telemetry?.returnedTokens ?? 0,
+            deduplicatedTokens: result._telemetry?.deduplicatedTokens ?? 0,
+        }, testCwd);
+
+        const stats = await handleContextStats(testCwd, scopeTaskId);
+        const parsed = JSON.parse(stats.content[0].text);
+        expect(parsed.retrievals).toBe(1);
+        expect(parsed.taskId).toBe(scopeTaskId);
+    });
+
+    it('attributes semantic cache hits to task and agent', async () => {
+        const scopeTaskId = `${taskId}-cache-hit`;
+        const agentId = 'agent-cache';
+        const query = `unique-query-${Date.now()}`;
+        const commitSha = await getWorkspaceCommitSha(testCwd);
+
+        await setSemanticQueryCache(query, commitSha, {
+            query,
+            resolvedOwner: 'src',
+            editScope: ['src/example.ts'],
+            validationScope: ['review src/example.ts'],
+            evidence: ['cached scope'],
+            commitSha,
+            confidence: 0.9,
+        }, testCwd);
+
+        const result = await handleContextScope(testCwd, query, 5, scopeTaskId, agentId);
+
+        expect(result._telemetry?.cacheStatus).toBe('semantic-hit');
+        expect(result._telemetry?.taskId).toBe(scopeTaskId);
+        expect(result._telemetry?.agentId).toBe(agentId);
+        expect(result._telemetry?.queryHash).toHaveLength(16);
     });
 });

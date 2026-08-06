@@ -28,8 +28,8 @@ import { getMcpVersion } from './utils/package-version.js';
 // Dashboard (MCP App)
 import { DASHBOARD_URI, getDashboardHtml, pushTimelineEntry, updateScore } from './dashboard/index.js';
 
-// Tool definitions
-import { TOOL_DEFINITIONS } from './tools/definitions.js';
+// Tool definitions & advertised registry
+import { getAdvertisedToolDefinitions } from './advertised-tools.js';
 
 // Tool handlers
 import { handleCheck, handleExplain, handleStatus, handleGetFixPacket, handleListGates, handleGetConfig } from './tools/quality-handlers.js';
@@ -57,29 +57,8 @@ bindServer(server);
 
 // ─── Tool Listing ─────────────────────────────────────────────────
 
-// Only expose essential tools by default to improve agent tool selection.
-// Research shows agents degrade at 30+ tools (wrong picks, hallucinated args).
-// Power-user tools are still callable — they just aren't advertised in the tool list.
-const ESSENTIAL_TOOLS = new Set([
-    'rigour_recall',          // Load project memory (START of every task)
-    'rigour_index',           // Build/refresh pattern index (if stale)
-    'rigour_context_scope',   // Scoped file retrieval BEFORE reading files
-    'rigour_check_pattern',   // Check if code exists (BEFORE creating new code)
-    'rigour_check',           // Run quality gates (BEFORE declaring done)
-    'rigour_remember',        // Store conventions/decisions
-    'rigour_explain',         // Explain gate failures
-    'rigour_get_fix_packet',  // Get structured fix instructions on FAIL
-    'rigour_review',          // Review diffs
-    'rigour_security_audit',  // CVE check
-    'rigour_forget',          // Remove stored memory
-    'rigour_context_stats',   // Context retrieval efficiency & avoided tokens
-    'rigour_task_cost',       // Verified vs estimated avoided costs
-    'rigour_cache_stats',     // 4-layer cache statistics
-    'rigour_context_explain', // Explain context inclusion/exclusion audit
-]);
-
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOL_DEFINITIONS.filter(t => ESSENTIAL_TOOLS.has(t.name)),
+    tools: getAdvertisedToolDefinitions(),
 }));
 
 // ─── Resource Listing (MCP App Dashboard) ────────────────────────
@@ -209,8 +188,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 break;
             }
             case "rigour_context_scope": {
-                const { query, limit } = args as any;
-                result = await handleContextScope(cwd, query, limit);
+                const { query, limit, taskId, agentId } = args as any;
+                result = await handleContextScope(cwd, query, limit, taskId, agentId);
                 break;
             }
 
@@ -223,15 +202,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const telemetry = result?._telemetry;
             const resultText = Array.isArray(result?.content) ? result.content.map((c: any) => c.text || '').join('\n') : '';
             const returnedTokens = telemetry?.returnedTokens ?? estimateTokenCount(resultText);
-            await recordContextEvent({
-                taskId: (args as any)?.taskId || (args as any)?.task_id,
-                agentId: (args as any)?.agentId || (args as any)?.agent_id,
-                toolName: name,
-                cacheStatus: telemetry?.cacheStatus ?? 'none',
-                candidateTokens: telemetry?.candidateTokens ?? returnedTokens,
-                returnedTokens,
-                deduplicatedTokens: telemetry?.deduplicatedTokens ?? 0,
-            }, cwd);
+            if (!telemetry?.skipRecording) {
+                await recordContextEvent({
+                    taskId: telemetry?.taskId
+                        || (args as any)?.taskId
+                        || (args as any)?.task_id,
+                    agentId: telemetry?.agentId
+                        || (args as any)?.agentId
+                        || (args as any)?.agent_id,
+                    toolName: name,
+                    queryHash: telemetry?.queryHash,
+                    cacheStatus: telemetry?.cacheStatus ?? 'none',
+                    candidateTokens: telemetry?.candidateTokens ?? returnedTokens,
+                    returnedTokens,
+                    deduplicatedTokens: telemetry?.deduplicatedTokens ?? 0,
+                }, cwd);
+            }
         } catch {
             // non-blocking context telemetry logging
         }

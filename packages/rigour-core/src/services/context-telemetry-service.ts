@@ -14,21 +14,19 @@ import {
     recordModelUsage,
 } from '../storage/index.js';
 import { getCursorApiKey } from '../settings.js';
+import {
+    estimateAvoidedContextCostUsd,
+    estimateTokenCostUsd,
+    computeWeightedInputPricePerMillion,
+} from './model-pricing.js';
+import { fetchCursorUsagePages, type CursorUsageSyncOptions } from './cursor-usage-client.js';
+import { CURSOR_ADMIN_API_SOURCE, centsToUsd, isCursorAdminApiEvent, normalizeCursorUsageEvent } from './cursor-usage-normalizer.js';
 
 /** Heuristic token counter (~4 chars per token for code/text) */
 export function estimateTokenCount(text: string): number {
     if (!text) return 0;
     return Math.ceil(text.length / 4);
 }
-
-/** Default Model Input Rates (per million tokens) */
-const DEFAULT_MODEL_PRICES: Record<string, number> = {
-    'claude-3-5-sonnet': 3.0,
-    'gpt-4o': 2.5,
-    'gpt-4o-mini': 0.15,
-    'o1-preview': 15.0,
-    'default': 3.0,
-};
 
 /** Default session token budgets */
 export const DEFAULT_SESSION_SOFT_LIMIT = 160_000;
@@ -53,11 +51,14 @@ export interface TaskCostStats {
         costUsd: number;
         source: string;
         isEstimated: boolean;
+        pricingBasis?: string;
     };
     estimated: {
         potentialContextAvoided: number;
         estimatedCostAvoidedUsd: number;
         isEstimated: boolean;
+        inputPricePerMillionUsd?: number;
+        pricingBasis?: string;
     };
 }
 
@@ -178,35 +179,57 @@ export async function getTaskCostStats(taskId?: string, cwd?: string): Promise<T
 
     let actualInputTokens = 0;
     let actualOutputTokens = 0;
-    let actualCostUsd = 0;
+    let observedCostUsd = 0;
     let primarySource = 'estimated';
     const hasObservedUsage = usages.length > 0;
 
     for (const u of usages) {
         actualInputTokens += u.inputTokens || 0;
         actualOutputTokens += u.outputTokens || 0;
-        actualCostUsd += u.observedCostUsd || 0;
+        observedCostUsd += u.observedCostUsd || 0;
         if (u.source && u.source !== 'estimated') {
             primarySource = u.source;
         }
     }
 
-    const pricePerM = DEFAULT_MODEL_PRICES['claude-3-5-sonnet'] || 3.0;
+    const hasObservedCost = observedCostUsd > 0;
+    let actualCostUsd = observedCostUsd;
+    let actualIsEstimated = !hasObservedUsage;
+    let actualPricingBasis: string | undefined;
+
+    if (!hasObservedCost && hasObservedUsage) {
+        actualCostUsd = usages.reduce(
+            (sum, usage) => sum + estimateTokenCostUsd(
+                usage.inputTokens || 0,
+                usage.outputTokens || 0,
+                usage.model,
+            ),
+            0,
+        );
+        actualIsEstimated = true;
+        actualPricingBasis = computeWeightedInputPricePerMillion(usages).pricingBasis;
+    } else if (hasObservedCost) {
+        actualPricingBasis = 'observed-cursor-charged-cents';
+    }
+
     const totalPotentialAvoided = stats.potentialAvoidedTokens + stats.checkpointReplayAvoided;
-    const estimatedCostAvoidedUsd = parseFloat(((totalPotentialAvoided / 1_000_000) * pricePerM).toFixed(2));
+    const avoidedPricing = estimateAvoidedContextCostUsd(totalPotentialAvoided, usages);
 
     return {
         actual: {
             inputTokens: actualInputTokens,
             outputTokens: actualOutputTokens,
-            costUsd: parseFloat(actualCostUsd.toFixed(2)),
+            costUsd: parseFloat(actualCostUsd.toFixed(4)),
             source: primarySource,
-            isEstimated: !hasObservedUsage,
+            isEstimated: actualIsEstimated,
+            pricingBasis: actualPricingBasis,
         },
         estimated: {
             potentialContextAvoided: totalPotentialAvoided,
-            estimatedCostAvoidedUsd,
+            estimatedCostAvoidedUsd: avoidedPricing.costUsd,
             isEstimated: true,
+            inputPricePerMillionUsd: avoidedPricing.pricing.inputPricePerMillionUsd,
+            pricingBasis: avoidedPricing.pricing.pricingBasis,
         },
     };
 }
@@ -397,20 +420,50 @@ export async function importCursorUsageJson(jsonData: unknown, cwd?: string): Pr
     const records = Array.isArray(jsonData)
         ? jsonData
         : (payload.records || payload.usage || [jsonData]) as Record<string, unknown>[];
-    let importedCount = 0;
 
+    const existingUsages = await getModelUsages(undefined, cwd);
+    const seenIds = new Set(existingUsages.map(u => u.id).filter(Boolean) as string[]);
+
+    let importedCount = 0;
     for (const r of records) {
+        const normalized = isCursorAdminApiEvent(r) ? normalizeCursorUsageEvent(r) : null;
+        if (normalized) {
+            if (seenIds.has(normalized.id)) continue;
+            seenIds.add(normalized.id);
+            await recordModelUsage(normalized.usage, cwd);
+            importedCount++;
+            continue;
+        }
+
+        const row = r as Record<string, unknown>;
+        const id = (row.id as string | undefined)
+            ?? `json-${hashCsvRow(JSON.stringify(row))}`;
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+
+        const tokenUsage = row.tokenUsage as Record<string, unknown> | undefined;
+        const chargedCents = Number(row.chargedCents ?? tokenUsage?.totalCents ?? 0);
+        const observedFromRow = Number(row.observedCostUsd ?? row.cost_usd ?? row.cost ?? 0);
+        const observedCostUsd = observedFromRow > 0
+            ? observedFromRow
+            : chargedCents > 0
+                ? centsToUsd(chargedCents)
+                : 0;
+
         await recordModelUsage({
-            taskId: (r.taskId || r.task_id || 'cursor-imported') as string,
-            sessionId: (r.sessionId || r.session_id) as string | undefined,
-            agentId: (r.agentId || r.agent_id) as string | undefined,
-            provider: (r.provider || 'cursor') as string,
-            model: (r.model || 'claude-3-5-sonnet') as string,
-            inputTokens: (r.inputTokens || r.input_tokens || 0) as number,
-            outputTokens: (r.outputTokens || r.output_tokens || 0) as number,
-            cachedInputTokens: (r.cachedInputTokens || r.cached_input_tokens || 0) as number,
-            observedCostUsd: (r.observedCostUsd || r.cost_usd || r.cost || 0) as number,
-            source: 'cursor-admin-api',
+            id,
+            taskId: (row.taskId || row.task_id || 'cursor-imported') as string,
+            sessionId: (row.sessionId || row.session_id) as string | undefined,
+            agentId: (row.agentId || row.agent_id) as string | undefined,
+            provider: (row.provider || 'cursor') as string,
+            model: (row.model || 'claude-3-5-sonnet') as string,
+            inputTokens: (row.inputTokens || row.input_tokens || tokenUsage?.inputTokens || 0) as number,
+            outputTokens: (row.outputTokens || row.output_tokens || tokenUsage?.outputTokens || 0) as number,
+            cachedInputTokens: (row.cachedInputTokens || row.cached_input_tokens || row.cacheReadTokens || tokenUsage?.cacheReadTokens || 0) as number,
+            cacheWriteTokens: (row.cacheWriteTokens || row.cache_write_tokens || tokenUsage?.cacheWriteTokens || 0) as number,
+            observedCostUsd,
+            source: (row.source as string | undefined) || 'cursor-admin-api',
+            createdAt: row.createdAt ? Number(row.createdAt) : undefined,
         }, cwd);
         importedCount++;
     }
@@ -418,21 +471,68 @@ export async function importCursorUsageJson(jsonData: unknown, cwd?: string): Pr
     return importedCount;
 }
 
+export interface CursorAdminSyncResult {
+    importedCount: number;
+    totalEvents: number;
+}
+
+async function persistCursorUsageEvents(
+    events: Awaited<ReturnType<typeof fetchCursorUsagePages>>,
+    cwd?: string,
+): Promise<number> {
+    const existingUsages = await getModelUsages(undefined, cwd);
+    const seenIds = new Set(existingUsages.map(u => u.id).filter(Boolean) as string[]);
+
+    let importedCount = 0;
+    for (const event of events) {
+        if (seenIds.has(event.id)) continue;
+        seenIds.add(event.id);
+        await recordModelUsage(event.usage, cwd);
+        importedCount++;
+    }
+    return importedCount;
+}
+
 /**
- * Fetch Cursor usage from Admin API (stub — requires API key in settings).
- * Returns number of records imported, or 0 if unavailable.
+ * Fetch Cursor usage from Admin API and import token-based events.
+ * Costs are reported in cents by Cursor (`chargedCents`) and converted to USD.
  */
-export async function fetchCursorUsageFromAdminApi(cwd?: string): Promise<number> {
-    const apiKey = getCursorApiKey();
+export async function fetchCursorUsageFromAdminApi(
+    cwdOrOptions?: string | CursorUsageSyncOptions,
+): Promise<number> {
+    const options: CursorUsageSyncOptions = typeof cwdOrOptions === 'string'
+        ? { cwd: cwdOrOptions }
+        : (cwdOrOptions ?? {});
+
+    const apiKey = options.apiKey ?? getCursorApiKey();
     if (!apiKey) {
         return 0;
     }
 
-    // Stub: Cursor Admin API integration pending official endpoint documentation.
-    // When available, fetch usage records and delegate to importCursorUsageJson.
-    void apiKey;
-    void cwd;
-    return 0;
+    const events = await fetchCursorUsagePages(options);
+    return persistCursorUsageEvents(events, options.cwd);
+}
+
+export async function syncCursorUsageFromAdminApi(
+    cwdOrOptions?: string | CursorUsageSyncOptions,
+): Promise<CursorAdminSyncResult> {
+    const options: CursorUsageSyncOptions = typeof cwdOrOptions === 'string'
+        ? { cwd: cwdOrOptions }
+        : (cwdOrOptions ?? {});
+
+    const apiKey = options.apiKey ?? getCursorApiKey();
+    if (!apiKey) {
+        return { importedCount: 0, totalEvents: 0 };
+    }
+
+    const events = await fetchCursorUsagePages(options);
+    const importedCount = await persistCursorUsageEvents(events, options.cwd);
+    return { importedCount, totalEvents: events.length };
+}
+
+export async function countCursorAdminImportedEvents(cwd?: string): Promise<number> {
+    const usages = await getModelUsages(undefined, cwd);
+    return usages.filter(u => u.source === CURSOR_ADMIN_API_SOURCE).length;
 }
 
 /**
