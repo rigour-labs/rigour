@@ -80,28 +80,33 @@ jobs:
           set -euo pipefail
           EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
           if [ -n "${EXISTING_TAG}" ]; then
-            echo "Found existing release tag on HEAD: ${EXISTING_TAG}. Skipping semantic-release rerun."
-            echo "skip_release=true" >> "$GITHUB_OUTPUT"
-            echo "existing_tag=${EXISTING_TAG}" >> "$GITHUB_OUTPUT"
+            VERSION="${EXISTING_TAG#v}"
+            PUBLISHED=$(npm view "@rigour-labs/cli@${VERSION}" version 2>/dev/null || true)
+            if [ "${PUBLISHED}" = "${VERSION}" ]; then
+              echo "Found release tag ${EXISTING_TAG} on HEAD and npm has ${VERSION}. Skipping semantic-release rerun."
+              echo "skip_release=true" >> "$GITHUB_OUTPUT"
+              echo "existing_tag=${EXISTING_TAG}" >> "$GITHUB_OUTPUT"
+            else
+              echo "Orphaned tag ${EXISTING_TAG} on HEAD (npm latest: ${PUBLISHED:-none}). Removing tag so release can retry."
+              git tag -d "${EXISTING_TAG}"
+              git push origin ":refs/tags/${EXISTING_TAG}"
+              echo "skip_release=false" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "No release tag on HEAD. Proceeding with semantic-release."
             echo "skip_release=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Authenticate with NPM
+      - name: Upgrade npm for provenance publishing
         if: steps.release_guard.outputs.skip_release != 'true'
-        run: |
-          npm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
-          pnpm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm install -g npm@latest
 
       - name: Release
         if: steps.release_guard.outputs.skip_release != 'true'
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Capture released CLI version
         id: capture_version
