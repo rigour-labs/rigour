@@ -18,7 +18,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import { randomUUID } from 'crypto';
-import { runHookChecker, scanInputForCredentials, formatDLPAlert, createDLPAuditEntry, generateDLPHookFiles } from '@rigour-labs/core';
+import { runHookChecker, scanInputForCredentials, formatDLPAlert, createDLPAuditEntry, generateDLPHookFiles, writeDLPBlockManifest, allowLastDLPBlock } from '@rigour-labs/core';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -40,6 +40,8 @@ export interface HooksCheckOptions {
     mode?: 'check' | 'dlp';
     /** Agent name for audit trail (DLP mode) */
     agent?: string;
+    /** Record last DLP block detections as learned false positives (hook feedback) */
+    dlpAllowLast?: boolean;
 }
 
 interface GeneratedFile {
@@ -591,6 +593,13 @@ function extractCursorPromptText(payload: any): string {
 }
 
 export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions = {}): Promise<void> {
+    // ── Learn from last DLP false positive (hook feedback loop) ──
+    if (options.dlpAllowLast) {
+        const count = await allowLastDLPBlock(cwd, 'hook');
+        process.stdout.write(JSON.stringify({ learned: count, message: `Recorded ${count} detection(s) as false positives` }));
+        return;
+    }
+
     // ── DLP Mode: Scan text for credentials ──────────────────
     if (options.mode === 'dlp') {
         let rawInput = options.stdin
@@ -623,6 +632,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         const result = scanInputForCredentials(textToScan, {
             enabled: true,
             block_on_detection: options.block ?? true,
+            cwd,
+            use_learned_feedback: true,
         });
 
         // Return Cursor-compatible format if detected as Cursor hook
@@ -633,7 +644,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
                     .join('\n');
                 process.stdout.write(JSON.stringify({
                     continue: false,
-                    user_message: `🛑 Rigour DLP: ${result.detections.length} credential(s) detected in your prompt:\n${messages}\n\nReplace with environment variable references before submitting.`,
+                    user_message: `🛑 Rigour DLP: ${result.detections.length} credential(s) detected in your prompt:\n${messages}\n\nReplace with environment variable references before submitting.\n\nIf this is a false positive, run: rigour hooks check --dlp-allow-last`,
                 }));
             } else {
                 process.stdout.write(JSON.stringify({ continue: true }));
@@ -656,6 +667,11 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             }
 
             if (result.status === 'blocked') {
+                try {
+                    await writeDLPBlockManifest(cwd, result.detections, textToScan);
+                } catch {
+                    // best-effort
+                }
                 process.exitCode = 2;
             }
         }

@@ -240,6 +240,9 @@ Examples:
   $ git diff main..HEAD | rigour review                # Review branch changes
   $ rigour review --diff changes.patch --deep          # Review diff file with deep analysis
   $ git diff | rigour review --ci                      # CI-friendly review
+  $ git diff main..HEAD | rigour review --files src/a.ts,src/b.ts
+
+Tip: Use in CI to gate only lines you changed — faster than full rigour check on large repos.
     `)
     .action(async (options: any) => {
         await reviewCommand(process.cwd(), options);
@@ -279,7 +282,20 @@ Examples:
 
 const hooksCmd = program
     .command('hooks')
-    .description('Manage AI coding tool hook integrations');
+    .description('Manage AI coding tool hook integrations (file checks + DLP credential scanning)')
+    .addHelpText('after', `
+DLP false-positive learning:
+  When a hook blocks your prompt incorrectly, teach Rigour once:
+  $ rigour hooks check --dlp-allow-last
+
+  Learned patterns are stored per-project in .rigour/dlp-feedback.json.
+  Real secrets (provider API keys, AWS keys) are never learned away.
+
+Examples:
+  $ rigour hooks init --tool cursor
+  $ rigour hooks check --mode dlp --stdin
+  $ rigour hooks check --dlp-allow-last
+    `);
 
 hooksCmd
     .command('init')
@@ -309,15 +325,25 @@ hooksCmd
     .option('--timeout <ms>', 'Timeout in milliseconds (default: 5000)')
     .option('--mode <mode>', 'Check mode: "check" (default) or "dlp" (credential scanning)')
     .option('--agent <name>', 'Agent name for DLP audit trail (e.g., cursor, claude)')
+    .option('--dlp-allow-last', 'Record last DLP block as learned false positives (hook feedback)')
     .addHelpText('after', `
 Examples:
   $ rigour hooks check --files src/app.ts
   $ rigour hooks check --files src/a.ts,src/b.ts --block
   $ echo '{"file_path":"src/app.ts"}' | rigour hooks check --stdin
   $ echo 'AWS_SECRET=AKIA...' | rigour hooks check --mode dlp --stdin
+  $ rigour hooks check --dlp-allow-last
+
+DLP learning:
+  After a false-positive block, run --dlp-allow-last to store the detection shape
+  in .rigour/dlp-feedback.json. Future scans allow matching patterns on the same line.
+  Provider keys and high-confidence secrets are never learned away.
     `)
     .action(async (options: any) => {
-        await hooksCheckCommand(process.cwd(), options);
+        await hooksCheckCommand(process.cwd(), {
+            ...options,
+            dlpAllowLast: options.dlpAllowLast,
+        });
     });
 
 // Settings management (like Claude Code's settings.json)

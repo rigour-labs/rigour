@@ -336,6 +336,19 @@ npx @rigour-labs/cli check   # Run quality gates (must PASS before task is done)
 npx @rigour-labs/cli explain # Explain failures
 \`\`\`
 
+## Context Efficiency Protocol
+
+Follow this workflow to minimize token usage without compromising quality:
+
+1. \`rigour_recall\` — load project memory at session start
+2. \`rigour_index\` — if the pattern index is missing or stale
+3. \`rigour_agent_register\` — claim a bounded task scope
+4. \`rigour_context_scope\` — get minimal file list before reading source files
+5. \`rigour_check_pattern\` — verify no reinvention before writing new code
+6. Work — only touch files in the scoped edit set
+7. \`rigour_checkpoint\` — every 30 minutes or before handoff
+8. \`rigour_check\` — quality gate unchanged (must PASS before done)
+
 ${ruleContent}`;
 
         if (!(await fs.pathExists(agentsPath)) || options.force) {

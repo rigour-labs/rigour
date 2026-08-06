@@ -49,7 +49,7 @@ const RIGOUR_DIR = path.join(os.homedir(), '.rigour');
 const DB_PATH = path.join(RIGOUR_DIR, 'rigour.db');
 
 /** Current schema version — bump when adding migrations. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA_SQL = `
 -- Schema version tracking
@@ -123,6 +123,65 @@ CREATE TABLE IF NOT EXISTS codebase (
     last_indexed INTEGER NOT NULL
 );
 
+-- Rigour Telemetry: Avoided and observed context events
+CREATE TABLE IF NOT EXISTS context_events (
+    id TEXT PRIMARY KEY,
+    task_id TEXT,
+    session_id TEXT,
+    agent_id TEXT,
+    tool_name TEXT NOT NULL,
+    query_hash TEXT,
+    cache_status TEXT NOT NULL,
+    candidate_tokens INTEGER NOT NULL DEFAULT 0,
+    returned_tokens INTEGER NOT NULL DEFAULT 0,
+    deduplicated_tokens INTEGER NOT NULL DEFAULT 0,
+    candidate_files INTEGER NOT NULL DEFAULT 0,
+    returned_files INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+-- Cursor / Model Usage telemetry
+CREATE TABLE IF NOT EXISTS model_usage (
+    id TEXT PRIMARY KEY,
+    task_id TEXT,
+    session_id TEXT,
+    agent_id TEXT,
+    provider TEXT,
+    model TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cached_input_tokens INTEGER,
+    observed_cost_usd REAL,
+    source TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+-- 4-Layer Context Cache
+CREATE TABLE IF NOT EXISTS context_cache (
+    cache_key TEXT PRIMARY KEY,
+    cache_type TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    commit_sha TEXT,
+    dependency_fingerprint TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_tokens INTEGER NOT NULL,
+    hit_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    last_hit_at INTEGER
+);
+
+-- Checkpoint compression metrics
+CREATE TABLE IF NOT EXISTS checkpoint_metrics (
+    checkpoint_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    raw_state_tokens INTEGER,
+    checkpoint_tokens INTEGER NOT NULL,
+    replay_tokens_avoided INTEGER,
+    created_at INTEGER NOT NULL
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_scans_repo ON scans(repo);
 CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans(timestamp);
@@ -130,6 +189,14 @@ CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_findings_category ON findings(category);
 CREATE INDEX IF NOT EXISTS idx_patterns_repo ON patterns(repo);
 CREATE INDEX IF NOT EXISTS idx_patterns_strength ON patterns(strength);
+CREATE INDEX IF NOT EXISTS idx_context_events_task ON context_events(task_id);
+CREATE INDEX IF NOT EXISTS idx_context_events_session ON context_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_context_events_agent ON context_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_context_events_created ON context_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_model_usage_task ON model_usage(task_id);
+CREATE INDEX IF NOT EXISTS idx_model_usage_created ON model_usage(created_at);
+CREATE INDEX IF NOT EXISTS idx_context_cache_type ON context_cache(cache_type);
+CREATE INDEX IF NOT EXISTS idx_checkpoint_metrics_task ON checkpoint_metrics(task_id);
 `;
 
 // ---------------------------------------------------------------------------
@@ -260,7 +327,78 @@ async function runMigrations(db: RigourDB): Promise<void> {
         `);
         await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')");
     }
-    // Future: if (current < 3) { ... ALTER TABLE ... }
+    if (current < 3) {
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS context_events (
+                id TEXT PRIMARY KEY,
+                task_id TEXT,
+                session_id TEXT,
+                agent_id TEXT,
+                tool_name TEXT NOT NULL,
+                query_hash TEXT,
+                cache_status TEXT NOT NULL,
+                candidate_tokens INTEGER NOT NULL DEFAULT 0,
+                returned_tokens INTEGER NOT NULL DEFAULT 0,
+                deduplicated_tokens INTEGER NOT NULL DEFAULT 0,
+                candidate_files INTEGER NOT NULL DEFAULT 0,
+                returned_files INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS model_usage (
+                id TEXT PRIMARY KEY,
+                task_id TEXT,
+                session_id TEXT,
+                agent_id TEXT,
+                provider TEXT,
+                model TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                cached_input_tokens INTEGER,
+                observed_cost_usd REAL,
+                source TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS context_cache (
+                cache_key TEXT PRIMARY KEY,
+                cache_type TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                branch TEXT NOT NULL,
+                commit_sha TEXT,
+                dependency_fingerprint TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_tokens INTEGER NOT NULL,
+                hit_count INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                last_hit_at INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS checkpoint_metrics (
+                checkpoint_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                raw_state_tokens INTEGER,
+                checkpoint_tokens INTEGER NOT NULL,
+                replay_tokens_avoided INTEGER,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_context_events_task ON context_events(task_id);
+            CREATE INDEX IF NOT EXISTS idx_context_events_session ON context_events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_context_events_agent ON context_events(agent_id);
+            CREATE INDEX IF NOT EXISTS idx_context_events_created ON context_events(created_at);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_task ON model_usage(task_id);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_created ON model_usage(created_at);
+            CREATE INDEX IF NOT EXISTS idx_context_cache_type ON context_cache(cache_type);
+            CREATE INDEX IF NOT EXISTS idx_checkpoint_metrics_task ON checkpoint_metrics(task_id);
+        `);
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3')");
+    }
+    if (current < 4) {
+        await db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_context_events_session ON context_events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_context_events_created ON context_events(created_at);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_created ON model_usage(created_at);
+        `);
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4')");
+    }
 }
 
 /**

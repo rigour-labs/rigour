@@ -18,6 +18,7 @@
  */
 
 import { classifyDLPDetection } from './dlp-confidence.js';
+import { isLearnedAllowSync, loadDLPFeedbackStoreSync, type DLPFeedbackStore } from './dlp-feedback.js';
 
 export interface CredentialDetection {
     type: string;
@@ -52,6 +53,10 @@ export interface InputValidationConfig {
     ignore_patterns?: string[];
     /** Log blocked inputs to audit trail */
     audit_log?: boolean;
+    /** Project root for learned false-positive feedback (.rigour/dlp-feedback.json) */
+    cwd?: string;
+    /** Apply learned hook feedback to reduce repeat false positives (default true when cwd set) */
+    use_learned_feedback?: boolean;
 }
 
 // ── Credential Pattern Definitions ────────────────────────────────
@@ -103,7 +108,7 @@ const CREDENTIAL_PATTERNS: CredentialPattern[] = [
     // ── API Keys (Provider-Specific Prefixes) ─────────────────
     {
         type: 'openai_key',
-        regex: /\b(sk-(?:proj-)?[A-Za-z0-9]{20,})\b/g,
+        regex: /\b(sk-(?!ant-)(?:proj-)?[A-Za-z0-9_-]{24,})\b/g,
         severity: 'critical',
         description: 'OpenAI API key detected',
         recommendation: 'Use process.env.OPENAI_API_KEY instead',
@@ -135,7 +140,7 @@ const CREDENTIAL_PATTERNS: CredentialPattern[] = [
     },
     {
         type: 'twilio_key',
-        regex: /\b(SK[a-f0-9]{32})\b/g,
+        regex: /(?:TWILIO[_-]?(?:API[_-]?)?KEY|twilio[_-]?api[_-]?key)\s*[:=]\s*['"]?(SK[a-f0-9]{32})['"]?/gi,
         severity: 'high',
         description: 'Twilio API key detected',
         recommendation: 'Use process.env.TWILIO_API_KEY instead',
@@ -171,7 +176,7 @@ const CREDENTIAL_PATTERNS: CredentialPattern[] = [
     // ── Database Connection Strings ───────────────────────────
     {
         type: 'database_url',
-        regex: /\b((?:postgres(?:ql)?|mysql|mariadb|mssql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps):\/\/[^\s'"`,;}{)]+)/gi,
+        regex: /\b((?:postgres(?:ql)?|mysql|mariadb|mssql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps):\/\/[^/\s@]+:[^@/\s]+@[^\s'"`,;}{)]+)/gi,
         severity: 'critical',
         description: 'Database connection string with credentials detected',
         recommendation: 'Use process.env.DATABASE_URL instead',
@@ -307,6 +312,30 @@ function shannonEntropy(str: string): number {
     }, 0);
 }
 
+/** Credential-less local DB URLs (no user:pass@) are safe for dev discussion. */
+function isCredentiallessLocalUrl(url: string): boolean {
+    if (/:[^/@\s]+@[^/\s]+/i.test(url)) return false;
+    return /:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::|\/|$)/i.test(url);
+}
+
+function isPlaceholderEnvValue(value: string): boolean {
+    return /^(?:your[_-]?)?(?:api[_-]?)?key[_-]?here$/i.test(value)
+        || /^your[_-]/i.test(value)
+        || /^replace[_-]?me$/i.test(value)
+        || /^changeme$/i.test(value)
+        || /^not-a-real/i.test(value)
+        || /^super-secret-client-id-string$/i.test(value)
+        || /^x{8,}$/i.test(value);
+}
+
+function looksLikeLowEntropyOpenAiKey(match: string): boolean {
+    const suffix = match.replace(/^sk-(?:proj-)?/i, '');
+    if (suffix.length < 24) return true;
+    if (/^(.)\1{5,}/.test(suffix)) return true;
+    if (shannonEntropy(suffix) < 3.8) return true;
+    return false;
+}
+
 // ── Core Scanner ──────────────────────────────────────────────────
 
 /**
@@ -360,6 +389,21 @@ export function scanInputForCredentials(
             // Skip short matches to avoid false positives
             if (capturedValue.length < minSecretLength && pattern.type !== 'private_key') {
                 continue;
+            }
+
+            if (pattern.type === 'database_url' && isCredentiallessLocalUrl(fullMatch)) {
+                continue;
+            }
+
+            if (pattern.type === 'openai_key' && looksLikeLowEntropyOpenAiKey(fullMatch)) {
+                continue;
+            }
+
+            if (pattern.type === 'env_variable') {
+                const envVal = fullMatch.split('=').slice(1).join('=').replace(/^['"]|['"]$/g, '').trim();
+                if (!envVal || isPlaceholderEnvValue(envVal)) {
+                    continue;
+                }
             }
 
             // Check ignore patterns
@@ -422,7 +466,7 @@ export function scanInputForCredentials(
     while ((entropyMatch = entropyRegex.exec(input)) !== null) {
         const value = entropyMatch[1];
         const entropy = shannonEntropy(value);
-        if (entropy > 4.5 && value.length >= 24) {
+        if (entropy > 4.5 && value.length >= 24 && !isPlaceholderEnvValue(value)) {
             // Only add if not already caught by a more specific pattern
             const alreadyCaught = detections.some(d =>
                 d.position && entropyMatch!.index >= d.position.start && entropyMatch!.index < d.position.end
@@ -443,12 +487,53 @@ export function scanInputForCredentials(
     }
 
     // ── Confidence engine: score candidates and suppress allowed false positives ──
-    const classified = detections.map(d => ({
-        ...d,
-        ...classifyDLPDetection(d, input),
-    }));
-    const actionable = classified.filter(d => d.decision !== 'allow');
-    const allowed = classified.filter(d => d.decision === 'allow');
+    const useLearned = config.use_learned_feedback !== false && !!config.cwd;
+    const feedbackStore: DLPFeedbackStore | null = useLearned && config.cwd
+        ? loadDLPFeedbackStoreSync(config.cwd)
+        : null;
+
+    const classified = detections.map(d => {
+        if (feedbackStore) {
+            const start = d.position?.start ?? 0;
+            const lineStart = input.lastIndexOf('\n', start) + 1;
+            const lineEnd = input.indexOf('\n', start);
+            const line = input.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim();
+            if (isLearnedAllowSync(feedbackStore, d.type, d.match, line)) {
+                return {
+                    ...d,
+                    confidence: 12,
+                    decision: 'allow' as const,
+                    reason_codes: ['learned_false_positive'],
+                };
+            }
+        }
+        return {
+            ...d,
+            ...classifyDLPDetection(d, input),
+        };
+    });
+
+    // Line-level learned expansion: one false-positive mark allows sibling patterns on same line
+    const learnedStarts = new Set(
+        classified
+            .filter(d => d.decision === 'allow' && d.reason_codes?.includes('learned_false_positive'))
+            .map(d => d.position?.start ?? -1)
+    );
+    const expanded = classified.map(d => {
+        const start = d.position?.start ?? -1;
+        if (start >= 0 && learnedStarts.has(start) && d.decision !== 'allow') {
+            return {
+                ...d,
+                confidence: 12,
+                decision: 'allow' as const,
+                reason_codes: ['learned_false_positive'],
+            };
+        }
+        return d;
+    });
+
+    const actionable = expanded.filter(d => d.decision !== 'allow');
+    const allowed = expanded.filter(d => d.decision === 'allow');
 
     // Deduplicate overlapping detections (keep highest severity)
     const deduped = deduplicateDetections(actionable);

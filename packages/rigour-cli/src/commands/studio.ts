@@ -332,6 +332,111 @@ async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ totalScans: 0 }));
             }
+        } else if (url.pathname === '/api/context-stats') {
+            try {
+                const { getTaskContextStats } = await import('@rigour-labs/core');
+                const taskId = url.searchParams.get('taskId') || undefined;
+                const stats = await getTaskContextStats(taskId, cwd);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(stats));
+            } catch (e: any) {
+                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+            }
+        } else if (url.pathname === '/api/task-cost') {
+            try {
+                const { getTaskCostStats } = await import('@rigour-labs/core');
+                const taskId = url.searchParams.get('taskId') || undefined;
+                const costStats = await getTaskCostStats(taskId, cwd);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(costStats));
+            } catch (e: any) {
+                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+            }
+        } else if (url.pathname === '/api/cache-stats') {
+            try {
+                const { getCacheStats } = await import('@rigour-labs/core');
+                const stats = await getCacheStats(cwd);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(stats));
+            } catch (e: any) {
+                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+            }
+        } else if (url.pathname === '/api/context-explain') {
+            try {
+                const { explainContext } = await import('@rigour-labs/core');
+                const target = url.searchParams.get('target') || 'all';
+                const taskId = url.searchParams.get('taskId') || undefined;
+                const explanation = await explainContext(target, taskId, cwd);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(explanation));
+            } catch (e: any) {
+                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+            }
+        } else if (url.pathname === '/api/context-scope') {
+            try {
+                const { getContextScopeSummary } = await import('@rigour-labs/core');
+                const summary = await getContextScopeSummary(cwd);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(summary));
+            } catch (e: any) {
+                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+            }
+        } else if (url.pathname === '/api/checkpoint-metrics') {
+            try {
+                const { getCheckpointSummary } = await import('@rigour-labs/core');
+                const taskId = url.searchParams.get('taskId') || undefined;
+                const summary = await getCheckpointSummary(taskId, cwd);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(summary));
+            } catch (e: any) {
+                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+            }
+        } else if (url.pathname === '/api/cursor-api-key/status') {
+            try {
+                const { getCursorApiKey } = await import('@rigour-labs/core');
+                const configured = Boolean(getCursorApiKey());
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ configured }));
+            } catch (e: any) {
+                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+            }
+        } else if (url.pathname === '/api/cursor-api-key' && req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                try {
+                    const { apiKey } = JSON.parse(body || '{}');
+                    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: 'Missing apiKey' }));
+                        return;
+                    }
+                    const { updateCursorApiKey } = await import('@rigour-labs/core');
+                    updateCursorApiKey(apiKey.trim());
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, configured: true }));
+                } catch (e: any) {
+                    res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+                }
+            });
+        } else if (url.pathname === '/api/import-cursor-usage' && req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                try {
+                    const { importCursorUsageCsv, importCursorUsageJson } = await import('@rigour-labs/core');
+                    let importedCount = 0;
+                    if (body.trim().startsWith('{') || body.trim().startsWith('[')) {
+                        importedCount = await importCursorUsageJson(JSON.parse(body), cwd);
+                    } else {
+                        importedCount = await importCursorUsageCsv(body, cwd);
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, importedCount }));
+                } catch (e: any) {
+                    res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+                }
+            });
         } else if (url.pathname === '/api/arbitrate' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => body += chunk);

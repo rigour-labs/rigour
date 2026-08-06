@@ -9,8 +9,21 @@
 import fs from "fs-extra";
 import path from "path";
 import { logStudioEvent } from '../utils/config.js';
+import {
+    setTaskCheckpointCache,
+    getTaskCheckpointCache,
+    estimateTokenCount,
+} from '@rigour-labs/core';
+import {
+    PatternIndexer,
+    savePatternIndex,
+    loadPatternIndex,
+    getDefaultIndexPath,
+} from '@rigour-labs/core/pattern-index';
+import { buildTelemetryMeta, getWorkspaceCommitSha, type ToolResult } from '../utils/context-telemetry.js';
+import { appendContextFooter } from '../utils/context-footer.js';
 
-type ToolResult = { content: { type: string; text: string }[]; isError?: boolean; _shouldContinue?: boolean };
+const HANDOFF_CONTEXT_TOKEN_LIMIT = 2000;
 
 function parseJsonOrNull<T>(raw: string): T | null {
     try {
@@ -18,6 +31,73 @@ function parseJsonOrNull<T>(raw: string): T | null {
     } catch {
         return null;
     }
+}
+
+function globMatchesFile(filePath: string, glob: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/');
+    const pattern = glob
+        .replace(/\\/g, '/')
+        .replace(/\./g, '\\.')
+        .replace(/\*\*/g, '§§')
+        .replace(/\*/g, '[^/]*')
+        .replace(/§§/g, '.*');
+    if (new RegExp(`^${pattern}$`).test(normalized)) return true;
+    const prefix = glob.replace('/**', '').replace('/*', '').replace(/\*/g, '');
+    return normalized.startsWith(prefix);
+}
+
+async function refreshIndexForFiles(cwd: string, filesChanged: string[]): Promise<string | null> {
+    if (filesChanged.length === 0) return null;
+
+    const indexPath = getDefaultIndexPath(cwd);
+    const existingIndex = await loadPatternIndex(indexPath);
+    if (!existingIndex) {
+        return 'Index not found — run rigour_index to enable incremental updates.';
+    }
+
+    try {
+        const indexer = new PatternIndexer(cwd, { useEmbeddings: existingIndex.patterns.some(p => p.embedding?.length) });
+        const updated = await indexer.updateIndex(existingIndex);
+        await savePatternIndex(updated, indexPath);
+        return `Index refreshed for ${filesChanged.length} changed file(s) — ${updated.stats.totalPatterns} patterns total.`;
+    } catch (error: any) {
+        return `Index refresh failed: ${error.message}`;
+    }
+}
+
+async function validateTaskScopeAgainstIndex(cwd: string, taskScope: string[]): Promise<{
+    matchedFiles: string[];
+    unmatchedGlobs: string[];
+    suggestions: string[];
+}> {
+    const index = await loadPatternIndex(getDefaultIndexPath(cwd));
+    if (!index) {
+        return { matchedFiles: [], unmatchedGlobs: taskScope, suggestions: ['Run rigour_index first to bind scope to indexed files.'] };
+    }
+
+    const indexedFiles = index.files.map(f => f.path);
+    const matchedFiles: string[] = [];
+    const unmatchedGlobs: string[] = [];
+
+    for (const glob of taskScope) {
+        const matches = indexedFiles.filter(f => globMatchesFile(f, glob));
+        if (matches.length > 0) {
+            matchedFiles.push(...matches);
+        } else {
+            unmatchedGlobs.push(glob);
+        }
+    }
+
+    const uniqueMatched = Array.from(new Set(matchedFiles));
+    const suggestions: string[] = [];
+    if (uniqueMatched.length > 0 && uniqueMatched.length <= 8) {
+        suggestions.push(`Minimal scope: ${uniqueMatched.slice(0, 8).join(', ')}`);
+    }
+    if (unmatchedGlobs.length > 0) {
+        suggestions.push(`Unmatched globs (not in index): ${unmatchedGlobs.join(', ')}`);
+    }
+
+    return { matchedFiles: uniqueMatched, unmatchedGlobs, suggestions };
 }
 
 // ─── Agent Register ───────────────────────────────────────────────
@@ -35,18 +115,28 @@ export async function handleAgentRegister(
         }
     }
 
+    const indexBinding = await validateTaskScopeAgainstIndex(cwd, taskScope);
+
     const existingIdx = session.agents.findIndex((a: any) => a.agentId === agentId);
     if (existingIdx >= 0) {
         session.agents[existingIdx] = {
             agentId, taskScope,
             registeredAt: session.agents[existingIdx].registeredAt,
             lastCheckpoint: new Date().toISOString(),
+            indexBinding: {
+                matchedFiles: indexBinding.matchedFiles.length,
+                unmatchedGlobs: indexBinding.unmatchedGlobs,
+            },
         };
     } else {
         session.agents.push({
             agentId, taskScope,
             registeredAt: new Date().toISOString(),
             lastCheckpoint: new Date().toISOString(),
+            indexBinding: {
+                matchedFiles: indexBinding.matchedFiles.length,
+                unmatchedGlobs: indexBinding.unmatchedGlobs,
+            },
         });
     }
 
@@ -65,16 +155,33 @@ export async function handleAgentRegister(
     await fs.ensureDir(path.join(cwd, '.rigour'));
     await fs.writeFile(sessionPath, JSON.stringify(session, null, 2));
 
-    await logStudioEvent(cwd, { type: "agent_registered", requestId, agentId, taskScope, conflicts });
+    await logStudioEvent(cwd, { type: "agent_registered", requestId, agentId, taskScope, conflicts, indexBinding });
 
     let text = `✅ AGENT REGISTERED: "${agentId}" claimed scope: ${taskScope.join(', ')}\n\n`;
     text += `Active agents in session: ${session.agents.length}\n`;
+    if (indexBinding.matchedFiles.length > 0) {
+        text += `\n📎 Index binding: ${indexBinding.matchedFiles.length} indexed file(s) matched.\n`;
+        if (indexBinding.suggestions.length > 0) {
+            text += indexBinding.suggestions.map(s => `  - ${s}`).join('\n') + '\n';
+        }
+    } else if (indexBinding.suggestions.length > 0) {
+        text += `\n⚠️ ${indexBinding.suggestions.join(' ')}\n`;
+    }
     if (conflicts.length > 0) {
         text += `\n⚠️ SCOPE CONFLICTS DETECTED:\n${conflicts.map(c => `  - ${c}`).join('\n')}\n`;
         text += `\nConsider coordinating with other agents or narrowing your scope.`;
     }
 
-    return { content: [{ type: "text", text }] };
+    const telemetry = buildTelemetryMeta({
+        candidateText: taskScope.join(' '),
+        returnedText: text,
+        cacheStatus: 'none',
+    });
+
+    return {
+        content: [{ type: "text", text: appendContextFooter(text, telemetry, 'rigour_recall then rigour_context_scope') }],
+        _telemetry: telemetry,
+    };
 }
 
 // ─── Checkpoint ───────────────────────────────────────────────────
@@ -85,7 +192,9 @@ export async function handleCheckpoint(
     filesChanged: string[],
     summary: string,
     qualityScore: number,
-    requestId: string
+    requestId: string,
+    agentId = 'default-agent',
+    taskId = 'default-task',
 ): Promise<ToolResult> {
     const checkpointPath = path.join(cwd, '.rigour', 'checkpoint-session.json');
     let session = {
@@ -118,6 +227,9 @@ export async function handleCheckpoint(
         }
     }
 
+    const rawStateText = JSON.stringify(session);
+    const phase = `progress-${progressPct}`;
+
     session.checkpoints.push({
         checkpointId,
         timestamp: new Date().toISOString(),
@@ -127,18 +239,48 @@ export async function handleCheckpoint(
     await fs.ensureDir(path.join(cwd, '.rigour'));
     await fs.writeFile(checkpointPath, JSON.stringify(session, null, 2));
 
-    await logStudioEvent(cwd, { type: "checkpoint_recorded", requestId, checkpointId, progressPct, qualityScore, warnings });
+    await setTaskCheckpointCache({
+        taskId,
+        agentId,
+        phase,
+        component: filesChanged[0] ? path.dirname(filesChanged[0]) : 'workspace',
+        changedFiles: filesChanged,
+        decisions: [summary],
+        validation: ['rigour_check'],
+        remainingWork: [`Continue from ${progressPct}%`],
+        risks: warnings,
+    }, estimateTokenCount(rawStateText), cwd);
+
+    let indexNote: string | null = null;
+    if (filesChanged.length > 0) {
+        indexNote = await refreshIndexForFiles(cwd, filesChanged);
+    }
+
+    await logStudioEvent(cwd, { type: "checkpoint_recorded", requestId, checkpointId, progressPct, qualityScore, warnings, filesChanged });
 
     let text = `📍 CHECKPOINT RECORDED: ${checkpointId}\n\n`;
     text += `Progress: ${progressPct}% | Quality: ${qualityScore}%\n`;
     text += `Summary: ${summary}\n`;
     text += `Total checkpoints: ${session.checkpoints.length}\n`;
+    if (indexNote) text += `\n${indexNote}\n`;
     if (warnings.length > 0) {
         text += `\n⚠️ WARNINGS:\n${warnings.map(w => `  - ${w}`).join('\n')}\n`;
         if (qualityScore < 80) text += `\n⛔ QUALITY BELOW THRESHOLD: Consider pausing and reviewing recent work.`;
     }
 
-    const result: ToolResult = { content: [{ type: "text", text }] };
+    const packet = await getTaskCheckpointCache(taskId, agentId, phase, cwd);
+    const returnedText = packet ? JSON.stringify(packet) : text;
+    const telemetry = buildTelemetryMeta({
+        candidateText: rawStateText,
+        returnedText,
+        cacheStatus: 'miss',
+        deduplicatedTokens: Math.max(0, estimateTokenCount(rawStateText) - estimateTokenCount(returnedText)),
+    });
+
+    const result: ToolResult = {
+        content: [{ type: "text", text: appendContextFooter(text, telemetry, 'rigour_handoff with compact context') }],
+        _telemetry: telemetry,
+    };
     result._shouldContinue = qualityScore >= 80;
     return result;
 }
@@ -152,31 +294,76 @@ export async function handleHandoff(
     taskDescription: string,
     filesInScope: string[],
     context: string,
-    requestId: string
+    requestId: string,
+    taskId = 'default-task',
 ): Promise<ToolResult> {
+    const contextTokens = estimateTokenCount(context);
+    if (contextTokens > HANDOFF_CONTEXT_TOKEN_LIMIT) {
+        const text = `🛑 HANDOFF REJECTED: context is ~${contextTokens} tokens (limit: ${HANDOFF_CONTEXT_TOKEN_LIMIT}).\n\n`
+            + `Call rigour_checkpoint first to compress state into a checkpoint packet, then hand off with a brief summary only.\n`
+            + `Subagents should receive checkpoint packets — not parent transcripts.`;
+        return {
+            content: [{ type: 'text', text }],
+            isError: true,
+            _telemetry: buildTelemetryMeta({
+                candidateText: context,
+                returnedText: text,
+                cacheStatus: 'none',
+            }),
+        };
+    }
+
     const handoffId = `handoff-${Date.now()}`;
     const handoffPath = path.join(cwd, '.rigour', 'handoffs.jsonl');
+    const commitSha = await getWorkspaceCommitSha(cwd);
+
+    const checkpointPacket = await getTaskCheckpointCache(taskId, fromAgentId, `progress-100`, cwd)
+        ?? await getTaskCheckpointCache(taskId, fromAgentId, `progress-75`, cwd);
+
+    const compactContext = checkpointPacket
+        ? JSON.stringify({
+            decisions: checkpointPacket.decisions,
+            changedFiles: checkpointPacket.changedFiles,
+            remainingWork: checkpointPacket.remainingWork,
+            risks: checkpointPacket.risks,
+            brief: context.slice(0, 500),
+        })
+        : context;
 
     const handoff = {
         handoffId,
         timestamp: new Date().toISOString(),
-        fromAgentId, toAgentId, taskDescription, filesInScope, context,
+        fromAgentId, toAgentId, taskDescription, filesInScope,
+        context: compactContext,
+        checkpointBound: !!checkpointPacket,
+        commitSha,
         status: 'pending',
     };
 
     await fs.ensureDir(path.join(cwd, '.rigour'));
     await fs.appendFile(handoffPath, JSON.stringify(handoff) + '\n');
 
-    await logStudioEvent(cwd, { type: "handoff_initiated", requestId, handoffId, fromAgentId, toAgentId, taskDescription });
+    await logStudioEvent(cwd, { type: "handoff_initiated", requestId, handoffId, fromAgentId, toAgentId, taskDescription, contextTokens });
 
     let text = `🤝 HANDOFF INITIATED: ${handoffId}\n\n`;
     text += `From: ${fromAgentId} → To: ${toAgentId}\n`;
     text += `Task: ${taskDescription}\n`;
     if (filesInScope.length > 0) text += `Files in scope: ${filesInScope.join(', ')}\n`;
-    if (context) text += `Context: ${context}\n`;
+    if (compactContext) text += `Context: ${compactContext}\n`;
+    if (checkpointPacket) text += `\n✅ Checkpoint packet attached (compressed handoff).\n`;
     text += `\nThe receiving agent should call rigour_agent_register to claim this scope.`;
 
-    return { content: [{ type: "text", text }] };
+    const telemetry = buildTelemetryMeta({
+        candidateText: context || taskDescription,
+        returnedText: compactContext || text,
+        cacheStatus: checkpointPacket ? 'partial-hit' : 'miss',
+        deduplicatedTokens: Math.max(0, contextTokens - estimateTokenCount(compactContext)),
+    });
+
+    return {
+        content: [{ type: "text", text: appendContextFooter(text, telemetry, 'rigour_handoff_accept') }],
+        _telemetry: telemetry,
+    };
 }
 
 // ─── Agent Deregister ─────────────────────────────────────────────

@@ -45,6 +45,11 @@ export interface RigourSettings {
     colorOutput?: boolean;   // Enable/disable colors
     verboseOutput?: boolean; // Enable verbose logging
   };
+
+  // Cursor Admin API credentials
+  cursor?: {
+    apiKey?: string;
+  };
 }
 
 /**
@@ -273,4 +278,24 @@ export function removeProviderKey(provider: string): void {
     delete settings.providers[normalized];
     saveSettings(settings);
   }
+}
+
+/**
+ * Get Cursor Admin API key from settings
+ */
+export function getCursorApiKey(): string | undefined {
+  const settings = loadSettings();
+  return settings.cursor?.apiKey;
+}
+
+/**
+ * Update Cursor Admin API key in settings
+ */
+export function updateCursorApiKey(apiKey: string): void {
+  const settings = loadSettings();
+  if (!settings.cursor) {
+    settings.cursor = {};
+  }
+  settings.cursor.apiKey = apiKey;
+  saveSettings(settings);
 }

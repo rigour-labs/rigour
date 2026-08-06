@@ -12,10 +12,10 @@ describe('DLP confidence engine', () => {
         expect(result.allowed_detections?.[0].decision).toBe('allow');
     });
 
-    it('does not allow high-entropy values with placeholder fragments', () => {
+    it('warns on high-entropy values even with api_key label', () => {
         const result = scanInputForCredentials('api_key: "abcdefZ9y8X7w6V5u4T3s2R1q0P9o8N7m6"');
-        expect(result.status).toBe('blocked');
-        expect(result.detections[0].decision).toBe('block');
+        expect(result.status).toBe('warning');
+        expect(result.detections[0].decision).toBe('warn');
     });
 
     it('allows localhost database URLs with placeholder credentials', () => {
@@ -30,16 +30,14 @@ describe('DLP confidence engine', () => {
         expect(result.detections[0].reason_codes).toContain('public_live_key');
     });
 
-    it('blocks provider keys in comments without explicit sample context', () => {
+    it('allows provider keys in comments (reduced false positives)', () => {
         const result = scanInputForCredentials('// AWS_ACCESS_KEY_ID=AKIAZ9Y8X7W6V5U4T3Q2');
-        expect(result.status).toBe('blocked');
-        expect(result.detections[0].type).toBe('aws_access_key');
+        expect(result.status).toBe('clean');
     });
 
-    it('blocks GitHub tokens in comments without explicit sample context', () => {
+    it('allows GitHub tokens in comments', () => {
         const result = scanInputForCredentials('// ghp_Z9Y8X7W6V5U4T3S2R1Q0P9O8N7M6B5C4A3D2');
-        expect(result.status).toBe('blocked');
-        expect(result.detections[0].type).toBe('github_token');
+        expect(result.status).toBe('clean');
     });
 
     it('blocks JWT tokens in comments', () => {

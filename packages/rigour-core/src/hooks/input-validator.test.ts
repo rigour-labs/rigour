@@ -137,11 +137,9 @@ describe('scanInputForCredentials — Tokens', () => {
 // ── Generic Patterns ─────────────────────────────────────────────
 
 describe('scanInputForCredentials — Generic patterns', () => {
-    it('warns on ambiguous password assignment', () => {
+    it('allows ambiguous short password assignment without high entropy', () => {
         const result = scanInputForCredentials("password = 'WinterAccess987!'");
-        expect(result.status).toBe('warning');
-        expect(result.detections[0].type).toBe('password_assignment');
-        expect(result.detections[0].decision).toBe('warn');
+        expect(result.status).toBe('clean');
     });
 
     it('allows placeholder api_key assignment', () => {
@@ -151,15 +149,15 @@ describe('scanInputForCredentials — Generic patterns', () => {
         expect(result.allowed_detections?.[0].reason_codes).toContain('safe_example_value');
     });
 
-    it('blocks high-entropy api_key assignment', () => {
+    it('warns on high-entropy api_key assignment', () => {
         const result = scanInputForCredentials('api_key: "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6B5c4"');
-        expect(result.status).toBe('blocked');
-        expect(result.detections[0].decision).toBe('block');
+        expect(result.status).toBe('warning');
+        expect(result.detections[0].decision).toBe('warn');
         expect(result.detections[0].reason_codes).toContain('high_entropy');
     });
 
-    it('detects .env format', () => {
-        const result = scanInputForCredentials('DATABASE_PASSWORD=myS3cr3tP@ssw0rd!');
+    it('warns on high-entropy .env format values', () => {
+        const result = scanInputForCredentials('DATABASE_PASSWORD=Z9y8X7w6V5u4T3s2R1q0P9o8N7m6B5c4Xy');
         expect(result.status).toBe('warning');
         expect(result.detections.some(d => d.type === 'env_variable')).toBe(true);
     });
@@ -369,4 +367,39 @@ describe('createDLPAuditEntry', () => {
         expect(detections[0].decision).toBe('block');
     });
 
+});
+
+describe('false positive regression', () => {
+    it('allows engineering prompts about API key storage', () => {
+        const result = scanInputForCredentials(
+            'Should Cursor Admin API keys be stored in ~/.rigour/settings.json under cursor.apiKey?'
+        );
+        expect(result.status).toBe('clean');
+    });
+
+    it('allows credential-less localhost database URLs', () => {
+        expect(scanInputForCredentials('redis://localhost:6379').status).toBe('clean');
+        expect(scanInputForCredentials('mongodb://localhost:27017/test').status).toBe('clean');
+    });
+
+    it('allows placeholder env assignments', () => {
+        expect(scanInputForCredentials('API_KEY=your-key-here').status).toBe('clean');
+        expect(scanInputForCredentials('api_key = "replace-me"').status).toBe('clean');
+    });
+
+    it('allows bare SK-like token without Twilio context', () => {
+        expect(scanInputForCredentials('SK-test-fixture-not-a-real-twilio-key').status).toBe('clean');
+    });
+
+    it('allows sk-proj examples in comments', () => {
+        expect(scanInputForCredentials('// sk-proj-abcdefghijklmnopqrstuvwxyz').status).toBe('clean');
+    });
+
+    it('still blocks live production database URLs', () => {
+        expect(scanInputForCredentials('postgresql://user:password@prod-server:5432/mydb').status).toBe('blocked');
+    });
+
+    it('still blocks live AWS keys in prose', () => {
+        expect(scanInputForCredentials('Here is my key: AKIAZ9Y8X7W6V5U4T3Q2').status).toBe('blocked');
+    });
 });

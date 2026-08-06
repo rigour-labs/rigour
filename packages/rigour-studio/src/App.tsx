@@ -20,7 +20,8 @@ import {
     AlertTriangle,
     Users,
     Flag,
-    Brain
+    Brain,
+    Coins
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DiffEditor } from '@monaco-editor/react';
@@ -34,6 +35,8 @@ import { AgentTeams } from './components/AgentTeams';
 import { CheckpointTimeline } from './components/CheckpointTimeline';
 import { DeepAnalysis } from './components/DeepAnalysis';
 import { TemporalDrift } from './components/TemporalDrift';
+import { CostContext } from './components/CostContext';
+
 
 function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
@@ -164,6 +167,7 @@ function App() {
         { id: 'drift', label: 'Temporal Drift', icon: TrendingDown },
         { id: 'agents', label: 'Agent Teams', icon: Users },
         { id: 'checkpoints', label: 'Checkpoints', icon: Flag },
+        { id: 'cost', label: 'Cost & Context', icon: Coins },
     ];
 
     return (
@@ -342,6 +346,18 @@ function App() {
                                 className="full-view"
                             >
                                 <CheckpointTimeline checkpoints={checkpointSession?.checkpoints || []} />
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'cost' && (
+                            <motion.div
+                                key="cost"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="full-view"
+                            >
+                                <CostContext />
                             </motion.div>
                         )}
                     </AnimatePresence>

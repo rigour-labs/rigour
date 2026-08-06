@@ -195,7 +195,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_recall",
-        description: "Load project memory and stored conventions. CALL THIS at the start of every coding task to restore team decisions, naming conventions, and architectural preferences stored from previous sessions.",
+        description: "Load project memory and stored conventions. CALL THIS at the START of every coding task (before reading files) to restore team decisions, naming conventions, and architectural preferences. Returns index health status and uses semantic cache on repeat calls — second recall with the same key is served from cache.",
         inputSchema: {
             type: "object",
             properties: {
@@ -338,15 +338,17 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_checkpoint",
-        description: "Record a quality checkpoint during long-running agent execution. Use periodically (every 15-30 min) to enable drift detection and quality monitoring. Essential for GPT-5.3 coworking mode.",
+        description: "Record a quality checkpoint during long-running agent execution. Use periodically (every 15-30 min) to enable drift detection, quality monitoring, and compact subagent handoffs. Triggers incremental pattern index refresh when filesChanged is provided. Essential for GPT-5.3 coworking mode — call BEFORE rigour_handoff to compress context under 2K tokens.",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
                 progressPct: { type: "number", description: "Estimated progress percentage (0-100)." },
-                filesChanged: { type: "array", items: { type: "string" }, description: "List of files modified since last checkpoint." },
+                filesChanged: { type: "array", items: { type: "string" }, description: "List of files modified since last checkpoint. Triggers incremental index refresh." },
                 summary: { type: "string", description: "Brief description of work done since last checkpoint." },
                 qualityScore: { type: "number", description: "Self-assessed quality score (0-100). Be honest - artificially high scores trigger drift detection." },
+                agentId: { type: "string", description: "Optional agent ID for checkpoint packet binding." },
+                taskId: { type: "string", description: "Optional task ID for checkpoint metrics." },
             },
             required: ["cwd", "progressPct", "summary", "qualityScore"],
         },
@@ -534,4 +536,126 @@ export const TOOL_DEFINITIONS = [
             openWorldHint: false,
         },
     },
+
+    // ─── Context Telemetry & Cost Efficiency ───────────────
+    {
+        name: "rigour_context_stats",
+        description: "Returns context retrieval efficiency, candidate tokens vs returned tokens, potential avoided tokens, cache hit rate, and repeated reads prevented.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                taskId: { type: "string", description: "Optional Task ID (e.g. 'CTP-142') to filter statistics." },
+            },
+            required: ["cwd"],
+        },
+        annotations: {
+            title: "Context Stats",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
+        name: "rigour_task_cost",
+        description: "Returns both verified actual model usage/cost (from Cursor Admin API or imported CSV) and Rigour estimated avoided context/cost USD.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                taskId: { type: "string", description: "Optional Task ID (e.g. 'CTP-142') to filter cost stats." },
+            },
+            required: ["cwd"],
+        },
+        annotations: {
+            title: "Task Cost Breakdown",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
+        name: "rigour_cache_stats",
+        description: "Returns detailed performance stats across all 4 cache layers (exact hits, semantic hits, partial hits, misses, hit rate, tokens served from cache).",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+            },
+            required: ["cwd"],
+        },
+        annotations: {
+            title: "Cache Efficiency Stats",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
+        name: "rigour_context_explain",
+        description: "Audits why specific files/services were included or excluded, cache hit/miss status, invalidation reasons, and prior agent requests.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                target: { type: "string", description: "File path, service name, or query term to explain." },
+                taskId: { type: "string", description: "Optional Task ID to restrict audit trace." },
+            },
+            required: ["cwd", "target"],
+        },
+        annotations: {
+            title: "Context Explainability Audit",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+
+    // ─── Pattern Index & Scoped Context ──────────────────
+    {
+        name: "rigour_index",
+        description: "Build or update the Rigour pattern index (.rigour/patterns.json). CALL THIS when the index is missing or stale — before rigour_context_scope or rigour_check_pattern. One AST pass extracts functions, classes, routes, and signatures for reuse. Use semantic=true for embedding-based search.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                semantic: { type: "boolean", description: "Generate semantic embeddings for better matching (requires Transformers.js). Default: false." },
+                force: { type: "boolean", description: "Force a full rebuild instead of incremental update. Default: false." },
+                output: { type: "string", description: "Custom path for the index file." },
+            },
+            required: ["cwd"],
+        },
+        annotations: {
+            title: "Build Pattern Index",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
+        name: "rigour_context_scope",
+        description: "CALL THIS BEFORE reading source files. Returns a minimal editScope (3-10 files) with signatures from the pattern index instead of full file bodies. Uses semantic search when embeddings are available. If index is missing, instructs to call rigour_index first. Highest-impact token saver in the Rigour protocol.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                query: { type: "string", description: "Natural-language description of what you need to work on (e.g. 'add priority field to task service')." },
+                limit: { type: "number", description: "Maximum number of pattern matches to return (default: 10)." },
+            },
+            required: ["cwd", "query"],
+        },
+        annotations: {
+            title: "Scoped Context Retrieval",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
 ];
+

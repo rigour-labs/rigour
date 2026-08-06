@@ -12,17 +12,20 @@ interface DLPClassification {
     reason_codes: string[];
 }
 
-const BLOCK_TYPES = new Set([
-    'aws_secret_key',
+const UNCONDITIONAL_BLOCK_TYPES = new Set([
+    'private_key',
+    'private_key_full',
     'gcp_service_account',
+    'bearer_token',
+    'jwt_token',
+]);
+
+const PROVIDER_BLOCK_TYPES = new Set([
+    'aws_secret_key',
     'azure_key',
     'anthropic_key',
     'slack_token',
     'sendgrid_key',
-    'private_key',
-    'private_key_full',
-    'bearer_token',
-    'jwt_token',
 ]);
 
 const PROVIDER_TYPES = new Set([
@@ -47,32 +50,80 @@ export function classifyDLPDetection(detection: DLPDetectionInput, input: string
     const context = getDetectionContext(detection, input);
     const value = extractDetectionValue(detection);
     const reasons = new Set<string>();
-    let confidence = baseConfidence(detection.type);
 
+    if (UNCONDITIONAL_BLOCK_TYPES.has(detection.type)) {
+        reasons.add('sensitive_secret_type');
+        return verdict(98, 'block', reasons);
+    }
+
+    if (isCommentLine(context.line) && !UNCONDITIONAL_BLOCK_TYPES.has(detection.type)) {
+        reasons.add('comment_context');
+        return verdict(15, 'allow', reasons);
+    }
+
+    const safe = safeValueVerdict(detection, value, context, reasons);
+    if (safe) return safe;
+
+    if (GENERIC_TYPES.has(detection.type)) {
+        return classifyGenericSecret(detection, value, context, reasons);
+    }
+
+    let confidence = baseConfidence(detection.type);
     addPositiveSignals(detection, value, reasons);
     addContextSignals(context, value, reasons);
     confidence += confidenceAdjustment(reasons);
 
-    const immediate = immediateVerdict(detection, value, context, reasons);
-    if (immediate) return immediate;
-
     const contextual = contextualAllowVerdict(detection, value, context, confidence, reasons);
     if (contextual) return contextual;
+
+    if (PROVIDER_BLOCK_TYPES.has(detection.type)) {
+        return verdict(confidence, confidence >= 80 ? 'block' : 'warn', reasons);
+    }
+
+    if (PROVIDER_TYPES.has(detection.type)) {
+        if (isDocumentationContext(context.before, context.line) && !isHighEntropy(value)) {
+            reasons.add('docs_context');
+            return verdict(25, 'allow', reasons);
+        }
+        return verdict(confidence, confidence >= 80 ? 'block' : 'warn', reasons);
+    }
+
+    if (detection.type === 'database_url' || detection.type === 'credentials_in_url') {
+        if (isLocalDatabaseUrl(value) || isLocalDatabaseUrl(context.line)) {
+            reasons.add('localhost_only');
+            return verdict(22, 'allow', reasons);
+        }
+        return verdict(confidence, confidence >= 80 ? 'block' : 'warn', reasons);
+    }
 
     return verdict(confidence, confidence >= 80 ? 'block' : 'warn', reasons);
 }
 
-function immediateVerdict(
+function classifyGenericSecret(
     detection: DLPDetectionInput,
     value: string,
     context: { line: string; before: string },
     reasons: Set<string>
-): DLPClassification | undefined {
-    if (isUnconditionallyBlocked(detection.type)) {
-        reasons.add('sensitive_secret_type');
-        return verdict(98, 'block', reasons);
+): DLPClassification {
+    if (detection.type === 'custom_pattern') {
+        reasons.add('secret_assignment');
+        return verdict(55, 'warn', reasons);
     }
-    return safeValueVerdict(detection, value, context, reasons);
+    if (isSafePlaceholder(detection.type, value, context)) {
+        reasons.add('safe_example_value');
+        return verdict(18, 'allow', reasons);
+    }
+    if (isSafeContext(context, value)) {
+        reasons.add('safe_context');
+        return verdict(25, 'allow', reasons);
+    }
+    if (isHighEntropy(value) && value.length >= 24) {
+        reasons.add('high_entropy');
+        reasons.add('secret_assignment');
+        return verdict(72, 'warn', reasons);
+    }
+    reasons.add('secret_assignment');
+    return verdict(25, 'allow', reasons);
 }
 
 function safeValueVerdict(
@@ -130,16 +181,16 @@ function commandOrLocalVerdict(
 }
 
 function baseConfidence(type: string): number {
-    if (BLOCK_TYPES.has(type)) return 92;
+    if (PROVIDER_BLOCK_TYPES.has(type)) return 92;
     if (PROVIDER_TYPES.has(type)) return 78;
-    if (GENERIC_TYPES.has(type)) return 55;
+    if (GENERIC_TYPES.has(type)) return 40;
     if (type === 'database_url' || type === 'credentials_in_url') return 82;
     if (type === 'ssh_credentials') return 35;
     return 50;
 }
 
 function addPositiveSignals(detection: DLPDetectionInput, value: string, reasons: Set<string>): void {
-    if (PROVIDER_TYPES.has(detection.type) || BLOCK_TYPES.has(detection.type)) {
+    if (PROVIDER_TYPES.has(detection.type) || PROVIDER_BLOCK_TYPES.has(detection.type)) {
         reasons.add('provider_pattern');
     }
     if (GENERIC_TYPES.has(detection.type)) {
@@ -169,7 +220,7 @@ function confidenceAdjustment(reasons: Set<string>): number {
         high_entropy: 16,
         long_token: 6,
         docs_context: -35,
-        comment_context: -10,
+        comment_context: -40,
         build_log_context: -30,
         known_placeholder: -45,
         env_reference: -45,
@@ -197,14 +248,6 @@ function extractDetectionValue(detection: DLPDetectionInput): string {
     return value.replace(/^['"`]+|['"`;]+$/g, '');
 }
 
-function isUnconditionallyBlocked(type: string): boolean {
-    return type === 'private_key'
-        || type === 'private_key_full'
-        || type === 'gcp_service_account'
-        || type === 'bearer_token'
-        || type === 'jwt_token';
-}
-
 function isPublicOrDevCredential(type: string, value: string, context: { line: string; before: string }): boolean {
     if (/^pk_test_/i.test(value)) return true;
     if (!PROVIDER_TYPES.has(type)) return false;
@@ -220,7 +263,8 @@ function isSafeContext(context: { line: string; before: string }, value: string)
 }
 
 function isDocumentationContext(before: string, line: string): boolean {
-    return /(?:example|sample|placeholder|fake|dummy|test fixture|fixture|docs?|readme|tutorial)/i.test(before + '\n' + line);
+    const text = before + '\n' + line;
+    return /(?:example|sample|placeholder|fake|dummy|test fixture|fixture|docs?|readme|tutorial|settings\.json|cursor\.apiKey|env var|process\.env)/i.test(text);
 }
 
 function isCommentLine(line: string): boolean {
@@ -246,7 +290,10 @@ function isSafePlaceholder(type: string, value: string, context: { line: string;
 
 function isSafePlaceholderValue(value: string): boolean {
     return /^(?:example|placeholder|dummy|fake|sample|changeme|replace[_-]?me|password123|secret123|correct horse battery staple)$/i.test(value)
-        || /^x+$/i.test(value)
+        || /^(?:your[_-]?)?(?:api[_-]?)?key[_-]?here$/i.test(value)
+        || /^not-a-real/i.test(value)
+        || /^super-secret-client-id-string$/i.test(value)
+        || /^x{8,}$/i.test(value)
         || /^test[_-]/i.test(value)
         || /^dev[_-]/i.test(value)
         || /^mock[_-]/i.test(value)
@@ -256,7 +303,7 @@ function isSafePlaceholderValue(value: string): boolean {
 }
 
 function isGenericPlaceholderValue(value: string): boolean {
-    return /(?:example|placeholder|dummy|fake|sample)/i.test(value);
+    return /(?:example|placeholder|dummy|fake|sample|your[_-]|replace[_-]?me|not-a-real)/i.test(value);
 }
 
 function isSafeProviderExample(value: string, context: { line: string; before: string }): boolean {
@@ -296,8 +343,10 @@ function hasSensitiveSshOptions(line: string): boolean {
 }
 
 function isLocalDatabaseUrl(value: string): boolean {
-    return /(?:^|=)(?:postgres(?:ql)?|mysql|mariadb|mssql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps):\/\//i.test(value)
-        && /@(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::|\/|$)/i.test(value);
+    const hasDbScheme = /(?:^|=)(?:postgres(?:ql)?|mysql|mariadb|mssql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps):\/\//i.test(value);
+    if (!hasDbScheme) return false;
+    if (/@(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::|\/|$)/i.test(value)) return true;
+    return /:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::|\/|$)/i.test(value);
 }
 
 function verdict(confidence: number, decision: DLPDecision, reasons: Set<string>): DLPClassification {

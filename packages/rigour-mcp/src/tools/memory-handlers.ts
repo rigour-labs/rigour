@@ -10,11 +10,22 @@
  * @since v4.2.0  — DLP gate on memory persistence
  */
 import { loadMemory, saveMemory } from '../utils/config.js';
-import { scanInputForCredentials, formatDLPAlert, createDLPAuditEntry } from '@rigour-labs/core';
+import {
+    scanInputForCredentials,
+    formatDLPAlert,
+    createDLPAuditEntry,
+    getSemanticQueryCache,
+    setSemanticQueryCache,
+    estimateTokenCount,
+} from '@rigour-labs/core';
+import {
+    loadPatternIndex,
+    getDefaultIndexPath,
+} from '@rigour-labs/core/pattern-index';
+import { buildTelemetryMeta, getWorkspaceCommitSha, type ToolResult } from '../utils/context-telemetry.js';
+import { appendContextFooter } from '../utils/context-footer.js';
 import fs from 'fs-extra';
 import path from 'path';
-
-type ToolResult = { content: { type: string; text: string }[] };
 
 /**
  * Append a DLP audit event to .rigour/events.jsonl
@@ -48,6 +59,36 @@ function extractStrings(obj: unknown, out: string[]): void {
     else if (obj && typeof obj === 'object') {
         for (const v of Object.values(obj)) extractStrings(v, out);
     }
+}
+
+async function getIndexHealthBlock(cwd: string): Promise<string> {
+    const indexPath = getDefaultIndexPath(cwd);
+    const index = await loadPatternIndex(indexPath);
+    if (!index) {
+        return '\n\n📊 Pattern Index: NOT FOUND — call rigour_index to enable scope optimization and reinvention detection.';
+    }
+    return `\n\n📊 Pattern Index: ${index.stats.totalPatterns} patterns across ${index.stats.totalFiles} files (updated ${index.lastUpdated}).`;
+}
+
+function wrapRecallResult(
+    text: string,
+    candidateText: string,
+    cacheStatus: 'exact-hit' | 'semantic-hit' | 'miss',
+    deduplicatedTokens = 0,
+): ToolResult {
+    const telemetry = buildTelemetryMeta({
+        candidateText,
+        returnedText: text,
+        cacheStatus,
+        deduplicatedTokens,
+    });
+    return {
+        content: [{
+            type: 'text',
+            text: appendContextFooter(text, telemetry, 'rigour_context_scope("your task")'),
+        }],
+        _telemetry: telemetry,
+    };
 }
 
 export async function handleRemember(cwd: string, key: string, value: string): Promise<ToolResult> {
@@ -111,12 +152,28 @@ export async function handleRemember(cwd: string, key: string, value: string): P
 }
 
 export async function handleRecall(cwd: string, key?: string): Promise<ToolResult> {
+    const commitSha = await getWorkspaceCommitSha(cwd);
+    const cacheQuery = key ? `recall:${key}` : 'recall:all';
     const store = await loadMemory(cwd);
+    const candidateText = JSON.stringify(store);
+
+    const cached = await getSemanticQueryCache(cacheQuery, commitSha, cwd);
+    if (cached?.evidence?.length) {
+        const cachedBody = cached.evidence.join('\n');
+        const indexHealth = await getIndexHealthBlock(cwd);
+        return wrapRecallResult(
+            `${cachedBody}${indexHealth}`,
+            candidateText,
+            'semantic-hit',
+            Math.max(0, estimateTokenCount(candidateText) - estimateTokenCount(cachedBody)),
+        );
+    }
 
     if (key) {
         const memory = store.memories[key];
         if (!memory) {
-            return { content: [{ type: "text", text: `NO MEMORY FOUND for key "${key}". Use rigour_remember to store instructions.` }] };
+            const text = `NO MEMORY FOUND for key "${key}". Use rigour_remember to store instructions.${await getIndexHealthBlock(cwd)}`;
+            return wrapRecallResult(text, candidateText, 'miss');
         }
 
         // ── DLP Gate on recall: catch credentials stored before DLP existed ──
@@ -136,12 +193,27 @@ export async function handleRecall(cwd: string, key?: string): Promise<ToolResul
             };
         }
 
-        return { content: [{ type: "text", text: `RECALLED MEMORY [${key}]:\n${memory.value}\n\n(Stored: ${memory.timestamp})` }] };
+        const body = `RECALLED MEMORY [${key}]:\n${memory.value}\n\n(Stored: ${memory.timestamp})`;
+        const indexHealth = await getIndexHealthBlock(cwd);
+        const fullText = `${body}${indexHealth}`;
+
+        await setSemanticQueryCache(cacheQuery, commitSha, {
+            query: cacheQuery,
+            resolvedOwner: 'memory',
+            editScope: [],
+            validationScope: [],
+            evidence: [body],
+            commitSha,
+            confidence: 1,
+        }, cwd);
+
+        return wrapRecallResult(fullText, candidateText, 'miss');
     }
 
     const keys = Object.keys(store.memories);
     if (keys.length === 0) {
-        return { content: [{ type: "text", text: "NO MEMORIES STORED. Use rigour_remember to persist important instructions." }] };
+        const text = `NO MEMORIES STORED. Use rigour_remember to persist important instructions.${await getIndexHealthBlock(cwd)}`;
+        return wrapRecallResult(text, candidateText, 'miss');
     }
 
     // ── DLP scan all memories on bulk recall ──
@@ -170,7 +242,24 @@ export async function handleRecall(cwd: string, key?: string): Promise<ToolResul
         text = "NO MEMORIES STORED. Use rigour_remember to persist important instructions.";
     }
 
-    return { content: [{ type: "text", text }] };
+    text += await getIndexHealthBlock(cwd);
+
+    await setSemanticQueryCache(cacheQuery, commitSha, {
+        query: cacheQuery,
+        resolvedOwner: 'memory',
+        editScope: [],
+        validationScope: [],
+        evidence: [text],
+        commitSha,
+        confidence: 1,
+    }, cwd);
+
+    return wrapRecallResult(
+        text,
+        candidateText,
+        'miss',
+        Math.max(0, estimateTokenCount(candidateText) - estimateTokenCount(text)),
+    );
 }
 
 export async function handleForget(cwd: string, key: string): Promise<ToolResult> {

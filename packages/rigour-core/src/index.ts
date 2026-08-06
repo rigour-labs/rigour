@@ -13,7 +13,7 @@ export { FileScanner } from './utils/scanner.js';
 export * from './services/score-history.js';
 export * from './hooks/index.js';
 // Settings Module (Global user config at ~/.rigour/settings.json)
-export { loadSettings, saveSettings, getSettingsPath, resolveDeepOptions, getProviderKey, getAgentConfig, getCliPreferences, updateProviderKey, removeProviderKey } from './settings.js';
+export { loadSettings, saveSettings, getSettingsPath, resolveDeepOptions, getProviderKey, getAgentConfig, getCliPreferences, updateProviderKey, removeProviderKey, getCursorApiKey, updateCursorApiKey } from './settings.js';
 export type { RigourSettings, ResolvedDeepOptions, CLIDeepOptions } from './settings.js';
 // Deep Analysis Pipeline (v4.0+)
 export { DeepAnalysisGate } from './gates/deep-analysis.js';
@@ -40,6 +40,19 @@ export type { IncrementalResult } from './services/incremental-cache.js';
 // Terminal Renderer (rich CLI/MCP output)
 export { renderScoreGauge, renderSeveritySection, renderGateGrid, renderBrainStatus, renderFullReport, renderMcpHeadline, renderFixAttribution } from './services/terminal-renderer.js';
 export type { RenderOptions, GateResult } from './services/terminal-renderer.js';
+// Context Telemetry & 4-Layer Caching Engine
+export * from './context/cache-engine.js';
+export * from './context/context-session.js';
+export * from './context/index-bridge.js';
+export * from './services/context-telemetry-service.js';
+export {
+    recordContextEvent,
+    recordModelUsage,
+    recordCheckpointMetric,
+    getContextEvents,
+    getModelUsages,
+    getCheckpointMetrics,
+} from './storage/index.js';
 // Pattern Index is intentionally NOT exported here to prevent
 // native dependency issues (sharp/transformers) from leaking into
 // non-AI parts of the system.

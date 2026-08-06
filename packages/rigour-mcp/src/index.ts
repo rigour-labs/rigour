@@ -40,6 +40,9 @@ import { handleReview } from './tools/review-handler.js';
 import { handleHooksCheck, handleHooksInit } from './tools/hooks-handler.js';
 import { handleCheckDeep, handleDeepStats } from './tools/deep-handlers.js';
 import { handleMcpGetSettings, handleMcpSetSettings } from './tools/mcp-settings-handler.js';
+import { handleContextStats, handleTaskCost, handleCacheStats, handleContextExplain, handleContextScope } from './tools/context-handlers.js';
+import { handleIndex } from './tools/index-handlers.js';
+import { recordContextEvent, estimateTokenCount } from '@rigour-labs/core';
 
 // ─── Server Setup ─────────────────────────────────────────────────
 
@@ -57,15 +60,21 @@ bindServer(server);
 // Research shows agents degrade at 30+ tools (wrong picks, hallucinated args).
 // Power-user tools are still callable — they just aren't advertised in the tool list.
 const ESSENTIAL_TOOLS = new Set([
-    'rigour_check',           // Run quality gates (BEFORE declaring done)
-    'rigour_check_pattern',   // Check if code exists (BEFORE creating new code)
     'rigour_recall',          // Load project memory (START of every task)
+    'rigour_index',           // Build/refresh pattern index (if stale)
+    'rigour_context_scope',   // Scoped file retrieval BEFORE reading files
+    'rigour_check_pattern',   // Check if code exists (BEFORE creating new code)
+    'rigour_check',           // Run quality gates (BEFORE declaring done)
     'rigour_remember',        // Store conventions/decisions
     'rigour_explain',         // Explain gate failures
     'rigour_get_fix_packet',  // Get structured fix instructions on FAIL
     'rigour_review',          // Review diffs
     'rigour_security_audit',  // CVE check
     'rigour_forget',          // Remove stored memory
+    'rigour_context_stats',   // Context retrieval efficiency & avoided tokens
+    'rigour_task_cost',       // Verified vs estimated avoided costs
+    'rigour_cache_stats',     // 4-layer cache statistics
+    'rigour_context_explain', // Explain context inclusion/exclusion audit
 ]);
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -159,13 +168,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             // Multi-agent governance
             case "rigour_agent_register": result = await handleAgentRegister(cwd, (args as any).agentId, (args as any).taskScope, requestId); break;
             case "rigour_checkpoint": {
-                const { progressPct, filesChanged = [], summary, qualityScore } = args as any;
-                result = await handleCheckpoint(cwd, progressPct, filesChanged, summary, qualityScore, requestId);
+                const { progressPct, filesChanged = [], summary, qualityScore, agentId, taskId } = args as any;
+                result = await handleCheckpoint(cwd, progressPct, filesChanged, summary, qualityScore, requestId, agentId, taskId);
                 break;
             }
             case "rigour_handoff": {
-                const { fromAgentId, toAgentId, taskDescription, filesInScope = [], context = '' } = args as any;
-                result = await handleHandoff(cwd, fromAgentId, toAgentId, taskDescription, filesInScope, context, requestId);
+                const { fromAgentId, toAgentId, taskDescription, filesInScope = [], context = '', taskId } = args as any;
+                result = await handleHandoff(cwd, fromAgentId, toAgentId, taskDescription, filesInScope, context, requestId, taskId);
                 break;
             }
             case "rigour_agent_deregister": result = await handleAgentDeregister(cwd, (args as any).agentId, requestId); break;
@@ -186,8 +195,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             // Code review
             case "rigour_review": result = await handleReview(runner, cwd, (args as any).diff, (args as any).files); break;
 
+            // Context Telemetry & Cost Tools
+            case "rigour_context_stats":   result = await handleContextStats(cwd, (args as any).taskId); break;
+            case "rigour_task_cost":       result = await handleTaskCost(cwd, (args as any).taskId); break;
+            case "rigour_cache_stats":     result = await handleCacheStats(cwd); break;
+            case "rigour_context_explain": result = await handleContextExplain(cwd, (args as any).target, (args as any).taskId); break;
+
+            // Pattern index & scoped context
+            case "rigour_index": {
+                const { semantic, force, output } = args as any;
+                result = await handleIndex(cwd, { semantic, force, output });
+                break;
+            }
+            case "rigour_context_scope": {
+                const { query, limit } = args as any;
+                result = await handleContextScope(cwd, query, limit);
+                break;
+            }
+
             default:
                 throw new Error(`Unknown tool: ${name}`);
+        }
+
+        // ── Context Telemetry Recording (honest — from handler _telemetry metadata) ──
+        try {
+            const telemetry = result?._telemetry;
+            const resultText = Array.isArray(result?.content) ? result.content.map((c: any) => c.text || '').join('\n') : '';
+            const returnedTokens = telemetry?.returnedTokens ?? estimateTokenCount(resultText);
+            await recordContextEvent({
+                taskId: (args as any)?.taskId || (args as any)?.task_id,
+                agentId: (args as any)?.agentId || (args as any)?.agent_id,
+                toolName: name,
+                cacheStatus: telemetry?.cacheStatus ?? 'none',
+                candidateTokens: telemetry?.candidateTokens ?? returnedTokens,
+                returnedTokens,
+                deduplicatedTokens: telemetry?.deduplicatedTokens ?? 0,
+            }, cwd);
+        } catch {
+            // non-blocking context telemetry logging
         }
 
         // ── Prepend image DLP warning if image content was detected ──

@@ -15,10 +15,10 @@ import {
     StalenessDetector,
     SecurityDetector,
 } from "@rigour-labs/core/pattern-index";
-import { ConfigSchema } from "@rigour-labs/core";
+import { ConfigSchema, getSemanticQueryCache, setSemanticQueryCache, estimateTokenCount } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
-
-type ToolResult = { content: { type: string; text: string }[] };
+import { buildTelemetryMeta, getWorkspaceCommitSha, type ToolResult } from '../utils/context-telemetry.js';
+import { appendContextFooter } from '../utils/context-footer.js';
 
 /**
  * Check if a file path is protected by safety.protected_paths in rigour.yml.
@@ -49,6 +49,10 @@ async function checkFileGuard(cwd: string, filePath: string): Promise<string | n
     }) ?? null;
 }
 
+function buildCacheQuery(patternName: string, type?: string, intent?: string, file?: string): string {
+    return `check_pattern:${patternName}:${type ?? ''}:${intent ?? ''}:${file ?? ''}`;
+}
+
 export async function handleCheckPattern(
     cwd: string,
     patternName: string,
@@ -56,6 +60,31 @@ export async function handleCheckPattern(
     intent?: string,
     file?: string,
 ): Promise<ToolResult> {
+    const commitSha = await getWorkspaceCommitSha(cwd);
+    const cacheQuery = buildCacheQuery(patternName, type, intent, file);
+    const indexPath = getDefaultIndexPath(cwd);
+    const index = await loadPatternIndex(indexPath);
+    const indexScanEstimate = index
+        ? `Pattern index scan (${index.stats.totalPatterns} patterns) for ${patternName}`
+        : `Full pattern discovery for ${patternName}`;
+
+    const cached = await getSemanticQueryCache(cacheQuery, commitSha, cwd);
+    if (cached?.evidence?.length) {
+        const cachedText = cached.evidence.join('\n');
+        const telemetry = buildTelemetryMeta({
+            candidateText: indexScanEstimate,
+            returnedText: cachedText,
+            cacheStatus: 'exact-hit',
+        });
+        return {
+            content: [{
+                type: 'text',
+                text: appendContextFooter(cachedText, telemetry, 'proceed with implementation or rigour_check when done'),
+            }],
+            _telemetry: telemetry,
+        };
+    }
+
     let resultText = "";
 
     // 0. File Guard — BLOCK writes to protected paths
@@ -67,13 +96,20 @@ export async function handleCheckPattern(
             resultText += `This path matches protected pattern "${matched}" in rigour.yml.\n`;
             resultText += `CI/CD pipelines, governance configs, and protected docs require human review.\n\n`;
             resultText += `RECOMMENDED ACTION: STOP. Do not create or modify this file. Ask the human to make this change manually.`;
-            return { content: [{ type: "text", text: resultText }] };
+
+            const telemetry = buildTelemetryMeta({
+                candidateText: indexScanEstimate,
+                returnedText: resultText,
+                cacheStatus: 'miss',
+            });
+            return {
+                content: [{ type: "text", text: appendContextFooter(resultText, telemetry) }],
+                _telemetry: telemetry,
+            };
         }
     }
 
     // 1. Check for Reinvention
-    const indexPath = getDefaultIndexPath(cwd);
-    const index = await loadPatternIndex(indexPath);
     if (index) {
         const matcher = new PatternMatcher(index);
         const matchResult = await matcher.match({ name: patternName, type, intent });
@@ -83,7 +119,7 @@ export async function handleCheckPattern(
             resultText += `SUGGESTION: ${matchResult.suggestion}\n\n`;
         }
     } else {
-        resultText += `⚠️ Pattern index not found. Run 'rigour index' to enable reinvention detection.\n\n`;
+        resultText += `⚠️ Pattern index not found. Run rigour_index to enable reinvention detection.\n\n`;
     }
 
     // 2. Check for Staleness/Best Practices
@@ -128,7 +164,32 @@ export async function handleCheckPattern(
         resultText += `\nRECOMMENDED ACTION: ${recommendation}`;
     }
 
-    return { content: [{ type: "text", text: resultText }] };
+    await setSemanticQueryCache(cacheQuery, commitSha, {
+        query: cacheQuery,
+        resolvedOwner: file ? path.dirname(file) : 'patterns',
+        editScope: file ? [file] : [],
+        validationScope: [],
+        evidence: [resultText],
+        commitSha,
+        confidence: resultText.includes('✅') ? 0.9 : 0.7,
+    }, cwd);
+
+    const telemetry = buildTelemetryMeta({
+        candidateText: indexScanEstimate,
+        returnedText: resultText,
+        cacheStatus: 'miss',
+        deduplicatedTokens: index
+            ? Math.max(0, estimateTokenCount(indexScanEstimate) - estimateTokenCount(resultText))
+            : 0,
+    });
+
+    return {
+        content: [{
+            type: "text",
+            text: appendContextFooter(resultText, telemetry, 'rigour_check before declaring done'),
+        }],
+        _telemetry: telemetry,
+    };
 }
 
 export async function handleSecurityAudit(cwd: string): Promise<ToolResult> {
@@ -136,5 +197,12 @@ export async function handleSecurityAudit(cwd: string): Promise<ToolResult> {
     const security = new SecurityDetector(cwd);
     const summary = await security.getSecuritySummary();
     notifyProgress("info", "Security audit complete");
-    return { content: [{ type: "text", text: summary }] };
+    return {
+        content: [{ type: "text", text: summary }],
+        _telemetry: buildTelemetryMeta({
+            candidateText: summary,
+            returnedText: summary,
+            cacheStatus: 'none',
+        }),
+    };
 }
