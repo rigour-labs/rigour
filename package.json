@@ -13,7 +13,8 @@
     "lint": "pnpm -r lint",
     "accuracy:check": "pnpm --filter @rigour-labs/core test -- src/gates/hallucinated-imports.test.ts src/gates/phantom-apis.test.ts src/gates/security-patterns.test.ts src/gates/security-patterns-owasp.test.ts src/gates/test-quality.test.ts src/gates/deprecated-apis.test.ts",
     "verify:brain-packages": "node scripts/check-brain-package-executable.mjs",
-    "verify:release": "node scripts/verify-release-readiness.mjs"
+    "verify:release": "node scripts/verify-release-readiness.mjs",
+    "publish:packages": "node scripts/publish-packages.mjs"
   },
   "devDependencies": {
     "@semantic-release/commit-analyzer": "^13.0.1",

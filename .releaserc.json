@@ -23,7 +23,7 @@
             "@semantic-release/exec",
             {
                 "prepareCmd": "pnpm -r exec -- npm version ${nextRelease.version} --no-git-tag-version",
-                "publishCmd": "pnpm -r publish --no-git-checks --access public --provenance"
+                "publishCmd": "node scripts/publish-packages.mjs"
             }
         ],
         [
