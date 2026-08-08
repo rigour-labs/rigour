@@ -129,7 +129,7 @@ export const MemoryBank: React.FC = () => {
                         <div className="memory-empty">
                             <Database size={48} />
                             <h3>No Memories Stored</h3>
-                            <p>Use <code>store_memory</code> via MCP to persist agent context.</p>
+                            <p>Use <code>rigour_remember</code> via MCP. Studio merges project <code>.rigour/memory.json</code> and global <code>~/.rigour/memory.json</code>.</p>
                         </div>
                     ) : (
                         filteredMemories.map(([key, entry]) => (

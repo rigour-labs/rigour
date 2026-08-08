@@ -26,7 +26,10 @@ export function AgentTeams({ session }: Props) {
             <div className="empty-state">
                 <Users size={48} />
                 <h3>No Active Agent Team</h3>
-                <p>When multiple agents register via <code>rigour_agent_register</code>, they'll appear here.</p>
+                <p>
+                    Register agents with <code>rigour_agent_register</code>, or Studio will derive recent agents from
+                    checkpoint metrics in the Brain DB.
+                </p>
                 <div className="hint-box">
                     <span>Supported Models:</span>
                     <div className="model-badges">

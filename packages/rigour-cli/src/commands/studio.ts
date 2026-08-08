@@ -1,36 +1,662 @@
 import { Command } from 'commander';
 import path from 'path';
+import os from 'os';
 import chalk from 'chalk';
 import { execa } from 'execa';
 import fs from 'fs-extra';
 import http from 'http';
+import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
+
+type StudioContext = {
+    cwd: string;
+    eventsPath: string;
+    allowedOrigins: Set<string>;
+};
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
+}
+
+async function readJsonIfExists(filePath: string): Promise<any | null> {
+    if (!(await fs.pathExists(filePath))) return null;
+    try {
+        return await fs.readJson(filePath);
+    } catch {
+        return null;
+    }
+}
+
+async function mergeMemoryStores(cwd: string): Promise<{ memories: Record<string, any>; sources: string[] }> {
+    const sources: string[] = [];
+    const memories: Record<string, any> = {};
+
+    const projectPath = path.join(cwd, '.rigour/memory.json');
+    const globalPath = path.join(os.homedir(), '.rigour/memory.json');
+
+    for (const [label, filePath] of [
+        ['project', projectPath],
+        ['global', globalPath],
+    ] as const) {
+        const data = await readJsonIfExists(filePath);
+        if (!data) continue;
+        sources.push(label);
+        const entries = data.memories && typeof data.memories === 'object' ? data.memories : data;
+        for (const [key, value] of Object.entries(entries || {})) {
+            const namespaced = memories[key] ? `${label}:${key}` : key;
+            memories[namespaced] = {
+                ...(typeof value === 'object' && value !== null ? value : { value }),
+                source: label,
+            };
+        }
+    }
+
+    return { memories, sources };
+}
+
+function mapCheckpointMetrics(metrics: Array<{
+    checkpointId: string;
+    taskId: string;
+    agentId: string;
+    rawStateTokens?: number;
+    checkpointTokens?: number;
+    replayTokensAvoided?: number;
+    createdAt?: number;
+}>) {
+    return metrics.map((m) => {
+        const raw = m.rawStateTokens || 0;
+        const packed = m.checkpointTokens || 0;
+        const avoided = m.replayTokensAvoided || Math.max(0, raw - packed);
+        const compression = packed > 0 ? Math.round(raw / packed) : 0;
+        const qualityScore = Math.max(40, Math.min(100, 60 + Math.min(40, compression)));
+        const createdAt = m.createdAt ?? Date.now();
+        return {
+            checkpointId: m.checkpointId,
+            agentId: m.agentId,
+            taskId: m.taskId,
+            timestamp: new Date(createdAt).toISOString(),
+            progressPct: Math.min(100, Math.round((avoided / Math.max(raw, 1)) * 100)),
+            filesChanged: [] as string[],
+            summary: `Compressed ${raw.toLocaleString()} → ${packed.toLocaleString()} tokens; avoided ${avoided.toLocaleString()} replay tokens${compression ? ` (${compression}×)` : ''}.`,
+            qualityScore,
+            warnings: [] as string[],
+            rawStateTokens: raw,
+            checkpointTokens: packed,
+            replayTokensAvoided: avoided,
+        };
+    });
+}
+
+async function synthesizeAgents(cwd: string, checkpoints: Array<{ agentId: string; taskId?: string; timestamp: string }>) {
+    const sessionPath = path.join(cwd, '.rigour/agent-session.json');
+    const session = await readJsonIfExists(sessionPath);
+    if (session?.agents?.length) {
+        return session;
+    }
+
+    const byAgent = new Map<string, { agentId: string; taskScope: string[]; registeredAt: string; lastCheckpoint?: string; status: 'active' | 'idle' | 'completed' }>();
+    for (const cp of checkpoints) {
+        const existing = byAgent.get(cp.agentId);
+        if (!existing) {
+            byAgent.set(cp.agentId, {
+                agentId: cp.agentId,
+                taskScope: cp.taskId ? [`task:${cp.taskId}`] : [],
+                registeredAt: cp.timestamp,
+                lastCheckpoint: cp.timestamp,
+                status: 'completed',
+            });
+        } else {
+            existing.lastCheckpoint = cp.timestamp;
+            if (cp.taskId && !existing.taskScope.includes(`task:${cp.taskId}`)) {
+                existing.taskScope.push(`task:${cp.taskId}`);
+            }
+        }
+    }
+
+    const agents = [...byAgent.values()];
+    return {
+        sessionId: agents.length ? 'derived-from-checkpoints' : 'inactive',
+        agents,
+        status: agents.length ? 'completed' : 'inactive',
+        createdAt: agents[0]?.registeredAt || new Date().toISOString(),
+        derived: true,
+    };
+}
+
+async function handleApiRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    ctx: StudioContext,
+): Promise<boolean> {
+    if (!url.pathname.startsWith('/api')) return false;
+
+    const requestOrigin = req.headers.origin;
+    if (typeof requestOrigin === 'string' && ctx.allowedOrigins.has(requestOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+        res.setHeader('Vary', 'Origin');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return true;
+    }
+
+    const { cwd, eventsPath } = ctx;
+
+    if (url.pathname === '/api/events') {
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+        });
+
+        if (await fs.pathExists(eventsPath)) {
+            const content = await fs.readFile(eventsPath, 'utf8');
+            const lines = content.split('\n').filter((l) => l.trim());
+            // Send recent history only — full 77MB dumps freeze the UI
+            for (const line of lines.slice(-200)) {
+                res.write(`data: ${line}\n\n`);
+            }
+        }
+
+        await fs.ensureDir(path.dirname(eventsPath));
+        const watcher = fs.watch(path.dirname(eventsPath), async (_eventType, filename) => {
+            if (filename === 'events.jsonl') {
+                try {
+                    const content = await fs.readFile(eventsPath, 'utf8');
+                    const lines = content.split('\n').filter((l) => l.trim());
+                    const lastLine = lines[lines.length - 1];
+                    if (lastLine) res.write(`data: ${lastLine}\n\n`);
+                } catch {
+                    // ignore transient reads
+                }
+            }
+        });
+        req.on('close', () => watcher.close());
+        return true;
+    }
+
+    if (url.pathname === '/api/file') {
+        const filePath = url.searchParams.get('path');
+        if (!filePath) {
+            res.writeHead(400);
+            res.end('Missing path');
+            return true;
+        }
+        const absolutePath = path.resolve(cwd, filePath);
+        if (!absolutePath.startsWith(cwd)) {
+            res.writeHead(403);
+            res.end('Forbidden');
+            return true;
+        }
+        try {
+            const content = await fs.readFile(absolutePath, 'utf8');
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end(content);
+        } catch {
+            res.writeHead(404);
+            res.end('Not found');
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/info') {
+        try {
+            const pkgPath = path.join(cwd, 'package.json');
+            const pkg = (await fs.pathExists(pkgPath)) ? await fs.readJson(pkgPath) : {};
+            sendJson(res, 200, {
+                name: pkg.name || path.basename(cwd),
+                path: cwd,
+                version: pkg.version || '0.0.0',
+                brainDb: path.join(os.homedir(), '.rigour/rigour.db'),
+            });
+        } catch (e: any) {
+            res.writeHead(500);
+            res.end(e.message);
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/tree') {
+        try {
+            const getTree = async (dir: string): Promise<string[]> => {
+                const entries = await fs.readdir(dir, { withFileTypes: true });
+                let files: string[] = [];
+                const exclude = ['node_modules', '.git', '.rigour', '.venv', 'dist', 'build'];
+                for (const entry of entries) {
+                    if (exclude.includes(entry.name) || entry.name.startsWith('.')) continue;
+                    const fullPath = path.join(dir, entry.name);
+                    if (entry.isDirectory()) {
+                        files = [...files, ...(await getTree(fullPath))];
+                    } else {
+                        files.push(path.relative(cwd, fullPath));
+                    }
+                }
+                return files;
+            };
+            sendJson(res, 200, await getTree(cwd));
+        } catch (e: any) {
+            res.writeHead(500);
+            res.end(e.message);
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/config') {
+        try {
+            const configPath = path.join(cwd, 'rigour.yml');
+            if (await fs.pathExists(configPath)) {
+                res.writeHead(200, { 'Content-Type': 'text/yaml' });
+                res.end(await fs.readFile(configPath, 'utf8'));
+            } else {
+                res.writeHead(404);
+                res.end('Not found');
+            }
+        } catch (e: any) {
+            res.writeHead(500);
+            res.end(e.message);
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/memory') {
+        try {
+            sendJson(res, 200, await mergeMemoryStores(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/index-stats') {
+        try {
+            const indexPath = path.join(cwd, '.rigour/patterns.json');
+            if (await fs.pathExists(indexPath)) {
+                sendJson(res, 200, await fs.readJson(indexPath));
+            } else {
+                sendJson(res, 200, { patterns: [], stats: { totalPatterns: 0, totalFiles: 0, byType: {} } });
+            }
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/index-search') {
+        const query = url.searchParams.get('q');
+        if (!query) {
+            res.writeHead(400);
+            res.end('Missing query');
+            return true;
+        }
+        try {
+            const { generateEmbedding, semanticSearch } = await import('@rigour-labs/core/pattern-index');
+            const indexPath = path.join(cwd, '.rigour/patterns.json');
+            const indexData = await fs.readJson(indexPath);
+            const queryVector = await generateEmbedding(query);
+            const similarities = semanticSearch(queryVector, indexData.patterns);
+            const results = indexData.patterns
+                .map((p: any, i: number) => ({ ...p, similarity: similarities[i] }))
+                .filter((p: any) => p.similarity > 0.3)
+                .sort((a: any, b: any) => b.similarity - a.similarity)
+                .slice(0, 20);
+            sendJson(res, 200, results);
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/checkpoints' || url.pathname === '/api/agents') {
+        try {
+            const {
+                getCheckpointMetrics,
+            } = await import('@rigour-labs/core');
+            const metrics = await getCheckpointMetrics(undefined, cwd);
+            const mapped = mapCheckpointMetrics(metrics);
+            const sessionFile = await readJsonIfExists(path.join(cwd, '.rigour/checkpoint-session.json'));
+            const sessionCheckpoints = Array.isArray(sessionFile?.checkpoints) ? sessionFile.checkpoints : [];
+            const checkpoints = sessionCheckpoints.length > 0 ? sessionCheckpoints : mapped;
+
+            if (url.pathname === '/api/checkpoints') {
+                sendJson(res, 200, {
+                    checkpoints,
+                    status: checkpoints.length ? 'active' : 'inactive',
+                    source: sessionCheckpoints.length ? 'session' : 'brain-metrics',
+                    metricsCount: metrics.length,
+                });
+            } else {
+                sendJson(res, 200, await synthesizeAgents(cwd, checkpoints));
+            }
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/overview') {
+        try {
+            const {
+                getTaskContextStats,
+                getTaskCostStats,
+                getCacheStats,
+                getCheckpointSummary,
+                getCheckpointMetrics,
+            } = await import('@rigour-labs/core');
+            const [context, cost, cache, checkpointSummary, metrics, memory, indexStats] = await Promise.all([
+                getTaskContextStats(undefined, cwd),
+                getTaskCostStats(undefined, cwd),
+                getCacheStats(cwd),
+                getCheckpointSummary(undefined, cwd),
+                getCheckpointMetrics(undefined, cwd),
+                mergeMemoryStores(cwd),
+                readJsonIfExists(path.join(cwd, '.rigour/patterns.json')),
+            ]);
+            let recentEvents = 0;
+            if (await fs.pathExists(eventsPath)) {
+                const content = await fs.readFile(eventsPath, 'utf8');
+                recentEvents = content.split('\n').filter((l) => l.trim()).length;
+            }
+            sendJson(res, 200, {
+                context,
+                cost,
+                cache,
+                checkpointSummary,
+                checkpointCount: metrics.length,
+                memoryCount: Object.keys(memory.memories).length,
+                memorySources: memory.sources,
+                patternCount: indexStats?.stats?.totalPatterns ?? indexStats?.patterns?.length ?? 0,
+                patternFiles: indexStats?.stats?.totalFiles ?? 0,
+                eventCount: recentEvents,
+                projectPath: cwd,
+                brainDb: path.join(os.homedir(), '.rigour/rigour.db'),
+            });
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/report-stats') {
+        try {
+            const reportPath = path.join(cwd, 'rigour-report.json');
+            if (await fs.pathExists(reportPath)) {
+                const report = await fs.readJson(reportPath);
+                sendJson(res, 200, report.stats || {});
+            } else {
+                sendJson(res, 200, {});
+            }
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/deep-findings') {
+        try {
+            const reportPath = path.join(cwd, 'rigour-report.json');
+            if (await fs.pathExists(reportPath)) {
+                const report = await fs.readJson(reportPath);
+                const findings = (report.failures || []).filter(
+                    (f: any) => f.provenance === 'deep-analysis' || f.source === 'llm' || f.source === 'hybrid',
+                );
+                sendJson(res, 200, findings);
+            } else {
+                sendJson(res, 200, []);
+            }
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/drift') {
+        try {
+            const { generateTemporalDriftReport } = await import('@rigour-labs/core');
+            const report = generateTemporalDriftReport(cwd);
+            sendJson(res, 200, report || { totalScans: 0 });
+        } catch {
+            sendJson(res, 200, { totalScans: 0 });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/context-stats') {
+        try {
+            const { getTaskContextStats } = await import('@rigour-labs/core');
+            const taskId = url.searchParams.get('taskId') || undefined;
+            sendJson(res, 200, await getTaskContextStats(taskId, cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/task-cost') {
+        try {
+            const { getTaskCostStats } = await import('@rigour-labs/core');
+            const taskId = url.searchParams.get('taskId') || undefined;
+            sendJson(res, 200, await getTaskCostStats(taskId, cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/cache-stats') {
+        try {
+            const { getCacheStats } = await import('@rigour-labs/core');
+            sendJson(res, 200, await getCacheStats(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/context-explain') {
+        try {
+            const { explainContext } = await import('@rigour-labs/core');
+            const target = url.searchParams.get('target') || 'all';
+            const taskId = url.searchParams.get('taskId') || undefined;
+            sendJson(res, 200, await explainContext(target, taskId, cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/context-scope') {
+        try {
+            const { getContextScopeSummary } = await import('@rigour-labs/core');
+            sendJson(res, 200, await getContextScopeSummary(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/checkpoint-metrics') {
+        try {
+            const { getCheckpointSummary } = await import('@rigour-labs/core');
+            const taskId = url.searchParams.get('taskId') || undefined;
+            sendJson(res, 200, await getCheckpointSummary(taskId, cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/cursor-api-key/status') {
+        try {
+            const { getCursorApiKey, countCursorAdminImportedEvents } = await import('@rigour-labs/core');
+            sendJson(res, 200, {
+                configured: Boolean(getCursorApiKey()),
+                importedCount: await countCursorAdminImportedEvents(cwd),
+            });
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/cursor-sync' && req.method === 'POST') {
+        try {
+            const { syncCursorUsageFromAdminApi } = await import('@rigour-labs/core');
+            const result = await syncCursorUsageFromAdminApi(cwd);
+            sendJson(res, 200, { success: true, ...result });
+        } catch (e: any) {
+            sendJson(res, 502, { success: false, error: e.message || 'Cursor usage sync failed' });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/cursor-api-key' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', async () => {
+            try {
+                const { apiKey } = JSON.parse(body || '{}');
+                if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+                    sendJson(res, 400, { error: 'Missing apiKey' });
+                    return;
+                }
+                const { updateCursorApiKey, syncCursorUsageFromAdminApi } = await import('@rigour-labs/core');
+                updateCursorApiKey(apiKey.trim());
+                let syncResult = { importedCount: 0, totalEvents: 0 };
+                let syncError: string | undefined;
+                try {
+                    syncResult = await syncCursorUsageFromAdminApi(cwd);
+                } catch (syncErr: any) {
+                    syncError = syncErr?.message || 'Initial Cursor sync failed';
+                }
+                sendJson(res, 200, {
+                    success: true,
+                    configured: true,
+                    importedCount: syncResult.importedCount,
+                    totalEvents: syncResult.totalEvents,
+                    syncError,
+                });
+            } catch (e: any) {
+                sendJson(res, 500, { error: e.message });
+            }
+        });
+        return true;
+    }
+
+    if (url.pathname === '/api/import-cursor-usage' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', async () => {
+            try {
+                const { importCursorUsageCsv, importCursorUsageJson } = await import('@rigour-labs/core');
+                let importedCount = 0;
+                if (body.trim().startsWith('{') || body.trim().startsWith('[')) {
+                    importedCount = await importCursorUsageJson(JSON.parse(body), cwd);
+                } else {
+                    importedCount = await importCursorUsageCsv(body, cwd);
+                }
+                sendJson(res, 200, { success: true, importedCount });
+            } catch (e: any) {
+                sendJson(res, 500, { error: e.message });
+            }
+        });
+        return true;
+    }
+
+    if (url.pathname === '/api/arbitrate' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', async () => {
+            try {
+                const decision = JSON.parse(body);
+                const logEntry =
+                    JSON.stringify({
+                        id: randomUUID(),
+                        timestamp: new Date().toISOString(),
+                        tool: 'human_arbitration',
+                        requestId: decision.requestId,
+                        decision: decision.decision,
+                        status: decision.decision === 'approve' ? 'success' : 'error',
+                        arbitrated: true,
+                    }) + '\n';
+                await fs.appendFile(eventsPath, logEntry);
+                sendJson(res, 200, { success: true });
+            } catch (e: any) {
+                res.writeHead(500);
+                res.end(e.message);
+            }
+        });
+        return true;
+    }
+
+    res.writeHead(404);
+    res.end();
+    return true;
+}
+
+async function serveStaticFile(studioDist: string, pathname: string, res: ServerResponse): Promise<void> {
+    let filePath = path.join(studioDist, pathname === '/' ? 'index.html' : pathname);
+    if (!(await fs.pathExists(filePath)) || (await fs.stat(filePath)).isDirectory()) {
+        filePath = path.join(studioDist, 'index.html');
+    }
+    const content = await fs.readFile(filePath);
+    const ext = path.extname(filePath);
+    const contentTypes: Record<string, string> = {
+        '.html': 'text/html',
+        '.js': 'application/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.svg': 'image/svg+xml',
+        '.ico': 'image/x-icon',
+    };
+    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
+    res.end(content);
+}
+
+function announce(url: string): void {
+    setTimeout(async () => {
+        console.log(chalk.green(`\n✅ Rigour Studio is live at ${chalk.bold(url)}`));
+        try {
+            await execa('open', [url]);
+        } catch {
+            // non-mac or open unavailable
+        }
+    }, 800);
+}
 
 export const studioCommand = new Command('studio')
     .description('Launch Rigour Studio (Local-First Governance UI)')
     .option('-p, --port <number>', 'Port to run the studio on', '3000')
-    .option('--dev', 'Run in development mode', true)
+    .option('--dev', 'Opt-in: run Vite against monorepo studio source (developers only)', false)
     .action(async (options) => {
         const cwd = process.cwd();
-        const apiPort = parseInt(options.port) + 1;
+        const studioPort = String(options.port);
+        const apiPort = parseInt(studioPort, 10) + 1;
         const eventsPath = path.join(cwd, '.rigour/events.jsonl');
-
-        // Calculate the local dist path (where the pre-built Studio UI lives)
-        // When running from source: cli/dist/commands/studio.js → cli/studio-dist/
-        // When running via npx:     node_modules/@rigour-labs/cli/dist/commands/studio.js → cli/dist/studio-dist/
         const __dirname = path.dirname(new URL(import.meta.url).pathname);
         const candidates = [
-            path.join(__dirname, '../studio-dist'),          // npm publish: cli/dist/studio-dist/
-            path.join(__dirname, '../../studio-dist'),       // monorepo: cli/studio-dist/
-            path.join(__dirname, '../../../studio-dist'),    // npx: @rigour-labs/cli/studio-dist/
+            path.join(__dirname, '../studio-dist'),
+            path.join(__dirname, '../../studio-dist'),
+            path.join(__dirname, '../../../studio-dist'),
         ];
-        const localStudioDist = candidates.find(p => fs.pathExistsSync(p)) ?? candidates[0];
+        const localStudioDist = candidates.find((p) => fs.pathExistsSync(p)) ?? candidates[0];
         const workspaceRoot = path.join(__dirname, '../../../../');
+        const allowedOrigins = new Set([
+            `http://localhost:${studioPort}`,
+            `http://127.0.0.1:${studioPort}`,
+        ]);
+        const ctx: StudioContext = { cwd, eventsPath, allowedOrigins };
 
         console.log(chalk.bold.cyan('\n🛡️ Launching Rigour Studio...'));
         console.log(chalk.gray(`Project Root: ${cwd}`));
 
-        // Pre-flight check: Is the project initialized?
         const configPath = path.join(cwd, 'rigour.yml');
         if (!(await fs.pathExists(configPath))) {
             console.log(chalk.yellow('\n⚠️ Warning: rigour.yml not found.'));
@@ -38,473 +664,67 @@ export const studioCommand = new Command('studio')
             console.log(chalk.cyan('Suggest: ') + chalk.bold('npx @rigour-labs/cli init') + '\n');
         }
 
-        console.log(chalk.gray(`Shadowing interactions in ${path.join(cwd, '.rigour/events.jsonl')}\n`));
+        console.log(chalk.gray(`Shadowing interactions in ${eventsPath}\n`));
 
-        // Check if we are in a monorepo development environment
         const isMonorepo = await fs.pathExists(path.join(workspaceRoot, 'packages/rigour-studio'));
 
         if (isMonorepo && options.dev) {
             console.log(chalk.yellow('Monorepo detected: Launching Studio in Development Mode...'));
+            console.log(chalk.gray(`Vite :${studioPort} → API :${apiPort} (same-origin via proxy)`));
             try {
-                // Start the Studio dev server in the workspace root
-                const studioProcess = execa('pnpm', ['--filter', '@rigour-labs/studio', 'dev', '--port', options.port], {
-                    stdio: 'inherit',
-                    cwd: workspaceRoot
-                });
+                const studioProcess = execa(
+                    'pnpm',
+                    ['--filter', '@rigour-labs/studio', 'dev', '--port', studioPort],
+                    {
+                        stdio: 'inherit',
+                        cwd: workspaceRoot,
+                        env: {
+                            ...process.env,
+                            RIGOUR_API_PORT: String(apiPort),
+                        },
+                    },
+                );
 
-                await setupApiAndLaunch(apiPort, options.port, eventsPath, cwd, studioProcess);
+                const apiServer = http.createServer(async (req, res) => {
+                    const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+                    const handled = await handleApiRequest(req, res, url, ctx);
+                    if (!handled) {
+                        res.writeHead(404);
+                        res.end();
+                    }
+                });
+                apiServer.listen(apiPort, () => {
+                    console.log(chalk.gray(`API Streamer active on port ${apiPort}`));
+                });
+                announce(`http://localhost:${studioPort}`);
+                await studioProcess;
                 return;
-            } catch (e) {
+            } catch {
                 console.log(chalk.dim('Development mode failed, falling back to standalone...'));
             }
         }
 
-        // Standalone Mode: Serve pre-built static files
-        console.log(chalk.green('Launching Studio in Standalone Mode...'));
+        console.log(chalk.green('Launching Studio in Standalone Mode (same-origin API)...'));
         if (!(await fs.pathExists(localStudioDist))) {
             console.error(chalk.red(`\n❌ Error: Studio UI artifacts not found at ${localStudioDist}`));
             console.log(chalk.yellow('If you are a developer, run "pnpm build" in the monorepo root first.\n'));
             process.exit(1);
         }
 
-        const staticServer = http.createServer(async (req, res) => {
+        // Critical UX fix: serve UI + /api on ONE port so fetch('/api/...') works.
+        const server = http.createServer(async (req, res) => {
             const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-            let filePath = path.join(localStudioDist, url.pathname === '/' ? 'index.html' : url.pathname);
-
             try {
-                if (!(await fs.pathExists(filePath)) || (await fs.stat(filePath)).isDirectory()) {
-                    filePath = path.join(localStudioDist, 'index.html');
-                }
-
-                const content = await fs.readFile(filePath);
-                const ext = path.extname(filePath);
-                const contentTypes: Record<string, string> = {
-                    '.html': 'text/html',
-                    '.js': 'application/javascript',
-                    '.css': 'text/css',
-                    '.json': 'application/json',
-                    '.png': 'image/png',
-                    '.jpg': 'image/jpeg',
-                    '.svg': 'image/svg+xml',
-                    '.ico': 'image/x-icon'
-                };
-
-                res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
-                res.end(content);
-            } catch (e) {
-                res.writeHead(404);
-                res.end('Not Found');
+                if (await handleApiRequest(req, res, url, ctx)) return;
+                await serveStaticFile(localStudioDist, url.pathname, res);
+            } catch (e: any) {
+                res.writeHead(500);
+                res.end(e.message || 'Internal error');
             }
         });
 
-        staticServer.listen(options.port, () => {
-            setupApiAndLaunch(apiPort, options.port, eventsPath, cwd);
+        server.listen(parseInt(studioPort, 10), () => {
+            console.log(chalk.gray(`Studio + API on port ${studioPort}`));
+            announce(`http://localhost:${studioPort}`);
         });
     });
-
-async function setupApiAndLaunch(apiPort: number, studioPort: string, eventsPath: string, cwd: string, studioProcess?: any) {
-    const allowedOrigins = new Set([
-        `http://localhost:${studioPort}`,
-        `http://127.0.0.1:${studioPort}`,
-    ]);
-
-    const apiServer = http.createServer(async (req, res) => {
-        const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-        const requestOrigin = req.headers.origin;
-
-        if (typeof requestOrigin === 'string' && allowedOrigins.has(requestOrigin)) {
-            res.setHeader('Access-Control-Allow-Origin', requestOrigin);
-            res.setHeader('Vary', 'Origin');
-        }
-        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-        if (req.method === 'OPTIONS') {
-            res.writeHead(204);
-            res.end();
-            return;
-        }
-
-        if (url.pathname === '/api/events') {
-            res.writeHead(200, {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive'
-            });
-
-            if (await fs.pathExists(eventsPath)) {
-                const content = await fs.readFile(eventsPath, 'utf8');
-                const lines = content.split('\n').filter(l => l.trim());
-                for (const line of lines) {
-                    res.write(`data: ${line}\n\n`);
-                }
-            }
-
-            await fs.ensureDir(path.dirname(eventsPath));
-            const watcher = fs.watch(path.dirname(eventsPath), async (_eventType, filename) => {
-                if (filename === 'events.jsonl') {
-                    try {
-                        const content = await fs.readFile(eventsPath, 'utf8');
-                        const lines = content.split('\n').filter(l => l.trim());
-                        const lastLine = lines[lines.length - 1];
-                        if (lastLine) {
-                            res.write(`data: ${lastLine}\n\n`);
-                        }
-                    } catch {
-                        // ignore transient file read failures during writes
-                    }
-                }
-            });
-
-            req.on('close', () => watcher.close());
-        } else if (url.pathname === '/api/file') {
-            const filePath = url.searchParams.get('path');
-            if (!filePath) {
-                res.writeHead(400); res.end('Missing path'); return;
-            }
-            const absolutePath = path.resolve(cwd, filePath);
-            if (!absolutePath.startsWith(cwd)) {
-                res.writeHead(403); res.end('Forbidden'); return;
-            }
-            try {
-                const content = await fs.readFile(absolutePath, 'utf8');
-                res.writeHead(200, { 'Content-Type': 'text/plain' });
-                res.end(content);
-            } catch {
-                res.writeHead(404); res.end('Not found');
-            }
-        } else if (url.pathname === '/api/info') {
-            try {
-                const pkgPath = path.join(cwd, 'package.json');
-                const pkg = await fs.pathExists(pkgPath) ? await fs.readJson(pkgPath) : {};
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    name: pkg.name || path.basename(cwd),
-                    path: cwd,
-                    version: pkg.version || '0.0.0'
-                }));
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/tree') {
-            try {
-                const getTree = async (dir: string): Promise<string[]> => {
-                    const entries = await fs.readdir(dir, { withFileTypes: true });
-                    let files: string[] = [];
-                    const exclude = ['node_modules', '.git', '.rigour', '.venv', 'dist', 'build'];
-                    for (const entry of entries) {
-                        if (exclude.includes(entry.name) || entry.name.startsWith('.')) continue;
-                        const fullPath = path.join(dir, entry.name);
-                        if (entry.isDirectory()) {
-                            files = [...files, ...(await getTree(fullPath))];
-                        } else {
-                            files.push(path.relative(cwd, fullPath));
-                        }
-                    }
-                    return files;
-                };
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(await getTree(cwd)));
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/config') {
-            try {
-                const configPath = path.join(cwd, 'rigour.yml');
-                if (await fs.pathExists(configPath)) {
-                    res.writeHead(200, { 'Content-Type': 'text/plain' });
-                    res.end(await fs.readFile(configPath, 'utf8'));
-                } else {
-                    res.writeHead(404); res.end('Not found');
-                }
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/memory') {
-            try {
-                const memoryPath = path.join(cwd, '.rigour/memory.json');
-                if (await fs.pathExists(memoryPath)) {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(await fs.readFile(memoryPath, 'utf8'));
-                } else {
-                    res.end(JSON.stringify({}));
-                }
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/index-stats') {
-            try {
-                const indexPath = path.join(cwd, '.rigour/patterns.json');
-                if (await fs.pathExists(indexPath)) {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(await fs.readJson(indexPath)));
-                } else {
-                    res.end(JSON.stringify({ patterns: [], stats: { totalPatterns: 0, totalFiles: 0, byType: {} } }));
-                }
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/index-search') {
-            const query = url.searchParams.get('q');
-            if (!query) {
-                res.writeHead(400); res.end('Missing query'); return;
-            }
-            try {
-                const { generateEmbedding, semanticSearch } = await import('@rigour-labs/core/pattern-index');
-                const indexPath = path.join(cwd, '.rigour/patterns.json');
-                const indexData = await fs.readJson(indexPath);
-                const queryVector = await generateEmbedding(query);
-                const similarities = semanticSearch(queryVector, indexData.patterns);
-                const results = indexData.patterns.map((p: any, i: number) => ({ ...p, similarity: similarities[i] }))
-                    .filter((p: any) => p.similarity > 0.3)
-                    .sort((a: any, b: any) => b.similarity - a.similarity)
-                    .slice(0, 20);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(results));
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/agents') {
-            try {
-                const sessionPath = path.join(cwd, '.rigour/agent-session.json');
-                if (await fs.pathExists(sessionPath)) {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(await fs.readFile(sessionPath, 'utf-8'));
-                } else {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ agents: [], status: 'inactive' }));
-                }
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/checkpoints') {
-            try {
-                const checkpointPath = path.join(cwd, '.rigour/checkpoint-session.json');
-                if (await fs.pathExists(checkpointPath)) {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(await fs.readFile(checkpointPath, 'utf-8'));
-                } else {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ checkpoints: [], status: 'inactive' }));
-                }
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/report-stats') {
-            try {
-                const reportPath = path.join(cwd, 'rigour-report.json');
-                if (await fs.pathExists(reportPath)) {
-                    const report = await fs.readJson(reportPath);
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(report.stats || {}));
-                } else {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({}));
-                }
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/deep-findings') {
-            try {
-                const reportPath = path.join(cwd, 'rigour-report.json');
-                if (await fs.pathExists(reportPath)) {
-                    const report = await fs.readJson(reportPath);
-                    const findings = (report.failures || []).filter(
-                        (f: any) => f.provenance === 'deep-analysis' || f.source === 'llm' || f.source === 'hybrid'
-                    );
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(findings));
-                } else {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify([]));
-                }
-            } catch (e: any) {
-                res.writeHead(500); res.end(e.message);
-            }
-        } else if (url.pathname === '/api/drift') {
-            try {
-                const { generateTemporalDriftReport } = await import('@rigour-labs/core');
-                const report = generateTemporalDriftReport(cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(report || { totalScans: 0 }));
-            } catch (e: any) {
-                // SQLite not available or no data
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ totalScans: 0 }));
-            }
-        } else if (url.pathname === '/api/context-stats') {
-            try {
-                const { getTaskContextStats } = await import('@rigour-labs/core');
-                const taskId = url.searchParams.get('taskId') || undefined;
-                const stats = await getTaskContextStats(taskId, cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(stats));
-            } catch (e: any) {
-                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-            }
-        } else if (url.pathname === '/api/task-cost') {
-            try {
-                const { getTaskCostStats } = await import('@rigour-labs/core');
-                const taskId = url.searchParams.get('taskId') || undefined;
-                const costStats = await getTaskCostStats(taskId, cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(costStats));
-            } catch (e: any) {
-                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-            }
-        } else if (url.pathname === '/api/cache-stats') {
-            try {
-                const { getCacheStats } = await import('@rigour-labs/core');
-                const stats = await getCacheStats(cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(stats));
-            } catch (e: any) {
-                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-            }
-        } else if (url.pathname === '/api/context-explain') {
-            try {
-                const { explainContext } = await import('@rigour-labs/core');
-                const target = url.searchParams.get('target') || 'all';
-                const taskId = url.searchParams.get('taskId') || undefined;
-                const explanation = await explainContext(target, taskId, cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(explanation));
-            } catch (e: any) {
-                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-            }
-        } else if (url.pathname === '/api/context-scope') {
-            try {
-                const { getContextScopeSummary } = await import('@rigour-labs/core');
-                const summary = await getContextScopeSummary(cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(summary));
-            } catch (e: any) {
-                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-            }
-        } else if (url.pathname === '/api/checkpoint-metrics') {
-            try {
-                const { getCheckpointSummary } = await import('@rigour-labs/core');
-                const taskId = url.searchParams.get('taskId') || undefined;
-                const summary = await getCheckpointSummary(taskId, cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(summary));
-            } catch (e: any) {
-                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-            }
-        } else if (url.pathname === '/api/cursor-api-key/status') {
-            try {
-                const { getCursorApiKey, countCursorAdminImportedEvents } = await import('@rigour-labs/core');
-                const configured = Boolean(getCursorApiKey());
-                const importedCount = await countCursorAdminImportedEvents(cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ configured, importedCount }));
-            } catch (e: any) {
-                res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-            }
-        } else if (url.pathname === '/api/cursor-sync' && req.method === 'POST') {
-            try {
-                const { syncCursorUsageFromAdminApi } = await import('@rigour-labs/core');
-                const result = await syncCursorUsageFromAdminApi(cwd);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, ...result }));
-            } catch (e: any) {
-                res.writeHead(502, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: false,
-                    error: e.message || 'Cursor usage sync failed',
-                }));
-            }
-        } else if (url.pathname === '/api/cursor-api-key' && req.method === 'POST') {
-            let body = '';
-            req.on('data', chunk => body += chunk);
-            req.on('end', async () => {
-                try {
-                    const { apiKey } = JSON.parse(body || '{}');
-                    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-                        res.writeHead(400, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ error: 'Missing apiKey' }));
-                        return;
-                    }
-                    const { updateCursorApiKey, syncCursorUsageFromAdminApi } = await import('@rigour-labs/core');
-                    updateCursorApiKey(apiKey.trim());
-
-                    let syncResult = { importedCount: 0, totalEvents: 0 };
-                    let syncError: string | undefined;
-                    try {
-                        syncResult = await syncCursorUsageFromAdminApi(cwd);
-                    } catch (syncErr: any) {
-                        syncError = syncErr?.message || 'Initial Cursor sync failed';
-                    }
-
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        success: true,
-                        configured: true,
-                        importedCount: syncResult.importedCount,
-                        totalEvents: syncResult.totalEvents,
-                        syncError,
-                    }));
-                } catch (e: any) {
-                    res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-                }
-            });
-        } else if (url.pathname === '/api/import-cursor-usage' && req.method === 'POST') {
-            let body = '';
-            req.on('data', chunk => body += chunk);
-            req.on('end', async () => {
-                try {
-                    const { importCursorUsageCsv, importCursorUsageJson } = await import('@rigour-labs/core');
-                    let importedCount = 0;
-                    if (body.trim().startsWith('{') || body.trim().startsWith('[')) {
-                        importedCount = await importCursorUsageJson(JSON.parse(body), cwd);
-                    } else {
-                        importedCount = await importCursorUsageCsv(body, cwd);
-                    }
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: true, importedCount }));
-                } catch (e: any) {
-                    res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
-                }
-            });
-        } else if (url.pathname === '/api/arbitrate' && req.method === 'POST') {
-            let body = '';
-            req.on('data', chunk => body += chunk);
-            req.on('end', async () => {
-                try {
-                    const decision = JSON.parse(body);
-                    const logEntry = JSON.stringify({
-                        id: randomUUID(),
-                        timestamp: new Date().toISOString(),
-                        tool: 'human_arbitration',
-                        requestId: decision.requestId,
-                        decision: decision.decision,
-                        status: decision.decision === 'approve' ? 'success' : 'error',
-                        arbitrated: true
-                    }) + "\n";
-                    await fs.appendFile(eventsPath, logEntry);
-                    res.writeHead(200);
-                    res.end(JSON.stringify({ success: true }));
-                } catch (e: any) {
-                    res.writeHead(500); res.end(e.message);
-                }
-            });
-        } else {
-            res.writeHead(404);
-            res.end();
-        }
-    });
-
-    apiServer.listen(apiPort, () => {
-        console.log(chalk.gray(`API Streamer active on port ${apiPort}`));
-    });
-
-    setTimeout(async () => {
-        const url = `http://localhost:${studioPort}`;
-        console.log(chalk.green(`\n✅ Rigour Studio is live at ${chalk.bold(url)}`));
-        try { await execa('open', [url]); } catch { }
-    }, 1500);
-
-    if (studioProcess) {
-        await studioProcess;
-    }
-}

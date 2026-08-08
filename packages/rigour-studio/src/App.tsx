@@ -8,8 +8,6 @@ import {
     Terminal,
     Settings,
     Info,
-    ChevronRight,
-    Wifi,
     Lock,
     X,
     Folder,
@@ -21,10 +19,10 @@ import {
     Users,
     Flag,
     Brain,
-    Coins
+    Coins,
+    LayoutDashboard,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DiffEditor } from '@monaco-editor/react';
 import { DiffViewer } from './components/DiffViewer';
 import { FileTree } from './components/FileTree';
 import { MemoryBank } from './components/MemoryBank';
@@ -36,11 +34,12 @@ import { CheckpointTimeline } from './components/CheckpointTimeline';
 import { DeepAnalysis } from './components/DeepAnalysis';
 import { TemporalDrift } from './components/TemporalDrift';
 import { CostContext } from './components/CostContext';
+import { Overview } from './components/Overview';
 
 
 function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
-    const [activeTab, setActiveTab] = useState('memory');
+    const [activeTab, setActiveTab] = useState('overview');
     const [logs, setLogs] = useState<any[]>([]);
     const [selectedDiff, setSelectedDiff] = useState<{
         filename: string;
@@ -159,15 +158,16 @@ function App() {
     };
 
     const navItems = [
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+        { id: 'cost', label: 'Cost & Context', icon: Coins },
+        { id: 'checkpoints', label: 'Checkpoints', icon: Flag },
+        { id: 'memory', label: 'Memory Bank', icon: Cpu },
         { id: 'audit', label: 'Audit Log', icon: Terminal },
+        { id: 'agents', label: 'Agent Teams', icon: Users },
+        { id: 'patterns', label: 'Pattern Index', icon: Database },
         { id: 'gates', label: 'Quality Gates', icon: ShieldCheck },
         { id: 'deep', label: 'Deep Analysis', icon: Brain },
-        { id: 'patterns', label: 'Pattern Index', icon: Database },
-        { id: 'memory', label: 'Memory Bank', icon: Cpu },
         { id: 'drift', label: 'Temporal Drift', icon: TrendingDown },
-        { id: 'agents', label: 'Agent Teams', icon: Users },
-        { id: 'checkpoints', label: 'Checkpoints', icon: Flag },
-        { id: 'cost', label: 'Cost & Context', icon: Coins },
     ];
 
     return (
@@ -233,6 +233,17 @@ function App() {
 
                 <div className="view-container">
                     <AnimatePresence mode="wait">
+                        {activeTab === 'overview' && (
+                            <motion.div
+                                key="overview"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="full-view"
+                            >
+                                <Overview onNavigate={setActiveTab} />
+                            </motion.div>
+                        )}
                         {activeTab === 'audit' && (
                             <motion.div
                                 key="audit"

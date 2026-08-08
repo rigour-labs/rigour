@@ -11,7 +11,6 @@ import {
     AlertCircle,
     KeyRound,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 interface TaskContextStats {
     retrievals?: number;
@@ -85,12 +84,12 @@ export function CostContext() {
         setLoading(true);
         try {
             const [ctxRes, costRes, cacheRes, scopeRes, checkpointRes, keyStatusRes] = await Promise.all([
-                fetch('/api/context-stats').then(r => r.json()),
-                fetch('/api/task-cost').then(r => r.json()),
-                fetch('/api/cache-stats').then(r => r.json()),
-                fetch('/api/context-scope').then(r => r.json()),
-                fetch('/api/checkpoint-metrics').then(r => r.json()),
-                fetch('/api/cursor-api-key/status').then(r => r.json()),
+                fetch('/api/context-stats').then((r) => r.json()),
+                fetch('/api/task-cost').then((r) => r.json()),
+                fetch('/api/cache-stats').then((r) => r.json()),
+                fetch('/api/context-scope').then((r) => r.json()),
+                fetch('/api/checkpoint-metrics').then((r) => r.json()),
+                fetch('/api/cursor-api-key/status').then((r) => r.json()),
             ]);
             setContextStats(ctxRes);
             setCostStats(costRes);
@@ -114,8 +113,7 @@ export function CostContext() {
         if (!searchTarget) return;
         try {
             const res = await fetch(`/api/context-explain?target=${encodeURIComponent(searchTarget)}`);
-            const data = await res.json();
-            setExplanation(data);
+            setExplanation(await res.json());
         } catch (e) {
             console.error('Failed to get context explanation', e);
         }
@@ -127,7 +125,7 @@ export function CostContext() {
             const res = await fetch('/api/import-cursor-usage', {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },
-                body: csvInput
+                body: csvInput,
             });
             const data = await res.json();
             if (data.success) {
@@ -156,13 +154,11 @@ export function CostContext() {
                 setCursorKeyConfigured(true);
                 setCursorApiKey('');
                 setCursorImportedCount(Number(data.importedCount ?? 0));
-                if (data.syncError) {
-                    setCursorKeyStatus(`Key saved. Initial sync failed: ${data.syncError}`);
-                } else {
-                    setCursorKeyStatus(
-                        `Cursor Admin API key saved. Imported ${data.importedCount ?? 0} usage event(s).`,
-                    );
-                }
+                setCursorKeyStatus(
+                    data.syncError
+                        ? `Key saved. Initial sync failed: ${data.syncError}`
+                        : `Cursor Admin API key saved. Imported ${data.importedCount ?? 0} usage event(s).`,
+                );
                 fetchData();
             } else {
                 setCursorKeyStatus(`Save failed: ${data.error}`);
@@ -204,9 +200,8 @@ export function CostContext() {
     const candidateTokens = contextStats?.candidateTokens ?? 0;
     const returnedTokens = contextStats?.returnedTokens ?? 0;
     const potentialAvoided = contextStats?.potentialAvoidedTokens ?? 0;
-    const reductionRatio = candidateTokens > 0
-        ? (((candidateTokens - returnedTokens) / candidateTokens) * 100).toFixed(1)
-        : '0.0';
+    const reductionRatio =
+        candidateTokens > 0 ? (((candidateTokens - returnedTokens) / candidateTokens) * 100).toFixed(1) : '0.0';
     const cacheHitRatePct = cacheStats?.hitRate ? Math.round(cacheStats.hitRate * 100) : 0;
     const actualCost = costStats?.actual?.costUsd ?? 0;
     const estimatedAvoidedCost = costStats?.estimated?.estimatedCostAvoidedUsd ?? 0;
@@ -219,273 +214,249 @@ export function CostContext() {
         (cacheStats?.exactCacheHits ?? 0) +
             (cacheStats?.semanticCacheHits ?? 0) +
             (cacheStats?.partialCacheHits ?? 0) +
-            (cacheStats?.cacheMisses ?? 0) > 0 ||
+            (cacheStats?.cacheMisses ?? 0) >
+            0 ||
         (checkpointSummary?.checkpointCount ?? 0) > 0;
 
     return (
-        <div className="cost-context-view space-y-6">
-            <div className="flex items-center justify-between border-b border-border pb-4">
+        <div className="cost-context-view">
+            <div className="cost-header">
                 <div>
-                    <h2 className="text-xl font-bold flex items-center gap-2 text-primary">
-                        <Zap size={22} className="text-amber-400" />
-                        Token Savings & Context Efficiency Telemetry
+                    <h2>
+                        <Zap size={20} className="text-amber" />
+                        Token Savings & Context Efficiency
                     </h2>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        Two-layer context tracking: Exact observed Cursor usage & Rigour-measured avoided context
-                    </p>
+                    <p>Observed model usage vs Rigour-measured avoided context (kept separate on purpose).</p>
                 </div>
-                <button onClick={fetchData} className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-md flex items-center gap-2 hover:bg-secondary/80 text-sm transition">
-                    <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
-                </button>
+                <div className="cost-toolbar">
+                    <button type="button" onClick={fetchData}>
+                        <RefreshCw size={14} className={loading ? 'spinning' : ''} /> Refresh
+                    </button>
+                </div>
             </div>
 
             {!hasTelemetryData && !loading && (
-                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-3">
-                    <AlertCircle size={20} className="text-amber-400 mt-0.5 shrink-0" />
-                    <div className="text-sm">
-                        <p className="font-semibold text-amber-300">No telemetry recorded yet</p>
-                        <p className="text-muted-foreground mt-1">
-                            Use Rigour MCP tools (rigour_context_stats, rigour_checkpoint, rigour_recall) or import Cursor usage data below.
-                            Metrics will show real values once agents interact with the project.
+                <div className="cost-banner">
+                    <AlertCircle size={18} className="text-amber" />
+                    <div>
+                        <strong>No telemetry recorded yet</strong>
+                        <p>
+                            Use Rigour MCP tools (<code>rigour_context_scope</code>, <code>rigour_checkpoint</code>) or
+                            import Cursor usage below.
                         </p>
                     </div>
                 </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-card border border-border rounded-lg shadow-sm">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actual Model Tokens</div>
-                    <div className="text-2xl font-bold text-foreground mt-1">{formatTokens(actualInputTokens)}</div>
-                    <div className="text-xs text-emerald-400 mt-1">Observed via {costSource}</div>
-                </motion.div>
-
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="p-4 bg-card border border-border rounded-lg shadow-sm">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Potential Context Avoided</div>
-                    <div className="text-2xl font-bold text-amber-400 mt-1">{formatTokens(potentialAvoided)}</div>
-                    <div className="text-xs text-amber-300 mt-1">Reduction Ratio: {reductionRatio}%</div>
-                </motion.div>
-
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="p-4 bg-card border border-border rounded-lg shadow-sm">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cache Hit Rate</div>
-                    <div className="text-2xl font-bold text-cyan-400 mt-1">{cacheHitRatePct}%</div>
-                    <div className="text-xs text-muted-foreground mt-1">across static & semantic layers</div>
-                </motion.div>
-
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="p-4 bg-card border border-border rounded-lg shadow-sm">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actual vs Avoided Cost</div>
-                    <div className="text-2xl font-bold text-emerald-400 mt-1">${actualCost.toFixed(2)} / <span className="text-amber-400">${estimatedAvoidedCost.toFixed(2)}</span></div>
-                    <div className="text-xs text-muted-foreground mt-1">Actual Spend / Est. Cost Avoided</div>
-                </motion.div>
+            <div className="cost-kpi-grid">
+                <div className="cost-kpi-card">
+                    <div className="label">Actual model tokens</div>
+                    <div className="value">{formatTokens(actualInputTokens)}</div>
+                    <div className="meta text-emerald">Observed via {costSource}</div>
+                </div>
+                <div className="cost-kpi-card">
+                    <div className="label">Potential context avoided</div>
+                    <div className="value text-amber">{formatTokens(potentialAvoided)}</div>
+                    <div className="meta">Reduction ratio: {reductionRatio}%</div>
+                </div>
+                <div className="cost-kpi-card">
+                    <div className="label">Cache hit rate</div>
+                    <div className="value text-cyan">{cacheHitRatePct}%</div>
+                    <div className="meta">static &amp; semantic layers</div>
+                </div>
+                <div className="cost-kpi-card">
+                    <div className="label">Actual vs avoided cost</div>
+                    <div className="value">
+                        <span className="text-emerald">${actualCost.toFixed(2)}</span>
+                        {' / '}
+                        <span className="text-amber">${estimatedAvoidedCost.toFixed(2)}</span>
+                    </div>
+                    <div className="meta">Actual spend / est. avoided</div>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="p-5 bg-card border border-border rounded-lg shadow-sm">
-                    <h3 className="text-md font-semibold text-foreground flex items-center gap-2 mb-3">
-                        <Layers size={18} className="text-cyan-400" /> A. Retrieval Efficiency
+            <div className="cost-panel-grid">
+                <div className="cost-panel">
+                    <h3>
+                        <Layers size={16} className="text-cyan" /> A. Retrieval efficiency
                     </h3>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Context Candidates Scanned</span>
-                            <span className="font-mono text-foreground">{formatTokens(candidateTokens)} tokens</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Context Returned</span>
-                            <span className="font-mono text-cyan-400">{formatTokens(returnedTokens)} tokens</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Potential Context Avoided</span>
-                            <span className="font-mono text-amber-400">{formatTokens(potentialAvoided)} tokens</span>
-                        </div>
-                        <div className="flex justify-between py-1">
-                            <span className="text-muted-foreground">Context Reduction Ratio</span>
-                            <span className="font-semibold text-emerald-400">{reductionRatio}%</span>
-                        </div>
+                    <div className="cost-row">
+                        <span>Candidates scanned</span>
+                        <span>{formatTokens(candidateTokens)} tokens</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Context returned</span>
+                        <span className="text-cyan">{formatTokens(returnedTokens)} tokens</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Potential avoided</span>
+                        <span className="text-amber">{formatTokens(potentialAvoided)} tokens</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Reduction ratio</span>
+                        <span className="text-emerald">{reductionRatio}%</span>
                     </div>
                 </div>
 
-                <div className="p-5 bg-card border border-border rounded-lg shadow-sm">
-                    <h3 className="text-md font-semibold text-foreground flex items-center gap-2 mb-3">
-                        <Database size={18} className="text-emerald-400" /> B. Cache Efficiency (4-Layer Engine)
+                <div className="cost-panel">
+                    <h3>
+                        <Database size={16} className="text-emerald" /> B. Cache efficiency
                     </h3>
-                    <div className="grid grid-cols-2 gap-3 mb-3 text-xs">
-                        <div className="p-2 bg-background rounded border border-border">
-                            <div className="text-muted-foreground">Exact Cache Hits</div>
-                            <div className="text-base font-bold text-emerald-400">{cacheStats?.exactCacheHits ?? 0}</div>
+                    <div className="cost-hit-grid">
+                        <div>
+                            Exact hits
+                            <strong className="text-emerald">{cacheStats?.exactCacheHits ?? 0}</strong>
                         </div>
-                        <div className="p-2 bg-background rounded border border-border">
-                            <div className="text-muted-foreground">Semantic Cache Hits</div>
-                            <div className="text-base font-bold text-cyan-400">{cacheStats?.semanticCacheHits ?? 0}</div>
+                        <div>
+                            Semantic hits
+                            <strong className="text-cyan">{cacheStats?.semanticCacheHits ?? 0}</strong>
                         </div>
-                        <div className="p-2 bg-background rounded border border-border">
-                            <div className="text-muted-foreground">Partial Cache Hits</div>
-                            <div className="text-base font-bold text-amber-400">{cacheStats?.partialCacheHits ?? 0}</div>
+                        <div>
+                            Partial hits
+                            <strong className="text-amber">{cacheStats?.partialCacheHits ?? 0}</strong>
                         </div>
-                        <div className="p-2 bg-background rounded border border-border">
-                            <div className="text-muted-foreground">Cache Misses</div>
-                            <div className="text-base font-bold text-rose-400">{cacheStats?.cacheMisses ?? 0}</div>
+                        <div>
+                            Misses
+                            <strong className="text-rose">{cacheStats?.cacheMisses ?? 0}</strong>
                         </div>
                     </div>
-                    <div className="flex justify-between text-xs pt-1 border-t border-border/50">
-                        <span className="text-muted-foreground">Tokens Served from Cache</span>
-                        <span className="font-mono text-emerald-400">{formatTokens(cacheStats?.tokensServedFromCache ?? 0)} tokens</span>
-                    </div>
-                </div>
-
-                <div className="p-5 bg-card border border-border rounded-lg shadow-sm">
-                    <h3 className="text-md font-semibold text-foreground flex items-center gap-2 mb-3">
-                        <ShieldCheck size={18} className="text-purple-400" /> C & D. Duplication & Overhead Prevention
-                    </h3>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Repeated File Reads Prevented</span>
-                            <span className="font-mono text-emerald-400">{contextStats?.repeatedReadsPrevented ?? 0} reads</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Overlapping Agent Scopes Resolved</span>
-                            <span className="font-mono text-cyan-400">{scopeSummary?.overlappingScopesResolved ?? 0} scopes</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Always-On Rule & MCP Tokens</span>
-                            <span className="font-mono text-foreground">{formatTokens(scopeSummary?.alwaysOnRuleTokens ?? 0)} tokens</span>
-                        </div>
-                        <div className="flex justify-between py-1">
-                            <span className="text-muted-foreground">Unused Tools Filtered</span>
-                            <span className="font-mono text-purple-400">{scopeSummary?.unusedToolsFiltered ?? 0} schema tools hidden</span>
-                        </div>
+                    <div className="cost-row">
+                        <span>Tokens served from cache</span>
+                        <span className="text-emerald">{formatTokens(cacheStats?.tokensServedFromCache ?? 0)}</span>
                     </div>
                 </div>
 
-                <div className="p-5 bg-card border border-border rounded-lg shadow-sm">
-                    <h3 className="text-md font-semibold text-foreground flex items-center gap-2 mb-3">
-                        <Coins size={18} className="text-amber-400" /> E & F. Checkpoint Compression & Cost Audit
+                <div className="cost-panel">
+                    <h3>
+                        <ShieldCheck size={16} className="text-purple" /> C. Duplication prevention
                     </h3>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Raw Session State</span>
-                            <span className="font-mono text-foreground">{formatTokens(checkpointSummary?.rawStateTokens ?? 0)} tokens</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Checkpoint Packet Size</span>
-                            <span className="font-mono text-emerald-400">
-                                {formatTokens(checkpointSummary?.checkpointTokens ?? 0)} tokens
-                                {(checkpointSummary?.compressionRatio ?? 0) > 0
-                                    ? ` (${checkpointSummary?.compressionRatio}× compression)`
-                                    : ''}
-                            </span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-border/50">
-                            <span className="text-muted-foreground">Verified Cursor Cost</span>
-                            <span className="font-mono text-emerald-400">${actualCost.toFixed(2)} USD</span>
-                        </div>
-                        <div className="flex justify-between py-1">
-                            <span className="text-muted-foreground">Estimated Avoided Spend</span>
-                            <span className="font-mono text-amber-400 font-bold">${estimatedAvoidedCost.toFixed(2)} USD</span>
-                        </div>
+                    <div className="cost-row">
+                        <span>Repeated reads prevented</span>
+                        <span className="text-emerald">{contextStats?.repeatedReadsPrevented ?? 0}</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Overlapping scopes resolved</span>
+                        <span className="text-cyan">{scopeSummary?.overlappingScopesResolved ?? 0}</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Always-on rule tokens</span>
+                        <span>{formatTokens(scopeSummary?.alwaysOnRuleTokens ?? 0)}</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Unused tools filtered</span>
+                        <span className="text-purple">{scopeSummary?.unusedToolsFiltered ?? 0}</span>
+                    </div>
+                </div>
+
+                <div className="cost-panel">
+                    <h3>
+                        <Coins size={16} className="text-amber" /> D. Checkpoint compression
+                    </h3>
+                    <div className="cost-row">
+                        <span>Raw session state</span>
+                        <span>{formatTokens(checkpointSummary?.rawStateTokens ?? 0)}</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Checkpoint packet size</span>
+                        <span className="text-emerald">
+                            {formatTokens(checkpointSummary?.checkpointTokens ?? 0)}
+                            {(checkpointSummary?.compressionRatio ?? 0) > 0
+                                ? ` (${checkpointSummary?.compressionRatio}×)`
+                                : ''}
+                        </span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Verified Cursor cost</span>
+                        <span className="text-emerald">${actualCost.toFixed(2)}</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Estimated avoided spend</span>
+                        <span className="text-amber">${estimatedAvoidedCost.toFixed(2)}</span>
                     </div>
                 </div>
             </div>
 
-            <div className="p-5 bg-card border border-border rounded-lg shadow-sm">
-                <h3 className="text-md font-semibold text-foreground flex items-center gap-2 mb-3">
-                    <HelpCircle size={18} className="text-cyan-400" /> Auditable Context Explainability (rigour_context_explain)
+            <div className="cost-panel">
+                <h3>
+                    <HelpCircle size={16} className="text-cyan" /> Context explainability
                 </h3>
-                <div className="flex gap-2 mb-4">
+                <div className="cost-explain-row">
                     <input
                         type="text"
                         value={searchTarget}
                         onChange={(e) => setSearchTarget(e.target.value)}
-                        placeholder="Enter file, service, or query target (e.g. services/task)"
-                        className="flex-1 px-3 py-2 bg-background border border-border rounded-md text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        placeholder="File, service, or query (e.g. services/task)"
                     />
-                    <button onClick={handleExplain} className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 font-medium">
-                        Explain Context
+                    <button type="button" className="cost-primary" onClick={handleExplain}>
+                        Explain
                     </button>
                 </div>
-
                 {explanation && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 bg-background border border-border rounded-md text-xs space-y-2">
-                        <div className="flex justify-between font-mono">
-                            <span className="text-muted-foreground">Target: <strong className="text-foreground">{explanation.fileOrService}</strong></span>
-                            <span className={explanation.status === 'included' ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
-                                [{explanation.status.toUpperCase()}]
-                            </span>
+                    <div className="cost-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+                        <div>
+                            Target: <strong>{explanation.fileOrService}</strong> [{String(explanation.status || '').toUpperCase()}]
                         </div>
-                        <div className="text-muted-foreground">Reason: <span className="text-foreground">{explanation.reason}</span></div>
-                        <div className="text-muted-foreground">Cache Status: <span className="text-cyan-400">{explanation.cacheStatus}</span></div>
-                        {explanation.priorAgentRequests && explanation.priorAgentRequests.length > 0 && (
-                            <div>
-                                <div className="text-muted-foreground mb-1">Prior Agent Interactions:</div>
-                                <ul className="list-disc pl-4 space-y-1 text-foreground font-mono">
-                                    {explanation.priorAgentRequests.map((req: string, idx: number) => (
-                                        <li key={idx}>{req}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
-                    </motion.div>
+                        <div>Reason: {explanation.reason}</div>
+                        <div>
+                            Cache: <span className="text-cyan">{explanation.cacheStatus}</span>
+                        </div>
+                    </div>
                 )}
             </div>
 
-            <div className="p-5 bg-card border border-border rounded-lg shadow-sm">
-                <h3 className="text-md font-semibold text-foreground flex items-center gap-2 mb-3">
-                    <KeyRound size={18} className="text-cyan-400" /> Cursor Admin API Key
+            <div className="cost-panel">
+                <h3>
+                    <KeyRound size={16} className="text-cyan" /> Cursor Admin API key
                 </h3>
-                <p className="text-xs text-muted-foreground mb-3">
-                    Optional: save your Cursor Admin API key to enable verified usage sync.
-                    {cursorKeyConfigured ? ' Key is configured.' : ' No key configured yet.'}
-                    {cursorImportedCount > 0 ? ` ${cursorImportedCount} Admin API event(s) imported.` : ''}
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: 10 }}>
+                    Optional verified usage sync.
+                    {cursorKeyConfigured ? ' Key configured.' : ' No key yet.'}
+                    {cursorImportedCount > 0 ? ` ${cursorImportedCount} event(s) imported.` : ''}
                 </p>
-                <div className="flex gap-2 mb-2">
+                <div className="cost-actions" style={{ marginBottom: 8 }}>
                     <input
                         type="password"
                         value={cursorApiKey}
                         onChange={(e) => setCursorApiKey(e.target.value)}
                         placeholder="Cursor Admin API key"
                         disabled={cursorSyncLoading}
-                        className="flex-1 px-3 py-2 bg-background border border-border rounded-md text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
                     />
                     <button
+                        type="button"
+                        className="cost-primary"
                         onClick={handleSaveCursorApiKey}
                         disabled={cursorSyncLoading || !cursorApiKey.trim()}
-                        className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 font-medium disabled:opacity-60"
                     >
-                        {cursorSyncLoading ? 'Saving…' : 'Save Key'}
+                        {cursorSyncLoading ? 'Saving…' : 'Save key'}
                     </button>
-                    <button
-                        onClick={handleCursorSync}
-                        disabled={cursorSyncLoading || !cursorKeyConfigured}
-                        className="px-4 py-2 bg-secondary text-secondary-foreground text-sm rounded-md hover:bg-secondary/80 font-medium disabled:opacity-60 flex items-center gap-2"
-                    >
-                        <RefreshCw size={14} className={cursorSyncLoading ? 'animate-spin' : ''} />
-                        {cursorSyncLoading ? 'Syncing…' : 'Sync Cursor'}
+                    <button type="button" onClick={handleCursorSync} disabled={cursorSyncLoading || !cursorKeyConfigured}>
+                        <RefreshCw size={14} className={cursorSyncLoading ? 'spinning' : ''} />
+                        Sync Cursor
                     </button>
                 </div>
                 {cursorKeyStatus && (
-                    <span className={`text-xs font-semibold ${cursorKeyStatus.includes('failed') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    <span className={cursorKeyStatus.includes('failed') ? 'text-rose' : 'text-emerald'} style={{ fontSize: '0.78rem' }}>
                         {cursorKeyStatus}
                     </span>
                 )}
             </div>
 
-            <div className="p-5 bg-card border border-border rounded-lg shadow-sm">
-                <h3 className="text-md font-semibold text-foreground flex items-center gap-2 mb-3">
-                    <Upload size={18} className="text-amber-400" /> Import Cursor Daily Spend / Admin Usage
+            <div className="cost-panel">
+                <h3>
+                    <Upload size={16} className="text-amber" /> Import Cursor usage CSV/JSON
                 </h3>
-                <p className="text-xs text-muted-foreground mb-3">
-                    Paste CSV or JSON exported from Cursor Dashboard or Admin API to reconcile verified model usage.
-                </p>
                 <textarea
                     rows={4}
                     value={csvInput}
                     onChange={(e) => setCsvInput(e.target.value)}
                     placeholder={`Date,Model,Input Tokens,Output Tokens,Cost\n2026-08-05,claude-3-5-sonnet,510000,62000,4.83`}
-                    className="w-full p-3 bg-background border border-border rounded-md font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary mb-3"
+                    style={{ marginBottom: 10 }}
                 />
-                <div className="flex items-center justify-between">
-                    <button onClick={handleCsvImport} className="px-4 py-2 bg-amber-500 text-black text-sm rounded-md font-semibold hover:bg-amber-400 transition">
-                        Import Usage Data
+                <div className="cost-actions">
+                    <button type="button" className="cost-primary" onClick={handleCsvImport}>
+                        Import usage data
                     </button>
-                    {importStatus && <span className="text-xs font-semibold text-emerald-400">{importStatus}</span>}
+                    {importStatus && <span className="text-emerald" style={{ fontSize: '0.78rem' }}>{importStatus}</span>}
                 </div>
             </div>
         </div>
