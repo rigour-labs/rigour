@@ -50,7 +50,8 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     outputs:
       cli_version: ${{ steps.capture_version.outputs.cli_version }}
-      did_release: ${{ steps.release_guard.outputs.skip_release != 'true' }}
+      # True only when a new npm version was published this run.
+      did_release: ${{ steps.capture_version.outputs.published == 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,6 +83,13 @@ jobs:
         id: release_guard
         run: |
           set -euo pipefail
+          if printf '%s' "${{ github.event.head_commit.message }}" | grep -q '\[skip release\]'; then
+            VERSION=$(npm view @rigour-labs/cli version)
+            echo "Commit requests [skip release]. Using published CLI ${VERSION}."
+            echo "skip_release=true" >> "$GITHUB_OUTPUT"
+            echo "existing_tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
           if [ -n "${EXISTING_TAG}" ]; then
             VERSION="${EXISTING_TAG#v}"
@@ -115,24 +123,45 @@ jobs:
           fi
 
       - name: Release
+        id: semantic_release
         if: steps.release_guard.outputs.skip_release != 'true'
-        run: npx semantic-release
+        run: |
+          set -euo pipefail
+          set +e
+          npx semantic-release 2>&1 | tee /tmp/semantic-release.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+          if grep -Eq 'Published release[[:space:]]+v?[0-9]+\.[0-9]+\.[0-9]+' /tmp/semantic-release.log; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "No new npm version published."
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Capture released CLI version
         id: capture_version
         run: |
+          set -euo pipefail
           if [ "${{ steps.release_guard.outputs.skip_release }}" = "true" ]; then
             VERSION="${{ steps.release_guard.outputs.existing_tag }}"
             VERSION="${VERSION#v}"
-          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.semantic_release.outputs.published }}" = "true" ]; then
             VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(npm view @rigour-labs/cli version)
+            echo "published=false" >> "$GITHUB_OUTPUT"
           fi
           echo "cli_version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Publish Homebrew Formula
-        if: success() && steps.release_guard.outputs.skip_release != 'true'
+        if: success() && steps.capture_version.outputs.published == 'true'
         env:
           HOMEBREW_TAP_GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GH_TOKEN }}
           HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'rigour-labs/homebrew-tap' }}
@@ -168,7 +197,9 @@ jobs:
             depends_on "node"
 
             def install
-              system "npm", "install", *std_npm_args(prefix: libexec)
+              # Fresh publishes must install immediately in CI / same-day brew installs.
+              # Homebrew/npm may otherwise enforce a min-release-age window (ETARGET).
+              system "npm", "install", "--min-release-age=0", *std_npm_args(prefix: libexec)
               bin.install_symlink Dir["#{libexec}/bin/*"]
             end
 
@@ -198,7 +229,7 @@ jobs:
           echo "Homebrew formula updated in ${HOMEBREW_TAP_REPO}"
 
       - name: Publish to MCP Registry
-        if: success() && steps.release_guard.outputs.skip_release != 'true'
+        if: success() && steps.capture_version.outputs.published == 'true'
         working-directory: packages/rigour-mcp
         run: |
           # Get the version from the package.json which was just updated by semantic-release
@@ -215,8 +246,10 @@ jobs:
   distribution-smoke:
     name: Distribution Smoke
     needs: release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.outputs.did_release == 'true'
+    # Smoke the currently published CLI after every successful main release job (publish or not).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.result == 'success'
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -229,13 +262,39 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Verify npx command
+        shell: bash
         run: |
-          node -e 'const { execSync } = require("child_process"); const expected = process.env.EXPECTED_CLI_VERSION; const out = execSync("npx -y @rigour-labs/cli --version", { encoding: "utf8" }); const versions = out.match(/\d+\.\d+\.\d+/g) || []; const actual = versions[versions.length - 1]; if (!actual) { console.error("No CLI version found in output"); process.exit(1); } if (expected && actual !== expected) { console.error("npx version mismatch: expected " + expected + ", got " + actual); process.exit(1); } console.log("npx version OK: " + actual);'
+          set -euo pipefail
+          expected="${EXPECTED_CLI_VERSION}"
+          out=$(npx -y "@rigour-labs/cli@${expected}" --version)
+          actual=$(printf '%s' "$out" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | tail -n1 || true)
+          if [ -z "$actual" ]; then
+            echo "No CLI version found in output: $out"
+            exit 1
+          fi
+          if [ "$actual" != "$expected" ]; then
+            echo "npx version mismatch: expected $expected, got $actual"
+            exit 1
+          fi
+          echo "npx version OK: $actual"
 
       - name: Verify global npm install
+        shell: bash
         run: |
-          npm install -g @rigour-labs/cli
-          node -e 'const { execSync } = require("child_process"); const expected = process.env.EXPECTED_CLI_VERSION; const out = execSync("rigour --version", { encoding: "utf8" }); const versions = out.match(/\d+\.\d+\.\d+/g) || []; const actual = versions[versions.length - 1]; if (!actual) { console.error("No global CLI version found in output"); process.exit(1); } if (expected && actual !== expected) { console.error("global npm version mismatch: expected " + expected + ", got " + actual); process.exit(1); } console.log("global npm version OK: " + actual);'
+          set -euo pipefail
+          expected="${EXPECTED_CLI_VERSION}"
+          npm install -g "@rigour-labs/cli@${expected}"
+          out=$(rigour --version)
+          actual=$(printf '%s' "$out" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | tail -n1 || true)
+          if [ -z "$actual" ]; then
+            echo "No global CLI version found in output: $out"
+            exit 1
+          fi
+          if [ "$actual" != "$expected" ]; then
+            echo "global npm version mismatch: expected $expected, got $actual"
+            exit 1
+          fi
+          echo "global npm version OK: $actual"
 
       - name: Verify hooks checker command path (Unix)
         if: runner.os != 'Windows'
@@ -249,17 +308,35 @@ jobs:
 
       - name: Verify hooks checker command path (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Path "$env:TEMP\rigour-smoke" -Force | Out-Null
-          Set-Content -Path "$env:TEMP\rigour-smoke\sample.ts" -Value "export const x = 1;"
-          Set-Location "$env:TEMP\rigour-smoke"
+          set -euo pipefail
+          smoke_dir="${RUNNER_TEMP:-/tmp}/rigour-smoke"
+          mkdir -p "$smoke_dir"
+          echo "export const x = 1;" > "$smoke_dir/sample.ts"
+          cd "$smoke_dir"
           rigour hooks check --files sample.ts
 
       - name: Verify Homebrew install (macOS)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
+          set -euo pipefail
+          # Homebrew's npm install may enforce min-release-age; freshly published
+          # @rigour-labs/* versions must still be installable in same-day smoke.
+          export NPM_CONFIG_MIN_RELEASE_AGE=0
           brew tap rigour-labs/tap
           brew trust rigour-labs/tap
           brew install rigour
-          node -e 'const { execSync } = require("child_process"); const expected = process.env.EXPECTED_CLI_VERSION; const out = execSync("rigour --version", { encoding: "utf8" }); const versions = out.match(/\d+\.\d+\.\d+/g) || []; const actual = versions[versions.length - 1]; if (!actual) { console.error("No brew CLI version found in output"); process.exit(1); } if (expected && actual !== expected) { console.error("brew version mismatch: expected " + expected + ", got " + actual); process.exit(1); } console.log("brew version OK: " + actual);'
+          expected="${EXPECTED_CLI_VERSION}"
+          out=$(rigour --version)
+          actual=$(printf '%s' "$out" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | tail -n1 || true)
+          if [ -z "$actual" ]; then
+            echo "No brew CLI version found in output: $out"
+            exit 1
+          fi
+          if [ "$actual" != "$expected" ]; then
+            echo "brew version mismatch: expected $expected, got $actual"
+            exit 1
+          fi
+          echo "brew version OK: $actual"
