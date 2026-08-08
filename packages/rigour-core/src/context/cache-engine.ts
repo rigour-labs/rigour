@@ -228,6 +228,17 @@ export function queryTokenOverlap(a: string, b: string): number {
     return union === 0 ? 0 : inter / union;
 }
 
+/**
+ * Distinctive tokens (len >= 5) must mostly agree — blocks "task service" ≈ "payment service".
+ */
+export function distinctiveTokenAgreement(a: string, b: string): number {
+    const left = [...queryTokenSet(a)].filter((t) => t.length >= 5);
+    const right = new Set([...queryTokenSet(b)].filter((t) => t.length >= 5));
+    if (left.length === 0 || right.size === 0) return 0;
+    const hits = left.filter((t) => right.has(t)).length;
+    return hits / Math.max(left.length, right.size);
+}
+
 export interface RelatedSemanticHit {
     entry: SemanticQueryEntry;
     overlap: number;
@@ -235,7 +246,8 @@ export interface RelatedSemanticHit {
 }
 
 /**
- * Quality-safe partial semantic reuse: same commit only, high token overlap (>= 0.6).
+ * Quality-safe partial semantic reuse: same commit only.
+ * Requires high Jaccard (>= 0.75) AND distinctive-token agreement (>= 0.67).
  * Never crosses commits — avoids stale scopes after code moves.
  * File existence is re-validated by the caller before serving.
  */
@@ -243,7 +255,8 @@ export async function findRelatedSemanticQueryCache(
     query: string,
     commitSha: string,
     cwd?: string,
-    minOverlap = 0.6,
+    minOverlap = 0.75,
+    minDistinctive = 0.67,
 ): Promise<RelatedSemanticHit | null> {
     const records = await listContextCacheRecords(
         { cacheType: 'semantic', commitSha, limit: 80 },
@@ -255,7 +268,8 @@ export async function findRelatedSemanticQueryCache(
             const entry = JSON.parse(record.payloadJson) as SemanticQueryEntry;
             const sourceQuery = entry.query || '';
             const overlap = queryTokenOverlap(query, sourceQuery);
-            if (overlap < minOverlap) continue;
+            const distinctive = distinctiveTokenAgreement(query, sourceQuery);
+            if (overlap < minOverlap || distinctive < minDistinctive) continue;
             if (normalizeQuery(query) === normalizeQuery(sourceQuery)) continue; // exact path uses getSemanticQueryCache
             if (!best || overlap > best.overlap) {
                 best = { entry, overlap, sourceQuery };

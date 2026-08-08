@@ -19,6 +19,7 @@ import {
     setSemanticQueryCache,
     findRelatedSemanticQueryCache,
     queryTokenOverlap,
+    distinctiveTokenAgreement,
     filterExistingEditScope,
     getTaskCheckpointCache,
     setTaskCheckpointCache,
@@ -124,13 +125,16 @@ describe('4-Layer Context Cache Engine', () => {
     });
 
     it('Layer 3: finds related semantic queries at same commit for partial reuse', async () => {
-        expect(queryTokenOverlap('task priority persistence', 'priority for task persistence')).toBeGreaterThan(0.7);
+        expect(
+            queryTokenOverlap('task priority persistence service', 'task priority persistence service layer'),
+        ).toBeGreaterThan(0.7);
+        expect(distinctiveTokenAgreement('task service', 'payment service')).toBeLessThan(0.67);
 
         await setSemanticQueryCache(
-            'task priority persistence',
+            'task priority persistence service',
             'commit-rel',
             {
-                query: 'task priority persistence',
+                query: 'task priority persistence service',
                 resolvedOwner: 'task-team',
                 editScope: ['services/task.ts'],
                 validationScope: ['npm test'],
@@ -142,19 +146,35 @@ describe('4-Layer Context Cache Engine', () => {
         );
 
         const related = await findRelatedSemanticQueryCache(
-            'priority for task persistence layer',
+            'task priority persistence service layer',
             'commit-rel',
             testCwd,
-            0.5,
         );
         expect(related).not.toBeNull();
         expect(related?.entry.editScope).toContain('services/task.ts');
 
+        // Same generic stem, different distinctive noun → reject
+        await setSemanticQueryCache(
+            'payment service billing',
+            'commit-rel',
+            {
+                query: 'payment service billing',
+                resolvedOwner: 'pay',
+                editScope: ['services/pay.ts'],
+                validationScope: [],
+                evidence: [],
+                commitSha: 'commit-rel',
+                confidence: 0.9,
+            },
+            testCwd,
+        );
+        const crossDomain = await findRelatedSemanticQueryCache('task service billing', 'commit-rel', testCwd);
+        expect(crossDomain).toBeNull();
+
         const otherCommit = await findRelatedSemanticQueryCache(
-            'priority for task persistence layer',
+            'task priority persistence service layer',
             'commit-other',
             testCwd,
-            0.5,
         );
         expect(otherCommit).toBeNull();
     });

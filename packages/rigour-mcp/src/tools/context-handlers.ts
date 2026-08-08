@@ -172,14 +172,33 @@ async function serveCachedScope(
         note?: string;
     },
 ): Promise<ToolResult | null> {
-    const { valid, missing } = await filterExistingEditScope(cached.editScope || [], opts.cwd);
-    // Quality guard: if most scoped files vanished, recompute instead of serving stale paths.
-    if (cached.editScope.length > 0 && valid.length === 0) {
-        return null;
+    const originalScope = cached.editScope || [];
+    const { valid, missing } = await filterExistingEditScope(originalScope, opts.cwd);
+    // Quality guard: require majority of scoped files still present, else recompute.
+    if (originalScope.length > 0) {
+        const retention = valid.length / originalScope.length;
+        if (valid.length === 0 || retention < 0.5) {
+            return null;
+        }
     }
+    const validSet = new Set(valid);
+    const validationScope = (cached.validationScope || []).filter((item) => {
+        // Keep entries that don't look like file paths, or whose path still exists.
+        const maybePath = item.replace(/^review\s+/i, '').trim();
+        if (!maybePath.includes('/') && !maybePath.endsWith('.ts') && !maybePath.endsWith('.tsx')) {
+            return true;
+        }
+        return validSet.has(maybePath) || valid.some((f) => item.includes(f));
+    });
+    const evidence = (cached.evidence || []).filter((line) => {
+        if (missing.length === 0) return true;
+        return !missing.some((m) => line.includes(m));
+    });
     const payload = {
         ...cached,
-        editScope: valid.length > 0 ? valid : cached.editScope,
+        editScope: valid,
+        validationScope,
+        evidence,
         staleFilesDropped: missing,
         cacheNote: opts.note,
     };
@@ -229,7 +248,7 @@ export async function handleContextScope(
     }
 
     // Quality-safe power-up: reuse highly overlapping queries at the same commit only.
-    const related = await findRelatedSemanticQueryCache(query, commitSha, cwd, 0.6);
+    const related = await findRelatedSemanticQueryCache(query, commitSha, cwd);
     if (related) {
         const served = await serveCachedScope(related.entry, {
             cwd,

@@ -181,19 +181,19 @@ describe('context MCP handlers', () => {
         await fs.ensureDir(path.join(testCwd, 'src'));
         await fs.writeFile(path.join(testCwd, 'src/example.ts'), 'export const example = 1;\n');
 
-        await setSemanticQueryCache('task priority persistence', commitSha, {
-            query: 'task priority persistence',
+        await setSemanticQueryCache('task priority persistence service', commitSha, {
+            query: 'task priority persistence service',
             resolvedOwner: 'src',
             editScope: ['src/example.ts'],
             validationScope: ['review src/example.ts'],
-            evidence: ['related scope'],
+            evidence: ['related scope src/example.ts'],
             commitSha,
             confidence: 0.9,
         }, testCwd);
 
         const result = await handleContextScope(
             testCwd,
-            'priority for task persistence layer',
+            'task priority persistence service layer',
             5,
             `${taskId}-partial`,
             'agent-partial',
