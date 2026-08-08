@@ -13,7 +13,22 @@ export { FileScanner } from './utils/scanner.js';
 export * from './services/score-history.js';
 export * from './hooks/index.js';
 // Settings Module (Global user config at ~/.rigour/settings.json)
-export { loadSettings, saveSettings, getSettingsPath, resolveDeepOptions, getProviderKey, getAgentConfig, getCliPreferences, updateProviderKey, removeProviderKey, getCursorApiKey, updateCursorApiKey } from './settings.js';
+export {
+  loadSettings,
+  saveSettings,
+  getSettingsPath,
+  resolveDeepOptions,
+  getProviderKey,
+  getAgentConfig,
+  getCliPreferences,
+  updateProviderKey,
+  removeProviderKey,
+  getCursorApiKey,
+  isCursorApiKeyConfigured,
+  getCursorApiKeyHint,
+  updateCursorApiKey,
+  removeCursorApiKey,
+} from './settings.js';
 export type { RigourSettings, ResolvedDeepOptions, CLIDeepOptions } from './settings.js';
 // Deep Analysis Pipeline (v4.0+)
 export { DeepAnalysisGate } from './gates/deep-analysis.js';

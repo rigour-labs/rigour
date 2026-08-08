@@ -21,6 +21,7 @@ import {
     Brain,
     Coins,
     LayoutDashboard,
+    ArrowRightLeft,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DiffViewer } from './components/DiffViewer';
@@ -35,11 +36,30 @@ import { DeepAnalysis } from './components/DeepAnalysis';
 import { TemporalDrift } from './components/TemporalDrift';
 import { CostContext } from './components/CostContext';
 import { Overview } from './components/Overview';
+import { EnforcementRail } from './components/EnforcementRail';
+import { HandoffFlow } from './components/HandoffFlow';
 
+interface ProjectInfo {
+    name?: string;
+    path?: string;
+    projectName?: string;
+    projectPath?: string;
+    projectVersion?: string;
+    version?: string;
+    studioVersion?: string;
+    mcpVersion?: string;
+}
+
+const tabTransition = {
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -10 },
+    transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] as const },
+};
 
 function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
-    const [activeTab, setActiveTab] = useState('overview');
+    const [activeTab, setActiveTab] = useState('enforcement');
     const [logs, setLogs] = useState<any[]>([]);
     const [selectedDiff, setSelectedDiff] = useState<{
         filename: string;
@@ -49,7 +69,7 @@ function App() {
     const [inspectingLog, setInspectingLog] = useState<any | null>(null);
     const [isGovernanceOpen, setIsGovernanceOpen] = useState(false);
     const [projectTree, setProjectTree] = useState<string[]>([]);
-    const [projectInfo, setProjectInfo] = useState<{ name: string, path: string, version: string } | null>(null);
+    const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
 
     React.useEffect(() => {
         const eventSource = new EventSource('/api/events');
@@ -158,25 +178,36 @@ function App() {
     };
 
     const navItems = [
+        { id: 'enforcement', label: 'Enforcement', icon: ShieldCheck },
         { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-        { id: 'cost', label: 'Cost & Context', icon: Coins },
+        { id: 'agents', label: 'Agent Teams', icon: Users },
+        { id: 'handoffs', label: 'Handoffs', icon: ArrowRightLeft },
         { id: 'checkpoints', label: 'Checkpoints', icon: Flag },
         { id: 'memory', label: 'Memory Bank', icon: Cpu },
+        { id: 'cost', label: 'Cost & Context', icon: Coins },
         { id: 'audit', label: 'Audit Log', icon: Terminal },
-        { id: 'agents', label: 'Agent Teams', icon: Users },
-        { id: 'patterns', label: 'Pattern Index', icon: Database },
         { id: 'gates', label: 'Quality Gates', icon: ShieldCheck },
+        { id: 'patterns', label: 'Pattern Index', icon: Database },
         { id: 'deep', label: 'Deep Analysis', icon: Brain },
         { id: 'drift', label: 'Temporal Drift', icon: TrendingDown },
     ];
 
+    const studioVersion = projectInfo?.studioVersion || projectInfo?.mcpVersion || '—';
+    const projectVersion = projectInfo?.projectVersion || projectInfo?.version || '—';
+    const projectName = projectInfo?.projectName || projectInfo?.name || 'project';
+    const projectPath = projectInfo?.projectPath || projectInfo?.path || '';
+
     return (
         <div className="studio">
-            <aside className="sidebar">
+            <div className="cinema-ambient" aria-hidden="true">
+                <div className="ambient-blob blob-a" />
+                <div className="ambient-blob blob-b" />
+            </div>
+            <aside className="sidebar glass-shell">
                 <div className="brand">
                     <div className="logo-icon"><ShieldCheck size={18} /></div>
                     <span>Rigour Studio</span>
-                    <div className="version-pill">v{projectInfo?.version || '2.13'}</div>
+                    <div className="version-pill">v{studioVersion}</div>
                 </div>
 
                 <nav>
@@ -206,13 +237,14 @@ function App() {
             </aside>
 
             <main className="main-content">
-                <header>
+                <header className="glass-shell">
                     <div className="header-left">
                         {projectInfo && (
                             <div className="project-identity">
                                 <Folder size={14} className="folder-icon" />
-                                <span className="project-name">{projectInfo.name}</span>
-                                <span className="project-path">{projectInfo.path}</span>
+                                <span className="project-name">{projectName}</span>
+                                <span className="project-version-pill">v{projectVersion}</span>
+                                <span className="project-path">{projectPath}</span>
                             </div>
                         )}
                     </div>
@@ -222,10 +254,8 @@ function App() {
                                 <div className="pulse-emitter" />
                                 <span>LIVE</span>
                             </div>
-                            <div className="v-divider" />
-                            <span>v{projectInfo?.version || '0.0.0'}</span>
                         </div>
-                        <button className="theme-toggle" onClick={toggleTheme}>
+                        <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
                             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
                         </button>
                     </div>
@@ -233,15 +263,19 @@ function App() {
 
                 <div className="view-container">
                     <AnimatePresence mode="wait">
+                        {activeTab === 'enforcement' && (
+                            <motion.div key="enforcement" {...tabTransition} className="full-view">
+                                <EnforcementRail onNavigate={setActiveTab} />
+                            </motion.div>
+                        )}
                         {activeTab === 'overview' && (
-                            <motion.div
-                                key="overview"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
+                            <motion.div key="overview" {...tabTransition} className="full-view">
                                 <Overview onNavigate={setActiveTab} />
+                            </motion.div>
+                        )}
+                        {activeTab === 'handoffs' && (
+                            <motion.div key="handoffs" {...tabTransition} className="full-view">
+                                <HandoffFlow />
                             </motion.div>
                         )}
                         {activeTab === 'audit' && (

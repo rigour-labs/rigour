@@ -137,7 +137,7 @@ async function handleApiRequest(
         res.setHeader('Access-Control-Allow-Origin', requestOrigin);
         res.setHeader('Vary', 'Origin');
     }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST, DELETE');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') {
@@ -209,10 +209,32 @@ async function handleApiRequest(
         try {
             const pkgPath = path.join(cwd, 'package.json');
             const pkg = (await fs.pathExists(pkgPath)) ? await fs.readJson(pkgPath) : {};
+            const __dirname = path.dirname(new URL(import.meta.url).pathname);
+            const cliPkgPath = path.join(__dirname, '../../package.json');
+            const mcpPkgCandidates = [
+                path.join(__dirname, '../../../rigour-mcp/package.json'),
+                path.join(__dirname, '../../../../packages/rigour-mcp/package.json'),
+            ];
+            const cliPkg = (await fs.pathExists(cliPkgPath)) ? await fs.readJson(cliPkgPath) : {};
+            let mcpVersion = '5.5.0';
+            for (const candidate of mcpPkgCandidates) {
+                if (await fs.pathExists(candidate)) {
+                    const mcpPkg = await fs.readJson(candidate);
+                    mcpVersion = mcpPkg.version || mcpVersion;
+                    break;
+                }
+            }
+            // Product version is the MCP/governance release; CLI package may differ.
+            const studioVersion = mcpVersion || cliPkg.version || '0.0.0';
             sendJson(res, 200, {
                 name: pkg.name || path.basename(cwd),
+                projectName: pkg.name || path.basename(cwd),
                 path: cwd,
+                projectPath: cwd,
                 version: pkg.version || '0.0.0',
+                projectVersion: pkg.version || '0.0.0',
+                studioVersion,
+                mcpVersion,
                 brainDb: path.join(os.homedir(), '.rigour/rigour.db'),
             });
         } catch (e: any) {
@@ -493,9 +515,19 @@ async function handleApiRequest(
 
     if (url.pathname === '/api/cursor-api-key/status') {
         try {
-            const { getCursorApiKey, countCursorAdminImportedEvents } = await import('@rigour-labs/core');
+            const {
+                getCursorApiKey,
+                getCursorApiKeyHint,
+                countCursorAdminImportedEvents,
+            } = await import('@rigour-labs/core');
+            const key = getCursorApiKey();
+            const fromEnv = Boolean(
+                process.env.RIGOUR_CURSOR_API_KEY?.trim() || process.env.CURSOR_ADMIN_API_KEY?.trim(),
+            );
             sendJson(res, 200, {
-                configured: Boolean(getCursorApiKey()),
+                configured: Boolean(key),
+                hint: getCursorApiKeyHint(),
+                source: key ? (fromEnv ? 'env' : 'file') : 'none',
                 importedCount: await countCursorAdminImportedEvents(cwd),
             });
         } catch (e: any) {
@@ -515,18 +547,47 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/cursor-api-key' && req.method === 'DELETE') {
+        try {
+            const {
+                removeCursorApiKey,
+                getCursorApiKey,
+                getCursorApiKeyHint,
+            } = await import('@rigour-labs/core');
+            removeCursorApiKey();
+            const key = getCursorApiKey();
+            const fromEnv = Boolean(
+                process.env.RIGOUR_CURSOR_API_KEY?.trim() || process.env.CURSOR_ADMIN_API_KEY?.trim(),
+            );
+            sendJson(res, 200, {
+                success: true,
+                configured: Boolean(key),
+                hint: getCursorApiKeyHint(),
+                source: key ? (fromEnv ? 'env' : 'file') : 'none',
+            });
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/cursor-api-key' && req.method === 'POST') {
         let body = '';
         req.on('data', (chunk) => (body += chunk));
         req.on('end', async () => {
             try {
-                const { apiKey } = JSON.parse(body || '{}');
-                if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-                    sendJson(res, 400, { error: 'Missing apiKey' });
+                const parsed = JSON.parse(body || '{}');
+                const apiKey = typeof parsed.apiKey === 'string' ? parsed.apiKey.trim() : '';
+                if (!apiKey || apiKey.length > 512) {
+                    sendJson(res, 400, { error: 'Missing or invalid apiKey' });
                     return;
                 }
-                const { updateCursorApiKey, syncCursorUsageFromAdminApi } = await import('@rigour-labs/core');
-                updateCursorApiKey(apiKey.trim());
+                const {
+                    updateCursorApiKey,
+                    syncCursorUsageFromAdminApi,
+                    getCursorApiKeyHint,
+                } = await import('@rigour-labs/core');
+                updateCursorApiKey(apiKey);
                 let syncResult = { importedCount: 0, totalEvents: 0 };
                 let syncError: string | undefined;
                 try {
@@ -537,6 +598,8 @@ async function handleApiRequest(
                 sendJson(res, 200, {
                     success: true,
                     configured: true,
+                    hint: getCursorApiKeyHint(),
+                    source: 'file',
                     importedCount: syncResult.importedCount,
                     totalEvents: syncResult.totalEvents,
                     syncError,
@@ -545,6 +608,201 @@ async function handleApiRequest(
                 sendJson(res, 500, { error: e.message });
             }
         });
+        return true;
+    }
+
+    if (url.pathname === '/api/handoffs') {
+        try {
+            const handoffPath = path.join(cwd, '.rigour/handoffs.jsonl');
+            const handoffs: any[] = [];
+            if (await fs.pathExists(handoffPath)) {
+                const content = await fs.readFile(handoffPath, 'utf8');
+                for (const line of content.split('\n').filter((l) => l.trim())) {
+                    try {
+                        handoffs.push(JSON.parse(line));
+                    } catch {
+                        // skip bad lines
+                    }
+                }
+            }
+            if (await fs.pathExists(eventsPath)) {
+                const content = await fs.readFile(eventsPath, 'utf8');
+                for (const line of content.split('\n').filter((l) => l.trim()).slice(-500)) {
+                    try {
+                        const ev = JSON.parse(line);
+                        if (ev.type === 'handoff_accepted' && ev.handoffId) {
+                            const target = handoffs.find((h) => h.handoffId === ev.handoffId);
+                            if (target) {
+                                target.status = 'accepted';
+                                target.acceptedAt = ev.timestamp || ev.ts;
+                            }
+                        }
+                    } catch {
+                        // skip
+                    }
+                }
+            }
+            sendJson(res, 200, {
+                handoffs: handoffs.slice(-100).reverse(),
+                count: handoffs.length,
+            });
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/enforcement') {
+        try {
+            const {
+                getCheckpointMetrics,
+            } = await import('@rigour-labs/core');
+            const metrics = await getCheckpointMetrics(undefined, cwd);
+            const mapped = mapCheckpointMetrics(metrics);
+            const agentsSession = await synthesizeAgents(cwd, mapped);
+            const memory = await mergeMemoryStores(cwd);
+
+            let events: any[] = [];
+            if (await fs.pathExists(eventsPath)) {
+                const content = await fs.readFile(eventsPath, 'utf8');
+                events = content
+                    .split('\n')
+                    .filter((l) => l.trim())
+                    .slice(-400)
+                    .map((l) => {
+                        try {
+                            return JSON.parse(l);
+                        } catch {
+                            return null;
+                        }
+                    })
+                    .filter(Boolean);
+            }
+
+            const handoffPath = path.join(cwd, '.rigour/handoffs.jsonl');
+            let handoffCount = 0;
+            let acceptedHandoffs = 0;
+            if (await fs.pathExists(handoffPath)) {
+                const content = await fs.readFile(handoffPath, 'utf8');
+                const lines = content.split('\n').filter((l) => l.trim());
+                handoffCount = lines.length;
+                acceptedHandoffs = events.filter((e) => e.type === 'handoff_accepted').length;
+            }
+
+            const typeCount = (types: string[]) =>
+                events.filter((e) => types.includes(e.type) || types.includes(e.tool)).length;
+
+            const registerCount = Math.max(
+                agentsSession.agents?.length || 0,
+                typeCount(['agent_registered', 'rigour_agent_register']),
+            );
+            const scopeCount = typeCount(['context_scoped', 'rigour_context_scope', 'scope_resolved']);
+            const gateCount = typeCount([
+                'gate_failed',
+                'gate_passed',
+                'hook_blocked',
+                'interception_requested',
+                'rigour_check',
+            ]);
+            const gateBlocked = typeCount(['gate_failed', 'hook_blocked', 'interception_requested']);
+            const checkpointCount = Math.max(
+                mapped.length,
+                typeCount(['checkpoint_recorded', 'rigour_checkpoint']),
+            );
+            const memoryCount = Object.keys(memory.memories || {}).length;
+
+            const stage = (
+                id: string,
+                label: string,
+                count: number,
+                status: 'idle' | 'pass' | 'warn' | 'block',
+                detail: string,
+            ) => ({ id, label, count, status, detail });
+
+            const stages = [
+                stage(
+                    'register',
+                    'Register',
+                    registerCount,
+                    registerCount > 0 ? 'pass' : 'idle',
+                    registerCount ? `${registerCount} agent scope(s)` : 'Awaiting rigour_agent_register',
+                ),
+                stage(
+                    'scope',
+                    'Context scope',
+                    scopeCount,
+                    scopeCount > 0 ? 'pass' : registerCount > 0 ? 'warn' : 'idle',
+                    scopeCount ? `${scopeCount} scope event(s)` : 'Call rigour_context_scope / recall',
+                ),
+                stage(
+                    'gates',
+                    'Gates',
+                    gateCount,
+                    gateBlocked > 0 ? 'block' : gateCount > 0 ? 'pass' : 'idle',
+                    gateBlocked > 0
+                        ? `${gateBlocked} block/intercept event(s)`
+                        : gateCount
+                          ? 'Gates exercised'
+                          : 'Hooks & quality gates idle',
+                ),
+                stage(
+                    'checkpoint',
+                    'Checkpoint',
+                    checkpointCount,
+                    checkpointCount > 0 ? 'pass' : 'idle',
+                    checkpointCount ? `${checkpointCount} checkpoint(s)` : 'Awaiting rigour_checkpoint',
+                ),
+                stage(
+                    'handoff',
+                    'Handoff',
+                    handoffCount,
+                    handoffCount > 0 ? (acceptedHandoffs > 0 ? 'pass' : 'warn') : 'idle',
+                    handoffCount
+                        ? `${acceptedHandoffs}/${handoffCount} accepted`
+                        : 'Awaiting rigour_handoff',
+                ),
+                stage(
+                    'memory',
+                    'Memory',
+                    memoryCount,
+                    memoryCount > 0 ? 'pass' : 'idle',
+                    memoryCount ? `${memoryCount} stable memor(ies)` : 'Awaiting rigour_remember',
+                ),
+            ];
+
+            const timeline = events
+                .filter((e) =>
+                    [
+                        'agent_registered',
+                        'checkpoint_recorded',
+                        'handoff_initiated',
+                        'handoff_accepted',
+                        'gate_failed',
+                        'gate_passed',
+                        'hook_blocked',
+                        'interception_requested',
+                        'memory_stored',
+                    ].includes(e.type),
+                )
+                .slice(-40)
+                .reverse()
+                .map((e) => ({
+                    type: e.type,
+                    timestamp: e.timestamp || e.ts || null,
+                    agentId: e.agentId || e.fromAgentId || null,
+                    summary: e.summary || e.taskDescription || e.tool || e.type,
+                }));
+
+            sendJson(res, 200, {
+                stages,
+                timeline,
+                derived: Boolean(agentsSession.derived),
+                agentCount: agentsSession.agents?.length || 0,
+                sessionStatus: agentsSession.status,
+            });
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
         return true;
     }
 
@@ -693,10 +951,10 @@ export const studioCommand = new Command('studio')
                         res.end();
                     }
                 });
-                apiServer.listen(apiPort, () => {
-                    console.log(chalk.gray(`API Streamer active on port ${apiPort}`));
+                apiServer.listen(apiPort, '127.0.0.1', () => {
+                    console.log(chalk.gray(`API Streamer active on 127.0.0.1:${apiPort}`));
                 });
-                announce(`http://localhost:${studioPort}`);
+                announce(`http://127.0.0.1:${studioPort}`);
                 await studioProcess;
                 return;
             } catch {
@@ -712,8 +970,9 @@ export const studioCommand = new Command('studio')
         }
 
         // Critical UX fix: serve UI + /api on ONE port so fetch('/api/...') works.
+        // Bind loopback only — Studio can accept optional vendor secrets locally.
         const server = http.createServer(async (req, res) => {
-            const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+            const url = new URL(req.url || '', `http://${req.headers.host || '127.0.0.1'}`);
             try {
                 if (await handleApiRequest(req, res, url, ctx)) return;
                 await serveStaticFile(localStudioDist, url.pathname, res);
@@ -723,8 +982,8 @@ export const studioCommand = new Command('studio')
             }
         });
 
-        server.listen(parseInt(studioPort, 10), () => {
-            console.log(chalk.gray(`Studio + API on port ${studioPort}`));
-            announce(`http://localhost:${studioPort}`);
+        server.listen(parseInt(studioPort, 10), '127.0.0.1', () => {
+            console.log(chalk.gray(`Studio + API on 127.0.0.1:${studioPort}`));
+            announce(`http://127.0.0.1:${studioPort}`);
         });
     });

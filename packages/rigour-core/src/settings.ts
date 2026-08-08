@@ -121,11 +121,21 @@ export function saveSettings(settings: RigourSettings): void {
   const settingsDir = path.dirname(settingsPath);
 
   try {
-    // Ensure directory exists
+    // Ensure directory exists with owner-only access
     fs.ensureDirSync(settingsDir);
+    try {
+      fs.chmodSync(settingsDir, 0o700);
+    } catch {
+      // ignore chmod failures on platforms that do not support it
+    }
 
     // Write with pretty formatting (2-space indent)
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    try {
+      fs.chmodSync(settingsPath, 0o600);
+    } catch {
+      // ignore chmod failures on platforms that do not support it
+    }
     Logger.debug(`Settings saved to ${settingsPath}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -281,21 +291,61 @@ export function removeProviderKey(provider: string): void {
 }
 
 /**
- * Get Cursor Admin API key from settings
+ * Get Cursor Admin API key — prefer env over file-stored secret.
+ * Env: RIGOUR_CURSOR_API_KEY or CURSOR_ADMIN_API_KEY
  */
 export function getCursorApiKey(): string | undefined {
+  const fromEnv =
+    process.env.RIGOUR_CURSOR_API_KEY?.trim() ||
+    process.env.CURSOR_ADMIN_API_KEY?.trim();
+  if (fromEnv) return fromEnv;
   const settings = loadSettings();
-  return settings.cursor?.apiKey;
+  const fromFile = settings.cursor?.apiKey?.trim();
+  return fromFile || undefined;
 }
 
 /**
- * Update Cursor Admin API key in settings
+ * Whether a Cursor vendor adapter key is available (env or file).
+ */
+export function isCursorApiKeyConfigured(): boolean {
+  return Boolean(getCursorApiKey());
+}
+
+/**
+ * Last-4 hint for UI status — never return the full key.
+ */
+export function getCursorApiKeyHint(): string | undefined {
+  const key = getCursorApiKey();
+  if (!key || key.length < 4) return undefined;
+  return `••••${key.slice(-4)}`;
+}
+
+/**
+ * Persist Cursor Admin API key to settings (optional; prefer env in production).
  */
 export function updateCursorApiKey(apiKey: string): void {
+  const trimmed = apiKey.trim();
+  if (!trimmed || trimmed.length > 512) {
+    throw new Error('Invalid Cursor Admin API key');
+  }
   const settings = loadSettings();
   if (!settings.cursor) {
     settings.cursor = {};
   }
-  settings.cursor.apiKey = apiKey;
+  settings.cursor.apiKey = trimmed;
   saveSettings(settings);
+}
+
+/**
+ * Remove file-stored Cursor Admin API key (env vars are untouched).
+ */
+export function removeCursorApiKey(): void {
+  const settings = loadSettings();
+  if (settings.cursor?.apiKey) {
+    delete settings.cursor.apiKey;
+    if (Object.keys(settings.cursor).length === 0) {
+      delete settings.cursor;
+    }
+    saveSettings(settings);
+  }
 }

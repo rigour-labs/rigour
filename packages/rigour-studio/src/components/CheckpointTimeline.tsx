@@ -19,10 +19,13 @@ interface Props {
 export function CheckpointTimeline({ checkpoints }: Props) {
     if (!checkpoints || checkpoints.length === 0) {
         return (
-            <div className="empty-state">
+            <div className="empty-state glass-card">
                 <Flag size={48} />
                 <h3>No Checkpoints Yet</h3>
-                <p>Checkpoints will appear here as agents report progress via <code>rigour_checkpoint</code>.</p>
+                <p>
+                    Checkpoints compress agent state for verified handoffs. Call <code>rigour_checkpoint</code> before
+                    <code> rigour_handoff</code>. Quality below 80% should pause the loop.
+                </p>
                 <div className="hint-box">
                     <span>Default interval: 15 minutes</span>
                 </div>
@@ -83,7 +86,7 @@ export function CheckpointTimeline({ checkpoints }: Props) {
                 {hasDrift && (
                     <div className="drift-alert">
                         <AlertTriangle size={14} />
-                        <span>Drift Detected</span>
+                        <span>Drift Detected — quality dropped vs recent average</span>
                     </div>
                 )}
             </div>
@@ -92,21 +95,31 @@ export function CheckpointTimeline({ checkpoints }: Props) {
                 <div className="timeline-line" />
 
                 {checkpoints.map((cp, idx) => (
-                    <div key={cp.checkpointId} className={`checkpoint-entry ${cp.warnings.length > 0 ? 'has-warnings' : ''}`}>
+                    <div key={cp.checkpointId} className={`checkpoint-entry glass-card ${cp.warnings.length > 0 || cp.qualityScore < 80 ? 'has-warnings' : ''}`}>
                         <div className="checkpoint-marker">
                             <div
                                 className="marker-dot"
                                 style={{ backgroundColor: getScoreColor(cp.qualityScore) }}
                             />
+                            {cp.qualityScore < 80 && (
+                                <div className="marker-ring warn" aria-hidden="true" />
+                            )}
                         </div>
 
                         <div className="checkpoint-content">
                             <div className="checkpoint-header">
-                                <span className="checkpoint-id">{cp.checkpointId}</span>
+                                <span className="checkpoint-summary-lead">{cp.summary?.slice(0, 80) || cp.checkpointId}</span>
                                 <span className="checkpoint-time">
                                     {new Date(cp.timestamp).toLocaleTimeString()}
                                 </span>
                             </div>
+                            <div className="mono dim checkpoint-id">{cp.checkpointId}</div>
+                            {cp.qualityScore < 80 && (
+                                <div className="warning-item">
+                                    <AlertTriangle size={12} />
+                                    <span>Below threshold — pause handoffs until quality recovers</span>
+                                </div>
+                            )}
 
                             <div className="checkpoint-stats">
                                 <div className="stat">

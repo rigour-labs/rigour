@@ -48,7 +48,7 @@ import { recordContextEvent, estimateTokenCount } from '@rigour-labs/core';
 // ─── Server Setup ─────────────────────────────────────────────────
 
 const server = new Server(
-    { name: "rigour-mcp", version: getMcpVersion('5.3.2') },
+    { name: "rigour-mcp", version: getMcpVersion('5.5.0') },
     { capabilities: { tools: {}, prompts: {}, logging: {}, resources: {} } }
 );
 

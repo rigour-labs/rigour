@@ -10,6 +10,8 @@ import {
     ShieldCheck,
     AlertCircle,
     KeyRound,
+    ChevronDown,
+    Trash2,
 } from 'lucide-react';
 
 interface TaskContextStats {
@@ -75,9 +77,12 @@ export function CostContext() {
     const [importStatus, setImportStatus] = useState<string | null>(null);
     const [cursorApiKey, setCursorApiKey] = useState('');
     const [cursorKeyConfigured, setCursorKeyConfigured] = useState(false);
+    const [cursorKeyHint, setCursorKeyHint] = useState<string | undefined>();
+    const [cursorKeySource, setCursorKeySource] = useState<'env' | 'file' | 'none'>('none');
     const [cursorImportedCount, setCursorImportedCount] = useState(0);
     const [cursorSyncLoading, setCursorSyncLoading] = useState(false);
     const [cursorKeyStatus, setCursorKeyStatus] = useState<string | null>(null);
+    const [vendorOpen, setVendorOpen] = useState(false);
     const [loading, setLoading] = useState(true);
 
     const fetchData = async () => {
@@ -97,6 +102,8 @@ export function CostContext() {
             setScopeSummary(scopeRes);
             setCheckpointSummary(checkpointRes);
             setCursorKeyConfigured(Boolean(keyStatusRes?.configured));
+            setCursorKeyHint(keyStatusRes?.hint);
+            setCursorKeySource(keyStatusRes?.source || 'none');
             setCursorImportedCount(Number(keyStatusRes?.importedCount ?? 0));
         } catch (e) {
             console.error('Failed to fetch cost & context telemetry', e);
@@ -129,7 +136,7 @@ export function CostContext() {
             });
             const data = await res.json();
             if (data.success) {
-                setImportStatus(`Successfully imported ${data.importedCount} usage records!`);
+                setImportStatus(`Imported ${data.importedCount} observed usage record(s).`);
                 setCsvInput('');
                 fetchData();
             } else {
@@ -143,6 +150,7 @@ export function CostContext() {
     const handleSaveCursorApiKey = async () => {
         if (!cursorApiKey.trim()) return;
         setCursorSyncLoading(true);
+        setCursorKeyStatus(null);
         try {
             const res = await fetch('/api/cursor-api-key', {
                 method: 'POST',
@@ -153,11 +161,13 @@ export function CostContext() {
             if (data.success) {
                 setCursorKeyConfigured(true);
                 setCursorApiKey('');
+                setCursorKeyHint(data.hint);
+                setCursorKeySource(data.source || 'file');
                 setCursorImportedCount(Number(data.importedCount ?? 0));
                 setCursorKeyStatus(
                     data.syncError
-                        ? `Key saved. Initial sync failed: ${data.syncError}`
-                        : `Cursor Admin API key saved. Imported ${data.importedCount ?? 0} usage event(s).`,
+                        ? `Key saved locally. Initial sync failed: ${data.syncError}`
+                        : `Vendor key saved locally. Imported ${data.importedCount ?? 0} usage event(s).`,
                 );
                 fetchData();
             } else {
@@ -165,6 +175,31 @@ export function CostContext() {
             }
         } catch (e: any) {
             setCursorKeyStatus(`Save failed: ${e.message}`);
+        } finally {
+            setCursorSyncLoading(false);
+        }
+    };
+
+    const handleRemoveCursorApiKey = async () => {
+        setCursorSyncLoading(true);
+        setCursorKeyStatus(null);
+        try {
+            const res = await fetch('/api/cursor-api-key', { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                setCursorKeyConfigured(Boolean(data.configured));
+                setCursorKeyHint(data.hint);
+                setCursorKeySource(data.source || 'none');
+                setCursorKeyStatus(
+                    data.configured
+                        ? 'Removed file key. Env key still active.'
+                        : 'Removed local vendor key.',
+                );
+            } else {
+                setCursorKeyStatus(`Remove failed: ${data.error}`);
+            }
+        } catch (e: any) {
+            setCursorKeyStatus(`Remove failed: ${e.message}`);
         } finally {
             setCursorSyncLoading(false);
         }
@@ -178,7 +213,7 @@ export function CostContext() {
             const data = await res.json();
             if (data.success) {
                 setCursorImportedCount(Number(data.importedCount ?? 0));
-                setCursorKeyStatus(`Synced ${data.importedCount ?? 0} new Cursor usage event(s).`);
+                setCursorKeyStatus(`Synced ${data.importedCount ?? 0} new usage event(s).`);
                 fetchData();
             } else {
                 setCursorKeyStatus(`Sync failed: ${data.error || 'Unknown error'}`);
@@ -226,10 +261,10 @@ export function CostContext() {
                         <Zap size={20} className="text-amber" />
                         Token Savings & Context Efficiency
                     </h2>
-                    <p>Observed model usage vs Rigour-measured avoided context (kept separate on purpose).</p>
+                    <p>Rigour-measured avoided context vs optional observed model usage (kept separate on purpose).</p>
                 </div>
                 <div className="cost-toolbar">
-                    <button type="button" onClick={fetchData}>
+                    <button type="button" onClick={fetchData} aria-label="Refresh cost and context stats">
                         <RefreshCw size={14} className={loading ? 'spinning' : ''} /> Refresh
                     </button>
                 </div>
@@ -242,29 +277,29 @@ export function CostContext() {
                         <strong>No telemetry recorded yet</strong>
                         <p>
                             Use Rigour MCP tools (<code>rigour_context_scope</code>, <code>rigour_checkpoint</code>) or
-                            import Cursor usage below.
+                            import observed usage below.
                         </p>
                     </div>
                 </div>
             )}
 
             <div className="cost-kpi-grid">
-                <div className="cost-kpi-card">
+                <div className="cost-kpi-card glass-card">
                     <div className="label">Actual model tokens</div>
                     <div className="value">{formatTokens(actualInputTokens)}</div>
                     <div className="meta text-emerald">Observed via {costSource}</div>
                 </div>
-                <div className="cost-kpi-card">
+                <div className="cost-kpi-card glass-card">
                     <div className="label">Potential context avoided</div>
                     <div className="value text-amber">{formatTokens(potentialAvoided)}</div>
                     <div className="meta">Reduction ratio: {reductionRatio}%</div>
                 </div>
-                <div className="cost-kpi-card">
+                <div className="cost-kpi-card glass-card">
                     <div className="label">Cache hit rate</div>
                     <div className="value text-cyan">{cacheHitRatePct}%</div>
                     <div className="meta">static &amp; semantic layers</div>
                 </div>
-                <div className="cost-kpi-card">
+                <div className="cost-kpi-card glass-card">
                     <div className="label">Actual vs avoided cost</div>
                     <div className="value">
                         <span className="text-emerald">${actualCost.toFixed(2)}</span>
@@ -276,7 +311,7 @@ export function CostContext() {
             </div>
 
             <div className="cost-panel-grid">
-                <div className="cost-panel">
+                <div className="cost-panel glass-card">
                     <h3>
                         <Layers size={16} className="text-cyan" /> A. Retrieval efficiency
                     </h3>
@@ -298,7 +333,7 @@ export function CostContext() {
                     </div>
                 </div>
 
-                <div className="cost-panel">
+                <div className="cost-panel glass-card">
                     <h3>
                         <Database size={16} className="text-emerald" /> B. Cache efficiency
                     </h3>
@@ -326,7 +361,7 @@ export function CostContext() {
                     </div>
                 </div>
 
-                <div className="cost-panel">
+                <div className="cost-panel glass-card">
                     <h3>
                         <ShieldCheck size={16} className="text-purple" /> C. Duplication prevention
                     </h3>
@@ -348,7 +383,7 @@ export function CostContext() {
                     </div>
                 </div>
 
-                <div className="cost-panel">
+                <div className="cost-panel glass-card">
                     <h3>
                         <Coins size={16} className="text-amber" /> D. Checkpoint compression
                     </h3>
@@ -366,7 +401,7 @@ export function CostContext() {
                         </span>
                     </div>
                     <div className="cost-row">
-                        <span>Verified Cursor cost</span>
+                        <span>Observed model cost</span>
                         <span className="text-emerald">${actualCost.toFixed(2)}</span>
                     </div>
                     <div className="cost-row">
@@ -376,12 +411,16 @@ export function CostContext() {
                 </div>
             </div>
 
-            <div className="cost-panel">
+            <div className="cost-panel glass-card">
                 <h3>
                     <HelpCircle size={16} className="text-cyan" /> Context explainability
                 </h3>
                 <div className="cost-explain-row">
+                    <label className="sr-only" htmlFor="context-explain-target">
+                        File, service, or query
+                    </label>
                     <input
+                        id="context-explain-target"
                         type="text"
                         value={searchTarget}
                         onChange={(e) => setSearchTarget(e.target.value)}
@@ -404,48 +443,18 @@ export function CostContext() {
                 )}
             </div>
 
-            <div className="cost-panel">
+            <div className="cost-panel glass-card">
                 <h3>
-                    <KeyRound size={16} className="text-cyan" /> Cursor Admin API key
+                    <Upload size={16} className="text-amber" /> Import observed model usage
                 </h3>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: 10 }}>
-                    Optional verified usage sync.
-                    {cursorKeyConfigured ? ' Key configured.' : ' No key yet.'}
-                    {cursorImportedCount > 0 ? ` ${cursorImportedCount} event(s) imported.` : ''}
+                <p className="cost-panel-help">
+                    Vendor-agnostic CSV/JSON import for actual token spend. Does not require any Admin API key.
                 </p>
-                <div className="cost-actions" style={{ marginBottom: 8 }}>
-                    <input
-                        type="password"
-                        value={cursorApiKey}
-                        onChange={(e) => setCursorApiKey(e.target.value)}
-                        placeholder="Cursor Admin API key"
-                        disabled={cursorSyncLoading}
-                    />
-                    <button
-                        type="button"
-                        className="cost-primary"
-                        onClick={handleSaveCursorApiKey}
-                        disabled={cursorSyncLoading || !cursorApiKey.trim()}
-                    >
-                        {cursorSyncLoading ? 'Saving…' : 'Save key'}
-                    </button>
-                    <button type="button" onClick={handleCursorSync} disabled={cursorSyncLoading || !cursorKeyConfigured}>
-                        <RefreshCw size={14} className={cursorSyncLoading ? 'spinning' : ''} />
-                        Sync Cursor
-                    </button>
-                </div>
-                {cursorKeyStatus && (
-                    <span className={cursorKeyStatus.includes('failed') ? 'text-rose' : 'text-emerald'} style={{ fontSize: '0.78rem' }}>
-                        {cursorKeyStatus}
-                    </span>
-                )}
-            </div>
-
-            <div className="cost-panel">
-                <h3>
-                    <Upload size={16} className="text-amber" /> Import Cursor usage CSV/JSON
-                </h3>
+                <label className="sr-only" htmlFor="observed-usage-import">
+                    Observed usage CSV or JSON
+                </label>
                 <textarea
+                    id="observed-usage-import"
                     rows={4}
                     value={csvInput}
                     onChange={(e) => setCsvInput(e.target.value)}
@@ -456,8 +465,95 @@ export function CostContext() {
                     <button type="button" className="cost-primary" onClick={handleCsvImport}>
                         Import usage data
                     </button>
-                    {importStatus && <span className="text-emerald" style={{ fontSize: '0.78rem' }}>{importStatus}</span>}
+                    {importStatus && (
+                        <span
+                            role="alert"
+                            className={importStatus.includes('failed') ? 'text-rose' : 'text-emerald'}
+                            style={{ fontSize: '0.78rem' }}
+                        >
+                            {importStatus}
+                        </span>
+                    )}
                 </div>
+            </div>
+
+            <div className="cost-panel glass-card vendor-adapters">
+                <button
+                    type="button"
+                    className="vendor-adapters-toggle"
+                    onClick={() => setVendorOpen((o) => !o)}
+                    aria-expanded={vendorOpen}
+                >
+                    <span>
+                        <KeyRound size={16} className="text-cyan" /> Vendor adapters
+                    </span>
+                    <ChevronDown size={16} className={vendorOpen ? 'rotated' : ''} />
+                </button>
+                {vendorOpen && (
+                    <div className="vendor-adapters-body">
+                        <h4>Cursor Admin API (optional)</h4>
+                        <p className="cost-panel-help">
+                            Optional verification for teams that already use Cursor Admin API. Rigour does not require this.
+                            Prefer <code>RIGOUR_CURSOR_API_KEY</code> or <code>CURSOR_ADMIN_API_KEY</code> in the environment.
+                            File storage stays on this machine only (<code>~/.rigour/settings.json</code>, mode 600).
+                        </p>
+                        <p className="cost-panel-help">
+                            {cursorKeyConfigured
+                                ? `Configured${cursorKeyHint ? ` (${cursorKeyHint})` : ''} via ${cursorKeySource}.${cursorImportedCount > 0 ? ` ${cursorImportedCount} event(s) imported.` : ''}`
+                                : 'No vendor key configured.'}
+                        </p>
+                        <div className="cost-actions" style={{ marginBottom: 8 }}>
+                            <label className="sr-only" htmlFor="cursor-vendor-key">
+                                Cursor Admin API key
+                            </label>
+                            <input
+                                id="cursor-vendor-key"
+                                type="password"
+                                autoComplete="off"
+                                value={cursorApiKey}
+                                onChange={(e) => setCursorApiKey(e.target.value)}
+                                placeholder="Paste key only if not using env"
+                                disabled={cursorSyncLoading}
+                            />
+                            <button
+                                type="button"
+                                className="cost-primary"
+                                onClick={handleSaveCursorApiKey}
+                                disabled={cursorSyncLoading || !cursorApiKey.trim()}
+                            >
+                                {cursorSyncLoading ? 'Saving…' : 'Save key'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleCursorSync}
+                                disabled={cursorSyncLoading || !cursorKeyConfigured}
+                                aria-label="Sync Cursor usage"
+                            >
+                                <RefreshCw size={14} className={cursorSyncLoading ? 'spinning' : ''} />
+                                Sync
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleRemoveCursorApiKey}
+                                disabled={cursorSyncLoading || cursorKeySource === 'env' || !cursorKeyConfigured}
+                                aria-label="Remove local Cursor API key"
+                                title={cursorKeySource === 'env' ? 'Remove env var in your shell' : 'Remove file key'}
+                            >
+                                <Trash2 size={14} />
+                                Remove
+                            </button>
+                        </div>
+                        {cursorKeyStatus && (
+                            <span
+                                role="alert"
+                                className={cursorKeyStatus.includes('failed') ? 'text-rose' : 'text-emerald'}
+                                style={{ fontSize: '0.78rem' }}
+                            >
+                                {cursorKeyStatus}
+                            </span>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -12,18 +12,40 @@ interface Agent {
 interface AgentSession {
     sessionId: string;
     agents: Agent[];
-    status: 'active' | 'completed' | 'aborted';
+    status: 'active' | 'completed' | 'aborted' | 'inactive';
     createdAt: string;
+    derived?: boolean;
 }
 
 interface Props {
     session?: AgentSession | null;
 }
 
+function scopesOverlap(a: string, b: string): boolean {
+    if (a === b) return true;
+
+    // Task IDs must match exactly — startsWith over-flags CTP-like IDs.
+    if (a.startsWith('task:') || b.startsWith('task:')) {
+        return a === b;
+    }
+
+    // Path-aware prefix: "services/task" overlaps "services/task/src" only with boundary.
+    const pathOverlap = (left: string, right: string) =>
+        left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+
+    return pathOverlap(a, b);
+}
+
+function humanLabel(agentId: string): string {
+    if (agentId.startsWith('CTP-')) return agentId.replace(/-task$/, '');
+    if (agentId.length > 28) return `${agentId.slice(0, 12)}…${agentId.slice(-8)}`;
+    return agentId;
+}
+
 export function AgentTeams({ session }: Props) {
     if (!session || session.agents.length === 0) {
         return (
-            <div className="empty-state">
+            <div className="empty-state glass-card">
                 <Users size={48} />
                 <h3>No Active Agent Team</h3>
                 <p>
@@ -31,17 +53,13 @@ export function AgentTeams({ session }: Props) {
                     checkpoint metrics in the Brain DB.
                 </p>
                 <div className="hint-box">
-                    <span>Supported Models:</span>
-                    <div className="model-badges">
-                        <span className="badge opus">Opus 4.6</span>
-                        <span className="badge sonnet">Sonnet 4.5</span>
-                        <span className="badge gpt">GPT-5.3</span>
-                        <span className="badge codex">Codex</span>
-                    </div>
+                    <span>Works with any MCP client — Claude, Codex, Cursor, VS Code, and more.</span>
                 </div>
             </div>
         );
     }
+
+    const isHistorical = Boolean(session.derived) || session.status === 'completed';
 
     const getStatusIcon = (status: string) => {
         switch (status) {
@@ -57,12 +75,17 @@ export function AgentTeams({ session }: Props) {
     };
 
     const hasConflicts = (agent: Agent, allAgents: Agent[]) => {
-        return allAgents.some(other => {
-            if (other.agentId === agent.agentId) return false;
-            return agent.taskScope.some(scope =>
-                other.taskScope.some(s => s === scope || scope.startsWith(s) || s.startsWith(scope))
-            );
-        });
+        // Historical / derived sessions are not live concurrent teams.
+        if (isHistorical) return false;
+        if (agent.status === 'completed') return false;
+
+        const livePeers = allAgents.filter(
+            (other) => other.agentId !== agent.agentId && other.status !== 'completed',
+        );
+
+        return livePeers.some((other) =>
+            agent.taskScope.some((scope) => other.taskScope.some((s) => scopesOverlap(scope, s))),
+        );
     };
 
     return (
@@ -72,55 +95,58 @@ export function AgentTeams({ session }: Props) {
                     <Users size={18} />
                     <span>Agent Team Session</span>
                 </div>
-                <div className={`session-status ${session.status}`}>
-                    {session.status.toUpperCase()}
-                </div>
+                <div className={`session-status ${session.status}`}>{session.status.toUpperCase()}</div>
             </div>
 
             <div className="session-info">
                 <span className="session-id">{session.sessionId}</span>
                 <span className="agent-count">{session.agents.length} agents</span>
+                {session.derived && <span className="meta-chip">Historical (derived)</span>}
             </div>
 
             <div className="agents-grid">
-                {session.agents.map((agent) => (
-                    <div
-                        key={agent.agentId}
-                        className={`agent-card ${agent.status} ${hasConflicts(agent, session.agents) ? 'has-conflict' : ''}`}
-                    >
-                        <div className="agent-header">
-                            <div className="agent-id">
-                                {getStatusIcon(agent.status)}
-                                <span>{agent.agentId}</span>
-                            </div>
-                            {hasConflicts(agent, session.agents) && (
-                                <div className="conflict-badge">
-                                    <AlertTriangle size={12} />
-                                    <span>Scope Conflict</span>
+                {session.agents.map((agent) => {
+                    const conflict = hasConflicts(agent, session.agents);
+                    return (
+                        <div
+                            key={agent.agentId}
+                            className={`agent-card glass-card ${agent.status} ${conflict ? 'has-conflict' : ''}`}
+                        >
+                            <div className="agent-header">
+                                <div className="agent-id">
+                                    {getStatusIcon(agent.status)}
+                                    <span title={agent.agentId}>{humanLabel(agent.agentId)}</span>
                                 </div>
-                            )}
-                        </div>
+                                {conflict && (
+                                    <div className="conflict-badge">
+                                        <AlertTriangle size={12} />
+                                        <span>Scope Conflict</span>
+                                    </div>
+                                )}
+                            </div>
 
-                        <div className="task-scope">
-                            <h4>Task Scope</h4>
-                            <ul>
-                                {agent.taskScope.map((scope, idx) => (
-                                    <li key={idx}>
-                                        <Folder size={12} />
-                                        <code>{scope}</code>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
+                            <div className="task-scope">
+                                <h4>Enforced scope</h4>
+                                <ul>
+                                    {agent.taskScope.map((scope, idx) => (
+                                        <li key={idx}>
+                                            <Folder size={12} />
+                                            <code>{scope}</code>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
 
-                        <div className="agent-meta">
-                            <span>Registered: {new Date(agent.registeredAt).toLocaleTimeString()}</span>
-                            {agent.lastCheckpoint && (
-                                <span>Last checkpoint: {new Date(agent.lastCheckpoint).toLocaleTimeString()}</span>
-                            )}
+                            <div className="agent-meta">
+                                <span>Registered: {new Date(agent.registeredAt).toLocaleTimeString()}</span>
+                                {agent.lastCheckpoint && (
+                                    <span>Last checkpoint: {new Date(agent.lastCheckpoint).toLocaleTimeString()}</span>
+                                )}
+                            </div>
+                            <div className="mono dim agent-raw-id">{agent.agentId}</div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );

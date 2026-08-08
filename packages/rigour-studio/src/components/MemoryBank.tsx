@@ -97,6 +97,14 @@ export const MemoryBank: React.FC = () => {
         return <pre>{strValue}</pre>;
     };
 
+    const categorize = (key: string) => {
+        const k = key.toLowerCase();
+        if (k.includes('own') || k.includes('boundary')) return 'ownership';
+        if (k.includes('except') || k.includes('allow')) return 'exception';
+        if (k.includes('arch') || k.includes('decision') || k.includes('migrat')) return 'architecture';
+        return 'stable';
+    };
+
     return (
         <div className="memory-bank">
             <div className="memory-header">
@@ -126,26 +134,34 @@ export const MemoryBank: React.FC = () => {
                     {isLoading ? (
                         <div className="memory-loading">Loading memories...</div>
                     ) : filteredMemories.length === 0 ? (
-                        <div className="memory-empty">
+                        <div className="memory-empty glass-card">
                             <Database size={48} />
                             <h3>No Memories Stored</h3>
-                            <p>Use <code>rigour_remember</code> via MCP. Studio merges project <code>.rigour/memory.json</code> and global <code>~/.rigour/memory.json</code>.</p>
+                            <p>
+                                Persist stable, non-derivable facts with <code>rigour_remember</code> — architecture
+                                decisions, ownership boundaries, approved exceptions. Studio merges project{' '}
+                                <code>.rigour/memory.json</code> and global <code>~/.rigour/memory.json</code>.
+                            </p>
                         </div>
                     ) : (
                         filteredMemories.map(([key, entry]) => (
                             <div
                                 key={key}
-                                className={`memory-item ${selectedKey === key ? 'active' : ''}`}
+                                className={`memory-item glass-card ${selectedKey === key ? 'active' : ''}`}
                                 onClick={() => setSelectedKey(key)}
                             >
                                 <div className="memory-item-header">
                                     <Key size={14} />
                                     <span className="memory-key">{key}</span>
+                                    <span className={`memory-cat cat-${categorize(key)}`}>{categorize(key)}</span>
                                     <ChevronRight size={14} className="chevron" />
                                 </div>
                                 <div className="memory-item-meta">
                                     <Clock size={12} />
                                     <span>{formatDate(entry.timestamp)}</span>
+                                    {(entry as any).source && (
+                                        <span className="meta-chip">{(entry as any).source}</span>
+                                    )}
                                 </div>
                                 <div className="memory-item-preview">
                                     {(() => {

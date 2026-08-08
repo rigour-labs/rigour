@@ -106,7 +106,8 @@ export function Overview({ onNavigate }: Props) {
                         Governance Overview
                     </h2>
                     <p className="overview-dek">
-                        What Rigour saved locally — context avoided, cache hits, checkpoints, and verified spend.
+                        Local governance signal — measured context avoided, cache hits, checkpoints. Spend is observed;
+                        avoided $ is always an estimate.
                     </p>
                 </div>
                 <button className="refresh-btn" onClick={load} disabled={loading} type="button">
@@ -132,7 +133,7 @@ export function Overview({ onNavigate }: Props) {
                         <strong>No agent telemetry yet</strong>
                         <p>
                             Run agents with Rigour MCP (<code>rigour_recall</code>, <code>rigour_context_scope</code>,{' '}
-                            <code>rigour_checkpoint</code>) or import Cursor usage under Cost &amp; Context.
+                            <code>rigour_checkpoint</code>) or import observed usage under Cost &amp; Context.
                         </p>
                     </div>
                 </div>
@@ -161,12 +162,14 @@ export function Overview({ onNavigate }: Props) {
                     </span>
                 </button>
                 <button type="button" className="overview-kpi" onClick={() => onNavigate('cost')}>
-                    <span className="kpi-label">Spend / avoided</span>
+                    <span className="kpi-label">Observed spend / est. avoided</span>
                     <span className="kpi-value">
                         ${actualCost.toFixed(2)}
                         <span className="kpi-split"> / ${estAvoidedCost.toFixed(2)}</span>
                     </span>
-                    <span className="kpi-meta">{data?.cost?.actual?.source || 'no usage source'}</span>
+                    <span className="kpi-meta">
+                        {(data?.cost?.actual?.source || 'no usage source') + ' · avoided $ is estimated'}
+                    </span>
                 </button>
             </div>
 
@@ -205,8 +208,12 @@ export function Overview({ onNavigate }: Props) {
                 <section className="overview-card">
                     <header>
                         <Brain size={16} />
-                        <h3>Memory & patterns</h3>
+                        <h3>How Rigour learns</h3>
                     </header>
+                    <p className="overview-learn-note">
+                        Memory = stable facts agents wrote via <code>rigour_remember</code>. Patterns = indexed symbols
+                        from scans (not a full training log). Enforcement + checkpoints show live governance learning.
+                    </p>
                     <dl className="overview-dl">
                         <div>
                             <dt>Memories</dt>
