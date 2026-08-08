@@ -19,6 +19,8 @@ import {
     explainContext,
     getSemanticQueryCache,
     setSemanticQueryCache,
+    findRelatedSemanticQueryCache,
+    filterExistingEditScope,
     estimateTokenCount,
 } from '@rigour-labs/core';
 import {
@@ -150,6 +152,57 @@ function textMatchPatterns(query: string, patterns: PatternEntry[], limit: numbe
 }
 
 
+async function serveCachedScope(
+    cached: {
+        query: string;
+        resolvedOwner: string;
+        editScope: string[];
+        validationScope: string[];
+        evidence: string[];
+        commitSha: string;
+        confidence: number;
+    },
+    opts: {
+        cwd: string;
+        query: string;
+        fullIndexCandidate: string;
+        cacheStatus: 'exact-hit' | 'semantic-hit' | 'partial-hit';
+        taskId?: string;
+        agentId?: string;
+        note?: string;
+    },
+): Promise<ToolResult | null> {
+    const { valid, missing } = await filterExistingEditScope(cached.editScope || [], opts.cwd);
+    // Quality guard: if most scoped files vanished, recompute instead of serving stale paths.
+    if (cached.editScope.length > 0 && valid.length === 0) {
+        return null;
+    }
+    const payload = {
+        ...cached,
+        editScope: valid.length > 0 ? valid : cached.editScope,
+        staleFilesDropped: missing,
+        cacheNote: opts.note,
+    };
+    const cachedText = JSON.stringify(payload, null, 2);
+    const telemetry = scopeTelemetryMeta({
+        candidateText: opts.fullIndexCandidate,
+        returnedText: cachedText,
+        cacheStatus: opts.cacheStatus,
+        query: opts.query,
+        taskId: opts.taskId,
+        agentId: opts.agentId,
+    });
+    const label =
+        opts.cacheStatus === 'partial-hit'
+            ? 'CONTEXT SCOPE (partial cache)'
+            : 'CONTEXT SCOPE (cached)';
+    const text = `${label}\n\n${cachedText}`;
+    return {
+        content: [{ type: 'text', text: appendContextFooter(text, telemetry, 'rigour_check_pattern before creating code') }],
+        _telemetry: telemetry,
+    };
+}
+
 export async function handleContextScope(
     cwd: string,
     query: string,
@@ -163,20 +216,31 @@ export async function handleContextScope(
 
     const cached = await getSemanticQueryCache(query, commitSha, cwd);
     if (cached) {
-        const cachedText = JSON.stringify(cached, null, 2);
-        const telemetry = scopeTelemetryMeta({
-            candidateText: fullIndexCandidate,
-            returnedText: cachedText,
-            cacheStatus: 'semantic-hit',
+        const served = await serveCachedScope(cached, {
+            cwd,
             query,
+            fullIndexCandidate,
+            // Exact query+commit key hit — content-addressed semantic layer.
+            cacheStatus: 'exact-hit',
             taskId,
             agentId,
         });
-        const text = `CONTEXT SCOPE (cached)\n\n${cachedText}`;
-        return {
-            content: [{ type: 'text', text: appendContextFooter(text, telemetry, 'rigour_check_pattern before creating code') }],
-            _telemetry: telemetry,
-        };
+        if (served) return served;
+    }
+
+    // Quality-safe power-up: reuse highly overlapping queries at the same commit only.
+    const related = await findRelatedSemanticQueryCache(query, commitSha, cwd, 0.6);
+    if (related) {
+        const served = await serveCachedScope(related.entry, {
+            cwd,
+            query,
+            fullIndexCandidate,
+            cacheStatus: 'partial-hit',
+            taskId,
+            agentId,
+            note: `Reused related query at same commit (overlap ${(related.overlap * 100).toFixed(0)}%): "${related.sourceQuery}"`,
+        });
+        if (served) return served;
     }
 
     const index = await loadPatternIndex(indexPath);
@@ -203,12 +267,16 @@ export async function handleContextScope(
         try {
             const queryVector = await generateEmbedding(query);
             const similarities = semanticSearch(queryVector, index.patterns);
+            // Slightly stricter threshold — quality over vanity hit-rate; partial cache covers near-queries.
             matched = index.patterns
                 .map((p, i) => ({ pattern: p, similarity: similarities[i] ?? 0 }))
-                .filter(r => r.similarity > 0.3)
+                .filter(r => r.similarity > 0.4)
                 .sort((a, b) => b.similarity - a.similarity)
                 .slice(0, limit)
                 .map(r => r.pattern);
+            if (matched.length === 0) {
+                matched = textMatchPatterns(query, index.patterns, limit);
+            }
         } catch {
             matched = textMatchPatterns(query, index.patterns, limit);
         }

@@ -149,11 +149,14 @@ describe('context MCP handlers', () => {
         expect(parsed.taskId).toBe(scopeTaskId);
     });
 
-    it('attributes semantic cache hits to task and agent', async () => {
+    it('attributes exact cache hits to task and agent', async () => {
         const scopeTaskId = `${taskId}-cache-hit`;
         const agentId = 'agent-cache';
         const query = `unique-query-${Date.now()}`;
         const commitSha = await getWorkspaceCommitSha(testCwd);
+
+        await fs.ensureDir(path.join(testCwd, 'src'));
+        await fs.writeFile(path.join(testCwd, 'src/example.ts'), 'export const example = 1;\n');
 
         await setSemanticQueryCache(query, commitSha, {
             query,
@@ -167,9 +170,35 @@ describe('context MCP handlers', () => {
 
         const result = await handleContextScope(testCwd, query, 5, scopeTaskId, agentId);
 
-        expect(result._telemetry?.cacheStatus).toBe('semantic-hit');
+        expect(result._telemetry?.cacheStatus).toBe('exact-hit');
         expect(result._telemetry?.taskId).toBe(scopeTaskId);
         expect(result._telemetry?.agentId).toBe(agentId);
         expect(result._telemetry?.queryHash).toHaveLength(16);
+    });
+
+    it('serves partial-hit for highly related query at same commit', async () => {
+        const commitSha = await getWorkspaceCommitSha(testCwd);
+        await fs.ensureDir(path.join(testCwd, 'src'));
+        await fs.writeFile(path.join(testCwd, 'src/example.ts'), 'export const example = 1;\n');
+
+        await setSemanticQueryCache('task priority persistence', commitSha, {
+            query: 'task priority persistence',
+            resolvedOwner: 'src',
+            editScope: ['src/example.ts'],
+            validationScope: ['review src/example.ts'],
+            evidence: ['related scope'],
+            commitSha,
+            confidence: 0.9,
+        }, testCwd);
+
+        const result = await handleContextScope(
+            testCwd,
+            'priority for task persistence layer',
+            5,
+            `${taskId}-partial`,
+            'agent-partial',
+        );
+        expect(result._telemetry?.cacheStatus).toBe('partial-hit');
+        expect(result.content[0].text).toContain('partial cache');
     });
 });

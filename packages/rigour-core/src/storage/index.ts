@@ -10,7 +10,7 @@ export { reinforcePattern, decayPatterns, getStrongPatterns, getPatterns, getHar
 export { checkLocalPatterns, persistAndReinforce, getProjectStats } from './local-memory.js';
 export type { ProjectStats } from './local-memory.js';
 export {
-    recordContextEvent, recordModelUsage, setContextCacheRecord, getContextCacheRecord, recordCheckpointMetric,
-    getContextEvents, getModelUsages, getCheckpointMetrics
+    recordContextEvent, recordModelUsage, setContextCacheRecord, getContextCacheRecord, listContextCacheRecords,
+    recordCheckpointMetric, getContextEvents, getModelUsages, getCheckpointMetrics
 } from './context-telemetry.js';
 export type { ContextEvent, ModelUsage, ContextCacheRecord, CheckpointMetric } from './context-telemetry.js';

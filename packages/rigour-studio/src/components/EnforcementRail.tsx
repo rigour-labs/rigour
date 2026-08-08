@@ -82,7 +82,22 @@ export function EnforcementRail({ onNavigate }: Props) {
         setError(null);
         try {
             const res = await fetch('/api/enforcement');
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                let hint = '';
+                if (res.status === 404) {
+                    try {
+                        const info = await fetch('/api/info').then((r) => (r.ok ? r.json() : null));
+                        const ver = info?.studioVersion || info?.mcpVersion || 'unknown';
+                        hint =
+                            ` API/UI mismatch — Studio shell is newer than the CLI serving /api (studioVersion=${ver}). ` +
+                            'Restart with the local 5.5.0+ CLI: ' +
+                            '`node …/rigour-cli/dist/cli.js studio -p <port>` and open http://127.0.0.1:<port>.';
+                    } catch {
+                        hint = ' Restart Studio with a CLI that includes /api/enforcement (5.5.0+).';
+                    }
+                }
+                throw new Error(`HTTP ${res.status}.${hint}`);
+            }
             setData(await res.json());
         } catch (e: any) {
             setError(e.message || 'Failed to load enforcement');

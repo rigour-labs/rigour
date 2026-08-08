@@ -38,6 +38,7 @@ import { CostContext } from './components/CostContext';
 import { Overview } from './components/Overview';
 import { EnforcementRail } from './components/EnforcementRail';
 import { HandoffFlow } from './components/HandoffFlow';
+import { LearningBrain } from './components/LearningBrain';
 
 interface ProjectInfo {
     name?: string;
@@ -179,6 +180,7 @@ function App() {
 
     const navItems = [
         { id: 'enforcement', label: 'Enforcement', icon: ShieldCheck },
+        { id: 'learning', label: 'Learning', icon: Brain },
         { id: 'overview', label: 'Overview', icon: LayoutDashboard },
         { id: 'agents', label: 'Agent Teams', icon: Users },
         { id: 'handoffs', label: 'Handoffs', icon: ArrowRightLeft },
@@ -186,7 +188,7 @@ function App() {
         { id: 'memory', label: 'Memory Bank', icon: Cpu },
         { id: 'cost', label: 'Cost & Context', icon: Coins },
         { id: 'audit', label: 'Audit Log', icon: Terminal },
-        { id: 'gates', label: 'Quality Gates', icon: ShieldCheck },
+        { id: 'gates', label: 'Quality Gates', icon: Activity },
         { id: 'patterns', label: 'Pattern Index', icon: Database },
         { id: 'deep', label: 'Deep Analysis', icon: Brain },
         { id: 'drift', label: 'Temporal Drift', icon: TrendingDown },
@@ -266,6 +268,11 @@ function App() {
                         {activeTab === 'enforcement' && (
                             <motion.div key="enforcement" {...tabTransition} className="full-view">
                                 <EnforcementRail onNavigate={setActiveTab} />
+                            </motion.div>
+                        )}
+                        {activeTab === 'learning' && (
+                            <motion.div key="learning" {...tabTransition} className="full-view">
+                                <LearningBrain onNavigate={setActiveTab} />
                             </motion.div>
                         )}
                         {activeTab === 'overview' && (

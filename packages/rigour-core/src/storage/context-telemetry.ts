@@ -218,6 +218,72 @@ export async function setContextCacheRecord(record: ContextCacheRecord, cwd?: st
 }
 
 /**
+ * List cache records by type (and optional commit). Does not increment hit counts.
+ */
+export async function listContextCacheRecords(
+    opts: { cacheType?: ContextCacheRecord['cacheType']; commitSha?: string; limit?: number },
+    cwd?: string,
+): Promise<ContextCacheRecord[]> {
+    const limit = opts.limit ?? 50;
+
+    if (isSQLiteAvailable()) {
+        try {
+            const db = await openDatabase();
+            if (db) {
+                const clauses: string[] = [];
+                const params: unknown[] = [];
+                if (opts.cacheType) {
+                    clauses.push('cache_type = ?');
+                    params.push(opts.cacheType);
+                }
+                if (opts.commitSha) {
+                    clauses.push('commit_sha = ?');
+                    params.push(opts.commitSha);
+                }
+                const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+                const rows = await db.all(
+                    `SELECT * FROM context_cache ${where} ORDER BY COALESCE(last_hit_at, created_at) DESC LIMIT ?`,
+                    ...params,
+                    limit,
+                );
+                await db.close();
+                return (rows || []).map((row: any) => ({
+                    cacheKey: row.cache_key,
+                    cacheType: row.cache_type,
+                    repo: row.repo,
+                    branch: row.branch,
+                    commitSha: row.commit_sha,
+                    dependencyFingerprint: row.dependency_fingerprint,
+                    payloadJson: row.payload_json,
+                    payloadTokens: row.payload_tokens,
+                    hitCount: row.hit_count || 0,
+                    createdAt: row.created_at,
+                    lastHitAt: row.last_hit_at,
+                }));
+            }
+        } catch {
+            // fallback
+        }
+    }
+
+    const fallbackPath = path.join(getFallbackDir(cwd), 'context-cache.json');
+    if (!(await fs.pathExists(fallbackPath))) return [];
+    try {
+        const cacheData = await fs.readJson(fallbackPath);
+        return Object.values(cacheData as Record<string, ContextCacheRecord>)
+            .filter((entry) => {
+                if (opts.cacheType && entry.cacheType !== opts.cacheType) return false;
+                if (opts.commitSha && entry.commitSha !== opts.commitSha) return false;
+                return true;
+            })
+            .sort((a, b) => (b.lastHitAt || b.createdAt || 0) - (a.lastHitAt || a.createdAt || 0))
+            .slice(0, limit);
+    } catch {
+        return [];
+    }
+}
+
+/**
  * Fetch cached context record by cache key. Increments hit count.
  */
 export async function getContextCacheRecord(cacheKey: string, cwd?: string): Promise<ContextCacheRecord | null> {

@@ -14,6 +14,7 @@ import path from 'path';
 import {
     setContextCacheRecord,
     getContextCacheRecord,
+    listContextCacheRecords,
     ContextCacheRecord,
     recordCheckpointMetric
 } from '../storage/index.js';
@@ -208,6 +209,82 @@ export async function setSemanticQueryCache(
         payloadJson,
         payloadTokens,
     }, cwd);
+}
+
+function queryTokenSet(query: string): Set<string> {
+    return new Set(normalizeQuery(query).split(' ').filter((t) => t.length > 1));
+}
+
+/** Jaccard similarity of normalized query tokens — used for quality-safe partial reuse. */
+export function queryTokenOverlap(a: string, b: string): number {
+    const left = queryTokenSet(a);
+    const right = queryTokenSet(b);
+    if (left.size === 0 || right.size === 0) return 0;
+    let inter = 0;
+    for (const t of left) {
+        if (right.has(t)) inter++;
+    }
+    const union = left.size + right.size - inter;
+    return union === 0 ? 0 : inter / union;
+}
+
+export interface RelatedSemanticHit {
+    entry: SemanticQueryEntry;
+    overlap: number;
+    sourceQuery: string;
+}
+
+/**
+ * Quality-safe partial semantic reuse: same commit only, high token overlap (>= 0.6).
+ * Never crosses commits — avoids stale scopes after code moves.
+ * File existence is re-validated by the caller before serving.
+ */
+export async function findRelatedSemanticQueryCache(
+    query: string,
+    commitSha: string,
+    cwd?: string,
+    minOverlap = 0.6,
+): Promise<RelatedSemanticHit | null> {
+    const records = await listContextCacheRecords(
+        { cacheType: 'semantic', commitSha, limit: 80 },
+        cwd,
+    );
+    let best: RelatedSemanticHit | null = null;
+    for (const record of records) {
+        try {
+            const entry = JSON.parse(record.payloadJson) as SemanticQueryEntry;
+            const sourceQuery = entry.query || '';
+            const overlap = queryTokenOverlap(query, sourceQuery);
+            if (overlap < minOverlap) continue;
+            if (normalizeQuery(query) === normalizeQuery(sourceQuery)) continue; // exact path uses getSemanticQueryCache
+            if (!best || overlap > best.overlap) {
+                best = { entry, overlap, sourceQuery };
+            }
+        } catch {
+            // skip bad payloads
+        }
+    }
+    return best;
+}
+
+/**
+ * Drop cached scopes that point at files no longer on disk (quality guard).
+ */
+export async function filterExistingEditScope(
+    editScope: string[],
+    cwd: string,
+): Promise<{ valid: string[]; missing: string[] }> {
+    const valid: string[] = [];
+    const missing: string[] = [];
+    for (const file of editScope) {
+        try {
+            if (await fs.pathExists(path.join(cwd, file))) valid.push(file);
+            else missing.push(file);
+        } catch {
+            missing.push(file);
+        }
+    }
+    return { valid, missing };
 }
 
 /**

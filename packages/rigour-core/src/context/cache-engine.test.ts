@@ -17,6 +17,9 @@ import {
     setComponentCache,
     getSemanticQueryCache,
     setSemanticQueryCache,
+    findRelatedSemanticQueryCache,
+    queryTokenOverlap,
+    filterExistingEditScope,
     getTaskCheckpointCache,
     setTaskCheckpointCache,
     hashContent,
@@ -118,6 +121,49 @@ describe('4-Layer Context Cache Engine', () => {
         expect(retrieved).not.toBeNull();
         expect(retrieved?.taskId).toBe('CTP-142');
         expect(retrieved?.decisions).toContain('Added priority field');
+    });
+
+    it('Layer 3: finds related semantic queries at same commit for partial reuse', async () => {
+        expect(queryTokenOverlap('task priority persistence', 'priority for task persistence')).toBeGreaterThan(0.7);
+
+        await setSemanticQueryCache(
+            'task priority persistence',
+            'commit-rel',
+            {
+                query: 'task priority persistence',
+                resolvedOwner: 'task-team',
+                editScope: ['services/task.ts'],
+                validationScope: ['npm test'],
+                evidence: ['related'],
+                commitSha: 'commit-rel',
+                confidence: 0.9,
+            },
+            testCwd,
+        );
+
+        const related = await findRelatedSemanticQueryCache(
+            'priority for task persistence layer',
+            'commit-rel',
+            testCwd,
+            0.5,
+        );
+        expect(related).not.toBeNull();
+        expect(related?.entry.editScope).toContain('services/task.ts');
+
+        const otherCommit = await findRelatedSemanticQueryCache(
+            'priority for task persistence layer',
+            'commit-other',
+            testCwd,
+            0.5,
+        );
+        expect(otherCommit).toBeNull();
+    });
+
+    it('filters missing edit-scope files for quality', async () => {
+        await fs.writeFile(path.join(testCwd, 'alive.ts'), 'export const ok = 1;\n');
+        const result = await filterExistingEditScope(['alive.ts', 'gone.ts'], testCwd);
+        expect(result.valid).toEqual(['alive.ts']);
+        expect(result.missing).toEqual(['gone.ts']);
     });
 
     it('Layer 1: invalidates static cache when file content changes', async () => {

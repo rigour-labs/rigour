@@ -4548,3 +4548,25 @@ textarea:focus-visible {
 .overview-learn-note code {
     font-size: 0.72rem;
 }
+
+.learning-brain { display: flex; flex-direction: column; gap: 16px; padding: 8px; }
+.learning-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+.learning-card { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.learning-card header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.learning-card h3 { font-size: 0.9rem; margin: 0; }
+.learning-kpi {
+    font-size: 1.8rem;
+    font-weight: 700;
+    font-family: 'Fira Code', monospace;
+}
+@media (max-width: 900px) {
+    .learning-grid { grid-template-columns: 1fr; }
+}
