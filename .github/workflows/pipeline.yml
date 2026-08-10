@@ -199,7 +199,7 @@ jobs:
             def install
               # Fresh publishes must install immediately in CI / same-day brew installs.
               # Homebrew/npm may otherwise enforce a min-release-age window (ETARGET).
-              system "npm", "install", "--min-release-age=0", *std_npm_args(prefix: libexec)
+              system "npm", "install", *std_npm_args(prefix: libexec), "--min-release-age=0"
               bin.install_symlink Dir["#{libexec}/bin/*"]
             end
 
