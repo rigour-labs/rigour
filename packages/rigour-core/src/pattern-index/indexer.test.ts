@@ -49,6 +49,23 @@ export function formatDate(date: Date): string {
             expect(index.patterns[0].description).toContain('Format a date');
         });
 
+        it('should index source files nested in monorepo packages', async () => {
+            const packageSrc = path.join(testDir, 'packages', 'api', 'src');
+            await fs.mkdir(packageSrc, { recursive: true });
+            await fs.writeFile(
+                path.join(packageSrc, 'handler.ts'),
+                'export function handleRequest() {}'
+            );
+
+            const indexer = new PatternIndexer(testDir);
+            const index = await indexer.buildIndex();
+
+            expect(index.files.map(file => file.path)).toContain(
+                path.join('packages', 'api', 'src', 'handler.ts')
+            );
+            expect(index.patterns.some(pattern => pattern.name === 'handleRequest')).toBe(true);
+        });
+
         it('should index arrow functions', async () => {
             await fs.writeFile(
                 path.join(testDir, 'src', 'helpers.ts'),

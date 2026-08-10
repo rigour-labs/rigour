@@ -36,7 +36,7 @@ import { nodeToPattern } from './indexer-ts.js';
 // ---------------------------------------------------------------------------
 
 const DEFAULT_CONFIG: PatternIndexConfig = {
-    include: ['src/**/*', 'lib/**/*', 'app/**/*', 'components/**/*', 'utils/**/*', 'hooks/**/*', '**/tests/**/*', '**/test/**/*'],
+    include: ['**/src/**/*', 'lib/**/*', 'app/**/*', 'components/**/*', 'utils/**/*', 'hooks/**/*', '**/tests/**/*', '**/test/**/*'],
     exclude: [
         '**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**',
         '**/coverage/**', '**/venv/**', '**/.venv/**', '**/__pycache__/**',

@@ -1,4 +1,4 @@
-import { pathExists, stat } from 'fs-extra';
+import fs from 'fs-extra';
 import path from 'path';
 
 const sourceExtensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.d.ts'];
@@ -22,9 +22,9 @@ export async function resolveTsPathTarget(
 
     for (const candidate of candidates) {
         const candidatePath = path.resolve(cwd, candidate);
-        if (!await pathExists(candidatePath)) continue;
+        if (!await fs.pathExists(candidatePath)) continue;
         try {
-            if ((await stat(candidatePath)).isFile()) return true;
+            if ((await fs.stat(candidatePath)).isFile()) return true;
         } catch { /* inaccessible targets do not resolve */ }
     }
     return false;

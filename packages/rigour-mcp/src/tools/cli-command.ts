@@ -1,10 +1,10 @@
-import { readJsonSync } from 'fs-extra';
+import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 function readVersion(packagePath: string): string | null {
     try {
-        const pkg = readJsonSync(packagePath) as { version?: string };
+        const pkg = fs.readJsonSync(packagePath) as { version?: string };
         const version = pkg.version?.trim();
         return version && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)
             ? version

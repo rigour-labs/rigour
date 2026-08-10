@@ -244,21 +244,29 @@ jobs:
           ./mcp-publisher publish
 
   distribution-smoke:
-    name: Distribution Smoke
+    name: Distribution Smoke (${{ matrix.os }}, Node ${{ matrix.node }})
     needs: release
     # Smoke the currently published CLI after every successful main release job (publish or not).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            node: 22
+          - os: macos-latest
+            node: 22
+          - os: windows-latest
+            node: 22
+          - os: ubuntu-latest
+            node: 26
     runs-on: ${{ matrix.os }}
     env:
       EXPECTED_CLI_VERSION: ${{ needs.release.outputs.cli_version }}
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           registry-url: 'https://registry.npmjs.org'
 
       - name: Verify npx command
