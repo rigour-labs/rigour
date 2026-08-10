@@ -2,7 +2,7 @@
 
 **AI Agent Governance via Model Context Protocol — quality gates, DLP, drift detection, and deep analysis.**
 
-Rigour is a local-first MCP server that governs AI agents (Claude, Cursor, Cline, Windsurf) with deterministic quality gates, credential interception, and memory governance.
+Rigour is a local-first MCP server that governs AI agents (Claude, Cursor, Cline, Windsurf) with deterministic quality gates, credential warnings, and memory governance.
 
 [![Registry](https://img.shields.io/badge/MCP-Registry-brightgreen)](https://github.com/mcp)
 [![npm version](https://img.shields.io/npm/v/@rigour-labs/mcp?color=cyan)](https://www.npmjs.com/package/@rigour-labs/mcp)

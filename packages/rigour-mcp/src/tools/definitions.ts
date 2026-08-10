@@ -448,7 +448,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_hooks_init",
-        description: "Generate hook configs for AI coding tools (Claude, Cursor, Cline, Windsurf). Installs real-time quality checks AND DLP (credential interception) hooks by default. DLP hooks intercept credentials in user input BEFORE they reach the AI agent. Pass dlp=false to disable DLP hooks only.",
+        description: "Generate hook configs for AI coding tools (Claude, Cursor, Cline, Windsurf). Installs real-time quality checks and non-blocking DLP credential warnings by default. Pass dlp=false to disable DLP hooks only.",
         inputSchema: {
             type: "object",
             properties: {
@@ -456,7 +456,7 @@ export const TOOL_DEFINITIONS = [
                 tool: { type: "string", description: "Target tool: 'claude', 'cursor', 'cline', or 'windsurf'." },
                 force: { type: "boolean", description: "Overwrite existing hook files (default: false)." },
                 dryRun: { type: "boolean", description: "Preview changes without writing files (default: false)." },
-                dlp: { type: "boolean", description: "Generate DLP (Data Loss Prevention) hooks for pre-input credential interception (default: true). Set false to skip DLP hooks." },
+                dlp: { type: "boolean", description: "Generate DLP hooks for pre-input credential warnings (default: true). Set false to skip DLP hooks." },
             },
             required: ["cwd", "tool"],
         },
@@ -660,4 +660,3 @@ export const TOOL_DEFINITIONS = [
         },
     },
 ];
-

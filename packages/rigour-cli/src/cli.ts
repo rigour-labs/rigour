@@ -285,7 +285,7 @@ const hooksCmd = program
     .description('Manage AI coding tool hook integrations (file checks + DLP credential scanning)')
     .addHelpText('after', `
 DLP false-positive learning:
-  When a hook blocks your prompt incorrectly, teach Rigour once:
+  When a hook warns about your prompt incorrectly, teach Rigour once:
   $ rigour hooks check --dlp-allow-last
 
   Learned patterns are stored per-project in .rigour/dlp-feedback.json.
@@ -325,7 +325,7 @@ hooksCmd
     .option('--timeout <ms>', 'Timeout in milliseconds (default: 5000)')
     .option('--mode <mode>', 'Check mode: "check" (default) or "dlp" (credential scanning)')
     .option('--agent <name>', 'Agent name for DLP audit trail (e.g., cursor, claude)')
-    .option('--dlp-allow-last', 'Record last DLP block as learned false positives (hook feedback)')
+    .option('--dlp-allow-last', 'Record the last DLP warning as learned false positives (hook feedback)')
     .addHelpText('after', `
 Examples:
   $ rigour hooks check --files src/app.ts
@@ -335,8 +335,8 @@ Examples:
   $ rigour hooks check --dlp-allow-last
 
 DLP learning:
-  After a false-positive block, run --dlp-allow-last to store the detection shape
-  in .rigour/dlp-feedback.json. Future scans allow matching patterns on the same line.
+  After a false-positive warning, run --dlp-allow-last to store a safe fingerprint
+  in .rigour/dlp-feedback.json. Future scans allow matching generic patterns.
   Provider keys and high-confidence secrets are never learned away.
     `)
     .action(async (options: any) => {

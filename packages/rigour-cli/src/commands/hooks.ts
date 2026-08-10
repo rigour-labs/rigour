@@ -18,6 +18,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import { randomUUID } from 'crypto';
+import { fileURLToPath } from 'url';
 import { runHookChecker, scanInputForCredentials, formatDLPAlert, createDLPAuditEntry, generateDLPHookFiles, writeDLPBlockManifest, allowLastDLPBlock } from '@rigour-labs/core';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
@@ -27,7 +28,7 @@ export interface HooksOptions {
     dryRun?: boolean;
     force?: boolean;
     block?: boolean;
-    /** Also generate DLP (pre-input credential interception) hooks */
+    /** Also generate DLP pre-input warning hooks */
     dlp?: boolean;
 }
 
@@ -40,7 +41,7 @@ export interface HooksCheckOptions {
     mode?: 'check' | 'dlp';
     /** Agent name for audit trail (DLP mode) */
     agent?: string;
-    /** Record last DLP block detections as learned false positives (hook feedback) */
+    /** Record last DLP warning detections as learned false positives (hook feedback) */
     dlpAllowLast?: boolean;
 }
 
@@ -54,6 +55,17 @@ interface GeneratedFile {
 interface CheckerCommandSpec {
     command: string;
     args: string[];
+}
+
+function getHookCliVersion(): string {
+    const thisDir = path.dirname(fileURLToPath(import.meta.url));
+    const packagePath = path.resolve(thisDir, '../../package.json');
+    const pkg = fs.readJsonSync(packagePath) as { version?: string };
+    const version = pkg.version?.trim();
+    if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+        throw new Error('Unable to resolve the installed Rigour CLI version');
+    }
+    return version;
 }
 
 // ── Studio event logging ─────────────────────────────────────────────
@@ -118,24 +130,11 @@ function detectTools(cwd: string): HookTool[] {
     return detected;
 }
 
-function resolveCheckerCommand(cwd: string): CheckerCommandSpec {
-    // 1. Try project-local node_modules (installed as dependency)
-    const localPath = path.join(
-        cwd, 'node_modules', '@rigour-labs', 'core', 'dist', 'hooks', 'standalone-checker.js'
-    );
-    if (fs.existsSync(localPath)) {
-        return { command: 'node', args: [localPath] };
-    }
-
-    // 2. Try dev checkout: ESM has no __dirname, derive from import.meta.url
-    const thisDir = path.dirname(new URL(import.meta.url).pathname);
-    const localCli = path.resolve(thisDir, '../cli.js');
-    if (fs.existsSync(localCli)) {
-        return { command: 'node', args: [localCli, 'hooks', 'check'] };
-    }
-
-    // 3. Fallback: assume globally installed or aliased
-    return { command: 'npx', args: ['@rigour-labs/cli', 'hooks', 'check'] };
+function resolveCheckerCommand(): CheckerCommandSpec {
+    return {
+        command: 'npx',
+        args: ['--yes', `@rigour-labs/cli@${getHookCliVersion()}`, 'hooks', 'check'],
+    };
 }
 
 function shellEscape(arg: string): string {
@@ -194,7 +193,7 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         }],
     };
 
-    // DLP: Add PreToolUse hook for credential interception
+    // DLP: Add PreToolUse hook for credential warnings
     if (dlp) {
         hooks.PreToolUse = [{
             matcher: ".*",
@@ -211,7 +210,7 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         path: '.claude/settings.json',
         content: JSON.stringify(settings, null, 4),
         description: dlp
-            ? 'Claude Code hooks — PostToolUse quality checks + PreToolUse DLP credential interception'
+            ? 'Claude Code hooks — PostToolUse quality checks + PreToolUse DLP credential warnings'
             : 'Claude Code PostToolUse hook',
     }];
 }
@@ -231,7 +230,7 @@ function generateCursorHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         path: '.cursor/hooks.json',
         content: JSON.stringify(hooks, null, 4),
         description: dlp
-            ? 'Cursor hooks — afterFileEdit quality checks + beforeSubmitPrompt DLP credential interception'
+            ? 'Cursor hooks — afterFileEdit quality checks + beforeSubmitPrompt DLP warnings'
             : 'Cursor afterFileEdit hook config',
     }];
 }
@@ -249,7 +248,7 @@ function generateClineHooks(checker: CheckerCommandSpec, block: boolean, dlp: bo
             path: '.clinerules/hooks/PreToolUse',
             content: buildClineDLPScript(checker),
             executable: true,
-            description: 'Cline PreToolUse DLP hook — credential interception before agent execution',
+            description: 'Cline PreToolUse DLP hook — credential warnings before agent execution',
         });
     }
 
@@ -318,7 +317,7 @@ function buildClineDLPScript(checker: CheckerCommandSpec): string {
     return `#!/usr/bin/env node
 /**
  * Cline PreToolUse DLP hook for Rigour.
- * Scans tool input for credentials BEFORE agent execution.
+ * Warns about possible credentials before agent execution.
  */
 let data = '';
 process.stdin.on('data', chunk => { data += chunk; });
@@ -355,14 +354,15 @@ process.stdin.on('end', async () => {
             return;
         }
         const result = JSON.parse(raw);
-        if (result.status === 'blocked') {
+        if (result.status !== 'clean') {
             const msgs = result.detections
                 .map(d => \`[rigour/dlp/\${d.type}] \${d.description} → \${d.recommendation}\`)
                 .join('\\n');
+            const label = result.status === 'blocked' ? 'BLOCKED' : 'warning';
             process.stdout.write(JSON.stringify({
-                contextModification: \`\\n🛑 [Rigour DLP] \${result.detections.length} credential(s) BLOCKED:\\n\${msgs}\\nReplace with environment variable references.\`,
+                contextModification: \`\\n⚠️ [Rigour DLP] \${result.detections.length} possible credential(s) \${label}:\\n\${msgs}\`,
             }));
-            process.exit(2);
+            if (result.status === 'blocked') process.exit(2);
         } else {
             process.stdout.write(JSON.stringify({}));
         }
@@ -389,7 +389,7 @@ function generateWindsurfHooks(checker: CheckerCommandSpec, block: boolean, dlp:
         path: '.windsurf/hooks.json',
         content: JSON.stringify(hooks, null, 4),
         description: dlp
-            ? 'Windsurf hooks — post_write_code quality checks + pre_write_code DLP credential interception'
+            ? 'Windsurf hooks — post_write_code quality checks + pre_write_code DLP warnings'
             : 'Windsurf post_write_code hook config',
     }];
 }
@@ -417,9 +417,10 @@ function printDryRun(files: GeneratedFile[]): void {
 
 async function writeHookFiles(
     cwd: string, files: GeneratedFile[], force: boolean
-): Promise<{ written: number; skipped: number }> {
+): Promise<{ written: number; skipped: number; failedPaths: Set<string> }> {
     let written = 0;
     let skipped = 0;
+    const failedPaths = new Set<string>();
 
     for (const file of files) {
         const fullPath = path.join(cwd, file.path);
@@ -431,19 +432,30 @@ async function writeHookFiles(
             continue;
         }
 
-        await fs.ensureDir(path.dirname(fullPath));
-        await fs.writeFile(fullPath, file.content, 'utf-8');
+        try {
+            await fs.ensureDir(path.dirname(fullPath));
+            await fs.writeFile(fullPath, file.content, 'utf-8');
 
-        if (file.executable) {
-            await fs.chmod(fullPath, 0o755);
+            if (file.executable) {
+                await fs.chmod(fullPath, 0o755);
+            }
+
+            console.log(chalk.green(`  CREATE ${file.path}`));
+            console.log(chalk.dim(`         ${file.description}`));
+            written++;
+        } catch (error) {
+            const code = error instanceof Error && 'code' in error
+                ? String((error as NodeJS.ErrnoException).code)
+                : 'UNKNOWN';
+            const reason = code === 'ENOTDIR'
+                ? 'a parent path is a file; keep the existing config and configure this tool manually'
+                : error instanceof Error ? error.message : String(error);
+            console.error(chalk.yellow(`  SKIP ${file.path} (${reason})`));
+            failedPaths.add(file.path);
         }
-
-        console.log(chalk.green(`  CREATE ${file.path}`));
-        console.log(chalk.dim(`         ${file.description}`));
-        written++;
     }
 
-    return { written, skipped };
+    return { written, skipped, failedPaths };
 }
 
 // ── Next-steps guidance ──────────────────────────────────────────────
@@ -455,10 +467,14 @@ const NEXT_STEPS: Record<HookTool, string> = {
     windsurf: 'Windsurf: Reload editor. Check terminal for Rigour output after Cascade writes.',
 };
 
-function printNextSteps(tools: HookTool[]): void {
+function printNextSteps(tools: HookTool[], unavailableTools: Set<HookTool>): void {
     console.log(chalk.cyan('\nNext steps:'));
     for (const tool of tools) {
-        console.log(chalk.dim(`  ${NEXT_STEPS[tool]}`));
+        if (unavailableTools.has(tool)) {
+            console.log(chalk.yellow(`  ${tool[0].toUpperCase() + tool.slice(1)}: Not configured; resolve the path conflict or configure manually.`));
+        } else {
+            console.log(chalk.dim(`  ${NEXT_STEPS[tool]}`));
+        }
     }
     console.log('');
 }
@@ -475,7 +491,7 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     });
 
     const tools = resolveTools(cwd, options.tool);
-    const checker = resolveCheckerCommand(cwd);
+    const checker = resolveCheckerCommand();
     const block = !!options.block;
     // DLP is ON by default — user must explicitly pass --no-dlp to disable
     const dlp = options.dlp !== false;
@@ -491,7 +507,12 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
         return;
     }
 
-    const { written, skipped } = await writeHookFiles(cwd, allFiles, !!options.force);
+    const { written, skipped, failedPaths } = await writeHookFiles(cwd, allFiles, !!options.force);
+    const failed = failedPaths.size;
+    const unavailableTools = new Set(tools.filter(tool => {
+        const generatedPaths = GENERATORS[tool](checker, block, dlp).map(file => file.path);
+        return generatedPaths.every(filePath => failedPaths.has(filePath));
+    }));
 
     console.log('');
     if (written > 0) {
@@ -500,20 +521,27 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     if (skipped > 0) {
         console.log(chalk.yellow(`Skipped ${skipped} existing file(s).`));
     }
+    if (failed > 0) {
+        console.log(chalk.yellow(`Skipped ${failed} incompatible hook file(s); other tools were configured.`));
+    }
 
-    printNextSteps(tools);
+    printNextSteps(tools, unavailableTools);
 
     if (dlp) {
-        console.log(chalk.red.bold('  🛑 DLP Protection ACTIVE'));
-        console.log(chalk.dim('  Credentials will be intercepted BEFORE reaching AI agents.'));
+        console.log(chalk.yellow.bold('  ⚠ DLP warnings ACTIVE'));
+        console.log(chalk.dim('  Possible credentials will be reported before agent actions.'));
+        console.log(chalk.dim('  Use --block only when every input path is covered by the same policy.'));
         console.log(chalk.dim('  Coverage: AWS keys, API tokens, database URLs, private keys, JWTs, passwords.\n'));
     }
 
     await logStudioEvent(cwd, {
         type: 'tool_response',
         tool: 'rigour_hooks_init',
-        status: 'success',
-        content: [{ type: 'text', text: `Generated hooks for: ${tools.join(', ')}${options.dlp ? ' (+ DLP)' : ''}` }],
+        status: failed > 0 ? 'partial' : 'success',
+        content: [{
+            type: 'text',
+            text: `Generated hooks for: ${tools.join(', ')}; ${written} written, ${skipped} existing, ${failed} incompatible`,
+        }],
     });
 }
 
@@ -631,20 +659,27 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
 
         const result = scanInputForCredentials(textToScan, {
             enabled: true,
-            block_on_detection: options.block ?? true,
+            block_on_detection: options.block ?? false,
             cwd,
             use_learned_feedback: true,
         });
 
+        const messages = result.detections
+            .map((d: any) => `[${d.type}] ${d.description} → ${d.recommendation}`)
+            .join('\n');
+        const allowCommand = `npx --yes @rigour-labs/cli@${getHookCliVersion()} hooks check --dlp-allow-last`;
+
         // Return Cursor-compatible format if detected as Cursor hook
         if (cursorMode) {
             if (result.status === 'blocked') {
-                const messages = result.detections
-                    .map((d: any) => `[${d.type}] ${d.description} → ${d.recommendation}`)
-                    .join('\n');
                 process.stdout.write(JSON.stringify({
                     continue: false,
-                    user_message: `🛑 Rigour DLP: ${result.detections.length} credential(s) detected in your prompt:\n${messages}\n\nReplace with environment variable references before submitting.\n\nIf this is a false positive, run: rigour hooks check --dlp-allow-last`,
+                    user_message: `🛑 Rigour DLP: ${result.detections.length} credential(s) detected in your prompt:\n${messages}\n\nReplace with environment variable references before submitting.\n\nIf this is a false positive, run: ${allowCommand}`,
+                }));
+            } else if (result.status === 'warning') {
+                process.stdout.write(JSON.stringify({
+                    continue: true,
+                    user_message: `⚠️ Rigour DLP warning: ${result.detections.length} possible credential(s) detected:\n${messages}`,
                 }));
             } else {
                 process.stdout.write(JSON.stringify({ continue: true }));
@@ -666,12 +701,13 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
                 // Silent
             }
 
+            try {
+                await writeDLPBlockManifest(cwd, result.detections, textToScan);
+            } catch {
+                // best-effort
+            }
+
             if (result.status === 'blocked') {
-                try {
-                    await writeDLPBlockManifest(cwd, result.detections, textToScan);
-                } catch {
-                    // best-effort
-                }
                 process.exitCode = 2;
             }
         }
@@ -742,4 +778,3 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         }
     }
 }
-

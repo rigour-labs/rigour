@@ -18,12 +18,20 @@
  */
 
 import { classifyDLPDetection } from './dlp-confidence.js';
-import { isLearnedAllowSync, loadDLPFeedbackStoreSync, type DLPFeedbackStore } from './dlp-feedback.js';
+import {
+    feedbackFingerprint,
+    isLearnableDLPDetection,
+    isLearnedAllowSync,
+    loadDLPFeedbackStoreSync,
+    type DLPFeedbackStore,
+} from './dlp-feedback.js';
 
 export interface CredentialDetection {
     type: string;
     severity: 'critical' | 'high' | 'medium';
+    /** Redacted match only. Raw credential material never leaves the scanner. */
     match: string;
+    feedback_fingerprint?: string;
     redacted: string;
     description: string;
     recommendation: string;
@@ -32,6 +40,10 @@ export interface CredentialDetection {
     confidence?: number;
     decision?: 'block' | 'warn' | 'allow';
     reason_codes?: string[];
+}
+
+interface InternalCredentialDetection extends CredentialDetection {
+    match: string;
 }
 
 export interface InputValidationResult {
@@ -234,7 +246,7 @@ const CREDENTIAL_PATTERNS: CredentialPattern[] = [
     // ── IP Addresses with Credentials ─────────────────────────
     {
         type: 'credentials_in_url',
-        regex: /\b(https?:\/\/[^:]+:[^@]+@[^\s'"`,;}{)]+)\b/gi,
+        regex: /\b(https?:\/\/[^/\s:@]+:[^/\s@]+@[^\s'"`,;}{)]+)\b/gi,
         severity: 'critical',
         description: 'URL with embedded credentials detected',
         recommendation: 'Remove credentials from URLs. Use environment variables for auth',
@@ -360,7 +372,7 @@ export function scanInputForCredentials(
     config: InputValidationConfig = {}
 ): InputValidationResult {
     const start = Date.now();
-    const detections: CredentialDetection[] = [];
+    const detections: InternalCredentialDetection[] = [];
 
     if (!config.enabled && config.enabled !== undefined) {
         return {
@@ -493,24 +505,25 @@ export function scanInputForCredentials(
         : null;
 
     const classified = detections.map(d => {
-        if (feedbackStore) {
+        const baseline = {
+            ...d,
+            ...classifyDLPDetection(d, input),
+        };
+        if (feedbackStore && isLearnableDLPDetection(baseline)) {
             const start = d.position?.start ?? 0;
             const lineStart = input.lastIndexOf('\n', start) + 1;
             const lineEnd = input.indexOf('\n', start);
             const line = input.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim();
             if (isLearnedAllowSync(feedbackStore, d.type, d.match, line)) {
                 return {
-                    ...d,
+                    ...baseline,
                     confidence: 12,
                     decision: 'allow' as const,
                     reason_codes: ['learned_false_positive'],
                 };
             }
         }
-        return {
-            ...d,
-            ...classifyDLPDetection(d, input),
-        };
+        return baseline;
     });
 
     // Line-level learned expansion: one false-positive mark allows sibling patterns on same line
@@ -521,7 +534,10 @@ export function scanInputForCredentials(
     );
     const expanded = classified.map(d => {
         const start = d.position?.start ?? -1;
-        if (start >= 0 && learnedStarts.has(start) && d.decision !== 'allow') {
+        if (start >= 0
+            && learnedStarts.has(start)
+            && d.decision !== 'allow'
+            && isLearnableDLPDetection(d)) {
             return {
                 ...d,
                 confidence: 12,
@@ -553,8 +569,10 @@ export function scanInputForCredentials(
 
     return {
         status,
-        detections: deduped,
-        ...(allowedDeduped.length > 0 ? { allowed_detections: allowedDeduped } : {}),
+        detections: deduped.map(toPublicDetection),
+        ...(allowedDeduped.length > 0
+            ? { allowed_detections: allowedDeduped.map(toPublicDetection) }
+            : {}),
         duration_ms: Date.now() - start,
         scanned_length: input.length,
     };
@@ -563,7 +581,18 @@ export function scanInputForCredentials(
 /**
  * Deduplicate overlapping detections — keep the higher severity one.
  */
-function deduplicateDetections(detections: CredentialDetection[]): CredentialDetection[] {
+function toPublicDetection(detection: InternalCredentialDetection): CredentialDetection {
+    const { match, ...safe } = detection;
+    return {
+        ...safe,
+        match: detection.redacted,
+        feedback_fingerprint: feedbackFingerprint(detection.type, match),
+    };
+}
+
+function deduplicateDetections(
+    detections: InternalCredentialDetection[]
+): InternalCredentialDetection[] {
     if (detections.length <= 1) return detections;
 
     const sorted = [...detections].sort((a, b) => {
@@ -572,7 +601,7 @@ function deduplicateDetections(detections: CredentialDetection[]): CredentialDet
         return posA - posB;
     });
 
-    const result: CredentialDetection[] = [];
+    const result: InternalCredentialDetection[] = [];
     for (const detection of sorted) {
         const overlapping = result.find(existing => {
             if (!existing.position || !detection.position) return false;
@@ -594,7 +623,10 @@ function deduplicateDetections(detections: CredentialDetection[]): CredentialDet
     return result;
 }
 
-function shouldReplaceDetection(candidate: CredentialDetection, existing: CredentialDetection): boolean {
+function shouldReplaceDetection(
+    candidate: InternalCredentialDetection,
+    existing: InternalCredentialDetection
+): boolean {
     const severityOrder = { critical: 0, high: 1, medium: 2 };
     const decisionOrder = { block: 0, warn: 1, allow: 2 };
     const severityDelta = severityOrder[candidate.severity] - severityOrder[existing.severity];

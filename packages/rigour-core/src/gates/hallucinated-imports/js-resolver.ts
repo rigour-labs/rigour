@@ -14,6 +14,7 @@ import path from 'path';
 import ts from 'typescript';
 import { HallucinatedImport } from './index.js';
 import { isNodeBuiltin } from '../hallucinated-imports-stdlib.js';
+import { resolveTsPathTarget } from './ts-path-target.js';
 
 interface TsPathRule {
     key: string;
@@ -199,7 +200,7 @@ export async function resolveTsPathAlias(
 
         for (const target of rule.targets) {
             const candidatePattern = rule.hasWildcard ? target.replace('*', wildcard) : target;
-            if (resolveTsPathTarget(config.baseDir, candidatePattern, cwd, projectFiles)) {
+            if (await resolveTsPathTarget(config.baseDir, candidatePattern, cwd, projectFiles)) {
                 return true;
             }
         }
@@ -221,26 +222,6 @@ function matchTsPathRule(rule: TsPathRule, importPath: string): string | null {
         return null;
     }
     return importPath.slice(rule.prefix.length, importPath.length - rule.suffix.length);
-}
-
-/**
- * Check if a TypeScript path target resolves to an actual project file.
- */
-function resolveTsPathTarget(
-    baseDir: string,
-    candidatePattern: string,
-    cwd: string,
-    projectFiles: Set<string>
-): boolean {
-    const absolute = path.resolve(baseDir, candidatePattern);
-    const relative = path.relative(cwd, absolute).replace(/\\/g, '/');
-    const normalized = relative.replace(/\/$/, '');
-    const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.d.ts'];
-    const candidates = [
-        ...extensions.map(ext => normalized + ext),
-        ...extensions.map(ext => `${normalized}/index${ext}`),
-    ];
-    return candidates.some(c => projectFiles.has(c));
 }
 
 /**
@@ -313,6 +294,12 @@ async function loadTsPathConfig(searchDir: string): Promise<TsPathConfig | null>
             if (targets.length === 0) continue;
             rules.push({ key, hasWildcard, prefix, suffix, targets });
         }
+
+        rules.sort((left, right) => {
+            if (left.hasWildcard !== right.hasWildcard) return left.hasWildcard ? 1 : -1;
+            return (right.prefix.length + right.suffix.length)
+                - (left.prefix.length + left.suffix.length);
+        });
 
         if (rules.length === 0) continue;
         return { baseDir: resolvedBaseDir, rules };

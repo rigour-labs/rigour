@@ -217,7 +217,7 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         input_validation: {
             enabled: true,
-            block_on_detection: true,
+            block_on_detection: false,
             min_secret_length: 8,
             custom_patterns: [],
             ignore_patterns: [],

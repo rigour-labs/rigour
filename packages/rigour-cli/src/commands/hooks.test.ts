@@ -56,6 +56,24 @@ describe('hooksInitCommand', () => {
         expect(fs.existsSync(hookPath)).toBe(true);
     });
 
+    it('should skip a legacy .clinerules file and continue other tools', async () => {
+        fs.writeFileSync(path.join(testDir, '.clinerules'), 'legacy Cline rules');
+
+        await expect(hooksInitCommand(testDir, {
+            tool: 'cline,windsurf',
+        })).resolves.toBeUndefined();
+
+        expect(fs.readFileSync(path.join(testDir, '.clinerules'), 'utf-8'))
+            .toBe('legacy Cline rules');
+        expect(fs.existsSync(path.join(testDir, '.windsurf', 'hooks.json'))).toBe(true);
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining('SKIP .clinerules/hooks/PostToolUse'),
+        );
+        expect(console.log).toHaveBeenCalledWith(
+            expect.stringContaining('Cline: Not configured'),
+        );
+    });
+
     it('should generate Windsurf hooks', async () => {
         await hooksInitCommand(testDir, { tool: 'windsurf' });
 
@@ -138,6 +156,8 @@ describe('hooksInitCommand — DLP integration', () => {
         expect(settings.hooks.PostToolUse).toBeDefined();
         expect(settings.hooks.PreToolUse).toBeDefined();
         expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('--mode dlp');
+        expect(settings.hooks.PreToolUse[0].hooks[0].command)
+            .toMatch(/npx --yes @rigour-labs\/cli@\d+\.\d+\.\d+/);
     });
 
     it('should generate Cursor hooks with DLP (beforeFileEdit) by default', async () => {
@@ -165,6 +185,34 @@ describe('hooksInitCommand — DLP integration', () => {
         const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
         expect(settings.hooks.PostToolUse).toBeDefined();
         expect(settings.hooks.PreToolUse).toBeUndefined();
+    });
+
+    it('should generate Cline DLP warnings without default blocking', async () => {
+        await hooksInitCommand(testDir, { tool: 'cline', force: true });
+
+        const script = fs.readFileSync(
+            path.join(testDir, '.clinerules', 'hooks', 'PreToolUse'),
+            'utf-8',
+        );
+        expect(script).toContain("result.status !== 'clean'");
+        expect(script).toContain("if (result.status === 'blocked') process.exit(2)");
+    });
+
+    it('should not route DLP hooks through the file-only core checker', async () => {
+        const coreChecker = path.join(
+            testDir,
+            'node_modules/@rigour-labs/core/dist/hooks/standalone-checker.js',
+        );
+        fs.mkdirSync(path.dirname(coreChecker), { recursive: true });
+        fs.writeFileSync(coreChecker, '');
+        await hooksInitCommand(testDir, { tool: 'cursor', force: true });
+
+        const hooks = JSON.parse(
+            fs.readFileSync(path.join(testDir, '.cursor', 'hooks.json'), 'utf-8'),
+        );
+        const command = hooks.hooks.beforeSubmitPrompt[0].command;
+        expect(command).toMatch(/npx --yes @rigour-labs\/cli@\d+\.\d+\.\d+/);
+        expect(command).not.toContain('standalone-checker');
     });
 });
 
@@ -206,6 +254,40 @@ describe('hooksCheckCommand', () => {
         const output = stdoutSpy.mock.calls.map(call => String(call[0])).join('');
         expect(output).toContain('"status":"fail"');
         expect(stderrSpy).toHaveBeenCalled();
+        expect(process.exitCode).toBe(2);
+        process.exitCode = originalExitCode;
+    });
+
+    it('should warn and continue for DLP detections by default', async () => {
+        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const originalExitCode = process.exitCode;
+
+        await hooksCheckCommand(testDir, {
+            mode: 'dlp',
+            files: 'AKIAZ9Y8X7W6V5U4T3Q2',
+        });
+
+        const output = stdoutSpy.mock.calls.map(call => String(call[0])).join('');
+        expect(output).toContain('"status":"warning"');
+        expect(output).not.toContain('AKIAZ9Y8X7W6V5U4T3Q2');
+        expect(stderrSpy).toHaveBeenCalled();
+        expect(process.exitCode).toBe(originalExitCode);
+    });
+
+    it('should block DLP detections only with --block', async () => {
+        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const originalExitCode = process.exitCode;
+
+        await hooksCheckCommand(testDir, {
+            mode: 'dlp',
+            files: 'AKIAZ9Y8X7W6V5U4T3Q2',
+            block: true,
+        });
+
+        const output = stdoutSpy.mock.calls.map(call => String(call[0])).join('');
+        expect(output).toContain('"status":"blocked"');
         expect(process.exitCode).toBe(2);
         process.exitCode = originalExitCode;
     });

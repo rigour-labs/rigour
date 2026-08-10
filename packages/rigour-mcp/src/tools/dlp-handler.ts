@@ -4,7 +4,7 @@
  * Handlers for: rigour_input_scan, rigour_dlp_init
  *
  * AI Agent Data Loss Prevention — scans user input for credentials
- * before they reach AI agents.
+ * before agent actions.
  *
  * @since v4.2.0 — AI Agent DLP layer
  */
@@ -13,6 +13,8 @@ import { scanInputForCredentials, formatDLPAlert, createDLPAuditEntry, generateD
 import type { HookTool } from '@rigour-labs/core';
 import fs from 'fs-extra';
 import path from 'path';
+import { getPinnedCheckerCommand } from './cli-command.js';
+import { formatHookWriteResult, writeHookFiles } from './hook-file-writer.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
 
@@ -20,7 +22,7 @@ type ToolResult = { content: { type: string; text: string }[]; isError?: boolean
  * rigour_input_scan — Scan text for credentials before agent processing.
  *
  * This is the core DLP tool. Agents can call this to validate user input
- * contains no secrets before processing it.
+ * may contain secrets before processing it.
  */
 export async function handleInputScan(
     cwd: string,
@@ -39,7 +41,7 @@ export async function handleInputScan(
 
     const result = scanInputForCredentials(text, {
         enabled: true,
-        block_on_detection: block ?? true,
+        block_on_detection: block ?? false,
         audit_log: true,
     });
 
@@ -81,8 +83,8 @@ export async function handleInputScan(
 /**
  * rigour_dlp_init — Generate DLP hook configs for AI coding tools.
  *
- * Creates pre-input hooks that intercept credentials before they
- * reach the AI agent.
+ * Creates pre-input hooks that warn about possible credentials before
+ * agent actions.
  */
 export async function handleDLPInit(
     cwd: string,
@@ -92,7 +94,7 @@ export async function handleDLPInit(
 ): Promise<ToolResult> {
     try {
         const hookTool = tool as HookTool;
-        const checkerCommand = 'rigour hooks check';
+        const checkerCommand = getPinnedCheckerCommand();
         const files = generateDLPHookFiles(hookTool, checkerCommand);
 
         if (dryRun) {
@@ -105,32 +107,12 @@ export async function handleDLPInit(
             };
         }
 
-        const written: string[] = [];
-        const skipped: string[] = [];
-
-        for (const file of files) {
-            const fullPath = path.join(cwd, file.path);
-
-            if (!force && await fs.pathExists(fullPath)) {
-                skipped.push(file.path);
-                continue;
-            }
-
-            await fs.ensureDir(path.dirname(fullPath));
-            await fs.writeFile(fullPath, file.content);
-            if (file.executable) {
-                await fs.chmod(fullPath, 0o755);
-            }
-            written.push(file.path);
-        }
-
-        const parts: string[] = [];
-        if (written.length > 0) parts.push(`✓ Created: ${written.join(', ')}`);
-        if (skipped.length > 0) parts.push(`⊘ Skipped (exists): ${skipped.join(', ')}. Use force=true to overwrite.`);
+        const writeResult = await writeHookFiles(cwd, files, force);
+        const parts = formatHookWriteResult(writeResult);
         parts.push(`Tool: ${tool}`);
-        parts.push('DLP Protection: AWS keys, API tokens, database URLs, private keys, JWTs, passwords');
+        parts.push('DLP warnings: AWS keys, API tokens, database URLs, private keys, JWTs, passwords');
         parts.push('');
-        parts.push('🛑 Credentials will now be intercepted BEFORE reaching the AI agent.');
+        parts.push('⚠ Possible credentials will be reported before agent actions.');
 
         return {
             content: [{ type: 'text', text: parts.join('\n') }],
@@ -147,7 +129,7 @@ export async function handleDLPInit(
 }
 
 /**
- * rigour_dlp_audit — Query the DLP audit log for recent credential interceptions.
+ * rigour_dlp_audit — Query the DLP audit log for recent credential detections.
  */
 export async function handleDLPAudit(
     cwd: string,

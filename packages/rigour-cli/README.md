@@ -29,7 +29,7 @@ brew install rigour
 
 AI agents are powerful but ungoverned. They claim success based on narrative, not execution. Credentials get cached in agent memory. Imports get hallucinated. Code quality drifts across sessions.
 
-**Rigour breaks this cycle** with deterministic PASS/FAIL gates, credential interception, and memory governance — all local-first.
+**Rigour breaks this cycle** with deterministic PASS/FAIL gates, credential warnings, and memory governance — all local-first.
 
 ## 🔄 How It Works
 
@@ -80,7 +80,7 @@ Every failure carries a provenance tag (`ai-drift`, `traditional`, `security`, `
 
 ## 🔒 AI Agent DLP (Data Loss Prevention)
 
-Real-time credential interception via PreToolUse hooks — blocks credentials before agents see them.
+Real-time credential detection via PreToolUse hooks — warns by default before agent actions.
 
 - **29 credential patterns**: AWS, GCP, Azure, OpenAI, Anthropic, GitHub, Stripe, private keys, database URLs, JWTs, CI/CD tokens
 - **Anti-evasion**: Unicode normalization, zero-width char removal, bidi control stripping, Shannon entropy detection (>4.5 bits)

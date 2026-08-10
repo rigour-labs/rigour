@@ -22,7 +22,36 @@ export interface DLPFeedbackStore {
 
 export interface DLPBlockManifest {
     timestamp: string;
-    detections: Array<{ type: string; match: string; fingerprint: string; shape: string }>;
+    detections: Array<{ type: string; fingerprint: string; confidence: number }>;
+}
+
+const DLP_BLOCK_MANIFEST_TTL_MS = 10 * 60 * 1000;
+const MAX_LEARNABLE_CONFIDENCE = 79;
+const NON_LEARNABLE_TYPES = new Set([
+    'private_key',
+    'private_key_full',
+    'gcp_service_account',
+    'bearer_token',
+    'jwt_token',
+    'aws_secret_key',
+    'azure_key',
+    'anthropic_key',
+    'slack_token',
+    'sendgrid_key',
+    'aws_access_key',
+    'openai_key',
+    'github_token',
+    'stripe_key',
+    'twilio_key',
+    'high_entropy_secret',
+]);
+
+export function isLearnableDLPDetection(
+    detection: { type: string; confidence?: number }
+): boolean {
+    const confidence = detection.confidence ?? 100;
+    return !NON_LEARNABLE_TYPES.has(detection.type)
+        && confidence <= MAX_LEARNABLE_CONFIDENCE;
 }
 
 /** Normalize a matched value to a shape for learning (preserves structure, not secret content). */
@@ -82,10 +111,16 @@ async function saveStore(cwd: string, store: DLPFeedbackStore): Promise<void> {
 
 export async function recordDLPFeedback(
     cwd: string,
-    entry: { type: string; match: string; line?: string; source?: DLPFeedbackEntry['source'] }
-): Promise<string> {
+    entry: {
+        type: string;
+        match: string;
+        confidence?: number;
+        line?: string;
+        source?: DLPFeedbackEntry['source'];
+    }
+): Promise<string | null> {
+    if (!isLearnableDLPDetection(entry)) return null;
     const fingerprint = feedbackFingerprint(entry.type, entry.match);
-    const shape = extractValueShape(entry.match);
     const store = await loadStore(cwd);
     const existing = store.entries.find(e => e.fingerprint === fingerprint);
     const now = new Date().toISOString();
@@ -97,7 +132,7 @@ export async function recordDLPFeedback(
         store.entries.push({
             fingerprint,
             type: entry.type,
-            shape,
+            shape: '[redacted]',
             hits: 1,
             lastSeenAt: now,
             source: entry.source ?? 'hook',
@@ -166,38 +201,64 @@ function getLineAt(input: string, start: number): string {
 
 export async function writeDLPBlockManifest(
     cwd: string,
-    detections: Array<{ type: string; match: string; position?: { start: number; end: number } }>,
-    input: string
+    detections: Array<{
+        type: string;
+        match?: string;
+        feedback_fingerprint?: string;
+        confidence?: number;
+        position?: { start: number; end: number };
+    }>,
+    _input: string
 ): Promise<void> {
     const seen = new Set<string>();
     const manifestDetections: DLPBlockManifest['detections'] = [];
     for (const d of detections) {
-        const fp = feedbackFingerprint(d.type, d.match);
+        if (!isLearnableDLPDetection(d)) continue;
+        const fp = d.feedback_fingerprint
+            ?? (d.match ? feedbackFingerprint(d.type, d.match) : null);
+        if (!fp) continue;
         if (seen.has(fp)) continue;
         seen.add(fp);
         manifestDetections.push({
             type: d.type,
-            match: d.match.slice(0, 80),
             fingerprint: fp,
-            shape: extractValueShape(d.match),
+            confidence: d.confidence ?? 100,
         });
+    }
+    const manifestPath = lastBlockPath(cwd);
+    if (manifestDetections.length === 0) {
+        await fs.remove(manifestPath);
+        return;
     }
     const manifest: DLPBlockManifest = {
         timestamp: new Date().toISOString(),
         detections: manifestDetections,
     };
-    await fs.ensureDir(path.dirname(lastBlockPath(cwd)));
-    await fs.writeJson(lastBlockPath(cwd), manifest, { spaces: 2 });
+    await fs.ensureDir(path.dirname(manifestPath));
+    await fs.writeJson(manifestPath, manifest, { spaces: 2 });
 }
 
 export async function allowLastDLPBlock(cwd: string, source: DLPFeedbackEntry['source'] = 'hook'): Promise<number> {
     const manifestPath = lastBlockPath(cwd);
     if (!await fs.pathExists(manifestPath)) return 0;
-    const manifest = await fs.readJson(manifestPath) as DLPBlockManifest;
+    let manifest: DLPBlockManifest;
+    try {
+        manifest = await fs.readJson(manifestPath) as DLPBlockManifest;
+    } catch {
+        await fs.remove(manifestPath);
+        return 0;
+    }
+    await fs.remove(manifestPath);
+    const manifestAge = Date.now() - Date.parse(manifest.timestamp);
+    if (!Number.isFinite(manifestAge)
+        || manifestAge < 0
+        || manifestAge > DLP_BLOCK_MANIFEST_TTL_MS
+        || !Array.isArray(manifest.detections)) return 0;
     const store = await loadStore(cwd);
     const now = new Date().toISOString();
     let count = 0;
     for (const d of manifest.detections ?? []) {
+        if (!isLearnableDLPDetection(d)) continue;
         const existing = store.entries.find(e => e.fingerprint === d.fingerprint);
         if (existing) {
             existing.hits += 1;
@@ -206,7 +267,7 @@ export async function allowLastDLPBlock(cwd: string, source: DLPFeedbackEntry['s
             store.entries.push({
                 fingerprint: d.fingerprint,
                 type: d.type,
-                shape: d.shape,
+                shape: '[redacted]',
                 hits: 1,
                 lastSeenAt: now,
                 source,

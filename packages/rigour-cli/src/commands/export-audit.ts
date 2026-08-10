@@ -154,6 +154,8 @@ function buildAuditPackage(cwd: string, report: any, config: any) {
         score_trend: trend ? {
             direction: trend.direction,
             delta: trend.delta,
+            visible_delta: (trend as typeof trend & { visibleDelta?: number }).visibleDelta
+                ?? trend.recentScores[trend.recentScores.length - 1] - trend.recentScores[0],
             recent_average: trend.recentAvg,
             previous_average: trend.previousAvg,
             last_scores: trend.recentScores,
@@ -261,7 +263,8 @@ function renderMarkdown(audit: any): string {
         lines.push(`**Direction:** ${audit.score_trend.direction} ${arrow}`);
         lines.push(`**Recent Average:** ${audit.score_trend.recent_average}/100`);
         lines.push(`**Previous Average:** ${audit.score_trend.previous_average}/100`);
-        lines.push(`**Delta:** ${audit.score_trend.delta > 0 ? '+' : ''}${audit.score_trend.delta}`);
+        lines.push(`**Visible Delta:** ${audit.score_trend.visible_delta > 0 ? '+' : ''}${audit.score_trend.visible_delta}`);
+        lines.push(`**Window Average Delta:** ${audit.score_trend.delta > 0 ? '+' : ''}${audit.score_trend.delta}`);
         lines.push(`**Recent Scores:** ${audit.score_trend.last_scores.join(' → ')}`);
         lines.push('');
     }

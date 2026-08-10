@@ -6,8 +6,8 @@
  * InputValidationGate, and outputs JSON result to stdout.
  *
  * Exit codes:
- *   0 — clean (no credentials found)
- *   2 — blocked (credentials detected, transmission prevented)
+ *   0 — clean or warning (default)
+ *   2 — blocked when --block is explicitly set
  *
  * Usage:
  *   echo "my api_key = sk-abc123..." | node standalone-dlp-checker.js
@@ -22,7 +22,7 @@ import path from 'path';
 async function main() {
     const args = process.argv.slice(2);
     const isJson = args.includes('--json');
-    const block = !args.includes('--warn-only');
+    const block = args.includes('--block');
     const agent = args.find(a => a.startsWith('--agent='))?.split('=')[1] || 'unknown';
 
     // Read stdin

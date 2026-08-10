@@ -17,9 +17,9 @@ export function guideCommand() {
 
     console.log(chalk.bold('Hooks & DLP Learning:'));
     console.log(chalk.dim('  1. Run ') + chalk.cyan('rigour hooks init') + chalk.dim(' to wire Cursor/Claude/Cline/Windsurf hooks.'));
-    console.log(chalk.dim('  2. When DLP blocks a prompt falsely, run ') + chalk.cyan('rigour hooks check --dlp-allow-last'));
+    console.log(chalk.dim('  2. When DLP warns about a prompt falsely, run ') + chalk.cyan('rigour hooks check --dlp-allow-last'));
     console.log(chalk.dim('     to teach Rigour that pattern is safe (stored in ') + chalk.cyan('.rigour/dlp-feedback.json') + chalk.dim(').'));
-    console.log(chalk.dim('  3. Real provider keys (OpenAI, AWS, etc.) still block — learning only relaxes generic shapes.\n'));
+    console.log(chalk.dim('  3. Real provider keys (OpenAI, AWS, etc.) cannot be learned away.\n'));
 
     console.log(chalk.bold('Workflow Integration:'));
     console.log(chalk.green('  • Cursor') + chalk.dim(': Add the MCP server or use the ') + chalk.cyan('.cursor/rules/rigour.mdc') + chalk.dim(' handshake.'));

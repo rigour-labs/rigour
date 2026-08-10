@@ -13,13 +13,14 @@ import type { GateContext } from './base.js';
 import path from 'path';
 
 // Mock fs-extra — vi.hoisted ensures these are available when vi.mock runs (hoisted)
-const { mockPathExists, mockPathExistsSync, mockReadFile, mockReadFileSync, mockReadJson, mockReaddirSync } = vi.hoisted(() => ({
+const { mockPathExists, mockPathExistsSync, mockReadFile, mockReadFileSync, mockReadJson, mockReaddirSync, mockStat } = vi.hoisted(() => ({
     mockPathExists: vi.fn(),
     mockPathExistsSync: vi.fn(),
     mockReadFile: vi.fn(),
     mockReadFileSync: vi.fn(),
     mockReadJson: vi.fn(),
     mockReaddirSync: vi.fn().mockReturnValue([]),
+    mockStat: vi.fn(),
 }));
 
 vi.mock('fs-extra', () => {
@@ -30,6 +31,7 @@ vi.mock('fs-extra', () => {
         readFileSync: mockReadFileSync,
         readJson: mockReadJson,
         readdirSync: mockReaddirSync,
+        stat: mockStat,
     };
     return {
         ...mock,
@@ -409,6 +411,7 @@ import { cfg } from '~shared/config';
             return normalized === `${testCwdNormalized}/apps/desktop/tsconfig.json`
                 || normalized === `${testCwdNormalized}/package.json`;
         });
+        mockStat.mockResolvedValue({ isFile: () => true });
         mockReadJson.mockResolvedValue({
             dependencies: {},
             devDependencies: {},
@@ -458,6 +461,41 @@ import { cfg } from '~shared/config';
             details.includes("Path alias '@/utils/missing' does not resolve to a project file")
             || details.includes("Package '@/utils' not in package.json dependencies")
         ).toBe(true);
+    });
+
+    it('should resolve configured aliases to hidden generated files', async () => {
+        const jsContent = `import { docs } from '@/.source';`;
+        const tsconfigContent = `{
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "@/.source": ["./.source/index.ts"]
+    }
+  }
+}`;
+
+        (FileScanner.findFiles as any).mockResolvedValue(['docs-site/lib/source.ts']);
+        mockReadFile.mockImplementation(async (p: string) => {
+            const normalized = normalizePath(p);
+            if (normalized.endsWith('/docs-site/tsconfig.json')) return tsconfigContent;
+            return jsContent;
+        });
+        mockPathExists.mockImplementation(async (p: string) => {
+            const normalized = normalizePath(p);
+            return normalized === `${testCwdNormalized}/docs-site/tsconfig.json`
+                || normalized === `${testCwdNormalized}/docs-site/.source/index.ts`
+                || normalized === `${testCwdNormalized}/package.json`;
+        });
+        mockStat.mockResolvedValue({ isFile: () => true });
+        mockReadJson.mockResolvedValue({
+            dependencies: {},
+            devDependencies: {},
+            peerDependencies: {},
+            optionalDependencies: {},
+        });
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(0);
     });
 
     it('should NOT flag ESM .js specifiers that resolve to .ts source files', async () => {

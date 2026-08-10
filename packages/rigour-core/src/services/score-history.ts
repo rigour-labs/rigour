@@ -25,7 +25,10 @@ export interface ScoreEntry {
 
 export interface ScoreTrend {
     direction: 'improving' | 'stable' | 'degrading';
+    /** Difference between recent and previous window averages. */
     delta: number;
+    /** Difference between the first and last score displayed to the user. */
+    visibleDelta: number;
     recentAvg: number;
     previousAvg: number;
     recentScores: number[];
@@ -102,7 +105,8 @@ export function getScoreHistory(cwd: string, limit: number = 20): ScoreEntry[] {
 
 /**
  * Calculate score trend from history.
- * Compares average of last 5 runs vs previous 5 runs.
+ * Direction and delta describe the same recent scores shown to users.
+ * Window averages remain available for detailed historical comparison.
  */
 export function getScoreTrend(cwd: string): ScoreTrend | null {
     const history = getScoreHistory(cwd, 20);
@@ -114,28 +118,21 @@ export function getScoreTrend(cwd: string): ScoreTrend | null {
 
     const recentAvg = recentScores.reduce((a, b) => a + b, 0) / recentScores.length;
 
-    if (previousScores.length === 0) {
-        return {
-            direction: 'stable',
-            delta: 0,
-            recentAvg: Math.round(recentAvg),
-            previousAvg: Math.round(recentAvg),
-            recentScores,
-        };
-    }
-
-    const previousAvg = previousScores.reduce((a, b) => a + b, 0) / previousScores.length;
-    const delta = recentAvg - previousAvg;
+    const previousAvg = previousScores.length > 0
+        ? previousScores.reduce((a, b) => a + b, 0) / previousScores.length
+        : recentAvg;
+    const windowDelta = recentAvg - previousAvg;
+    const visibleDelta = recentScores[recentScores.length - 1] - recentScores[0];
 
     // If all recent scores are the same (e.g. all 0 or all 100), trend is stable
     const allSame = recentScores.every(s => s === recentScores[0]);
 
     let direction: ScoreTrend['direction'];
-    if (allSame && previousScores.length > 0 && previousScores.every(s => s === recentScores[0])) {
+    if (allSame) {
         direction = 'stable';
-    } else if (delta > 3) {
+    } else if (visibleDelta > 3) {
         direction = 'improving';
-    } else if (delta < -3) {
+    } else if (visibleDelta < -3) {
         direction = 'degrading';
     } else {
         direction = 'stable';
@@ -143,7 +140,8 @@ export function getScoreTrend(cwd: string): ScoreTrend | null {
 
     return {
         direction,
-        delta: Math.round(delta * 10) / 10,
+        delta: Math.round(windowDelta * 10) / 10,
+        visibleDelta: Math.round(visibleDelta * 10) / 10,
         recentAvg: Math.round(recentAvg),
         previousAvg: Math.round(previousAvg),
         recentScores,

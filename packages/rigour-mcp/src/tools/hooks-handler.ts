@@ -5,13 +5,15 @@
  * Now includes DLP (Data Loss Prevention) capabilities.
  *
  * @since v3.0.0 — real-time hooks for AI coding tools
- * @since v4.2.0 — AI Agent DLP layer (credential interception)
+ * @since v4.2.0 — AI Agent DLP warning layer
  */
 import { runHookChecker, generateHookFiles } from "@rigour-labs/core";
 import { scanInputForCredentials, formatDLPAlert, createDLPAuditEntry, generateDLPHookFiles } from "@rigour-labs/core";
 import type { HookTool } from "@rigour-labs/core";
 import fs from "fs-extra";
 import path from "path";
+import { getPinnedCheckerCommand } from "./cli-command.js";
+import { formatHookWriteResult, mergeHookFiles, writeHookFiles } from "./hook-file-writer.js";
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
 
@@ -34,7 +36,7 @@ export async function handleHooksCheck(
     if (text) {
         const result = scanInputForCredentials(text, {
             enabled: true,
-            block_on_detection: true,
+            block_on_detection: false,
             audit_log: true,
         });
 
@@ -112,7 +114,7 @@ export async function handleHooksCheck(
  * rigour_hooks_init — Generate hook configs for AI coding tools.
  *
  * NEW in v4.2.0: When `dlp` param is true, also generates pre-input
- * DLP hooks that intercept credentials before agent processing.
+ * DLP hooks that warn about possible credentials before agent processing.
  */
 export async function handleHooksInit(
     cwd: string,
@@ -123,14 +125,14 @@ export async function handleHooksInit(
 ): Promise<ToolResult> {
     try {
         const hookTool = tool as HookTool;
-        const checkerCommand = 'rigour hooks check';
+        const checkerCommand = getPinnedCheckerCommand();
 
         // Generate post-output hooks (existing)
         const files = generateHookFiles(hookTool, checkerCommand);
 
         // Generate DLP pre-input hooks (new)
         const dlpFiles = dlp ? generateDLPHookFiles(hookTool, checkerCommand) : [];
-        const allFiles = [...files, ...dlpFiles];
+        const allFiles = mergeHookFiles([...files, ...dlpFiles]);
 
         if (dryRun) {
             const preview = allFiles.map(f => `${f.path}:\n${f.content.slice(0, 300)}...`).join('\n\n');
@@ -142,34 +144,14 @@ export async function handleHooksInit(
             };
         }
 
-        const written: string[] = [];
-        const skipped: string[] = [];
-
-        for (const file of allFiles) {
-            const fullPath = path.join(cwd, file.path);
-
-            if (!force && await fs.pathExists(fullPath)) {
-                skipped.push(file.path);
-                continue;
-            }
-
-            await fs.ensureDir(path.dirname(fullPath));
-            await fs.writeFile(fullPath, file.content);
-            if (file.executable) {
-                await fs.chmod(fullPath, 0o755);
-            }
-            written.push(file.path);
-        }
-
-        const parts: string[] = [];
-        if (written.length > 0) parts.push(`✓ Created: ${written.join(', ')}`);
-        if (skipped.length > 0) parts.push(`⊘ Skipped (exists): ${skipped.join(', ')}. Use force=true to overwrite.`);
+        const writeResult = await writeHookFiles(cwd, allFiles, force);
+        const parts = formatHookWriteResult(writeResult);
         parts.push(`Tool: ${tool}`);
         parts.push('Checks: file-size, security-patterns, hallucinated-imports, command-injection');
         if (dlp) {
             parts.push('');
-            parts.push('🛑 DLP Protection: AWS keys, API tokens, database URLs, private keys, JWTs, passwords');
-            parts.push('Credentials will be intercepted BEFORE reaching the AI agent.');
+            parts.push('⚠ DLP warnings: AWS keys, API tokens, database URLs, private keys, JWTs, passwords');
+            parts.push('Possible credentials will be reported before agent actions.');
         }
 
         return {

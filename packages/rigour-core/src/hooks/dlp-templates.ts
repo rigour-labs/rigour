@@ -1,8 +1,8 @@
 /**
- * DLP Hook Templates — Pre-Input Credential Interception
+ * DLP Hook Templates — Pre-Input Credential Warnings
  *
  * Generates tool-native hook configs that intercept user input
- * BEFORE it reaches the AI agent. Complements the existing
+ * before agent actions. Complements the existing
  * post-output templates in templates.ts.
  *
  * Hook events:
@@ -44,7 +44,7 @@ export function generateDLPHookFiles(tool: HookTool, checkerCommand: string): Ge
 
 function generateClaudeDLPHooks(checkerCommand: string): GeneratedDLPHookFile[] {
     // Claude Code supports PreToolUse hooks that fire BEFORE tool execution.
-    // We intercept all tool uses to scan user input for credentials.
+    // Scan tool input and report warnings without blocking by default.
     const settings = {
         hooks: {
             PreToolUse: [
@@ -118,13 +118,12 @@ process.stdin.on('end', async () => {
         if (proc.error) throw proc.error;
 
         const result = JSON.parse((proc.stdout || '').trim());
-        if (result.status === 'blocked') {
-            process.stderr.write('[rigour/dlp] ' + result.detections.length + ' credential(s) BLOCKED\\n');
+        if (result.status !== 'clean') {
+            process.stderr.write('[rigour/dlp] ' + result.detections.length + ' possible credential(s) detected\\n');
             for (const d of result.detections) {
-                process.stderr.write('  [' + d.severity.toUpperCase() + '] ' + d.description + '\\n');
+                process.stderr.write('  [WARNING] ' + d.description + '\\n');
                 process.stderr.write('    → ' + d.recommendation + '\\n');
             }
-            process.exit(2); // Block the operation
         }
 
         process.stdout.write(JSON.stringify({ status: 'ok' }));
@@ -145,7 +144,7 @@ process.stdin.on('end', async () => {
             path: '.cursor/rigour-dlp-hook.js',
             content: wrapper,
             executable: true,
-            description: 'Cursor DLP hook wrapper — credential interception',
+            description: 'Cursor DLP hook wrapper — credential warnings',
         },
     ];
 }
@@ -197,15 +196,14 @@ process.stdin.on('end', async () => {
         if (proc.error) throw proc.error;
 
         const result = JSON.parse((proc.stdout || '').trim());
-        if (result.status === 'blocked') {
+        if (result.status !== 'clean') {
             const msgs = result.detections
                 .map(d => '[rigour/dlp/' + d.type + '] ' + d.description + ' → ' + d.recommendation)
                 .join('\\n');
 
             process.stdout.write(JSON.stringify({
-                contextModification: '\\n🛑 [Rigour DLP] ' + result.detections.length + ' credential(s) BLOCKED before agent processing:\\n' + msgs + '\\nReplace with environment variable references.',
+                contextModification: '\\n⚠️ [Rigour DLP] ' + result.detections.length + ' possible credential(s) detected:\\n' + msgs,
             }));
-            process.exit(2);
         } else {
             process.stdout.write(JSON.stringify({}));
         }
@@ -221,7 +219,7 @@ process.stdin.on('end', async () => {
             path: '.clinerules/hooks/PreToolUse',
             content: script,
             executable: true,
-            description: 'Cline PreToolUse DLP hook — credential interception before agent execution',
+            description: 'Cline PreToolUse DLP hook — credential warnings before agent execution',
         },
     ];
 }
@@ -272,12 +270,11 @@ process.stdin.on('end', async () => {
         if (proc.error) throw proc.error;
 
         const result = JSON.parse((proc.stdout || '').trim());
-        if (result.status === 'blocked') {
+        if (result.status !== 'clean') {
             for (const d of result.detections) {
-                process.stderr.write('[rigour/dlp] 🛑 ' + d.severity.toUpperCase() + ': ' + d.description + '\\n');
+                process.stderr.write('[rigour/dlp] ⚠ possible credential: ' + d.description + '\\n');
                 process.stderr.write('  → ' + d.recommendation + '\\n');
             }
-            process.exit(2); // Block
         }
     } catch (err) {
         process.stderr.write('Rigour DLP hook error: ' + err.message + '\\n');
@@ -295,7 +292,7 @@ process.stdin.on('end', async () => {
             path: '.windsurf/rigour-dlp-hook.js',
             content: wrapper,
             executable: true,
-            description: 'Windsurf DLP hook wrapper — credential interception before Cascade',
+            description: 'Windsurf DLP hook wrapper — credential warnings before Cascade',
         },
     ];
 }

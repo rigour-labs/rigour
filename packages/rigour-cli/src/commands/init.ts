@@ -523,6 +523,13 @@ const IDE_TO_HOOK_TOOL: Record<string, string> = {
     windsurf: 'windsurf',
 };
 
+const PRIMARY_HOOK_PATH: Record<string, string> = {
+    claude: '.claude/settings.json',
+    cursor: '.cursor/hooks.json',
+    cline: '.clinerules/hooks/PostToolUse',
+    windsurf: '.windsurf/hooks.json',
+};
+
 /**
  * Build the pattern index so rigour_check_pattern can detect duplicates.
  * Uses semantic embeddings by default for fuzzy matching.
@@ -574,14 +581,16 @@ async function initHooksForAllDetectedTools(
         try {
             console.log(chalk.dim(`\n   Setting up real-time hooks for ${ide}...`));
             await hooksInitCommand(cwd, { tool: hookTool, dlp: true, force: true, block: true });
-            enabledTools.push(hookTool);
+            if (await fs.pathExists(path.join(cwd, PRIMARY_HOOK_PATH[hookTool]))) {
+                enabledTools.push(hookTool);
+            }
         } catch (err: any) {
             console.log(chalk.dim(`   (Hooks setup for ${ide} failed: ${err?.message || err})`));
         }
     }
 
     if (enabledTools.length > 0) {
-        console.log(chalk.dim(`   🛑 DLP protection active for: ${enabledTools.join(', ')}`));
+        console.log(chalk.dim(`   ⚠ DLP warnings active for: ${enabledTools.join(', ')}`));
     }
 
     return enabledTools;
