@@ -22,14 +22,13 @@ interface Props {
 }
 
 function scopesOverlap(a: string, b: string): boolean {
+    if (!a || !b) return false;
     if (a === b) return true;
 
-    // Task IDs must match exactly — startsWith over-flags CTP-like IDs.
     if (a.startsWith('task:') || b.startsWith('task:')) {
         return a === b;
     }
 
-    // Path-aware prefix: "services/task" overlaps "services/task/src" only with boundary.
     const pathOverlap = (left: string, right: string) =>
         left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 
