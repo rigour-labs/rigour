@@ -133,6 +133,22 @@ export class TransactionRunner {
         return scopeEv;
     }
 
+    async syncWorktreeChanges(): Promise<string[]> {
+        const root = this.record.worktreePath || this.cwd;
+        const files = await listChangedFiles(root);
+        for (const f of files) {
+            const ev = await this.noteFileChange(f);
+            if (ev.decision !== 'allow') {
+                throw Object.assign(new Error(ev.reason), { evaluation: ev, code: 'FIREWALL_DENY' });
+            }
+        }
+        return [...this.record.filesChanged];
+    }
+
+    getWorktreePath(): string | undefined {
+        return this.record.worktreePath;
+    }
+
     async verify(runGates: () => Promise<{ status: string; failedGates: string[]; score?: number }>): Promise<{
         ok: boolean;
         gateResults: { status: string; failedGates: string[]; score?: number };
@@ -146,7 +162,7 @@ export class TransactionRunner {
     async commit(): Promise<TransactionRecord> {
         this.setStatus('COMMIT');
         this.record.finishedAt = new Date().toISOString();
-        // If worktree exists with git, leave branch for operator to merge; mark committed
+        // Worktree branch is left for operator merge; attestation binds treeDigest/commitSha
         await this.persist();
         return this.getRecord();
     }
@@ -177,6 +193,27 @@ export class TransactionRunner {
         await fs.ensureDir(dir);
         await fs.writeJson(path.join(dir, `${this.record.id}.json`), this.record, { spaces: 2 });
         await fs.writeJson(path.join(this.cwd, '.rigour', 'transaction-current.json'), this.record, { spaces: 2 });
+    }
+}
+
+export async function listChangedFiles(dir: string): Promise<string[]> {
+    try {
+        const { stdout: diffOut } = await execa('git', ['diff', '--name-only', 'HEAD'], {
+            cwd: dir,
+            shell: false,
+        });
+        const { stdout: untrackedOut } = await execa(
+            'git',
+            ['ls-files', '--others', '--exclude-standard'],
+            { cwd: dir, shell: false },
+        );
+        const files = [
+            ...diffOut.split('\n'),
+            ...untrackedOut.split('\n'),
+        ].map(s => s.trim()).filter(Boolean);
+        return [...new Set(files)];
+    } catch {
+        return [];
     }
 }
 

@@ -875,6 +875,17 @@ async function handleApiRequest(
                     .slice(-50)
                     .reverse();
             }
+            const hooksPresent =
+                (await fs.pathExists(path.join(cwd, '.cursor/hooks.json'))) ||
+                (await fs.pathExists(path.join(cwd, '.claude/settings.json'))) ||
+                (await fs.pathExists(path.join(cwd, '.clinerules'))) ||
+                (await fs.pathExists(path.join(cwd, '.windsurf/hooks.json')));
+            const agentScopesPath = path.join(cwd, '.rigour/agent-session.json');
+            const agentSession = await fs.pathExists(agentScopesPath) ? await fs.readJson(agentScopesPath) : null;
+            const scopeActive = Array.isArray(agentSession?.agents) && agentSession.agents.length > 0;
+            const typedSeen = recentDenies.some((e) => e.ruleId?.startsWith?.('shell.') || e.tool === 'rigour_run');
+            const gatewayWired = false; // McpGateway not yet the MCP proxy path
+
             sendJson(res, 200, {
                 current,
                 transactions: transactions.slice(0, 20),
@@ -885,9 +896,12 @@ async function handleApiRequest(
                 recentDenies,
                 failClosed: true,
                 mediation: {
-                    typedCommands: true,
-                    scopeEnforcement: true,
+                    status: gatewayWired && hooksPresent ? 'full' : 'partial',
+                    typedCommands: typedSeen || hooksPresent ? 'rigour_run_only' : 'not_observed',
+                    scopeEnforcement: scopeActive ? 'requires_agent_id' : 'inactive',
                     arbitration: 'fail-closed',
+                    hooksInstalled: hooksPresent,
+                    mcpGateway: gatewayWired,
                 },
             });
         } catch (e: any) {
@@ -902,6 +916,12 @@ async function handleApiRequest(
         req.on('end', async () => {
             try {
                 const decision = JSON.parse(body);
+                const { consumeArbitrationToken } = await import('@rigour-labs/core');
+                const ok = await consumeArbitrationToken(cwd, decision.requestId, decision.token);
+                if (!ok) {
+                    sendJson(res, 403, { error: 'Invalid or missing arbitration token (one-time, fail-closed)' });
+                    return;
+                }
                 const logEntry =
                     JSON.stringify({
                         id: randomUUID(),

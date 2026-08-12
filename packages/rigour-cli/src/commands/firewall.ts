@@ -17,6 +17,7 @@ import {
     listTransactions,
     GateRunner,
     ConfigSchema,
+    loadAgentScopesFromDisk,
 } from '@rigour-labs/core';
 
 export async function firewallTransactCommand(
@@ -34,12 +35,27 @@ export async function firewallTransactCommand(
         return;
     }
 
+    const registered = await loadAgentScopesFromDisk(cwd);
+    if (registered.length > 0 && !options.agent) {
+        console.error(chalk.red('Agent scopes are registered — pass --agent <id> to bind the writer (fail-closed)'));
+        process.exit(1);
+    }
+
     const scope = (options.scope || '**/*').split(',').map(s => s.trim()).filter(Boolean);
     const tx = new TransactionRunner(cwd, { agentId: options.agent, scope });
     const started = await tx.start();
     console.log(chalk.cyan(`START transaction ${started.id}`));
+    const gateCwd = started.worktreePath || cwd;
     if (started.worktreePath) {
         console.log(chalk.dim(`Worktree: ${started.worktreePath}`));
+    }
+
+    try {
+        await tx.syncWorktreeChanges();
+    } catch (e: any) {
+        await tx.discard();
+        console.error(chalk.red(`DISCARD — scope/budget: ${e.message}`));
+        process.exit(1);
     }
 
     const configPath = path.join(cwd, 'rigour.yml');
@@ -49,7 +65,7 @@ export async function firewallTransactCommand(
     }
     const runner = new GateRunner(config);
     const { ok, gateResults } = await tx.verify(async () => {
-        const report = await runner.run(cwd);
+        const report = await runner.run(gateCwd);
         const failedGates = [...new Set(report.failures.map(f => f.id))];
         return { status: report.status, failedGates, score: report.stats.score };
     });
@@ -68,9 +84,12 @@ export async function firewallTransactCommand(
             score: gateResults.score,
             failedGates: gateResults.failedGates,
         },
+        verifyRoot: gateCwd,
     });
     console.log(chalk.green(`COMMIT ${committed.id}`));
-    console.log(chalk.green(`Attestation ${attestation.signature.slice(0, 12)}… policy=${attestation.policyHash}`));
+    console.log(chalk.green(
+        `Attestation ${attestation.signature.slice(0, 12)}… tree=${(attestation.treeDigest || '').slice(0, 12)} policy=${attestation.policyHash}`,
+    ));
 }
 
 export async function firewallAdversarialCommand(cwd: string) {

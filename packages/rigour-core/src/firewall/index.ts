@@ -7,3 +7,4 @@ export * from './transaction.js';
 export * from './attestation.js';
 export * from './adversarial.js';
 export * from './mcp-gateway.js';
+export * from './arbitration-token.js';

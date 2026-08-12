@@ -84,6 +84,10 @@ export interface AttestationBundle {
     gateResults: { status: string; score?: number; failedGates: string[] };
     overrides: string[];
     artifactDigest: string;
+    /** git commit SHA at attestation time */
+    commitSha?: string;
+    /** git tree object id (HEAD^{tree}) */
+    treeDigest?: string;
     signedAt: string;
     signature: string;
 }

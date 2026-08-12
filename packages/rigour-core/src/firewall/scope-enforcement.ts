@@ -1,5 +1,6 @@
 /**
  * Enforce agent file ownership against claimed globs.
+ * Fail-closed: when scopes exist, writer agentId is required (no union-allow).
  */
 
 import path from 'path';
@@ -13,6 +14,16 @@ export interface AgentScopeRecord {
     taskScope: string[];
 }
 
+/** Globs agents may not self-claim without operator authority. */
+const FORBIDDEN_AGENT_SCOPES = new Set(['*', '**', '**/*', '**/**', '/*', '/']);
+
+const SENSITIVE_SCOPE_PATTERNS = [
+    /^\.github(\/|$|\*\*)/i,
+    /(^|\/)\.env/i,
+    /(^|\/)secrets?(\/|$|\*\*)/i,
+    /^\*\*\/\.github/,
+];
+
 export function normalizeRelPath(cwd: string, filePath: string): string {
     const abs = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
     return path.relative(cwd, abs).replace(/\\/g, '/');
@@ -22,6 +33,56 @@ export function isPathInScope(relPath: string, globs: string[]): boolean {
     if (!globs || globs.length === 0) return false;
     const normalized = relPath.replace(/\\/g, '/');
     return micromatch.isMatch(normalized, globs, { dot: true });
+}
+
+export function validateAgentClaimedScope(taskScope: string[]): { ok: true } | { ok: false; reason: string } {
+    if (!taskScope.length) {
+        return { ok: false, reason: 'taskScope must be a non-empty list of path globs' };
+    }
+    for (const raw of taskScope) {
+        const s = raw.replace(/\\/g, '/').trim();
+        if (!s) {
+            return { ok: false, reason: 'Empty scope glob is not allowed' };
+        }
+        if (FORBIDDEN_AGENT_SCOPES.has(s)) {
+            return {
+                ok: false,
+                reason: `Scope "${s}" is too broad for agent self-registration (operator authority required)`,
+            };
+        }
+        if (SENSITIVE_SCOPE_PATTERNS.some(re => re.test(s))) {
+            return {
+                ok: false,
+                reason: `Scope "${s}" covers sensitive paths; set operator scopes or RIGOUR_ALLOW_AGENT_SCOPE_AUTHORITY=1`,
+            };
+        }
+    }
+    return { ok: true };
+}
+
+/**
+ * Operator-controlled allowlist: `.rigour/operator-scopes.json`
+ * `{ "agents": { "agent-id": ["packages/foo/**"] } }`
+ */
+export async function loadOperatorScopes(cwd: string): Promise<Record<string, string[]> | null> {
+    const p = path.join(cwd, '.rigour', 'operator-scopes.json');
+    if (!(await fs.pathExists(p))) return null;
+    try {
+        const raw = await fs.readJson(p);
+        if (raw?.agents && typeof raw.agents === 'object') {
+            return raw.agents as Record<string, string[]>;
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+export function isScopeSubset(claimed: string[], allowed: string[]): boolean {
+    // Each claimed glob must be matched/covered by an allowed glob (exact or nested under allowed prefix)
+    return claimed.every(c =>
+        allowed.some(a => c === a || c.startsWith(a.replace(/\*\*$/, '').replace(/\*$/, '')) || micromatch.isMatch(c, a, { dot: true })),
+    );
 }
 
 export function evaluateWriteScope(
@@ -35,7 +96,6 @@ export function evaluateWriteScope(
     const timestamp = new Date().toISOString();
 
     if (!agentScopes.length) {
-        // No registered agents → no scope firewall (hooks still apply protected paths)
         return {
             decision: 'allow',
             reason: 'No agent scopes registered; scope enforcement inactive',
@@ -45,11 +105,18 @@ export function evaluateWriteScope(
         };
     }
 
-    const agents = agentId
-        ? agentScopes.filter(a => a.agentId === agentId)
-        : agentScopes;
+    if (!agentId) {
+        return {
+            decision: 'scope-violation',
+            reason: 'Writer agentId is required when agent scopes are registered (fail-closed; no union-allow)',
+            ruleId: 'scope.unbound',
+            policyHash,
+            timestamp,
+        };
+    }
 
-    if (agentId && agents.length === 0) {
+    const agents = agentScopes.filter(a => a.agentId === agentId);
+    if (agents.length === 0) {
         return {
             decision: 'scope-violation',
             reason: `Agent "${agentId}" is not registered`,

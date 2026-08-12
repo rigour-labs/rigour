@@ -27,12 +27,15 @@ interface FirewallPayload {
 }
 
 function MediationPills({ data }: { data: FirewallPayload }) {
-    const m = data.mediation;
+    const m = data.mediation as any;
     return (
         <div className="audit-stats">
             <div className="stat-pill"><Ban size={14} /> Fail-closed: {data.failClosed ? 'ON' : 'OFF'}</div>
-            <div className="stat-pill">Typed cmds: {m?.typedCommands ? 'ON' : 'OFF'}</div>
-            <div className="stat-pill">Scope: {m?.scopeEnforcement ? 'ENFORCED' : 'OFF'}</div>
+            <div className="stat-pill">Status: {m?.status || 'unknown'}</div>
+            <div className="stat-pill">Typed cmds: {String(m?.typedCommands ?? '—')}</div>
+            <div className="stat-pill">Scope: {String(m?.scopeEnforcement ?? '—')}</div>
+            <div className="stat-pill">Hooks: {m?.hooksInstalled ? 'installed' : 'missing'}</div>
+            <div className="stat-pill">MCP gateway: {m?.mcpGateway ? 'ON' : 'not wired'}</div>
             <div className="stat-pill">Arbitration: {m?.arbitration || '—'}</div>
         </div>
     );

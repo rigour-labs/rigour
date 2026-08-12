@@ -105,6 +105,53 @@ async function validateTaskScopeAgainstIndex(cwd: string, taskScope: string[]): 
 export async function handleAgentRegister(
     cwd: string, agentId: string, taskScope: string[], requestId: string
 ): Promise<ToolResult> {
+    const {
+        validateAgentClaimedScope,
+        loadOperatorScopes,
+        isScopeSubset,
+    } = await import('@rigour-labs/core');
+
+    const authority = process.env.RIGOUR_ALLOW_AGENT_SCOPE_AUTHORITY === '1';
+    if (!authority) {
+        const claimCheck = validateAgentClaimedScope(taskScope);
+        if (!claimCheck.ok) {
+            await logStudioEvent(cwd, {
+                type: 'firewall_deny',
+                requestId,
+                tool: 'rigour_agent_register',
+                decision: 'deny',
+                reason: claimCheck.reason,
+                ruleId: 'scope.register-denied',
+            });
+            return {
+                content: [{ type: 'text', text: `❌ SCOPE REGISTER DENIED: ${claimCheck.reason}` }],
+                isError: true,
+            };
+        }
+    }
+
+    const operatorScopes = await loadOperatorScopes(cwd);
+    if (operatorScopes) {
+        const allowed = operatorScopes[agentId];
+        if (!allowed || !isScopeSubset(taskScope, allowed)) {
+            const msg = allowed
+                ? `Claimed scope is not a subset of operator scopes for "${agentId}": ${allowed.join(', ')}`
+                : `No operator scopes defined for agent "${agentId}" in .rigour/operator-scopes.json`;
+            await logStudioEvent(cwd, {
+                type: 'firewall_deny',
+                requestId,
+                tool: 'rigour_agent_register',
+                decision: 'deny',
+                reason: msg,
+                ruleId: 'scope.operator-required',
+            });
+            return {
+                content: [{ type: 'text', text: `❌ SCOPE REGISTER DENIED: ${msg}` }],
+                isError: true,
+            };
+        }
+    }
+
     const sessionPath = path.join(cwd, '.rigour', 'agent-session.json');
     let session = { agents: [] as any[], startedAt: new Date().toISOString() };
 

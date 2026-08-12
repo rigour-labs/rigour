@@ -7,19 +7,17 @@ import { execa } from 'execa';
 import type { PolicyEvaluation, TypedCommand } from './types.js';
 import { hashPolicy } from './policy-hash.js';
 
-/** Binaries agents may propose (extend via config later). */
+/**
+ * Conservative allowlist — no general interpreters (node/python/npx) that accept -e/-c.
+ */
 export const DEFAULT_ALLOWED_BINS = new Set([
     'npm',
     'pnpm',
     'yarn',
-    'npx',
-    'node',
     'tsc',
     'vitest',
     'jest',
     'pytest',
-    'python',
-    'python3',
     'go',
     'cargo',
     'git',
@@ -39,11 +37,12 @@ const DENY_ARG_PATTERNS: RegExp[] = [
     /force-with-lease/i,
     /curl.*(-d|--data)/i,
     /wget\s/i,
-    /;\s*/,
-    /\|\s*/,
-    /&&/,
-    /`/,
-    /\$\(/,
+    /(^|\s)-e(\s|=|$)/,
+    /(^|\s)--eval(\s|=|$)/,
+    /\bnpm\s+exec\b/i,
+    /\bnpx\b/i,
+    /\byarn\s+dlx\b/i,
+    /\bpnpm\s+dlx\b/i,
 ];
 
 const GIT_DENY_SUBCOMMANDS = new Set(['push', 'reset', 'clean', 'rebase', 'filter-branch']);
@@ -51,7 +50,6 @@ const GIT_DENY_SUBCOMMANDS = new Set(['push', 'reset', 'clean', 'rebase', 'filte
 export function parseCommandLine(command: string): TypedCommand | null {
     const trimmed = command.trim();
     if (!trimmed) return null;
-    // Reject shell metacharacters before any split
     if (/[;|&`$<>]/.test(trimmed) || trimmed.includes('\n')) {
         return null;
     }

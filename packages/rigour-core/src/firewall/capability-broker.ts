@@ -142,9 +142,16 @@ export class CapabilityBroker {
 
     private denyOutOfScopeWrite(resource: string, timestamp: string): PolicyEvaluation | null {
         if (this.config.agentScopes.length === 0) return null;
-        const agents = this.config.agentId
-            ? this.config.agentScopes.filter(a => a.agentId === this.config.agentId)
-            : this.config.agentScopes;
+        if (!this.config.agentId) {
+            return this.record({
+                decision: 'scope-violation',
+                reason: 'Writer agentId is required when agent scopes are registered (fail-closed; no union-allow)',
+                ruleId: 'scope.unbound',
+                policyHash: this.policyHash,
+                timestamp,
+            });
+        }
+        const agents = this.config.agentScopes.filter(a => a.agentId === this.config.agentId);
         const rel = resource.replace(/\\/g, '/');
         const ok = agents.some(a => isPathInScope(rel, a.taskScope));
         if (ok) return null;

@@ -177,6 +177,7 @@ function App() {
                 body: JSON.stringify({
                     requestId: inspectingLog.requestId || inspectingLog.id,
                     decision,
+                    token: inspectingLog.arbitrationToken,
                     timestamp: new Date().toISOString()
                 })
             });

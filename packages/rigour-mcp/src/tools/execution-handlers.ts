@@ -6,17 +6,62 @@
  */
 import fs from "fs-extra";
 import path from "path";
-import { GateRunner, Report, FixPacketService, runTypedCommand, evaluateTypedCommand } from "@rigour-labs/core";
+import {
+    GateRunner,
+    Report,
+    FixPacketService,
+    runTypedCommand,
+    evaluateTypedCommand,
+    issueArbitrationToken,
+} from "@rigour-labs/core";
 import type { Config } from "@rigour-labs/core";
 import { logStudioEvent } from '../utils/config.js';
 import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
 
+async function requireHumanApproval(
+    cwd: string,
+    command: string,
+    requestId: string,
+    tool: string,
+): Promise<ToolResult | null> {
+    const arbitrationToken = await issueArbitrationToken(cwd, requestId, 60_000);
+    await logStudioEvent(cwd, {
+        type: "interception_requested",
+        requestId,
+        tool,
+        command,
+        arbitrationToken,
+    });
+
+    console.error(`[RIGOUR] Waiting for human arbitration for command: ${command}`);
+    const decision = await pollArbitration(cwd, requestId, 60000);
+
+    if (decision === 'approve') return null;
+
+    await logStudioEvent(cwd, {
+        type: "firewall_deny",
+        requestId,
+        tool: "human_arbitration",
+        decision: decision ?? 'timeout-deny',
+        reason: decision === 'reject' ? 'Human rejected' : 'Arbitration timed out (fail-closed)',
+    });
+    return {
+        content: [{
+            type: "text",
+            text: decision === 'reject'
+                ? `❌ COMMAND REJECTED BY GOVERNOR: The execution of "${command}" was blocked by a human operator in the Governance Studio.`
+                : `❌ COMMAND DENIED (fail-closed): No human arbitration within 60s for "${command}".`,
+        }],
+        isError: true,
+    };
+}
+
 export async function handleRun(cwd: string, command: string, requestId: string): Promise<ToolResult> {
     const typed = evaluateTypedCommand(command);
     await logStudioEvent(cwd, {
-        type: "interception_requested",
+        type: "firewall_precheck",
         requestId,
         tool: "rigour_run",
         command,
@@ -43,28 +88,8 @@ export async function handleRun(cwd: string, command: string, requestId: string)
         };
     }
 
-    console.error(`[RIGOUR] Waiting for human arbitration for command: ${command}`);
-
-    const decision = await pollArbitration(cwd, requestId, 60000);
-
-    if (decision === 'reject' || decision === 'timeout-deny' || decision === null) {
-        await logStudioEvent(cwd, {
-            type: "firewall_deny",
-            requestId,
-            tool: "human_arbitration",
-            decision: decision ?? 'timeout-deny',
-            reason: decision === 'reject' ? 'Human rejected' : 'Arbitration timed out (fail-closed)',
-        });
-        return {
-            content: [{
-                type: "text",
-                text: decision === 'reject'
-                    ? `❌ COMMAND REJECTED BY GOVERNOR: The execution of "${command}" was blocked by a human operator in the Governance Studio.`
-                    : `❌ COMMAND DENIED (fail-closed): No human arbitration within 60s for "${command}".`,
-            }],
-            isError: true,
-        };
-    }
+    const denied = await requireHumanApproval(cwd, command, requestId, "rigour_run");
+    if (denied) return denied;
 
     try {
         const { stdout, stderr } = await runTypedCommand(command, cwd);
@@ -107,6 +132,9 @@ export async function handleRunSupervised(opts: {
             isError: true,
         };
     }
+
+    const denied = await requireHumanApproval(cwd, command, requestId, "rigour_run_supervised");
+    if (denied) return denied;
 
     let iteration = 0;
     let lastReport: Report | null = null;
