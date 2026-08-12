@@ -96,6 +96,7 @@ process.stdin.on('end', async () => {
         const result = await runHookChecker({
             cwd: process.cwd(),
             files: [payload.file_path],
+            agentId: process.env.RIGOUR_AGENT_ID || undefined,
         });
 
         // Write result to stdout for Cursor to consume
@@ -164,6 +165,7 @@ process.stdin.on('end', async () => {
         const result = await runHookChecker({
             cwd: process.cwd(),
             files: [filePath],
+            agentId: process.env.RIGOUR_AGENT_ID || undefined,
         });
 
         if (result.status === 'fail') {
@@ -225,6 +227,7 @@ process.stdin.on('end', async () => {
         const result = await runHookChecker({
             cwd: process.cwd(),
             files: [payload.file_path],
+            agentId: process.env.RIGOUR_AGENT_ID || undefined,
         });
 
         if (result.status === 'fail') {
