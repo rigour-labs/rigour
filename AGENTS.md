@@ -33,6 +33,10 @@ You MUST execute this loop for every task. No code changes will be accepted as "
 4.  **Failure Remediation**: If the check returns **FAIL**, you MUST implement all required engineering refinements.
 5.  **PASS or REJECT**: You may only declare a task complete when the check returns **PASS**.
 
+## Agent Transaction Firewall (security boundary)
+
+Voluntary calls to `rigour_check` are **quality workflow**, not the security boundary. Hard guarantees require installed mediation (hooks, typed `rigour_run`, firewall transactions, CI `rigour firewall admit`). An untrusted agent must not be responsible for invoking its own guardrails.
+
 ## ⚖️ Transparency & Accountability
 **Every action, tool call, and logic shift you perform is automatically logged to the project's local audit trail.** This data is visible in real-time in the human-monitored **Rigour Studio**.
 
@@ -110,10 +114,10 @@ governor/
 
 Before asking for "approval," internally verify:
 
-- **Zero-Dependency Check**: Does this fix rely on a local environment variable not yet in `talentlyt-kv`?
-- **Side-Effect Audit**: Could this change trigger a 502 Bad Gateway at the `/auth/callback` or `/api/agent` endpoints?
-- **Biometric Integrity**: If touching the `Governor`, have I verified that the `similarity_score` logic remains deterministic?
-- **Cost Impact**: Does this change increase egress costs (e.g., unnecessary cross-region logging)?
+- **Zero-Dependency Check**: Does this fix rely on a local secret or env var that is not documented for this project?
+- **Side-Effect Audit**: Could this change break auth callbacks, agent APIs, or CI admission paths?
+- **Firewall Integrity**: If touching mediation, are allow/deny decisions still deterministic (no LLM on the hot path)?
+- **Cost Impact**: Does this change increase unnecessary egress, token, or compute cost?
 - **Error Handling**: Does the UI have a graceful fallback if the backend service is slow?
 
 
@@ -122,7 +126,7 @@ Before asking for "approval," internally verify:
 ## INVESTIGATION PROTOCOL
 
 When debugging:
-1. Check DEPLOYED environment (Azure, prod), not localhost unless explicitly asked
+1. Check the target environment (staging/prod) when that is the reported failure domain; use local only when the issue is local
 2. Trace the actual request flow end-to-end
 3. Collect evidence at each step
 4. Present findings before proposing fixes
@@ -132,29 +136,27 @@ When debugging:
 When debugging or proposing changes:
 
 1. **Trace the actual request flow** end-to-end:
-   - Client → Cloudflare → Vercel/Container App → DB
+   - Client → CDN/WAF → App/API → Data stores
 
 2. **Identify Hidden Gaps** - Explicitly check if the change affects:
-   - **Cross-Region Handshakes**: Will this increase latency for users in Pakistan/India?
-   - **Forensic Continuity**: Does this change how Maya captures gaze or audio data?
-   - **Auth Persistence**: Will this interfere with WorkOS session tokens or M2M keys?
+   - **Cross-Region latency** for distributed users
+   - **Audit / evidence continuity** for firewall decisions and attestations
+   - **Auth Persistence** for session tokens or M2M credentials
 
-3. **Evidence-First**: Collect logs from `talentlyt-dashboard` before proposing a fix.
+3. **Evidence-First**: Collect logs and firewall decision records before proposing a fix.
 
 ## Request Flow Tracing
 
 ```
-Client Browser
+Client / IDE Agent
     ↓
-Cloudflare (CDN/WAF)
+Rigour hooks / MCP / CLI mediation
     ↓
-Azure Container Apps
-    ├── talentlyt-dashboard (Next.js)
-    └── talentlyt-agent (Python/LiveKit)
+Capability broker + policy engine
     ↓
-PostgreSQL Database
+Sandbox / worktree executor
     ↓
-Azure Blob Storage (recordings, evidence)
+Gates + CI admission (attestation)
 ```
 
 ## Evidence Collection
@@ -199,7 +201,7 @@ Exception: Only proceed without approval if user explicitly says "just do it" or
 **Evidence:** [actual log/error message]
 **Location:** [file:line or endpoint]
 **Root Cause:** [proven, not assumed]
-**Privacy Impact:** [Does this affect biometric/PII data?]
+**Privacy Impact:** [Does this affect secrets, PII, or audit evidence?]
 **Fix:** [proposed solution]
 ```
 

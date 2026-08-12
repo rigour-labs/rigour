@@ -826,6 +826,76 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/firewall') {
+        try {
+            const {
+                loadCurrentTransaction,
+                listTransactions,
+                loadLatestAttestation,
+                verifyAttestation,
+            } = await import('@rigour-labs/core');
+            const current = await loadCurrentTransaction(cwd);
+            const transactions = await listTransactions(cwd);
+            const attestation = await loadLatestAttestation(cwd);
+            const attestationValid = attestation ? await verifyAttestation(cwd, attestation) : false;
+            const advPath = path.join(cwd, '.rigour/adversarial-report.json');
+            const adversarial = await fs.pathExists(advPath) ? await fs.readJson(advPath) : null;
+            const decisionsPath = path.join(cwd, '.rigour/firewall-decisions.jsonl');
+            let decisions: any[] = [];
+            if (await fs.pathExists(decisionsPath)) {
+                const content = await fs.readFile(decisionsPath, 'utf8');
+                decisions = content
+                    .split('\n')
+                    .filter((l) => l.trim())
+                    .slice(-100)
+                    .map((l) => {
+                        try {
+                            return JSON.parse(l);
+                        } catch {
+                            return null;
+                        }
+                    })
+                    .filter(Boolean)
+                    .reverse();
+            }
+            let recentDenies: any[] = [];
+            if (await fs.pathExists(eventsPath)) {
+                const content = await fs.readFile(eventsPath, 'utf8');
+                recentDenies = content
+                    .split('\n')
+                    .filter((l) => l.trim())
+                    .map((l) => {
+                        try {
+                            return JSON.parse(l);
+                        } catch {
+                            return null;
+                        }
+                    })
+                    .filter((e) => e && (e.type === 'firewall_deny' || e.decision === 'timeout-deny' || e.decision === 'deny'))
+                    .slice(-50)
+                    .reverse();
+            }
+            sendJson(res, 200, {
+                current,
+                transactions: transactions.slice(0, 20),
+                attestation,
+                attestationValid,
+                adversarial,
+                decisions,
+                recentDenies,
+                failClosed: true,
+                mediation: {
+                    typedCommands: true,
+                    scopeEnforcement: true,
+                    arbitration: 'fail-closed',
+                },
+            });
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/arbitrate' && req.method === 'POST') {
         let body = '';
         req.on('data', (chunk) => (body += chunk));

@@ -141,7 +141,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "rigour_run":           result = await handleRun(cwd, (args as any).command, requestId); break;
             case "rigour_run_supervised": {
                 const { command, maxRetries = 3, dryRun = false } = args as any;
-                result = await handleRunSupervised(runner, cwd, command, maxRetries, dryRun, requestId, config);
+                result = await handleRunSupervised({
+                    runner,
+                    cwd,
+                    command,
+                    maxRetries,
+                    dryRun,
+                    requestId,
+                    config,
+                });
                 break;
             }
 

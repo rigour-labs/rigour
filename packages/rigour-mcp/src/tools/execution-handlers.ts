@@ -2,12 +2,11 @@
  * Execution & Supervision Tool Handlers
  *
  * Handlers for: rigour_run, rigour_run_supervised
- *
- * @since v2.17.0 — extracted from monolithic index.ts
+ * Agent Transaction Firewall: fail-closed arbitration + typed commands.
  */
 import fs from "fs-extra";
 import path from "path";
-import { GateRunner, Report, FixPacketService } from "@rigour-labs/core";
+import { GateRunner, Report, FixPacketService, runTypedCommand, evaluateTypedCommand } from "@rigour-labs/core";
 import type { Config } from "@rigour-labs/core";
 import { logStudioEvent } from '../utils/config.js';
 import { notifyProgress } from '../utils/notifications.js';
@@ -15,30 +14,60 @@ import { notifyProgress } from '../utils/notifications.js';
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
 
 export async function handleRun(cwd: string, command: string, requestId: string): Promise<ToolResult> {
-    // 1. Log Interceptable Event
+    const typed = evaluateTypedCommand(command);
     await logStudioEvent(cwd, {
         type: "interception_requested",
         requestId,
         tool: "rigour_run",
         command,
+        firewallDecision: typed.decision,
+        firewallReason: typed.reason,
+        ruleId: typed.ruleId,
     });
 
-    // 2. Poll for Human Arbitration (Max 60s wait)
-    console.error(`[RIGOUR] Waiting for human arbitration for command: ${command}`);
-
-    const decision = await pollArbitration(cwd, requestId, 60000);
-
-    if (decision === 'reject') {
+    if (typed.decision !== 'allow') {
+        await logStudioEvent(cwd, {
+            type: "firewall_deny",
+            requestId,
+            tool: "rigour_run",
+            decision: typed.decision,
+            reason: typed.reason,
+            ruleId: typed.ruleId,
+        });
         return {
-            content: [{ type: "text", text: `❌ COMMAND REJECTED BY GOVERNOR: The execution of "${command}" was blocked by a human operator in the Governance Studio.` }],
+            content: [{
+                type: "text",
+                text: `❌ FIREWALL DENY (${typed.ruleId}): ${typed.reason}\nCommand: ${command}`,
+            }],
             isError: true,
         };
     }
 
-    // Execute
-    const { execa } = await import("execa");
+    console.error(`[RIGOUR] Waiting for human arbitration for command: ${command}`);
+
+    const decision = await pollArbitration(cwd, requestId, 60000);
+
+    if (decision === 'reject' || decision === 'timeout-deny' || decision === null) {
+        await logStudioEvent(cwd, {
+            type: "firewall_deny",
+            requestId,
+            tool: "human_arbitration",
+            decision: decision ?? 'timeout-deny',
+            reason: decision === 'reject' ? 'Human rejected' : 'Arbitration timed out (fail-closed)',
+        });
+        return {
+            content: [{
+                type: "text",
+                text: decision === 'reject'
+                    ? `❌ COMMAND REJECTED BY GOVERNOR: The execution of "${command}" was blocked by a human operator in the Governance Studio.`
+                    : `❌ COMMAND DENIED (fail-closed): No human arbitration within 60s for "${command}".`,
+            }],
+            isError: true,
+        };
+    }
+
     try {
-        const { stdout, stderr } = await execa(command, { shell: true, cwd });
+        const { stdout, stderr } = await runTypedCommand(command, cwd);
         return {
             content: [{ type: "text", text: `✅ COMMAND EXECUTED (Approved by Governor):\n\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}` }],
         };
@@ -50,16 +79,34 @@ export async function handleRun(cwd: string, command: string, requestId: string)
     }
 }
 
-export async function handleRunSupervised(
-    runner: GateRunner,
-    cwd: string,
-    command: string,
-    maxRetries: number,
-    dryRun: boolean,
-    requestId: string,
-    config?: Config,
-): Promise<ToolResult> {
-    const { execa } = await import("execa");
+export async function handleRunSupervised(opts: {
+    runner: GateRunner;
+    cwd: string;
+    command: string;
+    maxRetries: number;
+    dryRun: boolean;
+    requestId: string;
+    config?: Config;
+}): Promise<ToolResult> {
+    const { runner, cwd, command, maxRetries, dryRun, requestId, config } = opts;
+    const typed = evaluateTypedCommand(command);
+    if (typed.decision !== 'allow') {
+        await logStudioEvent(cwd, {
+            type: "firewall_deny",
+            requestId,
+            tool: "rigour_run_supervised",
+            decision: typed.decision,
+            reason: typed.reason,
+            ruleId: typed.ruleId,
+        });
+        return {
+            content: [{
+                type: "text",
+                text: `❌ FIREWALL DENY (${typed.ruleId}): ${typed.reason}\nCommand: ${command}`,
+            }],
+            isError: true,
+        };
+    }
 
     let iteration = 0;
     let lastReport: Report | null = null;
@@ -82,7 +129,7 @@ export async function handleRunSupervised(
 
         if (!dryRun) {
             try {
-                await execa(command, { shell: true, cwd });
+                await runTypedCommand(command, cwd);
             } catch (e: any) {
                 console.error(`[RIGOUR] Iteration ${iteration} command error: ${e.message}`);
             }
@@ -122,14 +169,12 @@ export async function handleRunSupervised(
 
         if (iteration >= maxRetries) {
             notifyProgress("error", `Supervisor FAILED after ${iteration} iterations \u2014 ${lastReport.failures.length} violations remain`);
-            // Use FixPacketService for structured output instead of ad-hoc formatting
             let fixPacketText: string;
             if (config) {
                 const fixPacketService = new FixPacketService();
                 const fixPacket = fixPacketService.generate(lastReport, config);
                 fixPacketText = formatFixPacketForSupervisor(fixPacket);
             } else {
-                // Fallback if config not available
                 fixPacketText = lastReport.failures.map((f, i) => {
                     const sevTag = `[${(f.severity || 'medium').toUpperCase()}]`;
                     return `${i + 1}. ${sevTag} [${f.id}] ${f.title}: ${f.details}${f.files?.length ? ` (${f.files.join(', ')})` : ''}`;
@@ -199,28 +244,43 @@ function formatFixPacketForSupervisor(fixPacket: any): string {
     return lines.join('\n');
 }
 
-// ─── Private Helpers ──────────────────────────────────────────────
-
-async function pollArbitration(cwd: string, rid: string, timeout: number): Promise<string | null> {
-    const start = Date.now();
+/**
+ * Fail-closed: timeout with no human decision → timeout-deny (not approve).
+ */
+export async function pollArbitration(cwd: string, rid: string, timeout: number): Promise<string | null> {
     const eventsPath = path.join(cwd, '.rigour/events.jsonl');
-    while (Date.now() - start < timeout) {
-        if (await fs.pathExists(eventsPath)) {
-            const content = await fs.readFile(eventsPath, 'utf-8');
-            const lines = content.split('\n').filter(l => l.trim());
-            for (const line of lines.reverse()) {
-                let event: any;
-                try {
-                    event = JSON.parse(line);
-                } catch {
-                    continue;
-                }
-                if (event.tool === 'human_arbitration' && event.requestId === rid) {
-                    return event.decision;
-                }
-            }
-        }
-        await new Promise(r => setTimeout(r, 1000));
+    const maxIterations = Math.max(1, Math.ceil(timeout / 1000));
+    for (let i = 0; i < maxIterations; i++) {
+        const found = await readArbitrationDecision(eventsPath, rid);
+        if (found) return found;
+        await sleepMs(1000);
     }
-    return "approve"; // Default auto-approve if no human response
+    return "timeout-deny";
+}
+
+async function readArbitrationDecision(eventsPath: string, rid: string): Promise<string | null> {
+    if (!(await fs.pathExists(eventsPath))) return null;
+    const content = await fs.readFile(eventsPath, 'utf-8');
+    const lines = content.split('\n').filter(l => l.trim());
+    for (const line of lines.reverse()) {
+        let event: any;
+        try {
+            event = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        if (event.tool === 'human_arbitration' && event.requestId === rid) {
+            return event.decision;
+        }
+    }
+    return null;
+}
+
+function sleepMs(ms: number): Promise<void> {
+    return new Promise(resolve => {
+        const timerId = setTimeout(() => {
+            clearTimeout(timerId);
+            resolve();
+        }, ms);
+    });
 }

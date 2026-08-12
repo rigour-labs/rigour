@@ -14,6 +14,7 @@ import yaml from 'yaml';
 import { ConfigSchema, Config } from '../types/index.js';
 import type { HookCheckerResult } from './types.js';
 import { scanInputForCredentials } from './input-validator.js';
+import { evaluateWriteScope, loadAgentScopesFromDisk } from '../firewall/scope-enforcement.js';
 
 type FailureEntry = HookCheckerResult['failures'][number];
 
@@ -124,6 +125,7 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
         const deadline = start + timeout_ms;
 
         const ignorePatterns = config.ignore ?? [];
+        const agentScopes = await loadAgentScopesFromDisk(cwd);
 
         for (const filePath of files) {
             if (Date.now() > deadline) {
@@ -138,6 +140,19 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
             // Respect rigour.yml ignore patterns
             if (isIgnored(resolved.relPath, ignorePatterns)) {
                 continue;
+            }
+
+            if (agentScopes.length > 0) {
+                const scopeEv = evaluateWriteScope(cwd, resolved.relPath, agentScopes);
+                if (scopeEv.decision !== 'allow') {
+                    failures.push({
+                        gate: 'agent-scope',
+                        file: resolved.relPath,
+                        message: scopeEv.reason,
+                        severity: 'critical',
+                    });
+                    continue;
+                }
             }
 
             const fileFailures = checkFile(resolved.content, resolved.relPath, cwd, config);

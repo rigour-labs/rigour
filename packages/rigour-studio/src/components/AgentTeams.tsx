@@ -52,7 +52,7 @@ export function AgentTeams({ session }: Props) {
                     checkpoint metrics in the Brain DB.
                 </p>
                 <div className="hint-box">
-                    <span>Works with any MCP client — Claude, Codex, Cursor, VS Code, and more.</span>
+                    <span>Register agents with <code>rigour_agent_register</code>. Claimed globs are <strong>enforced</strong> on mediated writes (hooks / firewall)—not advisory.</span>
                 </div>
             </div>
         );
