@@ -39,6 +39,7 @@ import { Overview } from './components/Overview';
 import { EnforcementRail } from './components/EnforcementRail';
 import { HandoffFlow } from './components/HandoffFlow';
 import { LearningBrain } from './components/LearningBrain';
+import { FirewallConsole } from './components/FirewallConsole';
 
 interface ProjectInfo {
     name?: string;
@@ -69,6 +70,7 @@ function App() {
     } | null>(null);
     const [inspectingLog, setInspectingLog] = useState<any | null>(null);
     const [isGovernanceOpen, setIsGovernanceOpen] = useState(false);
+    const [arbitrationSecondsLeft, setArbitrationSecondsLeft] = useState<number | null>(null);
     const [projectTree, setProjectTree] = useState<string[]>([]);
     const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
 
@@ -97,6 +99,22 @@ function App() {
 
         return () => eventSource.close();
     }, []);
+
+    useEffect(() => {
+        if (!inspectingLog || inspectingLog.type !== 'interception_requested' || !isGovernanceOpen) {
+            setArbitrationSecondsLeft(null);
+            return;
+        }
+        const started = inspectingLog.timestamp ? Date.parse(inspectingLog.timestamp) : Date.now();
+        const tick = () => {
+            const elapsed = Math.floor((Date.now() - started) / 1000);
+            const left = Math.max(0, 60 - elapsed);
+            setArbitrationSecondsLeft(left);
+        };
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+    }, [inspectingLog, isGovernanceOpen]);
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme);
@@ -159,6 +177,7 @@ function App() {
                 body: JSON.stringify({
                     requestId: inspectingLog.requestId || inspectingLog.id,
                     decision,
+                    token: inspectingLog.arbitrationToken,
                     timestamp: new Date().toISOString()
                 })
             });
@@ -180,6 +199,7 @@ function App() {
 
     const navItems = [
         { id: 'enforcement', label: 'Enforcement', icon: ShieldCheck },
+        { id: 'firewall', label: 'Firewall', icon: Lock },
         { id: 'learning', label: 'Learning', icon: Brain },
         { id: 'overview', label: 'Overview', icon: LayoutDashboard },
         { id: 'agents', label: 'Agent Teams', icon: Users },
@@ -268,6 +288,11 @@ function App() {
                         {activeTab === 'enforcement' && (
                             <motion.div key="enforcement" {...tabTransition} className="full-view">
                                 <EnforcementRail onNavigate={setActiveTab} />
+                            </motion.div>
+                        )}
+                        {activeTab === 'firewall' && (
+                            <motion.div key="firewall" {...tabTransition} className="full-view">
+                                <FirewallConsole />
                             </motion.div>
                         )}
                         {activeTab === 'learning' && (
@@ -449,8 +474,17 @@ function App() {
                                                 <p>An AI agent is requesting to execute this command. Review the project state below before arbitrating.</p>
                                                 <div className="warning-note">
                                                     <AlertTriangle size={16} />
-                                                    <span>Critical actions should be manually verified.</span>
+                                                    <span>
+                                                        Fail-closed: auto-DENY in {arbitrationSecondsLeft ?? 60}s if no decision.
+                                                        Silent approve is disabled.
+                                                    </span>
                                                 </div>
+                                                {inspectingLog.firewallDecision && inspectingLog.firewallDecision !== 'allow' && (
+                                                    <div className="warning-note">
+                                                        <XCircle size={16} />
+                                                        <span>Pre-check: {inspectingLog.firewallDecision} — {inspectingLog.firewallReason}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                             <FileTree
                                                 files={projectTree.map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}

@@ -84,8 +84,9 @@ export async function handleHooksCheck(
     }
 
     // ── Standard Mode: Check files ───────────────────────────
-    const input: { cwd: string; files: string[]; timeout_ms?: number } = { cwd, files };
+    const input: { cwd: string; files: string[]; timeout_ms?: number; agentId?: string } = { cwd, files };
     if (timeout) input.timeout_ms = timeout;
+    if (agent) input.agentId = agent;
 
     const result = await runHookChecker(input);
 

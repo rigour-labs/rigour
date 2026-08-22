@@ -826,12 +826,102 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/firewall') {
+        try {
+            const {
+                loadCurrentTransaction,
+                listTransactions,
+                loadLatestAttestation,
+                verifyAttestation,
+            } = await import('@rigour-labs/core');
+            const current = await loadCurrentTransaction(cwd);
+            const transactions = await listTransactions(cwd);
+            const attestation = await loadLatestAttestation(cwd);
+            const attestationValid = attestation ? await verifyAttestation(cwd, attestation) : false;
+            const advPath = path.join(cwd, '.rigour/adversarial-report.json');
+            const adversarial = await fs.pathExists(advPath) ? await fs.readJson(advPath) : null;
+            const decisionsPath = path.join(cwd, '.rigour/firewall-decisions.jsonl');
+            let decisions: any[] = [];
+            if (await fs.pathExists(decisionsPath)) {
+                const content = await fs.readFile(decisionsPath, 'utf8');
+                decisions = content
+                    .split('\n')
+                    .filter((l) => l.trim())
+                    .slice(-100)
+                    .map((l) => {
+                        try {
+                            return JSON.parse(l);
+                        } catch {
+                            return null;
+                        }
+                    })
+                    .filter(Boolean)
+                    .reverse();
+            }
+            let recentDenies: any[] = [];
+            if (await fs.pathExists(eventsPath)) {
+                const content = await fs.readFile(eventsPath, 'utf8');
+                recentDenies = content
+                    .split('\n')
+                    .filter((l) => l.trim())
+                    .map((l) => {
+                        try {
+                            return JSON.parse(l);
+                        } catch {
+                            return null;
+                        }
+                    })
+                    .filter((e) => e && (e.type === 'firewall_deny' || e.decision === 'timeout-deny' || e.decision === 'deny'))
+                    .slice(-50)
+                    .reverse();
+            }
+            const hooksPresent =
+                (await fs.pathExists(path.join(cwd, '.cursor/hooks.json'))) ||
+                (await fs.pathExists(path.join(cwd, '.claude/settings.json'))) ||
+                (await fs.pathExists(path.join(cwd, '.clinerules'))) ||
+                (await fs.pathExists(path.join(cwd, '.windsurf/hooks.json')));
+            const agentScopesPath = path.join(cwd, '.rigour/agent-session.json');
+            const agentSession = await fs.pathExists(agentScopesPath) ? await fs.readJson(agentScopesPath) : null;
+            const scopeActive = Array.isArray(agentSession?.agents) && agentSession.agents.length > 0;
+            const typedSeen = recentDenies.some((e) => e.ruleId?.startsWith?.('shell.') || e.tool === 'rigour_run');
+            const gatewayWired = false; // McpGateway not yet the MCP proxy path
+
+            sendJson(res, 200, {
+                current,
+                transactions: transactions.slice(0, 20),
+                attestation,
+                attestationValid,
+                adversarial,
+                decisions,
+                recentDenies,
+                failClosed: true,
+                mediation: {
+                    status: gatewayWired && hooksPresent ? 'full' : 'partial',
+                    typedCommands: typedSeen || hooksPresent ? 'rigour_run_only' : 'not_observed',
+                    scopeEnforcement: scopeActive ? 'requires_agent_id' : 'inactive',
+                    arbitration: 'fail-closed',
+                    hooksInstalled: hooksPresent,
+                    mcpGateway: gatewayWired,
+                },
+            });
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/arbitrate' && req.method === 'POST') {
         let body = '';
         req.on('data', (chunk) => (body += chunk));
         req.on('end', async () => {
             try {
                 const decision = JSON.parse(body);
+                const { consumeArbitrationToken } = await import('@rigour-labs/core');
+                const ok = await consumeArbitrationToken(cwd, decision.requestId, decision.token);
+                if (!ok) {
+                    sendJson(res, 403, { error: 'Invalid or missing arbitration token (one-time, fail-closed)' });
+                    return;
+                }
                 const logEntry =
                     JSON.stringify({
                         id: randomUUID(),

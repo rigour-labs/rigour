@@ -11,9 +11,11 @@ export interface LogEntry {
     error?: string;
     _rigour_report?: any;
     arbitrated?: boolean;
-    decision?: 'approve' | 'reject';
+    decision?: 'approve' | 'reject' | 'timeout-deny' | 'deny' | 'allow' | 'scope-violation';
     type?: string;
     command?: string;
+    firewallDecision?: string;
+    firewallReason?: string;
 }
 
 interface AuditLogProps {
@@ -27,6 +29,7 @@ export const AuditLog: React.FC<AuditLogProps> = ({ logs, onClearLogs, onSelectL
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [toolFilter, setToolFilter] = useState<string>('all');
+    const [decisionFilter, setDecisionFilter] = useState<string>('all');
 
     // Group logs by requestId
     const groupedLogs = React.useMemo(() => {
@@ -56,9 +59,11 @@ export const AuditLog: React.FC<AuditLogProps> = ({ logs, onClearLogs, onSelectL
                 JSON.stringify(log.arguments || {}).toLowerCase().includes(searchQuery.toLowerCase());
             const matchesStatus = statusFilter === 'all' || log.status === statusFilter;
             const matchesTool = toolFilter === 'all' || log.tool === toolFilter;
-            return matchesSearch && matchesStatus && matchesTool;
+            const decision = log.decision || log.firewallDecision || (log.type === 'firewall_deny' ? 'deny' : undefined);
+            const matchesDecision = decisionFilter === 'all' || decision === decisionFilter;
+            return matchesSearch && matchesStatus && matchesTool && matchesDecision;
         });
-    }, [groupedLogs, searchQuery, statusFilter, toolFilter]);
+    }, [groupedLogs, searchQuery, statusFilter, toolFilter, decisionFilter]);
 
     // Stats
     const stats = React.useMemo(() => ({
@@ -141,6 +146,18 @@ export const AuditLog: React.FC<AuditLogProps> = ({ logs, onClearLogs, onSelectL
                         {uniqueTools.map(t => (
                             <option key={t} value={t}>{t}</option>
                         ))}
+                    </select>
+                </div>
+                <div className="filter-box">
+                    <Filter size={16} />
+                    <select value={decisionFilter} onChange={(e) => setDecisionFilter(e.target.value)}>
+                        <option value="all">All Decisions</option>
+                        <option value="allow">allow</option>
+                        <option value="deny">deny</option>
+                        <option value="timeout-deny">timeout-deny</option>
+                        <option value="scope-violation">scope-violation</option>
+                        <option value="approve">approve</option>
+                        <option value="reject">reject</option>
                     </select>
                 </div>
             </div>

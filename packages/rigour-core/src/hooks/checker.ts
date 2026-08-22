@@ -14,6 +14,7 @@ import yaml from 'yaml';
 import { ConfigSchema, Config } from '../types/index.js';
 import type { HookCheckerResult } from './types.js';
 import { scanInputForCredentials } from './input-validator.js';
+import { evaluateWriteScope, loadAgentScopesFromDisk } from '../firewall/scope-enforcement.js';
 
 type FailureEntry = HookCheckerResult['failures'][number];
 
@@ -22,6 +23,8 @@ interface CheckerOptions {
     files: string[];
     timeout_ms?: number;
     block_on_failure?: boolean;
+    /** Bound writer identity — required when agent scopes are registered */
+    agentId?: string;
 }
 
 const JS_TS_PATTERN = /\.(ts|tsx|js|jsx|mts|mjs)$/;
@@ -116,17 +119,20 @@ function checkFile(content: string, relPath: string, cwd: string, config: Config
  */
 export async function runHookChecker(options: CheckerOptions): Promise<HookCheckerResult> {
     const start = Date.now();
-    const { cwd, files, timeout_ms = 5000 } = options;
+    const { cwd, files, timeout_ms = 5000, agentId } = options;
     const failures: FailureEntry[] = [];
+    let timedOut = false;
 
     try {
         const config = await loadConfig(cwd);
         const deadline = start + timeout_ms;
 
         const ignorePatterns = config.ignore ?? [];
+        const agentScopes = await loadAgentScopesFromDisk(cwd);
 
         for (const filePath of files) {
             if (Date.now() > deadline) {
+                timedOut = true;
                 break;
             }
 
@@ -140,8 +146,30 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
                 continue;
             }
 
+            if (agentScopes.length > 0) {
+                const scopeEv = evaluateWriteScope(cwd, resolved.relPath, agentScopes, agentId);
+                if (scopeEv.decision !== 'allow') {
+                    failures.push({
+                        gate: 'agent-scope',
+                        file: resolved.relPath,
+                        message: scopeEv.reason,
+                        severity: 'critical',
+                    });
+                    continue;
+                }
+            }
+
             const fileFailures = checkFile(resolved.content, resolved.relPath, cwd, config);
             failures.push(...fileFailures);
+        }
+
+        if (timedOut) {
+            failures.push({
+                gate: 'hook-timeout',
+                file: '',
+                message: `Hook checker exceeded ${timeout_ms}ms before all files were scanned (fail-closed)`,
+                severity: 'critical',
+            });
         }
 
         return {

@@ -98,7 +98,11 @@ async function main(): Promise<void> {
         return;
     }
 
-    const result = await runHookChecker({ cwd, files });
+    const result = await runHookChecker({
+        cwd,
+        files,
+        agentId: process.env.RIGOUR_AGENT_ID || undefined,
+    });
 
     process.stdout.write(JSON.stringify(result));
 

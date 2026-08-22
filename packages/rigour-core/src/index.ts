@@ -60,6 +60,8 @@ export * from './context/cache-engine.js';
 export * from './context/context-session.js';
 export * from './context/index-bridge.js';
 export * from './services/context-telemetry-service.js';
+
+export * from './firewall/index.js';
 export {
     recordContextEvent,
     recordModelUsage,

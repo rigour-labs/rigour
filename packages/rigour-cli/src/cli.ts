@@ -19,6 +19,7 @@ import { deepStatsCommand } from './commands/deep-stats.js';
 import { reviewCommand } from './commands/review.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { securityAuditCommand } from './commands/security-audit.js';
+import { firewallTransactCommand, firewallAdversarialCommand, firewallAdmitCommand, firewallStatusCommand } from './commands/firewall.js';
 import { checkForUpdates } from './utils/version.js';
 import { getCliVersion } from './utils/cli-version.js';
 import chalk from 'chalk';
@@ -391,6 +392,33 @@ settingsCmd
     .command('path')
     .description('Show settings file path')
     .action(async () => { await settingsPathCommand(); });
+
+const firewallCmd = program
+    .command('firewall')
+    .description('Agent Transaction Firewall — mediate, attest, and prove damage bounds');
+
+firewallCmd
+    .command('status')
+    .description('Show transaction, attestation, and adversarial status')
+    .action(async () => { await firewallStatusCommand(process.cwd()); });
+
+firewallCmd
+    .command('transact')
+    .description('Start a mediated transaction, verify gates, COMMIT or DISCARD')
+    .option('--agent <id>', 'Agent id for scope binding')
+    .option('--scope <globs>', 'Comma-separated allowed path globs', '**/*')
+    .option('--discard', 'Discard the current transaction worktree')
+    .action(async (options: any) => { await firewallTransactCommand(process.cwd(), options); });
+
+firewallCmd
+    .command('adversarial')
+    .description('Replay deterministic adversarial corpus against the firewall kernel')
+    .action(async () => { await firewallAdversarialCommand(process.cwd()); });
+
+firewallCmd
+    .command('admit')
+    .description('CI admission: require valid signed attestation with PASS gates')
+    .action(async () => { await firewallAdmitCommand(process.cwd()); });
 
 // Check for updates before parsing (non-blocking)
 (async () => {
