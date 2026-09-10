@@ -7,6 +7,10 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  discoverPublishedWorkspacePackages,
+  waitForNpmRelease,
+} from './npm-release-readiness.mjs';
 
 const root = process.cwd();
 const cliPackage = JSON.parse(readFileSync(join(root, 'packages/rigour-cli/package.json'), 'utf8'));
@@ -33,3 +37,22 @@ try {
 }
 
 console.log('\nPublished @rigour-labs/* packages.');
+
+const packages = discoverPublishedWorkspacePackages(root);
+console.log('Waiting for the complete release to propagate across npm...');
+try {
+  await waitForNpmRelease({
+    packages,
+    version: cliPackage.version,
+    onAttempt: ({ attempt, missing }) => {
+      if (missing.length === 0) {
+        console.log(`npm release is installable after ${attempt} attempt(s).`);
+      } else {
+        console.log(`Attempt ${attempt}: waiting for ${missing.join(', ')}`);
+      }
+    },
+  });
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}

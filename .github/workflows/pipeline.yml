@@ -168,6 +168,9 @@ jobs:
           fi
           echo "cli_version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Verify npm release is installable
+        run: node scripts/npm-release-readiness.mjs "${{ steps.capture_version.outputs.cli_version }}"
+
       - name: Publish Homebrew Formula
         if: success() && github.ref == 'refs/heads/main' && steps.capture_version.outputs.published == 'true'
         env:
