@@ -21,6 +21,7 @@ interface TaskContextStats {
     potentialAvoidedTokens?: number;
     cacheHitRate?: number;
     repeatedReadsPrevented?: number;
+    deduplicatedTokens?: number;
     checkpointReplayAvoided?: number;
     isEstimated?: boolean;
 }
@@ -31,12 +32,25 @@ interface TaskCostStats {
         outputTokens?: number;
         costUsd?: number;
         source?: string;
+        models?: string[];
         isEstimated?: boolean;
+        classification?: 'observed' | 'modelled estimate' | 'unavailable';
+        observedCoverage?: number;
     };
     estimated?: {
         potentialContextAvoided?: number;
         estimatedCostAvoidedUsd?: number;
         isEstimated?: boolean;
+        retrievalAvoidedTokens?: number;
+        retrievalAvoidedCostUsd?: number;
+        checkpointReplayAvoidedTokens?: number;
+        checkpointReplayAvoidedCostUsd?: number;
+        retrievalAvoidedCostRangeUsd?: { min: number; max: number };
+        checkpointReplayAvoidedCostRangeUsd?: { min: number; max: number };
+        categoriesAreAdditive?: false;
+        pricingBasis?: string;
+        pricingSource?: string;
+        pricingEffectiveDate?: string;
     };
 }
 
@@ -239,13 +253,24 @@ export function CostContext() {
         candidateTokens > 0 ? (((candidateTokens - returnedTokens) / candidateTokens) * 100).toFixed(1) : '0.0';
     const cacheHitRatePct = cacheStats?.hitRate ? Math.round(cacheStats.hitRate * 100) : 0;
     const actualCost = costStats?.actual?.costUsd ?? 0;
-    const estimatedAvoidedCost = costStats?.estimated?.estimatedCostAvoidedUsd ?? 0;
+    const retrievalAvoidedCost = costStats?.estimated?.retrievalAvoidedCostUsd ?? costStats?.estimated?.estimatedCostAvoidedUsd ?? 0;
+    const checkpointAvoidedCost = costStats?.estimated?.checkpointReplayAvoidedCostUsd ?? 0;
     const actualInputTokens = costStats?.actual?.inputTokens ?? 0;
+    const actualOutputTokens = costStats?.actual?.outputTokens ?? 0;
+    const actualModelTokens = actualInputTokens + actualOutputTokens;
     const costSource = costStats?.actual?.source || 'No usage data';
+    const costClassification = costStats?.actual?.classification ?? (costStats?.actual?.isEstimated ? 'modelled estimate' : 'observed');
+    const coverage = Math.round((costStats?.actual?.observedCoverage ?? 0) * 100);
+    const retrievalCostLabel = costStats?.estimated?.retrievalAvoidedCostRangeUsd
+        ? `$${costStats.estimated.retrievalAvoidedCostRangeUsd.min.toFixed(2)}–$${costStats.estimated.retrievalAvoidedCostRangeUsd.max.toFixed(2)}`
+        : `$${retrievalAvoidedCost.toFixed(2)}`;
+    const checkpointCostLabel = costStats?.estimated?.checkpointReplayAvoidedCostRangeUsd
+        ? `$${costStats.estimated.checkpointReplayAvoidedCostRangeUsd.min.toFixed(2)}–$${costStats.estimated.checkpointReplayAvoidedCostRangeUsd.max.toFixed(2)}`
+        : `$${checkpointAvoidedCost.toFixed(2)}`;
 
     const hasTelemetryData =
         (contextStats?.retrievals ?? 0) > 0 ||
-        actualInputTokens > 0 ||
+        actualModelTokens > 0 ||
         (cacheStats?.exactCacheHits ?? 0) +
             (cacheStats?.semanticCacheHits ?? 0) +
             (cacheStats?.partialCacheHits ?? 0) +
@@ -283,30 +308,33 @@ export function CostContext() {
                 </div>
             )}
 
+            {hasTelemetryData && (
+                <div className="cost-banner">
+                    <AlertCircle size={18} className="text-cyan" />
+                    <div><strong>Savings categories are reported separately</strong><p>Retrieval, cache reuse, repeated reads, and checkpoint replay may overlap. Rigour does not add them into one total.</p></div>
+                </div>
+            )}
+
             <div className="cost-kpi-grid">
                 <div className="cost-kpi-card glass-card">
                     <div className="label">Actual model tokens</div>
-                    <div className="value">{formatTokens(actualInputTokens)}</div>
-                    <div className="meta text-emerald">Observed via {costSource}</div>
+                    <div className="value">{formatTokens(actualModelTokens)}</div>
+                    <div className="meta">{costClassification} · {costSource}</div>
                 </div>
                 <div className="cost-kpi-card glass-card">
                     <div className="label">Potential context avoided</div>
                     <div className="value text-amber">{formatTokens(potentialAvoided)}</div>
-                    <div className="meta">Reduction ratio: {reductionRatio}%</div>
+                    <div className="meta">modelled estimate · reduction {reductionRatio}%</div>
                 </div>
                 <div className="cost-kpi-card glass-card">
                     <div className="label">Cache hit rate</div>
                     <div className="value text-cyan">{cacheHitRatePct}%</div>
-                    <div className="meta">static &amp; semantic layers</div>
+                    <div className="meta">measured estimate · static &amp; semantic</div>
                 </div>
                 <div className="cost-kpi-card glass-card">
-                    <div className="label">Actual vs avoided cost</div>
-                    <div className="value">
-                        <span className="text-emerald">${actualCost.toFixed(2)}</span>
-                        {' / '}
-                        <span className="text-amber">${estimatedAvoidedCost.toFixed(2)}</span>
-                    </div>
-                    <div className="meta">Actual spend / est. avoided</div>
+                    <div className="label">Observed model spend</div>
+                    <div className="value text-emerald">${actualCost.toFixed(2)}</div>
+                    <div className="meta">{costClassification} · {coverage}% provider coverage</div>
                 </div>
             </div>
 
@@ -326,6 +354,10 @@ export function CostContext() {
                     <div className="cost-row">
                         <span>Potential avoided</span>
                         <span className="text-amber">{formatTokens(potentialAvoided)} tokens</span>
+                    </div>
+                    <div className="cost-row">
+                        <span>Retrieval scope estimate</span>
+                        <span className="text-amber">{retrievalCostLabel}</span>
                     </div>
                     <div className="cost-row">
                         <span>Reduction ratio</span>
@@ -366,8 +398,8 @@ export function CostContext() {
                         <ShieldCheck size={16} className="text-purple" /> C. Duplication prevention
                     </h3>
                     <div className="cost-row">
-                        <span>Repeated reads prevented</span>
-                        <span className="text-emerald">{contextStats?.repeatedReadsPrevented ?? 0}</span>
+                        <span>Repeated-read prevention</span>
+                        <span className="text-emerald">{formatTokens(contextStats?.deduplicatedTokens ?? 0)} tokens · {contextStats?.repeatedReadsPrevented ?? 0} reads</span>
                     </div>
                     <div className="cost-row">
                         <span>Overlapping scopes resolved</span>
@@ -401,14 +433,23 @@ export function CostContext() {
                         </span>
                     </div>
                     <div className="cost-row">
-                        <span>Observed model cost</span>
-                        <span className="text-emerald">${actualCost.toFixed(2)}</span>
+                        <span>Replay avoided</span>
+                        <span className="text-amber">{formatTokens(checkpointSummary?.replayTokensAvoided ?? 0)} tokens</span>
                     </div>
                     <div className="cost-row">
-                        <span>Estimated avoided spend</span>
-                        <span className="text-amber">${estimatedAvoidedCost.toFixed(2)}</span>
+                        <span>Checkpoint replay estimate</span>
+                        <span className="text-amber">{checkpointCostLabel}</span>
                     </div>
                 </div>
+            </div>
+
+            <div className="cost-panel glass-card">
+                <h3><Coins size={16} className="text-cyan" /> Estimate provenance</h3>
+                <div className="cost-row"><span>Classification</span><span>Modelled estimate</span></div>
+                <div className="cost-row"><span>Pricing source</span><span>{costStats?.estimated?.pricingSource ?? 'Unavailable'}</span></div>
+                <div className="cost-row"><span>Effective date</span><span>{costStats?.estimated?.pricingEffectiveDate ?? 'Unavailable'}</span></div>
+                <div className="cost-row"><span>Model basis</span><span>{costStats?.estimated?.pricingBasis ?? 'Unknown-model fallback'}</span></div>
+                <div className="cost-row"><span>Observed models</span><span>{costStats?.actual?.models?.join(', ') || 'Unavailable'}</span></div>
             </div>
 
             <div className="cost-panel glass-card">

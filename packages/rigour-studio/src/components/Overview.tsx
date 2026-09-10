@@ -22,8 +22,8 @@ interface OverviewData {
         checkpointReplayAvoided?: number;
     };
     cost?: {
-        actual?: { inputTokens?: number; costUsd?: number; source?: string };
-        estimated?: { potentialContextAvoided?: number; estimatedCostAvoidedUsd?: number };
+        actual?: { inputTokens?: number; outputTokens?: number; costUsd?: number; source?: string; classification?: string };
+        estimated?: { retrievalAvoidedTokens?: number; retrievalAvoidedCostUsd?: number; checkpointReplayAvoidedTokens?: number; checkpointReplayAvoidedCostUsd?: number };
     };
     cache?: {
         hitRate?: number;
@@ -87,10 +87,9 @@ export function Overview({ onNavigate }: Props) {
     }, []);
 
     const avoided = data?.context?.potentialAvoidedTokens ?? 0;
-    const replayAvoided = data?.context?.checkpointReplayAvoided ?? 0;
     const cachePct = Math.round((data?.cache?.hitRate ?? 0) * 100);
     const actualCost = data?.cost?.actual?.costUsd ?? 0;
-    const estAvoidedCost = data?.cost?.estimated?.estimatedCostAvoidedUsd ?? 0;
+    const retrievalAvoidedCost = data?.cost?.estimated?.retrievalAvoidedCostUsd ?? 0;
     const hasSignal =
         (data?.context?.retrievals ?? 0) > 0 ||
         (data?.checkpointCount ?? 0) > 0 ||
@@ -142,8 +141,8 @@ export function Overview({ onNavigate }: Props) {
             <div className="overview-kpi-grid">
                 <button type="button" className="overview-kpi" onClick={() => onNavigate('cost')}>
                     <span className="kpi-label">Context avoided</span>
-                    <span className="kpi-value amber">{formatTokens(avoided + replayAvoided)}</span>
-                    <span className="kpi-meta">retrieval + checkpoint replay</span>
+                    <span className="kpi-value amber">{formatTokens(avoided)}</span>
+                    <span className="kpi-meta">retrieval scope reduction only</span>
                 </button>
                 <button type="button" className="overview-kpi" onClick={() => onNavigate('cost')}>
                     <span className="kpi-label">Cache hit rate</span>
@@ -162,13 +161,10 @@ export function Overview({ onNavigate }: Props) {
                     </span>
                 </button>
                 <button type="button" className="overview-kpi" onClick={() => onNavigate('cost')}>
-                    <span className="kpi-label">Observed spend / est. avoided</span>
-                    <span className="kpi-value">
-                        ${actualCost.toFixed(2)}
-                        <span className="kpi-split"> / ${estAvoidedCost.toFixed(2)}</span>
-                    </span>
+                    <span className="kpi-label">Observed spend</span>
+                    <span className="kpi-value">${actualCost.toFixed(2)}</span>
                     <span className="kpi-meta">
-                        {(data?.cost?.actual?.source || 'no usage source') + ' · avoided $ is estimated'}
+                        {(data?.cost?.actual?.source || 'no usage source') + ` · retrieval estimate $${retrievalAvoidedCost.toFixed(2)}`}
                     </span>
                 </button>
             </div>

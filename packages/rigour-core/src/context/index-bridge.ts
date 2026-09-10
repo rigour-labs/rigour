@@ -7,6 +7,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import type { PatternIndex, PatternEntry } from '../pattern-index/types.js';
 import { setStaticCache, setComponentCache, hashContent } from './cache-engine.js';
+import { getRepositoryId } from '../storage/lessons.js';
 
 function getIndexPath(cwd: string): string {
     return path.join(cwd, '.rigour', 'patterns.json');
@@ -25,6 +26,23 @@ export interface IndexHealthReport {
 }
 
 const DEFAULT_STALE_MS = 24 * 60 * 60 * 1000;
+
+async function resolveGitBranch(cwd: string): Promise<string> {
+    try {
+        let gitDir = path.join(cwd, '.git');
+        const gitStat = await fs.stat(gitDir);
+        if (gitStat.isFile()) {
+            const pointer = await fs.readFile(gitDir, 'utf8');
+            const match = pointer.match(/^gitdir:\s*(.+)$/m);
+            if (!match) return 'workspace';
+            gitDir = path.resolve(cwd, match[1].trim());
+        }
+        const head = (await fs.readFile(path.join(gitDir, 'HEAD'), 'utf8')).trim();
+        return head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : head.slice(0, 12);
+    } catch {
+        return 'workspace';
+    }
+}
 
 function groupByComponent(patterns: PatternEntry[]): Map<string, PatternEntry[]> {
     const groups = new Map<string, PatternEntry[]>();
@@ -68,8 +86,8 @@ function buildDossier(component: string, patterns: PatternEntry[]): {
  */
 export async function syncIndexToContextCache(cwd: string, index: PatternIndex): Promise<number> {
     const resolved = path.resolve(cwd);
-    const repo = path.basename(index.rootDir || resolved);
-    const branch = 'main';
+    const repo = await getRepositoryId(resolved);
+    const branch = await resolveGitBranch(resolved);
     const commitSha = hashContent(index.lastUpdated);
     let synced = 0;
 

@@ -19,7 +19,18 @@ import path from 'path';
 import chalk from 'chalk';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
-import { runHookChecker, scanInputForCredentials, formatDLPAlert, createDLPAuditEntry, generateDLPHookFiles, writeDLPBlockManifest, allowLastDLPBlock } from '@rigour-labs/core';
+import {
+    allowLastDLPBlock,
+    createDLPAuditEntry,
+    formatDLPAlert,
+    generateDLPHookFiles,
+    recordInteractionEvidence,
+    recordInteractionLesson,
+    runHookChecker,
+    scanInputForCredentials,
+    updateAutomaticIndexForFiles,
+    writeDLPBlockManifest,
+} from '@rigour-labs/core';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -746,7 +757,29 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         cwd,
         files,
         timeout_ms: Number.isFinite(timeout) ? timeout : 5000,
+        agentId: options.agent || process.env.RIGOUR_AGENT_ID,
     });
+
+    const requestId = randomUUID();
+    const outcome = result.status === 'pass' ? 'success' : result.status === 'fail' ? 'rejected' : 'error';
+    await Promise.allSettled([
+        updateAutomaticIndexForFiles(cwd, files),
+        recordInteractionEvidence(cwd, {
+            tool: 'rigour_hooks_check', requestId, phase: 'response', outcome,
+            deterministic: result.status === 'pass', agentId: options.agent || process.env.RIGOUR_AGENT_ID,
+            files, summary: `${result.failures.length} finding(s)`,
+        }),
+        recordInteractionLesson(cwd, {
+            tool: 'rigour_hooks_check', requestId, outcome,
+            deterministic: result.status === 'pass', agentId: options.agent || process.env.RIGOUR_AGENT_ID,
+            files, summary: `${result.failures.length} finding(s)`,
+        }),
+        logStudioEvent(cwd, {
+            type: 'hook_check', requestId, outcome, status: result.status,
+            agentId: options.agent || process.env.RIGOUR_AGENT_ID,
+            files, summary: `${files.length} file(s), ${result.failures.length} finding(s)`,
+        }),
+    ]);
 
     // Return Cursor-compatible format if detected as Cursor hook
     if (cursorMode) {

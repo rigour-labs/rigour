@@ -49,6 +49,15 @@ It is critical to understand how Rigour integrates with your workflow:
 - **`rigour_get_fix_packet`**: The authoritative source of truth for what needs to be fixed (JSON Fix Packet v2).
 - **`rigour_list_gates`**: List which gates (ast, hygiene, file_size) are active and their thresholds.
 - **`rigour_get_config`**: Returns the full `rigour.yml` for agent reasoning about project constraints.
+- **`rigour_context_scope`**: Returns the smallest evidence-backed file scope plus applicable patterns and validated learning.
+- **`rigour_check_pattern`**: Advises whether to reuse an existing pattern, replace a stale approach, or stop for a security or protected-path issue.
+- **`rigour_recall`**: Recalls retained project memory after DLP filtering.
+
+### Guidance and impact metadata
+
+Context, pattern, and recall responses include a structured `_meta.rigourImpact` object for MCP clients. It records the recommendation, supporting pattern/lesson/memory references, selected scope, cache state, and measured token estimate. Studio persists the same safe metadata as an Advice node and aggregates it into the agent run's Impact Receipt. Memory values and source code are not duplicated into this metadata.
+
+An impact receipt proves what Rigour returned; it does not claim that the agent followed the advice or that Rigour caused the final outcome. Dollar savings remain separate until the actual model and applicable pricing are observed.
 
 ---
 

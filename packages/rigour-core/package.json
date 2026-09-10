@@ -73,6 +73,7 @@
         "@rigour-labs/brain-win-x64": "workspace:*",
         "@anthropic-ai/sdk": "^0.30.1",
         "@xenova/transformers": "^2.17.2",
+        "pg": "^8.16.3",
         "sqlite3": "^5.1.7",
         "openai": "^4.104.0"
     },
@@ -80,6 +81,7 @@
         "@types/fs-extra": "^11.0.4",
         "@types/micromatch": "^4.0.10",
         "@types/node": "^25.0.3",
+        "@types/pg": "^8.15.5",
         "@types/semver": "^7.7.1"
     }
 }

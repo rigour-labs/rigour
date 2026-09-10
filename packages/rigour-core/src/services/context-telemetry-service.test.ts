@@ -56,6 +56,7 @@ describe('context-telemetry-service', () => {
         expect(stats.retrievals).toBe(1);
         expect(stats.potentialAvoidedTokens).toBe(8000);
         expect(stats.repeatedReadsPrevented).toBeGreaterThan(0);
+        expect(stats.deduplicatedTokens).toBe(3000);
         expect(stats.isEstimated).toBe(false);
     });
 
@@ -97,6 +98,7 @@ describe('context-telemetry-service', () => {
         expect(cost.actual.inputTokens).toBe(510000);
         expect(cost.actual.costUsd).toBe(4.83);
         expect(cost.actual.isEstimated).toBe(false);
+        expect(cost.actual.classification).toBe('observed');
     });
 
     it('deduplicates CSV rows on re-import', async () => {
@@ -203,5 +205,19 @@ describe('context-telemetry-service', () => {
         expect(cost.estimated.isEstimated).toBe(true);
         expect(cost.estimated.inputPricePerMillionUsd).toBe(0.5);
         expect(cost.estimated.estimatedCostAvoidedUsd).toBeGreaterThan(0);
+    });
+
+    it('does not combine retrieval and checkpoint counterfactuals', async () => {
+        const id = `${taskId}-separate-${Math.random().toString(36).slice(2)}`;
+        await recordContextEvent({ taskId: id, toolName: 'rigour_context_scope', cacheStatus: 'miss', candidateTokens: 5000, returnedTokens: 1000 }, testCwd);
+        await recordCheckpointMetric({ checkpointId: `${id}-cp`, taskId: id, agentId: 'a1', rawStateTokens: 9000, checkpointTokens: 1000, replayTokensAvoided: 8000 }, testCwd);
+        const cost = await getTaskCostStats(id, testCwd);
+        expect(cost.estimated.retrievalAvoidedTokens).toBe(4000);
+        expect(cost.estimated.checkpointReplayAvoidedTokens).toBe(8000);
+        expect(cost.estimated.potentialContextAvoided).toBe(4000);
+        expect(cost.estimated.categoriesAreAdditive).toBe(false);
+        expect(cost.estimated.retrievalAvoidedCostRangeUsd?.max).toBeGreaterThan(
+            cost.estimated.retrievalAvoidedCostRangeUsd?.min ?? 0,
+        );
     });
 });

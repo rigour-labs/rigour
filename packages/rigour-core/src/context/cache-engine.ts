@@ -50,6 +50,20 @@ export interface SemanticQueryEntry {
     evidence: string[];
     commitSha: string;
     confidence: number;
+    sourceTokens?: number;
+    candidateFiles?: number;
+    returnedFiles?: number;
+    guidance?: {
+        kind: 'context-scope' | 'pattern' | 'memory';
+        query?: string;
+        recommendation: string;
+        patternRefs?: Array<{ id: string; label: string; file?: string }>;
+        lessonRefs?: Array<{ id: string; label: string; visibility?: string }>;
+        memoryRefs?: Array<{ id: string; label: string }>;
+        selectedFiles?: string[];
+        excludedFileCount?: number;
+        conflicts?: number;
+    };
 }
 
 export interface TaskCheckpointPacket {

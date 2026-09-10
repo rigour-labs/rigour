@@ -30,7 +30,7 @@ Works on any repo. No init, no config, no setup. Instant results in your termina
 
   Gates:  ✅ file-size  ❌ security  ❌ ast  ✅ deps
 
-  Brain: learned 12 patterns · trend: improving ↑
+  Learning: 12 evidence-backed lessons · trend: improving ↑
 ```
 
 ## Add to your AI IDE (30 seconds)
@@ -108,7 +108,7 @@ In supported editors, a real-time dashboard appears automatically as your agent 
 │  14:32:15  rigour_check → 71/100 (+37)        │
 │  14:32:22  rigour_check → ✅ PASS 94/100      │
 │                                               │
-│  Brain: 47 patterns · trend: improving ↑      │
+│  Learning: 47 lessons · trend: improving ↑    │
 └───────────────────────────────────────────────┘
 ```
 
@@ -142,22 +142,56 @@ Mediated run (rigour_run) → typed allowlist → human arbitration (fail-closed
 
 Voluntary `rigour_check` is a **quality workflow**, not the security boundary. Hard guarantees require installed hooks/MCP mediation and (for CI) `firewall admit`.
 
-## The Brain — learns your codebase
+## The Engineering Intelligence Layer
 
-Every scan reinforces patterns. Patterns decay when absent. At `strength: 0.9`, they promote to hard rules. Your project's own immune system — trained locally, zero telemetry.
+Rigour learns from normal agent work across repositories: context requests, Fix Packets, accepted changes, tests, checkpoints, handoffs, and human feedback. New observations remain `candidate` evidence. Only deterministic checks, repeated success, or explicit human confirmation can validate or promote a lesson; model text and vector similarity alone never become enforcement.
+
+Every interaction that passes through Rigour's MCP tools, plus file checks from installed CLI hooks, is appended to the evidence ledger even when no scan runs. Activity outside those observable integration points cannot be learned from and is never inferred.
 
 ```
-First week:  catches 12 violations
-First month: catches 8 violations  ← learning your patterns
-Third month: catches 3 violations  ← your agents have adapted
+Repository graph ─┐
+Agent run history ├─→ evidence ledger ─→ validated personal knowledge
+Tests + feedback ─┘                           │ reviewed publication
+                                              ▼
+                                      approved team knowledge
 ```
+
+Studio exposes this as an Engineering Knowledge Graph—not a code-map clone. It connects code structure, agent activity, verification outcomes, ownership, and lesson provenance. Advice nodes show the exact recommendation Rigour issued and the patterns, lessons, or memories behind it. Agent Teams retains live agents, completed runs, and their timeline instead of showing only the current session.
+
+Each governed run also gets an **Impact Receipt**. It separates the advice issued, knowledge reused, repository files excluded from context, cache reuse, and selected-file tokens avoided. Token figures are labelled as measured estimates; Rigour does not convert them into money unless an observed model and applicable price are available.
+
+### Optional PostgreSQL + pgvector team semantics
+
+PostgreSQL is the durable authority in team mode; encrypted SQLite remains the offline cache and outbox. If the administrator enables pgvector, Rigour embeds validated knowledge with the local `Xenova/all-MiniLM-L6-v2` model and uses cosine similarity to recall useful lessons from other projects. Those results are advisory candidates; repository applicability and lesson state still decide what can influence work.
+
+```bash
+# Administrator: initialize relational storage plus the optional vector index
+rigour team init-schema \
+  --database-url 'postgresql://ADMIN:***@HOST/DB?sslmode=verify-full' \
+  --pgvector
+
+# User: connect with the separately provisioned, non-owner database role
+rigour team configure \
+  --database-url 'postgresql://RUNTIME_USER:***@HOST/DB?sslmode=verify-full' \
+  --organization acme --team platform --actor ashutosh --pgvector
+
+rigour team doctor
+rigour team sync --dry-run
+rigour team sync
+rigour team semantic-backfill
+rigour team semantic-search 'how do we validate database migrations?'
+```
+
+If PostgreSQL or the embedding model is unavailable, structural retrieval, local enforcement, and evidence capture continue. Studio reports the degraded state and queues team writes for reconnection.
 
 ## How it's different
 
 | | Rigour | ESLint | “AI security agents” |
 |---|---|---|---|
 | Runs locally, zero telemetry | ✅ | ✅ | often ❌ |
-| Learns YOUR codebase (Brain) | ✅ | ❌ | ❌ |
+| Evidence learning across repositories | ✅ | ❌ | varies |
+| Private + reviewed team knowledge | ✅ | ❌ | varies |
+| Optional pgvector semantic recall | ✅ | ❌ | varies |
 | Agent self-healing (Fix Packets) | ✅ | ❌ | ❌ |
 | Deterministic execution firewall | ✅ | ❌ | usually LLM judge |
 | Works offline (GGUF sidecar) | ✅ | ✅ | ❌ |
@@ -181,6 +215,7 @@ npx @rigour-labs/cli check                   # run gates
 npx @rigour-labs/cli check --deep            # + local AI analysis
 npx @rigour-labs/cli check --deep --provider claude -k sk-ant-xxx  # cloud AI
 npx @rigour-labs/cli studio                  # monitoring + Firewall tab
+npx @rigour-labs/cli team doctor             # PostgreSQL, identity, pgvector health
 npx @rigour-labs/cli firewall adversarial
 npx @rigour-labs/cli firewall admit
 ```
@@ -194,7 +229,39 @@ npx @rigour-labs/cli firewall admit
 | `@rigour-labs/mcp` | MCP server — governance tools for agent integration |
 | `rigour-scan` | Zero-config shortcut: `npx rigour-scan` |
 
-**Stack:** TypeScript strict, web-tree-sitter, Zod, Vitest.
+**Stack:** TypeScript strict, web-tree-sitter, Zod, Vitest, SQLite, optional PostgreSQL + pgvector.
+
+## Test the current checkout
+
+```bash
+pnpm install
+pnpm --filter @rigour-labs/core test
+pnpm --filter @rigour-labs/mcp test
+pnpm --filter @rigour-labs/cli test
+pnpm --filter @rigour-labs/studio test
+pnpm build
+node packages/rigour-cli/dist/cli.js studio
+```
+
+If pnpm reports ignored native build scripts in a fresh clone, review and approve the repository's required `sqlite3`, `esbuild`, `sharp`, and `protobufjs` builds with `pnpm approve-builds`, then rerun the commands.
+
+To test the beta published from `dev`:
+
+```bash
+npx @rigour-labs/cli@beta --version
+npx @rigour-labs/cli@beta check
+npx @rigour-labs/cli@beta studio
+```
+
+In Studio, open each top-level area and its subviews, then confirm:
+
+- Agent Teams shows Live, Runs, and Timeline without crashing on incomplete records; runs with Rigour guidance expose an Impact Receipt.
+- System Health reports index, graph, semantic, all four cache layers, learning, and storage independently.
+- Map can filter and inspect code, agents, runs, advice, patterns, memory, policy, outcomes, and lessons with provenance.
+- Knowledge opens an SME Growth graph linking governed interactions to patterns, memory, validated lessons, deep findings, and drift; detailed pages remain available as drill-downs.
+- Cost & Context labels observed cost separately from each non-overlapping savings estimate.
+
+For a local integration test, run PostgreSQL from the `pgvector/pgvector:pg16` image, initialize with `team init-schema --pgvector`, provision one login role and matching `rigour.memberships` row, and configure Rigour with that runtime role. For Cloud SQL, enable the `vector` extension, use a TLS-verified direct connection or the Cloud SQL Auth Proxy, and repeat the same `doctor`, sync, backfill, and Studio checks. Full role-provisioning SQL and two-user acceptance steps are in [Enterprise & Teams](docs/ENTERPRISE.md).
 
 ---
 

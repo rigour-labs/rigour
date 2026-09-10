@@ -2,9 +2,9 @@ name: Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 permissions:
   contents: write
@@ -44,7 +44,7 @@ jobs:
   release:
     name: Release
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     env:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -84,13 +84,17 @@ jobs:
         run: |
           set -euo pipefail
           if printf '%s' "${{ github.event.head_commit.message }}" | grep -q '\[skip release\]'; then
-            VERSION=$(npm view @rigour-labs/cli version)
+            if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
+              VERSION=$(npm view @rigour-labs/cli dist-tags.beta 2>/dev/null || npm view @rigour-labs/cli version)
+            else
+              VERSION=$(npm view @rigour-labs/cli version)
+            fi
             echo "Commit requests [skip release]. Using published CLI ${VERSION}."
             echo "skip_release=true" >> "$GITHUB_OUTPUT"
             echo "existing_tag=v${VERSION}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+          EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | head -n1 || true)
           if [ -n "${EXISTING_TAG}" ]; then
             VERSION="${EXISTING_TAG#v}"
             PUBLISHED=$(npm view "@rigour-labs/cli@${VERSION}" version 2>/dev/null || true)
@@ -155,13 +159,17 @@ jobs:
             VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
             echo "published=true" >> "$GITHUB_OUTPUT"
           else
-            VERSION=$(npm view @rigour-labs/cli version)
+            if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
+              VERSION=$(npm view @rigour-labs/cli dist-tags.beta 2>/dev/null || npm view @rigour-labs/cli version)
+            else
+              VERSION=$(npm view @rigour-labs/cli version)
+            fi
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
           echo "cli_version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Publish Homebrew Formula
-        if: success() && steps.capture_version.outputs.published == 'true'
+        if: success() && github.ref == 'refs/heads/main' && steps.capture_version.outputs.published == 'true'
         env:
           HOMEBREW_TAP_GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GH_TOKEN }}
           HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'rigour-labs/homebrew-tap' }}
@@ -229,7 +237,7 @@ jobs:
           echo "Homebrew formula updated in ${HOMEBREW_TAP_REPO}"
 
       - name: Publish to MCP Registry
-        if: success() && steps.capture_version.outputs.published == 'true'
+        if: success() && github.ref == 'refs/heads/main' && steps.capture_version.outputs.published == 'true'
         working-directory: packages/rigour-mcp
         run: |
           # Get the version from the package.json which was just updated by semantic-release
@@ -246,8 +254,8 @@ jobs:
   distribution-smoke:
     name: Distribution Smoke (${{ matrix.os }}, Node ${{ matrix.node }})
     needs: release
-    # Smoke the currently published CLI after every successful main release job (publish or not).
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.result == 'success'
+    # Smoke the exact stable or beta CLI version captured by the release job.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && needs.release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -275,7 +283,7 @@ jobs:
           set -euo pipefail
           expected="${EXPECTED_CLI_VERSION}"
           out=$(npx -y "@rigour-labs/cli@${expected}" --version)
-          actual=$(printf '%s' "$out" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | tail -n1 || true)
+          actual=$(printf '%s' "$out" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' | tail -n1 || true)
           if [ -z "$actual" ]; then
             echo "No CLI version found in output: $out"
             exit 1
@@ -293,7 +301,7 @@ jobs:
           expected="${EXPECTED_CLI_VERSION}"
           npm install -g "@rigour-labs/cli@${expected}"
           out=$(rigour --version)
-          actual=$(printf '%s' "$out" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | tail -n1 || true)
+          actual=$(printf '%s' "$out" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' | tail -n1 || true)
           if [ -z "$actual" ]; then
             echo "No global CLI version found in output: $out"
             exit 1
@@ -326,7 +334,7 @@ jobs:
           rigour hooks check --files sample.ts
 
       - name: Verify Homebrew install (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail

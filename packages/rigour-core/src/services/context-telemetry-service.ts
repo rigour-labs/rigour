@@ -18,6 +18,8 @@ import {
     estimateAvoidedContextCostUsd,
     estimateTokenCostUsd,
     computeWeightedInputPricePerMillion,
+    MODEL_PRICING_EFFECTIVE_DATE,
+    MODEL_PRICING_SOURCE,
 } from './model-pricing.js';
 import { fetchCursorUsagePages, type CursorUsageSyncOptions } from './cursor-usage-client.js';
 import { CURSOR_ADMIN_API_SOURCE, centsToUsd, isCursorAdminApiEvent, normalizeCursorUsageEvent } from './cursor-usage-normalizer.js';
@@ -40,6 +42,7 @@ export interface TaskContextStats {
     potentialAvoidedTokens: number;
     cacheHitRate: number;
     repeatedReadsPrevented: number;
+    deduplicatedTokens: number;
     checkpointReplayAvoided: number;
     isEstimated: boolean;
 }
@@ -50,15 +53,29 @@ export interface TaskCostStats {
         outputTokens: number;
         costUsd: number;
         source: string;
+        models: string[];
         isEstimated: boolean;
         pricingBasis?: string;
+        classification: 'observed' | 'modelled estimate' | 'unavailable';
+        observedCoverage: number;
     };
     estimated: {
+        /** Compatibility alias: retrieval-only avoided tokens. */
         potentialContextAvoided: number;
+        /** Compatibility alias: retrieval-only avoided cost. */
         estimatedCostAvoidedUsd: number;
+        retrievalAvoidedTokens: number;
+        retrievalAvoidedCostUsd: number;
+        checkpointReplayAvoidedTokens: number;
+        checkpointReplayAvoidedCostUsd: number;
+        retrievalAvoidedCostRangeUsd?: { min: number; max: number };
+        checkpointReplayAvoidedCostRangeUsd?: { min: number; max: number };
+        categoriesAreAdditive: false;
         isEstimated: boolean;
         inputPricePerMillionUsd?: number;
         pricingBasis?: string;
+        pricingSource: string;
+        pricingEffectiveDate: string;
     };
 }
 
@@ -140,6 +157,7 @@ export async function getTaskContextStats(taskId?: string, cwd?: string): Promis
     let returnedTokens = 0;
     let cacheHits = 0;
     let repeatedReads = 0;
+    let deduplicatedTokens = 0;
 
     for (const e of events) {
         candidateTokens += e.candidateTokens || 0;
@@ -148,6 +166,7 @@ export async function getTaskContextStats(taskId?: string, cwd?: string): Promis
             cacheHits++;
         }
         const deduped = e.deduplicatedTokens ?? 0;
+        deduplicatedTokens += deduped;
         if (deduped > 0) {
             repeatedReads += Math.ceil(deduped / 500);
         }
@@ -165,6 +184,7 @@ export async function getTaskContextStats(taskId?: string, cwd?: string): Promis
         potentialAvoidedTokens,
         cacheHitRate,
         repeatedReadsPrevented: repeatedReads,
+        deduplicatedTokens,
         checkpointReplayAvoided,
         isEstimated: retrievals === 0,
     };
@@ -182,11 +202,13 @@ export async function getTaskCostStats(taskId?: string, cwd?: string): Promise<T
     let observedCostUsd = 0;
     let primarySource = 'estimated';
     const hasObservedUsage = usages.length > 0;
+    let observedUsageCount = 0;
 
     for (const u of usages) {
         actualInputTokens += u.inputTokens || 0;
         actualOutputTokens += u.outputTokens || 0;
         observedCostUsd += u.observedCostUsd || 0;
+        if ((u.observedCostUsd || 0) > 0) observedUsageCount++;
         if (u.source && u.source !== 'estimated') {
             primarySource = u.source;
         }
@@ -212,8 +234,13 @@ export async function getTaskCostStats(taskId?: string, cwd?: string): Promise<T
         actualPricingBasis = 'observed-cursor-charged-cents';
     }
 
-    const totalPotentialAvoided = stats.potentialAvoidedTokens + stats.checkpointReplayAvoided;
-    const avoidedPricing = estimateAvoidedContextCostUsd(totalPotentialAvoided, usages);
+    const retrievalPricing = estimateAvoidedContextCostUsd(stats.potentialAvoidedTokens, usages);
+    const checkpointPricing = estimateAvoidedContextCostUsd(stats.checkpointReplayAvoided, usages);
+    const unknownPricing = retrievalPricing.pricing.pricingBasis.includes('fallback');
+    const range = (tokens: number) => ({
+        min: parseFloat(((tokens / 1_000_000) * 0.15).toFixed(4)),
+        max: parseFloat(((tokens / 1_000_000) * 15).toFixed(4)),
+    });
 
     return {
         actual: {
@@ -221,15 +248,33 @@ export async function getTaskCostStats(taskId?: string, cwd?: string): Promise<T
             outputTokens: actualOutputTokens,
             costUsd: parseFloat(actualCostUsd.toFixed(4)),
             source: primarySource,
+            models: Array.from(new Set(usages.map(usage => usage.model).filter((model): model is string => Boolean(model)))),
             isEstimated: actualIsEstimated,
             pricingBasis: actualPricingBasis,
+            classification: hasObservedCost
+                ? 'observed'
+                : hasObservedUsage
+                    ? 'modelled estimate'
+                    : 'unavailable',
+            observedCoverage: usages.length > 0
+                ? parseFloat((observedUsageCount / usages.length).toFixed(2))
+                : 0,
         },
         estimated: {
-            potentialContextAvoided: totalPotentialAvoided,
-            estimatedCostAvoidedUsd: avoidedPricing.costUsd,
+            potentialContextAvoided: stats.potentialAvoidedTokens,
+            estimatedCostAvoidedUsd: retrievalPricing.costUsd,
+            retrievalAvoidedTokens: stats.potentialAvoidedTokens,
+            retrievalAvoidedCostUsd: retrievalPricing.costUsd,
+            checkpointReplayAvoidedTokens: stats.checkpointReplayAvoided,
+            checkpointReplayAvoidedCostUsd: checkpointPricing.costUsd,
+            retrievalAvoidedCostRangeUsd: unknownPricing ? range(stats.potentialAvoidedTokens) : undefined,
+            checkpointReplayAvoidedCostRangeUsd: unknownPricing ? range(stats.checkpointReplayAvoided) : undefined,
+            categoriesAreAdditive: false,
             isEstimated: true,
-            inputPricePerMillionUsd: avoidedPricing.pricing.inputPricePerMillionUsd,
-            pricingBasis: avoidedPricing.pricing.pricingBasis,
+            inputPricePerMillionUsd: retrievalPricing.pricing.inputPricePerMillionUsd,
+            pricingBasis: retrievalPricing.pricing.pricingBasis,
+            pricingSource: MODEL_PRICING_SOURCE,
+            pricingEffectiveDate: MODEL_PRICING_EFFECTIVE_DATE,
         },
     };
 }

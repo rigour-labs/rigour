@@ -5,10 +5,15 @@
  * leaves workspace: protocol and breaks npx installs).
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const root = process.cwd();
+const cliPackage = JSON.parse(readFileSync(join(root, 'packages/rigour-cli/package.json'), 'utf8'));
+const prerelease = String(cliPackage.version).split('-')[1];
+const distTag = prerelease ? prerelease.split('.')[0] : 'latest';
 
-console.log('Publishing @rigour-labs/* packages with pnpm (resolves workspace: deps)...');
+console.log(`Publishing @rigour-labs/* packages with npm dist-tag ${distTag}...`);
 
 try {
   execFileSync(
@@ -19,6 +24,7 @@ try {
       '--no-git-checks',
       '--access', 'public',
       '--provenance',
+      '--tag', distTag,
     ],
     { cwd: root, stdio: 'inherit', env: process.env },
   );

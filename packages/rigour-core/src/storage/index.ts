@@ -14,3 +14,21 @@ export {
     recordCheckpointMetric, getContextEvents, getModelUsages, getCheckpointMetrics
 } from './context-telemetry.js';
 export type { ContextEvent, ModelUsage, ContextCacheRecord, CheckpointMetric } from './context-telemetry.js';
+export { recordInteractionEvidence, countInteractionEvidence, recordInteractionLesson, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId } from './lessons.js';
+export type { ApplicableLessons, InteractionEvidence, LessonRecord, LessonState, LessonVisibility } from './lessons.js';
+export {
+    loadTeamConfiguration,
+    saveTeamConfiguration,
+    initializeTeamSchema,
+    getTeamModeStatus,
+    doctorTeamConnection,
+    syncTeamOutbox,
+    searchTeamKnowledge,
+    backfillTeamEmbeddings,
+    TEAM_CONFIG_PATH,
+    validateTeamDatabaseUrl,
+} from './team-store.js';
+export type {
+    TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,
+    SemanticKnowledgeCandidate, SemanticKnowledgeResult,
+} from './team-store.js';

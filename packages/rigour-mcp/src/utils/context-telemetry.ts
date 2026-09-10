@@ -16,7 +16,21 @@ export type TelemetryMeta = {
     taskId?: string;
     agentId?: string;
     queryHash?: string;
+    candidateFiles?: number;
+    returnedFiles?: number;
     skipRecording?: boolean;
+};
+
+export type GuidanceMeta = {
+    kind: 'context-scope' | 'pattern' | 'memory';
+    query?: string;
+    recommendation: string;
+    patternRefs?: Array<{ id: string; label: string; file?: string }>;
+    lessonRefs?: Array<{ id: string; label: string; visibility?: string }>;
+    memoryRefs?: Array<{ id: string; label: string }>;
+    selectedFiles?: string[];
+    excludedFileCount?: number;
+    conflicts?: number;
 };
 
 export type ToolResult = {
@@ -26,6 +40,7 @@ export type ToolResult = {
     _rigour_report?: unknown;
     _meta?: unknown;
     _telemetry?: TelemetryMeta;
+    _guidance?: GuidanceMeta;
 };
 
 export function buildTelemetryMeta(opts: {
@@ -36,17 +51,23 @@ export function buildTelemetryMeta(opts: {
     taskId?: string;
     agentId?: string;
     queryHash?: string;
+    candidateTokens?: number;
+    returnedTokens?: number;
+    candidateFiles?: number;
+    returnedFiles?: number;
     skipRecording?: boolean;
 }): TelemetryMeta {
     return {
-        candidateTokens: estimateTokenCount(opts.candidateText),
-        returnedTokens: estimateTokenCount(opts.returnedText),
+        candidateTokens: opts.candidateTokens ?? estimateTokenCount(opts.candidateText),
+        returnedTokens: opts.returnedTokens ?? estimateTokenCount(opts.returnedText),
         cacheStatus: opts.cacheStatus,
         deduplicatedTokens: opts.deduplicatedTokens ?? 0,
         isEstimated: true,
         taskId: opts.taskId,
         agentId: opts.agentId,
         queryHash: opts.queryHash,
+        candidateFiles: opts.candidateFiles,
+        returnedFiles: opts.returnedFiles,
         skipRecording: opts.skipRecording,
     };
 }

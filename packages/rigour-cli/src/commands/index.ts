@@ -32,7 +32,7 @@ async function logStudioEvent(cwd: string, event: any) {
 
 export const indexCommand = new Command('index')
     .description('Build or update the pattern index for the current project')
-    .option('-s, --semantic', 'Generate semantic embeddings for better matching (requires Transformers.js)', false)
+    .option('--no-semantic', 'Skip local semantic embeddings and build only the structural index')
     .option('-f, --force', 'Force a full rebuild of the index', false)
     .option('-o, --output <path>', 'Custom path for the index file')
     .action(async (options) => {

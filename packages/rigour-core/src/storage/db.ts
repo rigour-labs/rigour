@@ -49,7 +49,7 @@ const RIGOUR_DIR = path.join(os.homedir(), '.rigour');
 const DB_PATH = path.join(RIGOUR_DIR, 'rigour.db');
 
 /** Current schema version — bump when adding migrations. */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA_SQL = `
 -- Schema version tracking
@@ -182,6 +182,61 @@ CREATE TABLE IF NOT EXISTS checkpoint_metrics (
     created_at INTEGER NOT NULL
 );
 
+-- Evidence-gated learning produced during normal agent interaction.
+CREATE TABLE IF NOT EXISTS lessons (
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    actor_id TEXT,
+    team_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'personal',
+    state TEXT NOT NULL DEFAULT 'candidate',
+    kind TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.3,
+    source TEXT NOT NULL,
+    supersedes_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sync_outbox (
+    id TEXT PRIMARY KEY,
+    operation TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    synced_at INTEGER
+);
+
+-- Stable repository registry used by cross-project learning and graph views.
+CREATE TABLE IF NOT EXISTS repositories (
+    id TEXT PRIMARY KEY,
+    canonical_uri TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    last_seen INTEGER NOT NULL
+);
+
+-- Append-only observations from normal governed agent work. These are evidence,
+-- not reusable rules; lesson promotion remains a separate gated decision.
+CREATE TABLE IF NOT EXISTS interaction_events (
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    actor_id TEXT,
+    task_id TEXT,
+    session_id TEXT,
+    request_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    deterministic INTEGER NOT NULL DEFAULT 0,
+    evidence_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_scans_repo ON scans(repo);
 CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans(timestamp);
@@ -197,6 +252,11 @@ CREATE INDEX IF NOT EXISTS idx_model_usage_task ON model_usage(task_id);
 CREATE INDEX IF NOT EXISTS idx_model_usage_created ON model_usage(created_at);
 CREATE INDEX IF NOT EXISTS idx_context_cache_type ON context_cache(cache_type);
 CREATE INDEX IF NOT EXISTS idx_checkpoint_metrics_task ON checkpoint_metrics(task_id);
+CREATE INDEX IF NOT EXISTS idx_lessons_lookup ON lessons(repository_id, actor_id, team_id, state);
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_pending ON sync_outbox(synced_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_repositories_last_seen ON repositories(last_seen);
+CREATE INDEX IF NOT EXISTS idx_interaction_events_repo_created ON interaction_events(repository_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_interaction_events_request ON interaction_events(request_id);
 `;
 
 // ---------------------------------------------------------------------------
@@ -398,6 +458,75 @@ async function runMigrations(db: RigourDB): Promise<void> {
             CREATE INDEX IF NOT EXISTS idx_model_usage_created ON model_usage(created_at);
         `);
         await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4')");
+    }
+    if (current < 5) {
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS lessons (
+                id TEXT PRIMARY KEY,
+                repository_id TEXT NOT NULL,
+                actor_id TEXT,
+                team_id TEXT,
+                visibility TEXT NOT NULL DEFAULT 'personal',
+                state TEXT NOT NULL DEFAULT 'candidate',
+                kind TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                evidence_json TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0.3,
+                source TEXT NOT NULL,
+                supersedes_id TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sync_outbox (
+                id TEXT PRIMARY KEY,
+                operation TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at INTEGER NOT NULL,
+                synced_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_lessons_lookup ON lessons(repository_id, actor_id, team_id, state);
+            CREATE INDEX IF NOT EXISTS idx_sync_outbox_pending ON sync_outbox(synced_at, created_at);
+        `);
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '5')");
+    }
+    if (current < 6) {
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS repositories (
+                id TEXT PRIMARY KEY,
+                canonical_uri TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                last_seen INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_repositories_last_seen ON repositories(last_seen);
+        `);
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '6')");
+    }
+    if (current < 7) {
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS interaction_events (
+                id TEXT PRIMARY KEY,
+                repository_id TEXT NOT NULL,
+                actor_id TEXT,
+                task_id TEXT,
+                session_id TEXT,
+                request_id TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                deterministic INTEGER NOT NULL DEFAULT 0,
+                evidence_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_interaction_events_repo_created
+                ON interaction_events(repository_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_interaction_events_request
+                ON interaction_events(request_id);
+        `);
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '7')");
     }
 }
 

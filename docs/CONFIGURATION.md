@@ -1,5 +1,11 @@
 # ⚙️ Configuration Guide (`rigour.yml`)
 
+## Automatic context intelligence
+
+Rigour builds the structural pattern index and dependency graph on first context use. Semantic enrichment is enabled by default and runs in the background; use `rigour index --no-semantic` only for an explicitly structural-only rebuild. Deep analysis is independent and is never required for indexing, caching, or evidence collection.
+
+After the baseline, IDE hooks and checkpoints update changed files and affected graph dependents. The four context cache layers—file facts, component dossiers, semantic scopes, and checkpoint packets—activate as those workflows are used.
+
 Rigour is controlled by a `rigour.yml` file in your root directory.
 
 ## Schema Overview
@@ -287,4 +293,3 @@ gates:
       - "legacy/**"
       - "*.config.js"
 ```
-

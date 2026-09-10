@@ -24,6 +24,7 @@ import { GateRunner } from "@rigour-labs/core";
 import { loadConfig, loadMcpSettings, logStudioEvent } from './utils/config.js';
 import { bindServer } from './utils/notifications.js';
 import { getMcpVersion } from './utils/package-version.js';
+import { buildMcpResultMeta, buildStudioImpact } from './utils/impact-receipt.js';
 
 // Dashboard (MCP App)
 import { DASHBOARD_URI, getDashboardHtml, pushTimelineEntry, updateScore } from './dashboard/index.js';
@@ -43,7 +44,7 @@ import { handleCheckDeep, handleDeepStats } from './tools/deep-handlers.js';
 import { handleMcpGetSettings, handleMcpSetSettings } from './tools/mcp-settings-handler.js';
 import { handleContextStats, handleTaskCost, handleCacheStats, handleContextExplain, handleContextScope } from './tools/context-handlers.js';
 import { handleIndex } from './tools/index-handlers.js';
-import { recordContextEvent, estimateTokenCount } from '@rigour-labs/core';
+import { recordContextEvent, recordInteractionEvidence, recordInteractionLesson, syncTeamOutbox, estimateTokenCount } from '@rigour-labs/core';
 
 // ─── Server Setup ─────────────────────────────────────────────────
 
@@ -51,6 +52,23 @@ const server = new Server(
     { name: "rigour-mcp", version: getMcpVersion('5.5.0') },
     { capabilities: { tools: {}, prompts: {}, logging: {}, resources: {} } }
 );
+
+function interactionMetadata(args: unknown) {
+    const input = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
+    const rawFiles = Array.isArray(input.files)
+        ? input.files
+        : Array.isArray(input.filesChanged)
+            ? input.filesChanged
+            : Array.isArray(input.filesInScope)
+                ? input.filesInScope
+                : input.file ? [input.file] : [];
+    return {
+        taskId: String(input.taskId || input.task_id || '') || undefined,
+        agentId: String(input.agentId || input.agent_id || input.agent || '') || undefined,
+        sessionId: String(input.sessionId || input.session_id || '') || undefined,
+        files: rawFiles.filter((file): file is string => typeof file === 'string').slice(0, 100),
+    };
+}
 
 // Bind server for logging notifications from handlers
 bindServer(server);
@@ -94,6 +112,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     try {
         await logStudioEvent(cwd, { type: "tool_call", requestId, tool: name, arguments: args });
+        try {
+            await recordInteractionEvidence(cwd, {
+                tool: name,
+                outcome: 'success',
+                phase: 'request',
+                requestId,
+                ...interactionMetadata(args),
+            });
+        } catch {
+            // Evidence capture must never block the requested governance operation.
+        }
 
         // ── Image DLP warning ──────────────────────────────
         // MCP args may contain base64 image data. Text DLP cannot scan images.
@@ -224,10 +253,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     candidateTokens: telemetry?.candidateTokens ?? returnedTokens,
                     returnedTokens,
                     deduplicatedTokens: telemetry?.deduplicatedTokens ?? 0,
+                    candidateFiles: telemetry?.candidateFiles,
+                    returnedFiles: telemetry?.returnedFiles,
                 }, cwd);
             }
         } catch {
             // non-blocking context telemetry logging
+        }
+
+        try {
+            const reportStatus = result?._rigour_report?.status;
+            const deterministic = Boolean(reportStatus === 'PASS');
+            const outcome = result?.isError ? 'error' : 'success';
+            await recordInteractionEvidence(cwd, {
+                tool: name,
+                outcome,
+                phase: 'response',
+                requestId,
+                deterministic,
+                summary: result?._guidance?.recommendation,
+                ...interactionMetadata(args),
+            });
+            await recordInteractionLesson(cwd, {
+                tool: name,
+                outcome,
+                requestId,
+                deterministic,
+                verifiedOutcome: deterministic,
+                summary: result?._guidance?.recommendation,
+                ...interactionMetadata(args),
+            });
+            void syncTeamOutbox().catch(() => undefined);
+        } catch {
+            // Learning is evidence collection and must not block governance tools.
         }
 
         // ── Prepend image DLP warning if image content was detected ──
@@ -238,9 +296,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             });
         }
 
+        const studioImpact = buildStudioImpact(result._guidance, result._telemetry);
         await logStudioEvent(cwd, {
-            type: "tool_response", requestId, tool: name, status: "success",
-            content: result.content, _rigour_report: result._rigour_report,
+            type: "tool_response", requestId, tool: name, status: result.isError ? "error" : "success",
+            content: result.content,
+            _rigour_report: result._rigour_report,
+            ...studioImpact,
         });
 
         // ─── Dashboard State + MCP App UI Hint ──────────────
@@ -260,7 +321,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Attach UI hint for MCP-App-capable clients (Claude Desktop, VS Code, ChatGPT, Goose)
         if (!result.isError) {
-            result._meta = { ui: { resourceUri: DASHBOARD_URI } };
+            result._meta = buildMcpResultMeta(
+                result._meta,
+                requestId,
+                DASHBOARD_URI,
+                result._guidance,
+                result._telemetry,
+            );
         }
 
         // Notify clients that the dashboard resource has updated
@@ -280,6 +347,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [{ type: "text", text: `RIGOUR ERROR: ${error.message}` }],
             isError: true,
         };
+
+        try {
+            await recordInteractionEvidence(cwd, {
+                tool: name,
+                outcome: 'error',
+                phase: 'response',
+                requestId,
+                summary: String(error?.message || 'Unknown error').slice(0, 500),
+                ...interactionMetadata(args),
+            });
+        } catch {
+            // Failure evidence capture is intentionally non-blocking.
+        }
 
         await logStudioEvent(cwd, {
             type: "tool_response", requestId, tool: name,

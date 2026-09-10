@@ -73,7 +73,7 @@ export async function handleIndex(
     try {
         notifyProgress('info', 'Building pattern index...');
 
-        const indexer = new PatternIndexer(cwd, { useEmbeddings: options.semantic ?? false });
+        const indexer = new PatternIndexer(cwd, { useEmbeddings: options.semantic ?? true });
         const existingIndex = await loadPatternIndex(indexPath);
 
         let index: PatternIndex;

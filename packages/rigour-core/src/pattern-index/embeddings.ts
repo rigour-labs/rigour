@@ -8,6 +8,7 @@
  * Singleton for the embedding pipeline to avoid re-loading the model.
  */
 let embeddingPipeline: any = null;
+let embeddingUnavailable = false;
 
 /**
  * Get or initialize the embedding pipeline.
@@ -24,6 +25,8 @@ async function getPipeline() {
         };
     }
 
+    if (embeddingUnavailable) return null;
+
     if (!embeddingPipeline) {
         try {
             // Dynamic import to isolate native dependency issues (like sharp)
@@ -32,8 +35,9 @@ async function getPipeline() {
             // Using a compact but high-quality model for local embeddings
             embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
         } catch (error) {
-            console.error('Failed to initialize embedding pipeline:', error);
-            throw error;
+            embeddingUnavailable = true;
+            console.warn('Semantic enrichment is degraded; structural and text retrieval remain available.');
+            return null;
         }
     }
     return embeddingPipeline;
@@ -45,10 +49,12 @@ async function getPipeline() {
 export async function generateEmbedding(text: string): Promise<number[]> {
     try {
         const extractor = await getPipeline();
+        if (!extractor) return [];
         const output = await extractor(text, { pooling: 'mean', normalize: true });
         return Array.from(output.data);
     } catch (error) {
-        console.warn('Semantic reasoning disabled: Embedding generation failed.', error);
+        embeddingUnavailable = true;
+        console.warn('Semantic enrichment is degraded; structural and text retrieval remain available.');
         return [];
     }
 }

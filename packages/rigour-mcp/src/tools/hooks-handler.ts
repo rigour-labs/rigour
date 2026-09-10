@@ -7,7 +7,7 @@
  * @since v3.0.0 — real-time hooks for AI coding tools
  * @since v4.2.0 — AI Agent DLP warning layer
  */
-import { runHookChecker, generateHookFiles } from "@rigour-labs/core";
+import { runHookChecker, generateHookFiles, updateAutomaticIndexForFiles } from "@rigour-labs/core";
 import { scanInputForCredentials, formatDLPAlert, createDLPAuditEntry, generateDLPHookFiles } from "@rigour-labs/core";
 import type { HookTool } from "@rigour-labs/core";
 import fs from "fs-extra";
@@ -89,6 +89,9 @@ export async function handleHooksCheck(
     if (agent) input.agentId = agent;
 
     const result = await runHookChecker(input);
+    if (files.length > 0) {
+        await updateAutomaticIndexForFiles(cwd, files).catch(() => undefined);
+    }
 
     if (result.status === 'pass') {
         return {

@@ -20,6 +20,7 @@ import { reviewCommand } from './commands/review.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { securityAuditCommand } from './commands/security-audit.js';
 import { firewallTransactCommand, firewallAdversarialCommand, firewallAdmitCommand, firewallStatusCommand } from './commands/firewall.js';
+import { teamCommand } from './commands/team.js';
 import { checkForUpdates } from './utils/version.js';
 import { getCliVersion } from './utils/cli-version.js';
 import chalk from 'chalk';
@@ -32,6 +33,7 @@ program.addCommand(indexCommand);
 program.addCommand(studioCommand);
 program.addCommand(brainCommand);
 program.addCommand(deepStatsCommand);
+program.addCommand(teamCommand);
 
 program
     .name('rigour')

@@ -119,6 +119,8 @@ describe('context MCP handlers', () => {
         expect(result._telemetry?.taskId).toBe(scopeTaskId);
         expect(result._telemetry?.agentId).toBe(agentId);
         expect(result._telemetry?.queryHash).toHaveLength(16);
+        expect(result._guidance?.kind).toBe('context-scope');
+        expect(result._guidance?.recommendation).toBeTruthy();
     });
 
     it('records scoped context events filterable by taskId', async () => {
@@ -166,6 +168,9 @@ describe('context MCP handlers', () => {
             evidence: ['cached scope'],
             commitSha,
             confidence: 0.9,
+            sourceTokens: 1000,
+            candidateFiles: 10,
+            returnedFiles: 1,
         }, testCwd);
 
         const result = await handleContextScope(testCwd, query, 5, scopeTaskId, agentId);
@@ -174,6 +179,9 @@ describe('context MCP handlers', () => {
         expect(result._telemetry?.taskId).toBe(scopeTaskId);
         expect(result._telemetry?.agentId).toBe(agentId);
         expect(result._telemetry?.queryHash).toHaveLength(16);
+        expect(result._telemetry?.candidateFiles).toBe(10);
+        expect(result._telemetry?.returnedFiles).toBe(1);
+        expect(result._guidance).toMatchObject({ kind: 'context-scope', selectedFiles: ['src/example.ts'], excludedFileCount: 9 });
     });
 
     it('serves partial-hit for highly related query at same commit', async () => {

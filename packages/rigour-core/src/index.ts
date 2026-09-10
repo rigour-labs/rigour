@@ -43,6 +43,24 @@ export type { RigourDB, CompactResult } from './storage/index.js';
 // Local Project Memory (hybrid intelligence — SQLite-backed per-project learning)
 export { checkLocalPatterns, persistAndReinforce, getProjectStats } from './storage/index.js';
 export type { ProjectStats } from './storage/index.js';
+export { recordInteractionEvidence, countInteractionEvidence, recordInteractionLesson, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId } from './storage/index.js';
+export type { ApplicableLessons, InteractionEvidence, LessonRecord, LessonState, LessonVisibility } from './storage/index.js';
+export {
+  loadTeamConfiguration,
+  saveTeamConfiguration,
+  initializeTeamSchema,
+  getTeamModeStatus,
+  doctorTeamConnection,
+  syncTeamOutbox,
+  searchTeamKnowledge,
+  backfillTeamEmbeddings,
+  TEAM_CONFIG_PATH,
+  validateTeamDatabaseUrl,
+} from './storage/index.js';
+export type {
+  TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,
+  SemanticKnowledgeCandidate, SemanticKnowledgeResult,
+} from './storage/index.js';
 // Temporal Drift Engine (v5 — cross-session trend analysis + per-provenance EWMA)
 export { generateTemporalDriftReport, formatDriftSummary } from './services/temporal-drift.js';
 export type { TemporalDriftReport, ProvenanceStream, MonthlyBucket, WeeklyBucket, DriftDirection } from './services/temporal-drift.js';
@@ -59,7 +77,12 @@ export type { RenderOptions, GateResult } from './services/terminal-renderer.js'
 export * from './context/cache-engine.js';
 export * from './context/context-session.js';
 export * from './context/index-bridge.js';
+export * from './context/automatic-index.js';
+export * from './context/dependency-graph.js';
 export * from './services/context-telemetry-service.js';
+export * from './services/system-health.js';
+export * from './services/agent-history.js';
+export * from './services/engineering-knowledge-graph.js';
 
 export * from './firewall/index.js';
 export {

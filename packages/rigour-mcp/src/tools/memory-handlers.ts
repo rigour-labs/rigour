@@ -22,7 +22,7 @@ import {
     loadPatternIndex,
     getDefaultIndexPath,
 } from '@rigour-labs/core/pattern-index';
-import { buildTelemetryMeta, getWorkspaceCommitSha, type ToolResult } from '../utils/context-telemetry.js';
+import { buildTelemetryMeta, getWorkspaceCommitSha, type GuidanceMeta, type ToolResult } from '../utils/context-telemetry.js';
 import { appendContextFooter } from '../utils/context-footer.js';
 import fs from 'fs-extra';
 import path from 'path';
@@ -75,6 +75,7 @@ function wrapRecallResult(
     candidateText: string,
     cacheStatus: 'exact-hit' | 'semantic-hit' | 'miss',
     deduplicatedTokens = 0,
+    guidance?: GuidanceMeta,
 ): ToolResult {
     const telemetry = buildTelemetryMeta({
         candidateText,
@@ -88,6 +89,7 @@ function wrapRecallResult(
             text: appendContextFooter(text, telemetry, 'rigour_context_scope("your task")'),
         }],
         _telemetry: telemetry,
+        _guidance: guidance,
     };
 }
 
@@ -166,6 +168,12 @@ export async function handleRecall(cwd: string, key?: string): Promise<ToolResul
             candidateText,
             'semantic-hit',
             Math.max(0, estimateTokenCount(candidateText) - estimateTokenCount(cachedBody)),
+            cached.guidance ?? {
+                kind: 'memory',
+                query: key ?? 'all memories',
+                recommendation: key ? `Apply recalled memory "${key}" where relevant.` : 'Apply the recalled project memories where relevant.',
+                memoryRefs: key ? [{ id: key, label: key }] : [],
+            },
         );
     }
 
@@ -197,6 +205,12 @@ export async function handleRecall(cwd: string, key?: string): Promise<ToolResul
         const indexHealth = await getIndexHealthBlock(cwd);
         const fullText = `${body}${indexHealth}`;
 
+        const guidance: GuidanceMeta = {
+            kind: 'memory',
+            query: key,
+            recommendation: `Apply recalled memory "${key}" where relevant.`,
+            memoryRefs: [{ id: key, label: key }],
+        };
         await setSemanticQueryCache(cacheQuery, commitSha, {
             query: cacheQuery,
             resolvedOwner: 'memory',
@@ -205,9 +219,10 @@ export async function handleRecall(cwd: string, key?: string): Promise<ToolResul
             evidence: [body],
             commitSha,
             confidence: 1,
+            guidance,
         }, cwd);
 
-        return wrapRecallResult(fullText, candidateText, 'miss');
+        return wrapRecallResult(fullText, candidateText, 'miss', 0, guidance);
     }
 
     const keys = Object.keys(store.memories);
@@ -244,6 +259,12 @@ export async function handleRecall(cwd: string, key?: string): Promise<ToolResul
 
     text += await getIndexHealthBlock(cwd);
 
+    const guidance: GuidanceMeta = {
+        kind: 'memory',
+        query: 'all memories',
+        recommendation: `Apply ${cleanMemories.length} recalled project memory item(s) where relevant.`,
+        memoryRefs: keys.filter(k => !taintedKeys.includes(k)).map(k => ({ id: k, label: k })),
+    };
     await setSemanticQueryCache(cacheQuery, commitSha, {
         query: cacheQuery,
         resolvedOwner: 'memory',
@@ -252,6 +273,7 @@ export async function handleRecall(cwd: string, key?: string): Promise<ToolResul
         evidence: [text],
         commitSha,
         confidence: 1,
+        guidance,
     }, cwd);
 
     return wrapRecallResult(
@@ -259,6 +281,7 @@ export async function handleRecall(cwd: string, key?: string): Promise<ToolResul
         candidateText,
         'miss',
         Math.max(0, estimateTokenCount(candidateText) - estimateTokenCount(text)),
+        guidance,
     );
 }
 

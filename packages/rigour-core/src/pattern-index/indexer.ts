@@ -13,6 +13,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { globby } from 'globby';
 import ts from 'typescript';
+import micromatch from 'micromatch';
 import type {
     PatternEntry,
     PatternIndex,
@@ -194,6 +195,76 @@ export class PatternIndexer {
             patterns: updatedPatterns,
             stats,
             files: updatedFiles,
+        };
+    }
+
+    async updateFiles(existingIndex: PatternIndex, changedFiles: string[]): Promise<PatternIndex> {
+        const startTime = Date.now();
+        const root = path.resolve(this.rootDir);
+        const changed = new Set(changedFiles.flatMap(file => {
+            const absolute = path.resolve(root, file);
+            const relative = path.relative(root, absolute);
+            if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return [];
+            return [relative.split(path.sep).join('/')];
+        }));
+        const patterns = existingIndex.patterns.filter(pattern => !changed.has(pattern.file));
+        const files = existingIndex.files.filter(file => !changed.has(file.path));
+
+        for (const relativePath of changed) {
+            const absolutePath = path.join(root, relativePath);
+            const supported = this.config.extensions.includes(path.extname(relativePath).toLowerCase());
+            const included = micromatch.isMatch(relativePath.replace(/\\/g, '/'), this.config.include, { dot: false });
+            const excluded = micromatch.isMatch(relativePath.replace(/\\/g, '/'), this.config.exclude, { dot: true });
+            if (!supported || !included || excluded) continue;
+            try {
+                const content = await fs.readFile(absolutePath, 'utf-8');
+                const filePatterns = await this.extractPatterns(absolutePath, content);
+                if (this.config.useEmbeddings) {
+                    await Promise.all(filePatterns.map(async pattern => {
+                        pattern.embedding = await generateEmbedding(`${pattern.name} ${pattern.type} ${pattern.description}`);
+                    }));
+                }
+                patterns.push(...filePatterns);
+                files.push({
+                    path: relativePath,
+                    hash: hashContent(content),
+                    patternCount: filePatterns.length,
+                    indexedAt: new Date().toISOString(),
+                });
+            } catch (error: any) {
+                if (error?.code !== 'ENOENT') throw error;
+            }
+        }
+
+        return {
+            version: INDEX_VERSION,
+            lastUpdated: new Date().toISOString(),
+            rootDir: this.rootDir,
+            patterns,
+            files,
+            stats: this.calculateStats(patterns, files, Date.now() - startTime),
+        };
+    }
+
+    async enrichIndex(existingIndex: PatternIndex): Promise<PatternIndex> {
+        const startTime = Date.now();
+        const patterns = existingIndex.patterns.map(pattern => ({ ...pattern }));
+        const pending = patterns.filter(pattern => !pattern.embedding?.length);
+        if (pending.length > 0) {
+            pending[0].embedding = await generateEmbedding(`${pending[0].name} ${pending[0].type} ${pending[0].description}`);
+            if (!pending[0].embedding.length) return existingIndex;
+        }
+        const batchSize = 10;
+        for (let i = 1; i < pending.length; i += batchSize) {
+            await Promise.all(pending.slice(i, i + batchSize).map(async pattern => {
+                pattern.embedding = await generateEmbedding(`${pattern.name} ${pattern.type} ${pattern.description}`);
+            }));
+        }
+        return {
+            ...existingIndex,
+            lastUpdated: new Date().toISOString(),
+            patterns,
+            stats: this.calculateStats(patterns, existingIndex.files, Date.now() - startTime),
         };
     }
 

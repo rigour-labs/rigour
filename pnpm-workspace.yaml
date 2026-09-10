@@ -2,7 +2,7 @@ packages:
   - 'packages/*'
   - 'apps/*'
 allowBuilds:
-  esbuild: set this to true or false
-  protobufjs: set this to true or false
-  sharp: set this to true or false
-  sqlite3: set this to true or false
+  esbuild: true
+  protobufjs: true
+  sharp: true
+  sqlite3: true

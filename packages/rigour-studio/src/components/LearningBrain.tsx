@@ -18,6 +18,17 @@ interface LearningPayload {
     };
 }
 
+interface Lesson {
+    id: string;
+    subject: string;
+    state: 'candidate' | 'validated' | 'promoted' | 'rejected' | 'superseded';
+    visibility: 'personal' | 'team';
+    source: string;
+    actorId?: string;
+    confidence: number;
+    evidence?: Record<string, unknown>;
+}
+
 interface Props {
     onNavigate?: (tab: string) => void;
 }
@@ -26,19 +37,34 @@ export function LearningBrain({ onNavigate }: Props) {
     const [data, setData] = useState<LearningPayload | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [lessons, setLessons] = useState<Lesson[]>([]);
+    const [teamConfigured, setTeamConfigured] = useState(false);
 
     const load = async () => {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch('/api/overview');
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            setData(await res.json());
+            const [overview, lessonResponse] = await Promise.all([fetch('/api/overview'), fetch('/api/lessons')]);
+            if (!overview.ok) throw new Error(`HTTP ${overview.status}`);
+            setData(await overview.json());
+            if (lessonResponse.ok) {
+                const payload = await lessonResponse.json();
+                setLessons(payload.lessons ?? []);
+                setTeamConfigured(payload.teamConfigured === true);
+            }
         } catch (e: any) {
             setError(e.message || 'Failed to load learning signals');
         } finally {
             setLoading(false);
         }
+    };
+
+    const transition = async (id: string, state: Lesson['state']) => {
+        const response = await fetch('/api/lessons', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, state }),
+        });
+        if (!response.ok) throw new Error(`Lesson update failed: HTTP ${response.status}`);
+        await load();
     };
 
     useEffect(() => {
@@ -84,12 +110,12 @@ export function LearningBrain({ onNavigate }: Props) {
                 <article className="glass-card learning-card">
                     <header>
                         <ScanSearch size={16} className="text-cyan" />
-                        <h3>Pattern index (from scans)</h3>
+                        <h3>Structural pattern index</h3>
                     </header>
                     <div className="learning-kpi">{data?.patternCount ?? 0}</div>
                     <p className="dim">
-                        {data?.patternFiles ?? 0} files indexed. Refresh with <code>rigour index</code> after large
-                        refactors.
+                        {data?.patternFiles ?? 0} files indexed automatically. Use <code>rigour index</code> for an
+                        explicit rebuild after a large refactor.
                     </p>
                     <button type="button" className="overview-link" onClick={() => onNavigate?.('patterns')}>
                         Open Pattern Index
@@ -142,6 +168,32 @@ export function LearningBrain({ onNavigate }: Props) {
                     </button>
                 </article>
             </div>
+
+            <section className="glass-card learning-lessons">
+                <header><Brain size={16} className="text-purple" /><h3>Evidence-backed lessons</h3></header>
+                <p className="dim">Interaction evidence is retained automatically. Only validated or explicitly published lessons can become reusable guidance.</p>
+                {lessons.length === 0 ? <p className="dim">No interaction evidence recorded yet.</p> : (
+                    <div className="lesson-list">
+                        {lessons.slice(0, 20).map(lesson => (
+                            <article className="lesson-row" key={lesson.id}>
+                                <div>
+                                    <strong>{lesson.subject}</strong>
+                                    <small>{lesson.visibility} · {lesson.state} · owner {lesson.actorId || 'local user'} · confidence {Math.round(lesson.confidence * 100)}%</small>
+                                    <small>Why: {lesson.source} evidence · {String(lesson.evidence?.outcome ?? 'recorded outcome')}</small>
+                                </div>
+                                <div className="lesson-actions">
+                                    {lesson.state === 'candidate' && <button type="button" onClick={() => void transition(lesson.id, 'validated')}>Validate</button>}
+                                    {!['rejected', 'superseded'].includes(lesson.state) && <button type="button" onClick={() => void transition(lesson.id, 'rejected')}>Reject</button>}
+                                    {lesson.state === 'validated' && lesson.visibility === 'personal' && teamConfigured && <button type="button" onClick={() => void transition(lesson.id, 'promoted')}>Publish to team</button>}
+                                </div>
+                            </article>
+                        ))}
+                    </div>
+                )}
+                {!teamConfigured && lessons.some(lesson => lesson.state === 'validated' && lesson.visibility === 'personal') && (
+                    <p className="dim">Configure PostgreSQL team mode in Settings before publishing personal learning to the team.</p>
+                )}
+            </section>
         </div>
     );
 }

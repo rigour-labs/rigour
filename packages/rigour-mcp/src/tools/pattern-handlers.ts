@@ -17,7 +17,7 @@ import {
 } from "@rigour-labs/core/pattern-index";
 import { ConfigSchema, getSemanticQueryCache, setSemanticQueryCache, estimateTokenCount } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
-import { buildTelemetryMeta, getWorkspaceCommitSha, type ToolResult } from '../utils/context-telemetry.js';
+import { buildTelemetryMeta, getWorkspaceCommitSha, type GuidanceMeta, type ToolResult } from '../utils/context-telemetry.js';
 import { appendContextFooter } from '../utils/context-footer.js';
 
 /**
@@ -82,10 +82,16 @@ export async function handleCheckPattern(
                 text: appendContextFooter(cachedText, telemetry, 'proceed with implementation or rigour_check when done'),
             }],
             _telemetry: telemetry,
+            _guidance: cached.guidance ?? {
+                kind: 'pattern',
+                query: patternName,
+                recommendation: `Apply the cached pattern guidance for "${patternName}".`,
+            },
         };
     }
 
     let resultText = "";
+    let matchedPattern: { id: string; name: string; file: string } | undefined;
 
     // 0. File Guard — BLOCK writes to protected paths
     if (file) {
@@ -105,6 +111,12 @@ export async function handleCheckPattern(
             return {
                 content: [{ type: "text", text: appendContextFooter(resultText, telemetry) }],
                 _telemetry: telemetry,
+                _guidance: {
+                    kind: 'pattern',
+                    query: patternName,
+                    recommendation: `STOP. Do not modify protected path "${file}" without human review.`,
+                    selectedFiles: [file],
+                },
             };
         }
     }
@@ -114,6 +126,7 @@ export async function handleCheckPattern(
         const matcher = new PatternMatcher(index);
         const matchResult = await matcher.match({ name: patternName, type, intent });
         if (matchResult.status === "FOUND_SIMILAR") {
+            matchedPattern = matchResult.matches[0].pattern;
             resultText += `🚨 PATTERN REINVENTION DETECTED\n`;
             resultText += `Similar pattern already exists: "${matchResult.matches[0].pattern.name}" in ${matchResult.matches[0].pattern.file}\n`;
             resultText += `SUGGESTION: ${matchResult.suggestion}\n\n`;
@@ -150,10 +163,11 @@ export async function handleCheckPattern(
         }
     }
 
+    let recommendation = 'Proceed with implementation; no conflicting codebase pattern was found.';
     if (!resultText) {
         resultText = `✅ Pattern "${patternName}" is fresh, secure, and unique to the codebase.\n\nRECOMMENDED ACTION: Proceed with implementation.`;
     } else {
-        let recommendation = "Proceed with caution, addressing the warnings above.";
+        recommendation = "Proceed with caution, addressing the warnings above.";
         if (resultText.includes("🚨 PATTERN REINVENTION")) {
             recommendation = "STOP and REUSE the existing pattern mentioned above. Do not create a duplicate.";
         } else if (resultText.includes("🛡️ SECURITY/CVE WARNING")) {
@@ -164,6 +178,14 @@ export async function handleCheckPattern(
         resultText += `\nRECOMMENDED ACTION: ${recommendation}`;
     }
 
+    const guidance: GuidanceMeta = {
+        kind: 'pattern',
+        query: patternName,
+        recommendation,
+        patternRefs: matchedPattern ? [{ id: matchedPattern.id, label: matchedPattern.name, file: matchedPattern.file }] : [],
+        selectedFiles: file ? [file] : matchedPattern?.file ? [matchedPattern.file] : [],
+    };
+
     await setSemanticQueryCache(cacheQuery, commitSha, {
         query: cacheQuery,
         resolvedOwner: file ? path.dirname(file) : 'patterns',
@@ -172,6 +194,7 @@ export async function handleCheckPattern(
         evidence: [resultText],
         commitSha,
         confidence: resultText.includes('✅') ? 0.9 : 0.7,
+        guidance,
     }, cwd);
 
     const telemetry = buildTelemetryMeta({
@@ -189,6 +212,7 @@ export async function handleCheckPattern(
             text: appendContextFooter(resultText, telemetry, 'rigour_check before declaring done'),
         }],
         _telemetry: telemetry,
+        _guidance: guidance,
     };
 }
 

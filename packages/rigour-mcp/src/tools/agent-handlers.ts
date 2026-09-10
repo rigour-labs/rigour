@@ -13,10 +13,9 @@ import {
     setTaskCheckpointCache,
     getTaskCheckpointCache,
     estimateTokenCount,
+    updateAutomaticIndexForFiles,
 } from '@rigour-labs/core';
 import {
-    PatternIndexer,
-    savePatternIndex,
     loadPatternIndex,
     getDefaultIndexPath,
 } from '@rigour-labs/core/pattern-index';
@@ -49,17 +48,9 @@ function globMatchesFile(filePath: string, glob: string): boolean {
 async function refreshIndexForFiles(cwd: string, filesChanged: string[]): Promise<string | null> {
     if (filesChanged.length === 0) return null;
 
-    const indexPath = getDefaultIndexPath(cwd);
-    const existingIndex = await loadPatternIndex(indexPath);
-    if (!existingIndex) {
-        return 'Index not found — run rigour_index to enable incremental updates.';
-    }
-
     try {
-        const indexer = new PatternIndexer(cwd, { useEmbeddings: existingIndex.patterns.some(p => p.embedding?.length) });
-        const updated = await indexer.updateIndex(existingIndex);
-        await savePatternIndex(updated, indexPath);
-        return `Index refreshed for ${filesChanged.length} changed file(s) — ${updated.stats.totalPatterns} patterns total.`;
+        const { index, affectedFiles } = await updateAutomaticIndexForFiles(cwd, filesChanged);
+        return `Index refreshed ${filesChanged.length} changed and ${affectedFiles.length} affected file(s) — ${index.stats.totalPatterns} patterns total.`;
     } catch (error: any) {
         return `Index refresh failed: ${error.message}`;
     }

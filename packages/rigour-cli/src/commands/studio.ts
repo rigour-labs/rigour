@@ -4,9 +4,12 @@ import os from 'os';
 import chalk from 'chalk';
 import { execa } from 'execa';
 import fs from 'fs-extra';
+import { createReadStream, promises as nativeFs } from 'fs';
+import readline from 'readline';
 import http from 'http';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
+import { normalizeAgentSession } from './studio-contracts.js';
 
 type StudioContext = {
     cwd: string;
@@ -26,6 +29,40 @@ async function readJsonIfExists(filePath: string): Promise<any | null> {
     } catch {
         return null;
     }
+}
+
+async function readRecentLines(filePath: string, limit: number): Promise<string[]> {
+    const stat = await nativeFs.stat(filePath);
+    const bytes = Math.min(stat.size, 512 * 1024);
+    const handle = await nativeFs.open(filePath, 'r');
+    try {
+        const buffer = Buffer.alloc(bytes);
+        await handle.read(buffer, 0, bytes, stat.size - bytes);
+        return buffer.toString('utf8').split('\n').filter(line => line.trim()).slice(-limit);
+    } finally {
+        await handle.close();
+    }
+}
+
+async function readEventPage(filePath: string, limit: number, before?: number): Promise<{ events: unknown[]; hasMore: boolean }> {
+    if (!(await fs.pathExists(filePath))) return { events: [], hasMore: false };
+    const ring: unknown[] = [];
+    let matching = 0;
+    const lines = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
+    for await (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+            const event = JSON.parse(line);
+            const timestamp = Date.parse(event.timestamp ?? event.createdAt ?? 0);
+            if (before && (!Number.isFinite(timestamp) || timestamp >= before)) continue;
+            matching++;
+            ring.push(event);
+            if (ring.length > limit) ring.shift();
+        } catch {
+            // Malformed historical lines are ignored without hiding the remaining ledger.
+        }
+    }
+    return { events: ring.reverse(), hasMore: matching > limit };
 }
 
 async function mergeMemoryStores(cwd: string): Promise<{ memories: Record<string, any>; sources: string[] }> {
@@ -92,7 +129,7 @@ async function synthesizeAgents(cwd: string, checkpoints: Array<{ agentId: strin
     const sessionPath = path.join(cwd, '.rigour/agent-session.json');
     const session = await readJsonIfExists(sessionPath);
     if (session?.agents?.length) {
-        return session;
+        return normalizeAgentSession(session);
     }
 
     const byAgent = new Map<string, { agentId: string; taskScope: string[]; registeredAt: string; lastCheckpoint?: string; status: 'active' | 'idle' | 'completed' }>();
@@ -115,13 +152,13 @@ async function synthesizeAgents(cwd: string, checkpoints: Array<{ agentId: strin
     }
 
     const agents = [...byAgent.values()];
-    return {
+    return normalizeAgentSession({
         sessionId: agents.length ? 'derived-from-checkpoints' : 'inactive',
         agents,
         status: agents.length ? 'completed' : 'inactive',
         createdAt: agents[0]?.registeredAt || new Date().toISOString(),
         derived: true,
-    };
+    });
 }
 
 async function handleApiRequest(
@@ -139,6 +176,7 @@ async function handleApiRequest(
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST, DELETE');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('X-Rigour-Api-Version', '1');
 
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -154,30 +192,32 @@ async function handleApiRequest(
             'Cache-Control': 'no-cache',
             Connection: 'keep-alive',
         });
+        res.write(': connected\n\n');
 
         if (await fs.pathExists(eventsPath)) {
-            const content = await fs.readFile(eventsPath, 'utf8');
-            const lines = content.split('\n').filter((l) => l.trim());
-            // Send recent history only — full 77MB dumps freeze the UI
-            for (const line of lines.slice(-200)) {
+            for (const line of await readRecentLines(eventsPath, 200)) {
                 res.write(`data: ${line}\n\n`);
             }
         }
 
         await fs.ensureDir(path.dirname(eventsPath));
-        const watcher = fs.watch(path.dirname(eventsPath), async (_eventType, filename) => {
-            if (filename === 'events.jsonl') {
-                try {
-                    const content = await fs.readFile(eventsPath, 'utf8');
-                    const lines = content.split('\n').filter((l) => l.trim());
-                    const lastLine = lines[lines.length - 1];
-                    if (lastLine) res.write(`data: ${lastLine}\n\n`);
-                } catch {
-                    // ignore transient reads
-                }
+        let lastModified = (await fs.pathExists(eventsPath)) ? (await fs.stat(eventsPath)).mtimeMs : 0;
+        let ticks = 0;
+        const poller = setInterval(async () => {
+            try {
+                ticks++;
+                if (ticks % 15 === 0) res.write(': heartbeat\n\n');
+                if (!(await fs.pathExists(eventsPath))) return;
+                const stat = await fs.stat(eventsPath);
+                if (stat.mtimeMs <= lastModified) return;
+                lastModified = stat.mtimeMs;
+                const lastLine = (await readRecentLines(eventsPath, 1)).at(-1);
+                if (lastLine) res.write(`data: ${lastLine}\n\n`);
+            } catch {
+                // A transient read failure must not terminate the event stream.
             }
-        });
-        req.on('close', () => watcher.close());
+        }, 1_000);
+        req.on('close', () => clearInterval(poller));
         return true;
     }
 
@@ -189,13 +229,21 @@ async function handleApiRequest(
             return true;
         }
         const absolutePath = path.resolve(cwd, filePath);
-        if (!absolutePath.startsWith(cwd)) {
+        const relativePath = path.relative(path.resolve(cwd), absolutePath);
+        if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
             res.writeHead(403);
             res.end('Forbidden');
             return true;
         }
         try {
-            const content = await fs.readFile(absolutePath, 'utf8');
+            const [realRoot, realFile] = await Promise.all([fs.realpath(cwd), fs.realpath(absolutePath)]);
+            const realRelative = path.relative(realRoot, realFile);
+            if (!realRelative || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) {
+                res.writeHead(403);
+                res.end('Forbidden');
+                return true;
+            }
+            const content = await fs.readFile(realFile, 'utf8');
             res.writeHead(200, { 'Content-Type': 'text/plain' });
             res.end(content);
         } catch {
@@ -291,6 +339,109 @@ async function handleApiRequest(
             sendJson(res, 200, await mergeMemoryStores(cwd));
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/health') {
+        try {
+            const { getSystemHealth } = await import('@rigour-labs/core');
+            sendJson(res, 200, await getSystemHealth(cwd));
+        } catch (e: any) {
+            sendJson(res, 503, { schemaVersion: 1, generatedAt: new Date().toISOString(), error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/lessons' && req.method === 'GET') {
+        try {
+            const { listLessons, loadTeamConfiguration } = await import('@rigour-labs/core');
+            const [lessons, teamConfiguration] = await Promise.all([
+                listLessons(cwd),
+                loadTeamConfiguration(),
+            ]);
+            sendJson(res, 200, { schemaVersion: 1, lessons, teamConfigured: Boolean(teamConfiguration) });
+        } catch (e: any) {
+            sendJson(res, 500, { schemaVersion: 1, lessons: [], teamConfigured: false, error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/lessons' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', async () => {
+            try {
+                const payload = JSON.parse(body || '{}');
+                const allowedStates = new Set(['validated', 'promoted', 'rejected', 'superseded']);
+                if (typeof payload.id !== 'string' || !allowedStates.has(payload.state)) {
+                    sendJson(res, 400, { error: 'A lesson id and valid target state are required.' });
+                    return;
+                }
+                const { transitionLesson } = await import('@rigour-labs/core');
+                const publishing = payload.state === 'promoted';
+                const changed = await transitionLesson(payload.id, payload.state, {
+                    visibility: publishing ? 'team' : undefined,
+                    queueSync: publishing,
+                });
+                sendJson(res, changed ? 200 : 404, { success: changed });
+            } catch (e: any) {
+                sendJson(res, 400, { error: e.message });
+            }
+        });
+        return true;
+    }
+
+    if (url.pathname === '/api/agent-history') {
+        try {
+            const requested = Number(url.searchParams.get('limit') ?? 250);
+            const limit = Math.max(1, Math.min(500, Number.isFinite(requested) ? requested : 250));
+            const beforeValue = Number(url.searchParams.get('before'));
+            const before = Number.isFinite(beforeValue) && beforeValue > 0 ? beforeValue : undefined;
+            const page = await readEventPage(eventsPath, limit, before);
+            const { buildAgentRuns, normalizeAgentEvents } = await import('@rigour-labs/core');
+            const events = normalizeAgentEvents(page.events);
+            sendJson(res, 200, {
+                schemaVersion: 1,
+                events,
+                runs: buildAgentRuns(events),
+                hasMore: page.hasMore,
+                nextBefore: events.length ? Date.parse(events.at(-1)!.timestamp) : null,
+            });
+        } catch (e: any) {
+            sendJson(res, 500, { schemaVersion: 1, events: [], runs: [], hasMore: false, error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/knowledge-graph') {
+        try {
+            const { buildAgentRuns, buildEngineeringKnowledgeGraph, getRepositoryId, listKnowledgeLessons, normalizeAgentEvents } = await import('@rigour-labs/core');
+            const [page, dependencyGraph, lessons, repositoryId, patternIndex, memory] = await Promise.all([
+                readEventPage(eventsPath, 2_000),
+                readJsonIfExists(path.join(cwd, '.rigour/dependency-graph.json')),
+                listKnowledgeLessons(cwd).catch(() => []),
+                getRepositoryId(cwd),
+                readJsonIfExists(path.join(cwd, '.rigour/patterns.json')),
+                mergeMemoryStores(cwd),
+            ]);
+            const events = normalizeAgentEvents(page.events);
+            sendJson(res, 200, buildEngineeringKnowledgeGraph({
+                repository: { id: repositoryId, name: path.basename(cwd) },
+                dependencyGraph,
+                events,
+                runs: buildAgentRuns(events),
+                lessons,
+                patterns: Array.isArray(patternIndex?.patterns) ? patternIndex.patterns : [],
+                memories: Object.entries(memory.memories).map(([id, value]) => ({
+                    id,
+                    label: id,
+                    source: value?.source,
+                    detail: value?.type || value?.category || 'retained memory',
+                })),
+            }));
+        } catch (e: any) {
+            sendJson(res, 500, { schemaVersion: 1, nodes: [], edges: [], counts: {}, truncated: false, error: e.message });
         }
         return true;
     }
@@ -440,7 +591,7 @@ async function handleApiRequest(
     if (url.pathname === '/api/drift') {
         try {
             const { generateTemporalDriftReport } = await import('@rigour-labs/core');
-            const report = generateTemporalDriftReport(cwd);
+            const report = await generateTemporalDriftReport(cwd);
             sendJson(res, 200, report || { totalScans: 0 });
         } catch {
             sendJson(res, 200, { totalScans: 0 });
@@ -1001,6 +1152,18 @@ export const studioCommand = new Command('studio')
             `http://127.0.0.1:${studioPort}`,
         ]);
         const ctx: StudioContext = { cwd, eventsPath, allowedOrigins };
+
+        const { ensureAutomaticIndex, loadTeamConfiguration, syncTeamOutbox } = await import('@rigour-labs/core');
+        void ensureAutomaticIndex(cwd).catch((error: unknown) => {
+            console.warn(chalk.yellow(`Structural index is degraded: ${error instanceof Error ? error.message : String(error)}`));
+        });
+        const syncTimer = setInterval(() => {
+            void loadTeamConfiguration().then((config) => {
+                if (config) return syncTeamOutbox().catch(() => undefined);
+                return undefined;
+            });
+        }, 30_000);
+        syncTimer.unref();
 
         console.log(chalk.bold.cyan('\n🛡️ Launching Rigour Studio...'));
         console.log(chalk.gray(`Project Root: ${cwd}`));

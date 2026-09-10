@@ -22,6 +22,9 @@ import {
     findRelatedSemanticQueryCache,
     filterExistingEditScope,
     estimateTokenCount,
+    ensureAutomaticIndex,
+    getApplicableLessons,
+    searchTeamKnowledge,
 } from '@rigour-labs/core';
 import {
     loadPatternIndex,
@@ -30,7 +33,7 @@ import {
     semanticSearch,
     type PatternEntry,
 } from '@rigour-labs/core/pattern-index';
-import { buildTelemetryMeta, getWorkspaceCommitSha, type ToolResult } from '../utils/context-telemetry.js';
+import { buildTelemetryMeta, getWorkspaceCommitSha, type GuidanceMeta, type ToolResult } from '../utils/context-telemetry.js';
 import { appendContextFooter } from '../utils/context-footer.js';
 
 export async function handleContextStats(cwd: string, taskId?: string): Promise<ToolResult> {
@@ -125,6 +128,10 @@ function scopeTelemetryMeta(opts: {
     query: string;
     taskId?: string;
     agentId?: string;
+    candidateTokens?: number;
+    returnedTokens?: number;
+    candidateFiles?: number;
+    returnedFiles?: number;
 }) {
     return buildTelemetryMeta({
         candidateText: opts.candidateText,
@@ -134,6 +141,10 @@ function scopeTelemetryMeta(opts: {
         taskId: opts.taskId,
         agentId: opts.agentId,
         queryHash: hashScopeQuery(opts.query),
+        candidateTokens: opts.candidateTokens,
+        returnedTokens: opts.returnedTokens,
+        candidateFiles: opts.candidateFiles,
+        returnedFiles: opts.returnedFiles,
     });
 }
 
@@ -161,6 +172,10 @@ async function serveCachedScope(
         evidence: string[];
         commitSha: string;
         confidence: number;
+        sourceTokens?: number;
+        candidateFiles?: number;
+        returnedFiles?: number;
+        guidance?: GuidanceMeta;
     },
     opts: {
         cwd: string;
@@ -203,6 +218,7 @@ async function serveCachedScope(
         cacheNote: opts.note,
     };
     const cachedText = JSON.stringify(payload, null, 2);
+    const returnedTokens = estimateTokenCount(cachedText);
     const telemetry = scopeTelemetryMeta({
         candidateText: opts.fullIndexCandidate,
         returnedText: cachedText,
@@ -210,6 +226,11 @@ async function serveCachedScope(
         query: opts.query,
         taskId: opts.taskId,
         agentId: opts.agentId,
+        candidateTokens: cached.sourceTokens,
+        returnedTokens,
+        candidateFiles: cached.candidateFiles,
+        returnedFiles: valid.length,
+        deduplicatedTokens: Math.max(0, (cached.sourceTokens ?? returnedTokens) - returnedTokens),
     });
     const label =
         opts.cacheStatus === 'partial-hit'
@@ -219,6 +240,15 @@ async function serveCachedScope(
     return {
         content: [{ type: 'text', text: appendContextFooter(text, telemetry, 'rigour_check_pattern before creating code') }],
         _telemetry: telemetry,
+        _guidance: {
+            ...(cached.guidance ?? {
+                kind: 'context-scope',
+                recommendation: `Reuse the cached scope of ${valid.length} file(s).`,
+            }),
+            query: opts.query,
+            selectedFiles: valid,
+            excludedFileCount: Math.max(0, (cached.candidateFiles ?? valid.length) - valid.length),
+        },
     };
 }
 
@@ -262,22 +292,9 @@ export async function handleContextScope(
         if (served) return served;
     }
 
-    const index = await loadPatternIndex(indexPath);
-    if (!index) {
-        const text = '⚠️ Pattern index not found. Call rigour_index first to enable scoped context retrieval.\n\n'
-            + 'Without an index, agents tend to read entire directories — wasting tokens.';
-        return {
-            content: [{ type: 'text', text }],
-            _telemetry: scopeTelemetryMeta({
-                candidateText: fullIndexCandidate,
-                returnedText: text,
-                cacheStatus: 'miss',
-                query,
-                taskId,
-                agentId,
-            }),
-        };
-    }
+    const index = await loadPatternIndex(indexPath) ?? await ensureAutomaticIndex(cwd, {
+        backgroundSemantic: process.env.NODE_ENV !== 'test',
+    });
 
     let matched: PatternEntry[] = [];
     const hasEmbeddings = index.patterns.some(p => p.embedding && p.embedding.length > 0);
@@ -313,6 +330,10 @@ export async function handleContextScope(
     const signatures = matched.map(p =>
         `- ${p.file}:${p.line} ${p.type} ${p.name} — ${p.signature || p.description || '(no signature)'}`
     );
+    const [applicableLearning, semanticKnowledge] = await Promise.all([
+        getApplicableLessons(cwd, agentId, process.env.RIGOUR_TEAM_ID),
+        searchTeamKnowledge(query, Math.min(limit, 8)),
+    ]);
 
     let fullFileTokens = 0;
     for (const file of editScope) {
@@ -324,22 +345,52 @@ export async function handleContextScope(
         }
     }
 
+    const guidance: GuidanceMeta = {
+        kind: 'context-scope',
+        query,
+        recommendation: editScope.length > 0
+            ? `Read only the ${editScope.length} evidence-backed file(s) in this scope.`
+            : 'Refine the task query before reading broadly.',
+        patternRefs: matched.map(pattern => ({ id: pattern.id, label: pattern.name, file: pattern.file })),
+        lessonRefs: applicableLearning.lessons.map(lesson => ({ id: lesson.id, label: lesson.subject, visibility: lesson.visibility })),
+        selectedFiles: editScope,
+        excludedFileCount: Math.max(0, index.stats.totalFiles - editScope.length),
+        conflicts: applicableLearning.conflicts.length,
+    };
     const scopePayload = {
         query,
         editScope,
         skipScope,
         signatures,
+        learningGuidance: applicableLearning.lessons.map(lesson => ({
+            subject: lesson.subject,
+            scope: lesson.repositoryId,
+            visibility: lesson.visibility,
+            confidence: lesson.confidence,
+            provenance: lesson.provenance,
+        })),
+        learningConflicts: applicableLearning.conflicts,
+        semanticKnowledge: {
+            ...semanticKnowledge,
+            purpose: 'Advisory cross-repository recall only; similarity never promotes or enforces a lesson.',
+        },
         indexHealth: {
             totalPatterns: index.stats.totalPatterns,
             totalFiles: index.stats.totalFiles,
             lastUpdated: index.lastUpdated,
             semanticEnabled: hasEmbeddings,
         },
-        estimatedTokensSaved: Math.max(0, fullFileTokens - estimateTokenCount(signatures.join('\n'))),
+        estimatedTokensSaved: 0,
         recommendation: editScope.length > 0
             ? `Read ONLY these ${editScope.length} file(s). Do NOT scan the whole repo.`
             : 'No strong matches — refine query or run rigour_index --semantic',
     };
+
+    // Compare compact guidance with the raw contents of the selected files only.
+    // Repository-wide files excluded by structural matching are reported separately.
+    let resultText = JSON.stringify(scopePayload, null, 2);
+    scopePayload.estimatedTokensSaved = Math.max(0, fullFileTokens - estimateTokenCount(resultText));
+    resultText = JSON.stringify(scopePayload, null, 2);
 
     await setSemanticQueryCache(query, commitSha, {
         query,
@@ -349,9 +400,12 @@ export async function handleContextScope(
         evidence: signatures.slice(0, 5),
         commitSha,
         confidence: matched.length > 0 ? 0.85 : 0.3,
+        sourceTokens: fullFileTokens,
+        candidateFiles: index.stats.totalFiles,
+        returnedFiles: editScope.length,
+        guidance,
     }, cwd);
 
-    const resultText = JSON.stringify(scopePayload, null, 2);
     const telemetry = scopeTelemetryMeta({
         candidateText: fullIndexCandidate,
         returnedText: resultText,
@@ -360,6 +414,10 @@ export async function handleContextScope(
         query,
         taskId,
         agentId,
+        candidateTokens: fullFileTokens,
+        returnedTokens: estimateTokenCount(resultText),
+        candidateFiles: index.stats.totalFiles,
+        returnedFiles: editScope.length,
     });
 
     return {
@@ -368,5 +426,6 @@ export async function handleContextScope(
             text: appendContextFooter(`CONTEXT SCOPE\n\n${resultText}`, telemetry, 'rigour_check_pattern before creating code'),
         }],
         _telemetry: telemetry,
+        _guidance: guidance,
     };
 }

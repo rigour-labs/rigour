@@ -1,10 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import {
     Activity,
-    TrendingDown,
     ShieldCheck,
-    Database,
-    Cpu,
     Terminal,
     Settings,
     Info,
@@ -17,11 +14,8 @@ import {
     XCircle,
     AlertTriangle,
     Users,
-    Flag,
     Brain,
-    Coins,
-    LayoutDashboard,
-    ArrowRightLeft,
+    Network,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DiffViewer } from './components/DiffViewer';
@@ -40,6 +34,11 @@ import { EnforcementRail } from './components/EnforcementRail';
 import { HandoffFlow } from './components/HandoffFlow';
 import { LearningBrain } from './components/LearningBrain';
 import { FirewallConsole } from './components/FirewallConsole';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { SystemHealth, type HealthData } from './components/SystemHealth';
+import { StudioSettings } from './components/StudioSettings';
+
+const KnowledgeGraph = React.lazy(() => import('./components/KnowledgeGraph').then(module => ({ default: module.KnowledgeGraph })));
 
 interface ProjectInfo {
     name?: string;
@@ -61,7 +60,7 @@ const tabTransition = {
 
 function App() {
     const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
-    const [activeTab, setActiveTab] = useState('enforcement');
+    const [activeTab, setActiveTab] = useState('knowledge');
     const [logs, setLogs] = useState<any[]>([]);
     const [selectedDiff, setSelectedDiff] = useState<{
         filename: string;
@@ -73,9 +72,31 @@ function App() {
     const [arbitrationSecondsLeft, setArbitrationSecondsLeft] = useState<number | null>(null);
     const [projectTree, setProjectTree] = useState<string[]>([]);
     const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+    const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'offline'>('connecting');
+    const [health, setHealth] = useState<HealthData | null>(null);
+    const [healthLoading, setHealthLoading] = useState(true);
+    const [healthUpdatedAt, setHealthUpdatedAt] = useState(0);
+    const [healthOpen, setHealthOpen] = useState(false);
+
+    const fetchHealth = React.useCallback(async () => {
+        setHealthLoading(true);
+        try {
+            const response = await fetch('/api/health');
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+            setHealth(payload);
+            setHealthUpdatedAt(Date.now());
+        } catch (error) {
+            setHealth({ error: error instanceof Error ? error.message : String(error) });
+        } finally {
+            setHealthLoading(false);
+        }
+    }, []);
 
     React.useEffect(() => {
         const eventSource = new EventSource('/api/events');
+        eventSource.onopen = () => setConnectionState('live');
+        eventSource.onerror = () => setConnectionState('offline');
         eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
@@ -84,6 +105,8 @@ function App() {
                 console.error('Failed to parse event', e);
             }
         };
+        void fetchHealth();
+        const healthTimer = window.setInterval(fetchHealth, 15_000);
 
         // Fetch project tree
         fetch('/api/tree')
@@ -97,8 +120,8 @@ function App() {
             .then(setProjectInfo)
             .catch(err => console.error('Failed to fetch info', err));
 
-        return () => eventSource.close();
-    }, []);
+        return () => { eventSource.close(); window.clearInterval(healthTimer); };
+    }, [fetchHealth]);
 
     useEffect(() => {
         if (!inspectingLog || inspectingLog.type !== 'interception_requested' || !isGovernanceOpen) {
@@ -128,28 +151,26 @@ function App() {
     const [indexStats, setIndexStats] = useState<any>({});
     const [agentSession, setAgentSession] = useState<any>(null);
     const [checkpointSession, setCheckpointSession] = useState<any>(null);
+    const [metaState, setMetaState] = useState<'loading' | 'ready' | 'degraded'>('loading');
 
-    useEffect(() => {
-        const fetchMeta = async () => {
-            try {
-                const [cfg, mem, idx, agents, checkpoints] = await Promise.all([
+    const fetchMeta = React.useCallback(async () => {
+            setMetaState('loading');
+            const results = await Promise.allSettled([
                     fetch('/api/config').then(r => r.ok ? r.text() : ''),
-                    fetch('/api/memory').then(r => r.json()),
-                    fetch('/api/index-stats').then(r => r.json()),
-                    fetch('/api/agents').then(r => r.json()),
-                    fetch('/api/checkpoints').then(r => r.json())
+                    fetch('/api/memory').then(r => r.ok ? r.json() : Promise.reject(new Error(`Memory HTTP ${r.status}`))),
+                    fetch('/api/index-stats').then(r => r.ok ? r.json() : Promise.reject(new Error(`Index HTTP ${r.status}`))),
+                    fetch('/api/agents').then(r => r.ok ? r.json() : Promise.reject(new Error(`Agents HTTP ${r.status}`))),
+                    fetch('/api/checkpoints').then(r => r.ok ? r.json() : Promise.reject(new Error(`Checkpoints HTTP ${r.status}`)))
                 ]);
-                setRigourConfig(cfg);
-                setMemoryData(mem);
-                setIndexStats(idx);
-                setAgentSession(agents);
-                setCheckpointSession(checkpoints);
-            } catch (err) {
-                console.error('Failed to fetch meta data', err);
-            }
-        };
-        fetchMeta();
+            if (results[0].status === 'fulfilled') setRigourConfig(results[0].value);
+            if (results[1].status === 'fulfilled') setMemoryData(results[1].value);
+            if (results[2].status === 'fulfilled') setIndexStats(results[2].value);
+            if (results[3].status === 'fulfilled') setAgentSession(results[3].value);
+            if (results[4].status === 'fulfilled') setCheckpointSession(results[4].value);
+            setMetaState(results.every(result => result.status === 'fulfilled') ? 'ready' : 'degraded');
     }, []);
+
+    useEffect(() => { void fetchMeta(); }, [fetchMeta]);
 
     const fetchFileContent = async (filename: string) => {
         try {
@@ -198,21 +219,35 @@ function App() {
     };
 
     const navItems = [
-        { id: 'enforcement', label: 'Enforcement', icon: ShieldCheck },
-        { id: 'firewall', label: 'Firewall', icon: Lock },
-        { id: 'learning', label: 'Learning', icon: Brain },
-        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-        { id: 'agents', label: 'Agent Teams', icon: Users },
-        { id: 'handoffs', label: 'Handoffs', icon: ArrowRightLeft },
-        { id: 'checkpoints', label: 'Checkpoints', icon: Flag },
-        { id: 'memory', label: 'Memory Bank', icon: Cpu },
-        { id: 'cost', label: 'Cost & Context', icon: Coins },
-        { id: 'audit', label: 'Audit Log', icon: Terminal },
-        { id: 'gates', label: 'Quality Gates', icon: Activity },
-        { id: 'patterns', label: 'Pattern Index', icon: Database },
-        { id: 'deep', label: 'Deep Analysis', icon: Brain },
-        { id: 'drift', label: 'Temporal Drift', icon: TrendingDown },
+        { id: 'knowledge', label: 'Map', icon: Network, tabs: ['knowledge'] },
+        { id: 'agents', label: 'Agents', icon: Users, tabs: ['agents', 'handoffs', 'checkpoints'] },
+        { id: 'enforcement', label: 'Review', icon: ShieldCheck, tabs: ['enforcement', 'firewall', 'gates', 'audit'] },
+        { id: 'learning', label: 'Knowledge', icon: Brain, tabs: ['learning', 'lessons', 'patterns', 'memory', 'cost', 'deep', 'drift'] },
+        { id: 'settings', label: 'Settings', icon: Settings, tabs: ['settings'] },
     ];
+    const sectionTabs: Record<string, Array<{ id: string; label: string }>> = {
+        agents: [
+            { id: 'agents', label: 'Agent history' },
+            { id: 'handoffs', label: 'Handoffs' },
+            { id: 'checkpoints', label: 'Checkpoints' },
+        ],
+        enforcement: [
+            { id: 'enforcement', label: 'Enforcement' },
+            { id: 'firewall', label: 'Firewall' },
+            { id: 'gates', label: 'Quality gates' },
+            { id: 'audit', label: 'Audit trail' },
+        ],
+        learning: [
+            { id: 'learning', label: 'SME growth' },
+            { id: 'lessons', label: 'Lessons' },
+            { id: 'patterns', label: 'Patterns' },
+            { id: 'memory', label: 'Memory' },
+            { id: 'cost', label: 'Cost & context' },
+            { id: 'deep', label: 'Deep analysis' },
+            { id: 'drift', label: 'Drift' },
+        ],
+    };
+    const activeNav = navItems.find((item) => item.tabs.includes(activeTab)) ?? navItems[0];
 
     const studioVersion = projectInfo?.studioVersion || projectInfo?.mcpVersion || '—';
     const projectVersion = projectInfo?.projectVersion || projectInfo?.version || '—';
@@ -236,12 +271,12 @@ function App() {
                     {navItems.map((item) => (
                         <button
                             key={item.id}
-                            className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
+                            className={`nav-item ${item.tabs.includes(activeTab) ? 'active' : ''}`}
                             onClick={() => setActiveTab(item.id)}
                         >
                             <item.icon size={18} />
                             <span>{item.label}</span>
-                            {activeTab === item.id && (
+                            {item.tabs.includes(activeTab) && (
                                 <motion.div layoutId="nav-glow" className="nav-glow" />
                             )}
                         </button>
@@ -253,7 +288,7 @@ function App() {
                         <Lock size={14} />
                         <span>Local Governance</span>
                     </div>
-                    <button className="footer-item"><Settings size={18} /></button>
+                    <button className="footer-item" onClick={() => setActiveTab('settings')} aria-label="Open settings"><Settings size={18} /></button>
                     <button className="footer-item"><Info size={18} /></button>
                 </div>
             </aside>
@@ -271,19 +306,36 @@ function App() {
                         )}
                     </div>
                     <div className="header-right">
-                        <div className="connection-status">
-                            <div className="status-indicator">
+                        <button type="button" className="connection-status" onClick={() => setHealthOpen(open => !open)} aria-expanded={healthOpen}>
+                            <div className={`status-indicator ${connectionState}`}>
                                 <div className="pulse-emitter" />
-                                <span>LIVE</span>
+                                <span>{connectionState === 'live' && !health?.error ? 'CONNECTED' : connectionState.toUpperCase()}</span>
                             </div>
-                        </div>
+                        </button>
                         <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
                             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
                         </button>
                     </div>
                 </header>
-
+                {healthOpen && <div className="health-popover"><div className="health-popover-title"><strong>Rigour system health</strong><button type="button" onClick={() => setHealthOpen(false)} aria-label="Close health"><X size={15} /></button></div><SystemHealth data={health} loading={healthLoading} stale={Boolean(healthUpdatedAt && Date.now() - healthUpdatedAt > 45_000)} onRetry={fetchHealth} /></div>}
                 <div className="view-container">
+                    {sectionTabs[activeNav.id] && (
+                        <nav className="section-tabs" aria-label={`${activeNav.label} views`}>
+                            {sectionTabs[activeNav.id].map((tab) => (
+                                <button
+                                    type="button"
+                                    key={tab.id}
+                                    className={activeTab === tab.id ? 'active' : ''}
+                                    onClick={() => setActiveTab(tab.id)}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </nav>
+                    )}
+                    {metaState === 'loading' && <div className="overview-banner"><Activity size={18} className="spinning" /><div><strong>Loading workspace data</strong><p>Views will appear as their data becomes available.</p></div></div>}
+                    {metaState === 'degraded' && <div className="overview-banner warn" role="alert"><AlertTriangle size={18} /><div><strong>Some workspace data is unavailable</strong><p>Available views remain usable.</p></div><button type="button" className="refresh-btn" onClick={fetchMeta}>Retry</button></div>}
+                    <ErrorBoundary resetKey={activeTab}>
                     <AnimatePresence mode="wait">
                         {activeTab === 'enforcement' && (
                             <motion.div key="enforcement" {...tabTransition} className="full-view">
@@ -297,6 +349,13 @@ function App() {
                         )}
                         {activeTab === 'learning' && (
                             <motion.div key="learning" {...tabTransition} className="full-view">
+                                <Suspense fallback={<div className="graph-state"><Activity size={18} className="spinning" /> Preparing expertise graph…</div>}>
+                                    <KnowledgeGraph mode="expertise" onNavigate={setActiveTab} />
+                                </Suspense>
+                            </motion.div>
+                        )}
+                        {activeTab === 'lessons' && (
+                            <motion.div key="lessons" {...tabTransition} className="full-view">
                                 <LearningBrain onNavigate={setActiveTab} />
                             </motion.div>
                         )}
@@ -414,6 +473,14 @@ function App() {
                             </motion.div>
                         )}
 
+                        {activeTab === 'knowledge' && (
+                            <motion.div key="knowledge" {...tabTransition} className="full-view">
+                                <Suspense fallback={<div className="graph-state"><Activity size={18} className="spinning" /> Preparing impact map…</div>}>
+                                    <KnowledgeGraph />
+                                </Suspense>
+                            </motion.div>
+                        )}
+
                         {activeTab === 'checkpoints' && (
                             <motion.div
                                 key="checkpoints"
@@ -437,7 +504,13 @@ function App() {
                                 <CostContext />
                             </motion.div>
                         )}
+                        {activeTab === 'settings' && (
+                            <motion.div key="settings" {...tabTransition} className="full-view">
+                                <StudioSettings health={health} />
+                            </motion.div>
+                        )}
                     </AnimatePresence>
+                    </ErrorBoundary>
 
                     {inspectingLog && isGovernanceOpen && (
                         <div className="governance-overlay">

@@ -5,6 +5,9 @@
 
 import type { ModelUsage } from '../storage/context-telemetry.js';
 
+export const MODEL_PRICING_SOURCE = 'Rigour versioned model registry';
+export const MODEL_PRICING_EFFECTIVE_DATE = '2026-08-01';
+
 export interface ModelPricingTier {
     label: string;
     inputPerMillionUsd: number;
