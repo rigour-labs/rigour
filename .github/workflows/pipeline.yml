@@ -94,7 +94,12 @@ jobs:
             echo "existing_tag=v${VERSION}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | head -n1 || true)
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            TAG_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          else
+            TAG_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$'
+          fi
+          EXISTING_TAG=$(git tag --points-at HEAD | grep -E "${TAG_PATTERN}" | head -n1 || true)
           if [ -n "${EXISTING_TAG}" ]; then
             VERSION="${EXISTING_TAG#v}"
             PUBLISHED=$(npm view "@rigour-labs/cli@${VERSION}" version 2>/dev/null || true)
