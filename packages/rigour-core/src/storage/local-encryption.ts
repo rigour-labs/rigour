@@ -1,26 +1,69 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { chmod, link, readFile, unlink, writeFile } from 'node:fs/promises';
 import fs from 'fs-extra';
 import os from 'os';
 import path from 'path';
 
 const KEY_PATH = path.join(os.homedir(), '.rigour', 'team-cache.key');
+let fileKeyPromise: Promise<Buffer> | undefined;
+
+function decodeKey(value: string, source: string): Buffer {
+    const normalized = value.trim();
+    const key = Buffer.from(normalized, 'base64');
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalized) || key.length !== 32) {
+        throw new Error(`${source} must contain a base64-encoded 32-byte key.`);
+    }
+    return key;
+}
+
+async function readFileKey(keyPath: string): Promise<Buffer> {
+    return decodeKey(await readFile(keyPath, 'utf8'), keyPath);
+}
+
+/**
+ * Create the local encryption key without exposing a partially-written key to
+ * another Rigour process. A fully-written temporary file is linked into place,
+ * so exactly one concurrent process wins and every other process reads it.
+ */
+export async function loadOrCreateFileKey(keyPath: string): Promise<Buffer> {
+    try {
+        return await readFileKey(keyPath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+
+    await fs.ensureDir(path.dirname(keyPath));
+    const key = randomBytes(32);
+    const temporaryPath = `${keyPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+
+    try {
+        await writeFile(temporaryPath, key.toString('base64'), { mode: 0o600, flag: 'wx' });
+        await chmod(temporaryPath, 0o600);
+        try {
+            await link(temporaryPath, keyPath);
+            await chmod(keyPath, 0o600);
+            return key;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+            return await readFileKey(keyPath);
+        }
+    } finally {
+        await unlink(temporaryPath).catch(error => {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        });
+    }
+}
 
 async function getKey(): Promise<Buffer> {
     const configured = process.env.RIGOUR_LOCAL_CACHE_KEY;
     if (configured) {
-        const key = Buffer.from(configured, 'base64');
-        if (key.length !== 32) throw new Error('RIGOUR_LOCAL_CACHE_KEY must be a base64-encoded 32-byte key.');
-        return key;
+        return decodeKey(configured, 'RIGOUR_LOCAL_CACHE_KEY');
     }
-    try {
-        const key = Buffer.from((await fs.readFile(KEY_PATH, 'utf8')).trim(), 'base64');
-        if (key.length === 32) return key;
-    } catch { /* create below */ }
-    const key = randomBytes(32);
-    await fs.ensureDir(path.dirname(KEY_PATH));
-    await fs.writeFile(KEY_PATH, key.toString('base64'), { mode: 0o600 });
-    await fs.chmod(KEY_PATH, 0o600);
-    return key;
+    fileKeyPromise ??= loadOrCreateFileKey(KEY_PATH).catch(error => {
+        fileKeyPromise = undefined;
+        throw error;
+    });
+    return fileKeyPromise;
 }
 
 export async function encryptLocalPayload(value: unknown): Promise<string> {
