@@ -7,6 +7,34 @@ Rigour automatically initializes rules for your favorite AI tools:
 - **Cline**: Creates \`.clinerules\`
 - **Universal**: Creates \`docs/AGENT_INSTRUCTIONS.md\` for all other agents (Claude Code, Antigravity, Codex)
 
+## Rigour Skills: reusable workflows across agents
+
+Rules keep long-lived project constraints available. **Rigour Skills** are different: they are focused workflows that tell an agent when to retrieve scoped context, how to finish with proof, and how to preserve a handoff as evidence.
+
+```bash
+# Install every shipped playbook for Codex, Cursor, and portable instructions
+rigour skills install
+
+# Or target one host and one workflow
+rigour skills install context verify --target codex
+rigour skills install handoff --target cursor
+
+# Inspect what is available in this repository
+rigour skills doctor
+```
+
+| Playbook | Outcome |
+| --- | --- |
+| `rigour-context` | Gets the smallest evidence-backed scope before exploration or edits. |
+| `rigour-verify` | Requires deterministic proof and uses a Fix Packet when a check fails. |
+| `rigour-handoff` | Creates a compact checkpoint so the next agent starts with verified state. |
+
+- **Codex:** native repository skills in `.agents/skills/rigour-*/SKILL.md`.
+- **Cursor:** focused slash commands in `.cursor/commands/rigour-*.md`; type `/rigour-` in Agent chat.
+- **Other MCP-capable agents:** portable copies in `docs/rigour-skills/`, ready to add to their project instructions.
+
+The installer never overwrites a team-customized playbook unless you pass `--force`. A skill records normal MCP interaction evidence, but it does not promote a rule by itself: promotion remains subject to Rigour's verification boundary.
+
 
 ---
 

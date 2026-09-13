@@ -66,10 +66,25 @@ Rigour runs local quality, security, and AI-drift checks and returns an actionab
 ```bash
 npx @rigour-labs/cli init
 npx @rigour-labs/cli hooks init --tool cursor
+npx @rigour-labs/cli skills install --target codex,cursor
 npx @rigour-labs/cli check
 ```
 
 `hooks init` supports Cursor, Claude Code, Cline, and Windsurf. It checks observable writes as agents work; `check` is the full project verification step.
+
+### 4. Give every agent the same good workflow
+
+```bash
+rigour skills install --target codex,cursor
+```
+
+Rigour Skills turn its evidence loop into small, reusable agent workflows:
+
+- `rigour-context` asks for the smallest explainable scope before an agent reads code.
+- `rigour-verify` closes a change with proof and a Fix Packet repair loop.
+- `rigour-handoff` transfers verified state without replaying an entire session.
+
+Codex receives native repository skills in `.agents/skills`. Cursor receives focused slash commands in `.cursor/commands`. Portable copies land in `docs/rigour-skills` for other MCP-capable agents. Existing files are preserved unless `--force` is explicitly used.
 
 ### 3. Give your agent Rigour through MCP
 
