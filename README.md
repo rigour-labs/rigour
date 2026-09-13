@@ -15,6 +15,8 @@ It is not another chat wrapper or a prettier linter dashboard. Rigour connects *
 npx rigour-scan
 ```
 
+[▶ Watch Rigour in action](https://www.mediafire.com/file/ohy86pcne9e8wmx/1789196277897739.mp4/file)
+
 Run this in any repository to see the first signal. No account or hosted service required.
 
 ## Why teams use Rigour
