@@ -7,6 +7,7 @@ import {
     consumeTrustedGrant,
     getTrustedControlDir,
     issueTrustedGrant,
+    listTrustedGrants,
     normalizeMcpAction,
     saveGatewayConfig,
     verifyExecutionReceiptChain,
@@ -48,6 +49,21 @@ describe('trusted gateway control', () => {
         }, root);
         expect(location.startsWith(cwd)).toBe(false);
         expect(await fs.pathExists(location)).toBe(true);
+    });
+
+    it('lists valid grants without failing on malformed control files', async () => {
+        const cwd = await repository();
+        const root = await controlRoot();
+        const grant = await issueTrustedGrant(cwd, {
+            issuerId: 'owner', subjectId: 'agent-1', taskId: 'task-1',
+            action: 'mcp.call', resource: 'mcp://files/read', ttlMs: 60_000,
+        }, root);
+        const grantsDir = path.join(getTrustedControlDir(cwd, root), 'capabilities');
+        await fs.writeFile(path.join(grantsDir, 'not-a-grant.json'), '{broken');
+
+        await expect(listTrustedGrants(cwd, 10, root)).resolves.toEqual([
+            expect.objectContaining({ id: grant.id, resource: 'mcp://files/read' }),
+        ]);
     });
 
     it('consumes a capability exactly once', async () => {

@@ -7,6 +7,9 @@ export const NODE_COLORS: Record<GraphNodeType, string> = {
     agent: '#a78bfa',
     task: '#60a5fa',
     run: '#f59e0b',
+    gateway: '#22d3ee',
+    action: '#fb923c',
+    capability: '#c084fc',
     advice: '#2dd4bf',
     pattern: '#f472b6',
     memory: '#38bdf8',
@@ -16,9 +19,9 @@ export const NODE_COLORS: Record<GraphNodeType, string> = {
 };
 
 const PERSPECTIVE_TYPES: Record<GraphPerspective, Set<GraphNodeType>> = {
-    impact: new Set(['repository', 'agent', 'task', 'run', 'advice', 'lesson', 'policy', 'outcome']),
+    impact: new Set(['repository', 'agent', 'task', 'run', 'gateway', 'action', 'capability', 'advice', 'lesson', 'policy', 'outcome']),
     code: new Set(['repository', 'file', 'pattern']),
-    knowledge: new Set(['repository', 'advice', 'pattern', 'memory', 'lesson', 'policy', 'outcome']),
+    knowledge: new Set(['repository', 'gateway', 'action', 'capability', 'advice', 'pattern', 'memory', 'lesson', 'policy', 'outcome']),
     all: new Set(Object.keys(NODE_COLORS) as GraphNodeType[]),
 };
 

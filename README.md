@@ -115,7 +115,7 @@ rigour firewall grant --agent coding-agent --task TASK-123 \
 rigour firewall receipts
 ```
 
-Trusted state and canonical receipts live outside the repository; Studio receives a projection for explanation, never as an enforcement input. Follow [MCP Integration](docs/MCP_INTEGRATION.md) for the configuration and exact security boundary.
+Trusted state and canonical receipts live outside the repository. Studio reads them server-side and receives only safe evidence summaries for its Review panel and execution map—never keys, environment secrets, downstream commands, or receipt signatures. Follow [MCP Integration](docs/MCP_INTEGRATION.md) for the configuration and exact security boundary.
 
 ## What Rigour does differently
 

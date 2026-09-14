@@ -1,8 +1,9 @@
 import type { DependencyGraph } from '../context/dependency-graph.js';
+import type { CapabilityGrant, ExecutionReceipt } from '../firewall/types.js';
 import type { LessonRecord } from '../storage/lessons.js';
 import type { AgentHistoryEvent, AgentRun } from './agent-history.js';
 
-export type KnowledgeNodeType = 'repository' | 'file' | 'agent' | 'task' | 'run' | 'advice' | 'pattern' | 'memory' | 'lesson' | 'policy' | 'outcome';
+export type KnowledgeNodeType = 'repository' | 'file' | 'agent' | 'task' | 'run' | 'gateway' | 'action' | 'capability' | 'advice' | 'pattern' | 'memory' | 'lesson' | 'policy' | 'outcome';
 
 export interface KnowledgeNode {
     id: string;
@@ -19,7 +20,7 @@ export interface KnowledgeEdge {
     id: string;
     from: string;
     to: string;
-    type: 'contains' | 'imports' | 'performed' | 'belongs_to' | 'touched' | 'produced' | 'resulted_in' | 'defined_in' | 'protects' | 'remembered' | 'guided' | 'informed';
+    type: 'contains' | 'imports' | 'performed' | 'belongs_to' | 'touched' | 'produced' | 'resulted_in' | 'defined_in' | 'protects' | 'remembered' | 'guided' | 'informed' | 'routes_through' | 'governed_by' | 'authorized_by' | 'delegated_from';
 }
 
 export interface EngineeringKnowledgeGraph {
@@ -39,6 +40,9 @@ interface GraphInput {
     lessons: LessonRecord[];
     patterns?: Array<{ id: string; name: string; type: string; file: string; description?: string; usageCount?: number }>;
     memories?: Array<{ id: string; label: string; detail?: string; source?: string }>;
+    gateway?: { mode: 'observe' | 'enforce'; agentId: string; taskId: string; serverCount: number; toolCount: number; chainValid: boolean; receiptCount: number; chainReason?: string } | null;
+    receipts?: ExecutionReceipt[];
+    capabilities?: CapabilityGrant[];
     maxFiles?: number;
 }
 
@@ -49,6 +53,107 @@ function shortPath(value: string): string {
 
 function shortLabel(value: string, limit = 72): string {
     return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+}
+
+type AddNode = (node: KnowledgeNode) => void;
+type AddEdge = (from: string, to: string, type: KnowledgeEdge['type']) => void;
+interface GraphWriter { addNode: AddNode; addEdge: AddEdge }
+
+function addGatewayFoundation(input: GraphInput, repoId: string, addNode: AddNode, addEdge: AddEdge): { gatewayId: string; policyId: string } {
+    const gatewayId = 'gateway:rigour-mcp';
+    const policyId = 'policy:rigour-mcp-gateway';
+    const gateway = input.gateway!;
+    addNode({
+        id: gatewayId,
+        type: 'gateway',
+        label: 'Trusted MCP gateway',
+        detail: `${gateway.serverCount} servers · ${gateway.toolCount} allowed tools`,
+        state: gateway.mode,
+        repositoryId: input.repository.id,
+        weight: 8,
+        evidence: { chainValid: gateway.chainValid, receiptCount: gateway.receiptCount, chainReason: gateway.chainReason },
+    });
+    addNode({ id: policyId, type: 'policy', label: 'MCP capability policy', detail: `${gateway.mode} mode`, state: gateway.mode, weight: 7 });
+    addEdge(gatewayId, policyId, 'governed_by');
+    addEdge(policyId, repoId, 'protects');
+
+    const agentId = `agent:${gateway.agentId}`;
+    const taskId = `task:${gateway.taskId}`;
+    addNode({ id: agentId, type: 'agent', label: gateway.agentId, weight: 5 });
+    addNode({ id: taskId, type: 'task', label: gateway.taskId, weight: 4 });
+    addEdge(agentId, taskId, 'performed');
+    return { gatewayId, policyId };
+}
+
+function addCapabilityEvidence(capabilities: CapabilityGrant[], gatewayId: string, writer: GraphWriter): void {
+    const { addNode, addEdge } = writer;
+    const selected = capabilities.slice(0, 100);
+    const selectedIds = new Set(selected.map(capability => capability.id));
+    for (const capability of selected) {
+        const capabilityId = `capability:${capability.id}`;
+        const state = capability.used ? 'consumed' : capability.expiresAt < Date.now() ? 'expired' : 'available';
+        addNode({
+            id: capabilityId,
+            type: 'capability',
+            label: `${capability.action} · ${shortLabel(capability.resource, 48)}`,
+            detail: `${capability.subjectId ?? capability.agentId ?? 'unknown actor'} · ${state}`,
+            state,
+            weight: 3,
+            evidence: { expiresAt: capability.expiresAt, issuerId: capability.issuerId, subjectId: capability.subjectId },
+        });
+        addEdge(capabilityId, gatewayId, 'authorized_by');
+        if (capability.parentCapabilityId) {
+            const parentId = `capability:${capability.parentCapabilityId}`;
+            if (!selectedIds.has(capability.parentCapabilityId)) {
+                addNode({ id: parentId, type: 'capability', label: 'Parent capability', detail: 'Referenced by delegated grant', state: 'referenced', weight: 2 });
+            }
+            addEdge(capabilityId, parentId, 'delegated_from');
+        }
+    }
+}
+
+function addReceiptEvidence(receipts: ExecutionReceipt[], repositoryId: string, gatewayId: string, policyId: string, writer: GraphWriter): void {
+    const { addNode, addEdge } = writer;
+    for (const receipt of receipts.slice(-100)) {
+        const actionId = `action:${receipt.id}`;
+        const agentId = `agent:${receipt.action.actorId}`;
+        const taskId = `task:${receipt.action.taskId}`;
+        const outcomeId = `outcome:receipt:${receipt.id}`;
+        addNode({ id: agentId, type: 'agent', label: receipt.action.actorId, weight: 5 });
+        addNode({ id: taskId, type: 'task', label: receipt.action.taskId, weight: 4 });
+        addNode({
+            id: actionId,
+            type: 'action',
+            label: receipt.action.operation,
+            detail: `${receipt.action.resource} · ${receipt.mode}`,
+            state: receipt.simulatedDecision ? `would ${receipt.simulatedDecision}` : receipt.decision,
+            repositoryId,
+            weight: receipt.outcome === 'denied' ? 5 : 3,
+            evidence: {
+                receiptId: receipt.id,
+                outcome: receipt.outcome,
+                mode: receipt.mode,
+                decision: receipt.decision,
+                simulatedDecision: receipt.simulatedDecision,
+                createdAt: receipt.createdAt,
+            },
+        });
+        addNode({ id: outcomeId, type: 'outcome', label: receipt.outcome, detail: receipt.reason, state: receipt.outcome, weight: 3 });
+        addEdge(agentId, actionId, 'performed');
+        addEdge(actionId, taskId, 'belongs_to');
+        addEdge(actionId, gatewayId, 'routes_through');
+        addEdge(actionId, policyId, 'governed_by');
+        addEdge(actionId, outcomeId, 'resulted_in');
+        if (receipt.capabilityId) addEdge(actionId, `capability:${receipt.capabilityId}`, 'authorized_by');
+    }
+}
+
+function addGatewayEvidence(input: GraphInput, repoId: string, addNode: AddNode, addEdge: AddEdge): void {
+    if (!input.gateway) return;
+    const { gatewayId, policyId } = addGatewayFoundation(input, repoId, addNode, addEdge);
+    const writer = { addNode, addEdge };
+    addCapabilityEvidence(input.capabilities ?? [], gatewayId, writer);
+    addReceiptEvidence(input.receipts ?? [], input.repository.id, gatewayId, policyId, writer);
 }
 
 export function buildEngineeringKnowledgeGraph(input: GraphInput): EngineeringKnowledgeGraph {
@@ -148,6 +253,8 @@ export function buildEngineeringKnowledgeGraph(input: GraphInput): EngineeringKn
         addEdge(repoId, memoryId, 'remembered');
     }
 
+    addGatewayEvidence(input, repoId, addNode, addEdge);
+
     for (const event of input.events) {
         if (!event.guidance) continue;
         const day = event.timestamp.slice(0, 10);
@@ -216,7 +323,9 @@ export function buildEngineeringKnowledgeGraph(input: GraphInput): EngineeringKn
             || input.runs.length > 100
             || input.lessons.length > 150
             || (input.patterns?.length ?? 0) > 120
-            || (input.memories?.length ?? 0) > 100,
+            || (input.memories?.length ?? 0) > 100
+            || (input.receipts?.length ?? 0) > 100
+            || (input.capabilities?.length ?? 0) > 100,
         counts,
     };
 }

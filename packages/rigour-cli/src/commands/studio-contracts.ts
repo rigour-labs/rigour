@@ -20,6 +20,12 @@ export interface StudioAgentSession {
     warnings: string[];
 }
 
+export function resolveStudioVersion(cliVersion: unknown, mcpVersion: unknown): string {
+    if (typeof cliVersion === 'string' && cliVersion.trim()) return cliVersion.trim();
+    if (typeof mcpVersion === 'string' && mcpVersion.trim()) return mcpVersion.trim();
+    return '0.0.0';
+}
+
 const AGENT_STATUSES = new Set<AgentStatus>(['active', 'idle', 'completed']);
 const SESSION_STATUSES = new Set<AgentSessionStatus>([
     'active',

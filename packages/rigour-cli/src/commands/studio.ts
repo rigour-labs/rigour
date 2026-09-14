@@ -9,7 +9,8 @@ import readline from 'readline';
 import http from 'http';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
-import { normalizeAgentSession } from './studio-contracts.js';
+import { normalizeAgentSession, resolveStudioVersion } from './studio-contracts.js';
+import { getGatewayMediationState, loadStudioGatewayEvidence, summarizeGatewayEvidence } from './studio-firewall.js';
 
 type StudioContext = {
     cwd: string;
@@ -264,7 +265,7 @@ async function handleApiRequest(
                 path.join(__dirname, '../../../../packages/rigour-mcp/package.json'),
             ];
             const cliPkg = (await fs.pathExists(cliPkgPath)) ? await fs.readJson(cliPkgPath) : {};
-            let mcpVersion = '5.5.0';
+            let mcpVersion = '';
             for (const candidate of mcpPkgCandidates) {
                 if (await fs.pathExists(candidate)) {
                     const mcpPkg = await fs.readJson(candidate);
@@ -272,8 +273,7 @@ async function handleApiRequest(
                     break;
                 }
             }
-            // Product version is the MCP/governance release; CLI package may differ.
-            const studioVersion = mcpVersion || cliPkg.version || '0.0.0';
+            const studioVersion = resolveStudioVersion(cliPkg.version, mcpVersion);
             sendJson(res, 200, {
                 name: pkg.name || path.basename(cwd),
                 projectName: pkg.name || path.basename(cwd),
@@ -417,13 +417,14 @@ async function handleApiRequest(
     if (url.pathname === '/api/knowledge-graph') {
         try {
             const { buildAgentRuns, buildEngineeringKnowledgeGraph, getRepositoryId, listKnowledgeLessons, normalizeAgentEvents } = await import('@rigour-labs/core');
-            const [page, dependencyGraph, lessons, repositoryId, patternIndex, memory] = await Promise.all([
+            const [page, dependencyGraph, lessons, repositoryId, patternIndex, memory, gatewayEvidence] = await Promise.all([
                 readEventPage(eventsPath, 2_000),
                 readJsonIfExists(path.join(cwd, '.rigour/dependency-graph.json')),
                 listKnowledgeLessons(cwd).catch(() => []),
                 getRepositoryId(cwd),
                 readJsonIfExists(path.join(cwd, '.rigour/patterns.json')),
                 mergeMemoryStores(cwd),
+                loadStudioGatewayEvidence(cwd),
             ]);
             const events = normalizeAgentEvents(page.events);
             sendJson(res, 200, buildEngineeringKnowledgeGraph({
@@ -439,6 +440,18 @@ async function handleApiRequest(
                     source: value?.source,
                     detail: value?.type || value?.category || 'retained memory',
                 })),
+                gateway: gatewayEvidence.config ? {
+                    mode: gatewayEvidence.config.mode,
+                    agentId: gatewayEvidence.config.agentId,
+                    taskId: gatewayEvidence.config.taskId,
+                    serverCount: Object.keys(gatewayEvidence.config.servers).length,
+                    toolCount: Object.values(gatewayEvidence.config.servers).reduce((total, server) => total + server.allow.length, 0),
+                    chainValid: gatewayEvidence.chain.valid,
+                    receiptCount: gatewayEvidence.chain.count,
+                    chainReason: gatewayEvidence.chain.reason,
+                } : null,
+                receipts: gatewayEvidence.receipts,
+                capabilities: gatewayEvidence.capabilities,
             }));
         } catch (e: any) {
             sendJson(res, 500, { schemaVersion: 1, nodes: [], edges: [], counts: {}, truncated: false, error: e.message });
@@ -1035,7 +1048,9 @@ async function handleApiRequest(
             const agentSession = await fs.pathExists(agentScopesPath) ? await fs.readJson(agentScopesPath) : null;
             const scopeActive = Array.isArray(agentSession?.agents) && agentSession.agents.length > 0;
             const typedSeen = recentDenies.some((e) => e.ruleId?.startsWith?.('shell.') || e.tool === 'rigour_run');
-            const gatewayWired = false; // McpGateway not yet the MCP proxy path
+            const gatewayEvidence = await loadStudioGatewayEvidence(cwd);
+            const gateway = summarizeGatewayEvidence(gatewayEvidence);
+            const gatewayState = getGatewayMediationState(gateway);
 
             sendJson(res, 200, {
                 current,
@@ -1047,13 +1062,14 @@ async function handleApiRequest(
                 recentDenies,
                 failClosed: true,
                 mediation: {
-                    status: gatewayWired && hooksPresent ? 'full' : 'partial',
+                    status: gatewayState === 'observed' ? 'observed' : 'partial',
                     typedCommands: typedSeen || hooksPresent ? 'rigour_run_only' : 'not_observed',
                     scopeEnforcement: scopeActive ? 'requires_agent_id' : 'inactive',
                     arbitration: 'fail-closed',
                     hooksInstalled: hooksPresent,
-                    mcpGateway: gatewayWired,
+                    mcpGateway: gatewayState,
                 },
+                gateway,
             });
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });

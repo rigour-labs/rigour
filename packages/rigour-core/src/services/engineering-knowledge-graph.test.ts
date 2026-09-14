@@ -62,4 +62,23 @@ describe('engineering knowledge graph', () => {
         expect(graph.edges).toContainEqual(expect.objectContaining({ from: 'run:run-1', to: 'advice:run-1', type: 'guided' }));
         expect(graph.edges).toContainEqual(expect.objectContaining({ from: 'pattern:pattern-1', to: 'advice:run-1', type: 'informed' }));
     });
+
+    it('shows trusted gateway receipts, simulated denials and capability lineage', () => {
+        const graph = buildEngineeringKnowledgeGraph({
+            repository: { id: 'repo-a', name: 'payments' }, events: [], runs: [], lessons: [],
+            gateway: { mode: 'observe', agentId: 'agent-1', taskId: 'task-1', serverCount: 1, toolCount: 2, chainValid: true, receiptCount: 1 },
+            capabilities: [{ id: 'child', action: 'mcp.call', resource: 'mcp://github/get_issue', expiresAt: Date.now() + 1000, policyHash: 'hash', used: false, issuerId: 'owner', subjectId: 'agent-1', parentCapabilityId: 'parent' }],
+            receipts: [{
+                version: 1, id: 'receipt-1', repositoryId: 'repo-a', mode: 'observe', decision: 'allow', simulatedDecision: 'deny',
+                reason: 'would deny', policyHash: 'hash', outcome: 'forwarded', createdAt: '2026-01-01T00:00:00Z', digest: 'digest', signature: 'signature',
+                action: { version: 1, actorId: 'agent-1', taskId: 'task-1', channel: 'mcp', operation: 'github__get_issue', resource: 'mcp://github/get_issue', environment: 'local', sideEffect: 'read', reversibility: 'high', sensitivity: 'normal', blastRadius: 'single-resource' },
+                capabilityId: 'child',
+            }],
+        });
+
+        expect(graph.nodes).toContainEqual(expect.objectContaining({ type: 'gateway', evidence: expect.objectContaining({ chainValid: true }) }));
+        expect(graph.nodes).toContainEqual(expect.objectContaining({ type: 'action', state: 'would deny' }));
+        expect(graph.edges).toContainEqual(expect.objectContaining({ from: 'capability:child', to: 'capability:parent', type: 'delegated_from' }));
+        expect(graph.edges).toContainEqual(expect.objectContaining({ from: 'action:receipt-1', to: 'gateway:rigour-mcp', type: 'routes_through' }));
+    });
 });

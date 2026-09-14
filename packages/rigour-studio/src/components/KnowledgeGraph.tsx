@@ -18,10 +18,27 @@ const EXPERTISE_PERSPECTIVES: Array<{ id: GraphPerspective; label: string }> = [
     { id: 'all', label: 'All evidence' },
 ];
 
-const LEGEND_TYPES: GraphNodeType[] = ['repository', 'file', 'agent', 'run', 'advice', 'pattern', 'memory', 'lesson', 'policy', 'outcome'];
+const LEGEND_TYPES: GraphNodeType[] = ['repository', 'file', 'agent', 'run', 'gateway', 'action', 'capability', 'advice', 'pattern', 'memory', 'lesson', 'policy', 'outcome'];
 
 function evidenceNumber(value: unknown): string | null {
     return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : null;
+}
+
+function EvidenceFacts({ node }: { node: GraphSelection['node'] }) {
+    const avoidedTokens = evidenceNumber(node.evidence?.avoidedTokens);
+    const returnedTokens = evidenceNumber(node.evidence?.returnedTokens);
+    const excludedFiles = evidenceNumber(node.evidence?.excludedFiles);
+    const receiptCount = evidenceNumber(node.evidence?.receiptCount);
+    return (
+        <>
+            {avoidedTokens && <div><dt>Context avoided</dt><dd>{avoidedTokens} tokens · measured estimate</dd></div>}
+            {returnedTokens && <div><dt>Context returned</dt><dd>{returnedTokens} tokens</dd></div>}
+            {excludedFiles && <div><dt>Repository files excluded</dt><dd>{excludedFiles}</dd></div>}
+            {receiptCount && <div><dt>Signed receipts</dt><dd>{receiptCount}</dd></div>}
+            {typeof node.evidence?.chainValid === 'boolean' && <div><dt>Receipt chain</dt><dd>{node.evidence.chainValid ? 'Cryptographically verified' : 'Verification failed'}</dd></div>}
+            {node.evidence?.simulatedDecision !== undefined && <div><dt>Observe verdict</dt><dd>Would {String(node.evidence.simulatedDecision)}</dd></div>}
+        </>
+    );
 }
 
 function Inspector({ selection }: { selection: GraphSelection | null }) {
@@ -33,9 +50,6 @@ function Inspector({ selection }: { selection: GraphSelection | null }) {
         </aside>
     );
     const { node, neighbours, relationshipCount } = selection;
-    const avoidedTokens = evidenceNumber(node.evidence?.avoidedTokens);
-    const returnedTokens = evidenceNumber(node.evidence?.returnedTokens);
-    const excludedFiles = evidenceNumber(node.evidence?.excludedFiles);
     return (
         <aside className="graph-inspector" aria-live="polite">
             <span className="node-type-badge" style={{ color: NODE_COLORS[node.type] }}>{node.type}</span>
@@ -45,9 +59,7 @@ function Inspector({ selection }: { selection: GraphSelection | null }) {
                 {node.state && <div><dt>Evidence state</dt><dd>{node.state}</dd></div>}
                 <div><dt>Relationships</dt><dd>{relationshipCount}</dd></div>
                 <div><dt>Why shown</dt><dd>{node.type === 'file' ? 'Structural or touched dependency' : node.type === 'advice' ? 'Guidance issued by Rigour during agent work' : 'Recorded engineering evidence'}</dd></div>
-                {avoidedTokens && <div><dt>Context avoided</dt><dd>{avoidedTokens} tokens · measured estimate</dd></div>}
-                {returnedTokens && <div><dt>Context returned</dt><dd>{returnedTokens} tokens</dd></div>}
-                {excludedFiles && <div><dt>Repository files excluded</dt><dd>{excludedFiles}</dd></div>}
+                <EvidenceFacts node={node} />
             </dl>
             <div className="graph-neighbours">
                 <strong>Connected evidence</strong>
@@ -151,7 +163,7 @@ export function KnowledgeGraph({ mode = 'impact', onNavigate }: KnowledgeGraphPr
                 <div className="segmented-control" role="tablist" aria-label="Graph perspective">
                     {perspectives.map(item => <button key={item.id} type="button" role="tab" aria-selected={perspective === item.id} className={perspective === item.id ? 'active' : ''} onClick={() => setPerspective(item.id)}>{item.label}</button>)}
                 </div>
-                <label className="graph-search"><Search size={15} /><span className="sr-only">Search graph</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find agent, file, risk, pattern or lesson" /></label>
+                <label className="graph-search"><Search size={15} /><span className="sr-only">Search graph</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find agent, gateway, action, risk or lesson" /></label>
                 <button type="button" className="refresh-btn" onClick={load} disabled={loading}><RefreshCw size={14} className={loading ? 'spinning' : ''} />Refresh</button>
             </div>
             {mode === 'expertise' && (

@@ -148,6 +148,24 @@ export async function loadTrustedGrant(cwd: string, id: string, controlRoot?: st
     return fs.readJson(source) as Promise<CapabilityGrant>;
 }
 
+export async function listTrustedGrants(cwd: string, limit = 100, controlRoot?: string): Promise<CapabilityGrant[]> {
+    const grantsDir = path.join(getTrustedControlDir(cwd, controlRoot), 'capabilities');
+    if (!await fs.pathExists(grantsDir)) return [];
+    const files = (await fs.readdir(grantsDir))
+        .filter((file) => /^[0-9a-f-]{36}\.json$/i.test(file));
+    const grants = await Promise.all(files.map(async (file) => {
+        try {
+            return await fs.readJson(path.join(grantsDir, file)) as CapabilityGrant;
+        } catch {
+            return null;
+        }
+    }));
+    const requested = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 100;
+    return grants.filter((grant): grant is CapabilityGrant => grant !== null)
+        .sort((a, b) => b.expiresAt - a.expiresAt)
+        .slice(0, requested);
+}
+
 function assertDelegationSubset(parent: CapabilityGrant, input: GrantInput): void {
     if (parent.used) throw new Error('Parent capability is already consumed');
     if (Date.now() > parent.expiresAt) throw new Error('Parent capability is expired');

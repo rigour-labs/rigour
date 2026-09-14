@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeAgentSession } from './studio-contracts.js';
+import { normalizeAgentSession, resolveStudioVersion } from './studio-contracts.js';
+
+describe('resolveStudioVersion', () => {
+    it('prefers the released CLI version used to serve Studio', () => {
+        expect(resolveStudioVersion('6.2.1', '5.4.0')).toBe('6.2.1');
+        expect(resolveStudioVersion(undefined, '6.2.0')).toBe('6.2.0');
+    });
+});
 
 describe('normalizeAgentSession', () => {
     it('repairs a legacy session without status', () => {
