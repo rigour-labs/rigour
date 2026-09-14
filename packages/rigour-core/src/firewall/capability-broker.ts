@@ -20,6 +20,8 @@ export interface BrokerConfig {
     agentScopes: AgentScopeRecord[];
     agentId?: string;
     taskId?: string;
+    /** Legacy preserves the pre-6.2 auto-issue behaviour for existing callers. */
+    authorizationMode?: 'legacy' | 'observe' | 'enforce';
 }
 
 const DEFAULT_TTL_MS = 30_000;
@@ -78,6 +80,27 @@ export class CapabilityBroker {
 
         if (input.capabilityId) {
             return this.evaluateWithCapability(input.capabilityId, input.action, input.resource, timestamp);
+        }
+
+        if (this.config.authorizationMode === 'enforce') {
+            return this.record({
+                decision: 'deny',
+                reason: `Explicit capability required for ${input.action}:${input.resource}`,
+                ruleId: 'capability.required',
+                policyHash: this.policyHash,
+                timestamp,
+            });
+        }
+
+        if (this.config.authorizationMode === 'observe') {
+            return this.record({
+                decision: 'allow',
+                simulatedDecision: 'deny',
+                reason: `Observe mode: explicit capability would be required for ${input.action}:${input.resource}`,
+                ruleId: 'capability.observe-required',
+                policyHash: this.policyHash,
+                timestamp,
+            });
         }
 
         const grant = this.issue(input.action, input.resource, input.args);

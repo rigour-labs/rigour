@@ -74,7 +74,7 @@ npx @rigour-labs/cli check
 
 `hooks init` supports Cursor, Claude Code, Cline, and Windsurf. It checks observable writes as agents work; `check` is the full project verification step.
 
-### 4. Give every agent the same good workflow
+### 3. Give every agent the same good workflow
 
 ```bash
 rigour skills install --target codex,cursor
@@ -88,7 +88,7 @@ Rigour Skills turn its evidence loop into small, reusable agent workflows:
 
 Codex receives native repository skills in `.agents/skills`. Cursor receives focused slash commands in `.cursor/commands`. Portable copies land in `docs/rigour-skills` for other MCP-capable agents. Existing files are preserved unless `--force` is explicitly used.
 
-### 3. Give your agent Rigour through MCP
+### 4. Give your agent Rigour through MCP
 
 ```json
 {
@@ -102,6 +102,20 @@ Codex receives native repository skills in `.agents/skills`. Cursor receives foc
 ```
 
 Agents can ask Rigour for scoped context, register their work, receive Fix Packets, record checkpoints and handoffs, and leave evidence for Studio.
+
+### 5. Mediate high-impact MCP tools (6.2)
+
+Rigour can sit in front of selected MCP servers, expose only approved tools, normalize every call into a common action record, and issue a signed execution receipt. Start in `observe` mode to see what policy would block without interrupting work; switch to `enforce` only after reviewing the evidence.
+
+```bash
+rigour firewall gateway-configure --config ~/rigour-gateway.json
+rigour firewall status
+rigour firewall grant --agent coding-agent --task TASK-123 \
+  --tool github__create_issue --ttl 300
+rigour firewall receipts
+```
+
+Trusted state and canonical receipts live outside the repository; Studio receives a projection for explanation, never as an enforcement input. Follow [MCP Integration](docs/MCP_INTEGRATION.md) for the configuration and exact security boundary.
 
 ## What Rigour does differently
 
@@ -141,11 +155,11 @@ When team storage is unavailable, local enforcement and evidence capture continu
 Rigour is deliberately precise about what it does and does not claim.
 
 - Core checks and storage are local-first; cloud deep analysis is opt-in.
-- Rigour can enforce work that passes through its installed hooks or MCP-mediated paths. It does not claim to intercept every third-party MCP tool by default.
+- Rigour can enforce work that passes through its installed hooks or MCP gateway. A directly configured parallel MCP server bypasses that gateway unless the host or administrator removes that route.
 - Advice is evidence of what Rigour recommended, not proof that an agent followed it or that it caused an outcome.
 - Observed spend, measured estimates, and modelled savings are shown separately so cost numbers do not over-promise.
 
-Read the architectural decisions behind these boundaries: [Agent Transaction Firewall](docs/adr/001-agent-transaction-firewall.md), [Evidence Learning & Team Storage](docs/adr/002-evidence-learning-team-storage.md), and [Adaptive Execution Graph](docs/adr/003-adaptive-execution-graph.md).
+Read the architectural decisions behind these boundaries: [Agent Transaction Firewall](docs/adr/001-agent-transaction-firewall.md), [Evidence Learning & Team Storage](docs/adr/002-evidence-learning-team-storage.md), [Adaptive Execution Graph](docs/adr/003-adaptive-execution-graph.md), and [Trusted MCP Gateway](docs/adr/004-trusted-mcp-gateway.md).
 
 ## Documentation
 

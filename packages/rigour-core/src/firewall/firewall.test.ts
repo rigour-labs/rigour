@@ -66,6 +66,18 @@ describe('scope enforcement', () => {
 });
 
 describe('capability broker', () => {
+    it('requires explicit authority in enforce mode and reports shadow decisions in observe mode', () => {
+        const base = { defaultTtlMs: 1000, toolAllowlist: ['*'], agentScopes: [] };
+        const enforced = new CapabilityBroker({ ...base, authorizationMode: 'enforce' });
+        expect(enforced.evaluateProposal({ action: 'mcp.call', resource: 'github__get_issue' })).toMatchObject({
+            decision: 'deny', ruleId: 'capability.required',
+        });
+        const observed = new CapabilityBroker({ ...base, authorizationMode: 'observe' });
+        expect(observed.evaluateProposal({ action: 'mcp.call', resource: 'github__get_issue' })).toMatchObject({
+            decision: 'allow', simulatedDecision: 'deny', ruleId: 'capability.observe-required',
+        });
+    });
+
     it('denies undeclared MCP tools', () => {
         const broker = new CapabilityBroker({
             defaultTtlMs: 1000,

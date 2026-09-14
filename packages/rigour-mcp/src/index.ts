@@ -483,6 +483,13 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
 // ─── Start ────────────────────────────────────────────────────────
 
 async function main() {
+    if (process.argv.includes('--gateway')) {
+        const repoFlag = process.argv.indexOf('--repo');
+        const cwd = repoFlag >= 0 && process.argv[repoFlag + 1] ? process.argv[repoFlag + 1] : process.cwd();
+        const { runGatewayServer } = await import('./gateway/server.js');
+        await runGatewayServer(cwd);
+        return;
+    }
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("Rigour MCP server v4.0.0 running on stdio");

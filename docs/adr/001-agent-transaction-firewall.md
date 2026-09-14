@@ -46,4 +46,4 @@ interface McpGateway {
 }
 ```
 
-Full MCP proxy packaging may live in `packages/rigour-gateway` in a follow-up; core types and broker land first.
+The first real MCP stdio forwarding path is specified in [ADR 004](004-trusted-mcp-gateway.md). Its boundary is intentionally narrower than universal tool or network interception.

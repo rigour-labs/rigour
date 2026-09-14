@@ -25,6 +25,9 @@ export interface CapabilityGrant {
     taskId?: string;
     policyHash: string;
     used: boolean;
+    issuerId?: string;
+    subjectId?: string;
+    parentCapabilityId?: string;
 }
 
 export interface PolicyEvaluation {
@@ -34,6 +37,41 @@ export interface PolicyEvaluation {
     capabilityId?: string;
     policyHash: string;
     timestamp: string;
+    simulatedDecision?: Exclude<FirewallDecision, 'allow'>;
+}
+
+export type EnforcementMode = 'observe' | 'enforce';
+
+export interface AgentAction {
+    version: 1;
+    actorId: string;
+    taskId: string;
+    channel: 'mcp' | 'shell';
+    operation: string;
+    resource: string;
+    environment: 'local' | 'development' | 'staging' | 'production' | 'unknown';
+    sideEffect: 'read' | 'local-write' | 'external-write' | 'destructive';
+    reversibility: 'high' | 'medium' | 'low' | 'unknown';
+    sensitivity: 'normal' | 'sensitive' | 'restricted';
+    blastRadius: 'single-resource' | 'bounded' | 'broad' | 'unknown';
+}
+
+export interface ExecutionReceipt {
+    version: 1;
+    id: string;
+    repositoryId: string;
+    action: AgentAction;
+    mode: EnforcementMode;
+    decision: FirewallDecision;
+    simulatedDecision?: Exclude<FirewallDecision, 'allow'>;
+    reason: string;
+    capabilityId?: string;
+    policyHash: string;
+    outcome: 'forwarded' | 'denied' | 'failed';
+    createdAt: string;
+    previousReceipt?: string;
+    digest: string;
+    signature: string;
 }
 
 export interface TypedCommand {

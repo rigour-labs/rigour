@@ -8,3 +8,6 @@ export * from './attestation.js';
 export * from './adversarial.js';
 export * from './mcp-gateway.js';
 export * from './arbitration-token.js';
+export * from './action-ir.js';
+export * from './trusted-control.js';
+export * from './execution-receipt.js';
