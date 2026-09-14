@@ -19,6 +19,7 @@ interface EmbeddableLesson {
     kind: string;
     subject: string;
     source: string;
+    state?: string;
 }
 
 export const TEAM_VECTOR_SCHEMA = `
@@ -69,6 +70,10 @@ CREATE INDEX IF NOT EXISTS lesson_embeddings_scope
     ON rigour.lesson_embeddings (organization_id, team_id, model);
 CREATE INDEX IF NOT EXISTS lesson_embeddings_hnsw
     ON rigour.lesson_embeddings USING hnsw (embedding vector_cosine_ops);
+DELETE FROM rigour.lesson_embeddings embedding
+USING rigour.lessons lesson
+WHERE lesson.id = embedding.lesson_id
+  AND lesson.state NOT IN ('validated', 'promoted');
 `;
 
 async function createPool(databaseUrl: string): Promise<PgPool> {
@@ -93,14 +98,25 @@ export async function getTeamSemanticHealth(
     const result = await pool.query(
         `SELECT (SELECT extversion FROM pg_extension WHERE extname = 'vector') AS extversion,
                 to_regclass('rigour.lesson_embeddings') IS NOT NULL AS table_ready,
-                (SELECT COUNT(*)::integer FROM rigour.lesson_embeddings) AS indexed_lessons,
+                (SELECT COUNT(*)::integer
+                   FROM rigour.lesson_embeddings embedding
+                   JOIN rigour.lessons lesson ON lesson.id = embedding.lesson_id
+                  WHERE embedding.organization_id = $1 AND embedding.team_id = $2
+                    AND embedding.model = $3
+                    AND lesson.state IN ('validated', 'promoted')
+                    AND ((lesson.visibility = 'personal' AND lesson.actor_id = $4)
+                         OR (lesson.visibility = 'team' AND lesson.state = 'promoted'))) AS indexed_lessons,
                 (SELECT COUNT(*)::integer
                    FROM rigour.lessons lesson
-                  WHERE lesson.state IN ('validated', 'promoted')
+                  WHERE lesson.organization_id = $1 AND lesson.team_id = $2
+                    AND lesson.state IN ('validated', 'promoted')
+                    AND ((lesson.visibility = 'personal' AND lesson.actor_id = $4)
+                         OR (lesson.visibility = 'team' AND lesson.state = 'promoted'))
                     AND NOT EXISTS (
                         SELECT 1 FROM rigour.lesson_embeddings embedding
-                        WHERE embedding.lesson_id = lesson.id
+                        WHERE embedding.lesson_id = lesson.id AND embedding.model = $3
                     )) AS missing_lessons`,
+        [config.organizationId, config.teamId, config.semantic.model, config.actorId],
     );
     const row = result.rows[0];
     if (!row?.extversion || !row?.table_ready) {
@@ -123,6 +139,7 @@ export async function upsertTeamLessonEmbedding(
     lesson: EmbeddableLesson,
 ): Promise<boolean> {
     if (!config.semantic) return false;
+    if (!lesson.state || !['validated', 'promoted'].includes(lesson.state)) return false;
     const { generateEmbedding } = await import('../pattern-index/embeddings.js');
     const content = `${lesson.kind}\n${lesson.subject}\n${lesson.source}`;
     const embedding = await generateEmbedding(content);
@@ -150,7 +167,7 @@ export async function backfillConfiguredTeamEmbeddings(
     const pool = await createPool(config.databaseUrl);
     try {
         const lessons = await pool.query(
-            `SELECT lesson.id, lesson.repository_id, lesson.actor_id, lesson.kind, lesson.subject, lesson.source
+            `SELECT lesson.id, lesson.repository_id, lesson.actor_id, lesson.kind, lesson.subject, lesson.source, lesson.state
                FROM rigour.lessons lesson
               WHERE lesson.organization_id = $1 AND lesson.team_id = $2
                 AND lesson.actor_id = $3

@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'crypto';
 import fs from 'fs-extra';
 import path from 'path';
 import { openDatabase } from './db.js';
-import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js';
+import { encryptLocalPayload } from './local-encryption.js';
+import { lessonRowToRecord as rowToLesson } from './lesson-record.js';
 import { loadTeamConfiguration } from './team-store.js';
 
 export type LessonState = 'candidate' | 'validated' | 'promoted' | 'rejected' | 'superseded';
@@ -144,26 +145,6 @@ async function registerRepository(db: { run(sql: string, ...params: unknown[]): 
              display_name=excluded.display_name, last_seen=excluded.last_seen`,
         repositoryId, canonicalUri, remoteName || path.basename(cwd), Date.now(),
     );
-}
-
-async function rowToLesson(row: Record<string, unknown>): Promise<LessonRecord> {
-    return {
-        id: String(row.id),
-        repositoryId: String(row.repository_id),
-        actorId: row.actor_id ? String(row.actor_id) : undefined,
-        teamId: row.team_id ? String(row.team_id) : undefined,
-        visibility: row.visibility as LessonVisibility,
-        state: row.state as LessonState,
-        kind: String(row.kind),
-        subject: String(row.subject),
-        evidence: await decryptLocalPayload<Record<string, unknown>>(String(row.evidence_json)),
-        confidence: Number(row.confidence),
-        source: String(row.source),
-        supersedesId: row.supersedes_id ? String(row.supersedes_id) : undefined,
-        createdAt: Number(row.created_at),
-        updatedAt: Number(row.updated_at),
-        repositoryName: row.repository_name ? String(row.repository_name) : undefined,
-    };
 }
 
 export async function recordInteractionLesson(cwd: string, evidence: InteractionEvidence): Promise<string | null> {

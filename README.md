@@ -145,8 +145,15 @@ For teams, PostgreSQL becomes the durable source for private-user and approved s
 rigour team init-schema --database-url 'postgresql://…' --pgvector
 rigour team configure --database-url 'postgresql://…' \
   --organization acme --team platform --actor ashutosh --pgvector
+rigour team import-local /path/to/repository --dry-run
+rigour team import-local /path/to/repository
+rigour team sync
 rigour team doctor
 ```
+
+`team import-local` safely adopts personal lessons created before team mode was
+configured. It is repository-scoped, dry-runnable, idempotent, and never promotes
+candidate knowledge or publishes it to the team.
 
 When team storage is unavailable, local enforcement and evidence capture continue. Studio reports the state as **offline — changes queued**.
 

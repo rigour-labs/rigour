@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { getTeamSemanticHealth } from './team-vector-store.js';
+import { describe, expect, it, vi } from 'vitest';
+import { getTeamSemanticHealth, upsertTeamLessonEmbedding } from './team-vector-store.js';
 import type { TeamConfiguration } from './team-store.js';
 
 const config: TeamConfiguration = {
@@ -17,12 +17,12 @@ const config: TeamConfiguration = {
 describe('pgvector team health', () => {
     it('reports extension, model, and embedding coverage', async () => {
         const pool = {
-            query: async () => ({ rows: [{
+            query: vi.fn(async () => ({ rows: [{
                 extversion: '0.8.1',
                 table_ready: true,
                 indexed_lessons: 12,
                 missing_lessons: 3,
-            }] }),
+            }] })),
             end: async () => undefined,
         };
 
@@ -35,6 +35,10 @@ describe('pgvector team health', () => {
             indexedLessons: 12,
             missingLessons: 3,
         });
+        expect(pool.query).toHaveBeenCalledWith(
+            expect.stringContaining("lesson.state IN ('validated', 'promoted')"),
+            ['acme', 'platform', 'Xenova/all-MiniLM-L6-v2', 'alice'],
+        );
     });
 
     it('fails health checks when vector storage is incomplete', async () => {
@@ -44,5 +48,19 @@ describe('pgvector team health', () => {
         };
 
         await expect(getTeamSemanticHealth(pool, config)).rejects.toThrow(/vector extension/);
+    });
+
+    it('does not embed unvalidated candidate lessons', async () => {
+        const pool = { query: vi.fn(), end: async () => undefined };
+        await expect(upsertTeamLessonEmbedding(pool, config, {
+            id: 'candidate-1',
+            repositoryId: 'repo-1',
+            actorId: 'alice',
+            kind: 'interaction',
+            subject: 'Unverified suggestion',
+            source: 'mcp',
+            state: 'candidate',
+        })).resolves.toBe(false);
+        expect(pool.query).not.toHaveBeenCalled();
     });
 });

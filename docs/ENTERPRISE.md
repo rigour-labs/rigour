@@ -34,6 +34,22 @@ VALUES ('rigour_alice', 'acme', 'platform', 'alice', 'owner');
 
 Do not use the schema owner as the application login because table owners bypass row-level security unless PostgreSQL is explicitly configured otherwise. `rigour team doctor` checks TLS, connectivity, schema version, database role, identity membership, vector extension, index readiness, and missing embeddings. `rigour team sync --dry-run` reports queued changes without sending them. `rigour team semantic-backfill` embeds existing validated lessons owned by the configured actor.
 
+When enabling team mode for an existing installation, import personal lessons
+that were created before PostgreSQL was configured. Name repositories explicitly
+to avoid importing temporary test workspaces from the shared local SQLite file:
+
+```bash
+rigour team import-local /path/to/repository-a /path/to/repository-b --dry-run
+rigour team import-local /path/to/repository-a /path/to/repository-b
+rigour team sync --dry-run
+rigour team sync
+rigour team semantic-backfill
+```
+
+The import is idempotent for a lesson version and preserves candidate or validated
+state. It assigns unowned legacy personal lessons to the configured actor, never
+publishes them as team knowledge, and skips lessons owned by another actor.
+
 Use `rigour team semantic-search 'your engineering question'` to inspect ranked candidates and their provenance without changing policy or lesson state.
 
 Studio synchronizes automatically. When PostgreSQL is unavailable, enforcement and learning continue locally and Studio reports `offline — changes queued`. Local evidence and outbox payloads are protected with AES-256-GCM; set `RIGOUR_LOCAL_CACHE_KEY` to a base64-encoded 32-byte managed key or Rigour creates a user-readable-only local key.

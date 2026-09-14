@@ -8,6 +8,16 @@ import * as path from 'path';
 import * as os from 'os';
 import yaml from 'yaml';
 
+vi.mock('@rigour-labs/core', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@rigour-labs/core')>();
+    return {
+        ...actual,
+        recordInteractionEvidence: vi.fn().mockResolvedValue(undefined),
+        recordInteractionLesson: vi.fn().mockResolvedValue(null),
+        updateAutomaticIndexForFiles: vi.fn().mockResolvedValue(undefined),
+    };
+});
+
 describe('hooksInitCommand', () => {
     let testDir: string;
 

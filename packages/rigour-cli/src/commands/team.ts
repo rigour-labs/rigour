@@ -4,6 +4,7 @@ import {
     backfillTeamEmbeddings,
     doctorTeamConnection,
     initializeTeamSchema,
+    queueLocalLessonsForTeam,
     saveTeamConfiguration,
     searchTeamKnowledge,
     syncTeamOutbox,
@@ -79,8 +80,22 @@ teamCommand
     });
 
 teamCommand
+    .command('import-local')
+    .description('Queue existing SQLite lessons for PostgreSQL team synchronization')
+    .argument('[repositories...]', 'Repository paths to import; defaults to the current repository')
+    .option('--dry-run', 'Report eligible lessons without changing the local cache or outbox')
+    .action(async (repositories: string[], options) => {
+        const paths = repositories.length > 0 ? repositories : [process.cwd()];
+        const result = await queueLocalLessonsForTeam(paths, { dryRun: Boolean(options.dryRun) });
+        console.log(JSON.stringify(result, null, 2));
+        if (!options.dryRun && result.queued > 0) {
+            console.log(chalk.dim('Run `rigour team sync` to send the queued lessons to PostgreSQL.'));
+        }
+    });
+
+teamCommand
     .command('sync')
-    .description('Synchronize approved team lessons from the offline outbox')
+    .description('Synchronize queued personal and shared lesson changes')
     .option('--dry-run', 'Report pending records without sending them')
     .action(async (options) => {
         const result = await syncTeamOutbox({ dryRun: Boolean(options.dryRun) });
