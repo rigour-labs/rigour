@@ -86,10 +86,14 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_get_fix_packet",
-        description: "Call this after rigour_check returns FAIL. Returns a prioritized Fix Packet with exact violations, file locations, and step-by-step fix instructions. Apply fixes in severity order (critical first), then re-run rigour_check to verify. Repeat until PASS. **After applying all fixes, tell the user what Rigour caught and that fixes were applied.**",
+        description: "Call this after rigour_check returns FAIL. Returns a bounded, prioritized page of violations with file locations and fix instructions. Use next_offset from the response to read further pages, then re-run rigour_check. Report only fixes that were actually verified.",
         inputSchema: {
             type: "object",
-            properties: cwdParam(),
+            properties: {
+                ...cwdParam(),
+                offset: { type: "integer", minimum: 0, description: "Zero-based violation offset. Start at 0, then use the next offset in the response." },
+                limit: { type: "integer", minimum: 1, maximum: 10, description: "Violations per page (default 5, maximum 10)." },
+            },
             required: ["cwd"],
         },
         annotations: {

@@ -1,6 +1,8 @@
-# 🩺 Fix Packet v2: High-Fidelity Refinement
+# 🩺 Fix Packet v3: High-Fidelity Refinement
 
-The **Fix Packet v2** is the authoritative communication bridge between Rigour and an AI agent. It transforms abstract quality gate failures into a structured, machine-readable refinement protocol.
+The **Fix Packet v3** is the authoritative communication bridge between Rigour and an AI agent. It transforms abstract quality gate failures into a structured, machine-readable refinement protocol. The CLI writes the complete JSON packet; the MCP `rigour_get_fix_packet` tool returns bounded pages so large repositories do not overflow an agent's context.
+
+Start MCP pagination at `offset=0` (default) and follow the returned offset with `limit` between 1 and 10. Each call scans the current tree; restart at offset 0 after editing files because the findings and their order may have changed.
 
 ## 📋 Schema Definition
 
@@ -8,7 +10,7 @@ When a project fails a Rigour check, a `rigour-fix-packet.json` file is generate
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "goal": "Achieve PASS state for all quality gates",
   "violations": [
     {

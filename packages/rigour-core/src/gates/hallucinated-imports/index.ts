@@ -202,7 +202,7 @@ export class HallucinatedImportsGate extends Gate {
                 resolvedPath,
                 `${resolvedPath}/index`,
             ];
-        } else if (extension) {
+        } else if (extension && sourceExtensions.includes(extension)) {
             candidates = [resolvedPath, `${resolvedPath}/index`];
         } else {
             candidates = [
@@ -217,6 +217,7 @@ export class HallucinatedImportsGate extends Gate {
     private shouldSkipFile(file: string): boolean {
         const normalized = file.replace(/\\/g, '/');
         return (
+            /(^|\/)next-env\.d\.ts$/.test(normalized) ||
             normalized.includes('/examples/') ||
             normalized.includes('/studio-dist/') ||
             normalized.includes('/__tests__/') ||

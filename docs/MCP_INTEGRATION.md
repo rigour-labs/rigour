@@ -46,7 +46,7 @@ It is critical to understand how Rigour integrates with your workflow:
 - **`rigour_status`**: Quick PASS/FAIL check with JSON output. Best for polling.
 - **`rigour_check`**: Run quality gate checks (same as CLI `check`).
 - **`rigour_explain`**: Get actionable bullets for failures (same as CLI `explain`).
-- **`rigour_get_fix_packet`**: The authoritative source of truth for what needs to be fixed (JSON Fix Packet v2).
+- **`rigour_get_fix_packet`**: A bounded, severity-ordered view of Fix Packet v3. Start with `offset=0` (default); follow the returned offset to read further pages. The complete JSON packet remains available from the CLI.
 - **`rigour_list_gates`**: List which gates (ast, hygiene, file_size) are active and their thresholds.
 - **`rigour_get_config`**: Returns the full `rigour.yml` for agent reasoning about project constraints.
 - **`rigour_context_scope`**: Returns the smallest evidence-backed file scope plus applicable patterns and validated learning.

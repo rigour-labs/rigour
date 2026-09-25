@@ -523,6 +523,38 @@ import { helper } from './utils.js';
         const failures = await gate.run(context);
         expect(failures).toHaveLength(0);
     });
+
+    it('resolves dotted TypeScript basenames without hiding missing imports', async () => {
+        const source = `
+import './adapter.cli';
+import './database.types';
+import './missing.cli';
+`;
+        (FileScanner.findFiles as any).mockResolvedValue([
+            'src/main.ts', 'src/adapter.cli.ts', 'src/database.types.ts',
+        ]);
+        mockReadFile.mockImplementation(async (p: string) =>
+            p.replace(/\\/g, '/').endsWith('/src/main.ts') ? source : 'export const value = 1;'
+        );
+        mockPathExists.mockImplementation(async (p: string) =>
+            p.replace(/\\/g, '/') === '/tmp/test-node-project/package.json'
+        );
+        mockReadJson.mockResolvedValue({ dependencies: {}, devDependencies: {} });
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(1);
+        expect(failures[0].details).toContain('./missing.cli');
+        expect(failures[0].details).not.toContain('./adapter.cli');
+        expect(failures[0].details).not.toContain('./database.types');
+    });
+
+    it('ignores the generated Next.js environment declaration', async () => {
+        (FileScanner.findFiles as any).mockResolvedValue(['next-env.d.ts']);
+        mockReadFile.mockResolvedValue("import './.next/dev/types/routes.d.ts';");
+
+        const failures = await gate.run(context);
+        expect(failures).toHaveLength(0);
+    });
 });
 
 describe('HallucinatedImportsGate — ignore generated/test artifacts', () => {
