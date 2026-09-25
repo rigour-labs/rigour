@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
 
 export interface GitLogicBase {
     changedFiles: Set<string>;
@@ -20,8 +19,10 @@ function git(cwd: string, args: string[]): string | null {
 
 /** Use a fixed commit for the entire scan; never move the baseline on read. */
 export function resolveGitLogicBase(cwd: string): GitLogicBase | null {
-    const root = git(cwd, ['rev-parse', '--show-toplevel'])?.trim();
-    if (!root || realpathSync(root) !== realpathSync(cwd)) return null;
+    // Git reports the path relative to the worktree root without relying on
+    // platform-specific path casing or Windows short-name expansion.
+    const prefix = git(cwd, ['rev-parse', '--show-prefix']);
+    if (prefix === null || prefix.trim()) return null;
 
     const currentBranch = git(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'])?.trim();
     const candidates = [

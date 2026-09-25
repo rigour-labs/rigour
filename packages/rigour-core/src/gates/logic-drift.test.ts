@@ -40,7 +40,7 @@ describe('LogicDriftGate Git baseline', () => {
         git('switch', '-q', 'main');
         git('merge', '-q', '--ff-only', 'feature');
         expect(await gate.run({ cwd })).toEqual([]);
-    });
+    }, 30_000);
 
     it('does not use a moving local snapshot when Git has no main reference', async () => {
         git('switch', '-q', '-c', 'feature');

@@ -300,6 +300,18 @@ describe('HallucinatedImportsGate — JS/TS Node builtins', () => {
         gate = new HallucinatedImportsGate({ enabled: true });
     });
 
+    it('resolves changed-file imports against unchanged project files', async () => {
+        (FileScanner.findFiles as any)
+            .mockResolvedValueOnce(['src/feature.ts'])
+            .mockResolvedValueOnce(['src/feature.ts', 'src/types.ts']);
+        mockReadFile.mockResolvedValue("import type { Value } from './types.js';\n");
+        mockPathExists.mockResolvedValue(false);
+
+        const failures = await gate.run({ ...context, patterns: ['src/feature.ts'] });
+        expect(failures).toEqual([]);
+        expect(FileScanner.findFiles).toHaveBeenCalledTimes(2);
+    });
+
     it('should NOT flag Node.js built-in modules', async () => {
         const jsContent = `
 import fs from 'fs';
