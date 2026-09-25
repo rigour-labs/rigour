@@ -18,6 +18,7 @@ import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import { VULNERABILITY_PATTERNS } from './security-patterns-data.js';
+import { findUnsafeShellCalls } from './security-command-execution.js';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -175,7 +176,16 @@ export class SecurityPatternsGate extends Gate {
         ext: string,
         vulnerabilities: SecurityVulnerability[]
     ): void {
-        const lines = content.split('\n');
+        if (ext === 'ts' || ext === 'js') {
+            for (const call of findUnsafeShellCalls(content, file)) {
+                vulnerabilities.push({
+                    type: 'command_injection', severity: 'critical', file,
+                    line: call.line, match: call.text,
+                    description: 'Potential command injection: shell execution with user input',
+                    cwe: 'CWE-78',
+                });
+            }
+        }
 
         for (const pattern of VULNERABILITY_PATTERNS) {
             // Check if pattern applies to this file type
@@ -195,11 +205,6 @@ export class SecurityPatternsGate extends Gate {
 
                 // For XSS: check if innerHTML/dangerouslySetInnerHTML is wrapped in a sanitizer
                 if (pattern.type === 'xss' && this.isSanitizedAssignment(match[0])) {
-                    continue;
-                }
-
-                // For command_injection: check if spawn/exec uses { shell: false } (safe)
-                if (pattern.type === 'command_injection' && this.isSafeShellCall(match[0], content, match.index)) {
                     continue;
                 }
 
@@ -299,20 +304,6 @@ export class SecurityPatternsGate extends Gate {
         return sanitizers.some(s => rhs.toLowerCase().includes(s.toLowerCase()));
     }
 
-    /**
-     * Check if a shell execution call is using { shell: false } option (safe pattern).
-     * Also, spawn() without { shell: true } is safe by default — don't flag it.
-     */
-    private isSafeShellCall(matchText: string, fullContent: string, matchIndex: number): boolean {
-        // Check surrounding context (100 chars after match) for shell: false
-        const context = fullContent.slice(matchIndex, matchIndex + matchText.length + 100);
-        if (/shell\s*:\s*false/.test(context)) return true;
-
-        // spawn() without shell: true is safe by default
-        if (/\bspawn(?:Sync)?\s*\(/.test(matchText) && !/shell\s*:\s*true/.test(context)) return true;
-
-        return false;
-    }
 }
 
 /**

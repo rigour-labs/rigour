@@ -106,23 +106,7 @@ export const VULNERABILITY_PATTERNS: {
         cwe: 'CWE-338',
         languages: ['ts', 'js', 'tsx', 'jsx']
     },
-    // Command Injection
-    {
-        type: 'command_injection',
-        regex: /(?:exec|execSync|spawn|spawnSync)\s*\(\s*(?:`[^`]*\$\{[^}]*(?:req\.|query|params|body|input|user|argv|process\.env)[^}]*\}[^`]*`|[^)]*(?:req\.|query|params|body|input|user|argv|process\.env)[^)]*)\)/g,
-        severity: 'critical',
-        description: 'Potential command injection: shell execution with user input',
-        cwe: 'CWE-78',
-        languages: ['ts', 'js']
-    },
-    {
-        type: 'command_injection',
-        regex: /child_process.*\s*\.\s*(?:exec|spawn)\s*\([^)]*(?:req\.|query|params|body|input|user|argv|process\.env)/g,
-        severity: 'high',
-        description: 'child_process usage detected (verify input sanitization)',
-        cwe: 'CWE-78',
-        languages: ['ts', 'js']
-    },
+    // JavaScript shell calls are checked with receiver-aware syntax analysis.
     // Python subprocess command injection
     {
         type: 'command_injection',

@@ -81,3 +81,13 @@ Principle: narrow exclusions over broad disables.
 ## Public Accuracy Contract
 
 Rigour is local-first and deterministic for core gates. Deep analysis can run local or cloud provider mode. Claims in docs must always reflect this behavior.
+
+JS/TS style checks exclude exported Next.js route methods, JSX-returning
+components, and upper-case module constants from general naming comparisons.
+The style gate does not compare named and default imports across unrelated
+modules, because the imported module controls which form is valid. The
+command-injection gate requires a recognized `child_process` call rather than
+matching any `.exec()` method. Logic drift in Git projects compares changed
+files with a fixed main merge base; a behavioral change is a review signal,
+not proof of a defect. When the main reference is unavailable, that comparison
+is unavailable rather than inferred from a moving local snapshot.
