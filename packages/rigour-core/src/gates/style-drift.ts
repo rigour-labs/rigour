@@ -6,10 +6,8 @@
  * style which may differ from the project norm.
  *
  * What it checks:
- * 1. Naming conventions — camelCase vs snake_case vs PascalCase consistency
+ * 1. Naming conventions — compare names with the same language conventions
  * 2. Error handling patterns — try-catch vs .catch()/except/rescue consistency
- * 3. Import style — named vs default vs wildcard import consistency
- * 4. Quote style — single vs double quote consistency
  *
  * How it works:
  * 1. First scan: sample source files → compute per-language style fingerprints → store baseline
@@ -17,14 +15,17 @@
  * 3. If a file deviates >25% on any dimension → flag as style drift
  *
  * Baselines are per-language to avoid cross-language contamination
- * (e.g., Python snake_case shouldn't flag JS camelCase).
+ * (e.g., Python snake_case should not flag JS camelCase).
+ * JS names mandated by frameworks are excluded from style comparison, and
+ * imports are never compared by a language-wide named/default ratio.
  */
 
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
-import { languageAdapters, classifyCasing } from './language-adapters/index.js';
+import { languageAdapters } from './language-adapters/index.js';
+import { extractComparableJsNames } from './js-style-context.js';
 import {
     TRY_CATCH_PATTERN, CATCH_PATTERN, RESULT_TYPE_PATTERN,
     NAMED_IMPORT_PATTERN, WILDCARD_IMPORT_PATTERN, SIDE_EFFECT_IMPORT_PATTERN, DEFAULT_IMPORT_PATTERN,
@@ -78,7 +79,7 @@ interface StyleFingerprint {
 interface PerLanguageBaseline {
     languages: Record<string, StyleFingerprint>;
     createdAt: string;
-    version: 2;  // Distinguish from old single-fingerprint format
+    version: 3;  // Framework-aware JS naming requires a refreshed baseline
 }
 
 export class StyleDriftGate extends Gate {
@@ -127,7 +128,7 @@ export class StyleDriftGate extends Gate {
             try {
                 const raw = await fs.readJson(baselinePath);
                 // Handle migration from old single-fingerprint format
-                if (raw.version === 2) {
+                if (raw.version === 3) {
                     baseline = raw;
                 } else {
                     Logger.debug('Old style baseline format detected, creating new per-language baseline');
@@ -195,7 +196,7 @@ export class StyleDriftGate extends Gate {
         const baseline: PerLanguageBaseline = {
             languages: {},
             createdAt: new Date().toISOString(),
-            version: 2,
+            version: 3,
         };
 
         for (const [langId, langFiles] of filesByLang) {
@@ -246,7 +247,9 @@ export class StyleDriftGate extends Gate {
 
         // ── Naming conventions (via adapter) ──
         if (adapter) {
-            const namingPatterns = adapter.extractNamingPatterns(content);
+            const namingPatterns = adapter.id === 'js'
+                ? extractComparableJsNames(content, filePath)
+                : adapter.extractNamingPatterns(content);
             for (const pattern of namingPatterns) {
                 if (pattern.kind === 'function' || pattern.kind === 'method') {
                     fp.naming.functions[pattern.convention]++;
@@ -345,18 +348,8 @@ export class StyleDriftGate extends Gate {
             });
         }
 
-        const impDev = this.distributionDeviation(
-            file.importStyle as Record<string, number>,
-            baseline.importStyle as Record<string, number>
-        );
-        if (impDev.score > 0 && this.hasSignificantData(file.importStyle)) {
-            deviations.push({
-                dimension: 'import style',
-                score: impDev.score,
-                detail: `file uses ${impDev.filePredominant}, project uses ${impDev.baselinePredominant}`,
-                suggestion: `Use ${impDev.baselinePredominant} imports to match project conventions.`,
-            });
-        }
+        // Import form depends on the imported module's exports. A language-wide
+        // named/default ratio cannot establish a valid replacement.
 
         return deviations;
     }

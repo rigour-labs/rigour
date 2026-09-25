@@ -71,23 +71,27 @@ export class HallucinatedImportsGate extends Gate {
 
         const defaultPatterns = ['**/*.{ts,js,tsx,jsx,py,go,rb,cs,rs,java,kt}'];
         const scanPatterns = context.patterns || defaultPatterns;
+        const ignore = [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
+            '**/examples/**', '**/studio-dist/**', '**/.next/**', '**/coverage/**',
+            '**/*.test.*', '**/*.spec.*', '**/__tests__/**',
+            '**/.venv/**', '**/venv/**', '**/vendor/**', '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**',
+            '**/target/debug/**', '**/target/release/**', '**/out/**', '**/.gradle/**', '**/gradle/**'];
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
             patterns: scanPatterns,
-            ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
-                     '**/examples/**',
-                     '**/studio-dist/**', '**/.next/**', '**/coverage/**',
-                     '**/*.test.*', '**/*.spec.*', '**/__tests__/**',
-                     '**/.venv/**', '**/venv/**', '**/vendor/**', '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**',
-                     '**/target/debug/**', '**/target/release/**',
-                     '**/out/**', '**/.gradle/**', '**/gradle/**'],
+            ignore,
         });
         const analyzableFiles = files.filter(file => !this.shouldSkipFile(file));
 
         Logger.info(`Hallucinated Imports: Scanning ${analyzableFiles.length} files`);
 
-        const projectFiles = new Set(analyzableFiles.map(f => f.replace(/\\/g, '/')));
-        const allProjectFiles = new Set(files.map(f => f.replace(/\\/g, '/')));
+        // A scoped review scans changed files, but relative imports may point
+        // to unchanged files. Resolve against the project, not the edit set.
+        const resolutionFiles = context.patterns
+            ? await FileScanner.findFiles({ cwd: context.cwd, patterns: defaultPatterns, ignore })
+            : files;
+        const projectFiles = new Set(resolutionFiles.map(f => f.replace(/\\/g, '/')));
+        const allProjectFiles = projectFiles;
         const packageJson = await loadPackageJson(context.cwd);
         const rootDeps = new Set([
             ...Object.keys(packageJson?.dependencies || {}),

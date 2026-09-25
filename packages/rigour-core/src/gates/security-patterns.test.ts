@@ -129,14 +129,55 @@ describe('SecurityPatternsGate', () => {
     });
 
     describe('command injection detection', () => {
-        it('should detect exec with user input', async () => {
+        it('detects imported shell execution with user input', async () => {
             const filePath = path.join(testDir, 'shell.ts');
             fs.writeFileSync(filePath, `
-                exec(\`ls \${req.query.path}\`);
+                import { exec as runShell } from 'node:child_process';
+                runShell(\`ls \${req.query.path}\`);
             `);
 
             const vulns = await checkSecurityPatterns(filePath);
             expect(vulns.some(v => v.type === 'command_injection')).toBe(true);
+        });
+
+        it('does not treat RegExp.exec or unrelated methods as shell execution', async () => {
+            const filePath = path.join(testDir, 'template.ts');
+            fs.writeFileSync(filePath, `
+                const separator = HB_ELSE.exec(body);
+                const other = LIQUID_BRANCH.exec(user);
+                const local = { exec(value: string) { return value; } };
+                local.exec(request.body);
+            `);
+
+            const vulns = await checkSecurityPatterns(filePath);
+            expect(vulns.filter(v => v.type === 'command_injection')).toEqual([]);
+        });
+
+        it('detects namespace, require, and shell-enabled spawn calls', async () => {
+            const filePath = path.join(testDir, 'shell.js');
+            fs.writeFileSync(filePath, `
+                const cp = require('child_process');
+                const { exec: runShell } = require('node:child_process');
+                cp.exec(req.body.command);
+                runShell(user.command);
+                cp.spawn(process.env.SHELL, [input], { shell: true });
+                cp.spawn(process.env.SHELL, [input]);
+            `);
+
+            const vulns = await checkSecurityPatterns(filePath);
+            expect(vulns.filter(v => v.type === 'command_injection')).toHaveLength(3);
+        });
+
+        it('does not use an imported shell binding shadowed by a parameter', async () => {
+            const filePath = path.join(testDir, 'shadow.ts');
+            fs.writeFileSync(filePath, `
+                import { exec } from 'child_process';
+                function parse(exec: RegExp) { return exec.exec(body); }
+                function run(exec: (value: string) => void) { exec(user); }
+            `);
+
+            const vulns = await checkSecurityPatterns(filePath);
+            expect(vulns.filter(v => v.type === 'command_injection')).toEqual([]);
         });
     });
 

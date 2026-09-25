@@ -12,9 +12,9 @@
  * - Tests might still pass (if they don't cover edge cases)
  * - The change looks intentional ("AI refactored the function")
  *
- * Strategy: Collect baselines for critical functions, then detect
- * mutations between scans. This foundation enables future LLM-powered
- * deeper analysis (feeding baselines into DriftBench training).
+ * Strategy: Compare changed functions against the Git main merge base.
+ * Repeated scans of the same change must report the same review signals.
+ * Non-Git projects retain the legacy local baseline behavior.
  */
 
 import { Gate, GateContext } from './base.js';
@@ -23,6 +23,7 @@ import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import { languageAdapters } from './language-adapters/index.js';
 import { extractCallSequence, isDangerousMutation } from './logic-drift-extractors.js';
+import { isGitWorktree, resolveGitLogicBase } from './logic-drift-git-base.js';
 import fs from 'fs-extra';
 import path from 'path';
 import crypto from 'crypto';
@@ -84,18 +85,35 @@ export class LogicDriftGate extends Gate {
 
         if (files.length === 0) return [];
 
+        // In Git worktrees, compare only files changed from an immutable base.
+        const gitBase = resolveGitLogicBase(context.cwd);
+        if (!gitBase && isGitWorktree(context.cwd)) {
+            Logger.info('Logic Drift: no main reference available; comparison unavailable');
+            return [];
+        }
+        const scanFiles = gitBase ? files.filter(file => gitBase.changedFiles.has(file)) : files;
+        if (gitBase && scanFiles.length === 0) return [];
+
         // Extract current function baselines
         const currentFunctions: FunctionBaseline[] = [];
-        const contents = await FileScanner.readFiles(context.cwd, files, context.fileCache);
+        const contents = await FileScanner.readFiles(context.cwd, scanFiles, context.fileCache);
 
         for (const [file, content] of contents) {
             const extracted = this.extractFunctionBaselines(content, file);
             currentFunctions.push(...extracted);
         }
 
-        // Load previous baseline
+        // Git is authoritative when present; old local snapshots are fallback
+        // only for projects without an available Git main reference.
         let previousBaseline: LogicBaseline | null = null;
-        if (await fs.pathExists(baselinePath)) {
+        if (gitBase) {
+            const functions: FunctionBaseline[] = [];
+            for (const file of scanFiles) {
+                const content = gitBase.readAtBase(file);
+                if (content !== null) functions.push(...this.extractFunctionBaselines(content, file));
+            }
+            previousBaseline = { functions, createdAt: '', lastUpdated: '', scanCount: 0 };
+        } else if (await fs.pathExists(baselinePath)) {
             try {
                 const raw = await fs.readJson(baselinePath);
                 // Validate baseline has required structure
@@ -195,7 +213,7 @@ export class LogicDriftGate extends Gate {
             lastUpdated: new Date().toISOString(),
             scanCount: previousBaseline.scanCount + 1,
         };
-        await fs.writeJson(baselinePath, updatedBaseline, { spaces: 2 });
+        if (!gitBase) await fs.writeJson(baselinePath, updatedBaseline, { spaces: 2 });
 
         if (failures.length > 0) {
             Logger.info(`Logic Drift: Found ${failures.length} logic mutations`);
@@ -216,8 +234,12 @@ export class LogicDriftGate extends Gate {
 
         const skipKeywords = new Set(['if', 'for', 'while', 'switch', 'catch', 'constructor', 'else', 'elif', 'elsif', 'rescue']);
         const functions = adapter.extractFunctions(content, file);
+        const seen = new Set<string>();
 
         for (const fn of functions) {
+            const identity = `${fn.name}:${fn.startLine}`;
+            if (seen.has(identity)) continue;
+            seen.add(identity);
             // Skip control flow keywords
             if (skipKeywords.has(fn.name)) continue;
             // Skip very small functions
