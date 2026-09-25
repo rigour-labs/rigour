@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleCheck } from './quality-handlers.js';
+import { handleCheck, handleGetFixPacket } from './quality-handlers.js';
 
 describe('handleCheck deep routing', () => {
     const baseReport = {
@@ -120,5 +120,33 @@ describe('handleCheck deep routing', () => {
         });
         expect(result.content[0].text).toContain('Execution: local');
         expect(result.content[0].text).toContain('Code remains on this machine');
+    });
+});
+
+describe('handleGetFixPacket pagination', () => {
+    const report = {
+        status: 'FAIL',
+        summary: {},
+        failures: Array.from({ length: 12 }, (_, index) => ({
+            id: 'file-size', title: `Finding ${index}`, details: `Detail ${index}`,
+            files: [`src/file-${index}.ts`], severity: 'low',
+        })),
+        stats: { score: 50 },
+    } as any;
+    const runner = { run: vi.fn().mockResolvedValue(report) } as any;
+    const config = { gates: { safety: {} }, commands: {} } as any;
+
+    it('returns a small first page and a precise continuation offset', async () => {
+        const result = await handleGetFixPacket(runner, '/repo', config);
+        expect(result.content[0].text).toContain('FIX 1/12');
+        expect(result.content[0].text).toContain('offset=5 and limit=5');
+        expect(result.content[0].text).not.toContain('Finding 5');
+    });
+
+    it('rejects invalid pagination before scanning', async () => {
+        runner.run.mockClear();
+        const result = await handleGetFixPacket(runner, '/repo', config, { limit: 11 });
+        expect(result.isError).toBe(true);
+        expect(runner.run).not.toHaveBeenCalled();
     });
 });

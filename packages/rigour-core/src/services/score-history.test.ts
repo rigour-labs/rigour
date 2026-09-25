@@ -44,6 +44,16 @@ describe('getScoreTrend', () => {
         });
     });
 
+    it('labels 41 → 41 → 41 → 41 → 52 as improving', () => {
+        writeScores([41, 41, 41, 41, 52]);
+
+        expect(getScoreTrend(testDir)).toMatchObject({
+            direction: 'improving',
+            visibleDelta: 11,
+            recentScores: [41, 41, 41, 41, 52],
+        });
+    });
+
     it('labels a falling displayed series as degrading', () => {
         writeScores([80, 75, 70, 64, 59]);
 

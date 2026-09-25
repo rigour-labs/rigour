@@ -89,6 +89,26 @@ describe('FrontendSecretExposureGate', () => {
         expect(failures).toHaveLength(0);
     });
 
+    it('does not treat server scripts or test configuration as browser bundles', async () => {
+        for (const file of ['scripts/migrate.mjs', 'e2e/session.ts', 'tests/helpers/db.ts', 'playwright.config.ts']) {
+            const filePath = path.join(testDir, file);
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, 'export const key = process.env.SESSION_SECRET;');
+        }
+
+        const gate = new FrontendSecretExposureGate({ server_path_patterns: ['(^|/)pages/api/'] });
+        expect(await gate.run({ cwd: testDir })).toHaveLength(0);
+    });
+
+    it('ignores shell files even when a broad project scan passes them in', async () => {
+        const shellPath = path.join(testDir, 'scripts/rigour-nmc.sh');
+        fs.mkdirSync(path.dirname(shellPath), { recursive: true });
+        fs.writeFileSync(shellPath, 'node -e "process.env.RIGOUR_NMC_DATABASE_URL"');
+
+        const gate = new FrontendSecretExposureGate();
+        expect(await gate.run({ cwd: testDir, patterns: ['**/*'] })).toHaveLength(0);
+    });
+
     it('respects explicit allowlist env names', async () => {
         const filePath = path.join(testDir, 'src/views/App.tsx');
         fs.mkdirSync(path.dirname(filePath), { recursive: true });

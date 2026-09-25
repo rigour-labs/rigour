@@ -6,9 +6,10 @@
  *
  * @since v2.17.0 — extracted from monolithic index.ts
  */
-import { GateRunner, Report, renderMcpHeadline, renderFixAttribution } from "@rigour-labs/core";
+import { GateRunner, Report, renderMcpHeadline } from "@rigour-labs/core";
 import type { Config, DeepOptions } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
+import { DEFAULT_FIX_PACKET_PAGE_SIZE, MAX_FIX_PACKET_PAGE_SIZE, formatFixPacketPage } from './fix-packet-format.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean; _rigour_report?: Report };
 type DeepMode = 'off' | 'quick' | 'full';
@@ -152,7 +153,19 @@ export async function handleStatus(runner: GateRunner, cwd: string): Promise<Too
     };
 }
 
-export async function handleGetFixPacket(runner: GateRunner, cwd: string, config: Config): Promise<ToolResult> {
+export async function handleGetFixPacket(
+    runner: GateRunner,
+    cwd: string,
+    config: Config,
+    args: { offset?: number; limit?: number } = {},
+): Promise<ToolResult> {
+    const offset = args.offset ?? 0;
+    const limit = args.limit ?? DEFAULT_FIX_PACKET_PAGE_SIZE;
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit)
+        || limit < 1 || limit > MAX_FIX_PACKET_PAGE_SIZE) {
+        return { isError: true, content: [{ type: 'text', text: 'offset must be a nonnegative integer and limit must be an integer from 1 to 10.' }] };
+    }
+
     const report = await runner.run(cwd);
 
     if (report.status === "PASS") {
@@ -168,98 +181,9 @@ export async function handleGetFixPacket(runner: GateRunner, cwd: string, config
     const fixPacketService = new FixPacketService();
     const fixPacket = fixPacketService.generate(report, config);
 
-    // Find worst violation for attribution
-    const worst = report.failures.find(f => f.severity === 'critical')
-        || report.failures.find(f => f.severity === 'high')
-        || report.failures[0];
-    const worstLabel = worst ? worst.title : 'quality violations';
-    const attribution = renderFixAttribution(report.failures.length, worstLabel);
-
     return {
-        content: [{ type: "text", text: formatFixPacketText(fixPacket, report) + attribution }],
+        content: [{ type: "text", text: formatFixPacketPage(fixPacket, report, offset, limit) }],
     };
-}
-
-/**
- * Formats a FixPacketV2 into a structured, agent-readable text block.
- * Every violation includes: who failed, which files, what rule, where (line numbers),
- * and what commands must pass after fixing.
- */
-function formatFixPacketText(fixPacket: any, report: Report): string {
-    const lines: string[] = [];
-
-    // Header
-    let scoreHeader = formatScoreText(report.stats).trim();
-    lines.push('ENGINEERING REFINEMENT REQUIRED');
-    if (scoreHeader) lines.push(scoreHeader);
-    lines.push(`Violations: ${report.failures.length} | Failed gates: ${fixPacket.failed_gates.join(', ')}`);
-    lines.push('');
-
-    // Violations
-    fixPacket.violations.forEach((v: any, i: number) => {
-        const sevTag = `[${(v.severity || 'medium').toUpperCase()}]`;
-        const catTag = v.category ? ` (${v.category})` : '';
-        lines.push(`━━━ FIX ${i + 1}/${fixPacket.violations.length}: ${sevTag}${catTag} ${v.title} ━━━`);
-        lines.push(`GATE: ${v.id}`);
-        lines.push(`PROBLEM: ${v.details}`);
-
-        // Locations with line numbers (precise targeting)
-        if (v.locations && v.locations.length > 0) {
-            const locStrs = v.locations.map((loc: any) => {
-                let s = loc.file;
-                if (loc.line) s += `:${loc.line}`;
-                if (loc.endLine && loc.endLine !== loc.line) s += `-${loc.endLine}`;
-                return s;
-            });
-            lines.push(`WHERE: ${locStrs.join(', ')}`);
-        } else if (v.files && v.files.length > 0) {
-            lines.push(`FILES: ${v.files.join(', ')}`);
-        }
-
-        // Metrics (thresholds vs actuals)
-        if (v.metrics && Object.keys(v.metrics).length > 0) {
-            const metricStrs = Object.entries(v.metrics).map(([k, val]) => `${k}=${val}`);
-            lines.push(`METRICS: ${metricStrs.join(', ')}`);
-        }
-
-        // Instructions
-        if (v.instructions && v.instructions.length > 0) {
-            lines.push(`FIX:`);
-            v.instructions.forEach((inst: string, j: number) => {
-                lines.push(`  ${j + 1}. ${inst}`);
-            });
-        } else if (v.hint) {
-            lines.push(`HINT: ${v.hint}`);
-        }
-
-        lines.push('');
-    });
-
-    // Verification commands
-    if (fixPacket.verification?.commands?.length > 0) {
-        lines.push('━━━ VERIFICATION (run these after fixing) ━━━');
-        fixPacket.verification.commands.forEach((c: any) => {
-            lines.push(`  $ ${c.cmd}  — ${c.purpose}`);
-        });
-        lines.push('');
-    }
-
-    // Constraints
-    const c = fixPacket.constraints;
-    if (c) {
-        const constraintParts: string[] = [];
-        if (c.allowed_scope?.length > 0) constraintParts.push(`ALLOWED SCOPE: ${c.allowed_scope.join(', ')}`);
-        if (c.do_not_touch?.length > 0) constraintParts.push(`DO NOT TOUCH: ${c.do_not_touch.join(', ')}`);
-        if (c.max_files_changed) constraintParts.push(`MAX FILES CHANGED: ${c.max_files_changed}`);
-        if (c.no_new_deps) constraintParts.push('NO NEW DEPENDENCIES');
-        if (c.paradigm) constraintParts.push(`PARADIGM: ${c.paradigm}`);
-        if (constraintParts.length > 0) {
-            lines.push('━━━ CONSTRAINTS ━━━');
-            constraintParts.forEach(p => lines.push(`  ${p}`));
-        }
-    }
-
-    return lines.join('\n');
 }
 
 export function handleListGates(config: Config): ToolResult {

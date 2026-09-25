@@ -151,7 +151,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
             case "rigour_explain":       result = await handleExplain(runner, cwd); break;
             case "rigour_status":        result = await handleStatus(runner, cwd); break;
-            case "rigour_get_fix_packet": result = await handleGetFixPacket(runner, cwd, config); break;
+            case "rigour_get_fix_packet": result = await handleGetFixPacket(runner, cwd, config, args as any); break;
             case "rigour_list_gates":    result = handleListGates(config); break;
             case "rigour_get_config":    result = handleGetConfig(config); break;
             case "rigour_mcp_get_settings": result = await handleMcpGetSettings(cwd); break;

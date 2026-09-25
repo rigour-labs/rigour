@@ -85,12 +85,20 @@ export class FrontendSecretExposureGate extends Gate {
                 '(^|/)views/',
                 '(^|/)public/',
             ],
-            server_path_patterns: config.server_path_patterns ?? [
+            // Built-in server locations remain safe when older config files
+            // provide their own list; custom patterns extend this baseline.
+            server_path_patterns: [
                 '(^|/)pages/api/',
                 '(^|/)src/pages/api/',
                 '(^|/)app/api/',
                 '(^|/)src/app/api/',
+                '(^|/)scripts/',
+                '(^|/)e2e/',
+                '(^|/)tests/',
+                '(^|/)server/',
+                '(^|/)(?:playwright|vitest|vite|jest|next|webpack|eslint|prettier|tailwind|postcss|babel|tsup|rollup)\\.config\\.[cm]?[jt]s$',
                 '\\.server\\.(?:ts|tsx|js|jsx|mjs|cjs)$',
+                ...(config.server_path_patterns ?? []),
             ],
             allowlist_env_names: config.allowlist_env_names ?? [],
         };
@@ -123,7 +131,7 @@ export class FrontendSecretExposureGate extends Gate {
         });
 
         // Skip test/fixture files — they routinely use dummy keys
-        const sourceFiles = files.filter(f => !this.isTestFile(f));
+        const sourceFiles = files.filter(f => /\.(?:[cm]?[jt]s|[jt]sx|vue|svelte)$/i.test(f) && !this.isTestFile(f));
 
         Logger.info(`Frontend Secret Exposure Gate: scanning ${sourceFiles.length} files`);
 
