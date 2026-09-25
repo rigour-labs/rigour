@@ -231,6 +231,7 @@ program
     .description('Review a diff against quality gates (filter to changed lines)')
     .option('--json', 'Output report in JSON format')
     .option('--ci', 'CI mode (minimal output)')
+    .option('--github-summary', 'Bounded, privacy-safe Markdown summary for GitHub Actions')
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
     .option('--diff <path>', 'Path to diff file (reads stdin if omitted)')
     .option('--files <paths>', 'Comma-separated list of changed files (auto-detected from diff if omitted)')
@@ -246,6 +247,7 @@ Examples:
   $ git diff main..HEAD | rigour review                # Review branch changes
   $ rigour review --diff changes.patch --deep          # Review diff file with deep analysis
   $ git diff | rigour review --ci                      # CI-friendly review
+  $ git diff main..HEAD | rigour review --github-summary # GitHub job summary
   $ git diff main..HEAD | rigour review --files src/a.ts,src/b.ts
 
 Tip: Use in CI to gate only lines you changed — faster than full rigour check on large repos.

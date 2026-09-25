@@ -16,6 +16,7 @@ import chalk from 'chalk';
 import yaml from 'yaml';
 import { GateRunner, ConfigSchema, resolveDeepOptions } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
+import { buildCiReviewSummary, filterChangedLineFailures, renderGithubSummary } from './review-summary.js';
 
 const EXIT_PASS = 0;
 const EXIT_FAIL = 1;
@@ -25,6 +26,7 @@ const EXIT_INTERNAL_ERROR = 3;
 export interface ReviewOptions {
     json?: boolean;
     ci?: boolean;
+    githubSummary?: boolean;
     config?: string;
     diff?: string;       // path to diff file
     files?: string;      // comma-separated explicit file list
@@ -96,7 +98,10 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
 
     if (!diffContent.trim()) {
         if (options.json) {
-            console.log(JSON.stringify({ status: 'PASS', score: 100, failures: [], message: 'No diff provided' }));
+            console.log(JSON.stringify({ status: 'PASS', score: 100, failures: [],
+                ci_summary: buildCiReviewSummary([], 0, {}), message: 'No diff provided' }));
+        } else if (options.githubSummary) {
+            console.log(renderGithubSummary(buildCiReviewSummary([], 0, {})));
         } else {
             console.log(chalk.green('No diff provided — nothing to review.'));
         }
@@ -125,7 +130,10 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
 
         if (targetFiles.length === 0) {
             if (options.json) {
-                console.log(JSON.stringify({ status: 'PASS', score: 100, failures: [] }));
+                console.log(JSON.stringify({ status: 'PASS', score: 100, failures: [],
+                    ci_summary: buildCiReviewSummary([], 0, {}) }));
+            } else if (options.githubSummary) {
+                console.log(renderGithubSummary(buildCiReviewSummary([], 0, {})));
             } else {
                 console.log(chalk.green('No changed files detected in diff.'));
             }
@@ -133,7 +141,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         }
 
         const isDeep = !!options.deep || !!options.pro || !!options.apiKey;
-        const isSilent = !!options.ci || !!options.json;
+        const isSilent = !!options.ci || !!options.json || !!options.githubSummary;
 
         if (!isSilent) {
             console.log(chalk.blue(`Reviewing ${targetFiles.length} file(s)...`));
@@ -164,18 +172,11 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
 
         const report = await runner.run(cwd, targetFiles, deepOpts);
 
-        // Filter failures to only those on changed lines (or global gate failures)
-        const filteredFailures = report.failures.filter(failure => {
-            if (!failure.files || failure.files.length === 0) return true;
-            return failure.files.some(file => {
-                const fileModifiedLines = diffMapping[file];
-                if (!fileModifiedLines) return false;
-                if (failure.line !== undefined) return fileModifiedLines.has(failure.line);
-                return true;
-            });
-        });
+        // A file-level finding cannot be attributed to a changed line.
+        const { failures: filteredFailures, unlocated } = filterChangedLineFailures(report.failures, diffMapping);
 
         const status = filteredFailures.length > 0 ? 'FAIL' : 'PASS';
+        const ciSummary = buildCiReviewSummary(filteredFailures, report.failures.length, diffMapping, unlocated);
 
         // JSON output
         if (options.json) {
@@ -186,6 +187,8 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
                 structural_score: report.stats.structural_score,
                 total_failures: report.failures.length,
                 filtered_failures: filteredFailures.length,
+                unlocated_failures: unlocated,
+                ci_summary: ciSummary,
                 failures: filteredFailures.map(f => ({
                     id: f.id,
                     gate: f.title,
@@ -201,6 +204,11 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
                 process.exit(status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
             });
             return;
+        }
+
+        if (options.githubSummary) {
+            console.log(renderGithubSummary(ciSummary));
+            process.exit(status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
         }
 
         // CI output
