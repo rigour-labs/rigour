@@ -68,6 +68,16 @@ Memory: Agent writes CLAUDE.md → Rigour intercepts → Forces rigour_remember 
 | **Inconsistent Error Handling** | Same error type handled differently across sessions |
 | **Dependency Bloat** | Unused deps, heavy alternatives (moment→dayjs), duplicate purpose packages |
 
+### Semantic Bugs (type-aware, opt-in)
+Enable with `semantic_bugs: { enabled: true }`. Each finding names where the risky value enters and where it does harm, across files; anything unresolved is not reported.
+
+| Rule | Description |
+|:---|:---|
+| **Credential Redirect** | A custom credential header (`x-*-token`, `*-api-key`, secret env values) on a request that follows redirects |
+| **In-Memory Aggregation** | Rows from a paged read loaded into memory only to be counted, or capped with a throwing length check |
+| **Degraded Response Cached** | A response cached with `max-age` while its body can carry a failure fallback |
+| **Learned rules** | Rules from your own fixes (`rigour learn`), stored in `.rigour/rules/` and run as `learned/<id>` |
+
 ### Agent Governance
 | Gate | Description |
 |:---|:---|
@@ -110,6 +120,8 @@ rigour check --deep --pro            # Full model (Qwen2.5-Coder-1.5B)
 rigour check --deep --provider claude -k sk-ant-xxx  # Cloud BYOK
 ```
 
+In a scoped review, `deep.intent_checks` asks the model only whether a read in `Promise.all` is optional. It is off by default: the stock local models did not meet the zero-false-finding bar ([measurements](https://github.com/rigour-labs/rigour/blob/main/docs/DEEP_ANALYSIS.md#intent_checks-off-by-default)).
+
 ## 🌐 Multi-Language Support
 
 Hallucinated import detection with stdlib whitelists and dependency manifest parsing:
@@ -126,6 +138,7 @@ Hallucinated import detection with stdlib whitelists and dependency manifest par
 | `rigour check` | Full repository quality gates |
 | `rigour check --ci` | CI mode with minimal output |
 | `rigour check --deep` | + local LLM analysis |
+| `rigour learn <commit>` | Turn a fix into a validated rule (`--dry-run`, `--before/--after`, `--max-hits`) |
 | `rigour hooks init` | Install real-time hooks for detected tools |
 | `rigour hooks check --files ...` | Fast hook gates on specific files |
 | `rigour explain` | Detailed explanation of failures |

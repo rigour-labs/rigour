@@ -14,6 +14,9 @@ Rigour currently uses the official **TypeScript Compiler API** to parse and anal
 | **Python** | `python-ast` / `ruff` | 🧭 Planned |
 | **Go** | tree-sitter | ✅ Stable |
 
+### Type-aware analysis (`semantic_bugs`)
+Most AST gates parse one file at a time. The `semantic_bugs` gate builds a `ts.Program` with the type checker, so it follows values through imports, destructuring (including `Promise.all`), reassignment and function parameters, and reports a defect only when both ends are resolved. Programs are built from the project's own modules (external libraries are skipped), in batches, which keeps a full scan of a ~2,000-file repository near 1.3 GB and a scoped run under a second. See [Configuration](./CONFIGURATION.md#semantic_bugs) for the rules and `rigour learn`.
+
 ## 📏 Enforced Metrics
 
 ### 1. Cyclomatic Complexity

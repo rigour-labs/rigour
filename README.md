@@ -129,6 +129,17 @@ Rigour records evidence from its hooks, MCP calls, context retrieval, Fix Packet
 
 Model text, vector similarity, rejected fixes, and failed tests can inform investigation. They do not become enforcement rules on their own.
 
+### Bugs it can prove, and rules learned from your fixes
+
+The `semantic_bugs` gate builds a TypeScript program and traces values across files. It reports a bug only when it can show where the risky value enters and where it does harm: a credential header sent by a request that follows redirects, rows from a paged read loaded into memory just to be counted, or a cached response that can carry a failure fallback. It runs locally, with no model.
+
+`rigour learn <fix-commit>` turns a fix into a rule for the same bug. The rule is kept only if it fires on the code before the fix, is silent on the fixed code, and hits few other places in the repository; those places are listed for review. Learned rules live in `.rigour/rules/`, are reviewed like code, and appear in Studio with the fix they came from.
+
+```bash
+rigour learn a1b2c3d --dry-run   # what would be learned, and why
+rigour learn a1b2c3d             # save validated rules to .rigour/rules/
+```
+
 ### Governance agents can work with
 
 Rigour’s deterministic checks catch security issues, structural regressions, hallucinated imports, phantom APIs, context drift, and more. On supported mediated paths, the Agent Transaction Firewall applies per-agent scopes, typed command allowlists, fail-closed arbitration, and signed attestations.
@@ -162,6 +173,7 @@ When team storage is unavailable, local enforcement and evidence capture continu
 Rigour is deliberately precise about what it does and does not claim.
 
 - Core checks and storage are local-first; cloud deep analysis is opt-in.
+- A model is asked only what code cannot answer, and only where its answer is measured. Intent checks stay off until a model reports zero false findings on the labelled set ([Deep Analysis](docs/DEEP_ANALYSIS.md#intent_checks-off-by-default)).
 - Rigour can enforce work that passes through its installed hooks or MCP gateway. A directly configured parallel MCP server bypasses that gateway unless the host or administrator removes that route.
 - Advice is evidence of what Rigour recommended, not proof that an agent followed it or that it caused an outcome.
 - Observed spend, measured estimates, and modelled savings are shown separately so cost numbers do not over-promise.
