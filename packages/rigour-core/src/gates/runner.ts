@@ -1,6 +1,6 @@
 import { Gate } from './base.js';
 import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
-import { DeepAnalysisGate } from './deep-analysis.js';
+import { runDeepAnalysis } from './deep-runner.js';
 import { persistAndReinforce } from '../storage/local-memory.js';
 import { recordGateRun, type ProvenanceRunData } from '../services/adaptive-thresholds.js';
 import { FileGate } from './file.js';
@@ -228,47 +228,10 @@ export class GateRunner {
         // 3. Run Deep Analysis (if enabled)
         let deepStats: Report['stats']['deep'] = undefined;
         if (deepOptions?.enabled) {
-            const deepSetupStart = Date.now();
-            const deepGate = new DeepAnalysisGate({
-                options: deepOptions,
-                checks: this.config.gates.deep?.checks,
-                threads: this.config.gates.deep?.threads,
-                maxTokens: this.config.gates.deep?.max_tokens,
-                temperature: this.config.gates.deep?.temperature,
-                timeoutMs: this.config.gates.deep?.timeout_ms,
-                onProgress: deepOptions.onProgress,
-            });
-
-            try {
-                const deepFailures = await deepGate.run({ cwd, ignore, patterns });
-                if (deepFailures.length > 0) {
-                    failures.push(...deepFailures);
-                    summary['deep-analysis'] = 'FAIL';
-                } else {
-                    summary['deep-analysis'] = 'PASS';
-                }
-
-                const isLocalDeepExecution =
-                    !deepOptions.apiKey || (deepOptions.provider || '').toLowerCase() === 'local';
-                const deepTier: 'deep' | 'lite' | 'cloud' = isLocalDeepExecution
-                    ? (deepOptions.pro ? 'deep' : 'lite')
-                    : 'cloud';
-
-                deepStats = {
-                    enabled: true,
-                    tier: deepTier,
-                    model: isLocalDeepExecution
-                        ? (deepOptions.pro ? 'Qwen2.5-Coder-1.5B' : 'Qwen2.5-Coder-0.5B')
-                        : (deepOptions.modelName || deepOptions.provider || 'cloud'),
-                    total_ms: Date.now() - deepSetupStart,
-                    findings_count: deepFailures.length,
-                    findings_verified: deepFailures.filter((f: any) => f.verified).length,
-                };
-            } catch (error: any) {
-                Logger.error(`Deep analysis failed: ${error.message}`);
-                summary['deep-analysis'] = 'ERROR';
-                deepStats = { enabled: true };
-            }
+            const deep = await runDeepAnalysis(this.config, { cwd, ignore, patterns }, deepOptions);
+            failures.push(...deep.failures);
+            summary['deep-analysis'] = deep.summary;
+            deepStats = deep.stats;
         }
 
         const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';

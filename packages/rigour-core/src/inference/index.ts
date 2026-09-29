@@ -4,8 +4,12 @@
 export type { InferenceProvider, InferenceOptions, DeepFinding, DeepAnalysisResult, ModelTier, ModelInfo } from './types.js';
 export { MODELS } from './types.js';
 export { SidecarProvider } from './sidecar-provider.js';
+export type { ActiveModel } from './sidecar-provider.js';
+export { installLlamaEngine, probeBinary, managedEnginePath, LLAMA_RELEASE_TAG } from './llama-engine.js';
+export type { ProbeResult } from './llama-engine.js';
 export { CloudProvider } from './cloud-provider.js';
-export { ensureModel, isModelCached, getModelPath, getModelInfo, downloadModel, getModelsDir } from './model-manager.js';
+export { ensureModel, isModelCached, getModelPath, getModelInfo, downloadModel, getModelsDir, getCachedModel } from './model-manager.js';
+export type { CachedModel } from './model-manager.js';
 
 import type { InferenceProvider } from './types.js';
 import type { DeepOptions } from '../types/index.js';

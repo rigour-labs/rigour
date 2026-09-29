@@ -1,28 +1,39 @@
 /**
- * Deep Analysis Gate — LLM-powered code quality analysis.
+ * Deep Analysis Gate — LLM-powered code analysis.
  *
- * Three-step pipeline:
- * 1. AST extracts facts → "UserService has 8 public methods touching 4 domains"
- * 2. LLM interprets facts → "UserService violates Single Responsibility"
- * 3. AST verifies LLM → Does UserService actually have those methods? ✓
+ * Two modes:
+ * - Unscoped (`rigour check --deep`): repo-wide analysis from AST facts.
+ *   AST extracts facts, the LLM interprets them, AST verifies the findings.
+ * - Scoped (`rigour check <paths> --deep`, `rigour review --deep`): each
+ *   scoped file is reviewed with its numbered source; findings must cite a
+ *   line and identifiers that were actually sent.
  *
- * AST grounds LLM. LLM interprets AST. Neither works alone.
+ * The gate records an outcome. A run where setup failed or every chunk
+ * failed is an error, never a clean pass.
  */
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance, DeepOptions } from '../types/index.js';
-import { createProvider, type InferenceProvider, type DeepFinding } from '../inference/index.js';
-import { extractFacts, factsToPromptString, chunkFacts, buildAnalysisPrompt, buildCrossFilePrompt, verifyFindings } from '../deep/index.js';
+import { createProvider, type InferenceProvider, type DeepFinding, type InferenceOptions } from '../inference/index.js';
+import { SidecarProvider } from '../inference/sidecar-provider.js';
+import { extractFacts, verifyFindings, type FileFacts } from '../deep/index.js';
+import { runFactsPass, type PassResult } from '../deep/facts-pass.js';
+import { runCodePass } from '../deep/code-pass.js';
+import { verifyCodeFindings } from '../deep/code-verifier.js';
+import type { VerifiedFinding } from '../deep/verifier.js';
 import { checkLocalPatterns } from '../storage/local-memory.js';
+import { isScoped } from '../utils/scope.js';
 import { Logger } from '../utils/logger.js';
 import path from 'path';
 
-/** Default batch size for streaming analysis of large repos.
- *  Files are processed in batches to avoid OOM on huge repos.
- *  Optional soft limit via rigour.yml: deep.maxFiles */
-const DEFAULT_BATCH_SIZE = 200;
-
-/** Setup timeout: 120s for model download, 30s for API connection */
-const SETUP_TIMEOUT_MS = 120_000;
+/** Cloud setup (API connection) must not hang a check. Local setup is bounded by download stall timeouts instead. */
+const CLOUD_SETUP_TIMEOUT_MS = 120_000;
+/**
+ * Source budget per file in the code-review prompt. Local: ~36k chars is
+ * ~12k tokens; measured on Apple Silicon at ~19s per file for the 1.5B model
+ * (prompt eval ~670 tok/s), inside the 60s per-call timeout.
+ */
+const LOCAL_SOURCE_CHARS = 36_000;
+const CLOUD_SOURCE_CHARS = 60_000;
 
 export interface DeepGateConfig {
     options: DeepOptions;
@@ -34,9 +45,24 @@ export interface DeepGateConfig {
     onProgress?: (message: string) => void;
 }
 
+export type DeepRunStatus = 'ok' | 'partial' | 'error';
+
+export interface DeepRunOutcome {
+    status: DeepRunStatus;
+    mode: 'facts' | 'code';
+    filesAnalyzed: number;
+    chunksTotal: number;
+    chunksFailed: number;
+    /** Model actually used (the stock fallback is named as such). */
+    model?: string;
+    modelFallback?: boolean;
+    error?: string;
+}
+
 export class DeepAnalysisGate extends Gate {
     private config: DeepGateConfig;
     private provider: InferenceProvider | null = null;
+    private outcome: DeepRunOutcome = emptyOutcome();
 
     constructor(config: DeepGateConfig) {
         super('deep-analysis', 'Deep Code Quality Analysis');
@@ -47,353 +73,190 @@ export class DeepAnalysisGate extends Gate {
         return 'deep-analysis';
     }
 
-    /** Check if a file is a likely entry point (higher analysis priority) */
-    private isEntryPoint(filePath: string): boolean {
-        const basename = path.basename(filePath).toLowerCase();
-        const entryNames = [
-            'index.ts', 'index.js', 'index.tsx', 'index.jsx', 'index.mjs',
-            'main.ts', 'main.js', 'main.py', 'main.go', 'main.rs', 'main.java', 'main.kt',
-            'app.ts', 'app.js', 'app.py', 'app.go', 'app.rb',
-            'server.ts', 'server.js', 'server.py', 'server.go',
-            'mod.rs', 'lib.rs',
-        ];
-        return entryNames.includes(basename);
+    /** Outcome of the last run(). */
+    getOutcome(): DeepRunOutcome {
+        return this.outcome;
     }
 
     async run(context: GateContext): Promise<Failure[]> {
-        const { onProgress } = this.config;
-        const failures: Failure[] = [];
         const startTime = Date.now();
+        const scoped = isScoped(context.patterns);
+        this.outcome = { ...emptyOutcome(), mode: scoped ? 'code' : 'facts' };
 
         try {
-            // Step 0: Initialize inference provider (with timeout)
-            onProgress?.('\n  Setting up Rigour Brain...\n');
-            this.provider = createProvider(this.config.options);
-
-            // Pre-check availability to fail fast instead of hanging on install
-            const isLocalProvider = !this.config.options.apiKey || this.config.options.provider === 'local';
-            if (isLocalProvider) {
-                const available = await this.provider.isAvailable();
-                if (!available) {
-                    onProgress?.('  ⚠ Local inference binary not found. Attempting auto-install...');
-                    onProgress?.('  (This may take a moment on first run)');
-                }
-            }
-
-            await Promise.race([
-                this.provider.setup(onProgress),
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error(
-                        'Deep analysis setup timed out.\n' +
-                        '  If local: run `rigour doctor` to check sidecar binary status.\n' +
-                        '  If cloud: check your API key with `rigour settings show`.'
-                    )), SETUP_TIMEOUT_MS)
-                ),
-            ]);
-
-            const isLocal = !this.config.options.apiKey || this.config.options.provider === 'local';
-            if (isLocal) {
-                onProgress?.('\n  🔒 Local sidecar/model execution. Code remains on this machine.\n');
-            } else {
-                onProgress?.(`\n  ☁️  Using ${this.config.options.provider} API. Code context may be sent to the provider.\n`);
-            }
-
-            // Step 1: AST extracts facts
-            onProgress?.('  Extracting code facts...');
-            let allFacts = await extractFacts(context.cwd, context.ignore);
-
-            if (allFacts.length === 0) {
-                onProgress?.('  No analyzable files found. Check ignore patterns and file extensions.');
+            await this.setupProvider();
+            this.config.onProgress?.('  Extracting code facts...');
+            const facts = prioritize(await extractFacts(context.cwd, context.ignore, scoped ? context.patterns : undefined));
+            this.outcome.filesAnalyzed = facts.length;
+            if (facts.length === 0) {
+                this.config.onProgress?.('  No analyzable files found. Check ignore patterns and file extensions.');
                 return [];
             }
 
-            // Smart prioritization: entry points first, then by complexity
-            allFacts.sort((a, b) => {
-                const aEntry = this.isEntryPoint(a.path) ? 1 : 0;
-                const bEntry = this.isEntryPoint(b.path) ? 1 : 0;
-                if (aEntry !== bEntry) return bEntry - aEntry;
-                return b.lineCount - a.lineCount;
-            });
-
-            // Optional soft limit — if user configures deep.maxFiles, respect it
-            // Otherwise process ALL files in batches (no hard cap)
-            if (this.config.options.maxFiles && allFacts.length > this.config.options.maxFiles) {
-                onProgress?.(`  Limiting to ${this.config.options.maxFiles} files (configured in rigour.yml).`);
-                allFacts = allFacts.slice(0, this.config.options.maxFiles);
-            }
-
-            const agentCount = this.config.options.agents || 1;
-            const isCloud = !!this.config.options.apiKey;
-
-            onProgress?.(`  Found ${allFacts.length} files to analyze${agentCount > 1 ? ` with ${agentCount} parallel agents` : ''}.`);
-
-            // Step 1.5: Check local project memory for known patterns (instant, no LLM)
-            // Wrapped in try/catch: sqlite3 may not be available in all environments
-            const fileList = allFacts.map(f => f.path).filter(Boolean);
-            let localFindings: DeepFinding[] = [];
-            try {
-                localFindings = await checkLocalPatterns(context.cwd, fileList);
-                if (localFindings.length > 0) {
-                    onProgress?.(`  🧠 Local memory: ${localFindings.length} known pattern(s) matched instantly.`);
-                }
-            } catch (error: any) {
-                Logger.debug(`Local memory check skipped (${error.message?.substring(0, 80)})`);
-                onProgress?.('  ℹ Local memory unavailable — continuing with LLM analysis only.');
-            }
-
-            // Step 2: LLM interprets facts (in chunks)
-            const chunks = chunkFacts(allFacts);
-            const allFindings: DeepFinding[] = [...localFindings];
-            let failedChunks = 0;
-
-            if (agentCount > 1 && isCloud) {
-                // ── Multi-agent mode: partition chunks across N agents, analyze in parallel ──
-                // Each agent gets its own provider instance for true parallelism.
-                // Local mode stays sequential (single sidecar process).
-                onProgress?.(`  Spawning ${agentCount} parallel agents...`);
-
-                const agentBuckets: (typeof chunks)[] = Array.from({ length: agentCount }, () => []);
-                chunks.forEach((chunk, i) => agentBuckets[i % agentCount].push(chunk));
-
-                // Create N independent provider instances
-                const agentProviders: InferenceProvider[] = [];
-                for (let a = 0; a < agentCount; a++) {
-                    if (agentBuckets[a].length === 0) continue;
-                    const p = createProvider(this.config.options);
-                    await p.setup(); // Already connected — cloud setup is instant after first
-                    agentProviders.push(p);
-                }
-
-                // Run all agents in parallel
-                const agentResults = await Promise.allSettled(
-                    agentProviders.map(async (provider, agentIdx) => {
-                        const bucket = agentBuckets[agentIdx];
-                        const findings: DeepFinding[] = [];
-                        let failed = 0;
-
-                        for (let ci = 0; ci < bucket.length; ci++) {
-                            const globalIdx = agentIdx + ci * agentCount + 1;
-                            onProgress?.(`  Agent ${agentIdx + 1}: batch ${ci + 1}/${bucket.length} (global ${globalIdx}/${chunks.length})`);
-
-                            const factsStr = factsToPromptString(bucket[ci]);
-                            const prompt = buildAnalysisPrompt(factsStr, this.config.checks);
-
-                            try {
-                                const response = await provider.analyze(prompt, {
-                                    maxTokens: this.config.maxTokens || 8192,
-                                    temperature: this.config.temperature || 0.1,
-                                    timeout: this.config.timeoutMs || 120000,
-                                    jsonMode: true,
-                                });
-                                findings.push(...parseFindings(response));
-                            } catch (error: any) {
-                                failed++;
-                                Logger.warn(`Agent ${agentIdx + 1} chunk ${ci + 1} failed: ${error.message}`);
-                            }
-                        }
-
-                        return { findings, failed };
-                    })
-                );
-
-                // Merge results and dispose extra providers
-                for (let i = 0; i < agentResults.length; i++) {
-                    const result = agentResults[i];
-                    if (result.status === 'fulfilled') {
-                        allFindings.push(...result.value.findings);
-                        failedChunks += result.value.failed;
-                    } else {
-                        failedChunks += agentBuckets[i].length;
-                        Logger.warn(`Agent ${i + 1} failed entirely: ${result.reason?.message || 'unknown'}`);
-                    }
-                    agentProviders[i]?.dispose();
-                }
-
-                onProgress?.(`  All ${agentCount} agents completed.`);
-
-            } else {
-                // ── Single-agent mode: sequential chunk processing ──
-                let chunkIndex = 0;
-                for (const chunk of chunks) {
-                    chunkIndex++;
-                    onProgress?.(`  Analyzing batch ${chunkIndex}/${chunks.length}...`);
-
-                    const factsStr = factsToPromptString(chunk);
-                    const prompt = buildAnalysisPrompt(factsStr, this.config.checks);
-
-                    try {
-                        const response = await this.provider.analyze(prompt, {
-                            maxTokens: this.config.maxTokens || (isCloud ? 4096 : 512),
-                            temperature: this.config.temperature || 0.1,
-                            timeout: this.config.timeoutMs || (isCloud ? 120000 : 60000),
-                            jsonMode: true,
-                        });
-
-                        const findings = parseFindings(response);
-                        allFindings.push(...findings);
-                    } catch (error: any) {
-                        failedChunks++;
-                        Logger.warn(`Chunk ${chunkIndex} inference failed: ${error.message}`);
-                        onProgress?.(`  ⚠ Batch ${chunkIndex} failed: ${error.message}`);
-                    }
-                }
-            }
-
-            // Cross-file analysis (if we have enough files and at least some chunks succeeded)
-            if (allFacts.length >= 3 && failedChunks < chunks.length) {
-                onProgress?.('  Running cross-file analysis...');
-                try {
-                    const crossPrompt = buildCrossFilePrompt(allFacts);
-                    const crossResponse = await this.provider.analyze(crossPrompt, {
-                        maxTokens: this.config.maxTokens || (isCloud ? 4096 : 512),
-                        temperature: this.config.temperature || 0.1,
-                        timeout: this.config.timeoutMs || (isCloud ? 120000 : 60000),
-                        jsonMode: true,
-                    });
-                    const crossFindings = parseFindings(crossResponse);
-                    allFindings.push(...crossFindings);
-                } catch (error: any) {
-                    Logger.warn(`Cross-file analysis failed: ${error.message}`);
-                }
-            }
-
-            // Step 3: AST verifies LLM
-            onProgress?.('  Verifying findings...');
-            const verified = verifyFindings(allFindings, allFacts);
-            const durationMs = Date.now() - startTime;
-
-            onProgress?.(`  ✓ ${verified.length} verified findings (${allFindings.length - verified.length} dropped) in ${(durationMs / 1000).toFixed(1)}s`);
-
-            if (failedChunks > 0) {
-                onProgress?.(`  ⚠ ${failedChunks}/${chunks.length} batches failed — results may be incomplete.`);
-            }
-
-            // Convert to Failure format
-            for (const finding of verified) {
-                const failure = this.createFailure(
-                    finding.description,
-                    [finding.file],
-                    finding.suggestion,
-                    `[${finding.category}] ${finding.description.substring(0, 80)}`,
-                    finding.line,
-                    undefined,
-                    finding.severity
-                );
-
-                // Tag with deep analysis metadata
-                (failure as any).confidence = finding.confidence;
-                (failure as any).source = 'llm';
-                (failure as any).category = finding.category;
-                (failure as any).verified = finding.verified;
-                failures.push(failure);
-            }
-
+            const verified = scoped
+                ? await this.reviewCode(context.cwd, facts)
+                : await this.analyzeFacts(context.cwd, limitFiles(facts, this.config));
+            this.config.onProgress?.(`  ✓ ${verified.length} verified findings in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+            return verified.map(f => this.toFailure(f));
         } catch (error: any) {
-            Logger.error(`Deep analysis failed: ${error.message}`);
-            onProgress?.(`  ⚠ Deep analysis error: ${error.message}`);
-            // Don't fail the whole check — deep is advisory
+            this.outcome.status = 'error';
+            this.outcome.error = error?.message ?? String(error);
+            Logger.error(`Deep analysis failed: ${this.outcome.error}`);
+            this.config.onProgress?.(`  ⚠ Deep analysis error: ${this.outcome.error}`);
+            return [];
         } finally {
             this.provider?.dispose();
         }
-
-        return failures;
-    }
-}
-
-/**
- * Parse LLM response into structured findings.
- * Handles various response formats (raw JSON, markdown-wrapped JSON, etc.)
- */
-function parseFindings(response: string): DeepFinding[] {
-    if (!response || response.trim().length === 0) {
-        Logger.warn('Empty LLM response received');
-        return [];
     }
 
-    try {
-        // Try direct JSON parse first
-        const parsed = JSON.parse(response);
-        if (Array.isArray(parsed.findings)) return validateFindings(parsed.findings);
-        if (Array.isArray(parsed)) return validateFindings(parsed);
-        return [];
-    } catch {
-        // Try extracting JSON from markdown code blocks
-        const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) {
-            try {
-                const parsed = JSON.parse(jsonMatch[1]);
-                if (Array.isArray(parsed.findings)) return validateFindings(parsed.findings);
-                if (Array.isArray(parsed)) return validateFindings(parsed);
-            } catch {
-                // Fall through
-            }
+    private async setupProvider(): Promise<void> {
+        const { options, onProgress } = this.config;
+        onProgress?.('\n  Setting up Rigour Brain...\n');
+        const provider = createProvider(options);
+        this.provider = provider;
+
+        if (isCloud(this.config.options)) {
+            await withTimeout(provider.setup(onProgress), CLOUD_SETUP_TIMEOUT_MS,
+                'Deep analysis setup timed out. Check your API key with `rigour settings show`.');
+            this.outcome.model = options.modelName || options.provider || 'cloud';
+            onProgress?.(`\n  ☁️  Using ${options.provider} API. Code context may be sent to the provider.\n`);
+            return;
         }
 
-        // Try finding JSON object in response
-        const objectMatch = response.match(/\{[\s\S]*"findings"[\s\S]*\}/);
-        if (objectMatch) {
-            try {
-                const parsed = JSON.parse(objectMatch[0]);
-                if (Array.isArray(parsed.findings)) return validateFindings(parsed.findings);
-            } catch {
-                // Give up
-            }
-        }
-
-        // Last resort: try to recover truncated JSON arrays
-        // LLMs sometimes exceed token limits, truncating the response mid-JSON
-        const recovered = recoverTruncatedFindings(response);
-        if (recovered.length > 0) {
-            Logger.info(`Recovered ${recovered.length} findings from truncated response`);
-            return recovered;
-        }
-
-        Logger.warn(`Could not parse LLM response as findings JSON. First 200 chars: ${response.substring(0, 200)}`);
-        return [];
+        await provider.setup(onProgress);
+        const active = provider instanceof SidecarProvider ? provider.getActiveModel() : null;
+        this.outcome.model = active?.name;
+        this.outcome.modelFallback = active?.fallback;
+        onProgress?.('\n  🔒 Local sidecar/model execution. Code remains on this machine.\n');
     }
-}
 
-/**
- * Attempt to recover individual finding objects from a truncated JSON response.
- * Extracts complete JSON objects from partial arrays.
- */
-function recoverTruncatedFindings(response: string): DeepFinding[] {
-    const findings: DeepFinding[] = [];
-    // Match individual complete objects within the response
-    const objectRegex = /\{\s*"category"\s*:\s*"[^"]+"\s*,[\s\S]*?"description"\s*:\s*"[^"]*"[^}]*\}/g;
-    let match;
-    while ((match = objectRegex.exec(response)) !== null) {
+    private async reviewCode(cwd: string, facts: FileFacts[]): Promise<VerifiedFinding[]> {
+        this.config.onProgress?.(`  Reviewing ${facts.length} scoped file(s) with source...`);
+        const result = await runCodePass(this.provider!, facts, {
+            cwd,
+            inference: inferenceOptions(this.config),
+            maxSourceChars: isCloud(this.config.options) ? CLOUD_SOURCE_CHARS : LOCAL_SOURCE_CHARS,
+            focusLines: this.config.options.focusLines,
+            onProgress: this.config.onProgress,
+        });
+        this.recordPass(result);
+        return verifyCodeFindings(result.findings, result.contexts);
+    }
+
+    private async analyzeFacts(cwd: string, facts: FileFacts[]): Promise<VerifiedFinding[]> {
+        this.config.onProgress?.(`  Found ${facts.length} files to analyze.`);
+        const memory = await this.localMemoryFindings(cwd, facts);
+        const agentCount = this.config.options.agents || 1;
+        const result = await runFactsPass(this.provider!, facts, {
+            inference: inferenceOptions(this.config),
+            checks: this.config.checks,
+            onProgress: this.config.onProgress,
+            agents: isCloud(this.config.options) && agentCount > 1
+                ? { count: agentCount, create: () => this.createCloudAgent() }
+                : undefined,
+        });
+        this.recordPass(result);
+        return verifyFindings([...memory, ...result.findings], facts);
+    }
+
+    private recordPass(result: PassResult): void {
+        this.outcome.chunksTotal = result.chunksTotal;
+        this.outcome.chunksFailed = result.chunksFailed;
+        if (result.chunksTotal > 0 && result.chunksFailed === result.chunksTotal) {
+            this.outcome.status = 'error';
+            this.outcome.error = `All ${result.chunksTotal} inference call(s) failed. First error: ${result.firstError ?? 'unknown'}`;
+        } else if (result.chunksFailed > 0) {
+            this.outcome.status = 'partial';
+            this.config.onProgress?.(`  ⚠ ${result.chunksFailed}/${result.chunksTotal} batches failed — results are incomplete.`);
+        }
+    }
+
+    private async localMemoryFindings(cwd: string, facts: FileFacts[]): Promise<DeepFinding[]> {
         try {
-            const obj = JSON.parse(match[0]);
-            if (obj.category && obj.file && obj.description) {
-                findings.push(obj);
-            }
-        } catch {
-            // Individual object was itself truncated — skip
+            const found = await checkLocalPatterns(cwd, facts.map(f => f.path).filter(Boolean));
+            if (found.length > 0) this.config.onProgress?.(`  🧠 Local memory: ${found.length} known pattern(s) matched instantly.`);
+            return found;
+        } catch (error: any) {
+            Logger.debug(`Local memory check skipped (${error.message?.substring(0, 80)})`);
+            return [];
         }
     }
-    return validateFindings(findings);
+
+    private async createCloudAgent(): Promise<InferenceProvider> {
+        const provider = createProvider(this.config.options);
+        await provider.setup();
+        return provider;
+    }
+
+    private toFailure(finding: VerifiedFinding): Failure {
+        const failure = this.createFailure(
+            finding.description,
+            [finding.file],
+            finding.suggestion,
+            `[${finding.category}] ${finding.description.substring(0, 80)}`,
+            finding.line,
+            undefined,
+            finding.severity,
+        );
+        return { ...failure, confidence: finding.confidence, source: 'llm', category: finding.category, verified: finding.verified };
+    }
 }
 
-/**
- * Validate and sanitize findings from LLM response.
- * Drops malformed entries that lack required fields.
- */
-function validateFindings(raw: any[]): DeepFinding[] {
-    return raw.filter(f => {
-        if (!f || typeof f !== 'object') return false;
-        if (!f.category || typeof f.category !== 'string') return false;
-        if (!f.file || typeof f.file !== 'string') return false;
-        if (!f.description || typeof f.description !== 'string') return false;
-        // Normalize confidence
-        if (typeof f.confidence !== 'number' || f.confidence < 0 || f.confidence > 1) {
-            f.confidence = 0.5;
-        }
-        // Normalize severity
-        const validSeverities = ['critical', 'high', 'medium', 'low', 'info'];
-        if (!validSeverities.includes(f.severity)) {
-            f.severity = 'medium';
-        }
-        return true;
+/** Cloud when an API key and a non-local provider are set (same rule as createProvider). */
+function isCloud(options: DeepOptions): boolean {
+    return !!options.apiKey && !!options.provider && options.provider !== 'local';
+}
+
+/** Per-call options; unset config falls back to per-provider defaults. */
+function inferenceOptions(config: DeepGateConfig): InferenceOptions {
+    const cloud = isCloud(config.options);
+    return {
+        maxTokens: config.maxTokens ?? (cloud ? 4096 : 1024),
+        temperature: config.temperature ?? 0.1,
+        timeout: config.timeoutMs ?? (cloud ? 120_000 : 60_000),
+        jsonMode: true,
+    };
+}
+
+function limitFiles(facts: FileFacts[], config: DeepGateConfig): FileFacts[] {
+    const max = config.options.maxFiles;
+    if (!max || facts.length <= max) return facts;
+    config.onProgress?.(`  Limiting to ${max} files (configured in rigour.yml).`);
+    return facts.slice(0, max);
+}
+
+function emptyOutcome(): DeepRunOutcome {
+    return { status: 'ok', mode: 'facts', filesAnalyzed: 0, chunksTotal: 0, chunksFailed: 0 };
+}
+
+/** Entry points first, then larger files. */
+function prioritize(facts: FileFacts[]): FileFacts[] {
+    return [...facts].sort((a, b) => {
+        const entry = Number(isEntryPoint(b.path)) - Number(isEntryPoint(a.path));
+        return entry !== 0 ? entry : b.lineCount - a.lineCount;
     });
+}
+
+const ENTRY_POINTS = new Set([
+    'index.ts', 'index.js', 'index.tsx', 'index.jsx', 'index.mjs',
+    'main.ts', 'main.js', 'main.py', 'main.go', 'main.rs', 'main.java', 'main.kt',
+    'app.ts', 'app.js', 'app.py', 'app.go', 'app.rb',
+    'server.ts', 'server.js', 'server.py', 'server.go',
+    'mod.rs', 'lib.rs',
+]);
+
+function isEntryPoint(filePath: string): boolean {
+    return ENTRY_POINTS.has(path.basename(filePath).toLowerCase());
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); }),
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
 }

@@ -9,6 +9,17 @@ export interface ScannerOptions {
     ignore?: string[];
 }
 
+/**
+ * Glob patterns use `/` as the separator and `\` as the escape character.
+ * Only on Windows can a backslash be a path separator, and even there one
+ * that escapes a glob character (`\[` in `app/\[key\]/route.ts`) must stay.
+ * Same rule as fast-glob's convertPathToPattern for Windows paths.
+ */
+function toGlobSeparators(pattern: string): string {
+    if (process.platform !== 'win32') return pattern;
+    return pattern.replace(/\\(?![!()+@[\]{}])/g, '/');
+}
+
 export class FileScanner {
     private static DEFAULT_PATTERNS = ['**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,rb,cs,java,kt,css,html,md,yaml,yml,toml,json}'];
     private static DEFAULT_IGNORE = [
@@ -27,9 +38,9 @@ export class FileScanner {
     ];
 
     static async findFiles(options: ScannerOptions): Promise<string[]> {
-        const patterns = (options.patterns || this.DEFAULT_PATTERNS).map(p => p.replace(/\\/g, '/'));
+        const patterns = (options.patterns || this.DEFAULT_PATTERNS).map(toGlobSeparators);
         const userIgnore = options.ignore || [];
-        const ignore = [...new Set([...this.DEFAULT_IGNORE, ...userIgnore])].map(p => p.replace(/\\/g, '/'));
+        const ignore = [...new Set([...this.DEFAULT_IGNORE, ...userIgnore])].map(toGlobSeparators);
         const normalizedCwd = options.cwd.replace(/\\/g, '/');
 
         return globby(patterns, {

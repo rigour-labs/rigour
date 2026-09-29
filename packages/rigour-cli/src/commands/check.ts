@@ -2,16 +2,12 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { GateRunner, ConfigSchema, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend, IncrementalCache, renderFullReport, type RenderOptions } from '@rigour-labs/core';
+import { GateRunner, ConfigSchema, normalizeScopePatterns, deepAnalysisError, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend, IncrementalCache, renderFullReport, type RenderOptions } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
 import inquirer from 'inquirer';
 import { randomUUID } from 'crypto';
 
-// Exit codes per spec
-const EXIT_PASS = 0;
-const EXIT_FAIL = 1;
-const EXIT_CONFIG_ERROR = 2;
-const EXIT_INTERNAL_ERROR = 3;
+import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR, exitCodeFor } from './exit-codes.js';
 
 export interface CheckOptions {
     ci?: boolean;
@@ -185,7 +181,10 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
             }
         }
 
-        const report = await runner.run(cwd, files.length > 0 ? files : undefined, deepOpts);
+        const scope = files.length > 0 ? await normalizeScopePatterns(cwd, files) : undefined;
+        const report = await runner.run(cwd, scope, deepOpts);
+        const deepError = deepAnalysisError(report);
+        if (deepError && !options.json) console.error(chalk.red(`Deep analysis did not run: ${deepError}`));
 
         // Write machine report
         const reportPath = path.join(cwd, config.output.report_path);
@@ -228,7 +227,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
         if (options.json) {
             const jsonOutput = JSON.stringify(report, null, 2);
             process.stdout.write(jsonOutput + '\n', () => {
-                process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+                process.exit(exitCodeFor(report));
             });
             return; // Wait for write callback
         }
@@ -246,12 +245,12 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                     console.log(`  - [${sev}] [${f.id}] ${f.title}`);
                 });
             }
-            process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+            process.exit(exitCodeFor(report));
         }
 
         if (options.interactive && report.status === 'FAIL') {
             await interactiveMode(report, config);
-            process.exit(EXIT_FAIL);
+            process.exit(exitCodeFor(report));
         }
 
         // ─── HUMAN-READABLE OUTPUT (with deep analysis dopamine engineering) ───
@@ -282,7 +281,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
         }
         console.log(chalk.dim('\n' + footerParts.join(' | ')));
 
-        process.exit(report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+        process.exit(exitCodeFor(report));
 
     } catch (error: any) {
         if (error.name === 'ZodError') {

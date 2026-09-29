@@ -6,7 +6,7 @@
  * @since v4.0.0
  */
 import path from "path";
-import { GateRunner, Report } from "@rigour-labs/core";
+import { GateRunner, Report, deepAnalysisError } from "@rigour-labs/core";
 import type { Config, DeepOptions } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
@@ -24,6 +24,12 @@ function resolveDeepExecution(args: { apiKey?: string; provider?: string }): { i
 
 function isTestRuntime(): boolean {
     return !!(process.env.VITEST || process.env.VITEST_POOL_ID || process.env.NODE_ENV === 'test');
+}
+
+/** First line of the deep result: an error when deep analysis did not run. */
+function deepHeadline(report: Report, deepError: string | undefined): string {
+    if (deepError) return `RIGOUR DEEP ANALYSIS: ERROR — deep analysis did not run: ${deepError}\n\n`;
+    return `RIGOUR DEEP ANALYSIS: ${report.status}\n\n`;
 }
 
 /**
@@ -87,7 +93,8 @@ export async function handleCheckDeep(
     const overall = stats.score ?? 100;
     const isLocal = execution.isLocal;
 
-    let text = `RIGOUR DEEP ANALYSIS: ${report.status}\n\n`;
+    const deepError = deepAnalysisError(report);
+    let text = deepHeadline(report, deepError);
     text += `AI Health:     ${aiHealth}/100\n`;
     text += `Code Quality:  ${codeQuality}/100\n`;
     text += `Overall:       ${overall}/100\n\n`;
@@ -135,6 +142,7 @@ export async function handleCheckDeep(
 
     const result: ToolResult = {
         content: [{ type: "text", text }],
+        isError: deepError ? true : undefined,
     };
     result._rigour_report = report;
     return result;

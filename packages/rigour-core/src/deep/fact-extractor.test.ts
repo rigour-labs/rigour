@@ -15,7 +15,7 @@ vi.mock('fs-extra', () => ({
     },
 }));
 
-import { extractFacts, factsToPromptString, type FileFacts } from './fact-extractor.js';
+import { extractFacts, factsToPromptString, isTestFile, type FileFacts } from './fact-extractor.js';
 
 describe('Fact Extractor', () => {
     beforeEach(() => {
@@ -599,5 +599,46 @@ function bar() {
             const result = factsToPromptString(manyFacts, 500);
             expect(result.length).toBeLessThanOrEqual(600); // Allow some slack
         });
+    });
+});
+
+describe('extractFacts scope', () => {
+    beforeEach(() => { vi.clearAllMocks(); });
+
+    it('globs only the scoped patterns and skips non-code files they match', async () => {
+        mockGlobby.mockResolvedValue(['src/a.ts', 'src/README.md', 'src/data.json']);
+        mockReadFile.mockResolvedValue('export const a = 1;\nexport const b = 2;\nexport const c = 3;\n');
+
+        const facts = await extractFacts('/project', [], ['src/**/*']);
+
+        expect(mockGlobby.mock.calls[0][0]).toEqual(['src/**/*']);
+        expect(facts.map(f => f.path)).toEqual(['src/a.ts']);
+    });
+
+    it('uses the whole-repo pattern when unscoped', async () => {
+        mockGlobby.mockResolvedValue([]);
+        await extractFacts('/project');
+        expect(mockGlobby.mock.calls[0][0]).toEqual(['**/*.{ts,js,tsx,jsx,py,go,rs,cs,java,rb,kt}']);
+    });
+});
+
+describe('isTestFile', () => {
+    it('recognises test files by path convention', () => {
+        for (const p of ['src/a.test.ts', 'src/a.spec.tsx', '__tests__/a.ts', 'tests/a.py', 'test/a.js', 'pkg/a_test.go', 'test_a.py']) {
+            expect(isTestFile(p, ''), p).toBe(true);
+        }
+    });
+
+    it('recognises test-runner calls at the start of a line', () => {
+        expect(isTestFile('src/a.ts', "describe('x', () => {});")).toBe(true);
+        expect(isTestFile('src/a.ts', "  it.each([1])('x', () => {});")).toBe(true);
+        expect(isTestFile('src/a.py', 'def test_x():\n    pass')).toBe(true);
+    });
+
+    it('does not mistake ordinary code or paths for tests', () => {
+        expect(isTestFile('src/route.ts', 'process.exit(1);\nform.submit();\nawait wait(5);')).toBe(false);
+        expect(isTestFile('src/check.ts', 'if (/^a/.test(value)) return;')).toBe(false);
+        expect(isTestFile('src/latest/report.ts', 'export {}')).toBe(false);
+        expect(isTestFile('src/contest/entry.ts', 'export {}')).toBe(false);
     });
 });

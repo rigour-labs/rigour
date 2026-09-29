@@ -84,13 +84,15 @@ export interface ErrorHandlingFact {
     strategy: string; // 'log', 'throw', 'ignore', 'return', 'custom'
 }
 
+const ANALYZABLE_EXTENSION = /\.(ts|js|tsx|jsx|py|go|rs|cs|java|rb|kt)$/i;
+
 /**
  * Lightweight regex-based fact extraction.
  * Works across languages without tree-sitter grammar loading.
  * Fast enough for the deep analysis pipeline.
  */
-export async function extractFacts(cwd: string, ignore?: string[]): Promise<FileFacts[]> {
-    const patterns = ['**/*.{ts,js,tsx,jsx,py,go,rs,cs,java,rb,kt}'];
+export async function extractFacts(cwd: string, ignore?: string[], scope?: string[]): Promise<FileFacts[]> {
+    const patterns = scope && scope.length > 0 ? scope : ['**/*.{ts,js,tsx,jsx,py,go,rs,cs,java,rb,kt}'];
     const ignorePatterns = [
         ...(ignore || []),
         '**/node_modules/**', '**/dist/**', '**/build/**',
@@ -98,7 +100,8 @@ export async function extractFacts(cwd: string, ignore?: string[]): Promise<File
         '**/*.min.js', '**/*.bundle.js',
     ];
 
-    const files = await globby(patterns, { cwd, ignore: ignorePatterns, followSymbolicLinks: false });
+    const matched = await globby(patterns, { cwd, ignore: ignorePatterns, followSymbolicLinks: false });
+    const files = matched.filter(f => ANALYZABLE_EXTENSION.test(f));
     const allFacts: FileFacts[] = [];
 
     for (const file of files) {
@@ -450,11 +453,17 @@ function countAssertions(content: string): number {
     return count;
 }
 
-function isTestFile(filePath: string, content: string): boolean {
-    if (filePath.match(/\.(test|spec|_test)\./)) return true;
-    if (filePath.includes('__tests__') || filePath.includes('test/') || filePath.includes('tests/')) return true;
-    if (content.includes('describe(') || content.includes('it(') || content.includes('test(')) return true;
-    if (content.includes('def test_') || content.includes('@pytest')) return true;
+/**
+ * Test file by path convention, or by a test-runner call at the start of a
+ * line. A bare substring check misreads `exit(`, `submit(` or `regex.test(`
+ * as tests, and `latest/` as a test directory.
+ */
+export function isTestFile(filePath: string, content: string): boolean {
+    const posixPath = filePath.replace(/\\/g, '/');
+    if (/\.(test|spec)\.[^/]+$|_test\.(go|py)$|(^|\/)test_[^/]+\.py$/.test(posixPath)) return true;
+    if (/(^|\/)(__tests__|tests?)\//.test(posixPath)) return true;
+    if (/^\s*(describe|it|test)(\.\w+)?\s*\(/m.test(content)) return true;
+    if (/^\s*def test_\w+\s*\(/m.test(content) || content.includes('@pytest')) return true;
     return false;
 }
 

@@ -26,6 +26,7 @@ import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import { languageAdapters } from './language-adapters/index.js';
 import { extractComparableJsNames } from './js-style-context.js';
+import { isScoped } from '../utils/scope.js';
 import {
     TRY_CATCH_PATTERN, CATCH_PATTERN, RESULT_TYPE_PATTERN,
     NAMED_IMPORT_PATTERN, WILDCARD_IMPORT_PATTERN, SIDE_EFFECT_IMPORT_PATTERN, DEFAULT_IMPORT_PATTERN,
@@ -138,6 +139,7 @@ export class StyleDriftGate extends Gate {
             }
         }
 
+        if (!baseline && isScoped(context.patterns)) return []; // never baseline from a subset of files
         if (!baseline) {
             // First scan: create per-language baseline
             baseline = await this.computePerLanguageBaseline(context, filesByLang);

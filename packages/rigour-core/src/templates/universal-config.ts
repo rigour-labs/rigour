@@ -253,9 +253,7 @@ export const UNIVERSAL_CONFIG: Config = {
             pro: false,
             provider: 'local',
             threads: 4,
-            max_tokens: 512,
             temperature: 0.1,
-            timeout_ms: 60000,
             checks: {
                 solid: true,
                 dry: true,

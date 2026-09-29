@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import { createHash } from 'crypto';
 import { RIGOUR_DIR } from '../storage/db.js';
+import { downloadToFile, type HttpGet } from './http-download.js';
 import { MODELS, FALLBACK_MODELS, VERSION_CHECK_URL, BUNDLED_MODEL_VERSION, updateModelVersion, type ModelTier, type ModelInfo } from './types.js';
 
 const MODELS_DIR = path.join(RIGOUR_DIR, 'models');
@@ -85,13 +86,35 @@ async function isFileCached(model: ModelInfo): Promise<boolean> {
  * Check if any model for this tier is cached (fine-tuned or fallback).
  */
 export async function isModelCached(tier: ModelTier): Promise<boolean> {
-    if (await isFileCached(MODELS[tier])) return true;
-    const fb = FALLBACK_MODELS[tier];
-    return fb.url !== MODELS[tier].url && await isFileCached(fb);
+    return (await getCachedModel(tier)) !== null;
+}
+
+export interface CachedModel {
+    path: string;
+    info: ModelInfo;
+    /** True when the stock fallback is in use because the fine-tuned model is not cached. */
+    fallback: boolean;
+}
+
+/**
+ * The verified model file for a tier, preferring the fine-tuned model over
+ * the stock fallback. Null when neither is cached and verified.
+ */
+export async function getCachedModel(tier: ModelTier): Promise<CachedModel | null> {
+    const primary = MODELS[tier];
+    if (await isFileCached(primary)) {
+        return { path: path.join(MODELS_DIR, primary.filename), info: primary, fallback: false };
+    }
+    const fallback = FALLBACK_MODELS[tier];
+    if (fallback.url !== primary.url && await isFileCached(fallback)) {
+        return { path: path.join(MODELS_DIR, fallback.filename), info: fallback, fallback: true };
+    }
+    return null;
 }
 
 /**
  * Get the path to a cached model (prefers fine-tuned over fallback).
+ * Existence only; use getCachedModel() for a verified file.
  */
 export function getModelPath(tier: ModelTier): string {
     const primary = path.join(MODELS_DIR, MODELS[tier].filename);
@@ -107,102 +130,61 @@ export function getModelInfo(tier: ModelTier): ModelInfo {
 }
 
 /**
- * Stream a response body to disk with progress + SHA256.
- * Returns { sha256, downloaded } on success.
+ * Reject a download whose SHA-256 differs from the one the server published.
+ * Hugging Face publishes the LFS object's SHA-256, which is the content hash,
+ * so any mismatch means a corrupt or tampered file.
  */
-async function streamToDisk(
-    response: Response,
-    tempPath: string,
-    model: ModelInfo,
-    onProgress?: (message: string, percent?: number) => void,
-): Promise<{ sha256: string; downloaded: number }> {
-    const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('No response body');
-
-    const writeStream = fs.createWriteStream(tempPath);
-    const hash = createHash('sha256');
-    let downloaded = 0;
-    let lastPct = 0;
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = Buffer.from(value);
-        writeStream.write(chunk);
-        hash.update(chunk);
-        downloaded += value.length;
-        if (contentLength > 0) {
-            const pct = Math.round((downloaded / contentLength) * 100);
-            if (pct >= lastPct + 5) {
-                lastPct = pct;
-                onProgress?.(`Downloading ${model.name}: ${pct}%`, pct);
-            }
-        }
-    }
-
-    writeStream.end();
-    await new Promise<void>((resolve, reject) => {
-        writeStream.on('finish', resolve);
-        writeStream.on('error', reject);
-    });
-
-    return { sha256: hash.digest('hex'), downloaded };
-}
-
-/**
- * Verify SHA256 against ETag, allowing LFS OID mismatches
- * if the download size is reasonable.
- */
-function verifySha256(
-    expectedSha256: string | null, actualSha256: string,
-    downloaded: number, model: ModelInfo,
-): void {
+function verifySha256(expectedSha256: string | null, actualSha256: string, model: ModelInfo): void {
     if (!expectedSha256 || actualSha256 === expectedSha256) return;
-    const tolerance = model.sizeBytes * 0.1;
-    if (downloaded < model.sizeBytes - tolerance) {
-        throw new Error(
-            `Checksum mismatch for ${model.name}: ` +
-            `expected ${expectedSha256}, got ${actualSha256} ` +
-            `(undersized: ${downloaded} bytes)`
-        );
-    }
-    // Size OK — ETag likely a Git LFS OID, not content SHA256
+    throw new Error(`Checksum mismatch for ${model.name}: expected ${expectedSha256}, got ${actualSha256}`);
+}
+
+function progressReporter(model: ModelInfo, onProgress?: (message: string, percent?: number) => void) {
+    let lastPct = -5;
+    return (downloaded: number, total: number | null) => {
+        const size = total ?? model.sizeBytes;
+        const pct = Math.min(99, Math.round((downloaded / size) * 100));
+        if (pct >= lastPct + 5) {
+            lastPct = pct;
+            onProgress?.(`Downloading ${model.name}: ${pct}%`, pct);
+        }
+    };
 }
 
 /**
- * Download a specific model from its URL, write to disk, save metadata.
+ * Download a model to `<file>.download`, verify it, then move it into place
+ * with its metadata. A partial file survives network errors so the next run
+ * resumes it; a checksum mismatch deletes it.
  */
 async function downloadFromUrl(
-    tier: ModelTier,
     model: ModelInfo,
     onProgress?: (message: string, percent?: number) => void,
+    get?: HttpGet,
 ): Promise<string> {
     const destPath = path.join(MODELS_DIR, model.filename);
     const tempPath = destPath + '.download';
 
+    const { sha256, bytes, etag } = await downloadToFile(model.url, tempPath, {
+        onProgress: progressReporter(model, onProgress),
+        get,
+    });
     try {
-        const response = await fetch(model.url);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        const expectedSha = extractSha256FromEtag(response.headers.get('etag'));
-        const { sha256, downloaded } = await streamToDisk(response, tempPath, model, onProgress);
-        verifySha256(expectedSha, sha256, downloaded, model);
-
-        fs.renameSync(tempPath, destPath);
-        await writeModelMeta(model.filename, {
-            sha256, sizeBytes: downloaded,
-            verifiedAt: new Date().toISOString(),
-            sourceUrl: model.url,
-            sourceEtag: response.headers.get('etag') || undefined,
-        });
-        onProgress?.(`Model ${model.name} ready`, 100);
-        return destPath;
+        verifySha256(extractSha256FromEtag(etag), sha256, model);
     } catch (error) {
-        fs.removeSync(tempPath);
+        await fs.remove(tempPath);
         throw error;
     }
+
+    await fs.move(tempPath, destPath, { overwrite: true });
+    await writeModelMeta(model.filename, {
+        sha256,
+        sizeBytes: bytes,
+        verifiedAt: new Date().toISOString(),
+        sourceUrl: model.url,
+        sourceEtag: etag || undefined,
+    });
+    onProgress?.(`Model ${model.name} ready`, 100);
+    return destPath;
 }
 
 /**
@@ -276,29 +258,30 @@ export async function checkForUpdates(
  */
 export async function downloadModel(
     tier: ModelTier,
-    onProgress?: (message: string, percent?: number) => void
+    onProgress?: (message: string, percent?: number) => void,
+    get?: HttpGet,
 ): Promise<string> {
     fs.ensureDirSync(MODELS_DIR);
 
     // Check for newer model version (non-blocking, cached 24h)
     await checkForUpdates(onProgress);
 
-    if (await isModelCached(tier)) {
-        onProgress?.(`Model ${MODELS[tier].name} already cached`, 100);
-        return getModelPath(tier);
+    const cached = await getCachedModel(tier);
+    if (cached) {
+        onProgress?.(`Model ${cached.info.name} already cached`, 100);
+        return cached.path;
     }
 
     const model = MODELS[tier];
     onProgress?.(`Downloading ${model.name} (${model.sizeHuman})...`, 0);
 
     try {
-        return await downloadFromUrl(tier, model, onProgress);
-    } catch (error) {
-        // Fine-tuned model not available — try stock fallback
+        return await downloadFromUrl(model, onProgress, get);
+    } catch (error: any) {
         const fallback = FALLBACK_MODELS[tier];
         if (fallback && fallback.url !== model.url) {
-            onProgress?.(`Fine-tuned model unavailable, using ${fallback.name}`, 0);
-            return downloadFromUrl(tier, fallback, onProgress);
+            onProgress?.(`Fine-tuned model unavailable (${error?.message ?? 'unknown error'}); using stock ${fallback.name}`, 0);
+            return downloadFromUrl(fallback, onProgress, get);
         }
         throw error;
     }
@@ -311,9 +294,8 @@ export async function ensureModel(
     tier: ModelTier,
     onProgress?: (message: string, percent?: number) => void
 ): Promise<string> {
-    if (await isModelCached(tier)) {
-        return getModelPath(tier);
-    }
+    const cached = await getCachedModel(tier);
+    if (cached) return cached.path;
     return downloadModel(tier, onProgress);
 }
 

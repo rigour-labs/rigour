@@ -2,6 +2,7 @@ import { Gate, GateContext } from './base.js';
 import { Failure, Gates, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { isScoped, resolveScopedFiles, touchesScope } from '../utils/scope.js';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -82,6 +83,12 @@ export class ContextGate extends Gate {
             this.analyzeImportPatterns(importPatterns, failures);
         }
 
+        // Cross-file patterns need the whole repo, but a scoped run reports
+        // only findings that cite a file in scope.
+        if (isScoped(context.patterns)) {
+            const scoped = await resolveScopedFiles(context.cwd, context.patterns, context.ignore);
+            return failures.filter(f => touchesScope(f.files, scoped));
+        }
         return failures;
     }
 
