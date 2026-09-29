@@ -19,6 +19,7 @@ import { deepStatsCommand } from './commands/deep-stats.js';
 import { deepCommand } from './commands/deep.js';
 import { reviewCommand } from './commands/review.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
+import { learnCommand } from './commands/learn.js';
 import { securityAuditCommand } from './commands/security-audit.js';
 import { createFirewallCommand } from './commands/firewall.js';
 import { teamCommand } from './commands/team.js';
@@ -273,6 +274,28 @@ Examples:
     `)
     .action(async (options: any) => {
         await checkPatternCommand(process.cwd(), options);
+    });
+
+program
+    .command('learn [commit]')
+    .description('Learn a rule from a fix, so the same bug is caught next time (no model, no network)')
+    .option('--before <file>', 'The file before the fix (with --after, instead of a commit)')
+    .option('--after <file>', 'The file after the fix')
+    .option('--max-hits <n>', 'Reject a rule that fires on more than n other places in the repository', '3')
+    .option('--dry-run', 'Report what would be learned without saving rules')
+    .option('--json', 'Output the report as JSON')
+    .addHelpText('after', `
+A rule is kept only if it fires on the code before the fix, is silent on the
+fixed code, and fires on at most --max-hits other places (listed for review).
+Kept rules are saved to .rigour/rules/ and run by the semantic-bugs gate.
+
+Examples:
+  $ rigour learn a1b2c3d                              # Learn from a fix commit
+  $ rigour learn --before old/http.ts --after src/http.ts
+  $ rigour learn a1b2c3d --dry-run --json
+    `)
+    .action(async (commit: string | undefined, options: any) => {
+        await learnCommand(process.cwd(), commit, options);
     });
 
 program

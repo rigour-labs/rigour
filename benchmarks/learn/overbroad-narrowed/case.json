@@ -1,0 +1,5 @@
+{
+  "note": "Same fix, but the repository has four other fetch calls without redirect. Every general rule fires more than 3 times, so only the regression guard for this call is kept.",
+  "expect": { "template": "require-option", "property": "redirect", "scoped": true },
+  "variants": ["http.ts:2"]
+}

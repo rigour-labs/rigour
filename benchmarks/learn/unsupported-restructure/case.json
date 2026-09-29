@@ -1,0 +1,5 @@
+{
+  "note": "The c3 shape: an optional read is extracted behind try/catch. No template generalises a restructure; it must be reported, not guessed.",
+  "expect": null,
+  "unsupported": ["insights"]
+}

@@ -10,11 +10,13 @@ import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import { analyzeFiles, BUILT_IN_RULES } from '../semantic/engine.js';
-import type { SemanticFinding } from '../semantic/types.js';
+import { compileLearnedRule, LEARNED_PREFIX } from '../semantic/learn/compile.js';
+import { loadLearnedRules } from '../semantic/learn/store.js';
+import type { SemanticFinding, SemanticRule } from '../semantic/types.js';
 
 export interface SemanticBugsConfig {
     enabled?: boolean;
-    /** Rule ids to run; all built-in rules when omitted. */
+    /** Rule ids to run (`learned/<id>` for a learned rule); all rules when omitted. */
     rules?: string[];
 }
 
@@ -36,10 +38,17 @@ export class SemanticBugsGate extends Gate {
         })).filter(file => /\.(?:[cm]?[jt]s|[jt]sx)$/i.test(file) && !/\.d\.[cm]?ts$/i.test(file) && !TEST_FILE.test(file));
         if (files.length === 0) return [];
 
-        const wanted = this.config.rules;
-        const rules = wanted?.length ? BUILT_IN_RULES.filter(rule => wanted.includes(rule.id)) : BUILT_IN_RULES;
+        const rules = this.selectRules(context.cwd);
+        if (rules.length === 0) return [];
         Logger.info(`Semantic Bugs: analyzing ${files.length} files with ${rules.length} rule(s)`);
         return analyzeFiles(context.cwd, files, { rules }).map(finding => this.toFailure(finding));
+    }
+
+    /** Built-in rules plus the repository's learned rules (`.rigour/rules/`), filtered by config. */
+    private selectRules(cwd: string): SemanticRule[] {
+        const all = [...BUILT_IN_RULES, ...loadLearnedRules(cwd).map(compileLearnedRule)];
+        const wanted = this.config.rules;
+        return wanted?.length ? all.filter(rule => wanted.includes(rule.id)) : all;
     }
 
     private toFailure(finding: SemanticFinding): Failure {
@@ -52,6 +61,7 @@ export class SemanticBugsGate extends Gate {
             undefined,
             finding.severity,
         );
-        return { ...failure, provenance: finding.provenance, source: 'ast', category: finding.rule, verified: true, confidence: 1 };
+        const category = finding.rule.startsWith(LEARNED_PREFIX) ? 'learned-rule' : finding.rule;
+        return { ...failure, provenance: finding.provenance, source: 'ast', category, verified: true, confidence: 1 };
     }
 }

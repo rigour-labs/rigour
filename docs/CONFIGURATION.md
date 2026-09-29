@@ -204,6 +204,31 @@ rigour check --deep --agents 3              # 3 parallel agents (cloud only)
 
 [Full deep analysis guide →](./DEEP_ANALYSIS.md)
 
+### `semantic_bugs`
+
+Type-aware rules that prove a defect before reporting it: they build a TypeScript program, trace a value from where it enters to where it does harm (across files when needed), and name both ends in the finding. Anything the engine cannot resolve produces no finding. No model, no network.
+
+| Rule | Catches |
+|:---|:---|
+| `credential-redirect` | A custom credential header (`x-*-token`, `*-api-key`, a secret env value) sent by a request that follows redirects. `fetch` drops `Authorization` on a cross-origin redirect but forwards custom headers. |
+| `in-memory-aggregation` | Rows from a paged read collected into memory only to be counted or aggregated, or capped with a throwing length check. |
+| `degraded-response-cached` | A response cached with `max-age` while its body can carry a failure fallback (a `catch` that returns `null`/`[]`/`{}`, or a flag derived from one). |
+
+```yaml
+gates:
+  semantic_bugs:
+    enabled: true                       # Default: false
+    rules: [credential-redirect]        # Optional; all rules when omitted
+```
+
+**Learned rules.** `rigour learn <fix-commit>` (or `--before <file> --after <file>`) turns a fix into a rule for the same bug. It generalises two edit shapes: an argument gaining an option (`fetch(url, init)` to `fetch(url, { ...init, redirect: 'manual' })`) and a value gaining a condition (a cache header becoming conditional on the field that can be a fallback). Candidates are tried from most general (every call of that name) to most specific (this call in this function), and one is kept only if it fires on the code before the fix, is silent on the fixed code, and fires on at most `--max-hits` (default 3) other places, which are listed for review. Kept rules are saved to `.rigour/rules/<id>.json`, reviewed and committed like code, and run by this gate as `learned/<id>`. Other edit shapes are reported as unsupported rather than guessed.
+
+```bash
+rigour learn a1b2c3d --dry-run                       # See what would be learned
+rigour learn a1b2c3d                                 # Save validated rules to .rigour/rules/
+rigour learn --before old/http.ts --after src/http.ts
+```
+
 ---
 
 ## Two-Score System (v2.17+)
