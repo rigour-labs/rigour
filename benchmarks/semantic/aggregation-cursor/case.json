@@ -1,0 +1,6 @@
+{
+  "rule": "in-memory-aggregation",
+  "file": "sync.ts",
+  "line": 9,
+  "note": "Every page kept only to read .length."
+}

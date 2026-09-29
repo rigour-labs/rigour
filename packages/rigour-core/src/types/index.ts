@@ -267,6 +267,10 @@ export const GatesSchema = z.object({
         audit_log: z.boolean().optional().default(true),
     }).optional().default({}),
     // v4.3+ Side-Effect Safety Analysis
+    semantic_bugs: z.object({
+        enabled: z.boolean().optional().default(false),
+        rules: z.array(z.string()).optional(),
+    }).optional().default({}),
     side_effect_analysis: z.object({
         enabled: z.boolean().optional().default(true),
         check_unbounded_timers: z.boolean().optional().default(true),

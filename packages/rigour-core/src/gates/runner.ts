@@ -28,6 +28,7 @@ import { DeprecatedApisGate } from './deprecated-apis.js';
 import { TestQualityGate } from './test-quality.js';
 import { SideEffectAnalysisGate } from './side-effect-analysis/index.js';
 import { StyleDriftGate } from './style-drift.js';
+import { SemanticBugsGate } from './semantic-bugs.js';
 import { LogicDriftGate } from './logic-drift.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
@@ -75,6 +76,11 @@ export class GateRunner {
         // Checkpoint Supervision Gate (for long-running GPT-5.3 coworking mode)
         if (this.config.gates.checkpoint?.enabled) {
             this.gates.push(new CheckpointGate(this.config.gates.checkpoint));
+        }
+
+        // Semantic Bugs Gate (type-aware, proven findings) — opt-in until field-validated
+        if (this.config.gates.semantic_bugs?.enabled) {
+            this.gates.push(new SemanticBugsGate(this.config.gates.semantic_bugs));
         }
 
         // Security Patterns Gate (code-level vulnerability detection) — enabled by default since v2.15
