@@ -16,6 +16,29 @@ describe('SideEffectAnalysisGate', () => {
         return failures.map(f => f.title);
     }
 
+    describe('recursion', () => {
+        it('ends an expression-bodied arrow at its expression, not at the next block', async () => {
+            // Shape of scripts/measure-intent.mjs: a one-line helper used inside a later loop that logs.
+            const titles = await titlesFor('scripts/measure.mjs', [
+                'const pct = (n, d) => (d === 0 ? \'n/a\' : `${Math.round((100 * n) / d)}%`);',
+                'for (const run of [1, 2]) {',
+                '    process.stderr.write(`run ${run}: ${pct(run, 2)}\\n`);',
+                '}',
+            ].join('\n'));
+            expect(titles).not.toContain('Side-Effect: Unbounded Recursion');
+        });
+
+        it('still flags a block-bodied arrow that recurses with I/O and no base case', async () => {
+            const titles = await titlesFor('src/walk.ts', [
+                "import fs from 'fs';",
+                'export const walk = (dir) => {',
+                '    for (const entry of fs.readdirSync(dir)) walk(`${dir}/${entry}`);',
+                '};',
+            ].join('\n'));
+            expect(titles).toContain('Side-Effect: Unbounded Recursion');
+        });
+    });
+
     describe('process spawns', () => {
         it('does not treat RegExp.prototype.exec as a process spawn', async () => {
             // Verbatim shape of the SvelteKit repo's scripts/lint-fonts.mjs.

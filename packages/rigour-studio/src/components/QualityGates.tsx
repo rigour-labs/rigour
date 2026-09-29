@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { SemanticBugs } from './SemanticBugs';
 import { Shield, RefreshCw, FileCode, AlertTriangle, CheckCircle, XCircle, Settings, Layers, Lock, Zap, GitBranch } from 'lucide-react';
 
 interface GateConfig {
@@ -41,6 +42,7 @@ interface GateConfig {
     inconsistent_error_handling?: { enabled?: boolean; threshold?: number };
     context_window_artifacts?: { enabled?: boolean };
     promise_safety?: { enabled?: boolean; check_unhandled_then?: boolean; check_unsafe_parse?: boolean; check_async_without_await?: boolean; check_unsafe_fetch?: boolean };
+    semantic_bugs?: { enabled?: boolean; rules?: string[] | string };
 }
 
 interface ReportStats {
@@ -300,6 +302,8 @@ export const QualityGates: React.FC = () => {
                             <GateCard label="Async Safety" value={gates.promise_safety?.enabled ?? true} icon={<Zap size={16} />} />
                         </div>
                     </div>
+
+                    <SemanticBugs enabled={gates.semantic_bugs?.enabled === true} rules={gates.semantic_bugs?.rules} />
 
                     {/* Score Dashboard */}
                     {reportStats && (

@@ -16,20 +16,7 @@ import { HallucinatedImport } from './index.js';
 import { isNodeBuiltin } from '../hallucinated-imports-stdlib.js';
 import { resolveTsPathTarget } from './ts-path-target.js';
 import { isSvelteKitProvided, resolveSvelteKitLib, type SvelteKitRoots } from './framework-modules.js';
-import { Logger } from '../../utils/logger.js';
-
-interface TsPathRule {
-    key: string;
-    hasWildcard: boolean;
-    prefix: string;
-    suffix: string;
-    targets: string[];
-}
-
-interface TsPathConfig {
-    baseDir: string;
-    rules: TsPathRule[];
-}
+import { loadTsPathConfig, type TsPathConfig, type TsPathRule } from './tsconfig-paths.js';
 
 /** Everything a JS/TS import check needs besides the file itself. */
 export interface JsImportContext {
@@ -58,7 +45,7 @@ export async function checkJSImports(content: string, file: string, ctx: JsImpor
         if (kitRoot && isSvelteKitProvided(importPath)) continue;
 
         const reason = importPath.startsWith('.')
-            ? checkRelativeImport(file, importPath, ctx)
+            ? await checkRelativeImport(file, importPath, ctx)
             : await checkBareImport(file, importPath, depsForFile, kitRoot, ctx);
         if (reason) {
             ctx.hallucinated.push({
@@ -70,8 +57,29 @@ export async function checkJSImports(content: string, file: string, ctx: JsImpor
     }
 }
 
-function checkRelativeImport(file: string, importPath: string, ctx: JsImportContext): string | null {
-    return ctx.resolveRelativeImport(file, importPath, ctx.projectFiles) ? null : `File not found: ${importPath}`;
+async function checkRelativeImport(file: string, importPath: string, ctx: JsImportContext): Promise<string | null> {
+    if (ctx.resolveRelativeImport(file, importPath, ctx.projectFiles)) return null;
+    const config = await resolveTsPathConfigForFile(file, ctx.cwd, ctx.tsPathCacheByDir);
+    if (config?.rootDirs.length && await resolveThroughRootDirs(file, importPath, config.rootDirs, ctx)) return null;
+    return `File not found: ${importPath}`;
+}
+
+/**
+ * tsconfig `rootDirs`: directories merged into one virtual root, so
+ * `./$types` next to `src/routes/+page.ts` can live in
+ * `.svelte-kit/types/src/routes/$types.d.ts`. Generated folders are often
+ * git-ignored and absent from the file list, so resolution checks the disk.
+ */
+async function resolveThroughRootDirs(file: string, importPath: string, rootDirs: string[], ctx: JsImportContext): Promise<boolean> {
+    const target = path.resolve(path.dirname(path.resolve(ctx.cwd, file)), importPath);
+    for (const root of rootDirs) {
+        const relative = path.relative(root, target);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
+        for (const other of rootDirs) {
+            if (other !== root && await resolveTsPathTarget(other, relative, ctx.cwd, ctx.projectFiles)) return true;
+        }
+    }
+    return false;
 }
 
 /** Reason the bare import is hallucinated, or null when it resolves. */
@@ -254,142 +262,4 @@ async function resolveTsPathConfigForFile(
     }
 
     return null;
-}
-
-/**
- * Load TypeScript path aliases from tsconfig.json, jsconfig.json, or tsconfig.base.json.
- * Follows the extends chain to merge path mappings.
- */
-async function loadTsPathConfig(searchDir: string): Promise<TsPathConfig | null> {
-    const candidates = ['tsconfig.json', 'jsconfig.json', 'tsconfig.base.json'];
-    for (const configName of candidates) {
-        const configPath = path.join(searchDir, configName);
-        if (!(await fs.pathExists(configPath))) continue;
-
-        const mergedPaths: Record<string, string[]> = {};
-        let baseUrl = '.';
-        let resolvedBaseDir = searchDir;
-        await resolveExtendsChain(configPath, mergedPaths, (bu) => { baseUrl = bu; }, new Set());
-
-        const parsed = await readLooseJson(configPath);
-        const compilerOptions = parsed?.compilerOptions || {};
-
-        if (compilerOptions.paths) {
-            for (const [key, value] of Object.entries(compilerOptions.paths)) {
-                if (typeof key === 'string' && Array.isArray(value)) {
-                    mergedPaths[key] = value as string[];
-                }
-            }
-        }
-        if (compilerOptions.baseUrl) baseUrl = compilerOptions.baseUrl;
-
-        if (Object.keys(mergedPaths).length === 0) continue;
-
-        resolvedBaseDir = path.resolve(searchDir, baseUrl);
-        const rules: TsPathRule[] = [];
-
-        for (const [key, value] of Object.entries(mergedPaths)) {
-            if (typeof key !== 'string' || !Array.isArray(value) || value.length === 0) continue;
-            const hasWildcard = key.includes('*');
-            const [prefix, suffix = ''] = key.split('*');
-            const targets = value.filter(v => typeof v === 'string');
-            if (targets.length === 0) continue;
-            rules.push({ key, hasWildcard, prefix, suffix, targets });
-        }
-
-        rules.sort((left, right) => {
-            if (left.hasWildcard !== right.hasWildcard) return left.hasWildcard ? 1 : -1;
-            return (right.prefix.length + right.suffix.length)
-                - (left.prefix.length + left.suffix.length);
-        });
-
-        if (rules.length === 0) continue;
-        return { baseDir: resolvedBaseDir, rules };
-    }
-    return null;
-}
-
-/**
- * Recursively follow tsconfig `extends` chain to collect path mappings.
- */
-async function resolveExtendsChain(
-    configPath: string,
-    mergedPaths: Record<string, string[]>,
-    setBaseUrl: (bu: string) => void,
-    visited: Set<string>
-): Promise<void> {
-    const resolved = path.resolve(configPath);
-    if (visited.has(resolved)) return;
-    visited.add(resolved);
-
-    const parsed = await readLooseJson(configPath);
-    if (!parsed) return;
-
-    if (parsed.extends) {
-        const extendsPath = typeof parsed.extends === 'string' ? parsed.extends : null;
-        if (extendsPath) {
-            let resolvedExtends: string;
-            if (extendsPath.startsWith('.')) {
-                resolvedExtends = path.resolve(path.dirname(configPath), extendsPath);
-            } else {
-                resolvedExtends = path.resolve(path.dirname(configPath), 'node_modules', extendsPath);
-            }
-            if (!resolvedExtends.endsWith('.json')) {
-                const withJson = resolvedExtends + '.json';
-                if (await fs.pathExists(withJson)) {
-                    resolvedExtends = withJson;
-                }
-            }
-            if (await fs.pathExists(resolvedExtends)) {
-                await resolveExtendsChain(resolvedExtends, mergedPaths, setBaseUrl, visited);
-            } else {
-                warnMissingExtends(configPath, extendsPath);
-            }
-        }
-    }
-
-    const compilerOptions = parsed.compilerOptions || {};
-    if (compilerOptions.baseUrl) {
-        setBaseUrl(compilerOptions.baseUrl);
-    }
-    if (compilerOptions.paths) {
-        for (const [key, value] of Object.entries(compilerOptions.paths)) {
-            if (typeof key === 'string' && Array.isArray(value)) {
-                mergedPaths[key] = value as string[];
-            }
-        }
-    }
-}
-
-const warnedMissingExtends = new Set<string>();
-
-/**
- * A missing `extends` target drops its path aliases. Say so once, instead of
- * reporting every aliased import as missing without a reason.
- */
-function warnMissingExtends(configPath: string, extendsPath: string): void {
-    const key = `${configPath}\0${extendsPath}`;
-    if (warnedMissingExtends.has(key)) return;
-    warnedMissingExtends.add(key);
-    const hint = extendsPath.includes('.svelte-kit') ? ' Run `svelte-kit sync` first to generate it.' : '';
-    Logger.warn(`${path.basename(configPath)} extends '${extendsPath}', which does not exist; its path aliases are ignored.${hint}`);
-}
-
-/**
- * Read JSON file with support for comments and trailing commas.
- */
-async function readLooseJson(filePath: string): Promise<any | null> {
-    try {
-        const text = await fs.readFile(filePath, 'utf-8');
-        try {
-            return JSON.parse(text);
-        } catch {
-            const noBlockComments = text.replace(/\/\*[\s\S]*?\*\//g, '');
-            const noLineComments = noBlockComments.replace(/(^|\s)\/\/.*$/gm, '$1');
-            const noTrailingCommas = noLineComments.replace(/,\s*([}\]])/g, '$1');
-            return JSON.parse(noTrailingCommas);
-        }
-    } catch {
-        return null;
-    }
 }

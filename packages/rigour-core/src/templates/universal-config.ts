@@ -236,6 +236,9 @@ export const UNIVERSAL_CONFIG: Config = {
             track_branches: true,
             track_returns: true,
         },
+        semantic_bugs: {
+            enabled: false,
+        },
         side_effect_analysis: {
             enabled: true,
             check_unbounded_timers: true,
@@ -254,6 +257,7 @@ export const UNIVERSAL_CONFIG: Config = {
             provider: 'local',
             threads: 4,
             temperature: 0.1,
+            intent_checks: false,
             checks: {
                 solid: true,
                 dry: true,

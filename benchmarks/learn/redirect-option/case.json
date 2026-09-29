@@ -1,0 +1,5 @@
+{
+  "note": "The c2 shape: a retry wrapper stops following redirects.",
+  "expect": { "template": "require-option", "property": "redirect", "scoped": false },
+  "variants": ["notify.ts:2"]
+}

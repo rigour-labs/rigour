@@ -2,6 +2,17 @@ import fs from 'fs-extra';
 import path from 'path';
 import { Config, Gates } from './types/index.js';
 import { TEMPLATES, PARADIGM_TEMPLATES, UNIVERSAL_CONFIG } from './templates/index.js';
+import {
+    EXTENSION_MARKERS, PACKAGE_MARKERS, containsToken, hasFileWithExtension, declaresPackage, dependencyNames, detectParadigm, isPathMarker, sampleSourceFiles, stripComments,
+} from './discovery-signals.js';
+
+/**
+ * Domain keywords are ambiguous alone ("health" score, "transaction" block), and a
+ * domain preset adds compliance docs and stricter gates. It needs several keywords,
+ * each recurring across files rather than listed once.
+ */
+const MIN_KEYWORDS = 2;
+const MIN_KEYWORD_FILES = 2;
 
 export interface DiscoveryResult {
     config: Config;
@@ -15,25 +26,26 @@ export class DiscoveryService {
     async discover(cwd: string): Promise<DiscoveryResult> {
         let config = { ...UNIVERSAL_CONFIG };
         const matches: DiscoveryResult['matches'] = {};
+        const dependencies = await dependencyNames(cwd);
+        const files = await sampleSourceFiles(cwd);
+        const contents = await Promise.all(files.map(f => fs.readFile(f, 'utf-8').then(stripComments, () => '')));
 
-        // 1. Detect Role (ui, api, infra, data)
+        // 1. Role (ui, api, infra, data, domain presets): the first template with a marker wins.
         for (const template of TEMPLATES) {
-            const marker = await this.findFirstMarker(cwd, template.markers, true); // Search content for roles too
+            const marker = await this.findFirstMarker(cwd, template.markers, dependencies, contents);
             if (marker) {
                 config = this.mergeConfig(config, template.config);
                 matches.preset = { name: template.name, marker };
-                break; // Only one role for now
+                break;
             }
         }
 
-        // 2. Detect Paradigm (oop, functional)
-        for (const template of PARADIGM_TEMPLATES) {
-            const marker = await this.findFirstMarker(cwd, template.markers, true); // Search content
-            if (marker) {
-                config = this.mergeConfig(config, template.config);
-                matches.paradigm = { name: template.name, marker };
-                break;
-            }
+        // 2. Paradigm (oop, functional): only when the declarations clearly lean one way.
+        const paradigm = detectParadigm(contents);
+        const template = paradigm && PARADIGM_TEMPLATES.find(t => t.name === paradigm.name);
+        if (paradigm && template) {
+            config = this.mergeConfig(config, template.config);
+            matches.paradigm = paradigm;
         }
 
         return { config, matches };
@@ -62,51 +74,23 @@ export class DiscoveryService {
         };
     }
 
-    private async findFirstMarker(cwd: string, markers: string[], searchContent: boolean = false): Promise<string | null> {
+    private async findFirstMarker(cwd: string, markers: string[], dependencies: Set<string>, contents: string[]): Promise<string | null> {
+        const keywords: string[] = [];
         for (const marker of markers) {
-            const fullPath = path.join(cwd, marker);
-
-            // File/Directory existence check
-            if (await fs.pathExists(fullPath)) {
+            if (PACKAGE_MARKERS.has(marker)) {
+                if (declaresPackage(dependencies, marker)) return `dependency:${marker}`;
+            } else if (EXTENSION_MARKERS.has(marker)) {
+                if (await hasFileWithExtension(cwd, marker)) return `file:*.${marker}`;
+            } else if (await fs.pathExists(path.join(cwd, marker))) {
                 return marker;
-            }
-
-            // Deep content check for paradigms
-            if (searchContent) {
-                const match = await this.existsInContent(cwd, marker);
-                if (match) return `content:${marker}`;
+            } else if (!isPathMarker(marker) && this.recurs(contents, marker)) {
+                keywords.push(marker);
             }
         }
-        return null;
+        return keywords.length >= MIN_KEYWORDS ? `content:${keywords.join(',')}` : null;
     }
 
-    private async existsInContent(cwd: string, pattern: string): Promise<boolean> {
-        // Simple heuristic: search in top 5 source files
-        const files = await this.findSourceFiles(cwd);
-        for (const file of files) {
-            const content = await fs.readFile(file, 'utf-8');
-            if (content.includes(pattern)) return true;
-        }
-        return false;
-    }
-
-    private async findSourceFiles(cwd: string): Promise<string[]> {
-        const extensions = ['.ts', '.js', '.py', '.go', '.java', '.tf', 'package.json'];
-        const samples: string[] = [];
-        const commonDirs = ['.', 'src', 'app', 'lib', 'api', 'pkg'];
-
-        for (const dir of commonDirs) {
-            const fullDir = path.join(cwd, dir);
-            if (!(await fs.pathExists(fullDir))) continue;
-
-            const files = await fs.readdir(fullDir);
-            for (const file of files) {
-                if (extensions.some(ext => file.endsWith(ext))) {
-                    samples.push(path.join(fullDir, file));
-                    if (samples.length >= 5) return samples;
-                }
-            }
-        }
-        return samples;
+    private recurs(contents: string[], keyword: string): boolean {
+        return contents.filter(text => containsToken(text, keyword)).length >= MIN_KEYWORD_FILES;
     }
 }

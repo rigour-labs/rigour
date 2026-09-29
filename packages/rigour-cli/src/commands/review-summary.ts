@@ -55,6 +55,10 @@ function guidance(rule: string): { reason: string; next_step: string } {
         reason: 'A secret-related reference appears in a possible frontend bundle path.',
         next_step: 'Trace whether the value can reach client-side output.',
     };
+    if (rule === 'semantic-bugs') return {
+        reason: 'A traced defect: the finding names where the risky value enters and where it does harm.',
+        next_step: 'Follow the evidence locations in the report; the hint gives the usual fix.',
+    };
     if (rule === 'phantom-apis') return {
         reason: 'An API name did not match the known library or runtime surface.',
         next_step: 'Verify the API against the installed version and its types.',

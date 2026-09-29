@@ -1,0 +1,6 @@
+{
+  "rule": "credential-redirect",
+  "file": "ingest.ts",
+  "line": 4,
+  "note": "Custom token header reaches fetch through a retry wrapper that follows redirects."
+}

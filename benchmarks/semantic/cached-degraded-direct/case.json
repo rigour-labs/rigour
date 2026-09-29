@@ -1,0 +1,6 @@
+{
+  "rule": "degraded-response-cached",
+  "file": "route.ts",
+  "line": 13,
+  "note": "An empty fallback rate table is cached for an hour."
+}

@@ -19,6 +19,7 @@ import { extractFacts, verifyFindings, type FileFacts } from '../deep/index.js';
 import { runFactsPass, type PassResult } from '../deep/facts-pass.js';
 import { runCodePass } from '../deep/code-pass.js';
 import { verifyCodeFindings } from '../deep/code-verifier.js';
+import { runIntentChecks } from './deep-intent.js';
 import type { VerifiedFinding } from '../deep/verifier.js';
 import { checkLocalPatterns } from '../storage/local-memory.js';
 import { isScoped } from '../utils/scope.js';
@@ -42,6 +43,8 @@ export interface DeepGateConfig {
     maxTokens?: number;
     temperature?: number;
     timeoutMs?: number;
+    /** Ask intent questions at engine-proven sites in scoped reviews (deep-intent.ts). */
+    intentChecks?: boolean;
     onProgress?: (message: string) => void;
 }
 
@@ -97,7 +100,10 @@ export class DeepAnalysisGate extends Gate {
                 ? await this.reviewCode(context.cwd, facts)
                 : await this.analyzeFacts(context.cwd, limitFiles(facts, this.config));
             this.config.onProgress?.(`  ✓ ${verified.length} verified findings in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
-            return verified.map(f => this.toFailure(f));
+            const intent = scoped && this.config.intentChecks
+                ? await runIntentChecks(context.cwd, facts.map(f => f.path), this.provider!, this.config.onProgress)
+                : [];
+            return [...verified.map(f => this.toFailure(f)), ...intent];
         } catch (error: any) {
             this.outcome.status = 'error';
             this.outcome.error = error?.message ?? String(error);

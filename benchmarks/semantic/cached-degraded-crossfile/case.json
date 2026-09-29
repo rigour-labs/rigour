@@ -1,0 +1,6 @@
+{
+  "rule": "degraded-response-cached",
+  "file": "route.ts",
+  "line": 10,
+  "note": "A degraded dashboard (breakdown failed) is cached for 10 minutes."
+}

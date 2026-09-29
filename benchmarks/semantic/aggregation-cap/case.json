@@ -1,0 +1,6 @@
+{
+  "rule": "in-memory-aggregation",
+  "file": "report.ts",
+  "line": 7,
+  "note": "All rows fetched, capped, then counted in application memory."
+}

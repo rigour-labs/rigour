@@ -30,6 +30,7 @@ export {
     TEAM_CONFIG_PATH,
     validateTeamDatabaseUrl,
 } from './team-store.js';
+export { explainTeamConnectionError } from './team-diagnostics.js';
 export type {
     TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,
     SemanticKnowledgeCandidate, SemanticKnowledgeResult,

@@ -1,0 +1,5 @@
+{
+  "note": "The c4 shape: a cache header becomes conditional on the value that can be a fallback.",
+  "expect": { "template": "require-guard", "property": "Cache-Control", "guard": "rates", "scoped": false },
+  "variants": ["prices.ts:5"]
+}

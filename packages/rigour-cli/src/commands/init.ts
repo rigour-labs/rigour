@@ -6,6 +6,7 @@ import { DiscoveryService, loadSettings, isModelCached, getModelsDir } from '@ri
 import { CODE_QUALITY_RULES, DEBUGGING_RULES, COLLABORATION_RULES, AGNOSTIC_AI_INSTRUCTIONS } from './constants.js';
 import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
+import { clineRulesRelPath, writeHandshake } from './init-handshake.js';
 
 // Helper to log events for Rigour Studio
 async function logStudioEvent(cwd: string, event: any) {
@@ -209,9 +210,6 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
     }
 
     // Agent Handshake (Universal / AntiGravity / Cursor)
-    const rigourDocsDir = path.join(cwd, 'docs');
-    await fs.ensureDir(rigourDocsDir);
-    const instructionsPath = path.join(rigourDocsDir, 'AGENT_INSTRUCTIONS.md');
 
     const ruleContent = `# Rigour: Engineering Governance
 
@@ -231,10 +229,7 @@ ${COLLABORATION_RULES}
 `;
 
     // 1. Create Universal Instructions
-    if (!(await fs.pathExists(instructionsPath)) || options.force) {
-        await fs.writeFile(instructionsPath, ruleContent);
-        console.log(chalk.green('✔ Initialized Universal Agent Handshake (docs/AGENT_INSTRUCTIONS.md)'));
-    }
+    await writeHandshake(cwd, 'docs/AGENT_INSTRUCTIONS.md', ruleContent, 'Universal Agent Handshake', options.force);
 
     // 2. Create IDE-Specific Rules for ALL supported tools.
     //    Detection is unreliable (Cursor reports as vscode, doesn't create .cursor/),
@@ -242,9 +237,6 @@ ${COLLABORATION_RULES}
     const shouldSetup = (_ide: DetectedIDE) => true;
 
     if (shouldSetup('cursor')) {
-        const cursorRulesDir = path.join(cwd, '.cursor', 'rules');
-        await fs.ensureDir(cursorRulesDir);
-        const mdcPath = path.join(cursorRulesDir, 'rigour.mdc');
         // Cursor .mdc must be SHORT and forceful — long rules get ignored.
         // Keep ONLY the mandatory MCP tool workflow, no generic coding advice.
         const mdcContent = `---
@@ -264,10 +256,7 @@ Hooks run automatically after every file edit. If a hook blocks you, fix the iss
 - Never claim "done" without a passing quality gate result.
 `;
 
-        if (!(await fs.pathExists(mdcPath)) || options.force) {
-            await fs.writeFile(mdcPath, mdcContent);
-            console.log(chalk.green('✔ Initialized Cursor Handshake (.cursor/rules/rigour.mdc)'));
-        }
+        await writeHandshake(cwd, '.cursor/rules/rigour.mdc', mdcContent, 'Cursor Handshake', options.force);
     }
 
     if (shouldSetup('vscode')) {
@@ -277,16 +266,11 @@ Hooks run automatically after every file edit. If a hook blocks you, fix the iss
     }
 
     if (shouldSetup('cline')) {
-        const clineRulesPath = path.join(cwd, '.clinerules');
-        if (!(await fs.pathExists(clineRulesPath)) || options.force) {
-            await fs.writeFile(clineRulesPath, ruleContent);
-            console.log(chalk.green('✔ Initialized Cline Handshake (.clinerules)'));
-        }
+        await writeHandshake(cwd, await clineRulesRelPath(cwd), ruleContent, 'Cline Handshake', options.force);
     }
 
     // Claude Code (CLAUDE.md)
     if (shouldSetup('claude')) {
-        const claudePath = path.join(cwd, 'CLAUDE.md');
         const claudeContent = `# CLAUDE.md - Project Instructions for Claude Code
 
 This project uses Rigour for quality gates. Rigour MCP tools are available — they are self-describing.
@@ -301,32 +285,22 @@ npx @rigour-labs/cli run -- claude "<task>"  # Self-healing agent loop
 
 ${ruleContent}`;
 
-        if (!(await fs.pathExists(claudePath)) || options.force) {
-            await fs.writeFile(claudePath, claudeContent);
-            console.log(chalk.green('✔ Initialized Claude Code Handshake (CLAUDE.md)'));
-        }
+        await writeHandshake(cwd, 'CLAUDE.md', claudeContent, 'Claude Code Handshake', options.force);
     }
 
     // Gemini Code Assist (.gemini/styleguide.md)
     if (shouldSetup('gemini')) {
-        const geminiDir = path.join(cwd, '.gemini');
-        await fs.ensureDir(geminiDir);
-        const geminiStylePath = path.join(geminiDir, 'styleguide.md');
         const geminiContent = `# Gemini Code Assist Style Guide
 
 This project uses Rigour for quality gates. If Rigour MCP tools are available, they are self-describing — use them.
 
 ${ruleContent}`;
 
-        if (!(await fs.pathExists(geminiStylePath)) || options.force) {
-            await fs.writeFile(geminiStylePath, geminiContent);
-            console.log(chalk.green('✔ Initialized Gemini Handshake (.gemini/styleguide.md)'));
-        }
+        await writeHandshake(cwd, '.gemini/styleguide.md', geminiContent, 'Gemini Handshake', options.force);
     }
 
     // OpenAI Codex / Aider (AGENTS.md - Universal Standard)
     if (shouldSetup('codex')) {
-        const agentsPath = path.join(cwd, 'AGENTS.md');
         const agentsContent = `# AGENTS.md - AI Agent Instructions
 
 This project uses Rigour for quality gates. If Rigour MCP tools are available, they are self-describing — use them. Otherwise use the CLI:
@@ -351,19 +325,12 @@ Follow this workflow to minimize token usage without compromising quality:
 
 ${ruleContent}`;
 
-        if (!(await fs.pathExists(agentsPath)) || options.force) {
-            await fs.writeFile(agentsPath, agentsContent);
-            console.log(chalk.green('✔ Initialized Universal Agent Handshake (AGENTS.md)'));
-        }
+        await writeHandshake(cwd, 'AGENTS.md', agentsContent, 'Universal Agent Handshake', options.force);
     }
 
     // Windsurf (.windsurfrules)
     if (shouldSetup('windsurf')) {
-        const windsurfPath = path.join(cwd, '.windsurfrules');
-        if (!(await fs.pathExists(windsurfPath)) || options.force) {
-            await fs.writeFile(windsurfPath, ruleContent);
-            console.log(chalk.green('✔ Initialized Windsurf Handshake (.windsurfrules)'));
-        }
+        await writeHandshake(cwd, '.windsurfrules', ruleContent, 'Windsurf Handshake', options.force);
     }
 
     // 3. Auto-initialize hooks for ALL supported AI coding tools

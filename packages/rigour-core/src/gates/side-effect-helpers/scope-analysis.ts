@@ -104,6 +104,27 @@ export function findBlockEndBrace(lines: string[], start: number): number {
 }
 
 /**
+ * Find the end of an expression-bodied arrow (`const f = (x) => x + 1;`):
+ * the first line where brackets balance and the expression does not
+ * continue. Scanning for a `{` instead would run into the next block.
+ */
+export function findExpressionEnd(lines: string[], start: number): number {
+    let depth = 0;
+    const maxScan = Math.min(lines.length, start + 300);
+    for (let j = start; j < maxScan; j++) {
+        const stripped = stripStrings(lines[j]);
+        depth += bracketDelta(stripped);
+        const continues = /(?:=>|[=+\-*/%&|?:,.(])\s*$/.test(stripped.trimEnd());
+        if (depth <= 0 && !continues) return j + 1;
+    }
+    return maxScan;
+}
+
+function bracketDelta(text: string): number {
+    return (text.match(/[([{]/g)?.length ?? 0) - (text.match(/[)\]}]/g)?.length ?? 0);
+}
+
+/**
  * Find the end of an indentation-delimited block (Python).
  */
 export function findBlockEndIndent(lines: string[], start: number): number {

@@ -1,0 +1,6 @@
+{
+  "rule": "credential-redirect",
+  "file": "vendor.ts",
+  "line": 5,
+  "note": "Headers built in a const and passed as a shorthand property."
+}

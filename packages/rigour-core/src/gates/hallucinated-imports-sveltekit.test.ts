@@ -82,5 +82,45 @@ describe('HallucinatedImportsGate — SvelteKit', () => {
         write(cwd, 'src/index.ts', "import { add } from '@/util/math.js';\nexport const x = add;\n");
         expect(await missingImports(cwd)).toBe('');
     });
+
+    it('resolves inherited paths against the config that declares them (after svelte-kit sync)', async () => {
+        write(cwd, '.svelte-kit/tsconfig.json', JSON.stringify({
+            compilerOptions: { paths: { $lib: ['../src/lib'], '$lib/*': ['../src/lib/*'] }, rootDirs: ['..', './types'] },
+        }));
+        write(cwd, 'src/routes/+page.ts', "import { format } from '$lib/format';\nimport { gone } from '$lib/does-not-exist';\nexport const x = [format, gone];\n");
+        const details = await missingImports(cwd);
+        expect(details).not.toContain("'$lib/format'");
+        expect(details).toContain("'$lib/does-not-exist'");
+    });
+});
+
+describe('HallucinatedImportsGate — tsconfig inheritance and rootDirs', () => {
+    let cwd: string;
+    beforeEach(() => { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'tsconfig-inherit-')); });
+    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true }); });
+
+    it('resolves paths inherited from a shared base config against that config (Nx-style)', async () => {
+        write(cwd, 'package.json', JSON.stringify({ dependencies: {} }));
+        write(cwd, 'libs/tsconfig.base.json', JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@org/util': ['util/src/index.ts'] } } }));
+        write(cwd, 'libs/util/src/index.ts', 'export const util = 1;\n');
+        write(cwd, 'apps/web/tsconfig.json', JSON.stringify({ extends: '../../libs/tsconfig.base.json' }));
+        write(cwd, 'apps/web/src/main.ts', "import { util } from '@org/util';\nexport const x = util;\n");
+        expect(await missingImports(cwd)).toBe('');
+    });
+
+    it('resolves a relative import through rootDirs into a generated folder', async () => {
+        write(cwd, 'package.json', JSON.stringify({ dependencies: {} }));
+        write(cwd, 'tsconfig.json', JSON.stringify({ compilerOptions: { rootDirs: ['src', 'generated'] } }));
+        write(cwd, 'generated/schema.ts', 'export const schema = {};\n');
+        write(cwd, 'src/api.ts', "import { schema } from './schema';\nexport const x = schema;\n");
+        expect(await missingImports(cwd)).toBe('');
+    });
+
+    it('still flags a relative import found in no root', async () => {
+        write(cwd, 'package.json', JSON.stringify({ dependencies: {} }));
+        write(cwd, 'tsconfig.json', JSON.stringify({ compilerOptions: { rootDirs: ['src', 'generated'] } }));
+        write(cwd, 'src/api.ts', "import { schema } from './nowhere';\nexport const x = schema;\n");
+        expect(await missingImports(cwd)).toContain("'./nowhere'");
+    });
 });
 

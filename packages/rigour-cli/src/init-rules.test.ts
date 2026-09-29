@@ -47,14 +47,42 @@ describe('Init Command Rules Verification', () => {
         expect(mdcContent).toContain('# Rigour Governance');
     });
 
-    it('should create .clinerules when ide is cline or all', async () => {
+    it('writes Cline rules into the .clinerules folder next to its hooks', async () => {
+        const initCommand = await getInitCommand();
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        await initCommand(testDir, { ide: 'all' });
+        const output = log.mock.calls.flat().join('\n');
+        log.mockRestore();
+
+        const content = await fs.readFile(path.join(testDir, '.clinerules', 'rigour.md'), 'utf-8');
+        expect(content).toContain('# Rigour: Engineering Governance');
+        expect(await fs.pathExists(path.join(testDir, '.clinerules', 'hooks', 'PostToolUse'))).toBe(true);
+        expect(output).not.toContain('SKIP .clinerules');
+    });
+
+    it('keeps a legacy .clinerules file', async () => {
+        await fs.writeFile(path.join(testDir, '.clinerules'), 'team rules');
         const initCommand = await getInitCommand();
         await initCommand(testDir, { ide: 'cline' });
-        const clineRulesPath = path.join(testDir, '.clinerules');
-        expect(await fs.pathExists(clineRulesPath)).toBe(true);
+        expect(await fs.readFile(path.join(testDir, '.clinerules'), 'utf-8')).toBe('team rules');
+    });
 
-        const content = await fs.readFile(clineRulesPath, 'utf-8');
-        expect(content).toContain('# Rigour: Engineering Governance');
+    it('keeps existing agent files and says so, unless --force', async () => {
+        await fs.writeFile(path.join(testDir, 'AGENTS.md'), '# Ours');
+        await fs.writeFile(path.join(testDir, 'CLAUDE.md'), '# Ours too');
+        const initCommand = await getInitCommand();
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        await initCommand(testDir, { ide: 'all' });
+        const output = log.mock.calls.flat().join('\n');
+        log.mockRestore();
+
+        expect(await fs.readFile(path.join(testDir, 'AGENTS.md'), 'utf-8')).toBe('# Ours');
+        expect(await fs.readFile(path.join(testDir, 'CLAUDE.md'), 'utf-8')).toBe('# Ours too');
+        expect(output).toContain('Kept existing AGENTS.md');
+        expect(output).toContain('Kept existing CLAUDE.md');
+
+        await initCommand(testDir, { ide: 'all', force: true });
+        expect(await fs.readFile(path.join(testDir, 'AGENTS.md'), 'utf-8')).toContain('# AGENTS.md');
     });
 
 });

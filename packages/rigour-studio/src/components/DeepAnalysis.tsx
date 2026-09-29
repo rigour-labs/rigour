@@ -88,12 +88,13 @@ const CATEGORY_LABELS: Record<string, string> = {
     dead_code: 'Dead Code',
     naming_convention: 'Naming Convention',
     performance: 'Performance',
+    'optional-read-no-fallback': 'Optional Read Without Fallback',
 };
 
 const CATEGORY_GROUPS: Record<string, string[]> = {
     'SOLID Principles': ['srp_violation', 'ocp_violation', 'lsp_violation', 'isp_violation', 'dip_violation'],
     'Code Smells': ['god_class', 'god_function', 'long_params', 'complex_conditional', 'long_file', 'magic_number', 'dead_code', 'feature_envy'],
-    'Error Handling': ['empty_catch', 'error_inconsistency'],
+    'Error Handling': ['empty_catch', 'error_inconsistency', 'optional-read-no-fallback'],
     'Concurrency': ['race_condition', 'goroutine_leak', 'channel_misuse', 'mutex_scope'],
     'Testing': ['missing_test'],
     'Architecture': ['isp_violation_interface', 'dry_violation', 'naming_convention', 'resource_leak'],

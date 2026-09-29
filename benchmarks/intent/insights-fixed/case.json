@@ -1,0 +1,4 @@
+{ "note": "The c3 fix: the optional read handles its own failure. The finder must skip the site without asking the model.",
+  "labels": {},
+  "expectFinding": false,
+  "expectSite": false }

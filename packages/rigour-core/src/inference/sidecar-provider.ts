@@ -9,6 +9,7 @@
  *
  * Code never leaves the machine: prompts go to a local child process.
  */
+import crypto from 'crypto';
 import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
@@ -104,7 +105,7 @@ export class SidecarProvider implements InferenceProvider {
             maxTokens: options?.maxTokens || 1024,
             threads: this.threads,
             temperature: options?.temperature ?? 0.1,
-            schemaPath: options?.jsonMode ? this.schemaPath ?? undefined : undefined,
+            schemaPath: options?.jsonSchema ? await schemaFileFor(options.jsonSchema) : options?.jsonMode ? this.schemaPath ?? undefined : undefined,
         });
 
         let result;
@@ -170,6 +171,17 @@ async function findOnPath(name: string): Promise<string | null> {
     } catch {
         return null;
     }
+}
+
+/** A schema file per distinct schema, written once and reused across calls. */
+async function schemaFileFor(schema: Record<string, unknown>): Promise<string> {
+    const text = JSON.stringify(schema);
+    const schemaPath = path.join(managedEngineDir(), '..', 'schemas', `${crypto.createHash('sha256').update(text).digest('hex').slice(0, 16)}.json`);
+    if (!(await fs.pathExists(schemaPath))) {
+        await fs.ensureDir(path.dirname(schemaPath));
+        await fs.writeFile(schemaPath, text);
+    }
+    return schemaPath;
 }
 
 async function writeFindingsSchema(): Promise<string> {

@@ -1,0 +1,6 @@
+{
+  "rule": "credential-redirect",
+  "file": "notify.ts",
+  "line": 2,
+  "note": "Signature header on a fetch that follows redirects."
+}

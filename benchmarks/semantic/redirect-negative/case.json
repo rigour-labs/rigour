@@ -1,0 +1,6 @@
+{
+  "rule": null,
+  "file": null,
+  "line": null,
+  "note": "Authorization is dropped by fetch on a cross-origin redirect."
+}

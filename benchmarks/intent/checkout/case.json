@@ -1,0 +1,3 @@
+{ "note": "Charging without tax or shipping is wrong; every read is required.",
+  "labels": { "getCart": "required", "quoteTax": "required", "quoteShipping": "required" },
+  "expectFinding": false }
