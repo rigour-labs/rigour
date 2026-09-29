@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
 import { normalizeAgentSession, resolveStudioVersion } from './studio-contracts.js';
 import { getGatewayMediationState, loadStudioGatewayEvidence, summarizeGatewayEvidence } from './studio-firewall.js';
+import { loadStudioLearnedRules } from './studio-learned-rules.js';
 
 type StudioContext = {
     cwd: string;
@@ -327,6 +328,18 @@ async function handleApiRequest(
                 res.writeHead(404);
                 res.end('Not found');
             }
+        } catch (e: any) {
+            res.writeHead(500);
+            res.end(e.message);
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/learned-rules') {
+        try {
+            const rules = loadStudioLearnedRules(cwd);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(rules));
         } catch (e: any) {
             res.writeHead(500);
             res.end(e.message);

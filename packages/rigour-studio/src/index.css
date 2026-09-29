@@ -1920,6 +1920,66 @@ header {
     letter-spacing: 0.5px;
 }
 
+.learned-rules {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.learned-rules h4 {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+.learned-rule {
+    background: var(--bg-accent);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.learned-rule-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.learned-rule-id {
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--accent-secondary);
+    overflow-wrap: anywhere;
+}
+
+.learned-rule-body {
+    font-size: 13px;
+    color: var(--text-main);
+    overflow-wrap: anywhere;
+}
+
+.learned-rule-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+}
+
+.learned-rules-empty {
+    margin-top: 16px;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
 .protected-paths,
 .file-list {
     margin-top: 16px;
