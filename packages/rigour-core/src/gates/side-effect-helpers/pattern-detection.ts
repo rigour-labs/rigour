@@ -79,7 +79,7 @@ export function pathsOverlap(watchPath: string | null, writePath: string | null)
 // LOOP & RECURSION ANALYSIS — Context-aware body extraction
 // ═══════════════════════════════════════════════════════════════════
 
-import { findBlockEndBrace, findBlockEndIndent } from './scope-analysis.js';
+import { findBlockEndBrace, findBlockEndIndent, findExpressionEnd } from './scope-analysis.js';
 
 /**
  * Extract loop body with correct scope tracking.
@@ -136,13 +136,23 @@ export function extractFunctionDefs(
                 ? findBlockEndIndent(lines, i)
                 : lang === 'rb'
                     ? findBlockEndRuby(lines, i)
-                    : findBlockEndBrace(lines, i);
+                    : isExpressionArrow(lines, i, stripped, m.index) ? findExpressionEnd(lines, i) : findBlockEndBrace(lines, i);
 
             defs.push({ name, start: i, end, params: lines[i] });
             break;
         }
     }
     return defs;
+}
+
+/** An arrow whose body is an expression, not a `{ ... }` block. */
+function isExpressionArrow(lines: string[], line: number, stripped: string, matchAt: number): boolean {
+    const arrow = stripped.indexOf('=>', matchAt);
+    if (arrow < 0) return false;
+    const rest = stripped.slice(arrow + 2).trim();
+    if (rest !== '') return !rest.startsWith('{');
+    const next = lines.slice(line + 1).find(l => l.trim() !== '');
+    return next !== undefined && !next.trim().startsWith('{');
 }
 
 function getFuncDefPatterns(lang: SideEffectLang): RegExp[] {
