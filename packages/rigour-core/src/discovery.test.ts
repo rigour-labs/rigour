@@ -1,88 +1,109 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DiscoveryService } from './discovery.js';
-import fs from 'fs-extra';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
-
-vi.mock('fs-extra');
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { DiscoveryService } from './discovery.js';
+import { containsToken, detectParadigm, stripComments } from './discovery-signals.js';
 
 describe('DiscoveryService', () => {
-    beforeEach(() => {
-        vi.resetAllMocks();
+    let cwd: string;
+    beforeEach(() => { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'discovery-')); });
+    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true }); });
+
+    function write(rel: string, body: string) {
+        fs.mkdirSync(path.dirname(path.join(cwd, rel)), { recursive: true });
+        fs.writeFileSync(path.join(cwd, rel), body);
+    }
+    const discover = () => new DiscoveryService().discover(cwd);
+
+    it('detects an API from a declared dependency', async () => {
+        write('package.json', JSON.stringify({ dependencies: { express: '^4.0.0' } }));
+        const result = await discover();
+        expect(result.matches.preset).toEqual({ name: 'api', marker: 'dependency:express' });
     });
 
-    it('should discover project marker in root directory', async () => {
-        const service = new DiscoveryService();
-        vi.mocked(fs.pathExists).mockImplementation(async (p: string) => p.includes('package.json'));
-        vi.mocked(fs.readdir).mockResolvedValue(['package.json'] as any);
-        vi.mocked(fs.readFile).mockResolvedValue('{}' as any);
-
-        const result = await service.discover('/test');
-        // If package.json doesn't match a specific role marker, it stays Universal.
-        // Let's mock a specific one like 'express'
-        vi.mocked(fs.pathExists).mockImplementation(async (p: string) => p.includes('express'));
-        const result2 = await service.discover('/test');
-        expect(result2.matches.preset?.name).toBe('api');
+    it('detects a scoped framework package such as @nestjs/core', async () => {
+        write('package.json', JSON.stringify({ dependencies: { '@nestjs/core': '^10.0.0' } }));
+        expect((await discover()).matches.preset?.marker).toBe('dependency:nestjs');
     });
 
-    it('should discover project marker in src/ directory (Deep Detection)', async () => {
-        const service = new DiscoveryService();
-        vi.mocked(fs.pathExists).mockImplementation((async (p: string) => {
-            if (p.endsWith('src')) return true;
-            if (p.includes('src/index.ts')) return true;
-            return false;
-        }) as any);
-        vi.mocked(fs.readdir).mockImplementation((async (p: string) => {
-            if (p.toString().endsWith('/test')) return ['src'] as any;
-            if (p.toString().endsWith('src')) return ['index.ts'] as any;
-            return [] as any;
-        }) as any);
-        vi.mocked(fs.readFile).mockResolvedValue('export const x = 1;' as any);
-
-        const result = await service.discover('/test');
-        // Since UNIVERSAL_CONFIG has a default, we check if it found something extra or matches expectation
-        // Default is universal, but detecting .ts should tilt it towards node or similar if configured
-        // In our current templates, package.json is the node marker.
-        // Let's check for paradigm detection which uses content
-        expect(result.config).toBeDefined();
-    });
-
-    it('should identify OOP paradigm from content in subfolder', async () => {
-        const service = new DiscoveryService();
-        vi.mocked(fs.pathExists).mockImplementation((async (p: string) => p.endsWith('src') || p.endsWith('src/Service.ts')) as any);
-        vi.mocked(fs.readdir).mockImplementation((async (p: string) => {
-            if (p.toString().endsWith('src')) return ['Service.ts'] as any;
-            return ['src'] as any;
-        }) as any);
-        vi.mocked(fs.readFile).mockResolvedValue('class MyService {}' as any);
-
-        const result = await service.discover('/test');
-        expect(result.matches.paradigm?.name).toBe('oop');
-    });
-
-    it('should include project-type-aware ignore patterns for API preset', async () => {
-        const service = new DiscoveryService();
-        // Mock finding requirements.txt (Python API marker)
-        vi.mocked(fs.pathExists).mockImplementation(async (p: string) => p.includes('requirements.txt'));
-        vi.mocked(fs.readdir).mockResolvedValue(['requirements.txt'] as any);
-        vi.mocked(fs.readFile).mockResolvedValue('flask==2.0.0' as any);
-
-        const result = await service.discover('/test');
+    it('detects a Python API with its ignore patterns', async () => {
+        write('requirements.txt', 'flask==2.0.0\n');
+        const result = await discover();
         expect(result.matches.preset?.name).toBe('api');
-        expect(result.config.ignore).toContain('venv/**');
-        expect(result.config.ignore).toContain('__pycache__/**');
-        expect(result.config.ignore).toContain('*.pyc');
+        expect(result.config.ignore).toEqual(expect.arrayContaining(['venv/**', '__pycache__/**', '*.pyc']));
     });
 
-    it('should include project-type-aware ignore patterns for UI preset', async () => {
-        const service = new DiscoveryService();
-        // Mock finding next.config.js (UI marker)
-        vi.mocked(fs.pathExists).mockImplementation(async (p: string) => p.includes('next.config.js'));
-        vi.mocked(fs.readdir).mockResolvedValue(['next.config.js'] as any);
-        vi.mocked(fs.readFile).mockResolvedValue('module.exports = {}' as any);
-
-        const result = await service.discover('/test');
+    it('detects a UI project from a config file with its ignore patterns', async () => {
+        write('next.config.js', 'module.exports = {};\n');
+        const result = await discover();
         expect(result.matches.preset?.name).toBe('ui');
-        expect(result.config.ignore).toContain('node_modules/**');
-        expect(result.config.ignore).toContain('.next/**');
+        expect(result.config.ignore).toEqual(expect.arrayContaining(['node_modules/**', '.next/**']));
+    });
+
+    it('detects Svelte from its dependencies, not "reactivity" or "public" in comments', async () => {
+        write('package.json', JSON.stringify({ devDependencies: { '@sveltejs/kit': '^2.0.0', svelte: '^5.0.0' } }));
+        write('eslint.config.js', '// Svelte 5 rules (state_referenced_locally, a11y, reactivity)\nexport default [];\n');
+        write('playwright.config.ts', '// rides the public internet\nexport default {};\n');
+        write('src/lib/format.ts', 'export function format(v: number) { return v.toFixed(2); }\nexport const pad = (s: string) => s.padStart(2);\n');
+        const result = await discover();
+        expect(result.matches.preset).toEqual({ name: 'ui', marker: 'dependency:svelte' });
+        expect(result.matches.paradigm?.name).toBe('functional');
+    });
+
+    it('does not read a framework name in source text as a dependency', async () => {
+        write('src/middleware.ts', 'export function run(next: () => void) { next(); }\n');
+        expect((await discover()).matches.preset).toBeUndefined();
+    });
+
+    it('identifies OOP from class declarations in a subfolder', async () => {
+        write('src/Service.ts', 'export class MyService {}\nexport class OtherService {}\n');
+        const result = await discover();
+        expect(result.matches.paradigm).toEqual({ name: 'oop', marker: 'declarations: 2 classes, 0 functions' });
+    });
+
+    it('needs several recurring domain keywords before choosing a domain preset', async () => {
+        write('src/billing.ts', 'export const ledger = new Map<string, number>();\n');
+        write('src/report.ts', "import { ledger } from './billing';\nexport const total = () => ledger.size;\n");
+        expect((await discover()).matches.preset).toBeUndefined();
+        write('src/pay.ts', 'export function payment(ledger: Map<string, number>) { return ledger; }\n');
+        write('src/refund.ts', 'export function refund(payment: number) { return -payment; }\n');
+        expect((await discover()).matches.preset).toEqual({ name: 'fintech', marker: 'content:payment,ledger' });
+    });
+
+    it('needs a file marker to exist, not to be mentioned', async () => {
+        write('src/serve.ts', "export const page = () => 'index.html';\n");
+        expect((await discover()).matches.preset).toBeUndefined();
+    });
+
+    it('detects notebooks by file, not by the word ipynb in code', async () => {
+        write('src/scan.ts', "export const exts = ['.ipynb', '.py'];\n");
+        expect((await discover()).matches.preset).toBeUndefined();
+        write('notebooks/explore.ipynb', '{}');
+        expect((await discover()).matches.preset).toEqual({ name: 'data', marker: 'file:*.ipynb' });
+    });
+
+    it('leaves the paradigm unset for an empty project', async () => {
+        expect((await discover()).matches.paradigm).toBeUndefined();
+    });
+});
+
+describe('discovery signals', () => {
+    it('matches whole tokens only', () => {
+        expect(containsToken('import x from "react"', 'react')).toBe(true);
+        expect(containsToken('reactivity', 'react')).toBe(false);
+        expect(containsToken('@vue/compiler', 'vue')).toBe(false);
+        expect(containsToken('GET /health', 'health')).toBe(false);
+    });
+
+    it('drops comments but keeps URLs in strings', () => {
+        const text = stripComments('/* public */\nconst u = "https://x.io"; // public\n# public\n');
+        expect(text).not.toContain('public');
+        expect(text).toContain('https://x.io');
+    });
+
+    it('declines to guess a paradigm when neither side clearly leads', () => {
+        expect(detectParadigm(['export class A {}\nexport function f() {}\n'])).toBeNull();
+        expect(detectParadigm(['export class A {}\nexport function f() {}\nexport function g() {}\n'])?.name).toBe('functional');
     });
 });
