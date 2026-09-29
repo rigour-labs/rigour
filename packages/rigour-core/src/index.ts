@@ -61,6 +61,7 @@ export {
   backfillTeamEmbeddings,
   TEAM_CONFIG_PATH,
   validateTeamDatabaseUrl,
+  explainTeamConnectionError,
 } from './storage/index.js';
 export type {
   TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,

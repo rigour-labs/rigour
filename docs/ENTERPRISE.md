@@ -56,6 +56,18 @@ Studio synchronizes automatically. When PostgreSQL is unavailable, enforcement a
 
 Personal lessons are private to their database actor. Publishing creates a reviewed team copy without modifying the personal source. PostgreSQL row-level security controls visibility; applications must not connect with a table-owner or RLS-bypass role.
 
+### Managed PostgreSQL (Supabase, RDS, Cloud SQL)
+
+- **TLS.** Keep `sslmode=verify-full`. When the provider signs its certificate with its own root CA (Supabase does; download it from the project's database settings), point Node at it instead of weakening verification:
+
+  ```bash
+  export NODE_EXTRA_CA_CERTS=/path/to/provider-root.crt
+  rigour team doctor
+  ```
+
+  `doctor` reports an untrusted chain (`SELF_SIGNED_CERT_IN_CHAIN`) with this fix instead of a stack trace.
+- **Row-level security without policies.** Some platforms enable RLS on every new table automatically. A table with RLS but no policy returns no rows to a non-owner role, so a correctly provisioned membership looks missing. `rigour team init-schema` creates the policies Rigour needs (members read only their own membership row; everyone reads the schema version), and re-running it on an existing schema repairs them. `doctor` names the tables that have RLS enabled and no policy.
+
 ### Organization-wide engineering knowledge
 
 Studio's Engineering Knowledge Graph combines code structure with agent runs, verification outcomes, and promoted lessons. In team mode it can display approved knowledge originating in other repositories while keeping its source repository and provenance visible. Cross-repository proximity is advisory: it does not make a lesson enforceable without applicability validation.

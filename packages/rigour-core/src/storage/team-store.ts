@@ -3,6 +3,8 @@ import os from 'os';
 import path from 'path';
 import { openDatabase } from './db.js';
 import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js';
+import { TEAM_SCHEMA } from './team-schema.js';
+import { diagnoseMissingMembership, explainTeamConnectionError } from './team-diagnostics.js';
 import {
     TEAM_VECTOR_SCHEMA,
     backfillConfiguredTeamEmbeddings,
@@ -146,73 +148,6 @@ async function queuedChanges(): Promise<number> {
     }
 }
 
-const TEAM_SCHEMA = `
-CREATE SCHEMA IF NOT EXISTS rigour;
-CREATE TABLE IF NOT EXISTS rigour.meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS rigour.memberships (
-    db_role NAME NOT NULL,
-    organization_id TEXT NOT NULL,
-    team_id TEXT NOT NULL,
-    actor_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('member', 'sme', 'owner')),
-    PRIMARY KEY (db_role, team_id)
-);
-CREATE TABLE IF NOT EXISTS rigour.lessons (
-    id TEXT PRIMARY KEY,
-    organization_id TEXT NOT NULL,
-    team_id TEXT NOT NULL,
-    repository_id TEXT NOT NULL,
-    actor_id TEXT NOT NULL,
-    visibility TEXT NOT NULL CHECK (visibility IN ('personal', 'team')),
-    state TEXT NOT NULL CHECK (state IN ('candidate', 'validated', 'promoted', 'rejected', 'superseded')),
-    kind TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    evidence_json JSONB NOT NULL,
-    confidence DOUBLE PRECISION NOT NULL,
-    source TEXT NOT NULL,
-    supersedes_id TEXT,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL
-);
-ALTER TABLE rigour.lessons ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS lessons_read ON rigour.lessons;
-CREATE POLICY lessons_read ON rigour.lessons FOR SELECT USING (
-    EXISTS (
-        SELECT 1 FROM rigour.memberships membership
-        WHERE membership.db_role = current_user
-          AND membership.organization_id = lessons.organization_id
-          AND membership.team_id = lessons.team_id
-          AND ((lessons.visibility = 'team' AND lessons.state = 'promoted')
-               OR membership.actor_id = lessons.actor_id)
-    )
-);
-DROP POLICY IF EXISTS lessons_write ON rigour.lessons;
-CREATE POLICY lessons_write ON rigour.lessons FOR ALL USING (
-    EXISTS (
-        SELECT 1 FROM rigour.memberships membership
-        WHERE membership.db_role = current_user
-          AND membership.organization_id = lessons.organization_id
-          AND membership.team_id = lessons.team_id
-          AND membership.actor_id = lessons.actor_id
-          AND (lessons.visibility = 'personal' OR membership.role IN ('sme', 'owner'))
-    )
-) WITH CHECK (
-    EXISTS (
-        SELECT 1 FROM rigour.memberships membership
-        WHERE membership.db_role = current_user
-          AND membership.organization_id = lessons.organization_id
-          AND membership.team_id = lessons.team_id
-          AND membership.actor_id = lessons.actor_id
-          AND (lessons.visibility = 'personal' OR membership.role IN ('sme', 'owner'))
-    )
-);
-INSERT INTO rigour.meta (key, value) VALUES ('schema_version', '1')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
-`;
-
 export async function initializeTeamSchema(databaseUrl: string, options: { pgvector?: boolean } = {}): Promise<void> {
     validateTeamDatabaseUrl(databaseUrl);
     const { Pool } = await loadPg();
@@ -233,7 +168,7 @@ export async function getTeamModeStatus(): Promise<TeamModeStatus> {
     }
     try {
         const result = await doctorTeamConnection(config);
-        return result;
+        return result.connectivity === 'offline' ? { ...result, message: `Offline — changes queued. ${result.message}` } : result;
     } catch (error) {
         return {
             mode: 'team',
@@ -252,7 +187,20 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
     if (!resolved?.databaseUrl) {
         return { mode: 'local', connectivity: 'local', queuedChanges: await queuedChanges(), message: 'Team mode is not configured.' };
     }
-    validateTeamDatabaseUrl(resolved.databaseUrl);
+    const offline = async (message: string): Promise<TeamDoctorResult> => ({
+        mode: 'team',
+        connectivity: 'offline',
+        organizationId: resolved.organizationId,
+        teamId: resolved.teamId,
+        actorId: resolved.actorId,
+        queuedChanges: await queuedChanges(),
+        message,
+    });
+    try {
+        validateTeamDatabaseUrl(resolved.databaseUrl);
+    } catch (error) {
+        return offline(explainTeamConnectionError(error));
+    }
     const { Pool } = await loadPg();
     const pool = new Pool({ connectionString: resolved.databaseUrl });
     try {
@@ -264,9 +212,9 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
              WHERE db_role = current_user AND team_id = $1 AND actor_id = $2 AND organization_id = $3`,
             [resolved.teamId, resolved.actorId, resolved.organizationId],
         );
-        if (result.rowCount !== 1) throw new Error('Database role is not provisioned for this team.');
+        if (result.rowCount !== 1) return offline(await diagnoseMissingMembership(pool));
         const schemaVersion = Number(result.rows[0].schema_version);
-        if (schemaVersion !== 1) throw new Error(`Incompatible team schema version ${schemaVersion}; expected 1.`);
+        if (schemaVersion !== 1) return offline(`Incompatible team schema version ${schemaVersion}; expected 1.`);
         const semantic = resolved.semantic ? await getTeamSemanticHealth(pool, resolved) : undefined;
         return {
             mode: 'team',
@@ -281,8 +229,10 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
             semantic,
             message: 'PostgreSQL team mode is healthy.',
         };
+    } catch (error) {
+        return offline(explainTeamConnectionError(error));
     } finally {
-        await pool.end();
+        await pool.end().catch(() => undefined);
     }
 }
 
@@ -308,7 +258,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
                     AND actor_id = $2 AND organization_id = $3`,
                 [config.teamId, config.actorId, config.organizationId],
             );
-            if (membership.rowCount !== 1) throw new Error('Database role is not provisioned for this team.');
+            if (membership.rowCount !== 1) throw new Error(await diagnoseMissingMembership(pool));
             for (const item of pending) {
                 const lesson = await decryptLocalPayload<any>(item.payload_json);
                 try {

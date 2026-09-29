@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import {
     backfillTeamEmbeddings,
     doctorTeamConnection,
+    explainTeamConnectionError,
     initializeTeamSchema,
     queueLocalLessonsForTeam,
     saveTeamConfiguration,
@@ -18,7 +19,7 @@ teamCommand
     .requiredOption('--database-url <url>', 'Administrator PostgreSQL URL; remote databases must require TLS')
     .option('--pgvector', 'Enable the optional pgvector semantic knowledge index')
     .action(async (options) => {
-        await initializeTeamSchema(options.databaseUrl, { pgvector: Boolean(options.pgvector) });
+        if (!await initializeSchemaOrReport(options.databaseUrl, Boolean(options.pgvector))) return;
         console.log(chalk.green(`Rigour team schema initialized${options.pgvector ? ' with pgvector' : ''}.`));
     });
 
@@ -32,7 +33,7 @@ teamCommand
     .option('--initialize-schema', 'Create or update the Rigour schema (administrator only)')
     .option('--pgvector', 'Use pgvector to rank team knowledge semantically')
     .action(async (options) => {
-        if (options.initializeSchema) await initializeTeamSchema(options.databaseUrl, { pgvector: Boolean(options.pgvector) });
+        if (options.initializeSchema && !await initializeSchemaOrReport(options.databaseUrl, Boolean(options.pgvector))) return;
         const config = {
             databaseUrl: options.databaseUrl,
             organizationId: options.organization,
@@ -45,6 +46,11 @@ teamCommand
             } : undefined,
         };
         const result = await doctorTeamConnection(config);
+        if (result.connectivity !== 'online') {
+            console.error(chalk.red(`Team database check failed; configuration not saved. ${result.message}`));
+            process.exitCode = 1;
+            return;
+        }
         await saveTeamConfiguration(config);
         console.log(chalk.green(result.message));
     });
@@ -101,3 +107,15 @@ teamCommand
         const result = await syncTeamOutbox({ dryRun: Boolean(options.dryRun) });
         console.log(JSON.stringify(result, null, 2));
     });
+
+/** Initialize the schema, or print why it failed (with the fix) and set exit code 1. */
+async function initializeSchemaOrReport(databaseUrl: string, pgvector: boolean): Promise<boolean> {
+    try {
+        await initializeTeamSchema(databaseUrl, { pgvector });
+        return true;
+    } catch (error) {
+        console.error(chalk.red(`Schema initialization failed. ${explainTeamConnectionError(error)}`));
+        process.exitCode = 1;
+        return false;
+    }
+}
