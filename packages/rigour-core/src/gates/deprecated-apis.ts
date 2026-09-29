@@ -24,6 +24,7 @@ import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import { languageAdapters } from './language-adapters/index.js';
+import { findWithStatements } from './deprecated-apis-ast.js';
 import fs from 'fs-extra';
 import path from 'path';
 import { DeprecatedRule, NODE_DEPRECATED_RULES, WEB_DEPRECATED_RULES, PYTHON_DEPRECATED_RULES, GO_DEPRECATED_RULES, CSHARP_DEPRECATED_RULES, JAVA_DEPRECATED_RULES } from './deprecated-apis-rules.js';
@@ -110,7 +111,10 @@ export class DeprecatedApisGate extends Gate {
                 switch (adapter.id) {
                     case 'js':
                         if (this.config.check_node) this.checkNodeDeprecated(content, file, deprecated);
-                        if (this.config.check_web) this.checkWebDeprecated(content, file, deprecated);
+                        if (this.config.check_web) {
+                            this.checkWebDeprecated(content, file, deprecated);
+                            for (const w of findWithStatements(content, file)) deprecated.push({ file, ...w });
+                        }
                         break;
                     case 'python':
                         this.checkPythonDeprecated(content, file, deprecated);

@@ -3,6 +3,22 @@ import path from 'path';
 
 const sourceExtensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.d.ts'];
 
+/** TypeScript ESM imports name the emitted file: `utils.js` for `utils.ts`. */
+const RUNTIME_TO_SOURCE: Record<string, string[]> = {
+    '.js': ['.ts', '.tsx', '.d.ts'],
+    '.jsx': ['.tsx'],
+    '.mjs': ['.mts', '.d.mts'],
+    '.cjs': ['.cts', '.d.cts'],
+};
+
+function sourceSiblings(target: string): string[] {
+    const extension = path.extname(target);
+    const sources = RUNTIME_TO_SOURCE[extension];
+    if (!sources) return [];
+    const base = target.slice(0, -extension.length);
+    return sources.map(source => base + source);
+}
+
 export async function resolveTsPathTarget(
     baseDir: string,
     candidatePattern: string,
@@ -17,6 +33,7 @@ export async function resolveTsPathTarget(
     const candidates = [
         ...sourceExtensions.map(extension => normalized + extension),
         ...sourceExtensions.map(extension => `${normalized}/index${extension}`),
+        ...sourceSiblings(normalized),
     ];
     if (candidates.some(candidate => projectFiles.has(candidate))) return true;
 

@@ -335,10 +335,23 @@ export function hasCatchWithContinue(body: string, lang: SideEffectLang): boolea
 // ═══════════════════════════════════════════════════════════════════
 
 /**
+ * Drop a trailing line comment (and whole comment lines) so prose such as
+ * "ported from the fork (verified …)" is not read as code. Strings are
+ * already blanked, so `//` inside a URL string is gone before this runs.
+ */
+function stripLineComment(line: string, lang: SideEffectLang): string {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('*') || trimmed.startsWith('/*')) return '';
+    const marker = lang === 'py' || lang === 'rb' ? '#' : '//';
+    const at = line.indexOf(marker);
+    return at === -1 ? line : line.slice(0, at);
+}
+
+/**
  * Check if a line contains a process spawn call.
  */
 export function isProcessSpawn(line: string, lang: SideEffectLang): RegExpMatchArray | null {
-    const stripped = stripStrings(line);
+    const stripped = stripLineComment(stripStrings(line), lang);
     const patterns = getSpawnPatterns(lang);
     for (const pat of patterns) {
         const m = pat.exec(stripped);
@@ -351,9 +364,13 @@ function getSpawnPatterns(lang: SideEffectLang): RegExp[] {
     switch (lang) {
         case 'js':
         case 'ts':
+            // A bare call (from a child_process import) or a call on a
+            // child_process namespace; `re.exec(src)` or `db.exec(sql)` is not a
+            // spawn. *Sync variants finish before returning, so they cannot orphan.
             return [
-                /\b(?:spawn|exec|execFile|fork|execa)\s*\(/,
-                /\bchild_process\.\w+\s*\(/,
+                /(?<![.\w$])(?:spawn|exec|execFile|fork)\s*\(/,
+                /(?<![.\w$])(?:execa|execaCommand)\s*\(/,
+                /\b(?:child_process|childProcess|cp)\.(?:spawn|exec|execFile|fork)\s*\(/,
             ];
         case 'py':
             return [
@@ -392,9 +409,9 @@ function getTimerCreatePatterns(lang: SideEffectLang): [RegExp, string][] {
     switch (lang) {
         case 'js':
         case 'ts':
+            // setTimeout fires once and cannot run unbounded; only setInterval repeats.
             return [
                 [/\bsetInterval\s*\(/, 'setInterval'],
-                [/\bsetTimeout\s*\(/, 'setTimeout'],
             ];
         case 'py':
             return [
@@ -450,7 +467,7 @@ export function getProcessCleanupPatterns(lang: SideEffectLang): RegExp[] {
         case 'js':
         case 'ts':
             return [
-                /\.on\s*\(\s*['"](?:exit|close)['"]/,
+                /\.(?:on|once|addListener)\s*\(\s*['"](?:exit|close)['"]/,
                 /\.kill\s*\(/,
                 /\.disconnect\s*\(/,
             ];

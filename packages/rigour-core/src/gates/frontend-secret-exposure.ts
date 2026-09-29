@@ -96,8 +96,12 @@ export class FrontendSecretExposureGate extends Gate {
                 '(^|/)e2e/',
                 '(^|/)tests/',
                 '(^|/)server/',
-                '(^|/)(?:playwright|vitest|vite|jest|next|webpack|eslint|prettier|tailwind|postcss|babel|tsup|rollup)\\.config\\.[cm]?[jt]s$',
+                '(^|/)(?:playwright|vitest|vite|jest|next|webpack|eslint|prettier|tailwind|postcss|babel|tsup|rollup|drizzle|svelte|astro|nuxt|remix|wrangler|knip|commitlint|esbuild|turbo)\\.config\\.[cm]?[jt]s$',
+                // Any tool config at the repository root runs in Node, never in a browser bundle.
+                '^[^/]+\\.config\\.[cm]?[jt]s$',
                 '\\.server\\.(?:ts|tsx|js|jsx|mjs|cjs)$',
+                // SvelteKit endpoints (`+server.ts`) are server-only.
+                '(^|/)\\+server\\.[cm]?[jt]s$',
                 ...(config.server_path_patterns ?? []),
             ],
             allowlist_env_names: config.allowlist_env_names ?? [],

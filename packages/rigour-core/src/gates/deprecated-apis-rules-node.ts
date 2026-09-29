@@ -24,7 +24,8 @@ export const NODE_DEPRECATED_RULES: DeprecatedRule[] = [
         category: 'security',
     },
     {
-        pattern: /Buffer\s*\(\s*(?:\d|['"])/,
+        // Not ArrayBuffer(n) / SharedArrayBuffer(n) / x.Buffer(...).
+        pattern: /(?<![\w$.])Buffer\s*\(\s*(?:\d|['"])/,
         api: 'Buffer() constructor',
         reason: 'DEP0005: Security vulnerability — uninitialized memory exposure',
         replacement: 'Buffer.from(), Buffer.alloc(), or Buffer.allocUnsafe()',
@@ -177,13 +178,6 @@ export const WEB_DEPRECATED_RULES: DeprecatedRule[] = [
         reason: 'Code injection vulnerability, prevents optimization',
         replacement: 'JSON.parse(), Function constructor (if absolutely needed), or structured approach',
         category: 'security',
-    },
-    {
-        pattern: /with\s*\(\s*\w/,
-        api: 'with statement',
-        reason: 'Removed in strict mode, creates ambiguous scope, security risk',
-        replacement: 'Destructuring or explicit property access',
-        category: 'removed',
     },
     {
         pattern: /document\.all\b/,
