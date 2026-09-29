@@ -16,6 +16,7 @@ import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, s
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
 import { deepStatsCommand } from './commands/deep-stats.js';
+import { deepCommand } from './commands/deep.js';
 import { reviewCommand } from './commands/review.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { securityAuditCommand } from './commands/security-audit.js';
@@ -34,6 +35,7 @@ program.addCommand(indexCommand);
 program.addCommand(studioCommand);
 program.addCommand(brainCommand);
 program.addCommand(deepStatsCommand);
+program.addCommand(deepCommand);
 program.addCommand(teamCommand);
 program.addCommand(createSkillsCommand());
 program.addCommand(createFirewallCommand());

@@ -24,6 +24,7 @@ import { Logger } from '../utils/logger.js';
 import { languageAdapters } from './language-adapters/index.js';
 import { extractCallSequence, isDangerousMutation } from './logic-drift-extractors.js';
 import { isGitWorktree, resolveGitLogicBase } from './logic-drift-git-base.js';
+import { isScoped } from '../utils/scope.js';
 import fs from 'fs-extra';
 import path from 'path';
 import crypto from 'crypto';
@@ -127,6 +128,11 @@ export class LogicDriftGate extends Gate {
             }
         }
 
+        // A scoped run sees only some files: compare against the baseline but
+        // never create or overwrite it, or the rest of the repo drops out of it.
+        const scoped = isScoped(context.patterns);
+        if (!previousBaseline && scoped) return [];
+
         if (!previousBaseline) {
             // First scan: save baseline, no comparisons yet
             const baseline: LogicBaseline = {
@@ -213,7 +219,7 @@ export class LogicDriftGate extends Gate {
             lastUpdated: new Date().toISOString(),
             scanCount: previousBaseline.scanCount + 1,
         };
-        if (!gitBase) await fs.writeJson(baselinePath, updatedBaseline, { spaces: 2 });
+        if (!gitBase && !scoped) await fs.writeJson(baselinePath, updatedBaseline, { spaces: 2 });
 
         if (failures.length > 0) {
             Logger.info(`Logic Drift: Found ${failures.length} logic mutations`);

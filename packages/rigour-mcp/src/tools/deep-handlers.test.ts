@@ -50,4 +50,22 @@ describe('handleCheckDeep privacy routing', () => {
         expect(result.content[0].text).toContain('Local sidecar/model execution');
         expect(result.content[0].text).not.toContain('Code context may be sent');
     });
+
+    it('reports a deep run that did not happen as an error, not a result', async () => {
+        const report = {
+            ...baseReport,
+            status: 'FAIL',
+            stats: { ...baseReport.stats, deep: { enabled: true, status: 'error', error: 'Installed llama-cli does not run' } },
+        };
+        const runner = { run: vi.fn().mockResolvedValue(report) } as any;
+        const result = await handleCheckDeep(runner, '/repo', {} as any, {});
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toContain('deep analysis did not run: Installed llama-cli does not run');
+    });
+
+    it('does not flag a completed deep run as an error', async () => {
+        const runner = { run: vi.fn().mockResolvedValue(baseReport) } as any;
+        expect((await handleCheckDeep(runner, '/repo', {} as any, {})).isError).toBeUndefined();
+    });
 });

@@ -20,6 +20,7 @@ import { Failure, Config } from '../types/index.js';
 import { Gate, GateContext } from './base.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
+import { scopeExcludes } from '../utils/scope.js';
 
 /**
  * Known heavy packages with lighter alternatives.
@@ -89,6 +90,8 @@ export class DependencyGate extends Gate {
         const forbidden = depConfig.forbid || [];
 
         const { cwd } = context;
+        // Dependency health belongs to the manifest: a scoped run checks it only with package.json in scope.
+        if (await scopeExcludes(context, 'package.json')) return [];
 
         // 1. Scan Node.js (package.json) — forbidden + new checks
         const pkgPath = path.join(cwd, 'package.json');

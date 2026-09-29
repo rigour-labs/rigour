@@ -119,31 +119,3 @@ export async function logStudioEvent(cwd: string, event: any) {
         // Silent fail — Studio logging is non-blocking and zero-telemetry
     }
 }
-
-// ─── Diff Parsing ─────────────────────────────────────────────────
-export function parseDiff(diff: string): Record<string, Set<number>> {
-    const lines = diff.split("\n");
-    const mapping: Record<string, Set<number>> = {};
-    let currentFile = "";
-    let currentLine = 0;
-
-    for (const line of lines) {
-        if (line.startsWith("+++ b/")) {
-            currentFile = line.slice(6);
-            mapping[currentFile] = new Set();
-        } else if (line.startsWith("@@")) {
-            const match = line.match(/\+(\d+)/);
-            if (match) {
-                currentLine = parseInt(match[1], 10);
-            }
-        } else if (line.startsWith("+") && !line.startsWith("+++")) {
-            if (currentFile) {
-                mapping[currentFile].add(currentLine);
-            }
-            currentLine++;
-        } else if (!line.startsWith("-")) {
-            currentLine++;
-        }
-    }
-    return mapping;
-}

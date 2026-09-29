@@ -7,8 +7,13 @@
  *
  * Neither AST nor LLM works alone. Together they're accurate.
  */
-export { extractFacts, factsToPromptString } from './fact-extractor.js';
+export { extractFacts, factsToPromptString, isTestFile } from './fact-extractor.js';
 export type { FileFacts, ClassFact, FunctionFact, ErrorHandlingFact, StructFact, InterfaceFact } from './fact-extractor.js';
 export { buildAnalysisPrompt, buildCrossFilePrompt, chunkFacts, DEEP_SYSTEM_PROMPT } from './prompts.js';
 export { verifyFindings } from './verifier.js';
 export type { VerifiedFinding } from './verifier.js';
+export { parseFindings } from './parse-findings.js';
+export { buildCodeContext } from './code-context.js';
+export type { CodeContext, LineRange } from './code-context.js';
+export { buildCodeReviewPrompt, REVIEW_CATEGORIES } from './code-review-prompt.js';
+export { verifyCodeFindings } from './code-verifier.js';

@@ -304,9 +304,9 @@ export const GatesSchema = z.object({
         model_name: z.string().optional(), // cloud model name override (e.g. 'gpt-4o', 'claude-sonnet-4-5-20250929', 'gemini-pro')
         model_path: z.string().optional(), // custom local GGUF model path override
         threads: z.number().optional().default(4),
-        max_tokens: z.number().optional().default(512),
+        max_tokens: z.number().optional(), // default per provider: local 1024, cloud 4096
         temperature: z.number().optional().default(0.1),
-        timeout_ms: z.number().optional().default(60000),
+        timeout_ms: z.number().optional(), // per inference call; default per provider: local 60s, cloud 120s
         checks: z.object({
             solid: z.boolean().optional().default(true),
             dry: z.boolean().optional().default(true),
@@ -426,10 +426,17 @@ export const ReportSchema = z.object({
         }).optional(),
         deep: z.object({
             enabled: z.boolean(),
+            /** ok: every inference ran; partial: some failed; error: deep did not run. */
+            status: z.enum(['ok', 'partial', 'error']).optional(),
+            mode: z.enum(['facts', 'code']).optional(),
             tier: z.enum(['deep', 'lite', 'legacy', 'cloud']).optional(),
             model: z.string().optional(),
+            model_fallback: z.boolean().optional(),
             total_ms: z.number().optional(),
             files_analyzed: z.number().optional(),
+            chunks_total: z.number().optional(),
+            chunks_failed: z.number().optional(),
+            error: z.string().optional(),
             findings_count: z.number().optional(),
             findings_verified: z.number().optional(),
         }).optional(),
@@ -447,4 +454,5 @@ export interface DeepOptions {
     modelName?: string; // cloud model name override
     agents?: number; // Number of parallel agents (default: 1). Cloud-only. Each gets own provider instance.
     maxFiles?: number; // Max files to analyze in deep mode (default: 2000). Configurable via rigour.yml: deep.maxFiles
+    focusLines?: Record<string, number[]>; // Changed lines per cwd-relative file (from a diff); reviewed first in code mode
 }

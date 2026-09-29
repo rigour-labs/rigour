@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildAnalysisPrompt, buildCrossFilePrompt, chunkFacts, DEEP_SYSTEM_PROMPT } from './prompts.js';
-import type { FileFacts } from './fact-extractor.js';
+import { factsToPromptString, type FileFacts } from './fact-extractor.js';
 
 // ── Test helpers ──
 
@@ -220,6 +220,22 @@ describe('Deep Analysis Prompts', () => {
     // ── chunkFacts ──
 
     describe('chunkFacts', () => {
+        it('never lets the serialized chunk overrun the prompt budget, so no file is dropped', () => {
+            const facts: FileFacts[] = Array.from({ length: 40 }, (_, i) =>
+                makeTsFacts({
+                    path: `src/deeply/nested/module-${i}/implementation-file-with-a-long-name-${i}.ts`,
+                    lineCount: 300,
+                    imports: Array.from({ length: 8 }, (_, j) => `@scope/package-with-long-name-${j}/sub/path`),
+                }),
+            );
+            const chunks = chunkFacts(facts, 6000);
+            expect(chunks.flat()).toHaveLength(facts.length);
+            for (const chunk of chunks) {
+                const text = factsToPromptString(chunk);
+                for (const f of chunk) expect(text).toContain(`FILE: ${f.path}`);
+            }
+        });
+
         it('should split facts into token-limited chunks', () => {
             const manyFacts: FileFacts[] = Array.from({ length: 50 }, (_, i) =>
                 makeTsFacts({

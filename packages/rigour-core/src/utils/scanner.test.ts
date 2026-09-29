@@ -22,16 +22,29 @@ describe('FileScanner', () => {
         expect(ignore).toContain('custom-ignore');
     });
 
-    it('should normalize paths to forward slashes', async () => {
-        const options = {
-            cwd: 'C:\\test\\path',
-            patterns: ['**\\*.ts']
-        };
+    it('should normalize Windows paths to forward slashes', async () => {
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+        try {
+            await FileScanner.findFiles({ cwd: 'C:\\test\\path', patterns: ['**\\*.ts', 'app\\\\[key\\]\\route.ts'] });
+        } finally {
+            Object.defineProperty(process, 'platform', platform);
+        }
 
-        await FileScanner.findFiles(options);
-
-        const call = vi.mocked(globby).mock.calls[1];
-        expect(call[0][0]).toBe('**/*.ts');
+        const call = vi.mocked(globby).mock.calls.at(-1)!;
+        expect(call[0]).toEqual(['**/*.ts', 'app/\\[key\\]/route.ts']);
         expect(call[1]?.cwd).toBe('C:/test/path');
+    });
+
+    it('should keep glob escapes on POSIX', async () => {
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+        try {
+            await FileScanner.findFiles({ cwd: '/repo', patterns: ['src/app/\\[key\\]/route.ts'] });
+        } finally {
+            Object.defineProperty(process, 'platform', platform);
+        }
+
+        expect(vi.mocked(globby).mock.calls.at(-1)![0]).toEqual(['src/app/\\[key\\]/route.ts']);
     });
 });

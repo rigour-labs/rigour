@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
-import { loadSettings, resolveDeepOptions, isModelCached, createProvider } from '@rigour-labs/core';
+import { loadSettings, resolveDeepOptions, getCachedModel, SidecarProvider } from '@rigour-labs/core';
 
 function runText(command: string, args: string[]): string {
     try {
@@ -114,17 +114,18 @@ export async function doctorCommand(): Promise<void> {
         console.log(chalk.green('  ✓ Deep defaults to local execution.'));
     }
 
-    const provider = createProvider({ enabled: true, provider: 'local' } as any);
-    const sidecarAvailable = await provider.isAvailable();
-    provider.dispose();
-    const liteModelCached = await isModelCached('lite');
-    const deepModelCached = await isModelCached('deep');
-    console.log(`  - Local inference binary: ${sidecarAvailable ? chalk.green('ready') : chalk.yellow('missing')}`);
-    console.log(`  - Local lite model cache: ${liteModelCached ? chalk.green('ready') : chalk.yellow('not cached')}`);
-    console.log(`  - Local deep model cache: ${deepModelCached ? chalk.green('ready') : chalk.dim('not cached')}`);
+    // "ready" means the binary ran `--version`, not merely that a file exists.
+    const engine = await new SidecarProvider('lite').findEngine();
+    const liteModel = await getCachedModel('lite');
+    const deepModel = await getCachedModel('deep');
+    console.log(`  - Local inference engine: ${engine
+        ? chalk.green(`ready (llama.cpp ${engine.version ?? 'unknown version'}) ${chalk.dim(engine.path)}`)
+        : chalk.yellow('missing')}`);
+    console.log(`  - Local lite model: ${liteModel ? chalk.green(`ready (${liteModel.info.name})`) : chalk.yellow('not cached')}`);
+    console.log(`  - Local deep model: ${deepModel ? chalk.green(`ready (${deepModel.info.name})`) : chalk.dim('not cached')}`);
 
-    if (!sidecarAvailable || !liteModelCached) {
-        console.log(chalk.dim('\n  Local bootstrap command: rigour check --deep --provider local'));
+    if (!engine || !liteModel) {
+        console.log(chalk.dim('\n  Local bootstrap command: rigour deep pull   (add --pro for the full model)'));
     }
 
     const rigourHome = path.join(os.homedir(), '.rigour');
@@ -132,7 +133,8 @@ export async function doctorCommand(): Promise<void> {
 
     console.log(chalk.bold('Recommended Baseline'));
     console.log(chalk.dim('  1) rigour doctor'));
-    console.log(chalk.dim('  2) rigour check --deep --provider local'));
-    console.log(chalk.dim('  3) rigour check --deep -k <KEY> --provider <name>'));
+    console.log(chalk.dim('  2) rigour deep pull [--pro]'));
+    console.log(chalk.dim('  3) rigour check <changed files> --deep'));
+    console.log(chalk.dim('  4) rigour check --deep -k <KEY> --provider <name>'));
     console.log('');
 }

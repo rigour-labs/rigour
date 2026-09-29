@@ -14,14 +14,11 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { GateRunner, ConfigSchema, resolveDeepOptions } from '@rigour-labs/core';
+import { GateRunner, ConfigSchema, resolveDeepOptions, parseDiff, changedLinesByFile, normalizeScopePatterns, deepAnalysisError } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
 import { buildCiReviewSummary, filterChangedLineFailures, renderGithubSummary } from './review-summary.js';
 
-const EXIT_PASS = 0;
-const EXIT_FAIL = 1;
-const EXIT_CONFIG_ERROR = 2;
-const EXIT_INTERNAL_ERROR = 3;
+import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR } from './exit-codes.js';
 
 export interface ReviewOptions {
     json?: boolean;
@@ -36,37 +33,6 @@ export interface ReviewOptions {
     provider?: string;
     apiBaseUrl?: string;
     modelName?: string;
-}
-
-/**
- * Parse unified diff into a mapping of file → modified line numbers.
- * Same logic as MCP's parseDiff utility.
- */
-function parseDiff(diff: string): Record<string, Set<number>> {
-    const lines = diff.split('\n');
-    const mapping: Record<string, Set<number>> = {};
-    let currentFile = '';
-    let currentLine = 0;
-
-    for (const line of lines) {
-        if (line.startsWith('+++ b/')) {
-            currentFile = line.slice(6);
-            mapping[currentFile] = new Set();
-        } else if (line.startsWith('@@')) {
-            const match = line.match(/\+(\d+)/);
-            if (match) {
-                currentLine = parseInt(match[1], 10);
-            }
-        } else if (line.startsWith('+') && !line.startsWith('+++')) {
-            if (currentFile) {
-                mapping[currentFile].add(currentLine);
-            }
-            currentLine++;
-        } else if (!line.startsWith('-')) {
-            currentLine++;
-        }
-    }
-    return mapping;
 }
 
 async function readStdin(): Promise<string> {
@@ -167,10 +133,17 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
                 provider: hasApiKey ? (resolved.provider || 'claude') : 'local',
                 apiBaseUrl: resolved.apiBaseUrl,
                 modelName: resolved.modelName,
+                focusLines: changedLinesByFile(diffMapping),
             };
         }
 
-        const report = await runner.run(cwd, targetFiles, deepOpts);
+        const report = await runner.run(cwd, await normalizeScopePatterns(cwd, targetFiles), deepOpts);
+
+        // A deep run that could not analyze anything has no file or line, so
+        // the changed-line filter would hide it: report it explicitly.
+        const deepError = deepAnalysisError(report);
+        const exitCode = (passed: boolean) => reviewExitCode(passed, deepError);
+        if (deepError && !options.json) console.error(chalk.red(`Deep analysis did not run: ${deepError}`));
 
         // A file-level finding cannot be attributed to a changed line.
         const { failures: filteredFailures, unlocated } = filterChangedLineFailures(report.failures, diffMapping);
@@ -181,7 +154,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         // JSON output
         if (options.json) {
             const jsonOutput = JSON.stringify({
-                status,
+                status: reviewStatus(status, deepError),
                 score: report.stats.score,
                 ai_health_score: report.stats.ai_health_score,
                 structural_score: report.stats.structural_score,
@@ -189,6 +162,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
                 filtered_failures: filteredFailures.length,
                 unlocated_failures: unlocated,
                 ci_summary: ciSummary,
+                ...(report.stats.deep ? { deep: report.stats.deep } : {}),
                 failures: filteredFailures.map(f => ({
                     id: f.id,
                     gate: f.title,
@@ -201,14 +175,14 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
                 })),
             }, null, 2);
             process.stdout.write(jsonOutput + '\n', () => {
-                process.exit(status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+                process.exit(exitCode(status === 'PASS'));
             });
             return;
         }
 
         if (options.githubSummary) {
             console.log(renderGithubSummary(ciSummary));
-            process.exit(status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+            process.exit(exitCode(status === 'PASS'));
         }
 
         // CI output
@@ -223,7 +197,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
                     console.log(`  - [${sev}] ${f.files?.[0] || ''}:${f.line || '?'} ${f.title}`);
                 }
             }
-            process.exit(status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+            process.exit(exitCode(status === 'PASS'));
         }
 
         // Human-readable output
@@ -243,7 +217,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
             }
         }
 
-        process.exit(status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
+        process.exit(exitCode(status === 'PASS'));
 
     } catch (error: any) {
         if (error.name === 'ZodError') {
@@ -265,4 +239,14 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         }
         process.exit(EXIT_INTERNAL_ERROR);
     }
+}
+
+/** A deep run that did not happen overrides the changed-line verdict. */
+function reviewExitCode(passed: boolean, deepError: string | undefined): number {
+    if (deepError) return EXIT_INTERNAL_ERROR;
+    return passed ? EXIT_PASS : EXIT_FAIL;
+}
+
+function reviewStatus(status: 'PASS' | 'FAIL', deepError: string | undefined): 'PASS' | 'FAIL' | 'ERROR' {
+    return deepError ? 'ERROR' : status;
 }

@@ -2,7 +2,7 @@
  * Prompt Engineering — Step 2 of the three-step pipeline.
  * Constructs structured prompts that ask the LLM to interpret AST-extracted facts.
  */
-import type { FileFacts } from './fact-extractor.js';
+import { factsToPromptString, type FileFacts } from './fact-extractor.js';
 
 /**
  * System prompt that defines the LLM's role and output format.
@@ -391,13 +391,7 @@ export function chunkFacts(facts: FileFacts[], maxCharsPerChunk = 6000): FileFac
     return chunks;
 }
 
+/** Serialized size of one file's facts, so chunks never overrun the prompt budget. */
 function estimateFactSize(f: FileFacts): number {
-    let size = f.path.length + 50;
-    size += f.classes.reduce((a, c) => a + c.name.length + c.methods.length * 20 + 50, 0);
-    size += (f.structs || []).reduce((a, s) => a + s.name.length + s.methods.length * 20 + s.embeds.length * 15 + 60, 0);
-    size += (f.interfaces || []).reduce((a, i) => a + i.name.length + i.methods.length * 15 + 40, 0);
-    size += f.functions.reduce((a, fn) => a + fn.name.length + fn.params.length * 15 + 50, 0);
-    size += f.imports.length * 30;
-    size += f.errorHandling.length * 30;
-    return size;
+    return factsToPromptString([f], Number.POSITIVE_INFINITY).length + 2;
 }

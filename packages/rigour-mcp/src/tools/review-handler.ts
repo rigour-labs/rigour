@@ -5,8 +5,7 @@
  *
  * @since v2.17.0 — extracted from monolithic index.ts
  */
-import { GateRunner } from "@rigour-labs/core";
-import { parseDiff } from '../utils/config.js';
+import { GateRunner, parseDiff, normalizeScopePatterns } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[] };
@@ -23,7 +22,7 @@ export async function handleReview(
 
     // 2. Run high-fidelity analysis on changed files
     notifyProgress("info", `Reviewing ${targetFiles.length} changed files...`);
-    const report = await runner.run(cwd, targetFiles);
+    const report = await runner.run(cwd, await normalizeScopePatterns(cwd, targetFiles));
 
     // 3. Filter failures to only those on changed lines (or global gate failures)
     const filteredFailures = report.failures.filter(failure => {

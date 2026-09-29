@@ -3,7 +3,15 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GateRunner } from './runner.js';
-import { DeepAnalysisGate } from './deep-analysis.js';
+import { DeepAnalysisGate, type DeepRunOutcome } from './deep-analysis.js';
+import type { Failure } from '../types/index.js';
+
+function mockDeep(outcome: Partial<DeepRunOutcome>, failures: Failure[] = []) {
+    vi.spyOn(DeepAnalysisGate.prototype, 'run').mockResolvedValue(failures);
+    vi.spyOn(DeepAnalysisGate.prototype, 'getOutcome').mockReturnValue({
+        status: 'ok', mode: 'facts', filesAnalyzed: 1, chunksTotal: 1, chunksFailed: 0, ...outcome,
+    });
+}
 
 describe('GateRunner deep stats execution mode', () => {
     let testDir: string;
@@ -30,49 +38,61 @@ describe('GateRunner deep stats execution mode', () => {
         } as any);
     }
 
-    it('reports local lite tier when provider=local even with apiKey', async () => {
-        vi.spyOn(DeepAnalysisGate.prototype, 'run').mockResolvedValue([]);
-        const runner = createRunner();
+    it('reports local lite tier and the model the provider actually loaded', async () => {
+        mockDeep({ model: 'Qwen2.5-Coder-0.5B-Instruct (stock)', modelFallback: true });
 
-        const report = await runner.run(testDir, undefined, {
-            enabled: true,
-            apiKey: 'sk-test',
-            provider: 'local',
-            pro: false,
+        const report = await createRunner().run(testDir, undefined, {
+            enabled: true, apiKey: 'sk-test', provider: 'local', pro: false,
         });
 
         expect(report.stats.deep?.tier).toBe('lite');
-        expect(report.stats.deep?.model).toBe('Qwen2.5-Coder-0.5B');
+        expect(report.stats.deep?.model).toBe('Qwen2.5-Coder-0.5B-Instruct (stock)');
+        expect(report.stats.deep?.model_fallback).toBe(true);
+        expect(report.stats.deep?.status).toBe('ok');
+        expect(report.summary['deep-analysis']).toBe('PASS');
     });
 
     it('reports local deep tier when provider=local and pro=true', async () => {
-        vi.spyOn(DeepAnalysisGate.prototype, 'run').mockResolvedValue([]);
-        const runner = createRunner();
+        mockDeep({ model: 'Rigour-Deep-v5.0.0 (Qwen2.5-Coder-1.5B fine-tuned)', modelFallback: false });
 
-        const report = await runner.run(testDir, undefined, {
-            enabled: true,
-            apiKey: 'sk-test',
-            provider: 'local',
-            pro: true,
+        const report = await createRunner().run(testDir, undefined, {
+            enabled: true, apiKey: 'sk-test', provider: 'local', pro: true,
         });
 
         expect(report.stats.deep?.tier).toBe('deep');
-        expect(report.stats.deep?.model).toBe('Qwen2.5-Coder-1.5B');
+        expect(report.stats.deep?.model).toBe('Rigour-Deep-v5.0.0 (Qwen2.5-Coder-1.5B fine-tuned)');
     });
 
     it('reports cloud tier/model for cloud providers', async () => {
-        vi.spyOn(DeepAnalysisGate.prototype, 'run').mockResolvedValue([]);
-        const runner = createRunner();
+        mockDeep({ model: 'gpt-4.1-mini' });
 
-        const report = await runner.run(testDir, undefined, {
-            enabled: true,
-            apiKey: 'sk-test',
-            provider: 'openai',
-            modelName: 'gpt-4.1-mini',
-            pro: false,
+        const report = await createRunner().run(testDir, undefined, {
+            enabled: true, apiKey: 'sk-test', provider: 'openai', modelName: 'gpt-4.1-mini', pro: false,
         });
 
         expect(report.stats.deep?.tier).toBe('cloud');
         expect(report.stats.deep?.model).toBe('gpt-4.1-mini');
+    });
+
+    it('reports a deep run that could not analyze anything as ERROR with a visible failure', async () => {
+        mockDeep({ status: 'error', chunksTotal: 3, chunksFailed: 3, error: 'All 3 inference call(s) failed.' });
+
+        const report = await createRunner().run(testDir, undefined, { enabled: true, pro: false });
+
+        expect(report.summary['deep-analysis']).toBe('ERROR');
+        expect(report.status).toBe('FAIL');
+        expect(report.stats.deep).toMatchObject({ status: 'error', chunks_total: 3, chunks_failed: 3, error: 'All 3 inference call(s) failed.' });
+        const failure = report.failures.find(f => f.id === 'deep-analysis');
+        expect(failure?.title).toBe('Deep analysis did not run');
+        expect(failure?.details).toContain('All 3 inference call(s) failed.');
+    });
+
+    it('keeps a partial run as PASS/FAIL by findings and records failed chunks', async () => {
+        mockDeep({ status: 'partial', chunksTotal: 4, chunksFailed: 1 });
+
+        const report = await createRunner().run(testDir, undefined, { enabled: true, pro: false });
+
+        expect(report.summary['deep-analysis']).toBe('PASS');
+        expect(report.stats.deep).toMatchObject({ status: 'partial', chunks_total: 4, chunks_failed: 1 });
     });
 });
