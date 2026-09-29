@@ -1,0 +1,3 @@
+{ "note": "The avatar has a documented fallback (initials); the profile is the card.",
+  "labels": { "loadProfile": "required", "loadAvatarUrl": "optional" },
+  "expectFinding": true }

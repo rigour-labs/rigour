@@ -257,6 +257,7 @@ export const UNIVERSAL_CONFIG: Config = {
             provider: 'local',
             threads: 4,
             temperature: 0.1,
+            intent_checks: false,
             checks: {
                 solid: true,
                 dry: true,

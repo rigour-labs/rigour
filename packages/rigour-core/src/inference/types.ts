@@ -35,6 +35,8 @@ export interface InferenceOptions {
     temperature?: number;
     timeout?: number;
     jsonMode?: boolean;
+    /** Constrain local output to this JSON schema instead of the findings schema. */
+    jsonSchema?: Record<string, unknown>;
 }
 
 /**

@@ -1,0 +1,3 @@
+{ "note": "An order page without its lines (or its order) is wrong, not partial.",
+  "labels": { "getOrder": "required", "getOrderLines": "required" },
+  "expectFinding": false }

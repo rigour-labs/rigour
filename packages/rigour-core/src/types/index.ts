@@ -311,6 +311,9 @@ export const GatesSchema = z.object({
         max_tokens: z.number().optional(), // default per provider: local 1024, cloud 4096
         temperature: z.number().optional().default(0.1),
         timeout_ms: z.number().optional(), // per inference call; default per provider: local 60s, cloud 120s
+        // Intent questions at engine-proven sites (optional-read-no-fallback) in scoped reviews.
+        // Off: the stock local models failed the zero-false-finding bar (docs/DEEP_ANALYSIS.md).
+        intent_checks: z.boolean().optional().default(false),
         checks: z.object({
             solid: z.boolean().optional().default(true),
             dry: z.boolean().optional().default(true),

@@ -31,6 +31,7 @@ export async function runDeepAnalysis(
         maxTokens: config.gates.deep?.max_tokens,
         temperature: config.gates.deep?.temperature,
         timeoutMs: config.gates.deep?.timeout_ms,
+        intentChecks: config.gates.deep?.intent_checks,
         onProgress: deepOptions.onProgress,
     });
 

@@ -240,6 +240,21 @@ Array of check categories to enable. Omit to check all 40+ categories.
 
 LLM parameters. Higher temperature = more creative but less reliable. Higher timeout accommodates slower local models.
 
+### `intent_checks` (off by default)
+
+In a scoped review (`rigour review --deep`, `rigour check <paths> --deep`), asks the model only what the code cannot say, at a site the engine has already proven. The one rule today is `optional-read-no-fallback`: at an `await Promise.all([...])` where no read handles its own failure, is one read optional (a drill-down, a decorative strip) while another is required? If so, the optional read's failure discards the required result.
+
+Each read gets two questions of opposite polarity ("should the function still return if X fails?" and "is X required?"). An answer counts only when both agree; anything else is unknown, and unknown never becomes a finding. A finding needs one read judged optional and another judged required at the same site.
+
+It is off because the stock local models failed the bar of zero false findings with useful recall. Measured on the labelled set in `benchmarks/intent/` (3 sites with an optional read, 4 where every read is required or every read is optional, 1 fixed site the engine must skip), two runs per tier, fixed seed:
+
+| Model | Raw answers correct | Reads kept by the filter | Sites caught | False findings |
+|:---|:---|:---|:---|:---|
+| Qwen2.5-Coder-0.5B (lite) | 16/32 (answers "no" to everything) | 0/16 | 0/3 | 0 |
+| Qwen2.5-Coder-1.5B (pro) | 16/32 (answers "yes" to everything) | 0/16 | 0/3 | 0 |
+
+The filter does its job (the constant answers never become findings), but nothing is caught. A forced-choice probe with the order of the reads swapped did better on the 1.5B model (both optional reads named consistently) but also named `sumRefunds` as optional in a net-revenue calculation in both orders, which is a false finding. Rerun the measurement with `node scripts/measure-intent.mjs --tiers lite,deep --runs 2` after building; enable `intent_checks` only for a model that reports 0 false findings there.
+
 ---
 
 ## CLI Usage

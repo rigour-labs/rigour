@@ -1,0 +1,3 @@
+{ "note": "Recommendations are a decorative strip; the account summary is the page.",
+  "labels": { "getAccount": "required", "getRecommendedCourses": "optional" },
+  "expectFinding": true }

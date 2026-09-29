@@ -1,0 +1,3 @@
+{ "note": "Both reads are decorative; there is no required result for a failure to take down.",
+  "labels": { "fetchTipOfTheDay": "optional", "fetchCommunityHighlights": "optional" },
+  "expectFinding": false }

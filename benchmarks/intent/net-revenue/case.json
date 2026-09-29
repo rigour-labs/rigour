@@ -1,0 +1,3 @@
+{ "note": "Net revenue without refunds would overstate revenue; both reads are required.",
+  "labels": { "sumSales": "required", "sumRefunds": "required" },
+  "expectFinding": false }

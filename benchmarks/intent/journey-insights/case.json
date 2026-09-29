@@ -1,0 +1,3 @@
+{ "note": "c3: the impact is the answer; the step diagnosis is a drill-down and must not take it down.",
+  "labels": { "fetchJourneyImpact": "required", "fetchStepEngagement": "optional", "loadJourneySlots": "optional" },
+  "expectFinding": true }
