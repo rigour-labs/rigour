@@ -42,8 +42,8 @@ export function extractVariableBinding(line: string, lang: SideEffectLang): stri
     const jsMatch = stripped.match(/^(?:const|let|var|final|auto|val)\s+(\w+)\s*=\s*/);
     if (jsMatch) return jsMatch[1];
 
-    // Member assignment: `this.timer = ...`, `self.timer = ...`
-    const memberMatch = stripped.match(/^(?:this|self)\.([\w]+)\s*=\s*/);
+    // Member assignment: `this.timer = ...`, `self.timer = ...`, `this.#timer = ...`
+    const memberMatch = stripped.match(/^(?:this|self)\.(#?[\w]+)\s*=\s*/);
     if (memberMatch) return memberMatch[1];
 
     // Simple assignment: `timer = ...`
@@ -81,28 +81,37 @@ export function hasCleanupForVariable(
     for (let i = 0; i < scope.length; i++) {
         const stripped = stripStrings(scope[i]);
 
-        // Check cleanup patterns that reference the specific variable
+        // Check cleanup patterns that reference the specific variable. Some
+        // patterns need the quoted event name (`.once('exit', …)`), which
+        // stripStrings blanks, so they are also tried on the raw line.
         for (const pat of cleanupPatterns) {
-            if (!pat.test(stripped)) continue;
+            if (!pat.test(stripped) && !pat.test(scope[i])) continue;
 
-            // The cleanup call should reference our variable
-            const escapedVar = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const varRef = new RegExp(`\\b${escapedVar}\\b`);
-            if (varRef.test(stripped)) return true;
+            // The cleanup call should reference our variable. Lookarounds, not
+            // \b, so a private field such as `#timer` matches too.
+            if (variableReference(varName).test(stripped)) return true;
 
             // Also check method calls on the variable: timer.close(), timer.stop()
             // The pattern might match a generic .close() — check if it's on our var
         }
 
         // Direct method cleanup on the variable: varName.close(), varName.Stop()
-        const escapedVar = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedVar = escapeRegExp(varName);
         const methodCleanup = new RegExp(
-            `\\b${escapedVar}\\.(?:close|stop|destroy|kill|terminate|dispose|cancel|shutdown|unsubscribe|disconnect|end|release|Clear|Stop|Dispose|Close|Cancel)\\s*\\(`
+            `(?<![\\w$#])${escapedVar}\\.(?:close|stop|destroy|kill|terminate|dispose|cancel|shutdown|unsubscribe|disconnect|end|release|Clear|Stop|Dispose|Close|Cancel)\\s*\\(`
         );
         if (methodCleanup.test(stripped)) return true;
     }
 
     return false;
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function variableReference(varName: string): RegExp {
+    return new RegExp(`(?<![\\w$#])${escapeRegExp(varName)}(?![\\w$])`);
 }
 
 /**

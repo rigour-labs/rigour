@@ -26,7 +26,8 @@ import fs from 'fs-extra';
 import path from 'path';
 import { isNodeBuiltin, isPythonStdlib } from '../hallucinated-imports-stdlib.js';
 import { checkGoImports, checkRubyImports, checkCSharpImports, checkRustImports, checkJavaKotlinImports } from '../hallucinated-imports-lang.js';
-import { checkJSImports, collectJSImportSpecs } from './js-resolver.js';
+import { checkJSImports, collectJSImportSpecs, type JsImportContext } from './js-resolver.js';
+import { SvelteKitRoots } from './framework-modules.js';
 import { checkPyImports } from './python-resolver.js';
 import { discoverWorkspacePackages, loadPackageJson } from './manifest-discovery.js';
 
@@ -70,6 +71,8 @@ export class HallucinatedImportsGate extends Gate {
         const hallucinated: HallucinatedImport[] = [];
 
         const defaultPatterns = ['**/*.{ts,js,tsx,jsx,py,go,rb,cs,rs,java,kt}'];
+        // Imports can target component files that are not scanned themselves.
+        const resolutionPatterns = ['**/*.{ts,js,tsx,jsx,mjs,cjs,py,go,rb,cs,rs,java,kt,svelte,vue,astro}'];
         const scanPatterns = context.patterns || defaultPatterns;
         const ignore = [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
             '**/examples/**', '**/studio-dist/**', '**/.next/**', '**/coverage/**',
@@ -85,11 +88,9 @@ export class HallucinatedImportsGate extends Gate {
 
         Logger.info(`Hallucinated Imports: Scanning ${analyzableFiles.length} files`);
 
-        // A scoped review scans changed files, but relative imports may point
-        // to unchanged files. Resolve against the project, not the edit set.
-        const resolutionFiles = context.patterns
-            ? await FileScanner.findFiles({ cwd: context.cwd, patterns: defaultPatterns, ignore })
-            : files;
+        // Resolve against the whole project, not the scanned set: a scoped
+        // review scans changed files only, and imports may target components.
+        const resolutionFiles = await FileScanner.findFiles({ cwd: context.cwd, patterns: resolutionPatterns, ignore });
         const projectFiles = new Set(resolutionFiles.map(f => f.replace(/\\/g, '/')));
         const allProjectFiles = projectFiles;
         const packageJson = await loadPackageJson(context.cwd);
@@ -107,6 +108,13 @@ export class HallucinatedImportsGate extends Gate {
         const tsPathCacheByDir = new Map<string, any>();
 
         const hasNodeModules = await fs.pathExists(path.join(context.cwd, 'node_modules'));
+        const jsContext: JsImportContext = {
+            cwd: context.cwd, projectFiles, rootDeps, depCacheByDir, hasNodeModules, hallucinated, tsPathCacheByDir,
+            kitRoots: new SvelteKitRoots(context.cwd),
+            shouldIgnore: (importPath) => this.shouldIgnore(importPath),
+            resolveRelativeImport: (fromFile, importPath, files) => this.resolveRelativeImport(fromFile, importPath, files),
+            extractPackageName: (importPath) => this.extractPackageName(importPath),
+        };
 
         for (const file of analyzableFiles) {
             try {
@@ -118,14 +126,7 @@ export class HallucinatedImportsGate extends Gate {
 
                 switch (adapter.id) {
                     case 'js':
-                        await checkJSImports(
-                            content, file, context.cwd, projectFiles, rootDeps,
-                            depCacheByDir, hasNodeModules, hallucinated, tsPathCacheByDir,
-                            (importPath) => this.shouldIgnore(importPath),
-                            (resolvedPath) => this.buildImportCandidates(resolvedPath),
-                            (fromFile, importPath, files) => this.resolveRelativeImport(fromFile, importPath, files),
-                            (importPath) => this.extractPackageName(importPath)
-                        );
+                        await checkJSImports(content, file, jsContext);
                         break;
                     case 'python':
                         await checkPyImports(content, file, context.cwd, projectFiles, hallucinated);

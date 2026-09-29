@@ -15,6 +15,8 @@ import ts from 'typescript';
 import { HallucinatedImport } from './index.js';
 import { isNodeBuiltin } from '../hallucinated-imports-stdlib.js';
 import { resolveTsPathTarget } from './ts-path-target.js';
+import { isSvelteKitProvided, resolveSvelteKitLib, type SvelteKitRoots } from './framework-modules.js';
+import { Logger } from '../../utils/logger.js';
 
 interface TsPathRule {
     key: string;
@@ -29,71 +31,71 @@ interface TsPathConfig {
     rules: TsPathRule[];
 }
 
+/** Everything a JS/TS import check needs besides the file itself. */
+export interface JsImportContext {
+    cwd: string;
+    projectFiles: Set<string>;
+    rootDeps: Set<string>;
+    depCacheByDir: Map<string, Set<string>>;
+    hasNodeModules: boolean;
+    hallucinated: HallucinatedImport[];
+    tsPathCacheByDir: Map<string, TsPathConfig | null>;
+    kitRoots: SvelteKitRoots;
+    shouldIgnore: (importPath: string) => boolean;
+    resolveRelativeImport: (fromFile: string, importPath: string, projectFiles: Set<string>) => boolean;
+    extractPackageName: (importPath: string) => string;
+}
+
 /**
  * Check JavaScript/TypeScript imports in a source file and add hallucinated findings.
  */
-export async function checkJSImports(
-    content: string,
-    file: string,
-    cwd: string,
-    projectFiles: Set<string>,
-    rootDeps: Set<string>,
-    depCacheByDir: Map<string, Set<string>>,
-    hasNodeModules: boolean,
-    hallucinated: HallucinatedImport[],
-    tsPathCacheByDir: Map<string, TsPathConfig | null>,
-    shouldIgnore: (importPath: string) => boolean,
-    buildImportCandidates: (resolvedPath: string) => string[],
-    resolveRelativeImport: (fromFile: string, importPath: string, projectFiles: Set<string>) => boolean,
-    extractPackageName: (importPath: string) => string
-): Promise<void> {
-    const depsForFile = await resolveJSDepsForFile(file, cwd, rootDeps, depCacheByDir);
+export async function checkJSImports(content: string, file: string, ctx: JsImportContext): Promise<void> {
+    const depsForFile = await resolveJSDepsForFile(file, ctx.cwd, ctx.rootDeps, ctx.depCacheByDir);
+    const kitRoot = await ctx.kitRoots.rootFor(file);
 
-    for (const spec of collectJSImportSpecs(content, file)) {
-        const { importPath, line } = spec;
-        if (!importPath || shouldIgnore(importPath)) continue;
+    for (const { importPath, line } of collectJSImportSpecs(content, file)) {
+        if (!importPath || ctx.shouldIgnore(importPath)) continue;
+        if (kitRoot && isSvelteKitProvided(importPath)) continue;
 
-        if (importPath.startsWith('.')) {
-            const resolved = resolveRelativeImport(file, importPath, projectFiles);
-            if (!resolved) {
-                hallucinated.push({
-                    file, line, importPath, type: 'relative',
-                    reason: `File not found: ${importPath}`,
-                });
-            }
-        } else {
-            const aliasResolution = await resolveTsPathAlias(
-                file,
-                importPath,
-                cwd,
-                projectFiles,
-                tsPathCacheByDir
-            );
-            if (aliasResolution === true) continue;
-            if (aliasResolution === false) {
-                hallucinated.push({
-                    file, line, importPath, type: 'package',
-                    reason: `Path alias '${importPath}' does not resolve to a project file`,
-                });
-                continue;
-            }
-
-            const pkgName = extractPackageName(importPath);
-            if (isNodeBuiltin(pkgName)) continue;
-
-            if (!depsForFile.has(pkgName)) {
-                if (hasNodeModules) {
-                    const pkgPath = path.join(cwd, 'node_modules', pkgName);
-                    if (await fs.pathExists(pkgPath)) continue;
-                }
-
-                hallucinated.push({
-                    file, line, importPath, type: 'package',
-                    reason: `Package '${pkgName}' not in package.json dependencies`,
-                });
-            }
+        const reason = importPath.startsWith('.')
+            ? checkRelativeImport(file, importPath, ctx)
+            : await checkBareImport(file, importPath, depsForFile, kitRoot, ctx);
+        if (reason) {
+            ctx.hallucinated.push({
+                file, line, importPath,
+                type: importPath.startsWith('.') ? 'relative' : 'package',
+                reason,
+            });
         }
     }
+}
+
+function checkRelativeImport(file: string, importPath: string, ctx: JsImportContext): string | null {
+    return ctx.resolveRelativeImport(file, importPath, ctx.projectFiles) ? null : `File not found: ${importPath}`;
+}
+
+/** Reason the bare import is hallucinated, or null when it resolves. */
+async function checkBareImport(
+    file: string,
+    importPath: string,
+    depsForFile: Set<string>,
+    kitRoot: string | null,
+    ctx: JsImportContext,
+): Promise<string | null> {
+    const aliasResolution = await resolveTsPathAlias(file, importPath, ctx.cwd, ctx.projectFiles, ctx.tsPathCacheByDir);
+    if (aliasResolution === true) return null;
+    if (aliasResolution === false) return `Path alias '${importPath}' does not resolve to a project file`;
+
+    if (kitRoot) {
+        const lib = await resolveSvelteKitLib(importPath, kitRoot, ctx.cwd, ctx.projectFiles);
+        if (lib === true) return null;
+        if (lib === false) return `Path alias '${importPath}' does not resolve to a file under src/lib`;
+    }
+
+    const pkgName = ctx.extractPackageName(importPath);
+    if (isNodeBuiltin(pkgName) || depsForFile.has(pkgName)) return null;
+    if (ctx.hasNodeModules && await fs.pathExists(path.join(ctx.cwd, 'node_modules', pkgName))) return null;
+    return `Package '${pkgName}' not in package.json dependencies`;
 }
 
 /**
@@ -340,6 +342,8 @@ async function resolveExtendsChain(
             }
             if (await fs.pathExists(resolvedExtends)) {
                 await resolveExtendsChain(resolvedExtends, mergedPaths, setBaseUrl, visited);
+            } else {
+                warnMissingExtends(configPath, extendsPath);
             }
         }
     }
@@ -355,6 +359,20 @@ async function resolveExtendsChain(
             }
         }
     }
+}
+
+const warnedMissingExtends = new Set<string>();
+
+/**
+ * A missing `extends` target drops its path aliases. Say so once, instead of
+ * reporting every aliased import as missing without a reason.
+ */
+function warnMissingExtends(configPath: string, extendsPath: string): void {
+    const key = `${configPath}\0${extendsPath}`;
+    if (warnedMissingExtends.has(key)) return;
+    warnedMissingExtends.add(key);
+    const hint = extendsPath.includes('.svelte-kit') ? ' Run `svelte-kit sync` first to generate it.' : '';
+    Logger.warn(`${path.basename(configPath)} extends '${extendsPath}', which does not exist; its path aliases are ignored.${hint}`);
 }
 
 /**

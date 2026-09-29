@@ -347,3 +347,40 @@ class Resource {
         expect(failures[0].details).toContain('finalize');
     });
 });
+
+describe('DeprecatedApisGate — word fragments and non-code text', () => {
+    let gate: DeprecatedApisGate;
+
+    beforeEach(() => {
+        gate = new DeprecatedApisGate();
+        vi.clearAllMocks();
+    });
+
+    async function apisFor(file: string, source: string): Promise<string> {
+        mockFindFiles.mockResolvedValue([file]);
+        mockReadFile.mockResolvedValue(source);
+        const failures = await gate.run({ cwd: '/project' });
+        return failures.map(f => f.details).join('\n');
+    }
+
+    it('does not flag ArrayBuffer or SharedArrayBuffer as the Buffer() constructor', async () => {
+        const details = await apisFor('src/lib/ingestion-proxy.ts', 'const empty = new ArrayBuffer(0);\nconst shared = new SharedArrayBuffer(8);\n');
+        expect(details).not.toContain('Buffer() constructor');
+    });
+
+    it('still flags a bare Buffer() constructor call', async () => {
+        expect(await apisFor('src/handler.js', "const b = Buffer(10);\n")).toContain('Buffer() constructor');
+    });
+
+    it('does not flag "with (" inside a trailing comment or a string', async () => {
+        const details = await apisFor('src/lib/aliases.ts', [
+            "const pattern = compile(source); // match with (optional) prefix",
+            "const label = 'works with (legacy) clients';",
+        ].join('\n'));
+        expect(details).not.toContain('with statement');
+    });
+
+    it('still flags a real with statement', async () => {
+        expect(await apisFor('src/legacy.js', 'with (obj) {\n  x = 1;\n}\n')).toContain('with statement');
+    });
+});

@@ -136,4 +136,29 @@ describe('FrontendSecretExposureGate', () => {
 
         expect(failures).toHaveLength(0);
     });
+
+    it('treats SvelteKit endpoints and root tool configs as server code', async () => {
+        const files: Record<string, string> = {
+            'src/routes/api/sync/+server.ts': 'export const GET = () => fetch(url, { headers: { key: process.env.STRIPE_SECRET_KEY } });\n',
+            'drizzle.config.ts': 'export default { dbCredentials: { url: process.env.DATABASE_SECRET_URL } };\n',
+            'apps/web/drizzle.config.ts': 'export default { dbCredentials: { url: process.env.DATABASE_SECRET_URL } };\n',
+        };
+        for (const [rel, body] of Object.entries(files)) {
+            fs.mkdirSync(path.dirname(path.join(testDir, rel)), { recursive: true });
+            fs.writeFileSync(path.join(testDir, rel), body);
+        }
+
+        const failures = await new FrontendSecretExposureGate().run({ cwd: testDir });
+        expect(failures).toHaveLength(0);
+    });
+
+    it('still flags a secret in a config module inside the client source tree', async () => {
+        const filePath = path.join(testDir, 'src/components/site.config.ts');
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, 'export const key = process.env.STRIPE_SECRET_KEY;\n');
+
+        const failures = await new FrontendSecretExposureGate().run({ cwd: testDir });
+        expect(failures.length).toBeGreaterThan(0);
+    });
 });
+

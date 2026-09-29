@@ -235,8 +235,9 @@ export class SideEffectAnalysisGate extends Gate {
 
             if (varName) {
                 // Variable is stored — check for cleanup using that specific variable
+                const cleanupScope = timerCleanupScope(lines, i, scope);
                 const hasPairedCleanup = hasCleanupForVariable(
-                    lines, varName, scope.start, scope.end, cleanupPats, lang,
+                    lines, varName, cleanupScope.start, cleanupScope.end, cleanupPats, lang,
                 );
                 if (hasPairedCleanup) continue;  // Properly paired
             } else {
@@ -672,3 +673,13 @@ export class SideEffectAnalysisGate extends Gate {
 }
 
 export { SideEffectViolation, SideEffectLang } from '../side-effect-helpers/index.js';
+
+/**
+ * Where a stored timer's cleanup may live. A local declaration (`const t = …`)
+ * must be cleared in its own function; a timer kept on a field or an outer
+ * variable is usually cleared by another method, so the whole file counts.
+ */
+function timerCleanupScope(lines: string[], lineIdx: number, scope: { start: number; end: number }): { start: number; end: number } {
+    const isLocal = /^\s*(?:const|let|var)\s/.test(lines[lineIdx]);
+    return isLocal ? scope : { start: 0, end: lines.length };
+}
