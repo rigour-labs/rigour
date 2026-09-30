@@ -14,6 +14,7 @@ export { deepAnalysisError } from './utils/deep-status.js';
 export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, type ReviewFinding } from './review/review.js';
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
 export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
+export { computeEffectiveness, readAgentEvents, appendAgentEvent, findingKeys, type AgentEvent, type ReviewEffectiveness } from './review/effectiveness.js';
 export { parseDiff, changedLinesByFile } from './utils/diff.js';
 export { FileScanner } from './utils/scanner.js';
 export * from './services/score-history.js';

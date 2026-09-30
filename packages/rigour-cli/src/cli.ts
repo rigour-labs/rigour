@@ -12,12 +12,14 @@ import { studioCommand } from './commands/studio.js';
 import { exportAuditCommand } from './commands/export-audit.js';
 import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
+import { hooksStopCommand } from './commands/hooks-stop.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
 import { deepStatsCommand } from './commands/deep-stats.js';
 import { deepCommand } from './commands/deep.js';
 import { reviewCommand } from './commands/review.js';
+import { reviewStatsCommand } from './commands/review-stats.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { learnCommand } from './commands/learn.js';
 import { securityAuditCommand } from './commands/security-audit.js';
@@ -260,6 +262,14 @@ Tip: Use in CI to gate only lines you changed — faster than full rigour check 
     });
 
 program
+    .command('review-stats')
+    .description('How well the agent review loop works here: reviews, findings resolved, stop checks (local event log)')
+    .option('--json', 'Output as JSON')
+    .action((options: any) => {
+        reviewStatsCommand(process.cwd(), options);
+    });
+
+program
     .command('check-pattern')
     .description('Check if a pattern already exists, is stale, or has security issues')
     .requiredOption('-n, --name <name>', 'Name of the function, class, or component to create')
@@ -347,6 +357,18 @@ Examples:
     `)
     .action(async (options: any) => {
         await hooksInitCommand(process.cwd(), options);
+    });
+
+hooksCmd
+    .command('stop')
+    .description('Stop hook: review the uncommitted change before the agent finishes (reads the hook payload on stdin)')
+    .option('--tool <name>', 'Hook format to reply in: claude or cursor', 'claude')
+    .action(async (options: any) => {
+        const chunks: Buffer[] = [];
+        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
+        const tool = options.tool === 'cursor' ? 'cursor' : 'claude';
+        const reply = await hooksStopCommand(tool, Buffer.concat(chunks).toString('utf8'), process.cwd());
+        if (reply) process.stdout.write(reply + '\n');
     });
 
 hooksCmd

@@ -30,6 +30,7 @@ import {
     scanInputForCredentials,
     updateAutomaticIndexForFiles,
     writeDLPBlockManifest,
+    STOP_MAX_ATTEMPTS,
 } from '@rigour-labs/core';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
@@ -148,6 +149,15 @@ function resolveCheckerCommand(): CheckerCommandSpec {
     };
 }
 
+/** The stop hook: same pinned CLI, `hooks stop` instead of `hooks check`. */
+function stopHookCommand(checker: CheckerCommandSpec, tool: 'claude' | 'cursor'): string {
+    const args = checker.args[checker.args.length - 1] === 'check' ? [...checker.args.slice(0, -1), 'stop'] : [...checker.args, 'stop'];
+    return checkerToShellCommand({ command: checker.command, args: [...args, '--tool', tool] });
+}
+
+/** Seconds Claude Code waits for the stop review before letting the agent stop. */
+const STOP_HOOK_TIMEOUT_S = 120;
+
 function shellEscape(arg: string): string {
     if (/^[A-Za-z0-9_/@%+=:,.-]+$/.test(arg)) {
         return arg;
@@ -204,6 +214,11 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         }],
     };
 
+    // Before the agent finishes: review the uncommitted change (rigour hooks stop).
+    hooks.Stop = [{
+        hooks: [{ type: "command" as const, command: stopHookCommand(checker, 'claude'), timeout: STOP_HOOK_TIMEOUT_S }],
+    }];
+
     // DLP: Add PreToolUse hook for credential warnings
     if (dlp) {
         hooks.PreToolUse = [{
@@ -221,8 +236,8 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         path: '.claude/settings.json',
         content: JSON.stringify(settings, null, 4),
         description: dlp
-            ? 'Claude Code hooks — PostToolUse quality checks + PreToolUse DLP credential warnings'
-            : 'Claude Code PostToolUse hook',
+            ? 'Claude Code hooks — PostToolUse quality checks, Stop review before done, PreToolUse DLP credential warnings'
+            : 'Claude Code hooks — PostToolUse quality checks, Stop review before done',
     }];
 }
 
@@ -231,6 +246,7 @@ function generateCursorHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
     const checkerCommand = checkerToShellCommand(checker);
     const hookEntries: Record<string, unknown[]> = {
         afterFileEdit: [{ command: `${checkerCommand} --stdin${blockFlag}` }],
+        stop: [{ command: stopHookCommand(checker, 'cursor'), loop_limit: STOP_MAX_ATTEMPTS }],
     };
     if (dlp) {
         hookEntries.beforeSubmitPrompt = [{ command: `${checkerCommand} --mode dlp --stdin` }];
@@ -241,8 +257,8 @@ function generateCursorHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         path: '.cursor/hooks.json',
         content: JSON.stringify(hooks, null, 4),
         description: dlp
-            ? 'Cursor hooks — afterFileEdit quality checks + beforeSubmitPrompt DLP warnings'
-            : 'Cursor afterFileEdit hook config',
+            ? 'Cursor hooks — afterFileEdit quality checks, stop review before done, beforeSubmitPrompt DLP warnings'
+            : 'Cursor hooks — afterFileEdit quality checks, stop review before done',
     }];
 }
 
