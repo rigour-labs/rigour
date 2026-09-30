@@ -226,12 +226,18 @@ function isCloud(options: DeepOptions): boolean {
 }
 
 /** Per-call options; unset config falls back to per-provider defaults. */
+/** Per-call inference timeout: a local 7B reads a file with its reference pack far slower than the small tiers. */
+export function defaultTimeout(options: DeepOptions): number {
+    if (isCloud(options)) return 120_000;
+    return options.max ? 240_000 : 60_000;
+}
+
 function inferenceOptions(config: DeepGateConfig): InferenceOptions {
     const cloud = isCloud(config.options);
     return {
         maxTokens: config.maxTokens ?? (cloud ? 4096 : 1024),
         temperature: config.temperature ?? 0.1,
-        timeout: config.timeoutMs ?? (cloud ? 120_000 : 60_000),
+        timeout: config.timeoutMs ?? defaultTimeout(config.options),
         jsonMode: true,
     };
 }
