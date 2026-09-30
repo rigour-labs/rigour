@@ -34,6 +34,7 @@ export interface ReviewOptions {
     max?: boolean;
     modelPath?: string;
     prBody?: string;     // path to a file with the PR description
+    diffTests?: boolean; // run changed functions before and after the change
     apiKey?: string;
     provider?: string;
     apiBaseUrl?: string;
@@ -47,11 +48,15 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         const config = await loadConfig(cwd, options);
         const diff = await readDiff(cwd, options);
         const isDeep = !!options.deep || !!options.pro || !!options.max || !!options.apiKey;
+        if (options.diffTests && !options.max && !options.apiKey) {
+            throw new UsageError('--diff-tests needs a model that can propose test inputs: add --max, or -k for a cloud model.');
+        }
         if (!options.ci && !options.json && !options.githubSummary && isDeep) console.log(chalk.blue.bold('Deep analysis enabled.\n'));
         const result = await reviewChange({
             cwd, config, diff,
             source: options.base ? { mode: 'base', base: options.base } : { mode: 'working' },
             files: options.files ? options.files.split(',').map(f => f.trim()).filter(Boolean) : undefined,
+            diffTests: !!options.diffTests,
             deep: isDeep ? deepOptions(cwd, options) : undefined,
         });
         await print(result, options);

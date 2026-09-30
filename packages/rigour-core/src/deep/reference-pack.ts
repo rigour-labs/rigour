@@ -17,7 +17,8 @@
 import { execFileSync } from 'child_process';
 import path from 'path';
 import ts from 'typescript';
-import { calledFunction, forEachNode, isFunctionLike, lineOf, type FunctionLike } from '../semantic/ast.js';
+import { calledFunction, forEachNode, lineOf, type FunctionLike } from '../semantic/ast.js';
+import { changedFunctions, functionName, isExported } from './changed-functions.js';
 import { loadProjectConfig, programBatches } from '../semantic/program.js';
 import type { RemovedBlock } from '../utils/diff.js';
 
@@ -113,30 +114,8 @@ function calleeDefinitions(cwd: string, change: Change): Snippet[] {
 
 /** Call sites, outside this file, of exported functions the change touched. */
 function callersOfChangedExports(cwd: string, file: string, change: Change): Array<{ name: string; text: string }> {
-    const names = change.functions.filter(isExported).map(nameOf).filter((n): n is string => !!n);
+    const names = change.functions.filter(isExported).map(functionName).filter((n): n is string => !!n);
     return names.map(name => ({ name, text: grepCallers(cwd, file, name) })).filter(c => c.text);
-}
-
-function changedFunctions(sourceFile: ts.SourceFile, focusLines: number[]): FunctionLike[] {
-    const found: FunctionLike[] = [];
-    forEachNode(sourceFile, (node) => {
-        if (!isFunctionLike(node) || !node.body) return;
-        const start = lineOf(node);
-        const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
-        if (focusLines.some(l => l >= start && l <= end) && !found.some(outer => outer.pos <= node.pos && node.end <= outer.end)) found.push(node);
-    });
-    return found;
-}
-
-function isExported(fn: FunctionLike): boolean {
-    const holder = ts.isFunctionDeclaration(fn) ? fn : fn.parent?.parent?.parent;
-    return !!holder && ts.canHaveModifiers(holder) && !!ts.getModifiers(holder)?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
-}
-
-function nameOf(fn: FunctionLike): string | undefined {
-    if (ts.isFunctionDeclaration(fn)) return fn.name?.text;
-    const decl = fn.parent;
-    return decl && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) ? decl.name.text : undefined;
 }
 
 function grepCallers(cwd: string, file: string, name: string): string {

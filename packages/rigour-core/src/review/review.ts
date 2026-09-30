@@ -13,6 +13,7 @@ import { normalizeScopePatterns } from '../utils/scope.js';
 import { deepAnalysisError } from '../utils/deep-status.js';
 import { splitByChangedLines } from './changed-lines.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
+import { diffTestFailures } from './diff-test-findings.js';
 
 export interface ReviewInput {
     cwd: string;
@@ -22,6 +23,8 @@ export interface ReviewInput {
     source?: DiffSource;
     /** Review exactly these files instead of the ones the diff touches. */
     files?: string[];
+    /** Run changed functions before and after the change (needs deep, on the max or a cloud tier). */
+    diffTests?: boolean;
     /** Deep analysis; `focusLines` and `removedLines` are filled from the diff. */
     deep?: Omit<DeepOptions, 'focusLines' | 'removedLines'>;
 }
@@ -57,6 +60,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     }
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff) } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
+    if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     const split = splitByChangedLines(report.failures, changedLines);
     const deepError = deepAnalysisError(report);
     return {

@@ -253,6 +253,7 @@ program
     .option('--max', 'Use the strongest local model (Qwen2.5-Coder-7B, 4.7GB; 16GB RAM)')
     .option('--model-path <gguf>', 'Run a local GGUF instead of the published model (to evaluate a fine-tune)')
     .option('--pr-body <path>', 'File with the PR description, read by --max and cloud review (default: the GitHub Actions pull request)')
+    .option('--diff-tests', 'Run changed exported functions before and after the change and report behaviour changes (vitest/jest packages; needs --max or -k)')
     .option('-k, --api-key <key>', 'Cloud API key for deep analysis')
     .option('--provider <name>', 'Cloud provider for deep analysis')
     .option('--api-base-url <url>', 'Custom API base URL')
