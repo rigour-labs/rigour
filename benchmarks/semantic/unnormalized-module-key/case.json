@@ -1,0 +1,6 @@
+{
+  "rule": "paths/unnormalized-module-key",
+  "file": "manifest.ts",
+  "line": 5,
+  "note": "An Rspack module path used as a map key without normalization."
+}

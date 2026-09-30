@@ -75,8 +75,15 @@ export interface DeepAnalysisResult {
  * - deep: Qwen2.5-Coder-1.5B fine-tuned — full power, company-hosted
  * - lite: Qwen2.5-Coder-0.5B fine-tuned — lightweight, ships as default CLI sidecar
  * - legacy: Qwen2.5-Coder-0.5B fine-tuned — previous default, reproducibility
+ * - max: Qwen2.5-Coder-7B (4.7GB q4) — the strongest model a 16GB laptop runs;
+ *   stock until a fine-tune passes the eval gate and the Review Arena
  */
-export type ModelTier = 'deep' | 'lite' | 'legacy';
+export type ModelTier = 'deep' | 'lite' | 'legacy' | 'max';
+
+/** The local tier for a run: --max, then --pro, then the lite default. */
+export function localTier(options: { max?: boolean; pro?: boolean }): ModelTier {
+    return options.max ? 'max' : options.pro ? 'deep' : 'lite';
+}
 
 /**
  * Model info for download/caching.
@@ -118,6 +125,7 @@ export function buildModelInfo(tier: ModelTier, version: string): ModelInfo {
         deep:   { base: 'Qwen2.5-Coder-1.5B',     size: 900_000_000, sizeH: '900MB' },
         lite:   { base: 'Qwen2.5-Coder-0.5B',      size: 400_000_000, sizeH: '400MB' },
         legacy: { base: 'Qwen2.5-Coder-0.5B',      size: 350_000_000, sizeH: '350MB' },
+        max:    { base: 'Qwen2.5-Coder-7B',        size: 4_700_000_000, sizeH: '4.7GB' },
     };
     const m = meta[tier];
     return {
@@ -135,6 +143,7 @@ export const MODELS: Record<ModelTier, ModelInfo> = {
     deep:   buildModelInfo('deep', BUNDLED_MODEL_VERSION),
     lite:   buildModelInfo('lite', BUNDLED_MODEL_VERSION),
     legacy: buildModelInfo('legacy', BUNDLED_MODEL_VERSION),
+    max:    buildModelInfo('max', BUNDLED_MODEL_VERSION),
 };
 
 /**
@@ -176,5 +185,13 @@ export const FALLBACK_MODELS: Record<ModelTier, ModelInfo> = {
         url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
         sizeBytes: 350_000_000,
         sizeHuman: '350MB',
+    },
+    max: {
+        tier: 'max',
+        name: 'Qwen2.5-Coder-7B-Instruct (stock)',
+        filename: 'qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+        url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+        sizeBytes: 4_683_073_536,
+        sizeHuman: '4.7GB',
     },
 };

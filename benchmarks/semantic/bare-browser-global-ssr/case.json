@@ -1,0 +1,6 @@
+{
+  "rule": "env/bare-browser-global",
+  "file": "scroll.ts",
+  "line": 4,
+  "note": "A file that checks isServer uses a bare global."
+}

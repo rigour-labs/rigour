@@ -1,0 +1,6 @@
+{
+  "rule": "react/inline-html-object",
+  "file": "Style.tsx",
+  "line": 2,
+  "note": "A library whose peer range admits React 19."
+}

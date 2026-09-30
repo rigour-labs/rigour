@@ -1,0 +1,6 @@
+{
+  "rule": "vue/static-computed",
+  "file": "link.ts",
+  "line": 4,
+  "note": "computed() wrapping a snapshot built once in setup."
+}

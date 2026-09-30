@@ -1,0 +1,6 @@
+{
+  "rule": "exports/forgotten-type",
+  "file": "index.ts",
+  "line": 1,
+  "note": "An exported function returns a type the entry does not export."
+}

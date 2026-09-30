@@ -32,7 +32,7 @@ export interface EngineeringKnowledgeGraph {
     counts: Record<string, number>;
 }
 
-interface GraphInput {
+export interface GraphInput {
     repository: { id: string; name: string };
     dependencyGraph?: DependencyGraph | null;
     events: AgentHistoryEvent[];

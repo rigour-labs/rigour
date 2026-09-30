@@ -5,6 +5,7 @@
 import { DeepAnalysisGate } from './deep-analysis.js';
 import type { GateContext } from './base.js';
 import type { Config, DeepOptions, Failure, Report, Status } from '../types/index.js';
+import { localTier } from '../inference/types.js';
 import { Logger } from '../utils/logger.js';
 
 export interface DeepRunResult {
@@ -51,7 +52,7 @@ export async function runDeepAnalysis(
         enabled: true,
         status: outcome.status,
         mode: outcome.mode,
-        tier: isLocal ? (deepOptions.pro ? 'deep' : 'lite') : 'cloud',
+        tier: isLocal ? localTier(deepOptions) : 'cloud',
         model: outcome.model,
         model_fallback: outcome.modelFallback,
         total_ms: Date.now() - start,

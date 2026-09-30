@@ -303,6 +303,7 @@ export const GatesSchema = z.object({
     deep: z.object({
         enabled: z.boolean().optional().default(false),
         pro: z.boolean().optional().default(false),
+        max: z.boolean().optional().default(false), // local Qwen2.5-Coder-7B (4.7GB); needs ~8GB free memory
         provider: z.string().optional().default('local'), // 'local' for sidecar, or any cloud: 'claude', 'openai', 'gemini', 'groq', 'mistral', 'together', etc.
         api_key: z.string().optional(),
         api_base_url: z.string().optional(), // custom API base URL (for self-hosted, proxies, any OpenAI-compatible endpoint)
@@ -437,7 +438,7 @@ export const ReportSchema = z.object({
             /** ok: every inference ran; partial: some failed; error: deep did not run. */
             status: z.enum(['ok', 'partial', 'error']).optional(),
             mode: z.enum(['facts', 'code']).optional(),
-            tier: z.enum(['deep', 'lite', 'legacy', 'cloud']).optional(),
+            tier: z.enum(['deep', 'lite', 'legacy', 'max', 'cloud']).optional(),
             model: z.string().optional(),
             model_fallback: z.boolean().optional(),
             total_ms: z.number().optional(),
@@ -452,10 +453,14 @@ export const ReportSchema = z.object({
 });
 export type Report = z.infer<typeof ReportSchema>;
 
-/** Options passed from CLI --deep / --pro / -k flags */
+/** Options passed from CLI --deep / --pro / --max / -k flags */
 export interface DeepOptions {
     enabled: boolean;
     pro?: boolean;
+    /** Local 7B model: the strongest free tier, for laptops with 16GB. */
+    max?: boolean;
+    /** A local GGUF to run instead of the tier's published model (evaluating a fine-tune before release). */
+    modelPath?: string;
     apiKey?: string;
     provider?: string; // 'local' or any cloud provider name
     apiBaseUrl?: string; // custom API endpoint
@@ -463,4 +468,8 @@ export interface DeepOptions {
     agents?: number; // Number of parallel agents (default: 1). Cloud-only. Each gets own provider instance.
     maxFiles?: number; // Max files to analyze in deep mode (default: 2000). Configurable via rigour.yml: deep.maxFiles
     focusLines?: Record<string, number[]>; // Changed lines per cwd-relative file (from a diff); reviewed first in code mode
+    /** Lines the change removed per file, anchored at the new-side line (from a diff). */
+    removedLines?: Record<string, Array<{ line: number; text: string[] }>>;
+    /** What the change intends (a PR description): reference for the stronger tiers. */
+    prBody?: string;
 }

@@ -1,0 +1,6 @@
+{
+  "rule": "deps/codegen-undeclared-import",
+  "file": "hmr.ts",
+  "line": 3,
+  "note": "A template builder called with the import, not tagged."
+}

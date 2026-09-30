@@ -20,6 +20,9 @@ import { deepStatsCommand } from './commands/deep-stats.js';
 import { deepCommand } from './commands/deep.js';
 import { reviewCommand } from './commands/review.js';
 import { reviewStatsCommand } from './commands/review-stats.js';
+import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
+import { scanRulesCommand } from './commands/scan-rules.js';
+import { exportReviewContextCommand } from './commands/export-review-context.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { learnCommand } from './commands/learn.js';
 import { securityAuditCommand } from './commands/security-audit.js';
@@ -88,6 +91,8 @@ program
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
     .option('--deep', 'Enable deep LLM-powered analysis (local lite model, 500MB one-time download)')
     .option('--pro', 'Use full deep model for analysis (Qwen2.5-Coder-1.5B, 900MB)')
+    .option('--max', 'Use the strongest local model (Qwen2.5-Coder-7B, 4.7GB; 16GB RAM)')
+    .option('--model-path <gguf>', 'Run a local GGUF instead of the published model (to evaluate a fine-tune)')
     .option('-k, --api-key <key>', 'Use cloud API key instead of local model (BYOK)')
     .option('--provider <name>', 'Cloud provider: claude, openai, gemini, groq, mistral, together, deepseek, ollama, or any OpenAI-compatible')
     .option('--api-base-url <url>', 'Custom API base URL (for self-hosted or proxy endpoints)')
@@ -119,6 +124,8 @@ program
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration (optional)')
     .option('--deep', 'Enable deep LLM-powered analysis (local lite model, 500MB one-time download)')
     .option('--pro', 'Use full deep model for analysis (Qwen2.5-Coder-1.5B, 900MB)')
+    .option('--max', 'Use the strongest local model (Qwen2.5-Coder-7B, 4.7GB; 16GB RAM)')
+    .option('--model-path <gguf>', 'Run a local GGUF instead of the published model (to evaluate a fine-tune)')
     .option('-k, --api-key <key>', 'Use cloud API key instead of local model (BYOK)')
     .option('--provider <name>', 'Cloud provider: claude, openai, gemini, groq, mistral, together, deepseek, ollama')
     .option('--api-base-url <url>', 'Custom API base URL')
@@ -243,6 +250,10 @@ program
     .option('--files <paths>', 'Comma-separated list of changed files (auto-detected from diff if omitted)')
     .option('--deep', 'Enable deep LLM-powered analysis')
     .option('--pro', 'Use full deep model for analysis')
+    .option('--max', 'Use the strongest local model (Qwen2.5-Coder-7B, 4.7GB; 16GB RAM)')
+    .option('--model-path <gguf>', 'Run a local GGUF instead of the published model (to evaluate a fine-tune)')
+    .option('--pr-body <path>', 'File with the PR description, read by --max and cloud review (default: the GitHub Actions pull request)')
+    .option('--diff-tests', 'Run changed exported functions before and after the change and report behaviour changes (vitest/jest packages; needs --max or -k)')
     .option('-k, --api-key <key>', 'Cloud API key for deep analysis')
     .option('--provider <name>', 'Cloud provider for deep analysis')
     .option('--api-base-url <url>', 'Custom API base URL')
@@ -267,6 +278,32 @@ program
     .option('--json', 'Output as JSON')
     .action((options: any) => {
         reviewStatsCommand(process.cwd(), options);
+    });
+
+program
+    .command('export-training-sites')
+    .description('Export awaited call sites as JSON lines for model training (used by the driftbench fix miner)')
+    .argument('[files...]', 'Files to export (default: tracked, non-test source files)')
+    .action((files: string[]) => {
+        exportTrainingSitesCommand(process.cwd(), files ?? []);
+    });
+
+program
+    .command('export-review-context')
+    .description('Print the prompt the max tier reviews for each changed file, as JSON lines (used by the driftbench review miner)')
+    .requiredOption('--diff <path>', 'Unified diff of the change')
+    .option('--pr-body <path>', 'File with the PR description')
+    .action(async (options: { diff: string; prBody?: string }) => {
+        await exportReviewContextCommand(process.cwd(), options);
+    });
+
+program
+    .command('scan-rules')
+    .description('Run semantic rules only and print findings as JSON lines (used by the driftbench rule validator)')
+    .argument('[files...]', 'Files to scan (default: tracked, non-test source files)')
+    .option('--rules <ids>', 'Comma-separated rule ids (default: all built-in rules)')
+    .action((files: string[], options: { rules?: string }) => {
+        scanRulesCommand(process.cwd(), files ?? [], options);
     });
 
 program

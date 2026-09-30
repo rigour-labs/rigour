@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { Failure, Report, Config } from '@rigour-labs/core';
-import { getScoreTrend, resolveDeepOptions } from '@rigour-labs/core';
+import { getScoreTrend, localTier, resolveDeepOptions } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
 import type { ScanOptions, StackSignals } from './scan.js';
 import { extractHallucinatedImports, renderCoverageWarnings } from './scan.js';
@@ -18,6 +18,8 @@ export function buildDeepOpts(options: ScanOptions, isSilent: boolean): DeepOpti
     return {
         enabled: true,
         pro: !!options.pro,
+        max: !!options.max,
+        modelPath: options.modelPath,
         apiKey: resolved.apiKey,
         provider: hasApiKey ? (resolved.provider || 'claude') : 'local',
         apiBaseUrl: resolved.apiBaseUrl,
@@ -37,7 +39,7 @@ export async function persistDeepResults(cwd: string, report: Report, isDeep: bo
         if (!db) return;
         const repoName = require('path').basename(cwd);
         const scanId = await insertScan(db, repoName, report, {
-            deepTier: (report as any).stats.deep?.tier || (options.pro ? 'deep' : 'lite'),
+            deepTier: (report as any).stats.deep?.tier || localTier(options),
             deepModel: (report as any).stats.deep?.model,
         });
         await insertFindings(db, scanId, report.failures);

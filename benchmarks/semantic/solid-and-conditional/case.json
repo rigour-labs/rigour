@@ -1,0 +1,6 @@
+{
+  "rule": "solid/jsx-and-conditional",
+  "file": "Head.tsx",
+  "line": 3,
+  "note": "`cond && <X/>` in a Solid component."
+}

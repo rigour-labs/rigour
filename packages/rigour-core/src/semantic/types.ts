@@ -7,6 +7,7 @@
  */
 import type ts from 'typescript';
 import type { Provenance, Severity } from '../types/index.js';
+import type { ProjectFacts } from './project-facts.js';
 import type { Summaries } from './summaries.js';
 
 export interface SemanticFinding {
@@ -24,9 +25,12 @@ export interface SemanticFinding {
 
 export interface RuleContext {
     cwd: string;
+    program: ts.Program;
     checker: ts.TypeChecker;
     sourceFile: ts.SourceFile;
     summaries: Summaries;
+    /** The file's own package: declared dependencies and compiler options. */
+    project: ProjectFacts;
 }
 
 export interface SemanticRule {

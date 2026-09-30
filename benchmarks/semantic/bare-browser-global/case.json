@@ -1,0 +1,6 @@
+{
+  "rule": "env/bare-browser-global",
+  "file": "scroll.ts",
+  "line": 3,
+  "note": "A bare global where the file qualifies it elsewhere."
+}

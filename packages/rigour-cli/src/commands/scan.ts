@@ -30,6 +30,8 @@ export interface ScanOptions {
     config?: string;
     deep?: boolean;
     pro?: boolean;
+    max?: boolean;
+    modelPath?: string;
     apiKey?: string;
     provider?: string;
     apiBaseUrl?: string;
@@ -96,7 +98,7 @@ export async function scanCommand(cwd: string, files: string[] = [], options: Sc
     try {
         const scanCtx = await resolveScanConfig(cwd, options);
         const stackSignals = await detectStackSignals(cwd);
-        const isDeep = !!options.deep || !!options.pro || !!options.apiKey;
+        const isDeep = !!options.deep || !!options.pro || !!options.max || !!options.apiKey;
         const isSilent = !!options.ci || !!options.json;
 
         if (!isSilent) {

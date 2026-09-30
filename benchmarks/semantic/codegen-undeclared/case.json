@@ -1,0 +1,6 @@
+{
+  "rule": "deps/codegen-undeclared-import",
+  "file": "prelude.ts",
+  "line": 2,
+  "note": "Generated code imports a package the plugin does not declare."
+}

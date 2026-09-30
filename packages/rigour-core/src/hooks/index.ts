@@ -4,7 +4,9 @@
  */
 
 export { runHookChecker } from './checker.js';
+export type { CheckerOptions } from './checker.js';
 export { generateHookFiles } from './templates.js';
+export type { GeneratedHookFile } from './templates.js';
 export type { HookTool, HookConfig, HookCheckerResult } from './types.js';
 export { DEFAULT_HOOK_CONFIG, FAST_GATE_IDS } from './types.js';
 

@@ -31,6 +31,10 @@ export interface ReviewOptions {
     files?: string;      // comma-separated explicit file list
     deep?: boolean;
     pro?: boolean;
+    max?: boolean;
+    modelPath?: string;
+    prBody?: string;     // path to a file with the PR description
+    diffTests?: boolean; // run changed functions before and after the change
     apiKey?: string;
     provider?: string;
     apiBaseUrl?: string;
@@ -43,13 +47,17 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
     try {
         const config = await loadConfig(cwd, options);
         const diff = await readDiff(cwd, options);
-        const isDeep = !!options.deep || !!options.pro || !!options.apiKey;
+        const isDeep = !!options.deep || !!options.pro || !!options.max || !!options.apiKey;
+        if (options.diffTests && !options.max && !options.apiKey) {
+            throw new UsageError('--diff-tests needs a model that can propose test inputs: add --max, or -k for a cloud model.');
+        }
         if (!options.ci && !options.json && !options.githubSummary && isDeep) console.log(chalk.blue.bold('Deep analysis enabled.\n'));
         const result = await reviewChange({
             cwd, config, diff,
             source: options.base ? { mode: 'base', base: options.base } : { mode: 'working' },
             files: options.files ? options.files.split(',').map(f => f.trim()).filter(Boolean) : undefined,
-            deep: isDeep ? deepOptions(options) : undefined,
+            diffTests: !!options.diffTests,
+            deep: isDeep ? deepOptions(cwd, options) : undefined,
         });
         await print(result, options);
         process.exit(exitCodeFor(result));
@@ -84,13 +92,36 @@ async function readStdin(): Promise<string> {
     return Buffer.concat(chunks).toString('utf-8');
 }
 
-function deepOptions(options: ReviewOptions): Omit<DeepOptions, 'focusLines'> {
+/**
+ * What the change intends: --pr-body, else the pull request in a GitHub Actions
+ * event. It is reference for the max and cloud tiers, never required.
+ */
+export function readPrBody(cwd: string, options: ReviewOptions, env: NodeJS.ProcessEnv = process.env): string | undefined {
+    if (options.prBody) {
+        const bodyPath = path.resolve(cwd, options.prBody);
+        if (!fs.existsSync(bodyPath)) throw new UsageError(`PR body file not found: ${bodyPath}`);
+        return fs.readFileSync(bodyPath, 'utf-8');
+    }
+    if (!env.GITHUB_EVENT_PATH) return undefined;
+    try {
+        const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf-8'));
+        const pr = event.pull_request;
+        return pr ? [pr.title, pr.body].filter(Boolean).join('\n\n') || undefined : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'focusLines' | 'removedLines'> {
     const resolved = resolveDeepOptions({
         apiKey: options.apiKey, provider: options.provider, apiBaseUrl: options.apiBaseUrl, modelName: options.modelName,
     });
     return {
         enabled: true,
         pro: !!options.pro,
+        max: !!options.max,
+        modelPath: options.modelPath,
+        prBody: readPrBody(cwd, options),
         apiKey: resolved.apiKey,
         provider: resolved.apiKey ? (resolved.provider || 'claude') : 'local',
         apiBaseUrl: resolved.apiBaseUrl,

@@ -11,7 +11,7 @@ export { CloudProvider } from './cloud-provider.js';
 export { ensureModel, isModelCached, getModelPath, getModelInfo, downloadModel, getModelsDir, getCachedModel } from './model-manager.js';
 export type { CachedModel } from './model-manager.js';
 
-import type { InferenceProvider } from './types.js';
+import { localTier, type InferenceProvider } from './types.js';
 import type { DeepOptions } from '../types/index.js';
 import { SidecarProvider } from './sidecar-provider.js';
 import { CloudProvider } from './cloud-provider.js';
@@ -30,9 +30,6 @@ export function createProvider(options: DeepOptions): InferenceProvider {
         });
     }
 
-    // Default: local sidecar
-    // deep = Qwen2.5-Coder-1.5B (full power, company-hosted)
-    // lite = Qwen2.5-Coder-0.5B (lightweight, default CLI sidecar)
-    const tier = options.pro ? 'deep' : 'lite';
-    return new SidecarProvider(tier);
+    // Default: local sidecar (lite 0.5B, deep 1.5B with --pro, max 7B with --max)
+    return new SidecarProvider(localTier(options), undefined, options.modelPath);
 }
