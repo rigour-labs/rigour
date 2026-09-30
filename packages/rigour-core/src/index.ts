@@ -11,6 +11,9 @@ export { FrontendSecretExposureGate } from './gates/frontend-secret-exposure.js'
 export * from './utils/logger.js';
 export { normalizeScopePatterns, isScoped } from './utils/scope.js';
 export { deepAnalysisError } from './utils/deep-status.js';
+export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, type ReviewFinding } from './review/review.js';
+export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
+export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
 export { parseDiff, changedLinesByFile } from './utils/diff.js';
 export { FileScanner } from './utils/scanner.js';
 export * from './services/score-history.js';

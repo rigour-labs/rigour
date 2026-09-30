@@ -1,0 +1,99 @@
+import { execFileSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ConfigSchema, type Failure } from '../types/index.js';
+import { parseDiff } from '../utils/diff.js';
+import { splitByChangedLines } from './changed-lines.js';
+import { diffFromGit } from './git-diff.js';
+import { reviewChange, toReviewFinding } from './review.js';
+
+const LEAKY = [
+    'export async function notify(endpoint: string, signature: string) {',
+    "  return fetch(endpoint, { method: 'POST', headers: { 'x-hook-signature': signature } });",
+    '}',
+    '',
+].join('\n');
+
+function failure(file: string | undefined, line?: number): Failure {
+    return { id: 'x', title: 'X', details: 'd', files: file ? [file] : [], ...(line !== undefined ? { line } : {}) } as Failure;
+}
+
+describe('splitByChangedLines', () => {
+    it('separates changed-line, file-level, unlocated and outside findings', () => {
+        const changed = { 'a.ts': new Set([3]) };
+        const split = splitByChangedLines([failure('a.ts', 3), failure('a.ts', 9), failure('a.ts'), failure('b.ts'), failure(undefined)], changed);
+        expect(split.findings.map(f => f.line)).toEqual([3]);
+        expect(split.fileFindings).toHaveLength(1);
+        expect(split.unlocated).toBe(1);
+        expect(split.outside).toBe(2);
+    });
+});
+
+describe('git-backed review', () => {
+    let repo: string;
+    const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+    const write = (rel: string, body: string) => {
+        fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
+        fs.writeFileSync(path.join(repo, rel), body);
+    };
+
+    beforeEach(() => {
+        repo = fs.mkdtempSync(path.join(os.tmpdir(), 'review-core-'));
+        git('init', '-q', '-b', 'main');
+        git('config', 'user.email', 't@example.com');
+        git('config', 'user.name', 't');
+        git('config', 'commit.gpgsign', 'false');
+    });
+    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+
+    it('works in a repository with no commits yet', () => {
+        write('src/new.ts', 'export const a = 1;\n');
+        expect(parseDiff(diffFromGit(repo))).toEqual({ 'src/new.ts': new Set([1]) });
+    });
+
+    it('takes uncommitted edits and untracked files from the working tree', () => {
+        write('src/a.ts', 'export const a = 1;\nexport const b = 2;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/a.ts', 'export const a = 1;\nexport const b = 3;\n');
+        write('src/new.ts', 'export const c = 1;\nexport const d = 2;\n');
+        expect(parseDiff(diffFromGit(repo))).toEqual({ 'src/a.ts': new Set([2]), 'src/new.ts': new Set([1, 2]) });
+    });
+
+    it('takes a branch against its merge-base, committed and uncommitted', () => {
+        write('src/a.ts', 'export const a = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        git('checkout', '-q', '-b', 'feature');
+        write('src/b.ts', 'export const b = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'feature');
+        write('src/a.ts', 'export const a = 1;\nexport const z = 2;\n');
+        expect(parseDiff(diffFromGit(repo, { mode: 'base', base: 'main' }))).toEqual({ 'src/a.ts': new Set([2]), 'src/b.ts': new Set([1]) });
+    });
+
+    it('fails a change that introduces a bug and ignores the same bug in untouched code', async () => {
+        write('src/old.ts', LEAKY);
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/notify.ts', LEAKY);
+        const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true } } });
+
+        const result = await reviewChange({ cwd: repo, config });
+
+        const semantic = result.findings.filter(f => f.id === 'semantic-bugs');
+        expect(result.status).toBe('FAIL');
+        expect(semantic.map(f => [f.files?.[0], f.line])).toEqual([['src/notify.ts', 2]]);
+        expect(toReviewFinding(semantic[0])).toMatchObject({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2, severity: 'high' });
+    });
+
+    it('passes when nothing changed', async () => {
+        write('src/a.ts', 'export const a = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        const result = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1 }) });
+        expect(result).toMatchObject({ status: 'PASS', findings: [], report: null });
+    });
+});

@@ -126,18 +126,3 @@ export function renderGithubSummary(summary: CiReviewSummary): string {
     }
     return lines.join('\n');
 }
-
-export function filterChangedLineFailures(
-    failures: Failure[],
-    changedLines: Record<string, Set<number>>,
-): { failures: Failure[]; unlocated: number } {
-    let unlocated = 0;
-    const matched = failures.filter(failure => {
-        if (failure.line === undefined || !failure.files?.length) {
-            unlocated++;
-            return false;
-        }
-        return failure.files.some(file => changedLines[file]?.has(failure.line as number));
-    });
-    return { failures: matched, unlocated };
-}

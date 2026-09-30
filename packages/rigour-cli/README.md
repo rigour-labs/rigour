@@ -138,6 +138,8 @@ Hallucinated import detection with stdlib whitelists and dependency manifest par
 | `rigour check` | Full repository quality gates |
 | `rigour check --ci` | CI mode with minimal output |
 | `rigour check --deep` | + local LLM analysis |
+| `rigour review` | Review your uncommitted change (taken from git), findings on changed lines only |
+| `rigour review --base main` | Review a branch as a pull request; `--json`, `--github-summary` for CI |
 | `rigour learn <commit>` | Turn a fix into a validated rule (`--dry-run`, `--before/--after`, `--max-hits`) |
 | `rigour hooks init` | Install real-time hooks for detected tools |
 | `rigour hooks check --files ...` | Fast hook gates on specific files |

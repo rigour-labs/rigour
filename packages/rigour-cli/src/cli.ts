@@ -231,12 +231,13 @@ program
 
 program
     .command('review')
-    .description('Review a diff against quality gates (filter to changed lines)')
+    .description('Review a change against quality gates, filtered to the lines it touches')
     .option('--json', 'Output report in JSON format')
     .option('--ci', 'CI mode (minimal output)')
     .option('--github-summary', 'Bounded, privacy-safe Markdown summary for GitHub Actions')
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
-    .option('--diff <path>', 'Path to diff file (reads stdin if omitted)')
+    .option('--diff <path>', 'Path to a diff file (else stdin, else taken from git)')
+    .option('--base <ref>', 'Review this branch against a base ref, e.g. main (a pull request)')
     .option('--files <paths>', 'Comma-separated list of changed files (auto-detected from diff if omitted)')
     .option('--deep', 'Enable deep LLM-powered analysis')
     .option('--pro', 'Use full deep model for analysis')
@@ -246,12 +247,11 @@ program
     .option('--model-name <name>', 'Override cloud model name')
     .addHelpText('after', `
 Examples:
-  $ git diff | rigour review --json                    # Review staged changes (JSON)
-  $ git diff main..HEAD | rigour review                # Review branch changes
-  $ rigour review --diff changes.patch --deep          # Review diff file with deep analysis
-  $ git diff | rigour review --ci                      # CI-friendly review
-  $ git diff main..HEAD | rigour review --github-summary # GitHub job summary
-  $ git diff main..HEAD | rigour review --files src/a.ts,src/b.ts
+  $ rigour review                                      # Uncommitted changes, taken from git
+  $ rigour review --base main --json                   # This branch against main (a PR), JSON
+  $ rigour review --base origin/main --github-summary  # GitHub job summary for a PR
+  $ git diff | rigour review --ci                      # Any diff on stdin
+  $ rigour review --diff changes.patch --deep          # A diff file, with deep analysis
 
 Tip: Use in CI to gate only lines you changed — faster than full rigour check on large repos.
     `)
