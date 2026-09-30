@@ -1,11 +1,12 @@
 /**
  * env/bare-browser-global: a browser global used bare (`addEventListener(...)`,
- * `history.x`) in a file that elsewhere qualifies it as `window.x`.
+ * `history.x`) in a file that knows it may run outside a browser.
  *
- * The file already treats the global as belonging to `window`. Where the
- * runtime global is not the window (Node with a jsdom window, workers, SSR
- * shims) the bare use throws or reaches the wrong object. TanStack Router's
- * core crashed router creation under Node + jsdom this way.
+ * The file qualifies the global as `window.x` elsewhere, compares against
+ * `window`, or checks `isServer` / `typeof window`: it runs where the global is
+ * absent or is not the window (SSR, Node with a jsdom window, workers). A bare
+ * use there throws or reaches the wrong object. TanStack Router's core crashed
+ * router creation under Node + jsdom this way.
  */
 import ts from 'typescript';
 import { forEachNode } from '../../ast.js';
@@ -14,19 +15,22 @@ import { finding } from './shared.js';
 
 const BARE_CALLS = new Set(['addEventListener', 'removeEventListener', 'dispatchEvent']);
 const BARE_OBJECTS = new Set(['history', 'location', 'localStorage', 'sessionStorage']);
+/** The file guards for non-browser runtimes: `isServer`, `typeof window`/`document`, or compares against `window`. */
+const ENV_AWARE = /\bisServer\b|typeof\s+(?:window|document)\b|[=!]==?\s*window\b|\bwindow\s*[=!]==?/;
 
 export const envBareBrowserGlobal: SemanticRule = {
     id: 'env/bare-browser-global',
     check(ctx: RuleContext): SemanticFinding[] {
         const { sourceFile, checker } = ctx;
         const qualified = windowQualified(sourceFile);
-        if (qualified.size === 0) return [];
+        const aware = qualified.size > 0 || ENV_AWARE.test(sourceFile.text);
+        if (!aware) return [];
         const findings: SemanticFinding[] = [];
         forEachNode(sourceFile, (node) => {
             const bare = bareGlobal(node);
-            if (!bare || !qualified.has(bare.text) || isLocal(checker, bare)) return;
+            if (!bare || isLocal(checker, bare)) return;
             findings.push(finding(ctx, 'env/bare-browser-global', node, 'medium',
-                `Bare \`${bare.text}\` here, but \`window.${bare.text}\` elsewhere in this file; where the global is not the window (jsdom, workers, SSR shims) it throws or hits the wrong object.`,
+                `Bare \`${bare.text}\` in a file that also runs outside the browser; where the global is not the window (SSR, jsdom, workers) it throws or hits the wrong object.`,
                 `Use \`window.${bare.text}\` as the rest of the file does.`));
         });
         return findings;

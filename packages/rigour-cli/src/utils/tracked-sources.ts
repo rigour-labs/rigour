@@ -5,7 +5,8 @@
 import { execFileSync } from 'child_process';
 
 const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
-const NOT_SOURCE = /\.d\.[cm]?ts$|(?:^|\/)(?:__tests__|__mocks__|tests?|fixtures?)\/|\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+/** Declarations, tests, fixtures, and generated bundles (dist, build, *-dist, minified). */
+const NOT_SOURCE = /\.d\.[cm]?ts$|(?:^|\/)(?:__tests__|__mocks__|tests?|fixtures?|dist|build|[\w-]+-dist)\/|\.(?:test|spec)\.[cm]?[jt]sx?$|\.min\.[cm]?js$/i;
 
 export function trackedSourceFiles(cwd: string): string[] {
     const out = execFileSync('git', ['ls-files', '-z'], { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });

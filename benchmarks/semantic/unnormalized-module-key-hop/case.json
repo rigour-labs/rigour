@@ -1,0 +1,6 @@
+{
+  "rule": "paths/unnormalized-module-key",
+  "file": "assets.ts",
+  "line": 4,
+  "note": "The OS path reaches the key through an intermediate variable."
+}

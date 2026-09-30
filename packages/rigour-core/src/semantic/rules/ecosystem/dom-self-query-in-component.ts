@@ -38,7 +38,10 @@ function isDocumentQueryAll(call: ts.CallExpression): boolean {
 
 function insideLifecycle(node: ts.Node): boolean {
     for (let current = node.parent; current; current = current.parent) {
-        if (ts.isCallExpression(current) && ts.isIdentifier(current.expression) && LIFECYCLE.has(current.expression.text)) return true;
+        if (!ts.isCallExpression(current)) continue;
+        const callee = current.expression;
+        const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : '';
+        if (LIFECYCLE.has(name)) return true; // onMount(...) or Solid.onMount(...)
     }
     return false;
 }

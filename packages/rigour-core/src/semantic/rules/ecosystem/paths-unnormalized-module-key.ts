@@ -23,12 +23,14 @@ export const pathsUnnormalizedModuleKey: SemanticRule = {
         const { sourceFile, checker, project } = ctx;
         if (!project.declares(sourceFile.fileName, ...BUNDLERS)) return [];
         const findings: SemanticFinding[] = [];
+        const tainted = new Set<ts.Symbol>();
         forEachNode(sourceFile, (node) => {
             if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer) return;
-            if (!readsOsPath(node.initializer)) return;
+            if (!readsOsPath(checker, node.initializer, tainted)) return;
             const symbol = checker.getSymbolAtLocation(node.name);
             const fn = enclosingFunction(node);
             if (!symbol || !fn) return;
+            tainted.add(symbol); // a later variable built from this one carries the OS path too
             const use = keyUse(checker, fn, symbol);
             if (use) {
                 findings.push(finding(ctx, 'paths/unnormalized-module-key', node, 'medium',
@@ -40,8 +42,11 @@ export const pathsUnnormalizedModuleKey: SemanticRule = {
     },
 };
 
-/** The expression reads an OS path from a bundler module and is not normalized on the way. */
-function readsOsPath(expr: ts.Expression): boolean {
+/**
+ * The expression reads an OS path (from a bundler module, or from a variable that
+ * holds one) and is not normalized on the way.
+ */
+function readsOsPath(checker: ts.TypeChecker, expr: ts.Expression, tainted: Set<ts.Symbol>): boolean {
     let reads = false;
     let normalized = false;
     const walk = (node: ts.Node): void => {
@@ -52,6 +57,10 @@ function readsOsPath(expr: ts.Expression): boolean {
             if (OS_PATH_METHODS.has(name)) reads = true;
         }
         if (ts.isPropertyAccessExpression(node) && OS_PATH_PROPERTIES.has(node.name.text)) reads = true;
+        if (ts.isIdentifier(node) && tainted.size > 0) {
+            const symbol = symbolOf(checker, node);
+            if (symbol && tainted.has(symbol)) reads = true;
+        }
         ts.forEachChild(node, walk);
     };
     walk(unwrap(expr));

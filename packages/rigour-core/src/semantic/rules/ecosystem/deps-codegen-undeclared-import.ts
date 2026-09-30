@@ -8,9 +8,9 @@
  * the user has not happened to install it. TanStack's Rsbuild plugin emitted
  * `react-refresh/runtime` and broke apps without it.
  *
- * Only text that is emitted as code counts: a template tagged by a code builder
- * (`template.statement\`…\``), the `code` a bundler hook returns, or text given
- * to a MagicString edit. Strings that merely mention imports (docs, lint rule
+ * Only text that is emitted as code counts: a template given to a code builder
+ * (`template.statement\`…\`` or `template.statement(\`…\`)`), the `code` a
+ * bundler hook returns, or text given to a MagicString edit. Strings that merely mention imports (docs, lint rule
  * data, demos) do not.
  */
 import { builtinModules } from 'module';
@@ -62,8 +62,9 @@ function isEmittedCode(node: ts.Node): boolean {
     const parent = node.parent;
     if (ts.isTaggedTemplateExpression(parent)) return CODE_TAG.test(parent.tag.getText());
     if (ts.isPropertyAssignment(parent) && propertyNameText(parent.name) === 'code') return true;
-    if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression)) {
-        return EMIT_METHODS.has(parent.expression.name.text) && parent.arguments.includes(node as ts.Expression);
-    }
-    return false;
+    if (!ts.isCallExpression(parent) || !parent.arguments.includes(node as ts.Expression)) return false;
+    const callee = parent.expression;
+    // template.statement(`import …`), a code builder called rather than tagged
+    if (CODE_TAG.test(callee.getText())) return true;
+    return ts.isPropertyAccessExpression(callee) && EMIT_METHODS.has(callee.name.text);
 }

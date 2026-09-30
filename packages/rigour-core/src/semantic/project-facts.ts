@@ -12,6 +12,8 @@ import ts from 'typescript';
 interface Manifest {
     name?: string;
     dependencies: Map<string, string>;
+    /** Every range declared for a name, across dependency fields. */
+    ranges: Map<string, string[]>;
 }
 
 const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const;
@@ -42,11 +44,18 @@ export class ProjectFacts {
         return names.some(name => deps.has(name));
     }
 
-    /** Major version of a declared dependency, from its range (`^19.0.0` -> 19); undefined when unknown. */
+    /**
+     * Highest major version a declared dependency may run on, across every field
+     * and `||` alternative (`>=18.0.0 || >=19.0.0` -> 19). A package that supports
+     * a major must work on it. Undefined when no range names a version (`catalog:`, `workspace:*`).
+     */
     majorVersion(file: string, name: string): number | undefined {
-        const range = this.dependencies(file).get(name);
-        const match = range?.match(/(\d+)(?:\.\d+)*/);
-        return match ? Number(match[1]) : undefined;
+        const majors = (this.nearestPackage(file)?.ranges.get(name) ?? [])
+            .flatMap(range => range.split('||'))
+            .map(alternative => alternative.match(/(\d+)(?:\.[\dx*]+)*/)?.[1])
+            .filter((m): m is string => m !== undefined)
+            .map(Number);
+        return majors.length ? Math.max(...majors) : undefined;
     }
 
     /** Compiler options of the nearest tsconfig.json above `file`, extends resolved. */
@@ -88,10 +97,14 @@ export class ProjectFacts {
         try {
             const json = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
             const dependencies = new Map<string, string>();
+            const ranges = new Map<string, string[]>();
             for (const field of DEPENDENCY_FIELDS) {
-                for (const [name, range] of Object.entries(json[field] ?? {})) dependencies.set(name, String(range));
+                for (const [name, range] of Object.entries(json[field] ?? {})) {
+                    dependencies.set(name, String(range));
+                    ranges.set(name, [...(ranges.get(name) ?? []), String(range)]);
+                }
             }
-            manifest = { name: typeof json.name === 'string' ? json.name : undefined, dependencies };
+            manifest = { name: typeof json.name === 'string' ? json.name : undefined, dependencies, ranges };
         } catch {
             manifest = null;
         }
