@@ -79,7 +79,9 @@ async function isFileCached(model: ModelInfo): Promise<boolean> {
     // the completeness check; ModelInfo sizes are display estimates that differ by version.
     const stat = await fs.stat(modelPath);
     if (metadata.sizeBytes !== stat.size) return false;
-    if (new Date(metadata.verifiedAt).getTime() < stat.mtimeMs) return false;
+    // verifiedAt has millisecond precision and mtimeMs a sub-millisecond fraction: compare
+    // whole milliseconds, or a file verified within the same millisecond looks modified.
+    if (new Date(metadata.verifiedAt).getTime() < Math.floor(stat.mtimeMs)) return false;
     return true;
 }
 

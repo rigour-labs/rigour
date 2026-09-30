@@ -102,6 +102,22 @@ describe('getCachedModel', () => {
         expect(await getCachedModel('lite')).toMatchObject({ fallback: false, info: { filename: MODELS.lite.filename } });
     });
 
+    it('accepts a file verified within the same millisecond it was written', async () => {
+        const file = path.join(modelsDir, FALLBACK_MODELS.deep.filename);
+        await cacheFile(FALLBACK_MODELS.deep.filename, 10);
+        const written = new Date('2026-01-01T00:00:00.000Z');
+        await fs.utimes(file, written, written.getTime() / 1000 + 0.0007);  // mtime 0.7 ms into the same millisecond
+        await fs.writeJson(`${file}.meta.json`, { sha256: 'a'.repeat(64), sizeBytes: 10, verifiedAt: written.toISOString(), sourceUrl: 'https://x' });
+        expect(await getCachedModel('deep')).toMatchObject({ fallback: true });
+    });
+
+    it('rejects a file modified after it was verified', async () => {
+        const file = path.join(modelsDir, FALLBACK_MODELS.deep.filename);
+        await cacheFile(FALLBACK_MODELS.deep.filename, 10);
+        await fs.writeJson(`${file}.meta.json`, { sha256: 'a'.repeat(64), sizeBytes: 10, verifiedAt: '2000-01-01T00:00:00.000Z', sourceUrl: 'https://x' });
+        expect(await getCachedModel('deep')).toBeNull();
+    });
+
     it('ignores a file without verified metadata', async () => {
         await fs.ensureDir(modelsDir);
         await fs.writeFile(path.join(modelsDir, FALLBACK_MODELS.deep.filename), 'partial');
