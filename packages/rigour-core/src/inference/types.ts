@@ -97,12 +97,16 @@ export interface ModelInfo {
  * At startup, model-manager checks HF for the latest version and downloads
  * it automatically (like antivirus signature updates).
  *
- * Version format: SemVer (MAJOR.MINOR.PATCH)
+ * The fallback is the last version actually published: v5, from the RLAIF
+ * pipeline's integer versions. SemVer versions (MAJOR.MINOR.PATCH) are
+ * published under their SemVer names.
+ *
+ * Version format: SemVer (MAJOR.MINOR.PATCH), or a legacy integer
  *   - MAJOR: Training data format change, base model change, pipeline architecture
  *   - MINOR: New training repos, updated dataset, hyperparameter improvements
  *   - PATCH: Bug fixes, retraining with same data/format
  */
-export const BUNDLED_MODEL_VERSION = '2.0.0';
+export const BUNDLED_MODEL_VERSION = '5';
 
 /** HuggingFace dataset repo where latest_version.json lives */
 export const VERSION_CHECK_URL =
@@ -112,7 +116,7 @@ export const VERSION_CHECK_URL =
 export function buildModelInfo(tier: ModelTier, version: string): ModelInfo {
     const meta: Record<ModelTier, { base: string; size: number; sizeH: string }> = {
         deep:   { base: 'Qwen2.5-Coder-1.5B',     size: 900_000_000, sizeH: '900MB' },
-        lite:   { base: 'Qwen2.5-Coder-0.5B',      size: 500_000_000, sizeH: '500MB' },
+        lite:   { base: 'Qwen2.5-Coder-0.5B',      size: 400_000_000, sizeH: '400MB' },
         legacy: { base: 'Qwen2.5-Coder-0.5B',      size: 350_000_000, sizeH: '350MB' },
     };
     const m = meta[tier];

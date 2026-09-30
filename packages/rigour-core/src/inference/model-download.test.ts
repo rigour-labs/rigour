@@ -13,7 +13,7 @@ const home = vi.hoisted(() => {
 });
 vi.mock('../storage/db.js', () => ({ RIGOUR_DIR: home }));
 
-const { downloadModel, getCachedModel } = await import('./model-manager.js');
+const { checkForUpdates, downloadModel, getCachedModel, normalizeModelVersion } = await import('./model-manager.js');
 const { FALLBACK_MODELS, MODELS } = await import('./types.js');
 
 const modelsDir = path.join(home, 'models');
@@ -29,7 +29,7 @@ describe('downloadModel', () => {
     beforeEach(async () => {
         await fs.remove(home);
         // A fresh version check: no network call to Hugging Face.
-        await fs.outputJson(path.join(modelsDir, '.latest_version.json'), { version: '2.0.0', checkedAt: new Date().toISOString() });
+        await fs.outputJson(path.join(modelsDir, '.latest_version.json'), { format: 2, version: '5', checkedAt: new Date().toISOString() });
     });
     afterAll(async () => { await fs.remove(home); });
 
@@ -48,6 +48,22 @@ describe('downloadModel', () => {
         expect(messages.some(m => m.includes('Fine-tuned model unavailable (HTTP 401'))).toBe(true);
         const meta = await fs.readJson(`${modelPath}.meta.json`);
         expect(meta).toMatchObject({ sha256: PAYLOAD_SHA, sizeBytes: PAYLOAD.length, sourceUrl: FALLBACK_MODELS.lite.url });
+    });
+
+    it('retries the fine-tuned model once a day when only the stock fallback is cached', async () => {
+        const failing: HttpGet = (url) => (url.includes('rigour-labs/') ? unauthorized : ok(PAYLOAD, PAYLOAD_SHA));
+        const stockPath = await downloadModel('lite', undefined, failing);
+
+        const requested: string[] = [];
+        const again = await downloadModel('lite', undefined, (url) => { requested.push(url); return unauthorized; });
+        expect(requested).toEqual([]);  // failed less than a day ago: keep the fallback, no request
+        expect(again).toBe(stockPath);
+
+        await fs.writeJson(path.join(modelsDir, '.fine-tuned-unavailable-lite.json'), { failedAt: '2000-01-01T00:00:00Z', url: MODELS.lite.url });
+        const fineTuned = await downloadModel('lite', undefined, (url) => { requested.push(url); return ok(PAYLOAD, PAYLOAD_SHA); });
+        expect(requested).toEqual([MODELS.lite.url]);
+        expect(path.basename(fineTuned)).toBe(MODELS.lite.filename);
+        expect(await fs.pathExists(path.join(modelsDir, '.fine-tuned-unavailable-lite.json'))).toBe(false);
     });
 
     it('rejects a checksum mismatch and deletes the partial download', async () => {
@@ -81,9 +97,55 @@ describe('getCachedModel', () => {
         expect(cached).toMatchObject({ fallback: true, info: { filename: FALLBACK_MODELS.deep.filename } });
     });
 
+    it('accepts a verified fine-tuned file smaller than the size estimate', async () => {
+        await cacheFile(MODELS.lite.filename, 397_807_360);  // the published v5 lite model
+        expect(await getCachedModel('lite')).toMatchObject({ fallback: false, info: { filename: MODELS.lite.filename } });
+    });
+
+    it('accepts a file verified within the same millisecond it was written', async () => {
+        const file = path.join(modelsDir, FALLBACK_MODELS.deep.filename);
+        await cacheFile(FALLBACK_MODELS.deep.filename, 10);
+        const written = new Date('2026-01-01T00:00:00.000Z');
+        await fs.utimes(file, written, written.getTime() / 1000 + 0.0007);  // mtime 0.7 ms into the same millisecond
+        await fs.writeJson(`${file}.meta.json`, { sha256: 'a'.repeat(64), sizeBytes: 10, verifiedAt: written.toISOString(), sourceUrl: 'https://x' });
+        expect(await getCachedModel('deep')).toMatchObject({ fallback: true });
+    });
+
+    it('rejects a file modified after it was verified', async () => {
+        const file = path.join(modelsDir, FALLBACK_MODELS.deep.filename);
+        await cacheFile(FALLBACK_MODELS.deep.filename, 10);
+        await fs.writeJson(`${file}.meta.json`, { sha256: 'a'.repeat(64), sizeBytes: 10, verifiedAt: '2000-01-01T00:00:00.000Z', sourceUrl: 'https://x' });
+        expect(await getCachedModel('deep')).toBeNull();
+    });
+
     it('ignores a file without verified metadata', async () => {
         await fs.ensureDir(modelsDir);
         await fs.writeFile(path.join(modelsDir, FALLBACK_MODELS.deep.filename), 'partial');
         expect(await getCachedModel('deep')).toBeNull();
+    });
+});
+
+describe('model versions', () => {
+    beforeEach(async () => { await fs.remove(home); vi.unstubAllGlobals(); });
+
+    it('keeps published version strings as they are', () => {
+        expect(normalizeModelVersion(5)).toBe('5');
+        expect(normalizeModelVersion('5')).toBe('5');
+        expect(normalizeModelVersion('v2.1.0')).toBe('2.1.0');
+        expect(normalizeModelVersion('5.0')).toBeNull();
+        expect(normalizeModelVersion({})).toBeNull();
+    });
+
+    it('names the published v5 repositories by default', () => {
+        expect(MODELS.lite.url).toBe('https://huggingface.co/rigour-labs/rigour-lite-v5-gguf/resolve/main/rigour-lite-v5-q4_k_m.gguf');
+        expect(MODELS.deep.url).toBe('https://huggingface.co/rigour-labs/rigour-deep-v5-gguf/resolve/main/rigour-deep-v5-q4_k_m.gguf');
+    });
+
+    it('ignores a version cache from the old SemVer conversion and re-reads the published version', async () => {
+        await fs.outputJson(path.join(modelsDir, '.latest_version.json'), { version: '5.0.0', checkedAt: new Date().toISOString() });
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ version: 5 }) })));
+        expect(await checkForUpdates()).toBe('5');
+        expect(await fs.readJson(path.join(modelsDir, '.latest_version.json'))).toMatchObject({ format: 2, version: '5' });
+        expect(MODELS.deep.filename).toBe('rigour-deep-v5-q4_k_m.gguf');
     });
 });

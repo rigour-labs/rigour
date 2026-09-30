@@ -8,6 +8,7 @@ import { createHash } from 'crypto';
 import { RIGOUR_DIR } from '../storage/db.js';
 import { downloadToFile, type HttpGet } from './http-download.js';
 import { MODELS, FALLBACK_MODELS, VERSION_CHECK_URL, BUNDLED_MODEL_VERSION, updateModelVersion, type ModelTier, type ModelInfo } from './types.js';
+import { Logger } from '../utils/logger.js';
 
 const MODELS_DIR = path.join(RIGOUR_DIR, 'models');
 const VERSION_CACHE_PATH = path.join(MODELS_DIR, '.latest_version.json');
@@ -74,11 +75,13 @@ async function isFileCached(model: ModelInfo): Promise<boolean> {
     if (!(await fs.pathExists(modelPath))) return false;
     const metadata = await readModelMeta(model.filename);
     if (!metadata) return false;
+    // The metadata is written only after the checksum passed, so its exact size is
+    // the completeness check; ModelInfo sizes are display estimates that differ by version.
     const stat = await fs.stat(modelPath);
-    const tolerance = model.sizeBytes * 0.1;
-    if (stat.size <= model.sizeBytes - tolerance) return false;
     if (metadata.sizeBytes !== stat.size) return false;
-    if (new Date(metadata.verifiedAt).getTime() < stat.mtimeMs) return false;
+    // verifiedAt has millisecond precision and mtimeMs a sub-millisecond fraction: compare
+    // whole milliseconds, or a file verified within the same millisecond looks modified.
+    if (new Date(metadata.verifiedAt).getTime() < Math.floor(stat.mtimeMs)) return false;
     return true;
 }
 
@@ -188,6 +191,27 @@ async function downloadFromUrl(
 }
 
 /**
+ * Version cache format. Format 1 turned a published integer version into
+ * SemVer ("5" -> "5.0.0"), which names repositories that were never published,
+ * so those caches are ignored.
+ */
+const VERSION_CACHE_FORMAT = 2;
+/** How long a failed fine-tuned download keeps the stock fallback before retrying. */
+const FINE_TUNED_RETRY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The version exactly as published. Integer versions (the RLAIF pipeline
+ * before SemVer) are published as `v5`, SemVer versions as `v2.1.0`; either
+ * way the string goes into the repository and file names unchanged.
+ */
+export function normalizeModelVersion(raw: unknown): string | null {
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) return String(raw);
+    if (typeof raw !== 'string') return null;
+    const value = raw.trim().replace(/^v/, '');
+    return /^\d+$/.test(value) || /^\d+\.\d+\.\d+$/.test(value) ? value : null;
+}
+
+/**
  * Check HuggingFace for a newer model version (like antivirus signature updates).
  * Reads latest_version.json from the RLAIF dataset repo. Non-blocking — if the
  * check fails (offline, HF down), we silently use the cached/bundled version.
@@ -204,8 +228,8 @@ export async function checkForUpdates(
         if (await fs.pathExists(VERSION_CACHE_PATH)) {
             const cached = await fs.readJson(VERSION_CACHE_PATH);
             const age = Date.now() - new Date(cached.checkedAt).getTime();
-            if (age < VERSION_CHECK_INTERVAL_MS && cached.version) {
-                const v = String(cached.version);
+            const v = cached.format === VERSION_CACHE_FORMAT ? normalizeModelVersion(cached.version) : null;
+            if (age < VERSION_CHECK_INTERVAL_MS && v) {
                 updateModelVersion(v);
                 return v;
             }
@@ -224,14 +248,11 @@ export async function checkForUpdates(
 
         if (response.ok) {
             const data = await response.json() as { version?: number | string; updated_by?: string };
-            // Handle both legacy integer versions (5 → "5.0.0") and SemVer strings ("2.0.0")
-            let rawVersion = data.version ?? BUNDLED_MODEL_VERSION;
-            const latestVersion = typeof rawVersion === 'number'
-                ? `${rawVersion}.0.0`
-                : String(rawVersion);
+            const latestVersion = normalizeModelVersion(data.version) ?? BUNDLED_MODEL_VERSION;
 
             // Cache the result locally
             await fs.writeJson(VERSION_CACHE_PATH, {
+                format: VERSION_CACHE_FORMAT,
                 version: latestVersion,
                 checkedAt: new Date().toISOString(),
                 source: 'huggingface',
@@ -267,23 +288,42 @@ export async function downloadModel(
     await checkForUpdates(onProgress);
 
     const cached = await getCachedModel(tier);
-    if (cached) {
+    if (cached && !cached.fallback) {
         onProgress?.(`Model ${cached.info.name} already cached`, 100);
         return cached.path;
     }
+    // Only the stock fallback is cached: try the fine-tuned model again, at most once a day,
+    // so one failed download does not pin a user to the stock model forever.
+    if (cached && !(await fineTunedRetryDue(tier))) return cached.path;
 
     const model = MODELS[tier];
     onProgress?.(`Downloading ${model.name} (${model.sizeHuman})...`, 0);
 
     try {
-        return await downloadFromUrl(model, onProgress, get);
+        const downloaded = await downloadFromUrl(model, onProgress, get);
+        await fs.remove(retryMarker(tier)).catch(() => {});
+        return downloaded;
     } catch (error: any) {
         const fallback = FALLBACK_MODELS[tier];
-        if (fallback && fallback.url !== model.url) {
-            onProgress?.(`Fine-tuned model unavailable (${error?.message ?? 'unknown error'}); using stock ${fallback.name}`, 0);
-            return downloadFromUrl(fallback, onProgress, get);
-        }
-        throw error;
+        if (!fallback || fallback.url === model.url) throw error;
+        const reason = error?.message ?? 'unknown error';
+        Logger.warn(`Fine-tuned model ${model.name} could not be downloaded from ${model.url} (${reason}); using the stock ${fallback.name}. Deep findings will be less accurate.`);
+        onProgress?.(`Fine-tuned model unavailable (${reason}); using stock ${fallback.name}`, 0);
+        await fs.writeJson(retryMarker(tier), { failedAt: new Date().toISOString(), url: model.url, reason }).catch(() => {});
+        return cached?.path ?? downloadFromUrl(fallback, onProgress, get);
+    }
+}
+
+function retryMarker(tier: ModelTier): string {
+    return path.join(MODELS_DIR, `.fine-tuned-unavailable-${tier}.json`);
+}
+
+async function fineTunedRetryDue(tier: ModelTier): Promise<boolean> {
+    try {
+        const marker = await fs.readJson(retryMarker(tier));
+        return Date.now() - new Date(marker.failedAt).getTime() >= FINE_TUNED_RETRY_MS || marker.url !== MODELS[tier].url;
+    } catch {
+        return true;
     }
 }
 
