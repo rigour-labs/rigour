@@ -446,6 +446,8 @@ export const ReportSchema = z.object({
             chunks_total: z.number().optional(),
             chunks_failed: z.number().optional(),
             error: z.string().optional(),
+            findings_proposed: z.number().optional(), // code mode, before the self-check
+            findings_withdrawn: z.number().optional(), // by the self-check
             findings_count: z.number().optional(),
             findings_verified: z.number().optional(),
         }).optional(),

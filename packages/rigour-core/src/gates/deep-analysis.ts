@@ -59,6 +59,9 @@ export interface DeepRunOutcome {
     filesAnalyzed: number;
     chunksTotal: number;
     chunksFailed: number;
+    /** Code mode: findings the model proposed, and how many the self-check withdrew. */
+    findingsProposed?: number;
+    findingsWithdrawn?: number;
     /** Model actually used (the stock fallback is named as such). */
     model?: string;
     modelFallback?: boolean;
@@ -150,6 +153,8 @@ export class DeepAnalysisGate extends Gate {
             onProgress: this.config.onProgress,
         });
         this.recordPass(result);
+        this.outcome.findingsProposed = result.proposed;
+        this.outcome.findingsWithdrawn = result.withdrawn;
         return verifyCodeFindings(result.findings, result.contexts);
     }
 
