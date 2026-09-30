@@ -466,4 +466,8 @@ export interface DeepOptions {
     agents?: number; // Number of parallel agents (default: 1). Cloud-only. Each gets own provider instance.
     maxFiles?: number; // Max files to analyze in deep mode (default: 2000). Configurable via rigour.yml: deep.maxFiles
     focusLines?: Record<string, number[]>; // Changed lines per cwd-relative file (from a diff); reviewed first in code mode
+    /** Lines the change removed per file, anchored at the new-side line (from a diff). */
+    removedLines?: Record<string, Array<{ line: number; text: string[] }>>;
+    /** What the change intends (a PR description): reference for the stronger tiers. */
+    prBody?: string;
 }

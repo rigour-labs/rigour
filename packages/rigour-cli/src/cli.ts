@@ -22,6 +22,7 @@ import { reviewCommand } from './commands/review.js';
 import { reviewStatsCommand } from './commands/review-stats.js';
 import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
 import { scanRulesCommand } from './commands/scan-rules.js';
+import { exportReviewContextCommand } from './commands/export-review-context.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { learnCommand } from './commands/learn.js';
 import { securityAuditCommand } from './commands/security-audit.js';
@@ -248,6 +249,7 @@ program
     .option('--deep', 'Enable deep LLM-powered analysis')
     .option('--pro', 'Use full deep model for analysis')
     .option('--max', 'Use the strongest local model (Qwen2.5-Coder-7B, 4.7GB; 16GB RAM)')
+    .option('--pr-body <path>', 'File with the PR description, read by --max and cloud review (default: the GitHub Actions pull request)')
     .option('-k, --api-key <key>', 'Cloud API key for deep analysis')
     .option('--provider <name>', 'Cloud provider for deep analysis')
     .option('--api-base-url <url>', 'Custom API base URL')
@@ -280,6 +282,15 @@ program
     .argument('[files...]', 'Files to export (default: tracked, non-test source files)')
     .action((files: string[]) => {
         exportTrainingSitesCommand(process.cwd(), files ?? []);
+    });
+
+program
+    .command('export-review-context')
+    .description('Print the prompt the max tier reviews for each changed file, as JSON lines (used by the driftbench review miner)')
+    .requiredOption('--diff <path>', 'Unified diff of the change')
+    .option('--pr-body <path>', 'File with the PR description')
+    .action(async (options: { diff: string; prBody?: string }) => {
+        await exportReviewContextCommand(process.cwd(), options);
     });
 
 program

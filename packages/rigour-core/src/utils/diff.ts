@@ -63,3 +63,33 @@ export function changedLinesByFile(mapping: Record<string, Set<number>>): Record
         Object.entries(mapping).map(([file, lines]) => [file, [...lines].sort((a, b) => a - b)]),
     );
 }
+
+/** Lines a change removed, anchored at the new-side line where they were. */
+export interface RemovedBlock {
+    /** New-side line the removal sits before (1-based). */
+    line: number;
+    text: string[];
+}
+
+/**
+ * Removed lines per file, grouped into consecutive blocks. A reviewer needs
+ * what a change deleted as much as what it added: a dropped guard or a
+ * deleted call is invisible in the new file alone.
+ */
+export function removedByFile(diff: string): Record<string, RemovedBlock[]> {
+    const removed: Record<string, RemovedBlock[]> = {};
+    const state: ParseState = { mapping: {}, file: '', newLine: 0, oldLeft: 0, newLeft: 0 };
+    let open: RemovedBlock | null = null;
+    for (const line of diff.split('\n')) {
+        const inHunk = state.oldLeft > 0 || state.newLeft > 0;
+        if (inHunk && line.startsWith('-') && state.file) {
+            if (!open) (removed[state.file] ??= []).push(open = { line: state.newLine, text: [] });
+            open.text.push(line.slice(1));
+        } else if (!line.startsWith('\\')) {
+            open = null;
+        }
+        if (inHunk) readHunkLine(state, line);
+        else readHeaderLine(state, line);
+    }
+    return removed;
+}

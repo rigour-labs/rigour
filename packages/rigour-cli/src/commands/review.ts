@@ -32,6 +32,7 @@ export interface ReviewOptions {
     deep?: boolean;
     pro?: boolean;
     max?: boolean;
+    prBody?: string;     // path to a file with the PR description
     apiKey?: string;
     provider?: string;
     apiBaseUrl?: string;
@@ -50,7 +51,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
             cwd, config, diff,
             source: options.base ? { mode: 'base', base: options.base } : { mode: 'working' },
             files: options.files ? options.files.split(',').map(f => f.trim()).filter(Boolean) : undefined,
-            deep: isDeep ? deepOptions(options) : undefined,
+            deep: isDeep ? deepOptions(cwd, options) : undefined,
         });
         await print(result, options);
         process.exit(exitCodeFor(result));
@@ -85,7 +86,27 @@ async function readStdin(): Promise<string> {
     return Buffer.concat(chunks).toString('utf-8');
 }
 
-function deepOptions(options: ReviewOptions): Omit<DeepOptions, 'focusLines'> {
+/**
+ * What the change intends: --pr-body, else the pull request in a GitHub Actions
+ * event. It is reference for the max and cloud tiers, never required.
+ */
+export function readPrBody(cwd: string, options: ReviewOptions, env: NodeJS.ProcessEnv = process.env): string | undefined {
+    if (options.prBody) {
+        const bodyPath = path.resolve(cwd, options.prBody);
+        if (!fs.existsSync(bodyPath)) throw new UsageError(`PR body file not found: ${bodyPath}`);
+        return fs.readFileSync(bodyPath, 'utf-8');
+    }
+    if (!env.GITHUB_EVENT_PATH) return undefined;
+    try {
+        const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf-8'));
+        const pr = event.pull_request;
+        return pr ? [pr.title, pr.body].filter(Boolean).join('\n\n') || undefined : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'focusLines' | 'removedLines'> {
     const resolved = resolveDeepOptions({
         apiKey: options.apiKey, provider: options.provider, apiBaseUrl: options.apiBaseUrl, modelName: options.modelName,
     });
@@ -93,6 +114,7 @@ function deepOptions(options: ReviewOptions): Omit<DeepOptions, 'focusLines'> {
         enabled: true,
         pro: !!options.pro,
         max: !!options.max,
+        prBody: readPrBody(cwd, options),
         apiKey: resolved.apiKey,
         provider: resolved.apiKey ? (resolved.provider || 'claude') : 'local',
         apiBaseUrl: resolved.apiBaseUrl,

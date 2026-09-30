@@ -35,6 +35,9 @@ const CLOUD_SETUP_TIMEOUT_MS = 120_000;
  */
 const LOCAL_SOURCE_CHARS = 36_000;
 const CLOUD_SOURCE_CHARS = 60_000;
+/** Reference material (removed lines, callees, callers, PR intent) for the max and cloud tiers. */
+const LOCAL_REFERENCE_CHARS = 12_000;
+const CLOUD_REFERENCE_CHARS = 24_000;
 
 export interface DeepGateConfig {
     options: DeepOptions;
@@ -143,10 +146,19 @@ export class DeepAnalysisGate extends Gate {
             inference: inferenceOptions(this.config),
             maxSourceChars: isCloud(this.config.options) ? CLOUD_SOURCE_CHARS : LOCAL_SOURCE_CHARS,
             focusLines: this.config.options.focusLines,
+            reference: this.referenceOptions(),
             onProgress: this.config.onProgress,
         });
         this.recordPass(result);
         return verifyCodeFindings(result.findings, result.contexts);
+    }
+
+    /** The max and cloud tiers read reference material and review twice; the small models do not. */
+    private referenceOptions() {
+        const options = this.config.options;
+        const cloud = isCloud(options);
+        if (!cloud && !options.max) return undefined;
+        return { maxChars: cloud ? CLOUD_REFERENCE_CHARS : LOCAL_REFERENCE_CHARS, removed: options.removedLines, prBody: options.prBody };
     }
 
     private async analyzeFacts(cwd: string, facts: FileFacts[]): Promise<VerifiedFinding[]> {

@@ -8,7 +8,7 @@
  */
 import { GateRunner } from '../gates/runner.js';
 import type { Config, DeepOptions, Failure, Report } from '../types/index.js';
-import { changedLinesByFile, parseDiff } from '../utils/diff.js';
+import { changedLinesByFile, parseDiff, removedByFile } from '../utils/diff.js';
 import { normalizeScopePatterns } from '../utils/scope.js';
 import { deepAnalysisError } from '../utils/deep-status.js';
 import { splitByChangedLines } from './changed-lines.js';
@@ -22,8 +22,8 @@ export interface ReviewInput {
     source?: DiffSource;
     /** Review exactly these files instead of the ones the diff touches. */
     files?: string[];
-    /** Deep analysis; `focusLines` is filled from the diff. */
-    deep?: Omit<DeepOptions, 'focusLines'>;
+    /** Deep analysis; `focusLines` and `removedLines` are filled from the diff. */
+    deep?: Omit<DeepOptions, 'focusLines' | 'removedLines'>;
 }
 
 export interface ReviewResult {
@@ -55,7 +55,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     if (targets.length === 0) {
         return { status: 'PASS', findings: [], fileFindings: [], unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null };
     }
-    const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines) } : undefined;
+    const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff) } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     const split = splitByChangedLines(report.failures, changedLines);
     const deepError = deepAnalysisError(report);

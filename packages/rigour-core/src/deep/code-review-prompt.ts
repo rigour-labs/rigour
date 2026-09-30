@@ -29,13 +29,14 @@ const REVIEW_RULES = `RULES:
 5. confidence: 0.9+ only when the defect is certain from the code shown; 0.5-0.7 when it depends on how callers use it.
 6. Respond ONLY with JSON: {"findings":[{"category","severity","file","line","description","suggestion","confidence"}]}.`;
 
-export function buildCodeReviewPrompt(context: CodeContext): string {
+export function buildCodeReviewPrompt(context: CodeContext, reference = ''): string {
     const categories = REVIEW_CATEGORIES.map(c => `- ${c.key}: ${c.focus}`).join('\n');
     return [
         'You are a senior engineer reviewing a change before it ships. Read the source and report real defects.',
         `CATEGORIES:\n${categories}`,
         REVIEW_RULES,
         `SOURCE (line numbers on the left):\n${context.text}`,
+        reference ? `REFERENCE (context for the change, not under review; report defects only at lines of ${context.file}):\n${reference}` : '',
         `Review ${context.file}. Return findings as JSON.`,
-    ].join('\n\n');
+    ].filter(Boolean).join('\n\n');
 }
