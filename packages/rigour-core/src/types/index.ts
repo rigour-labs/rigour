@@ -303,6 +303,7 @@ export const GatesSchema = z.object({
     deep: z.object({
         enabled: z.boolean().optional().default(false),
         pro: z.boolean().optional().default(false),
+        max: z.boolean().optional().default(false), // local Qwen2.5-Coder-7B (4.7GB); needs ~8GB free memory
         provider: z.string().optional().default('local'), // 'local' for sidecar, or any cloud: 'claude', 'openai', 'gemini', 'groq', 'mistral', 'together', etc.
         api_key: z.string().optional(),
         api_base_url: z.string().optional(), // custom API base URL (for self-hosted, proxies, any OpenAI-compatible endpoint)
@@ -437,7 +438,7 @@ export const ReportSchema = z.object({
             /** ok: every inference ran; partial: some failed; error: deep did not run. */
             status: z.enum(['ok', 'partial', 'error']).optional(),
             mode: z.enum(['facts', 'code']).optional(),
-            tier: z.enum(['deep', 'lite', 'legacy', 'cloud']).optional(),
+            tier: z.enum(['deep', 'lite', 'legacy', 'max', 'cloud']).optional(),
             model: z.string().optional(),
             model_fallback: z.boolean().optional(),
             total_ms: z.number().optional(),
@@ -452,10 +453,12 @@ export const ReportSchema = z.object({
 });
 export type Report = z.infer<typeof ReportSchema>;
 
-/** Options passed from CLI --deep / --pro / -k flags */
+/** Options passed from CLI --deep / --pro / --max / -k flags */
 export interface DeepOptions {
     enabled: boolean;
     pro?: boolean;
+    /** Local 7B model: the strongest free tier, for laptops with 16GB. */
+    max?: boolean;
     apiKey?: string;
     provider?: string; // 'local' or any cloud provider name
     apiBaseUrl?: string; // custom API endpoint

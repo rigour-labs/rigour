@@ -254,6 +254,7 @@ export const UNIVERSAL_CONFIG: Config = {
         deep: {
             enabled: false,
             pro: false,
+            max: false,
             provider: 'local',
             threads: 4,
             temperature: 0.1,

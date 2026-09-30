@@ -19,6 +19,7 @@ export interface CheckOptions {
     // Deep analysis options
     deep?: boolean;
     pro?: boolean;
+    max?: boolean;
     apiKey?: string;
     provider?: string;
     apiBaseUrl?: string;
@@ -60,7 +61,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
         const rawConfig = yaml.parse(configContent);
         const config = ConfigSchema.parse(rawConfig);
 
-        const isDeep = !!options.deep || !!options.pro || !!options.apiKey;
+        const isDeep = !!options.deep || !!options.pro || !!options.max || !!options.apiKey;
         const isSilent = !!options.ci || !!options.json;
         const useCache = options.cache !== false && !options.noCache && !isDeep; // Cache only for non-deep runs
 
@@ -154,6 +155,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
             deepOpts = {
                 enabled: true,
                 pro: !!options.pro,
+                max: !!options.max,
                 apiKey: resolved.apiKey,
                 provider: hasApiKey ? (resolved.provider || 'claude') : 'local',
                 apiBaseUrl: resolved.apiBaseUrl,

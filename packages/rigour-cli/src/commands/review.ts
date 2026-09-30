@@ -31,6 +31,7 @@ export interface ReviewOptions {
     files?: string;      // comma-separated explicit file list
     deep?: boolean;
     pro?: boolean;
+    max?: boolean;
     apiKey?: string;
     provider?: string;
     apiBaseUrl?: string;
@@ -43,7 +44,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
     try {
         const config = await loadConfig(cwd, options);
         const diff = await readDiff(cwd, options);
-        const isDeep = !!options.deep || !!options.pro || !!options.apiKey;
+        const isDeep = !!options.deep || !!options.pro || !!options.max || !!options.apiKey;
         if (!options.ci && !options.json && !options.githubSummary && isDeep) console.log(chalk.blue.bold('Deep analysis enabled.\n'));
         const result = await reviewChange({
             cwd, config, diff,
@@ -91,6 +92,7 @@ function deepOptions(options: ReviewOptions): Omit<DeepOptions, 'focusLines'> {
     return {
         enabled: true,
         pro: !!options.pro,
+        max: !!options.max,
         apiKey: resolved.apiKey,
         provider: resolved.apiKey ? (resolved.provider || 'claude') : 'local',
         apiBaseUrl: resolved.apiBaseUrl,
