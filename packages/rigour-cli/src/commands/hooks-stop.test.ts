@@ -64,3 +64,34 @@ describe('rigour hooks stop', () => {
         fs.rmSync(notARepo, { recursive: true, force: true });
     });
 });
+
+describe('the agent fix loop', () => {
+    it('turns an agent fix to a stop-hook finding into a validated rule', async () => {
+        const { learnCommand } = await import('./learn.js');
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-'));
+        const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+        git('init', '-q', '-b', 'main');
+        git('config', 'user.email', 't@example.com');
+        git('config', 'user.name', 't');
+        git('config', 'commit.gpgsign', 'false');
+        fs.writeFileSync(path.join(repo, '.gitignore'), '.rigour/\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        fs.mkdirSync(path.join(repo, 'src'));
+        fs.writeFileSync(path.join(repo, 'src/notify.ts'), LEAKY);
+
+        const payload = JSON.stringify({ cwd: repo, session_id: 'loop' });
+        expect(JSON.parse(await hooksStopCommand('claude', payload, '/')).decision).toBe('block');
+        fs.writeFileSync(path.join(repo, 'src/notify.ts'), LEAKY.replace("{ method: 'POST',", "{ method: 'POST', redirect: 'manual',"));
+        expect(await hooksStopCommand('claude', payload, '/')).toBe('');
+
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+        await learnCommand(repo, undefined, { agentFixes: true });
+        const rules = fs.readdirSync(path.join(repo, '.rigour', 'rules'));
+        expect(rules).toHaveLength(1);
+        expect(JSON.parse(fs.readFileSync(path.join(repo, '.rigour', 'rules', rules[0]), 'utf8')).pattern)
+            .toMatchObject({ template: 'require-option', property: 'redirect', value: 'manual' });
+        expect(fs.readdirSync(path.join(repo, '.rigour', 'agent-fixes', 'resolved'))).toEqual([]);
+        fs.rmSync(repo, { recursive: true, force: true });
+    });
+});

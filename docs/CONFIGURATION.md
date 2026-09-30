@@ -223,6 +223,8 @@ gates:
 
 **Learned rules.** `rigour learn <fix-commit>` (or `--before <file> --after <file>`) turns a fix into a rule for the same bug. It generalises two edit shapes: an argument gaining an option (`fetch(url, init)` to `fetch(url, { ...init, redirect: 'manual' })`) and a value gaining a condition (a cache header becoming conditional on the field that can be a fallback). Candidates are tried from most general (every call of that name) to most specific (this call in this function), and one is kept only if it fires on the code before the fix, is silent on the fixed code, and fires on at most `--max-hits` (default 3) other places, which are listed for review. Kept rules are saved to `.rigour/rules/<id>.json`, reviewed and committed like code, and run by this gate as `learned/<id>`. Other edit shapes are reported as unsupported rather than guessed.
 
+**Rules from agent fixes.** When `rigour_review` or the stop hook reports a finding and a later review of the same file no longer does, the file before and after the fix is kept under `.rigour/agent-fixes/`. `rigour learn --agent-fixes` turns those fixes into rules with the same validation. Capture costs milliseconds inside the loop; learning runs when you ask for it.
+
 ```bash
 rigour learn a1b2c3d --dry-run                       # See what would be learned
 rigour learn a1b2c3d                                 # Save validated rules to .rigour/rules/

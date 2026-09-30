@@ -19,13 +19,17 @@ export interface StopDecision {
     /** What the agent is told when blocked; empty otherwise. */
     message: string;
     blocking: number;
+    /** Every finding on changed lines, and the files the review covered (for fix capture). */
+    findings: Failure[];
+    reviewedFiles: string[];
 }
 
 export async function stopReview(cwd: string, config: Config, attempt: number): Promise<StopDecision> {
     const result = await reviewChange({ cwd, config, source: { mode: 'working' } });
     const blocking = result.findings.filter(blocksStop);
-    if (blocking.length === 0) return { block: false, message: '', blocking: 0 };
-    return { block: true, message: stopMessage(blocking, attempt), blocking: blocking.length };
+    const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines) };
+    if (blocking.length === 0) return { block: false, message: '', blocking: 0, ...reviewed };
+    return { block: true, message: stopMessage(blocking, attempt), blocking: blocking.length, ...reviewed };
 }
 
 /** Critical, or high and either proven by the semantic engine or a security finding. */

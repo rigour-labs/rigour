@@ -3,10 +3,10 @@
  * Read from the local event log (.rigour/events.jsonl); nothing is sent anywhere.
  */
 import chalk from 'chalk';
-import { computeEffectiveness, readAgentEvents } from '@rigour-labs/core';
+import { computeEffectiveness, listResolvedFixes, openFindingCount, readAgentEvents } from '@rigour-labs/core';
 
 export function reviewStatsCommand(cwd: string, options: { json?: boolean } = {}): void {
-    const stats = computeEffectiveness(readAgentEvents(cwd));
+    const stats = { ...computeEffectiveness(readAgentEvents(cwd)), openFindings: openFindingCount(cwd), fixesToLearn: listResolvedFixes(cwd).length };
     if (options.json) {
         console.log(JSON.stringify(stats, null, 2));
         return;
@@ -18,6 +18,7 @@ export function reviewStatsCommand(cwd: string, options: { json?: boolean } = {}
     console.log(`  Stop checks:             ${stats.stopChecks} (${stats.stopBlocks} blocked)`);
     console.log(`  Blocked, then fixed:     ${stats.blockedStopsFollowedThrough}/${stats.stopBlocks} (${pct(stats.blockedStopsFollowedThrough, stats.stopBlocks)})`);
     console.log(`  Reviewed before stopping: ${stats.stopsWithSelfReview}/${stats.stopChecks} (${pct(stats.stopsWithSelfReview, stats.stopChecks)})`);
+    console.log(`  Agent fixes to learn:    ${stats.fixesToLearn}${stats.fixesToLearn ? ' (run `rigour learn --agent-fixes`)' : ''}; open findings tracked: ${stats.openFindings}`);
     const calls = Object.entries(stats.toolCalls).sort((a, b) => b[1] - a[1]);
     if (calls.length) {
         console.log(chalk.bold('\n  MCP tool calls'));

@@ -5,7 +5,7 @@
  * With no diff, the change is taken from git: uncommitted work (what the
  * agent just wrote, new files included), or the branch against `base`.
  */
-import { reviewChange, toReviewFinding, type Config } from "@rigour-labs/core";
+import { recordReviewOutcome, reviewChange, toReviewFinding, type Config } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
@@ -24,6 +24,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
             source: args.base ? { mode: 'base', base: args.base } : { mode: 'working' },
             files: args.files,
         });
+        recordReviewOutcome(cwd, result.findings, Object.keys(result.changedLines));
         const stats = result.report?.stats;
         return text({
             status: result.status,

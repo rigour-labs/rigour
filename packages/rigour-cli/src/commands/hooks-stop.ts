@@ -13,7 +13,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
-import { appendAgentEvent, ConfigSchema, STOP_MAX_ATTEMPTS, stopReview, type Config } from '@rigour-labs/core';
+import { appendAgentEvent, ConfigSchema, recordReviewOutcome, STOP_MAX_ATTEMPTS, stopReview, type Config } from '@rigour-labs/core';
 
 export type StopTool = 'claude' | 'cursor';
 
@@ -36,6 +36,7 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
     try {
         const decision = await stopReview(cwd, await loadConfig(cwd), attempt);
         appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking });
+        recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles);
         if (!decision.block) {
             await clearAttempts(cwd, session);
             return '';

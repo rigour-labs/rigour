@@ -138,7 +138,10 @@ The `semantic_bugs` gate builds a TypeScript program and traces values across fi
 ```bash
 rigour learn a1b2c3d --dry-run   # what would be learned, and why
 rigour learn a1b2c3d             # save validated rules to .rigour/rules/
+rigour learn --agent-fixes       # rules from fixes your agents made to Rigour findings
 ```
+
+Agents are asked to review before they finish: `rigour_review` over MCP, and a stop hook for Claude Code and Cursor that sends the agent back on proven or security findings. `rigour review-stats` shows whether that loop works in your repository.
 
 ### Governance agents can work with
 

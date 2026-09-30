@@ -291,6 +291,7 @@ program
     .description('Learn a rule from a fix, so the same bug is caught next time (no model, no network)')
     .option('--before <file>', 'The file before the fix (with --after, instead of a commit)')
     .option('--after <file>', 'The file after the fix')
+    .option('--agent-fixes', 'Learn from fixes agents made to Rigour findings (captured by rigour_review and the stop hook)')
     .option('--max-hits <n>', 'Reject a rule that fires on more than n other places in the repository', '3')
     .option('--dry-run', 'Report what would be learned without saving rules')
     .option('--json', 'Output the report as JSON')
@@ -303,6 +304,7 @@ Examples:
   $ rigour learn a1b2c3d                              # Learn from a fix commit
   $ rigour learn --before old/http.ts --after src/http.ts
   $ rigour learn a1b2c3d --dry-run --json
+  $ rigour learn --agent-fixes                        # Fixes agents made to Rigour findings
     `)
     .action(async (commit: string | undefined, options: any) => {
         await learnCommand(process.cwd(), commit, options);

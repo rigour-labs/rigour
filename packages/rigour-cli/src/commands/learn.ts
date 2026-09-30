@@ -13,7 +13,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    extractFixTrees, learnFromFix, saveLearnedRule, LEARNED_RULES_DIR, type LearnReport, type LearnedRule,
+    extractFixTrees, learnFromFix, learnFromFileChange, listResolvedFixes, removeResolvedFix, saveLearnedRule,
+    LEARNED_RULES_DIR, type LearnReport, type LearnedRule,
 } from '@rigour-labs/core';
 import { EXIT_CONFIG_ERROR } from './exit-codes.js';
 
@@ -21,6 +22,7 @@ export interface LearnOptions {
     before?: string;
     after?: string;
     maxHits?: string;
+    agentFixes?: boolean;
     dryRun?: boolean;
     json?: boolean;
 }
@@ -33,7 +35,8 @@ export async function learnCommand(cwd: string, commit: string | undefined, opti
     let report: LearnReport;
     let source: string;
     try {
-        ({ report, source } = commit ? await fromCommit(cwd, commit, maxHits) : await fromFiles(cwd, options.before!, options.after!, maxHits));
+        ({ report, source } = options.agentFixes ? await fromAgentFixes(cwd, maxHits, options.dryRun === true)
+            : commit ? await fromCommit(cwd, commit, maxHits) : await fromFiles(cwd, options.before!, options.after!, maxHits));
     } catch (error) {
         return fail(error instanceof Error ? error.message : String(error));
     }
@@ -48,8 +51,9 @@ export async function learnCommand(cwd: string, commit: string | undefined, opti
 
 function usageProblem(commit: string | undefined, options: LearnOptions): string | null {
     if (options.maxHits !== undefined && !/^\d+$/.test(options.maxHits)) return '--max-hits must be a whole number of 0 or more';
-    if (!commit && !(options.before && options.after)) return 'Give a fix commit, or both --before and --after';
-    if (commit && (options.before || options.after)) return 'Give a fix commit or --before/--after, not both';
+    const sources = [!!commit, !!(options.before || options.after), !!options.agentFixes].filter(Boolean).length;
+    if (sources === 0 || (!commit && !options.agentFixes && !(options.before && options.after))) return 'Give a fix commit, both --before and --after, or --agent-fixes';
+    if (sources > 1) return 'Give only one of: a fix commit, --before/--after, --agent-fixes';
     return null;
 }
 
@@ -70,19 +74,22 @@ async function fromFiles(cwd: string, before: string, after: string, maxHits: nu
     const afterPath = path.resolve(cwd, after);
     const inside = !path.relative(cwd, afterPath).startsWith('..');
     const rel = (inside ? path.relative(cwd, afterPath) : path.basename(afterPath)).replace(/\\/g, '/');
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-learn-'));
-    try {
-        const place = (from: string, tree: string) => {
-            const target = path.join(root, tree, rel);
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.copyFileSync(path.resolve(cwd, from), target);
-            return path.join(root, tree);
-        };
-        const report = await learnFromFix({ beforeDir: place(before, 'before'), afterDir: place(after, 'after'), repoDir: cwd, files: [rel], maxHits });
-        return { report, source: `${before} -> ${after}` };
-    } finally {
-        fs.rmSync(root, { recursive: true, force: true });
+    const report = await learnFromFileChange(cwd, rel, fs.readFileSync(path.resolve(cwd, before), 'utf8'), fs.readFileSync(afterPath, 'utf8'), maxHits);
+    return { report, source: `${before} -> ${after}` };
+}
+
+/** Every fix agents made to a Rigour finding (captured by the review loop), learned one by one. */
+async function fromAgentFixes(cwd: string, maxHits: number | undefined, dryRun: boolean) {
+    const fixes = listResolvedFixes(cwd);
+    const report: LearnReport = { learned: [], rejected: [], unsupported: [] };
+    for (const fix of fixes) {
+        const one = await learnFromFileChange(cwd, fix.file, fix.before, fix.after, maxHits);
+        report.learned.push(...one.learned.filter(rule => !report.learned.some(r => r.id === rule.id)));
+        report.rejected.push(...one.rejected);
+        report.unsupported.push(...one.unsupported);
+        if (!dryRun) removeResolvedFix(cwd, fix.id);
     }
+    return { report, source: `${fixes.length} fix(es) agents made to Rigour findings` };
 }
 
 function printReport(source: string, report: LearnReport, dryRun: boolean): void {

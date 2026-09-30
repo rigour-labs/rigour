@@ -14,6 +14,7 @@ export { deepAnalysisError } from './utils/deep-status.js';
 export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, type ReviewFinding } from './review/review.js';
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
 export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
+export { recordReviewOutcome, listResolvedFixes, removeResolvedFix, openFindingCount, type ResolvedFix, type FixCapture } from './review/agent-fixes.js';
 export { computeEffectiveness, readAgentEvents, appendAgentEvent, findingKeys, type AgentEvent, type ReviewEffectiveness } from './review/effectiveness.js';
 export { parseDiff, changedLinesByFile } from './utils/diff.js';
 export { FileScanner } from './utils/scanner.js';
@@ -95,7 +96,7 @@ export * from './services/agent-history.js';
 export * from './services/engineering-knowledge-graph.js';
 
 export * from './firewall/index.js';
-export { learnFromFix, type LearnReport, type Rejection } from './semantic/learn/learn.js';
+export { learnFromFix, learnFromFileChange, type LearnReport, type Rejection } from './semantic/learn/learn.js';
 export { extractFixTrees, type FixTrees } from './semantic/learn/git-trees.js';
 export { saveLearnedRule, loadLearnedRules, LEARNED_RULES_DIR } from './semantic/learn/store.js';
 export type { LearnedRule, LearnedPattern } from './semantic/learn/types.js';
