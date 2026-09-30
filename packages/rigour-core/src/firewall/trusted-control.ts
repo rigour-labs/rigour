@@ -120,7 +120,7 @@ export async function loadGatewayConfig(cwd: string, controlRoot?: string): Prom
     return validateGatewayConfig(await fs.readJson(source));
 }
 
-interface GrantInput {
+export interface GrantInput {
     issuerId: string;
     subjectId: string;
     taskId: string;

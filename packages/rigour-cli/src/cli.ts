@@ -21,6 +21,7 @@ import { deepCommand } from './commands/deep.js';
 import { reviewCommand } from './commands/review.js';
 import { reviewStatsCommand } from './commands/review-stats.js';
 import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
+import { scanRulesCommand } from './commands/scan-rules.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { learnCommand } from './commands/learn.js';
 import { securityAuditCommand } from './commands/security-audit.js';
@@ -276,6 +277,15 @@ program
     .argument('[files...]', 'Files to export (default: tracked, non-test source files)')
     .action((files: string[]) => {
         exportTrainingSitesCommand(process.cwd(), files ?? []);
+    });
+
+program
+    .command('scan-rules')
+    .description('Run semantic rules only and print findings as JSON lines (used by the driftbench rule validator)')
+    .argument('[files...]', 'Files to scan (default: tracked, non-test source files)')
+    .option('--rules <ids>', 'Comma-separated rule ids (default: all built-in rules)')
+    .action((files: string[], options: { rules?: string }) => {
+        scanRulesCommand(process.cwd(), files ?? [], options);
     });
 
 program

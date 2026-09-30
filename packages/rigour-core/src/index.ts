@@ -97,6 +97,7 @@ export * from './services/engineering-knowledge-graph.js';
 
 export * from './firewall/index.js';
 export { exportCallSites } from './semantic/sites/export.js';
+export { analyzeFiles, BUILT_IN_RULES } from './semantic/engine.js';
 export type { CallSite, HandledBy } from './semantic/sites/call-sites.js';
 export { learnFromFix, learnFromFileChange, type LearnReport, type Rejection } from './semantic/learn/learn.js';
 export { extractFixTrees, type FixTrees } from './semantic/learn/git-trees.js';
@@ -114,3 +115,20 @@ export {
 // native dependency issues (sharp/transformers) from leaking into
 // non-AI parts of the system.
 // Import from @rigour-labs/core/pattern-index instead.
+
+// Types named by the exported signatures above, so consumers can annotate what they pass and receive.
+export type { ModelInfo } from './inference/types.js';
+export type { HttpGet } from './inference/http-download.js';
+export type { FileFacts } from './deep/fact-extractor.js';
+export type { ScanRecord } from './storage/scans.js';
+export type { QualityTrend } from './services/adaptive-thresholds.js';
+export type { EngineOptions } from './semantic/engine.js';
+export type { LearnInput } from './semantic/learn/learn.js';
+export type { ContextEvent } from './storage/index.js';
+export type { CachedModel } from './inference/model-manager.js';
+export type { ProbeResult } from './inference/llama-engine.js';
+export type { PatternRecord } from './storage/patterns.js';
+export type { SemanticFinding } from './semantic/types.js';
+export type { ModelUsage } from './storage/index.js';
+export type { CheckpointMetric } from './storage/index.js';
+export type { CursorUsageSyncOptions } from './services/cursor-usage-client.js';

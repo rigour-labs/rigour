@@ -18,7 +18,7 @@ import { evaluateWriteScope, loadAgentScopesFromDisk } from '../firewall/scope-e
 
 type FailureEntry = HookCheckerResult['failures'][number];
 
-interface CheckerOptions {
+export interface CheckerOptions {
     cwd: string;
     files: string[];
     timeout_ms?: number;
