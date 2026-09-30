@@ -1,0 +1,6 @@
+{
+  "rule": "imports/barrel-cycle",
+  "file": "index.ts",
+  "line": 1,
+  "note": "A re-export whose target imports the barrel back."
+}

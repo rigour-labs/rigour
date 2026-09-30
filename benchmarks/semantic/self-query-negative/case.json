@@ -1,0 +1,6 @@
+{
+  "rule": null,
+  "file": null,
+  "line": null,
+  "note": "Collecting every node once is not a self lookup."
+}

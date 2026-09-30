@@ -1,0 +1,6 @@
+{
+  "rule": "deps/internal-symbol",
+  "file": "response.ts",
+  "line": 3,
+  "note": "A library internal symbol read with the type error silenced."
+}

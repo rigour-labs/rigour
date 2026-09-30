@@ -1,0 +1,6 @@
+{
+  "rule": "react/inline-html-object",
+  "file": "Style.tsx",
+  "line": 2,
+  "note": "Inline __html object in a React 19 component."
+}

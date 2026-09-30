@@ -1,0 +1,6 @@
+{
+  "rule": null,
+  "file": null,
+  "line": null,
+  "note": "Signatures that only use built-in types."
+}

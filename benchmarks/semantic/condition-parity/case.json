@@ -1,0 +1,6 @@
+{
+  "rule": "exports/condition-parity",
+  "file": "index.rsc.ts",
+  "line": 1,
+  "note": "A react-server entry exporting fewer names than index.ts."
+}

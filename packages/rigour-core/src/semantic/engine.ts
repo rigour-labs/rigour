@@ -3,13 +3,15 @@
  */
 import path from 'path';
 import { loadProjectConfig, programBatches } from './program.js';
+import { ProjectFacts } from './project-facts.js';
 import { Summaries } from './summaries.js';
 import type { SemanticFinding, SemanticRule } from './types.js';
 import { inMemoryAggregation } from './rules/in-memory-aggregation.js';
 import { credentialRedirect } from './rules/credential-redirect.js';
 import { degradedResponseCached } from './rules/degraded-response-cached.js';
+import { ECOSYSTEM_RULES } from './rules/ecosystem/index.js';
 
-export const BUILT_IN_RULES: SemanticRule[] = [inMemoryAggregation, credentialRedirect, degradedResponseCached];
+export const BUILT_IN_RULES: SemanticRule[] = [inMemoryAggregation, credentialRedirect, degradedResponseCached, ...ECOSYSTEM_RULES];
 
 export interface EngineOptions {
     rules?: SemanticRule[];
@@ -27,6 +29,7 @@ export function analyzeFiles(cwd: string, files: string[], opts: EngineOptions =
     const { options } = loadProjectConfig(cwd);
     const rootSet = new Set(roots.map(r => path.normalize(r)));
     const findings: SemanticFinding[] = [];
+    const project = new ProjectFacts(cwd);
 
     for (const program of programBatches(roots, options, opts.batchSize)) {
         const checker = program.getTypeChecker();
@@ -34,7 +37,7 @@ export function analyzeFiles(cwd: string, files: string[], opts: EngineOptions =
         for (const sourceFile of program.getSourceFiles()) {
             if (!rootSet.has(path.normalize(sourceFile.fileName))) continue;
             for (const rule of rules) {
-                findings.push(...rule.check({ cwd, checker, sourceFile, summaries }));
+                findings.push(...rule.check({ cwd, program, checker, sourceFile, summaries, project }));
             }
             rootSet.delete(path.normalize(sourceFile.fileName));
         }

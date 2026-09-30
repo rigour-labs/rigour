@@ -1,0 +1,6 @@
+{
+  "rule": null,
+  "file": null,
+  "line": null,
+  "note": "Without stripInternal the property stays in the .d.ts."
+}

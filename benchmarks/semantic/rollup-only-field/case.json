@@ -1,0 +1,6 @@
+{
+  "rule": "vite/rollup-only-hook-field",
+  "file": "mock.ts",
+  "line": 2,
+  "note": "syntheticNamedExports in a Vite 7 plugin."
+}

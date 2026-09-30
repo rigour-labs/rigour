@@ -1,0 +1,6 @@
+{
+  "rule": "dom/self-query-in-component",
+  "file": "Hydrate.tsx",
+  "line": 4,
+  "note": "Each instance scans the document for its own element."
+}

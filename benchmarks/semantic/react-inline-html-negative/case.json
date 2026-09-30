@@ -1,0 +1,6 @@
+{
+  "rule": null,
+  "file": null,
+  "line": null,
+  "note": "React 18 does not rewrite on a new object."
+}

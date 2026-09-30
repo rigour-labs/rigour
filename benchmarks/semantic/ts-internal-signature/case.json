@@ -1,0 +1,6 @@
+{
+  "rule": "ts/internal-in-public-signature",
+  "file": "path.ts",
+  "line": 6,
+  "note": "Exported function destructures an @internal property under stripInternal."
+}
