@@ -96,6 +96,8 @@ export * from './services/agent-history.js';
 export * from './services/engineering-knowledge-graph.js';
 
 export * from './firewall/index.js';
+export { exportCallSites } from './semantic/sites/export.js';
+export type { CallSite, HandledBy } from './semantic/sites/call-sites.js';
 export { learnFromFix, learnFromFileChange, type LearnReport, type Rejection } from './semantic/learn/learn.js';
 export { extractFixTrees, type FixTrees } from './semantic/learn/git-trees.js';
 export { saveLearnedRule, loadLearnedRules, LEARNED_RULES_DIR } from './semantic/learn/store.js';

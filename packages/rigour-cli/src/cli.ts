@@ -20,6 +20,7 @@ import { deepStatsCommand } from './commands/deep-stats.js';
 import { deepCommand } from './commands/deep.js';
 import { reviewCommand } from './commands/review.js';
 import { reviewStatsCommand } from './commands/review-stats.js';
+import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { learnCommand } from './commands/learn.js';
 import { securityAuditCommand } from './commands/security-audit.js';
@@ -267,6 +268,14 @@ program
     .option('--json', 'Output as JSON')
     .action((options: any) => {
         reviewStatsCommand(process.cwd(), options);
+    });
+
+program
+    .command('export-training-sites')
+    .description('Export awaited call sites as JSON lines for model training (used by the driftbench fix miner)')
+    .argument('[files...]', 'Files to export (default: tracked, non-test source files)')
+    .action((files: string[]) => {
+        exportTrainingSitesCommand(process.cwd(), files ?? []);
     });
 
 program
