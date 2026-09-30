@@ -68,8 +68,8 @@ Memory: Agent writes CLAUDE.md → Rigour intercepts → Forces rigour_remember 
 | **Inconsistent Error Handling** | Same error type handled differently across sessions |
 | **Dependency Bloat** | Unused deps, heavy alternatives (moment→dayjs), duplicate purpose packages |
 
-### Semantic Bugs (type-aware, opt-in)
-Enable with `semantic_bugs: { enabled: true }`. Each finding names where the risky value enters and where it does harm, across files; anything unresolved is not reported.
+### Semantic Bugs (type-aware, on by default)
+Turn off with `semantic_bugs: { enabled: false }`. Each finding names where the risky value enters and where it does harm, across files; anything unresolved is not reported.
 
 | Rule | Description |
 |:---|:---|

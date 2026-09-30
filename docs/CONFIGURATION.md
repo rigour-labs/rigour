@@ -217,7 +217,7 @@ Type-aware rules that prove a defect before reporting it: they build a TypeScrip
 ```yaml
 gates:
   semantic_bugs:
-    enabled: true                       # Default: false
+    enabled: true                       # Default: true (set false to turn off)
     rules: [credential-redirect]        # Optional; all rules when omitted
 ```
 

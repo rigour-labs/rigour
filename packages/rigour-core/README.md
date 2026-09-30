@@ -26,7 +26,7 @@ The core library powering [Rigour](https://rigour.run) — 27+ quality gates, fi
 - **Dependency bloat** — unused deps, heavy alternatives (moment→dayjs), duplicate purpose packages.
 - **Context-window artifacts**, inconsistent error handling, promise safety, deprecated APIs.
 
-**Semantic Bugs (type-aware, opt-in):** a TypeScript program with the checker and cross-file value tracing proves a defect before reporting it: credentials forwarded on redirect, paged reads aggregated in memory, cached responses that can carry a failure fallback. Rules learned from fixes (`rigour learn`) run alongside them from `.rigour/rules/`.
+**Semantic Bugs (type-aware, on by default):** a TypeScript program with the checker and cross-file value tracing proves a defect before reporting it: credentials forwarded on redirect, paged reads aggregated in memory, cached responses that can carry a failure fallback. Rules learned from fixes (`rigour learn`) run alongside them from `.rigour/rules/`.
 
 **Agent Governance:** Multi-agent scope isolation, EWMA-based checkpoint supervision, context drift, retry loop breaker, memory & skills governance with DLP scanning.
 
