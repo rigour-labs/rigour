@@ -42,7 +42,7 @@ export type { RigourSettings, ResolvedDeepOptions, CLIDeepOptions } from './sett
 export { DeepAnalysisGate } from './gates/deep-analysis.js';
 export { createProvider } from './inference/index.js';
 export type { InferenceProvider, DeepFinding, DeepAnalysisResult, ModelTier } from './inference/types.js';
-export { MODELS } from './inference/types.js';
+export { MODELS, localTier } from './inference/types.js';
 export { isModelCached, getModelsDir, getModelInfo, getCachedModel, ensureModel } from './inference/model-manager.js';
 export { installLlamaEngine, probeBinary, managedEnginePath, LLAMA_RELEASE_TAG } from './inference/llama-engine.js';
 export { SidecarProvider } from './inference/sidecar-provider.js';

@@ -31,5 +31,5 @@ export function createProvider(options: DeepOptions): InferenceProvider {
     }
 
     // Default: local sidecar (lite 0.5B, deep 1.5B with --pro, max 7B with --max)
-    return new SidecarProvider(localTier(options));
+    return new SidecarProvider(localTier(options), undefined, options.modelPath);
 }

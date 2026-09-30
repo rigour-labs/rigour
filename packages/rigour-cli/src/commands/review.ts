@@ -32,6 +32,7 @@ export interface ReviewOptions {
     deep?: boolean;
     pro?: boolean;
     max?: boolean;
+    modelPath?: string;
     prBody?: string;     // path to a file with the PR description
     apiKey?: string;
     provider?: string;
@@ -114,6 +115,7 @@ function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'fo
         enabled: true,
         pro: !!options.pro,
         max: !!options.max,
+        modelPath: options.modelPath,
         prBody: readPrBody(cwd, options),
         apiKey: resolved.apiKey,
         provider: resolved.apiKey ? (resolved.provider || 'claude') : 'local',

@@ -46,7 +46,11 @@ export class SidecarProvider implements InferenceProvider {
     private tier: ModelTier;
     private threads: number;
 
-    constructor(tier: ModelTier = 'lite', threads = 4) {
+    /**
+     * @param modelPath a local GGUF to load instead of the tier's published model:
+     *   how a fine-tune candidate is measured before it is published.
+     */
+    constructor(tier: ModelTier = 'lite', threads = 4, private readonly modelPath?: string) {
         this.tier = tier;
         this.threads = threads;
     }
@@ -73,10 +77,7 @@ export class SidecarProvider implements InferenceProvider {
         this.binaryPath = await this.resolveBinaryPath() ?? await installLlamaEngine(onProgress);
         onProgress?.('✓ Inference engine ready');
 
-        await ensureModel(this.tier, (msg, percent) => {
-            if (percent !== undefined && percent < 100) onProgress?.(`  ${msg}`);
-        });
-        this.model = await getCachedModel(this.tier);
+        this.model = this.modelPath ? await localModel(this.tier, this.modelPath) : await this.publishedModel(onProgress);
         if (!this.model) {
             throw new Error(`Model for tier "${this.tier}" is not cached after download.`);
         }
@@ -85,6 +86,13 @@ export class SidecarProvider implements InferenceProvider {
         }
         this.schemaPath = await writeFindingsSchema();
         onProgress?.('✓ Model ready');
+    }
+
+    private async publishedModel(onProgress?: (message: string) => void): Promise<CachedModel | null> {
+        await ensureModel(this.tier, (msg, percent) => {
+            if (percent !== undefined && percent < 100) onProgress?.(`  ${msg}`);
+        });
+        return getCachedModel(this.tier);
     }
 
     /** The model file setup() loaded, or null before setup. */
@@ -189,4 +197,17 @@ async function writeFindingsSchema(): Promise<string> {
     await fs.ensureDir(path.dirname(schemaPath));
     await fs.writeJson(schemaPath, FINDINGS_JSON_SCHEMA);
     return schemaPath;
+}
+
+/** A GGUF on disk, used as is: no download, no version check. */
+export async function localModel(tier: ModelTier, modelPath: string): Promise<CachedModel> {
+    const resolved = path.resolve(modelPath);
+    const stat = await fs.stat(resolved).catch(() => null);
+    if (!stat?.isFile()) throw new Error(`Model file not found: ${resolved}`);
+    const filename = path.basename(resolved);
+    return {
+        path: resolved,
+        info: { tier, name: `${filename} (local)`, filename, url: '', sizeBytes: stat.size, sizeHuman: `${Math.round(stat.size / 1e6)}MB` },
+        fallback: false,
+    };
 }

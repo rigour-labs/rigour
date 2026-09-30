@@ -459,6 +459,8 @@ export interface DeepOptions {
     pro?: boolean;
     /** Local 7B model: the strongest free tier, for laptops with 16GB. */
     max?: boolean;
+    /** A local GGUF to run instead of the tier's published model (evaluating a fine-tune before release). */
+    modelPath?: string;
     apiKey?: string;
     provider?: string; // 'local' or any cloud provider name
     apiBaseUrl?: string; // custom API endpoint

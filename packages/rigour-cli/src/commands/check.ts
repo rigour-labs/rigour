@@ -20,6 +20,7 @@ export interface CheckOptions {
     deep?: boolean;
     pro?: boolean;
     max?: boolean;
+    modelPath?: string;
     apiKey?: string;
     provider?: string;
     apiBaseUrl?: string;
@@ -156,6 +157,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                 enabled: true,
                 pro: !!options.pro,
                 max: !!options.max,
+                modelPath: options.modelPath,
                 apiKey: resolved.apiKey,
                 provider: hasApiKey ? (resolved.provider || 'claude') : 'local',
                 apiBaseUrl: resolved.apiBaseUrl,
