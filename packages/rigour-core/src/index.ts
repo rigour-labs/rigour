@@ -97,7 +97,7 @@ export * from './services/engineering-knowledge-graph.js';
 
 export * from './firewall/index.js';
 export { exportCallSites } from './semantic/sites/export.js';
-export { analyzeFiles, BUILT_IN_RULES } from './semantic/engine.js';
+export { ALL_RULES, analyzeFiles, BUILT_IN_RULES } from './semantic/engine.js';
 export { exportReviewContexts, type ReviewContextExport, type ReviewContextOptions } from './deep/review-context-export.js';
 export type { CallSite, HandledBy } from './semantic/sites/call-sites.js';
 export { learnFromFix, learnFromFileChange, type LearnReport, type Rejection } from './semantic/learn/learn.js';

@@ -6,7 +6,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { analyzeFiles } from './engine.js';
+import { ALL_RULES, analyzeFiles } from './engine.js';
 
 export interface BenchmarkCase {
     name: string;
@@ -45,5 +45,5 @@ export function runCase(root: string, bench: BenchmarkCase): CaseResult {
 function findingsIn(dir: string): string[] {
     if (!fs.existsSync(dir)) return [];
     const files = fs.readdirSync(dir).filter(f => /\.[cm]?[jt]sx?$/.test(f));
-    return analyzeFiles(dir, files).map(f => `${f.rule} ${f.file}:${f.line}`);
+    return analyzeFiles(dir, files, { rules: ALL_RULES }).map(f => `${f.rule} ${f.file}:${f.line}`);
 }

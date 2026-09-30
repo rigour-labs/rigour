@@ -53,7 +53,8 @@ export const exportsForgottenType: SemanticRule = {
 
 /** The entry of its package: `index.ts` beside package.json or in its `src/`. */
 function isPackageEntry(ctx: RuleContext): boolean {
-    const dir = path.dirname(ctx.sourceFile.fileName);
+    // TypeScript names files with '/', path.resolve with the OS separator: compare resolved paths.
+    const dir = path.resolve(path.dirname(ctx.sourceFile.fileName));
     const owner = ctx.project.packageDir(ctx.sourceFile.fileName);
     return !!owner && (dir === owner || dir === path.join(owner, 'src'));
 }
@@ -65,10 +66,11 @@ function isPackageEntry(ctx: RuleContext): boolean {
 function subpathExports(ctx: RuleContext, type: ts.Symbol): boolean {
     const owner = ctx.project.packageDir(ctx.sourceFile.fileName);
     const declared = type.declarations?.[0]?.getSourceFile().fileName;
+    const self = path.resolve(ctx.sourceFile.fileName);
     if (!owner || !declared) return false;
-    for (let dir = path.dirname(declared); dir.startsWith(owner) && dir !== owner; dir = path.dirname(dir)) {
+    for (let dir = path.resolve(path.dirname(declared)); dir.startsWith(owner) && dir !== owner; dir = path.dirname(dir)) {
         const index = ['index.ts', 'index.tsx', 'index.mts'].map(f => path.join(dir, f)).find(f => fs.existsSync(f));
-        if (!index || index === ctx.sourceFile.fileName) continue;
+        if (!index || index === self) continue;
         const loaded = ctx.program.getSourceFile(index);
         const moduleSymbol = loaded && ctx.checker.getSymbolAtLocation(loaded);
         if (moduleSymbol ? ctx.checker.getExportsOfModule(moduleSymbol).some(s => s.name === type.name)

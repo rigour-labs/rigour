@@ -53,6 +53,8 @@ interface Target {
 }
 
 const MAX_TARGETS = 5;
+/** A junction on Windows needs no admin rights; elsewhere a plain directory symlink. */
+const DIR_LINK = process.platform === 'win32' ? 'junction' : 'dir';
 const TS_FILE = /\.(?:[cm]?ts|tsx)$/i;
 const CALLS_SCHEMA = { type: 'object', properties: { calls: { type: 'array', items: { type: 'string' } } }, required: ['calls'] };
 const INTENT_SCHEMA = { type: 'object', properties: { intended: { type: 'boolean' } }, required: ['intended'] };
@@ -170,7 +172,7 @@ function linkDependencies(head: string, base: string): void {
             const to = path.join(base, path.relative(head, from));
             if (entry.name === 'node_modules') {
                 // A linked node_modules (pnpm, a workspace) counts; its target is what the base needs.
-                if (fs.existsSync(path.dirname(to)) && !fs.existsSync(to)) fs.symlinkSync(fs.realpathSync(from), to, 'dir');
+                if (fs.existsSync(path.dirname(to)) && !fs.existsSync(to)) fs.symlinkSync(fs.realpathSync(from), to, DIR_LINK);
             } else if (entry.isDirectory() && entry.name !== '.git' && depth < 3) {
                 walk(from, depth + 1); // never through symlinks: no loops
             }

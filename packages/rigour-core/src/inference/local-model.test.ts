@@ -19,6 +19,7 @@ describe('a local GGUF for --model-path', () => {
     });
 
     it('fails clearly when the file is missing, rather than downloading something else', async () => {
-        await expect(localModel('max', '/nonexistent/model.gguf')).rejects.toThrow('Model file not found: /nonexistent/model.gguf');
+        const missing = path.resolve('/nonexistent/model.gguf'); // D:\\nonexistent\\model.gguf on Windows
+        await expect(localModel('max', missing)).rejects.toThrow(`Model file not found: ${missing}`);
     });
 });

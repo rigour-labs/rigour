@@ -24,7 +24,7 @@ function repoWithChange(): string {
     fs.mkdirSync(path.join(repo, 'src'));
     fs.writeFileSync(path.join(repo, 'src/encode.ts'), BEFORE);
     git('add', '-A'); git('commit', '-qm', 'init');
-    fs.symlinkSync(WORKSPACE_MODULES, path.join(repo, 'node_modules'), 'dir');
+    fs.symlinkSync(WORKSPACE_MODULES, path.join(repo, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     fs.writeFileSync(path.join(repo, 'src/encode.ts'), AFTER);
     return repo;
 }

@@ -9,9 +9,13 @@ import type { SemanticFinding, SemanticRule } from './types.js';
 import { inMemoryAggregation } from './rules/in-memory-aggregation.js';
 import { credentialRedirect } from './rules/credential-redirect.js';
 import { degradedResponseCached } from './rules/degraded-response-cached.js';
-import { ECOSYSTEM_RULES } from './rules/ecosystem/index.js';
+import { CANDIDATE_RULES, ECOSYSTEM_RULES } from './rules/ecosystem/index.js';
 
+/** Rules that run by default. */
 export const BUILT_IN_RULES: SemanticRule[] = [inMemoryAggregation, credentialRedirect, degradedResponseCached, ...ECOSYSTEM_RULES];
+
+/** Every rule Rigour ships, candidates included: what can be named to run. */
+export const ALL_RULES: SemanticRule[] = [...BUILT_IN_RULES, ...CANDIDATE_RULES];
 
 export interface EngineOptions {
     rules?: SemanticRule[];

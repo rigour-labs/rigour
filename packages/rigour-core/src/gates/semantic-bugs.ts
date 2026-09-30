@@ -9,7 +9,7 @@ import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
-import { analyzeFiles, BUILT_IN_RULES } from '../semantic/engine.js';
+import { ALL_RULES, analyzeFiles, BUILT_IN_RULES } from '../semantic/engine.js';
 import { compileLearnedRule, LEARNED_PREFIX } from '../semantic/learn/compile.js';
 import { loadLearnedRules } from '../semantic/learn/store.js';
 import type { SemanticFinding, SemanticRule } from '../semantic/types.js';
@@ -46,9 +46,10 @@ export class SemanticBugsGate extends Gate {
 
     /** Built-in rules plus the repository's learned rules (`.rigour/rules/`), filtered by config. */
     private selectRules(cwd: string): SemanticRule[] {
-        const all = [...BUILT_IN_RULES, ...loadLearnedRules(cwd).map(compileLearnedRule)];
+        const learned = loadLearnedRules(cwd).map(compileLearnedRule);
         const wanted = this.config.rules;
-        return wanted?.length ? all.filter(rule => wanted.includes(rule.id)) : all;
+        // Named rules may include opt-in candidates; unnamed, only the default set runs.
+        return wanted?.length ? [...ALL_RULES, ...learned].filter(rule => wanted.includes(rule.id)) : [...BUILT_IN_RULES, ...learned];
     }
 
     private toFailure(finding: SemanticFinding): Failure {

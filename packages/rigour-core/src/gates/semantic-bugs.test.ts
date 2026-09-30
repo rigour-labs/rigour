@@ -22,6 +22,13 @@ describe('SemanticBugsGate', () => {
         fs.writeFileSync(path.join(cwd, rel), body);
     }
 
+    it('runs an unvalidated candidate rule only when it is named', async () => {
+        write('src/scroll.ts', "export function setup(fn: () => void) {\n  window.addEventListener('a', fn);\n  addEventListener('b', fn);\n}\n");
+        expect(await new SemanticBugsGate().run({ cwd })).toEqual([]);
+        const named = await new SemanticBugsGate({ rules: ['env/bare-browser-global'] }).run({ cwd });
+        expect(named.map(f => [f.category, f.line])).toEqual([['env/bare-browser-global', 3]]);
+    });
+
     it('reports a proven finding with its evidence, rule and verified metadata', async () => {
         write('src/notify.ts', LEAKY);
         const [failure, ...rest] = await new SemanticBugsGate().run({ cwd });
