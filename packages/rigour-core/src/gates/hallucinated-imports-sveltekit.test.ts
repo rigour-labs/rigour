@@ -124,3 +124,30 @@ describe('HallucinatedImportsGate — tsconfig inheritance and rootDirs', () => 
     });
 });
 
+
+describe('HallucinatedImportsGate — bundler query and virtual imports', () => {
+    let cwd: string;
+    beforeEach(() => {
+        cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bundler-imports-'));
+        write(cwd, 'package.json', JSON.stringify({ dependencies: { '@tanstack/react-router': '1.0.0' } }));
+        write(cwd, 'src/logo.svg', '<svg/>');
+        write(cwd, 'src/worker.ts', 'export {};\n');
+    });
+    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true }); });
+
+    it('checks the file behind a query and skips plugin-provided modules', async () => {
+        write(cwd, 'src/route.tsx', [
+            "import raw from './logo.svg?raw';",
+            "import Worker from './worker.ts?worker&inline';",
+            "const split = () => import('route.tsx?tsr-split=component');",
+            "import { registerSW } from 'virtual:pwa-register';",
+            'export default { raw, Worker, split, registerSW };',
+        ].join('\n'));
+        expect(await missingImports(cwd)).toBe('');
+    });
+
+    it('still reports a missing module behind a query', async () => {
+        write(cwd, 'src/route.tsx', "import Worker from './missing-worker.ts?worker';\nexport default Worker;\n");
+        expect(await missingImports(cwd)).toContain('./missing-worker.ts');
+    });
+});
