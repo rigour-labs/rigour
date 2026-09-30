@@ -316,12 +316,13 @@ Follow this workflow to minimize token usage without compromising quality:
 
 1. \`rigour_recall\` — load project memory at session start
 2. \`rigour_index\` — if the pattern index is missing or stale
-3. \`rigour_agent_register\` — claim a bounded task scope
-4. \`rigour_context_scope\` — get minimal file list before reading source files
-5. \`rigour_check_pattern\` — verify no reinvention before writing new code
-6. Work — only touch files in the scoped edit set
-7. \`rigour_checkpoint\` — every 30 minutes or before handoff
-8. \`rigour_check\` — quality gate unchanged (must PASS before done)
+3. \`rigour_context_scope\` — get minimal file list before reading source files
+4. \`rigour_check_pattern\` — verify no reinvention before writing new code
+5. Work — only touch files in the scoped edit set
+6. \`rigour_review\` — review your change before you say done; fix every finding and call it again
+7. \`rigour_check\` — quality gate unchanged (must PASS before done)
+
+Multi-agent teams: set \`RIGOUR_MCP_TOOLS=governance\` in the MCP server's environment to add \`rigour_agent_register\` (claim a scope), \`rigour_checkpoint\` and the handoff tools.
 
 ${ruleContent}`;
 
