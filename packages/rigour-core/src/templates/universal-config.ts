@@ -233,8 +233,8 @@ export const UNIVERSAL_CONFIG: Config = {
             enabled: true,
             baseline_path: '.rigour/logic-baseline.json',
             track_operators: true,
-            track_branches: true,
-            track_returns: true,
+            track_branches: false,
+            track_returns: false,
         },
         semantic_bugs: {
             enabled: true,

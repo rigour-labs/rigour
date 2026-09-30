@@ -105,6 +105,16 @@ describe('SecurityPatternsGate', () => {
             expect(vulns.some(v => v.type === 'hardcoded_secrets')).toBe(true);
         });
 
+        it('does not take a UI label that mentions a password for a secret', async () => {
+            const filePath = path.join(testDir, 'be.ts');
+            fs.writeFileSync(filePath, `
+                export default { authForm: { hidePassword: 'Схаваць пароль', showPassword: 'Show the password' } };
+            `);
+
+            const vulns = await checkSecurityPatterns(filePath);
+            expect(vulns.some(v => v.type === 'hardcoded_secrets')).toBe(false);
+        });
+
         it('should detect password assignments', async () => {
             const filePath = path.join(testDir, 'auth.ts');
             fs.writeFileSync(filePath, `

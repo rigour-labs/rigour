@@ -117,7 +117,9 @@ export class PromiseSafetyGate extends Gate {
                 if (/\.catch\s*\(/.test(lookahead)) { hasCatch = true; break; }
                 // Also count .then().then().catch() chains — the catch at the end covers all
                 if (j > i && braceDepth < 0) break; // Exited enclosing scope
-                if (j > i && /^(?:const|let|var|function|class|export|import|if|for|while|return)\b/.test(lookahead.trim())) break;
+                // A statement keyword ends the chain only at the chain's own depth; inside the
+                // .then callback's body (depth > 0) `if`/`return` belong to the callback.
+                if (j > i && braceDepth <= 0 && /^(?:const|let|var|function|class|export|import|if|for|while|return)\b/.test(lookahead.trim())) break;
             }
             if (!hasCatch && !isInsideTryBlock(lines, i) && !/(?:const|let|var)\s+\w+\s*=/.test(line)) {
                 violations.push({ file, line: i + 1, type: 'unhandled-then', code: line.trim().substring(0, 80), reason: `.then() chain without .catch() — unhandled promise rejection` });

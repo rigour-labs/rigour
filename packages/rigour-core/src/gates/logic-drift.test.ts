@@ -42,6 +42,15 @@ describe('LogicDriftGate Git baseline', () => {
         expect(await gate.run({ cwd })).toEqual([]);
     }, 30_000);
 
+    it('reports return and branch count changes only when opted in', async () => {
+        git('switch', '-q', '-c', 'feature');
+        fs.writeFileSync(path.join(cwd, 'src/rules.ts'),
+            'export function eligible(score: number) {\n  if (score < 0) return false;\n  if (score > 100) return false;\n  return score >= 10;\n}\n');
+        expect(await new LogicDriftGate().run({ cwd })).toEqual([]);
+        const opted = await new LogicDriftGate({ track_returns: true, track_branches: true }).run({ cwd });
+        expect(opted.map(f => f.title).sort()).toEqual(['Logic Drift: Branch Change', 'Logic Drift: Return Change']);
+    }, 30_000);
+
     it('does not use a moving local snapshot when Git has no main reference', async () => {
         git('switch', '-q', '-c', 'feature');
         git('branch', '-D', 'main');
