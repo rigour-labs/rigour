@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Failure } from '@rigour-labs/core';
-import { buildCiReviewSummary, filterChangedLineFailures, renderGithubSummary } from './review-summary.js';
+import { splitByChangedLines } from '@rigour-labs/core';
+import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
 
 function failure(id: string, severity: Failure['severity'], file: string, line: number, details: string): Failure {
     return { id, title: id, details, hint: details, severity, provenance: 'traditional', files: [file], line };
@@ -43,11 +44,10 @@ describe('GitHub change review summary', () => {
     it('abstains from attributing file-level findings to changed line one', () => {
         const withLine = failure('security-patterns', 'high', 'src/a.ts', 5, 'specific line');
         const fileLevel = { ...failure('AST_COMPLEXITY', 'medium', 'src/a.ts', 1, 'whole file'), line: undefined };
-        const { failures, unlocated } = filterChangedLineFailures(
-            [withLine, fileLevel], { 'src/a.ts': new Set([1, 5]) });
-        expect(failures).toEqual([withLine]);
-        expect(unlocated).toBe(1);
-        const summary = buildCiReviewSummary(failures, 2, { 'src/a.ts': new Set([1, 5]) }, unlocated);
+        const split = splitByChangedLines([withLine, fileLevel], { 'src/a.ts': new Set([1, 5]) });
+        expect(split.findings).toEqual([withLine]);
+        expect(split.fileFindings).toEqual([fileLevel]);
+        const summary = buildCiReviewSummary(split.findings, 2, { 'src/a.ts': new Set([1, 5]) }, split.fileFindings.length + split.unlocated);
         expect(renderGithubSummary(summary)).toContain('file-level finding(s) lacked a changed-line location');
     });
 });

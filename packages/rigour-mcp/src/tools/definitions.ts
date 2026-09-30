@@ -520,20 +520,19 @@ export const TOOL_DEFINITIONS = [
     // ─── Code Review ──────────────────────────────────────
     {
         name: "rigour_review",
-        description: "Perform a high-fidelity code review on a pull request diff. Analyzes changed files using all active quality gates.",
+        description: "Review the change you just made before calling it done: runs Rigour's gates and keeps only findings on changed lines, each with file, line and a suggested fix. With no diff it reads your uncommitted work from git (new files included); pass base to review the whole branch (e.g. 'main'). Same verdict as `rigour review` in CI.",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
-                repository: { type: "string", description: "Full repository name (e.g., 'owner/repo')." },
-                branch: { type: "string", description: "The branch containing the changes." },
-                diff: { type: "string", description: "The git diff content to analyze." },
-                files: { type: "array", items: { type: "string" }, description: "List of filenames that were changed." },
+                base: { type: "string", description: "Review this branch against a base ref instead of uncommitted work, e.g. 'main'." },
+                diff: { type: "string", description: "A unified diff to review instead of reading git. Rarely needed." },
+                files: { type: "array", items: { type: "string" }, description: "Review exactly these files instead of the ones the change touches." },
             },
-            required: ["cwd", "diff"],
+            required: ["cwd"],
         },
         annotations: {
-            title: "Code Review",
+            title: "Review Change",
             readOnlyHint: true,
             destructiveHint: false,
             idempotentHint: true,

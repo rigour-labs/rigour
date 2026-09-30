@@ -40,7 +40,9 @@ export async function checkJSImports(content: string, file: string, ctx: JsImpor
     const depsForFile = await resolveJSDepsForFile(file, ctx.cwd, ctx.rootDeps, ctx.depCacheByDir);
     const kitRoot = await ctx.kitRoots.rootFor(file);
 
-    for (const { importPath, line } of collectJSImportSpecs(content, file)) {
+    for (const spec of collectJSImportSpecs(content, file)) {
+        const { line } = spec;
+        const importPath = bundlerSpecifier(spec.importPath);
         if (!importPath || ctx.shouldIgnore(importPath)) continue;
         if (kitRoot && isSvelteKitProvided(importPath)) continue;
 
@@ -55,6 +57,19 @@ export async function checkJSImports(content: string, file: string, ctx: JsImpor
             });
         }
     }
+}
+
+/**
+ * Bundler conventions: a query on a relative import (`./logo.svg?raw`, `./worker.ts?worker`)
+ * names a transform of that file, so the file is what must exist; a `virtual:` module or a
+ * bare specifier with a query (`page.tsx?tsr-split=component`) is produced by a plugin at
+ * build time and cannot be checked. Returns the path to check, or null to skip.
+ */
+export function bundlerSpecifier(importPath: string): string | null {
+    if (!importPath || importPath.startsWith('virtual:') || importPath.startsWith('\0')) return null;
+    const query = importPath.search(/[?#]/);
+    if (query < 0) return importPath;
+    return importPath.startsWith('.') ? importPath.slice(0, query) : null;
 }
 
 async function checkRelativeImport(file: string, importPath: string, ctx: JsImportContext): Promise<string | null> {

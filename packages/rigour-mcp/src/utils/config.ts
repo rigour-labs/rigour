@@ -13,22 +13,27 @@ import { randomUUID } from "crypto";
 import { ConfigSchema } from "@rigour-labs/core";
 
 // ─── Config Loading ───────────────────────────────────────────────
+/**
+ * The repository's rigour.yml, or Rigour's defaults when it has none. A tool
+ * call never writes into the user's repository to create one (run `rigour init`
+ * for that), so the first call in a new repository behaves like `rigour review`.
+ */
 export async function loadConfig(cwd: string) {
     const configPath = path.join(cwd, "rigour.yml");
     if (!(await fs.pathExists(configPath))) {
-        console.error(`[RIGOUR] rigour.yml not found in ${cwd}, auto-initializing...`);
-        const { execa } = await import("execa");
-        try {
-            await execa("npx", ["rigour", "init"], { cwd, shell: true });
-            console.error(`[RIGOUR] Auto-initialization complete.`);
-        } catch (initError: any) {
-            throw new Error(
-                `Rigour auto-initialization failed: ${initError.message}. Please run 'npx rigour init' manually.`
-            );
-        }
+        noteMissingConfig(cwd);
+        return ConfigSchema.parse({ version: 1 });
     }
     const configContent = await fs.readFile(configPath, "utf-8");
     return ConfigSchema.parse(yaml.parse(configContent));
+}
+
+const notedMissingConfig = new Set<string>();
+
+function noteMissingConfig(cwd: string): void {
+    if (notedMissingConfig.has(cwd)) return;
+    notedMissingConfig.add(cwd);
+    console.error(`[RIGOUR] No rigour.yml in ${cwd}; using defaults. Run \`npx rigour init\` to configure gates and hooks.`);
 }
 
 // ─── Memory Persistence ───────────────────────────────────────────

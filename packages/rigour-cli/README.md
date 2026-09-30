@@ -68,8 +68,8 @@ Memory: Agent writes CLAUDE.md → Rigour intercepts → Forces rigour_remember 
 | **Inconsistent Error Handling** | Same error type handled differently across sessions |
 | **Dependency Bloat** | Unused deps, heavy alternatives (moment→dayjs), duplicate purpose packages |
 
-### Semantic Bugs (type-aware, opt-in)
-Enable with `semantic_bugs: { enabled: true }`. Each finding names where the risky value enters and where it does harm, across files; anything unresolved is not reported.
+### Semantic Bugs (type-aware, on by default)
+Turn off with `semantic_bugs: { enabled: false }`. Each finding names where the risky value enters and where it does harm, across files; anything unresolved is not reported.
 
 | Rule | Description |
 |:---|:---|
@@ -138,6 +138,8 @@ Hallucinated import detection with stdlib whitelists and dependency manifest par
 | `rigour check` | Full repository quality gates |
 | `rigour check --ci` | CI mode with minimal output |
 | `rigour check --deep` | + local LLM analysis |
+| `rigour review` | Review your uncommitted change (taken from git), findings on changed lines only |
+| `rigour review --base main` | Review a branch as a pull request; `--json`, `--github-summary` for CI |
 | `rigour learn <commit>` | Turn a fix into a validated rule (`--dry-run`, `--before/--after`, `--max-hits`) |
 | `rigour hooks init` | Install real-time hooks for detected tools |
 | `rigour hooks check --files ...` | Fast hook gates on specific files |

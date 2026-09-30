@@ -12,12 +12,14 @@ import { studioCommand } from './commands/studio.js';
 import { exportAuditCommand } from './commands/export-audit.js';
 import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
+import { hooksStopCommand } from './commands/hooks-stop.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
 import { deepStatsCommand } from './commands/deep-stats.js';
 import { deepCommand } from './commands/deep.js';
 import { reviewCommand } from './commands/review.js';
+import { reviewStatsCommand } from './commands/review-stats.js';
 import { checkPatternCommand } from './commands/check-pattern.js';
 import { learnCommand } from './commands/learn.js';
 import { securityAuditCommand } from './commands/security-audit.js';
@@ -231,12 +233,13 @@ program
 
 program
     .command('review')
-    .description('Review a diff against quality gates (filter to changed lines)')
+    .description('Review a change against quality gates, filtered to the lines it touches')
     .option('--json', 'Output report in JSON format')
     .option('--ci', 'CI mode (minimal output)')
     .option('--github-summary', 'Bounded, privacy-safe Markdown summary for GitHub Actions')
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
-    .option('--diff <path>', 'Path to diff file (reads stdin if omitted)')
+    .option('--diff <path>', 'Path to a diff file (else stdin, else taken from git)')
+    .option('--base <ref>', 'Review this branch against a base ref, e.g. main (a pull request)')
     .option('--files <paths>', 'Comma-separated list of changed files (auto-detected from diff if omitted)')
     .option('--deep', 'Enable deep LLM-powered analysis')
     .option('--pro', 'Use full deep model for analysis')
@@ -246,17 +249,24 @@ program
     .option('--model-name <name>', 'Override cloud model name')
     .addHelpText('after', `
 Examples:
-  $ git diff | rigour review --json                    # Review staged changes (JSON)
-  $ git diff main..HEAD | rigour review                # Review branch changes
-  $ rigour review --diff changes.patch --deep          # Review diff file with deep analysis
-  $ git diff | rigour review --ci                      # CI-friendly review
-  $ git diff main..HEAD | rigour review --github-summary # GitHub job summary
-  $ git diff main..HEAD | rigour review --files src/a.ts,src/b.ts
+  $ rigour review                                      # Uncommitted changes, taken from git
+  $ rigour review --base main --json                   # This branch against main (a PR), JSON
+  $ rigour review --base origin/main --github-summary  # GitHub job summary for a PR
+  $ git diff | rigour review --ci                      # Any diff on stdin
+  $ rigour review --diff changes.patch --deep          # A diff file, with deep analysis
 
 Tip: Use in CI to gate only lines you changed — faster than full rigour check on large repos.
     `)
     .action(async (options: any) => {
         await reviewCommand(process.cwd(), options);
+    });
+
+program
+    .command('review-stats')
+    .description('How well the agent review loop works here: reviews, findings resolved, stop checks (local event log)')
+    .option('--json', 'Output as JSON')
+    .action((options: any) => {
+        reviewStatsCommand(process.cwd(), options);
     });
 
 program
@@ -281,6 +291,7 @@ program
     .description('Learn a rule from a fix, so the same bug is caught next time (no model, no network)')
     .option('--before <file>', 'The file before the fix (with --after, instead of a commit)')
     .option('--after <file>', 'The file after the fix')
+    .option('--agent-fixes', 'Learn from fixes agents made to Rigour findings (captured by rigour_review and the stop hook)')
     .option('--max-hits <n>', 'Reject a rule that fires on more than n other places in the repository', '3')
     .option('--dry-run', 'Report what would be learned without saving rules')
     .option('--json', 'Output the report as JSON')
@@ -293,6 +304,7 @@ Examples:
   $ rigour learn a1b2c3d                              # Learn from a fix commit
   $ rigour learn --before old/http.ts --after src/http.ts
   $ rigour learn a1b2c3d --dry-run --json
+  $ rigour learn --agent-fixes                        # Fixes agents made to Rigour findings
     `)
     .action(async (commit: string | undefined, options: any) => {
         await learnCommand(process.cwd(), commit, options);
@@ -347,6 +359,18 @@ Examples:
     `)
     .action(async (options: any) => {
         await hooksInitCommand(process.cwd(), options);
+    });
+
+hooksCmd
+    .command('stop')
+    .description('Stop hook: review the uncommitted change before the agent finishes (reads the hook payload on stdin)')
+    .option('--tool <name>', 'Hook format to reply in: claude or cursor', 'claude')
+    .action(async (options: any) => {
+        const chunks: Buffer[] = [];
+        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
+        const tool = options.tool === 'cursor' ? 'cursor' : 'claude';
+        const reply = await hooksStopCommand(tool, Buffer.concat(chunks).toString('utf8'), process.cwd());
+        if (reply) process.stdout.write(reply + '\n');
     });
 
 hooksCmd

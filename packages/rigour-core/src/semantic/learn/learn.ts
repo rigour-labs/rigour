@@ -8,6 +8,8 @@
  * reported with the reason the most specific one failed.
  */
 import crypto from 'crypto';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { globby } from 'globby';
 import { analyzeFiles } from '../engine.js';
@@ -70,6 +72,22 @@ export async function learnFromFix(input: LearnInput): Promise<LearnReport> {
         }
     }
     return report;
+}
+
+/** Learn from one file's before and after (e.g. an agent's fix), validated against the repository at `repoDir`. */
+export async function learnFromFileChange(repoDir: string, file: string, before: string, after: string, maxHits?: number): Promise<LearnReport> {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-learn-'));
+    try {
+        const place = (tree: string, content: string) => {
+            const target = path.join(root, tree, file);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, content);
+            return path.join(root, tree);
+        };
+        return await learnFromFix({ beforeDir: place('before', before), afterDir: place('after', after), repoDir, files: [file], maxHits });
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
 }
 
 function openTree(cwd: string, file: string): TreeFile {

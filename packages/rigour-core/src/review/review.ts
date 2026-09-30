@@ -1,0 +1,86 @@
+/**
+ * reviewChange: the one review engine behind `rigour review`, the MCP
+ * `rigour_review` tool and the GitHub integration.
+ *
+ * Runs the configured gates on the files a change touches and keeps what
+ * belongs to the change (see changed-lines.ts). A deep run that was asked for
+ * but could not analyze anything makes the result ERROR, never a clean PASS.
+ */
+import { GateRunner } from '../gates/runner.js';
+import type { Config, DeepOptions, Failure, Report } from '../types/index.js';
+import { changedLinesByFile, parseDiff } from '../utils/diff.js';
+import { normalizeScopePatterns } from '../utils/scope.js';
+import { deepAnalysisError } from '../utils/deep-status.js';
+import { splitByChangedLines } from './changed-lines.js';
+import { diffFromGit, type DiffSource } from './git-diff.js';
+
+export interface ReviewInput {
+    cwd: string;
+    config: Config;
+    /** A unified diff; when omitted, it is taken from git (`source`). */
+    diff?: string;
+    source?: DiffSource;
+    /** Review exactly these files instead of the ones the diff touches. */
+    files?: string[];
+    /** Deep analysis; `focusLines` is filled from the diff. */
+    deep?: Omit<DeepOptions, 'focusLines'>;
+}
+
+export interface ReviewResult {
+    status: 'PASS' | 'FAIL' | 'ERROR';
+    findings: Failure[];
+    fileFindings: Failure[];
+    unlocated: number;
+    excludedOutsideChangedLines: number;
+    changedLines: Record<string, Set<number>>;
+    report: Report | null;
+    deepError?: string;
+}
+
+export interface ReviewFinding {
+    id: string;
+    gate: string;
+    severity: string;
+    provenance: string;
+    message: string;
+    file: string;
+    line: number | null;
+    suggestion?: string;
+}
+
+export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
+    const diff = input.diff ?? diffFromGit(input.cwd, input.source);
+    const changedLines = parseDiff(diff);
+    const targets = input.files?.length ? input.files : Object.keys(changedLines);
+    if (targets.length === 0) {
+        return { status: 'PASS', findings: [], fileFindings: [], unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null };
+    }
+    const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines) } : undefined;
+    const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
+    const split = splitByChangedLines(report.failures, changedLines);
+    const deepError = deepAnalysisError(report);
+    return {
+        status: deepError ? 'ERROR' : split.findings.length > 0 ? 'FAIL' : 'PASS',
+        findings: split.findings,
+        fileFindings: split.fileFindings,
+        unlocated: split.unlocated,
+        excludedOutsideChangedLines: split.outside,
+        changedLines,
+        report,
+        ...(deepError ? { deepError } : {}),
+    };
+}
+
+/** The JSON shape of a finding, shared by the CLI's --json and the MCP tool. */
+export function toReviewFinding(failure: Failure): ReviewFinding {
+    return {
+        id: failure.id,
+        gate: failure.title,
+        severity: failure.severity || 'medium',
+        provenance: failure.provenance || 'traditional',
+        message: failure.details,
+        file: failure.files?.[0] || '',
+        line: failure.line ?? null,
+        ...(failure.hint ? { suggestion: failure.hint } : {}),
+    };
+}

@@ -23,3 +23,7 @@ export {
 export type { DLPFeedbackEntry, DLPFeedbackStore, DLPBlockManifest } from './dlp-feedback.js';
 export { generateDLPHookFiles } from './dlp-templates.js';
 export type { GeneratedDLPHookFile } from './dlp-templates.js';
+
+// Stop review ("before you say done")
+export { stopReview, stopMessage, blocksStop, STOP_MAX_ATTEMPTS } from './stop-review.js';
+export type { StopDecision } from './stop-review.js';

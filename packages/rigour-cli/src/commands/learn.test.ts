@@ -48,7 +48,7 @@ describe('learnCommand', () => {
         await learnCommand(cwd, undefined, { before: 'old.ts' });
         expect(process.exitCode).toBe(2);
         await learnCommand(cwd, 'abc123', { before: 'old.ts', after: 'src/http.ts' });
-        expect(error.mock.calls.flat().join('\n')).toContain('not both');
+        expect(error.mock.calls.flat().join('\n')).toContain('Give only one of');
         await learnCommand(cwd, undefined, { before: 'old.ts', after: 'src/http.ts', maxHits: '-1' });
         expect(error.mock.calls.flat().join('\n')).toContain('--max-hits');
     });

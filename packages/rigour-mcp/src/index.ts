@@ -210,7 +210,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "rigour_deep_stats": result = await handleDeepStats(cwd, (args as any).limit); break;
 
             // Code review
-            case "rigour_review": result = await handleReview(runner, cwd, (args as any).diff, (args as any).files); break;
+            case "rigour_review": result = await handleReview(config, cwd, args as any); break;
 
             // Context Telemetry & Cost Tools
             case "rigour_context_stats":   result = await handleContextStats(cwd, (args as any).taskId); break;

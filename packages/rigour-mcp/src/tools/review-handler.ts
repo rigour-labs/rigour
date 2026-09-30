@@ -1,60 +1,50 @@
 /**
- * Code Review Tool Handler
+ * rigour_review: the same review as `rigour review` (core reviewChange), so an
+ * agent and CI get the same verdict for the same change.
  *
- * Handler for: rigour_review
- *
- * @since v2.17.0 — extracted from monolithic index.ts
+ * With no diff, the change is taken from git: uncommitted work (what the
+ * agent just wrote, new files included), or the branch against `base`.
  */
-import { GateRunner, parseDiff, normalizeScopePatterns } from "@rigour-labs/core";
+import { recordReviewOutcome, reviewChange, toReviewFinding, type Config } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
-type ToolResult = { content: { type: string; text: string }[] };
+type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
 
-export async function handleReview(
-    runner: GateRunner,
-    cwd: string,
-    diff: string,
-    changedFiles?: string[]
-): Promise<ToolResult> {
-    // 1. Map diff to line numbers for filtering
-    const diffMapping = parseDiff(diff);
-    const targetFiles = changedFiles || Object.keys(diffMapping);
+export interface ReviewArgs {
+    diff?: string;
+    base?: string;
+    files?: string[];
+}
 
-    // 2. Run high-fidelity analysis on changed files
-    notifyProgress("info", `Reviewing ${targetFiles.length} changed files...`);
-    const report = await runner.run(cwd, await normalizeScopePatterns(cwd, targetFiles));
-
-    // 3. Filter failures to only those on changed lines (or global gate failures)
-    const filteredFailures = report.failures.filter(failure => {
-        if (!failure.files || failure.files.length === 0) return true;
-
-        return failure.files.some(file => {
-            const fileModifiedLines = diffMapping[file];
-            if (!fileModifiedLines) return false;
-            if (failure.line !== undefined) return fileModifiedLines.has(failure.line);
-            return true;
+export async function handleReview(config: Config, cwd: string, args: ReviewArgs): Promise<ToolResult> {
+    notifyProgress("info", args.diff ? "Reviewing the provided diff..." : `Reviewing ${args.base ? `this branch against ${args.base}` : "uncommitted changes"}...`);
+    try {
+        const result = await reviewChange({
+            cwd, config, diff: args.diff,
+            source: args.base ? { mode: 'base', base: args.base } : { mode: 'working' },
+            files: args.files,
         });
-    });
+        recordReviewOutcome(cwd, result.findings, Object.keys(result.changedLines));
+        const stats = result.report?.stats;
+        return text({
+            status: result.status,
+            score: stats?.score ?? 100,
+            ai_health_score: stats?.ai_health_score,
+            structural_score: stats?.structural_score,
+            changed_files: Object.keys(result.changedLines).length,
+            failures: result.findings.map(toReviewFinding),
+            file_findings: result.fileFindings.map(toReviewFinding),
+            excluded_outside_changed_lines: result.excludedOutsideChangedLines,
+            unlocated_failures: result.unlocated,
+            next_step: result.findings.length
+                ? "Fix each failure at its file:line (see suggestion), then call rigour_review again."
+                : "No findings on changed lines.",
+        });
+    } catch (error) {
+        return { ...text({ error: error instanceof Error ? error.message : String(error) }), isError: true };
+    }
+}
 
-    return {
-        content: [{
-            type: "text",
-            text: JSON.stringify({
-                status: filteredFailures.length > 0 ? "FAIL" : "PASS",
-                score: report.stats.score,
-                ai_health_score: report.stats.ai_health_score,
-                structural_score: report.stats.structural_score,
-                failures: filteredFailures.map(f => ({
-                    id: f.id,
-                    gate: f.title,
-                    severity: f.severity || 'medium',
-                    provenance: f.provenance || 'traditional',
-                    message: f.details,
-                    file: f.files?.[0] || "",
-                    line: f.line || 1,
-                    suggestion: f.hint,
-                })),
-            }),
-        }],
-    };
+function text(value: unknown): ToolResult {
+    return { content: [{ type: "text", text: JSON.stringify(value) }] };
 }

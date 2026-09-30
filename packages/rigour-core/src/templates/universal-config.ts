@@ -237,7 +237,7 @@ export const UNIVERSAL_CONFIG: Config = {
             track_returns: true,
         },
         semantic_bugs: {
-            enabled: false,
+            enabled: true,
         },
         side_effect_analysis: {
             enabled: true,

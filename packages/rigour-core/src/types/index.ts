@@ -267,8 +267,9 @@ export const GatesSchema = z.object({
         audit_log: z.boolean().optional().default(true),
     }).optional().default({}),
     // v4.3+ Side-Effect Safety Analysis
+    // On by default: full scans of three real repositories reported no finding that was not a real defect.
     semantic_bugs: z.object({
-        enabled: z.boolean().optional().default(false),
+        enabled: z.boolean().optional().default(true),
         rules: z.array(z.string()).optional(),
     }).optional().default({}),
     side_effect_analysis: z.object({

@@ -43,15 +43,38 @@ It is critical to understand how Rigour integrates with your workflow:
 
 ### Available Tools
 
-- **`rigour_status`**: Quick PASS/FAIL check with JSON output. Best for polling.
-- **`rigour_check`**: Run quality gate checks (same as CLI `check`).
-- **`rigour_explain`**: Get actionable bullets for failures (same as CLI `explain`).
-- **`rigour_get_fix_packet`**: A bounded, severity-ordered view of Fix Packet v3. Start with `offset=0` (default); follow the returned offset to read further pages. The complete JSON packet remains available from the CLI.
-- **`rigour_list_gates`**: List which gates (ast, hygiene, file_size) are active and their thresholds.
-- **`rigour_get_config`**: Returns the full `rigour.yml` for agent reasoning about project constraints.
-- **`rigour_context_scope`**: Returns the smallest evidence-backed file scope plus applicable patterns and validated learning.
-- **`rigour_check_pattern`**: Advises whether to reuse an existing pattern, replace a stale approach, or stop for a security or protected-path issue.
-- **`rigour_recall`**: Recalls retained project memory after DLP filtering.
+Every advertised tool costs each agent session its definition in context, so by default Rigour lists the **core** loop only, about 2,100 tokens of definitions instead of about 5,000 for everything.
+
+| Group | Tools | When |
+|:---|:---|:---|
+| **core** (default) | `rigour_recall`, `rigour_index`, `rigour_context_scope`, `rigour_check_pattern`, `rigour_check`, `rigour_review`, `rigour_get_fix_packet`, `rigour_remember` | Every session |
+| governance | `rigour_agent_register`, `rigour_agent_deregister`, `rigour_checkpoint`, `rigour_handoff`, `rigour_handoff_accept`, `rigour_hooks_check`, `rigour_hooks_init`, `rigour_run`, `rigour_run_supervised` | Multi-agent teams, hooks, supervised loops |
+| context | `rigour_explain`, `rigour_forget`, `rigour_context_explain`, `rigour_security_audit` | Occasionally |
+| telemetry | `rigour_context_stats`, `rigour_task_cost`, `rigour_cache_stats` | Dashboards |
+
+Add groups with `RIGOUR_MCP_TOOLS` in the server's environment (`"governance,telemetry"`, or `"full"` for everything):
+
+```json
+{
+  "mcpServers": {
+    "rigour": {
+      "command": "npx",
+      "args": ["-y", "@rigour-labs/mcp"],
+      "env": { "RIGOUR_MCP_TOOLS": "governance" }
+    }
+  }
+}
+```
+
+Key tools:
+- **`rigour_review`**: reviews the change the agent just made. With no arguments it reads uncommitted work from git, new files included; `base: "main"` reviews the whole branch. It returns findings on changed lines only, each with file, line and a suggested fix. This is the same engine and verdict as `rigour review` in CI.
+- **`rigour_check`**: runs the quality gates on the repository (same as `rigour check`).
+- **`rigour_get_fix_packet`**: a bounded, severity-ordered view of Fix Packet v3. Start with `offset=0` and follow the returned offset.
+- **`rigour_context_scope`**: the smallest evidence-backed file scope, plus the patterns and validated learning that apply.
+- **`rigour_check_pattern`**: whether to reuse an existing pattern, replace a stale approach, or stop for a security or protected-path issue.
+- **`rigour_recall`** / **`rigour_remember`**: retained project memory, DLP-filtered.
+
+A repository without `rigour.yml` uses Rigour's defaults. Tool calls never write configuration into the repository; run `npx rigour init` for that.
 
 ### Guidance and impact metadata
 
@@ -129,9 +152,9 @@ The gateway controls only calls routed through it. If the same downstream MCP se
 
 ---
 
-### Pro-Tip: The "Audit Before Done" Pattern
+### Pro-Tip: The "Review Before Done" Pattern
 
-Instruct your agent to always run `rigour_status` before it claims a task is complete. If it returns `FAIL`, the agent MUST calls `rigour_explain` or `rigour_get_fix_packet` to resolve the debt.
+Instruct your agent to call `rigour_review` before it claims a task is complete. If it returns `FAIL`, the agent fixes each finding at its `file:line`, following the suggestion, and calls `rigour_review` again until it passes. `rigour init` writes this step into AGENTS.md.
 
 ---
 

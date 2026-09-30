@@ -4,6 +4,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SemanticBugsGate } from './semantic-bugs.js';
 import { GateRunner } from './runner.js';
+import { ConfigSchema } from '../types/index.js';
 
 const LEAKY = [
     'export async function notify(endpoint: string, signature: string) {',
@@ -68,12 +69,11 @@ describe('SemanticBugsGate', () => {
         expect(failure.hint).toContain('fix abcdef01 in src/http.ts (post)');
     });
 
-    it('is off unless enabled in rigour.yml', async () => {
+    it('is on by default and can be turned off in rigour.yml', async () => {
         write('src/notify.ts', LEAKY);
-        const base = { version: 1, commands: {}, gates: { max_file_lines: 500 } } as any;
-        const off = await new GateRunner(base).run(cwd);
-        expect(off.failures.some(f => f.id === 'semantic-bugs')).toBe(false);
-        const on = await new GateRunner({ ...base, gates: { ...base.gates, semantic_bugs: { enabled: true } } }).run(cwd);
+        const on = await new GateRunner(ConfigSchema.parse({ version: 1 })).run(cwd);
         expect(on.failures.some(f => f.id === 'semantic-bugs')).toBe(true);
+        const off = await new GateRunner(ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: false } } })).run(cwd);
+        expect(off.failures.some(f => f.id === 'semantic-bugs')).toBe(false);
     });
 });
