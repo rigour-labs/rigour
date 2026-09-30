@@ -296,8 +296,8 @@ export const GatesSchema = z.object({
         enabled: z.boolean().optional().default(true),
         baseline_path: z.string().optional().default('.rigour/logic-baseline.json'),
         track_operators: z.boolean().optional().default(true),
-        track_branches: z.boolean().optional().default(true),
-        track_returns: z.boolean().optional().default(true),
+        track_branches: z.boolean().optional().default(false), // opt-in: counts change on purpose in most edits
+        track_returns: z.boolean().optional().default(false),  // opt-in: same
     }).optional().default({}),
     // v4.0+ Deep Analysis (LLM-powered)
     deep: z.object({

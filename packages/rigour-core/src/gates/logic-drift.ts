@@ -3,9 +3,14 @@
  *
  * Detects when AI subtly changes business logic in functions:
  * - Comparison operator mutations: >= became > (off-by-one)
- * - Return statement additions/removals
- * - Branch count changes (new if/else added or removed)
- * - Call sequence changes (function calls reordered)
+ * - Return statement additions/removals (opt-in: track_returns)
+ * - Branch count changes, new if/else added or removed (opt-in: track_branches)
+ *
+ * Return and branch counts are off by default: a change that edits a function
+ * usually changes them on purpose, so they fired on almost every edited function
+ * without saying what was wrong. Judged against review comments developers acted
+ * on, 0 of 7 such findings raised the reviewer's issue. An operator mutation is
+ * specific and actionable, so it stays on.
  *
  * This is the HARDEST drift to catch because:
  * - Code still compiles
@@ -64,8 +69,8 @@ export class LogicDriftGate extends Gate {
             enabled: config.enabled ?? true,
             baseline_path: config.baseline_path ?? '.rigour/logic-baseline.json',
             track_operators: config.track_operators ?? true,
-            track_branches: config.track_branches ?? true,
-            track_returns: config.track_returns ?? true,
+            track_branches: config.track_branches ?? false,
+            track_returns: config.track_returns ?? false,
         };
     }
 
