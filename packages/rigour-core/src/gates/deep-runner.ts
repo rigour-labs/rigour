@@ -60,6 +60,8 @@ export async function runDeepAnalysis(
         chunks_total: outcome.chunksTotal,
         chunks_failed: outcome.chunksFailed,
         error: outcome.error,
+        findings_proposed: outcome.findingsProposed,
+        findings_withdrawn: outcome.findingsWithdrawn,
         findings_count: findings.length,
         findings_verified: findings.filter(f => f.verified).length,
     };

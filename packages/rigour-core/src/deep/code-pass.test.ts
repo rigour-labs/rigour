@@ -48,6 +48,7 @@ describe('runCodePass', () => {
         const result = await run(provider);
         expect(prompts).toHaveLength(1);
         expect(result.findings.map(f => f.line)).toEqual([3]);
+        expect([result.proposed, result.withdrawn]).toEqual([1, 0]);
     });
 
     it('does not repeat an identical pass when there is only one reference section', async () => {
@@ -71,6 +72,7 @@ describe('runCodePass', () => {
         expect(reviews[1].indexOf('REMOVED by this change')).toBeLessThan(reviews[1].indexOf('PR DESCRIPTION'));
         expect(prompts.filter(p => p.startsWith('You reported a defect'))).toHaveLength(2);
         expect(result.findings.map(f => [f.line, f.category])).toEqual([[3, 'correctness']]);
+        expect([result.proposed, result.withdrawn]).toEqual([2, 1]); // two distinct findings, one withdrawn
     });
 
     it('reads a self-check reply only when it is a verdict', () => {

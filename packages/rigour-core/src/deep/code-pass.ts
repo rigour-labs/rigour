@@ -35,10 +35,14 @@ export interface CodePassConfig extends PassConfig {
 
 export interface CodePassResult extends PassResult {
     contexts: CodeContext[];
+    /** Findings the model proposed, before the self-check (the max and cloud tiers). */
+    proposed: number;
+    /** Of those, withdrawn by the self-check. */
+    withdrawn: number;
 }
 
 export async function runCodePass(provider: InferenceProvider, facts: FileFacts[], config: CodePassConfig): Promise<CodePassResult> {
-    const result: CodePassResult = { findings: [], chunksTotal: facts.length, chunksFailed: 0, contexts: [] };
+    const result: CodePassResult = { findings: [], chunksTotal: facts.length, chunksFailed: 0, contexts: [], proposed: 0, withdrawn: 0 };
 
     for (let i = 0; i < facts.length; i++) {
         const file = facts[i];
@@ -58,7 +62,16 @@ export async function runCodePass(provider: InferenceProvider, facts: FileFacts[
         if (pack) context = { ...context, source: `${context.source}\n${pack.source}` };
         result.contexts.push(context);
         try {
-            result.findings.push(...(pack ? await reviewTwiceAndCheck(provider, context, pack, config) : await reviewOnce(provider, context, '', config)));
+            if (pack) {
+                const checked = await reviewTwiceAndCheck(provider, context, pack, config);
+                result.findings.push(...checked.kept);
+                result.proposed += checked.proposed;
+                result.withdrawn += checked.withdrawn;
+            } else {
+                const found = await reviewOnce(provider, context, '', config);
+                result.findings.push(...found);
+                result.proposed += found.length;
+            }
         } catch (error: any) {
             recordFailure(result, `${file.path}: ${error.message}`, config);
         }
@@ -70,14 +83,16 @@ async function reviewOnce(provider: InferenceProvider, context: CodeContext, ref
     return parseFindings(await provider.analyze(buildCodeReviewPrompt(context, reference), config.inference));
 }
 
-async function reviewTwiceAndCheck(provider: InferenceProvider, context: CodeContext, pack: ReferencePack, config: CodePassConfig): Promise<DeepFinding[]> {
+async function reviewTwiceAndCheck(
+    provider: InferenceProvider, context: CodeContext, pack: ReferencePack, config: CodePassConfig,
+): Promise<{ kept: DeepFinding[]; proposed: number; withdrawn: number }> {
     const first = await reviewOnce(provider, context, pack.text, config);
     const second = pack.sections.length > 1 ? await reviewOnce(provider, context, [...pack.sections].reverse().join('\n\n'), config) : [];
     const union = dedupe([...first, ...second]);
-    if (union.length === 0) return union;
+    if (union.length === 0) return { kept: union, proposed: 0, withdrawn: 0 };
     const checked = await selfCheck(provider, context, pack.text, union, config.inference);
     if (checked.withdrawn > 0) config.onProgress?.(`  Self-check withdrew ${checked.withdrawn} of ${union.length} finding(s) in ${context.file}.`);
-    return checked.kept;
+    return { kept: checked.kept, proposed: union.length, withdrawn: checked.withdrawn };
 }
 
 function packFor(file: string, config: CodePassConfig): ReferencePack {
