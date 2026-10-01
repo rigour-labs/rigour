@@ -23,6 +23,7 @@ import { reviewStatsCommand } from './commands/review-stats.js';
 import { reviewAckCommand, reviewExportCommand, reviewTaskCommand } from './commands/review-task.js';
 import { reviewPostCommand } from './commands/review-post.js';
 import { learnReviewsCommand } from './commands/learn-reviews.js';
+import { dismissCommand } from './commands/dismiss.js';
 import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
 import { scanRulesCommand } from './commands/scan-rules.js';
 import { exportReviewContextCommand } from './commands/export-review-context.js';
@@ -308,6 +309,14 @@ program
     .option('--max-comments <n>', 'Inline comments at most (default 2)', '2')
     .action(async (options: any) => {
         await reviewPostCommand(options);
+    });
+
+program
+    .command('dismiss <key>')
+    .description('Mark a finding as not a bug: it is never reported again here (commit .rigour/dismissed.json to share)')
+    .requiredOption('--reason <reason>', 'Why it is not a bug')
+    .action((key: string, options: any) => {
+        dismissCommand(process.cwd(), key, options);
     });
 
 program

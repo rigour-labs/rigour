@@ -15,7 +15,7 @@ import ts from 'typescript';
 import { HallucinatedImport } from './index.js';
 import { isNodeBuiltin } from '../hallucinated-imports-stdlib.js';
 import { resolveTsPathTarget } from './ts-path-target.js';
-import { isSvelteKitProvided, resolveSvelteKitLib, type SvelteKitRoots } from './framework-modules.js';
+import { isNuxtProvided, isSvelteKitProvided, resolveSvelteKitLib, type NuxtRoots, type SvelteKitRoots } from './framework-modules.js';
 import { loadTsPathConfig, type TsPathConfig, type TsPathRule } from './tsconfig-paths.js';
 
 /** Everything a JS/TS import check needs besides the file itself. */
@@ -28,6 +28,7 @@ export interface JsImportContext {
     hallucinated: HallucinatedImport[];
     tsPathCacheByDir: Map<string, TsPathConfig | null>;
     kitRoots: SvelteKitRoots;
+    nuxtRoots?: NuxtRoots;
     shouldIgnore: (importPath: string) => boolean;
     resolveRelativeImport: (fromFile: string, importPath: string, projectFiles: Set<string>) => boolean;
     extractPackageName: (importPath: string) => string;
@@ -39,6 +40,7 @@ export interface JsImportContext {
 export async function checkJSImports(content: string, file: string, ctx: JsImportContext): Promise<void> {
     const depsForFile = await resolveJSDepsForFile(file, ctx.cwd, ctx.rootDeps, ctx.depCacheByDir);
     const kitRoot = await ctx.kitRoots.rootFor(file);
+    const nuxtRoot = await ctx.nuxtRoots?.rootFor(file);
     const typeOnly = typeOnlySpecifiers(content, file);
 
     for (const spec of collectJSImportSpecs(content, file)) {
@@ -46,6 +48,7 @@ export async function checkJSImports(content: string, file: string, ctx: JsImpor
         const importPath = bundlerSpecifier(spec.importPath);
         if (!importPath || ctx.shouldIgnore(importPath)) continue;
         if (kitRoot && isSvelteKitProvided(importPath)) continue;
+        if (nuxtRoot && isNuxtProvided(importPath, ctx.extractPackageName(importPath))) continue;
 
         const reason = importPath.startsWith('.')
             ? await checkRelativeImport(file, importPath, ctx)

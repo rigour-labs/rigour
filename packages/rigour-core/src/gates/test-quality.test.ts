@@ -58,6 +58,21 @@ describe('API', () => {
         expect(failures[0].details).toContain('no-assertion');
     });
 
+    it('should not flag type-level tests, where the compiler is the assertion', async () => {
+        mockFindFiles.mockResolvedValue(['src/types.test.ts']);
+        mockReadFile.mockResolvedValue(`
+it('our document type accepts the published one', () => {
+    const _published: Document = null as unknown as Published.Document;
+});
+it('infers the output', () => {
+    expectTypeOf(output).toEqualTypeOf<string>();
+});
+        `);
+
+        const failures = await gate.run({ cwd: '/project' });
+        expect(failures).toHaveLength(0);
+    });
+
     it('should flag tautological assertions', async () => {
         mockFindFiles.mockResolvedValue(['src/basic.test.ts']);
         mockReadFile.mockResolvedValue(`

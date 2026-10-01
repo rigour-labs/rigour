@@ -42,6 +42,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
             failures: result.findings.map(toReviewFinding),
             file_findings: result.fileFindings.map(toReviewFinding),
             context_findings: result.contextFindings.map(toReviewFinding),
+            advisory_count: result.advisory.length,
             excluded_outside_changed_lines: result.excludedOutsideChangedLines,
             unlocated_failures: result.unlocated,
             ...(task ? { review_task: { items: task.items, already_reviewed: task.alreadyReviewed, team_lessons: task.lessons, repo_rules: task.rules, instructions: task.instructions } } : {}),

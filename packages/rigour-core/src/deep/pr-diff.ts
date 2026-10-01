@@ -4,7 +4,7 @@
  * Lockfiles, build output and minified files carry no reviewable logic and
  * are left out.
  */
-const GENERATED = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb|Cargo\.lock|poetry\.lock|go\.sum)$|(^|\/)(dist|build|out|coverage|\.next|node_modules)\/|\.min\.(js|css)$|\.(snap|map)$/;
+const GENERATED = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb|Cargo\.lock|poetry\.lock|go\.sum)$|(^|\/)(dist|build|out|coverage|\.next|node_modules)\/|\.min\.(js|css)$|\.(snap|map)$|(\.|-|_)(gen|generated|pb)\.[cm]?[jt]sx?$|(^|\/)__generated__\//;
 
 export interface DiffSection {
     file: string;

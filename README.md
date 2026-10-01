@@ -115,6 +115,18 @@ Every claim about catching bugs is measured on the open [driftbench arena](https
 
 Rigour runs fully local with SQLite; nothing needs an account. For teams, PostgreSQL (with optional pgvector) shares approved knowledge, and local enforcement keeps working when it is unreachable. See [Enterprise & Teams](docs/ENTERPRISE.md).
 
+## Quiet by default
+
+A review only speaks when it can prove the defect: a value traced from where it enters to where it does harm, an import that resolves to nothing, a secret in the source, a model finding grounded in code it read. Heuristics (size, complexity, patterns that guess) are advisory: in `--json` for anyone who wants them, never failing a review, never posted on a PR, never blocking an agent. Turn them back on with `review.include_heuristics: true`.
+
+Generated files are never reviewed. If a finding is wrong for your code, silence it for good:
+
+```bash
+rigour dismiss 3f9a1c0b7d2e4a51 --reason "test fixture token, never deployed"
+```
+
+Commit `.rigour/dismissed.json` and it stays quiet for the whole team and the PR bot.
+
 ## Guarantees and boundaries
 
 - Checks and storage are local; a model is used only when you configure one.

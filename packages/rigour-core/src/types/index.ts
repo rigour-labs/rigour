@@ -173,7 +173,7 @@ export const GatesSchema = z.object({
     promise_safety: z.object({
         enabled: z.boolean().optional().default(true),
         check_unhandled_then: z.boolean().optional().default(true),
-        check_unsafe_parse: z.boolean().optional().default(true),
+        check_unsafe_parse: z.boolean().optional().default(false), // opt-in: a regex cannot tell trusted JSON (own files, own serializer) from untrusted input
         check_async_without_await: z.boolean().optional().default(true),
         check_unsafe_fetch: z.boolean().optional().default(true),
         ignore_patterns: z.array(z.string()).optional().default([]),
@@ -212,10 +212,13 @@ export const GatesSchema = z.object({
     // v4.2+ Memory & Skills Governance
     governance: z.object({
         enabled: z.boolean().optional().default(true),
-        /** Enforce rigour_remember for all persistent storage — block native agent memory writes */
-        enforce_memory: z.boolean().optional().default(true),
-        /** Enforce rigour skills over native agent skills/rules files */
-        enforce_skills: z.boolean().optional().default(true),
+        /**
+         * Block agent writes to native memory files (CLAUDE.md, …) and point to rigour_remember.
+         * Off by default: teams edit their agent instructions deliberately; their content is still scanned for secrets.
+         */
+        enforce_memory: z.boolean().optional().default(false),
+        /** Block agent writes to native skills/rules files (.cursor/rules, …). Off by default, like enforce_memory. */
+        enforce_skills: z.boolean().optional().default(false),
         /** Block writes and tell agent to use rigour_remember / rigour_recall */
         block_native_memory: z.boolean().optional().default(true),
         /** Agent-native MEMORY paths — where agents auto-save context (glob patterns) */
@@ -374,6 +377,11 @@ export const ConfigSchema = z.object({
     hooks: HooksSchema,
     output: z.object({
         report_path: z.string().default('rigour-report.json'),
+    }).optional().default({}),
+    /** rigour review / rigour_review / the PR bot / the stop hook. */
+    review: z.object({
+        /** Let heuristic gates decide the verdict too; by default only findings that prove a defect do (quiet.ts). */
+        include_heuristics: z.boolean().optional().default(false),
     }).optional().default({}),
     planned: z.array(z.string()).optional().default([]),
     ignore: z.array(z.string()).optional().default([]),

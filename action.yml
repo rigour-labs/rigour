@@ -25,7 +25,7 @@ inputs:
     required: false
     default: '2'
   version:
-    description: '@rigour-labs/cli version.'
+    description: "@rigour-labs/cli version to fetch with npx, used only when the repository does not install Rigour itself (a devDependency is preferred: it goes through the repo's own lockfile and dependency review)."
     required: false
     default: latest
 runs:
@@ -47,8 +47,10 @@ runs:
           [ -n "$MODEL" ] && args+=(--model-name "$MODEL")
           [ -n "$BASE_URL" ] && args+=(--api-base-url "$BASE_URL")
         fi
+        # Prefer the repository's own pinned install; fall back to npx only when Rigour is not a dependency.
+        if [ -x node_modules/.bin/rigour ]; then run=(node_modules/.bin/rigour); else run=(npx --yes "$CLI"); fi
         # FAIL (exit 1) still produces a report to post; only a missing report is an error.
-        npx --yes "$CLI" "${args[@]}" > rigour-review.json || true
+        "${run[@]}" "${args[@]}" > rigour-review.json || true
         test -s rigour-review.json
     - name: Post the review
       shell: bash
@@ -56,4 +58,6 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
         CLI: '@rigour-labs/cli@${{ inputs.version }}'
         MAX_COMMENTS: ${{ inputs.max-comments }}
-      run: npx --yes "$CLI" review-post --report rigour-review.json --max-comments "$MAX_COMMENTS"
+      run: |
+        if [ -x node_modules/.bin/rigour ]; then run=(node_modules/.bin/rigour); else run=(npx --yes "$CLI"); fi
+        "${run[@]}" review-post --report rigour-review.json --max-comments "$MAX_COMMENTS"

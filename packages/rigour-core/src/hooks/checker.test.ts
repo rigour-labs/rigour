@@ -40,6 +40,17 @@ describe('runHookChecker', () => {
         expect(result.duration_ms).toBeGreaterThanOrEqual(0);
     });
 
+    it('lets an agent edit CLAUDE.md by default, and blocks it only when the team opts in', async () => {
+        const filePath = path.join(testDir, 'CLAUDE.md');
+        fs.writeFileSync(filePath, '# Rules\n\n- Use the retry wrapper for partner APIs.\n');
+        const byDefault = await runHookChecker({ cwd: testDir, files: [filePath] });
+        expect(byDefault.failures.filter(f => f.gate === 'governance')).toEqual([]);
+
+        fs.writeFileSync(path.join(testDir, 'rigour.yml'), yaml.stringify({ version: 1, gates: { governance: { enforce_memory: true } } }));
+        const optedIn = await runHookChecker({ cwd: testDir, files: [filePath] });
+        expect(optedIn.failures.some(f => f.gate === 'governance')).toBe(true);
+    });
+
     it('should detect file size violations', async () => {
         const filePath = path.join(testDir, 'big.ts');
         const lines = Array.from({ length: 100 }, (_, i) => `export const v${i} = ${i};`);

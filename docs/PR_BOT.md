@@ -10,6 +10,8 @@ The PR bot is the safety net behind the review your agent does before the PR. It
 
 The checkout must fetch history (`fetch-depth: 0`): the bot reviews the branch against its base.
 
+**Pinned install (recommended):** add Rigour as a devDependency (`pnpm add -D @rigour-labs/cli`) and install dependencies before the action. The action then runs that exact version from your lockfile, so it goes through your normal dependency review. Without it, the action fetches `@rigour-labs/cli@<version>` with `npx`.
+
 ## Inputs
 
 | Input | Default | Meaning |

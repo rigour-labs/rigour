@@ -24,6 +24,8 @@ export interface ReportFinding {
     line: number | null;
     anchor_line?: number;
     suggestion?: string;
+    /** Rigour's stable finding key (rigour dismiss <key>). */
+    key?: string;
 }
 
 export interface ReviewReport {
@@ -62,6 +64,7 @@ export function rankFindings(findings: ReportFinding[]): ReportFinding[] {
 
 /** Same finding across pushes: gate, file and message, not the line (lines move). */
 export function findingKey(f: ReportFinding): string {
+    if (f.key) return f.key;
     return crypto.createHash('sha256').update(`${f.gate}\u0000${f.file}\u0000${f.message}`).digest('hex').slice(0, 16);
 }
 
@@ -95,6 +98,7 @@ export function commentBody(f: ReportFinding): string {
         f.message,
         ...(f.suggestion ? ['', `**Fix:** ${f.suggestion}`] : []),
         '',
+        `<sub>Not a bug? \`rigour dismiss ${findingKey(f)} --reason "…"\` and commit \`.rigour/dismissed.json\`: it never comes back.</sub>`,
         FINDING_MARKER(findingKey(f)),
     ].join('\n');
 }

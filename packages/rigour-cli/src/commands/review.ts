@@ -15,7 +15,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, diffFromGit, resolveDeepOptions, reviewChange, toReviewFinding, GitDiffError } from '@rigour-labs/core';
+import { buildReviewTask, diffFromGit, findingKey, resolveDeepOptions, reviewChange, toReviewFinding, GitDiffError } from '@rigour-labs/core';
 import type { DeepOptions, ReviewResult } from '@rigour-labs/core';
 import { loadConfig, UsageError } from './review-config.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
@@ -147,6 +147,8 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         failures: result.findings.map(toReviewFinding),
         file_findings: result.fileFindings.map(toReviewFinding),
         context_findings: result.contextFindings.map(toReviewFinding),
+        advisory: result.advisory.map(toReviewFinding),
+        dismissed: result.dismissed,
     }, null, 2);
     return new Promise(resolve => process.stdout.write(json + '\n', () => resolve()));
 }
@@ -176,11 +178,14 @@ function printHuman(result: ReviewResult): void {
         for (const f of result.findings) {
             console.log(`  ${chalk.red(`[${(f.severity || 'medium').toUpperCase()}]`)} ${f.files?.[0] || '?'}:${f.line ?? '?'}`);
             console.log(`    ${f.title}`);
+            console.log(chalk.dim(`    not a bug? rigour dismiss ${findingKey(f)} --reason "…"`));
             if (f.hint) console.log(chalk.cyan(`    → ${f.hint}`));
             console.log('');
         }
     }
     if (result.fileFindings.length) console.log(chalk.dim(`  ${result.fileFindings.length} file-level note(s) on changed files (see --json).`));
+    if (result.advisory.length) console.log(chalk.dim(`  ${result.advisory.length} advisory note(s) from heuristic checks (see --json; they never decide the verdict).`));
+    if (result.dismissed) console.log(chalk.dim(`  ${result.dismissed} finding(s) dismissed as not a bug (.rigour/dismissed.json).`));
     for (const f of result.contextFindings) {
         console.log(chalk.yellow(`  [context] ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));
     }

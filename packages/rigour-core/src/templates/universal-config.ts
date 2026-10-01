@@ -156,7 +156,7 @@ export const UNIVERSAL_CONFIG: Config = {
         promise_safety: {
             enabled: true,
             check_unhandled_then: true,
-            check_unsafe_parse: true,
+            check_unsafe_parse: false,
             check_async_without_await: true,
             check_unsafe_fetch: true,
             ignore_patterns: [],
@@ -193,8 +193,8 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         governance: {
             enabled: true,
-            enforce_memory: true,
-            enforce_skills: true,
+            enforce_memory: false,
+            enforce_skills: false,
             block_native_memory: true,
             protected_memory_paths: [
                 'CLAUDE.md', '.claude/CLAUDE.md',
@@ -282,6 +282,9 @@ export const UNIVERSAL_CONFIG: Config = {
     },
     output: {
         report_path: 'rigour-report.json',
+    },
+    review: {
+        include_heuristics: false,
     },
     planned: [],
     ignore: [],

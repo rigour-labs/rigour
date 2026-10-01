@@ -11,6 +11,9 @@ export const JS_ASSERTION_PATTERNS = [
     /expect\s*\(/,
     /assert\s*[.(]/,
     /\.toEqual|\.toBe|\.toContain|\.toMatch|\.toThrow|\.toHaveBeenCalled|\.toHaveLength|\.toBeTruthy|\.toBeFalsy|\.toBeDefined|\.toBeNull|\.toBeUndefined|\.toBeGreaterThan|\.toBeLessThan|\.toHaveProperty|\.toStrictEqual|\.rejects|\.resolves/,
+    // Type-level tests: the compiler is the assertion.
+    /expectTypeOf\s*[<(]|assertType\s*[<(]|@ts-expect-error|\bsatisfies\s+[A-Z]/,
+    /^\s*(?:const|let)\s+[\w$]+\s*:\s*[^=]+=/,
 ];
 
 /**
