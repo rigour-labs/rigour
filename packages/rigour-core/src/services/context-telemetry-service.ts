@@ -5,6 +5,7 @@
  */
 
 import { createHash } from 'crypto';
+import { observedSavings, type ObservedSavings } from './observed-savings.js';
 import fs from 'fs-extra';
 import path from 'path';
 import {
@@ -77,6 +78,12 @@ export interface TaskCostStats {
         pricingSource: string;
         pricingEffectiveDate: string;
     };
+    /**
+     * Measured, not modelled: scoped files the agent's hook saw it never read,
+     * less the summaries it read instead. Only scopes followed by observed agent
+     * activity count (trackedScopes); the estimate above is an upper bound.
+     */
+    observed: ObservedSavings & { avoidedCostUsd: number };
 }
 
 export interface CachePerformanceStats {
@@ -235,6 +242,8 @@ export async function getTaskCostStats(taskId?: string, cwd?: string): Promise<T
     }
 
     const retrievalPricing = estimateAvoidedContextCostUsd(stats.potentialAvoidedTokens, usages);
+    const observed = observedSavings(cwd ?? process.cwd());
+    const observedPricing = estimateAvoidedContextCostUsd(observed.avoidedTokens, usages);
     const checkpointPricing = estimateAvoidedContextCostUsd(stats.checkpointReplayAvoided, usages);
     const unknownPricing = retrievalPricing.pricing.pricingBasis.includes('fallback');
     const range = (tokens: number) => ({
@@ -276,6 +285,7 @@ export async function getTaskCostStats(taskId?: string, cwd?: string): Promise<T
             pricingSource: MODEL_PRICING_SOURCE,
             pricingEffectiveDate: MODEL_PRICING_EFFECTIVE_DATE,
         },
+        observed: { ...observed, avoidedCostUsd: observedPricing.costUsd },
     };
 }
 

@@ -100,6 +100,7 @@ export * from './context/index-bridge.js';
 export * from './context/automatic-index.js';
 export * from './context/dependency-graph.js';
 export * from './services/context-telemetry-service.js';
+export * from './services/observed-savings.js';
 export * from './services/system-health.js';
 export * from './services/agent-history.js';
 export * from './services/engineering-knowledge-graph.js';

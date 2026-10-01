@@ -31,6 +31,7 @@ import {
     updateAutomaticIndexForFiles,
     writeDLPBlockManifest,
     STOP_MAX_ATTEMPTS,
+    recordHookPayload,
 } from '@rigour-labs/core';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
@@ -671,6 +672,9 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         let cursorMode = false;
         try {
             const payload = JSON.parse(rawInput);
+            // Claude Code's PreToolUse hook sees every agent tool call: record it so
+            // Studio's context savings are observed, not assumed.
+            recordHookPayload(payload, cwd);
             if (isCursorHookPayload(payload)) {
                 cursorMode = true;
                 textToScan = extractCursorPromptText(payload);

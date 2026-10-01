@@ -25,6 +25,7 @@ import {
     ensureAutomaticIndex,
     getApplicableLessons,
     searchTeamKnowledge,
+    recordScopeOffer,
 } from '@rigour-labs/core';
 import {
     loadPatternIndex,
@@ -336,13 +337,16 @@ export async function handleContextScope(
     ]);
 
     let fullFileTokens = 0;
+    const offered: Array<{ path: string; tokens: number }> = [];
     for (const file of editScope) {
+        let tokens = 500;
         try {
-            const content = await fs.readFile(path.join(cwd, file), 'utf-8');
-            fullFileTokens += estimateTokenCount(content);
+            tokens = estimateTokenCount(await fs.readFile(path.join(cwd, file), 'utf-8'));
         } catch {
-            fullFileTokens += 500;
+            // Unreadable: keep the estimate.
         }
+        fullFileTokens += tokens;
+        offered.push({ path: file, tokens });
     }
 
     const guidance: GuidanceMeta = {
@@ -391,6 +395,8 @@ export async function handleContextScope(
     let resultText = JSON.stringify(scopePayload, null, 2);
     scopePayload.estimatedTokensSaved = Math.max(0, fullFileTokens - estimateTokenCount(resultText));
     resultText = JSON.stringify(scopePayload, null, 2);
+    // What the agent was told it need not read, so observed savings can check whether it read them anyway.
+    recordScopeOffer(cwd, offered, estimateTokenCount(resultText));
 
     await setSemanticQueryCache(query, commitSha, {
         query,
