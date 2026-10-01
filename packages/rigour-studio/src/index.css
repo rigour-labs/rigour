@@ -4494,6 +4494,7 @@ header {
 .text-emerald { color: var(--status-success); }
 .text-amber { color: var(--status-warning); }
 .text-cyan { color: var(--accent-primary); }
+.text-green { color: var(--status-success); }
 .text-rose { color: var(--status-error); }
 .text-purple { color: var(--accent-tertiary); }
 

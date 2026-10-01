@@ -52,6 +52,14 @@ interface TaskCostStats {
         pricingSource?: string;
         pricingEffectiveDate?: string;
     };
+    observed?: {
+        scopes?: number;
+        trackedScopes?: number;
+        offeredTokens?: number;
+        readBackTokens?: number;
+        avoidedTokens?: number;
+        avoidedCostUsd?: number;
+    };
 }
 
 interface CachePerformanceStats {
@@ -264,6 +272,11 @@ export function CostContext() {
     const retrievalCostLabel = costStats?.estimated?.retrievalAvoidedCostRangeUsd
         ? `$${costStats.estimated.retrievalAvoidedCostRangeUsd.min.toFixed(2)}–$${costStats.estimated.retrievalAvoidedCostRangeUsd.max.toFixed(2)}`
         : `$${retrievalAvoidedCost.toFixed(2)}`;
+    const observed = costStats?.observed;
+    const observedTracked = observed?.trackedScopes ?? 0;
+    const observedMeta = observedTracked > 0
+        ? `measured · ${observedTracked} of ${observed?.scopes ?? 0} scopes observed · ${formatTokens(observed?.readBackTokens ?? 0)} read anyway`
+        : 'not measured yet · install Rigour agent hooks so reads are observed';
     const checkpointCostLabel = costStats?.estimated?.checkpointReplayAvoidedCostRangeUsd
         ? `$${costStats.estimated.checkpointReplayAvoidedCostRangeUsd.min.toFixed(2)}–$${costStats.estimated.checkpointReplayAvoidedCostRangeUsd.max.toFixed(2)}`
         : `$${checkpointAvoidedCost.toFixed(2)}`;
@@ -322,9 +335,16 @@ export function CostContext() {
                     <div className="meta">{costClassification} · {costSource}</div>
                 </div>
                 <div className="cost-kpi-card glass-card">
+                    <div className="label">Observed context avoided</div>
+                    <div className="value text-green">
+                        {observedTracked > 0 ? `${formatTokens(observed?.avoidedTokens ?? 0)} · $${(observed?.avoidedCostUsd ?? 0).toFixed(2)}` : '—'}
+                    </div>
+                    <div className="meta">{observedMeta}</div>
+                </div>
+                <div className="cost-kpi-card glass-card">
                     <div className="label">Potential context avoided</div>
                     <div className="value text-amber">{formatTokens(potentialAvoided)}</div>
-                    <div className="meta">modelled estimate · reduction {reductionRatio}%</div>
+                    <div className="meta">upper bound · assumes scoped files were never read · reduction {reductionRatio}%</div>
                 </div>
                 <div className="cost-kpi-card glass-card">
                     <div className="label">Cache hit rate</div>
