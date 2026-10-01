@@ -2,6 +2,7 @@ import { globby } from 'globby';
 import fs from 'fs-extra';
 import path from 'path';
 import type { FileSystemCache } from '../services/filesystem-cache.js';
+import { directoriesAsGlobs, withDirectoryForms } from './glob-paths.js';
 
 export interface ScannerOptions {
     cwd: string;
@@ -43,9 +44,10 @@ export class FileScanner {
         const ignore = [...new Set([...this.DEFAULT_IGNORE, ...userIgnore])].map(toGlobSeparators);
         const normalizedCwd = options.cwd.replace(/\\/g, '/');
 
-        return globby(patterns, {
+        return globby(directoriesAsGlobs(normalizedCwd, patterns), {
             cwd: normalizedCwd,
-            ignore: ignore,
+            ignore: withDirectoryForms(ignore),
+            expandDirectories: false,
         });
     }
 

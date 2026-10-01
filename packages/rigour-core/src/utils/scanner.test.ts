@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { FileScanner } from './scanner.js';
 import { globby } from 'globby';
 
-vi.mock('globby', () => ({
+vi.mock('globby', async (importOriginal) => ({
+    isDynamicPattern: (await importOriginal<typeof import('globby')>()).isDynamicPattern,
     globby: vi.fn(),
 }));
 

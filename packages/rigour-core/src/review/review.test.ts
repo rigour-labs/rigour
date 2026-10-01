@@ -2,7 +2,8 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GateRunner } from '../gates/runner.js';
 import { ConfigSchema, type Failure } from '../types/index.js';
 import { parseDiff } from '../utils/diff.js';
 import { splitByChangedLines } from './changed-lines.js';
@@ -113,6 +114,36 @@ describe('git-backed review', () => {
         expect(result.status).toBe('FAIL');
         expect(semantic.map(f => [f.files?.[0], f.line])).toEqual([['src/notify.ts', 2]]);
         expect(toReviewFinding(semantic[0])).toMatchObject({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2, severity: 'high' });
+    });
+
+    it('runs every gate in a git worktree, where .git is a file', async () => {
+        write('src/a.ts', 'export const a = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        const worktree = path.join(repo, 'wt');
+        git('worktree', 'add', '-q', worktree);
+        fs.writeFileSync(path.join(worktree, 'src/a.ts'), 'export const a = 1;\nexport const b = 2;\n');
+        const config = ConfigSchema.parse({ version: 1, ignore: ['.git/**', 'wt/**'] });
+
+        const result = await reviewChange({ cwd: worktree, config });
+
+        expect(result.gateErrors).toEqual([]);
+        expect(result.status).not.toBe('ERROR');
+    });
+
+    it('is ERROR when a proven gate crashed, and only lists a crashed heuristic gate', async () => {
+        write('src/a.ts', 'export const a = 1;\n');
+        const config = ConfigSchema.parse({ version: 1 });
+        const crash = (summary: Record<string, 'ERROR' | 'PASS'>) =>
+            vi.spyOn(GateRunner.prototype, 'run').mockResolvedValueOnce({ status: 'FAIL', summary, failures: [], stats: { duration_ms: 0 } } as any);
+
+        crash({ 'hallucinated-imports': 'ERROR' });
+        const proven = await reviewChange({ cwd: repo, config });
+        expect([proven.status, proven.gateErrors]).toEqual(['ERROR', ['hallucinated-imports']]);
+
+        crash({ 'style-drift': 'ERROR', 'semantic-bugs': 'PASS' });
+        const heuristic = await reviewChange({ cwd: repo, config });
+        expect([heuristic.status, heuristic.gateErrors]).toEqual(['PASS', ['style-drift']]);
     });
 
     it('passes when nothing changed', async () => {

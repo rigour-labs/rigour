@@ -76,12 +76,31 @@ async function readDiff(cwd: string, options: ReviewOptions): Promise<string | u
         if (!(await fs.pathExists(diffPath))) throw new UsageError(`Diff file not found: ${diffPath}`);
         return fs.readFile(diffPath, 'utf-8');
     }
+    if (!readsStdinDiff(options, stdinStat())) return undefined;
     const piped = await readStdin();
     return piped.trim() ? piped : undefined;
 }
 
+/**
+ * Piped input is the diff only when no other source was named (--base,
+ * --files) and stdin is a pipe or a redirected file. Agents and hooks run
+ * commands with stdin left open on a socket that never ends; reading it
+ * would wait forever.
+ */
+export function readsStdinDiff(options: ReviewOptions, stdin: Pick<fs.Stats, 'isFIFO' | 'isFile'> | undefined): boolean {
+    if (options.base || options.files) return false;
+    return !!stdin && (stdin.isFIFO() || stdin.isFile());
+}
+
+function stdinStat(): fs.Stats | undefined {
+    try {
+        return fs.fstatSync(0);
+    } catch {
+        return undefined;
+    }
+}
+
 async function readStdin(): Promise<string> {
-    if (process.stdin.isTTY) return '';
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk);
     return Buffer.concat(chunks).toString('utf-8');
@@ -128,6 +147,7 @@ async function print(result: ReviewResult, options: ReviewOptions): Promise<void
     const summary = buildCiReviewSummary(result.findings, result.report?.failures.length ?? 0, result.changedLines,
         result.unlocated + result.fileFindings.length);
     if (result.deepError && !options.json) console.error(chalk.red(`Deep analysis did not run: ${result.deepError}`));
+    if (result.gateErrors.length && !options.json) console.error(chalk.yellow(`Checks that crashed and did not run: ${result.gateErrors.join(', ')}`));
     if (options.json) return writeJson(result, summary);
     if (options.githubSummary) return void console.log(renderGithubSummary(summary));
     if (options.ci) return printCi(result);
@@ -151,6 +171,7 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         context_findings: result.contextFindings.map(toReviewFinding),
         advisory: result.advisory.map(toReviewFinding),
         dismissed: result.dismissed,
+        gate_errors: result.gateErrors,
     }, null, 2);
     return new Promise(resolve => process.stdout.write(json + '\n', () => resolve()));
 }

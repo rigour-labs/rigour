@@ -45,6 +45,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
             advisory_count: result.advisory.length,
             excluded_outside_changed_lines: result.excludedOutsideChangedLines,
             unlocated_failures: result.unlocated,
+            gate_errors: result.gateErrors,
             ...(task ? { review_task: { items: task.items, already_reviewed: task.alreadyReviewed, team_lessons: task.lessons, repo_rules: task.rules, instructions: task.instructions } } : {}),
             next_step: nextStep(result.findings.length, task?.items.length ?? 0),
         });

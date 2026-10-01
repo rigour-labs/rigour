@@ -31,6 +31,7 @@ import {
     extractGenericCPatterns,
 } from './indexer-lang.js';
 import { nodeToPattern } from './indexer-ts.js';
+import { directoriesAsGlobs, withDirectoryForms } from '../utils/glob-paths.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -282,10 +283,11 @@ export class PatternIndexer {
             exclude.push('**/*.test.*', '**/*.spec.*', '**/__tests__/**');
         }
 
-        return globby(patterns, {
+        return globby(directoriesAsGlobs(this.rootDir, patterns), {
             cwd: this.rootDir,
             absolute: true,
-            ignore: exclude,
+            ignore: withDirectoryForms(exclude),
+            expandDirectories: false,
             gitignore: true,
         });
     }
