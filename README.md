@@ -5,183 +5,122 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-facc15.svg)](https://opensource.org/licenses/MIT)
 [![MCP Registry](https://img.shields.io/badge/MCP-Listed-22c55e)](https://rigour.run)
 
-**Your coding agents write code. Rigour makes the codebase learn.**
+**Code review that happens while your agent writes the code — before a pull request exists.**
 
-Rigour is a local-first engineering intelligence layer for coding agents. It gives agents the smallest useful context, enforces deterministic boundaries around observable work, and turns verified outcomes into reusable knowledge for the next task.
+Most review happens after the fact: a bot comments on a finished PR, someone fixes it, pushes again, waits again. Rigour moves review to where the code is written. Your coding agent (Claude Code, Cursor, Codex, Cline, Windsurf) checks its own work with Rigour before it says "done", so the PR arrives already reviewed. A small PR bot catches whatever is left.
 
-It is not another chat wrapper or a prettier linter dashboard. Rigour connects **code, agent actions, decisions, proof, and learning** into one evidence-backed system.
+Free and local by default. Bring your own model key only if you want one.
 
 ```bash
 npx rigour-scan
 ```
 
-[▶ Watch Rigour in action](https://www.mediafire.com/file/ohy86pcne9e8wmx/1789196277897739.mp4/file)
-
-Run this in any repository to see the first signal. No account or hosted service required.
-
-## Why teams use Rigour
-
-| Pain | Rigour’s answer | What you can see |
-| --- | --- | --- |
-| Agents rediscover the codebase every task | Structural retrieval, patterns, memory, and validated lessons narrow the context | Why files were selected, excluded, reused, or invalidated |
-| Agents move quickly without enough proof | Deterministic gates, hooks, DLP, scoped execution, and Fix Packets | The decision, rule, evidence, and resulting repair loop |
-| Good work disappears between sessions | Evidence from observable agent work becomes candidate learning, then only promotes after proof | Personal and team knowledge with state, owner, scope, and provenance |
-
-## See how agent work improves the codebase
-
-Rigour Studio is an evidence map for engineering work—not just a dependency graph.
+## How it works
 
 ```text
-intent → context → policy → agent action → verification → outcome → learning
-                    │                         │               │
-                    └──── advice + impact ────┴───────────────┘
+  while the agent writes            before you commit             on the pull request
+ ┌────────────────────────┐   ┌──────────────────────────┐   ┌─────────────────────────────┐
+ │ deterministic gates on │   │ the agent reviews the    │   │ reviews only what was not   │
+ │ every edit; the agent's│ → │ risky functions Rigour   │ → │ reviewed before; at most 2  │
+ │ own model reviews the  │   │ picks, answers what to   │   │ comments, one summary,      │
+ │ riskiest changes       │   │ check, and records it    │   │ never repeated on a push    │
+ └────────────────────────┘   └──────────────────────────┘   └─────────────────────────────┘
+        no key needed                 no key needed              optional: your model key
 ```
 
-Open Studio to trace an agent run from the recommendation it received to the code it changed, the checks that ran, the risk it prevented, and the knowledge it left behind.
+1. **Gates on every edit.** Hooks run fast, deterministic checks as the agent writes: security patterns, hallucinated imports, phantom APIs, async safety, and bugs Rigour can prove by tracing values across files. No model, no network.
+2. **The agent reviews the risky part.** Rigour ranks the functions a change touched — removed guards, data writes, paging, auth, money and time, concurrency, network calls — and gives the agent a short list with what to check in each. The agent's own model does the review (no extra cost), fixes what is real, and records what it checked. Editing a function after that puts it back on the list.
+3. **The PR is a safety net.** In CI, Rigour reviews the pull request as a whole, skips everything already reviewed, and posts at most two precise comments. With a model key it reads the repository like a reviewer would — callers, callees, types — before it reports anything.
 
-```bash
-npx @rigour-labs/cli init
-npx @rigour-labs/cli hooks init
-npx @rigour-labs/cli studio
-```
+## Start
 
-The five product areas stay simple:
-
-- **Map** — connect code structure, agent activity, decisions, proof, and outcomes.
-- **Agents** — inspect scopes, run history, handoffs, and the guidance each agent received.
-- **Review** — understand gates, policy decisions, conflicts, and Fix Packets.
-- **Knowledge** — explore patterns, memory, lessons, semantic recall, drift, and cost evidence.
-- **Settings** — see index, graph, cache, learning, storage, and connectivity health.
-
-## Start in three minutes
-
-### 1. Scan a repository
-
-```bash
-npx rigour-scan
-```
-
-Rigour runs local quality, security, and AI-drift checks and returns an actionable result.
-
-### 2. Add the Rigour loop
-
-```bash
-npx @rigour-labs/cli init
-npx @rigour-labs/cli hooks init --tool cursor
-npx @rigour-labs/cli skills install --target codex,cursor
-npx @rigour-labs/cli check
-```
-
-`hooks init` supports Cursor, Claude Code, Cline, and Windsurf. It checks observable writes as agents work; `check` is the full project verification step.
-
-### 3. Give every agent the same good workflow
-
-```bash
-rigour skills install --target codex,cursor
-```
-
-Rigour Skills turn its evidence loop into small, reusable agent workflows:
-
-- `rigour-context` asks for the smallest explainable scope before an agent reads code.
-- `rigour-verify` closes a change with proof and a Fix Packet repair loop.
-- `rigour-handoff` transfers verified state without replaying an entire session.
-
-Codex receives native repository skills in `.agents/skills`. Cursor receives focused slash commands in `.cursor/commands`. Portable copies land in `docs/rigour-skills` for other MCP-capable agents. Existing files are preserved unless `--force` is explicitly used.
-
-### 4. Give your agent Rigour through MCP
+**Give your agent Rigour** (MCP):
 
 ```json
 {
   "mcpServers": {
-    "rigour": {
-      "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp@latest"]
-    }
+    "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp@latest"] }
   }
 }
 ```
 
-Agents can ask Rigour for scoped context, register their work, receive Fix Packets, record checkpoints and handoffs, and leave evidence for Studio.
+Then ask it to *"review before you finish"*, or use the `rigour-pre-commit` prompt. It calls `rigour_review` (with `mode: "agent"`), fixes what it finds, and acknowledges each risky function with `rigour_review_ack`.
 
-### 5. Mediate high-impact MCP tools (6.2)
-
-Rigour can sit in front of selected MCP servers, expose only approved tools, normalize every call into a common action record, and issue a signed execution receipt. Start in `observe` mode to see what policy would block without interrupting work; switch to `enforce` only after reviewing the evidence.
+**Add the hooks** so this happens without asking:
 
 ```bash
-rigour firewall gateway-configure --config ~/rigour-gateway.json
-rigour firewall status
-rigour firewall grant --agent coding-agent --task TASK-123 \
-  --tool github__create_issue --ttl 300
-rigour firewall receipts
+npx @rigour-labs/cli init
+npx @rigour-labs/cli hooks init --tool claude   # or cursor, cline, windsurf
 ```
 
-Trusted state and canonical receipts live outside the repository. Studio reads them server-side and receives only safe evidence summaries for its Review panel and execution map—never keys, environment secrets, downstream commands, or receipt signatures. Follow [MCP Integration](docs/MCP_INTEGRATION.md) for the configuration and exact security boundary.
+To make the agent finish only after the risky functions are reviewed, set `hooks.require_review_ack: true` in `rigour.yml`.
 
-## What Rigour does differently
-
-### Context that can explain itself
-
-Rigour builds a structural index immediately and enriches semantic retrieval in the background. When an agent asks for help, it returns the smallest evidence-backed scope it can justify—not a repository dump. Each recommendation records its sources, exclusions, cache reuse, and estimated context savings.
-
-### Learning with a proof boundary
-
-Rigour records evidence from its hooks, MCP calls, context retrieval, Fix Packets, accepted changes, checkpoints, handoffs, tests, and human feedback. A lesson starts as a `candidate`. It becomes reusable only after deterministic verification, repeated successful outcomes, or explicit confirmation.
-
-Model text, vector similarity, rejected fixes, and failed tests can inform investigation. They do not become enforcement rules on their own.
-
-### Bugs it can prove, and rules learned from your fixes
-
-The `semantic_bugs` gate builds a TypeScript program and traces values across files. It reports a bug only when it can show where the risky value enters and where it does harm: a credential header sent by a request that follows redirects, rows from a paged read loaded into memory just to be counted, or a cached response that can carry a failure fallback. It runs locally, with no model.
-
-`rigour learn <fix-commit>` turns a fix into a rule for the same bug. The rule is kept only if it fires on the code before the fix, is silent on the fixed code, and hits few other places in the repository; those places are listed for review. Learned rules live in `.rigour/rules/`, are reviewed like code, and appear in Studio with the fix they came from.
+**Working without an agent?**
 
 ```bash
-rigour learn a1b2c3d --dry-run   # what would be learned, and why
-rigour learn a1b2c3d             # save validated rules to .rigour/rules/
+rigour review                 # gates on your uncommitted change
+rigour review-task            # the risky functions to look at, and what to check
+rigour review-ack src/sync.ts syncLeads --verdict no_issue --note "cursor advances on every page"
+```
+
+## The PR bot
+
+Copy [`examples/github/rigour-review.yml`](examples/github/rigour-review.yml) to `.github/workflows/`. Without a key it runs the gates only and nothing leaves the runner. With a key (a `RIGOUR_API_KEY` secret), a model reviews the riskiest parts of the PR:
+
+```yaml
+- uses: rigour-labs/rigour@main
+  with:
+    api-key: ${{ secrets.RIGOUR_API_KEY }}
+    provider: openrouter                       # or claude, openai, gemini, groq, ...
+    base-url: https://openrouter.ai/api/v1
+    model: anthropic/claude-sonnet-5.5
+```
+
+To let the bot skip what your agents already reviewed, run `rigour review-export` and commit `.rigour/reviewed.json` (function hashes and verdicts only — no code, no notes).
+
+## Your key, your cost
+
+- **No key:** gates, the review task, the ledger, and the PR bot's gates all work. Nothing is sent anywhere.
+- **With a key:** only the riskiest changed functions reach the model; a PR with nothing risky costs nothing. The model reads the repository with read-only tools that never open `.env` files, keys, or credentials.
+- **What it cost, observed:** every model run records its real tokens and cost (the provider's own figure when it reports one). Studio shows the total, and what the router kept away from the model.
+
+```bash
+read -s K && npx @rigour-labs/cli settings set-key openrouter "$K" && unset K
+rigour review --deep --provider openrouter --api-base-url https://openrouter.ai/api/v1 \
+  --model-name anthropic/claude-sonnet-5.5
+```
+
+## Studio
+
+```bash
+npx @rigour-labs/cli studio
+```
+
+**Review › Pre-PR review** shows the functions reviewed and the defects fixed before a PR existed, what is still waiting, and the model spend Rigour actually observed. The rest of Studio maps agent work: context each agent received, gates and Fix Packets, lessons learned from fixes, and drift.
+
+## Rules learned from your fixes
+
+`rigour learn <fix-commit>` turns a fix into a rule for the same bug. A rule is kept only if it fires on the code before the fix, stays silent on the fixed code, and hits few other places; those places are listed for review. Learned rules live in `.rigour/rules/` and are reviewed like code.
+
+```bash
+rigour learn a1b2c3d --dry-run
 rigour learn --agent-fixes       # rules from fixes your agents made to Rigour findings
 ```
 
-Agents are asked to review before they finish: `rigour_review` over MCP, and a stop hook for Claude Code and Cursor that sends the agent back on proven or security findings. `rigour review-stats` shows whether that loop works in your repository.
+## How we measure
 
-### Governance agents can work with
+Every claim about catching bugs is measured on the open [driftbench arena](https://github.com/rigour-labs/driftbench): real merged pull requests, reviewed at the commit a human reviewer saw, scored against the review comments developers actually acted on, with judged labels and confidence intervals. Repositories used to design a rule are never used to claim it works.
 
-Rigour’s deterministic checks catch security issues, structural regressions, hallucinated imports, phantom APIs, context drift, and more. On supported mediated paths, the Agent Transaction Firewall applies per-agent scopes, typed command allowlists, fail-closed arbitration, and signed attestations.
+## Local first, team-ready
 
-When work fails a check, Rigour gives the agent a **Fix Packet**: the rule, affected files, evidence, and concrete next action.
-
-## Local first. Team-ready when you are.
-
-Rigour works fully in local-only mode with SQLite. Nothing requires an account.
-
-For teams, PostgreSQL becomes the durable source for private-user and approved shared knowledge; encrypted SQLite remains the local cache and offline outbox. If pgvector is enabled, Rigour can use semantic recall as advisory input while repository scope and lesson state continue to control what applies.
-
-```bash
-rigour team init-schema --database-url 'postgresql://…' --pgvector
-rigour team configure --database-url 'postgresql://…' \
-  --organization acme --team platform --actor ashutosh --pgvector
-rigour team import-local /path/to/repository --dry-run
-rigour team import-local /path/to/repository
-rigour team sync
-rigour team doctor
-```
-
-`team import-local` safely adopts personal lessons created before team mode was
-configured. It is repository-scoped, dry-runnable, idempotent, and never promotes
-candidate knowledge or publishes it to the team.
-
-When team storage is unavailable, local enforcement and evidence capture continue. Studio reports the state as **offline — changes queued**.
+Rigour runs fully local with SQLite; nothing needs an account. For teams, PostgreSQL (with optional pgvector) shares approved knowledge, and local enforcement keeps working when it is unreachable. See [Enterprise & Teams](docs/ENTERPRISE.md).
 
 ## Guarantees and boundaries
 
-Rigour is deliberately precise about what it does and does not claim.
-
-- Core checks and storage are local-first; cloud deep analysis is opt-in.
-- A model is asked only what code cannot answer, and only where its answer is measured. Intent checks stay off until a model reports zero false findings on the labelled set ([Deep Analysis](docs/DEEP_ANALYSIS.md#intent_checks-off-by-default)).
-- Rigour can enforce work that passes through its installed hooks or MCP gateway. A directly configured parallel MCP server bypasses that gateway unless the host or administrator removes that route.
-- Advice is evidence of what Rigour recommended, not proof that an agent followed it or that it caused an outcome.
-- Observed spend, measured estimates, and modelled savings are shown separately so cost numbers do not over-promise.
-
-Read the architectural decisions behind these boundaries: [Agent Transaction Firewall](docs/adr/001-agent-transaction-firewall.md), [Evidence Learning & Team Storage](docs/adr/002-evidence-learning-team-storage.md), [Adaptive Execution Graph](docs/adr/003-adaptive-execution-graph.md), and [Trusted MCP Gateway](docs/adr/004-trusted-mcp-gateway.md).
+- Checks and storage are local; a model is used only when you configure one.
+- A model finding is kept only if it cites a line and identifiers the model actually read.
+- Rigour enforces what passes through its hooks, MCP tools, or gateway; it cannot see work that bypasses them.
+- Spend is observed per run; estimates are labelled as estimates.
 
 ## Documentation
 
@@ -189,10 +128,10 @@ Read the architectural decisions behind these boundaries: [Agent Transaction Fir
 | --- | --- |
 | Install and run Rigour | [Quick Start](docs/QUICK_START.md) |
 | Connect a coding agent | [Agent Integration](docs/AGENT_INTEGRATION.md) · [MCP Integration](docs/MCP_INTEGRATION.md) |
+| Set up the PR bot | [PR Bot](docs/PR_BOT.md) |
+| Configure models, the router, and deep review | [Deep Analysis](docs/DEEP_ANALYSIS.md) · [Configuration](docs/CONFIGURATION.md) |
 | Understand a failed check | [Fix Packets](docs/FIX_PACKET.md) · [AST Gates](docs/AST_GATES.md) |
-| Configure policies and deep analysis | [Configuration](docs/CONFIGURATION.md) · [Deep Analysis](docs/DEEP_ANALYSIS.md) |
-| Set up PostgreSQL, pgvector, and team knowledge | [Enterprise & Teams](docs/ENTERPRISE.md) |
-| Review the product philosophy | [Philosophy](docs/PHILOSOPHY.md) |
+| Mediate MCP tools for agents | [MCP Integration](docs/MCP_INTEGRATION.md) |
 
 ## Build from source
 
@@ -200,10 +139,7 @@ Read the architectural decisions behind these boundaries: [Agent Transaction Fir
 pnpm install
 pnpm build
 pnpm test
-node packages/rigour-cli/dist/cli.js studio
 ```
-
-If a fresh clone reports ignored native build scripts, review and approve the required builds with `pnpm approve-builds`, then rerun the commands.
 
 ---
 
