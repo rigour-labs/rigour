@@ -1,0 +1,121 @@
+/**
+ * Risk of each changed function: which code is worth a paid model's review.
+ *
+ * Sending every changed file to a frontier model cost $0.75 per PR on real
+ * PRs; most changed functions are glue, rename or plumbing that never carries
+ * a defect a reviewer acts on. The router reviews the riskiest functions and
+ * leaves the rest to the deterministic gates. Signals are syntactic and cheap
+ * (no type checker), so ranking a large PR takes milliseconds.
+ */
+import fs from 'fs';
+import path from 'path';
+import ts from 'typescript';
+import { changedFunctions, isExported } from './changed-functions.js';
+import type { FunctionLike } from '../semantic/ast.js';
+import type { RemovedBlock } from '../utils/diff.js';
+
+const PARSEABLE = /\.(?:[cm]?[jt]sx?)$/i;
+
+/** Kinds of operation where a wrong line costs the most; matched on the function's text. */
+export const SENSITIVE: ReadonlyArray<{ kind: string; pattern: RegExp }> = [
+    { kind: 'data-write', pattern: /\.(?:insert|update|upsert|delete|rpc)\s*\(|\b(?:INSERT|UPDATE|DELETE)\s+(?:INTO\s+)?\w|\bON CONFLICT\b/ },
+    { kind: 'paging', pattern: /\b(?:cursor|offset|nextPage|pageToken|hasMore|limit)\b/i },
+    { kind: 'auth', pattern: /\b(?:token|session|password|secret|jwt|permission|role|authori[sz]e)\w*/i },
+    { kind: 'money-or-time', pattern: /\b(?:amount|price|cents|currency|refund|timezone|Date\.now|new Date|setTimeout|toISOString)\b/ },
+    { kind: 'concurrency', pattern: /\bPromise\.(?:all|race|allSettled)\b|\b(?:mutex|lock|semaphore|retry|backoff)\b/i },
+    { kind: 'network', pattern: /\bfetch\w*\s*\(|\bnew Request\s*\(|\bAbort(?:Controller|Signal)\b|\baxios\b|\bhttps?\.request\b/ },
+];
+
+export interface RiskSignals {
+    exported: boolean;
+    async: boolean;
+    /** Deepest nesting of branches and loops. */
+    nesting: number;
+    lines: number;
+    /** The change deleted a condition, early return or throw inside this function. */
+    removedGuard: boolean;
+    /** SENSITIVE kinds this function touches. */
+    sensitive: string[];
+}
+
+export interface FunctionRisk {
+    file: string;
+    name: string;
+    start: number;
+    end: number;
+    signals: RiskSignals;
+    score: number;
+}
+
+/**
+ * Score one changed function from its signals; higher is riskier, 0 means
+ * "rules only". The router reviews functions at or above `min_score`.
+ */
+export function scoreRisk(signals: RiskSignals): number {
+    // Strong signals clear the default bar (1) on their own; shape alone (size, nesting) never does.
+    let score = signals.removedGuard ? 2 : 0;
+    score += signals.sensitive.includes('data-write') ? 2 : 0;
+    // Other sensitive kinds add, capped so a function that mentions everything does not drown the rest.
+    score += Math.min(2, signals.sensitive.filter(kind => kind !== 'data-write').length);
+    // Weak proxies only add to something already risky, or push a big, branchy public function over.
+    score += (signals.nesting >= 3 ? 0.5 : 0) + (signals.lines >= 40 ? 0.5 : 0);
+    score += signals.exported && signals.async ? 0.5 : 0;
+    return score;
+}
+
+/** Changed functions across the change, riskiest first. */
+export function rankChangedFunctions(cwd: string, focusLines: Record<string, number[]>, removed: Record<string, RemovedBlock[]> = {}): FunctionRisk[] {
+    const ranked: FunctionRisk[] = [];
+    for (const [file, lines] of Object.entries(focusLines)) {
+        if (!PARSEABLE.test(file) || lines.length === 0) continue;
+        let text: string;
+        try {
+            text = fs.readFileSync(path.join(cwd, file), 'utf-8');
+        } catch {
+            continue;
+        }
+        const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+        for (const fn of changedFunctions(sourceFile, lines)) {
+            const start = sourceFile.getLineAndCharacterOfPosition(fn.getStart(sourceFile)).line + 1;
+            const end = sourceFile.getLineAndCharacterOfPosition(fn.getEnd()).line + 1;
+            const signals = signalsOf(fn, sourceFile, start, end, removed[file] ?? []);
+            ranked.push({ file, name: nameOf(fn, sourceFile), start, end, signals, score: scoreRisk(signals) });
+        }
+    }
+    return ranked.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file) || a.start - b.start);
+}
+
+function signalsOf(fn: FunctionLike, sourceFile: ts.SourceFile, start: number, end: number, removed: RemovedBlock[]): RiskSignals {
+    const body = fn.getText(sourceFile);
+    return {
+        exported: isExported(fn),
+        async: !!ts.getModifiers(fn)?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword),
+        nesting: maxNesting(fn),
+        lines: end - start + 1,
+        removedGuard: removed.some(block => block.line >= start && block.line <= end + 1
+            && block.text.some(line => /\b(?:if|else|return|throw|break|continue|catch)\b|\?\?|\?\./.test(line))),
+        sensitive: SENSITIVE.filter(s => s.pattern.test(body)).map(s => s.kind),
+    };
+}
+
+function maxNesting(fn: FunctionLike): number {
+    let deepest = 0;
+    const walk = (node: ts.Node, depth: number): void => {
+        const nests = ts.isIfStatement(node) || ts.isIterationStatement(node, false) || ts.isSwitchStatement(node)
+            || ts.isTryStatement(node) || ts.isConditionalExpression(node);
+        const next = nests ? depth + 1 : depth;
+        deepest = Math.max(deepest, next);
+        if (node !== fn && (ts.isFunctionDeclaration(node) || ts.isArrowFunction(node) || ts.isFunctionExpression(node))) return;
+        ts.forEachChild(node, child => walk(child, next));
+    };
+    ts.forEachChild(fn, child => walk(child, 0));
+    return deepest;
+}
+
+function nameOf(fn: FunctionLike, sourceFile: ts.SourceFile): string {
+    if (fn.name) return fn.name.getText(sourceFile);
+    const parent = fn.parent;
+    if (parent && (ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent)) && parent.name) return parent.name.getText(sourceFile);
+    return `<anonymous>@${sourceFile.getLineAndCharacterOfPosition(fn.getStart(sourceFile)).line + 1}`;
+}
+

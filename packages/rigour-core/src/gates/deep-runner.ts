@@ -33,6 +33,8 @@ export async function runDeepAnalysis(
         temperature: config.gates.deep?.temperature,
         timeoutMs: config.gates.deep?.timeout_ms,
         budgetMs: config.gates.deep?.budget_ms,
+        agentic: config.gates.deep?.agentic,
+        router: config.gates.deep?.router,
         intentChecks: config.gates.deep?.intent_checks,
         onProgress: deepOptions.onProgress,
     });
@@ -65,6 +67,8 @@ export async function runDeepAnalysis(
         findings_withdrawn: outcome.findingsWithdrawn,
         findings_rejected: outcome.findingsRejected,
         files_skipped: outcome.filesSkipped,
+        tool_calls: outcome.toolCalls,
+        router: outcome.router,
         input_tokens: outcome.usage?.inputTokens,
         output_tokens: outcome.usage?.outputTokens,
         cost_usd: outcome.usage?.costUsd,

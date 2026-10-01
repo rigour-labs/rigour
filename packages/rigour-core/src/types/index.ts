@@ -314,6 +314,12 @@ export const GatesSchema = z.object({
         temperature: z.number().optional().default(0.1),
         timeout_ms: z.number().optional(), // per inference call; default per provider: local 60s, cloud 120s
         budget_ms: z.number().optional(), // whole deep run; files not started in time are reported as skipped
+        agentic: z.boolean().optional(), // cloud tier: the model may read the repository while it reviews (default true)
+        router: z.object({ // cloud tier: review only the riskiest changed functions (deep/risk.ts)
+            enabled: z.boolean().optional(), // default true
+            min_score: z.number().optional(), // functions below this get the deterministic gates only
+            max_functions: z.number().optional(), // at most this many functions go to the model
+        }).optional(),
         // Intent questions at engine-proven sites (optional-read-no-fallback) in scoped reviews.
         // Off: the stock local models failed the zero-false-finding bar (docs/DEEP_ANALYSIS.md).
         intent_checks: z.boolean().optional().default(false),
@@ -455,6 +461,10 @@ export const ReportSchema = z.object({
             findings_rejected: z.record(z.number()).optional(),
             /** Files a run budget (`gates.deep.budget_ms`) left unreviewed. */
             files_skipped: z.number().optional(),
+            /** Repository lookups the model made in an agentic review. */
+            tool_calls: z.number().optional(),
+            /** Cloud router: changed functions ranked, how many went to the model, files it left to the gates. */
+            router: z.object({ functions: z.number(), routed: z.number(), files_skipped: z.number() }).optional(),
             input_tokens: z.number().optional(),
             output_tokens: z.number().optional(),
             /** Provider-reported cost when available, else tokens × list price; undefined for an unpriced model. */

@@ -12,7 +12,7 @@
  * User provides: api_key + provider name + optional base_url + optional model_name
  * We figure out the rest. Their key, their choice.
  */
-import type { InferenceProvider, InferenceOptions, InferenceUsage } from './types.js';
+import type { ChatMessage, ChatReply, ChatTool, InferenceProvider, InferenceOptions, InferenceUsage, ToolCall } from './types.js';
 import { priceTokens } from './pricing.js';
 
 /** Default models per provider (user can override via model_name) */
@@ -115,6 +115,45 @@ export class CloudProvider implements InferenceProvider {
         }
     }
 
+    /** One turn of a tool-using conversation (Anthropic tool use, or OpenAI-compatible function calling). */
+    async chat(messages: ChatMessage[], tools: ChatTool[], options?: InferenceOptions): Promise<ChatReply> {
+        if (!this.client) throw new Error('Provider not set up. Call setup() first.');
+        return this.isClaude ? this.chatClaude(messages, tools, options) : this.chatOpenAICompat(messages, tools, options);
+    }
+
+    private async chatClaude(messages: ChatMessage[], tools: ChatTool[], options?: InferenceOptions): Promise<ChatReply> {
+        const response = await this.client.messages.create({
+            model: this.modelName,
+            max_tokens: options?.maxTokens || 4096,
+            temperature: options?.temperature ?? 0.1,
+            messages: toAnthropicMessages(messages),
+            ...(tools.length ? { tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}),
+        }, requestOptions(options));
+        this.record(response.usage?.input_tokens, response.usage?.output_tokens);
+        const blocks: any[] = response.content ?? [];
+        return {
+            text: blocks.filter(b => b.type === 'text').map(b => b.text).join('\n'),
+            toolCalls: blocks.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, arguments: b.input ?? {} })),
+        };
+    }
+
+    private async chatOpenAICompat(messages: ChatMessage[], tools: ChatTool[], options?: InferenceOptions): Promise<ChatReply> {
+        const response = await this.client.chat.completions.create({
+            model: this.modelName,
+            max_tokens: options?.maxTokens || 4096,
+            temperature: options?.temperature ?? 0.1,
+            messages: toOpenAIMessages(messages),
+            ...(tools.length ? { tools: tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
+            ...(this.isOpenRouter() ? { usage: { include: true } } : {}),
+        }, requestOptions(options));
+        this.record(response.usage?.prompt_tokens, response.usage?.completion_tokens, response.usage?.cost);
+        const message = response.choices[0]?.message ?? {};
+        return {
+            text: message.content ?? '',
+            toolCalls: (message.tool_calls ?? []).map((c: any): ToolCall => ({ id: c.id, name: c.function?.name, arguments: parseArguments(c.function?.arguments) })),
+        };
+    }
+
     /** Tokens used since setup, and their cost: provider-reported where given, else list price. */
     usage(): InferenceUsage {
         const { inputTokens, outputTokens, reportedCost, unreportedIn, unreportedOut } = this.spent;
@@ -184,4 +223,51 @@ export class CloudProvider implements InferenceProvider {
 /** The per-call timeout, honoured by both SDKs (their default is minutes, with retries). */
 function requestOptions(options?: InferenceOptions): { timeout?: number } {
     return options?.timeout ? { timeout: options.timeout } : {};
+}
+
+/** Anthropic wants tool results as user turns, consecutive results grouped into one. */
+function toAnthropicMessages(messages: ChatMessage[]): any[] {
+    const out: any[] = [];
+    for (const message of messages) {
+        if (message.role === 'tool') {
+            const block = { type: 'tool_result', tool_use_id: message.toolCallId, content: message.content };
+            const last = out[out.length - 1];
+            if (last?.role === 'user' && Array.isArray(last.content) && last.content[0]?.type === 'tool_result') last.content.push(block);
+            else out.push({ role: 'user', content: [block] });
+        } else if (message.role === 'assistant') {
+            const content: any[] = message.content ? [{ type: 'text', text: message.content }] : [];
+            for (const call of message.toolCalls ?? []) content.push({ type: 'tool_use', id: call.id, name: call.name, input: call.arguments });
+            out.push({ role: 'assistant', content });
+        } else {
+            out.push({ role: 'user', content: message.content });
+        }
+    }
+    return out;
+}
+
+function toOpenAIMessages(messages: ChatMessage[]): any[] {
+    return messages.map((message) => {
+        if (message.role === 'tool') return { role: 'tool', tool_call_id: message.toolCallId, content: message.content };
+        if (message.role === 'assistant') {
+            return {
+                role: 'assistant',
+                content: message.content || null,
+                ...(message.toolCalls?.length ? {
+                    tool_calls: message.toolCalls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })),
+                } : {}),
+            };
+        }
+        return { role: 'user', content: message.content };
+    });
+}
+
+/** Function-call arguments arrive as a JSON string; a malformed one becomes no arguments. */
+function parseArguments(raw: unknown): Record<string, unknown> {
+    if (typeof raw !== 'string') return {};
+    try {
+        const value = JSON.parse(raw);
+        return value && typeof value === 'object' ? value : {};
+    } catch {
+        return {};
+    }
 }

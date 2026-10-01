@@ -19,6 +19,7 @@ import { SidecarProvider } from '../inference/sidecar-provider.js';
 import { extractFacts, verifyFindings, type FileFacts } from '../deep/index.js';
 import { runFactsPass, type PassResult } from '../deep/facts-pass.js';
 import { runCodePass } from '../deep/code-pass.js';
+import { routeFiles, type RouterPolicy, type RouterStats } from '../deep/router.js';
 import { verifyCodeFindings } from '../deep/code-verifier.js';
 import { runIntentChecks } from './deep-intent.js';
 import type { VerifiedFinding } from '../deep/verifier.js';
@@ -49,6 +50,10 @@ export interface DeepGateConfig {
     maxTokens?: number;
     temperature?: number;
     timeoutMs?: number;
+    /** Cloud tier: let the model read the repository while it reviews (default on). */
+    agentic?: boolean;
+    /** Cloud tier: review only the riskiest changed functions. */
+    router?: RouterPolicy;
     /** Whole-run budget: files not started in time are skipped and counted, never an error. */
     budgetMs?: number;
     /** Ask intent questions at engine-proven sites in scoped reviews (deep-intent.ts). */
@@ -71,6 +76,9 @@ export interface DeepRunOutcome {
     findingsRejected?: Record<string, number>;
     /** Files the run budget left unreviewed. */
     filesSkipped?: number;
+    /** Repository lookups the model made (agentic review). */
+    toolCalls?: number;
+    router?: RouterStats;
     /** Tokens and cost, for cloud providers. */
     usage?: InferenceUsage;
     /** Model actually used (the stock fallback is named as such). */
@@ -154,7 +162,8 @@ export class DeepAnalysisGate extends Gate {
         onProgress?.('\n  🔒 Local sidecar/model execution. Code remains on this machine.\n');
     }
 
-    private async reviewCode(cwd: string, facts: FileFacts[]): Promise<VerifiedFinding[]> {
+    private async reviewCode(cwd: string, scoped: FileFacts[]): Promise<VerifiedFinding[]> {
+        const facts = this.route(cwd, scoped);
         this.config.onProgress?.(`  Reviewing ${facts.length} scoped file(s) with source...`);
         const result = await runCodePass(this.provider!, facts, {
             cwd,
@@ -165,11 +174,13 @@ export class DeepAnalysisGate extends Gate {
             onProgress: this.config.onProgress,
             deadline: this.config.budgetMs ? Date.now() + this.config.budgetMs : undefined,
             concurrency: isCloud(this.config.options) ? CLOUD_CONCURRENCY : 1,
+            agentic: isCloud(this.config.options) && this.config.agentic !== false,
         });
         this.recordPass(result);
         this.outcome.findingsProposed = result.proposed;
         this.outcome.findingsWithdrawn = result.withdrawn;
         this.outcome.filesSkipped = result.skipped;
+        this.outcome.toolCalls = result.toolCalls;
         if (result.skipped > 0) {
             if (this.outcome.status === 'ok') this.outcome.status = 'partial';
             this.config.onProgress?.(`  ⚠ Run budget reached: ${result.skipped} file(s) not reviewed.`);
@@ -178,6 +189,18 @@ export class DeepAnalysisGate extends Gate {
         const verified = verifyCodeFindings(result.findings, result.contexts, rejected);
         this.outcome.findingsRejected = rejected;
         return verified;
+    }
+
+    /** Cloud only: a paid model reviews the riskiest changed functions; local tiers cost nothing to run. */
+    private route(cwd: string, facts: FileFacts[]): FileFacts[] {
+        const { options } = this.config;
+        if (!isCloud(options) || this.config.router?.enabled === false || !options.focusLines) return facts;
+        const routed = routeFiles(cwd, facts.map(f => f.path), options.focusLines, options.removedLines, this.config.router);
+        this.outcome.router = routed.stats;
+        if (routed.stats.files_skipped > 0) {
+            this.config.onProgress?.(`  Router: ${routed.stats.routed} of ${routed.stats.functions} changed function(s) to the model; ${routed.stats.files_skipped} file(s) left to the gates.`);
+        }
+        return facts.filter(f => routed.files.has(f.path));
     }
 
     /** The max and cloud tiers read reference material and review twice; the small models do not. */

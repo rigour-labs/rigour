@@ -11,6 +11,7 @@ import { buildCodeReviewPrompt } from './code-review-prompt.js';
 import { parseFindings } from './parse-findings.js';
 import { buildReferencePack, type ReferencePack } from './reference-pack.js';
 import { selfCheck } from './self-check.js';
+import { reviewWithTools } from './agent-review.js';
 import type { DeepFinding } from '../inference/types.js';
 import type { RemovedBlock } from '../utils/diff.js';
 import type { PassConfig, PassResult } from './facts-pass.js';
@@ -35,6 +36,8 @@ export interface CodePassConfig extends PassConfig {
     deadline?: number;
     /** Files reviewed at once. */
     concurrency?: number;
+    /** Let a tool-capable provider read the repository while it reviews (agent-review.ts). */
+    agentic?: boolean;
 }
 
 export interface CodePassResult extends PassResult {
@@ -45,6 +48,8 @@ export interface CodePassResult extends PassResult {
     withdrawn: number;
     /** Files not started before the deadline. */
     skipped: number;
+    /** Repository lookups the model made (agentic review). */
+    toolCalls: number;
 }
 
 interface FileReview {
@@ -52,11 +57,12 @@ interface FileReview {
     findings: DeepFinding[];
     proposed: number;
     withdrawn: number;
+    toolCalls?: number;
     error?: string;
 }
 
 export async function runCodePass(provider: InferenceProvider, facts: FileFacts[], config: CodePassConfig): Promise<CodePassResult> {
-    const result: CodePassResult = { findings: [], chunksTotal: facts.length, chunksFailed: 0, contexts: [], proposed: 0, withdrawn: 0, skipped: 0 };
+    const result: CodePassResult = { findings: [], chunksTotal: facts.length, chunksFailed: 0, contexts: [], proposed: 0, withdrawn: 0, skipped: 0, toolCalls: 0 };
     const reviews: Array<FileReview | undefined> = new Array(facts.length);
     let next = 0;
     const worker = async () => {
@@ -81,6 +87,7 @@ export async function runCodePass(provider: InferenceProvider, facts: FileFacts[
         result.findings.push(...review.findings);
         result.proposed += review.proposed;
         result.withdrawn += review.withdrawn;
+        result.toolCalls += review.toolCalls ?? 0;
     }
     return result;
 }
@@ -100,6 +107,7 @@ async function reviewFile(provider: InferenceProvider, file: FileFacts, config: 
     const pack = config.reference ? packFor(file.path, config) : undefined;
     if (pack) context = { ...context, source: `${context.source}\n${pack.source}` };
     try {
+        if (pack && config.agentic && provider.chat) return await reviewAgentically(provider, context, pack, config);
         if (pack) {
             const checked = await reviewTwiceAndCheck(provider, context, pack, config);
             return { context, findings: checked.kept, proposed: checked.proposed, withdrawn: checked.withdrawn };
@@ -109,6 +117,14 @@ async function reviewFile(provider: InferenceProvider, file: FileFacts, config: 
     } catch (error: any) {
         return { ...empty, context, error: `${file.path}: ${error.message}` };
     }
+}
+
+async function reviewAgentically(provider: InferenceProvider, context: CodeContext, pack: ReferencePack, config: CodePassConfig): Promise<FileReview> {
+    const review = await reviewWithTools(provider, context, pack.text, config.cwd, config.inference);
+    const found = dedupe(review.findings);
+    if (found.length === 0) return { context: review.context, findings: [], proposed: 0, withdrawn: 0, toolCalls: review.toolCalls };
+    const checked = await selfCheck(provider, review.context, pack.text, found, config.inference);
+    return { context: review.context, findings: checked.kept, proposed: found.length, withdrawn: checked.withdrawn, toolCalls: review.toolCalls };
 }
 
 async function reviewOnce(provider: InferenceProvider, context: CodeContext, reference: string, config: CodePassConfig): Promise<DeepFinding[]> {
