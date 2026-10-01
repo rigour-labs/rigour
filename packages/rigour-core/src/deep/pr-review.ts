@@ -39,6 +39,8 @@ export interface PrReviewInput {
     related?: RelatedChange[];
     /** The team's past review lessons that apply to this change, already rendered. */
     lessons?: string;
+    /** The repository's own rules that apply to this change, already rendered. */
+    rules?: string;
     prBody?: string;
 }
 
@@ -90,6 +92,7 @@ export function buildPrPrompt(input: PrReviewInput): { prompt: string; sentDiff:
 5. At most ${MAX_FINDINGS} findings, only ones you are confident are real. An empty list is a good answer.
 6. You have at most ${BUDGET.maxToolCalls} tool calls. Finish with ONLY JSON: {"findings":[{"category","severity","file","line","description","suggestion","confidence"}]}.`,
         input.prBody ? `PR DESCRIPTION (what the author intended):\n${input.prBody.slice(0, PR_BODY_CHARS)}` : '',
+        input.rules ?? '',
         input.lessons ?? '',
         contracts ? `BOTH SIDES OF A CALL CHANGED (check these contracts first):\n${contracts}` : '',
         focus ? `LOOK FIRST (riskiest changed functions, and what to check):\n${focus}` : '',

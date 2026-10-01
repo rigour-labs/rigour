@@ -26,6 +26,7 @@ import { reviewPullRequest } from '../deep/pr-review.js';
 import { relatedChanges } from '../deep/related-changes.js';
 import { rankChangedFunctions } from '../deep/risk.js';
 import { lessonsForDiff, lessonsSection, type LessonMode } from '../review-learning/team-lessons.js';
+import { rulesForDiff, rulesSection } from '../review-learning/repo-rules.js';
 import { verifyCodeFindings } from '../deep/code-verifier.js';
 import { runIntentChecks } from './deep-intent.js';
 import type { VerifiedFinding } from '../deep/verifier.js';
@@ -62,6 +63,8 @@ export interface DeepGateConfig {
     router?: RouterPolicy;
     /** Which of the team's review lessons the reviewer is told about. */
     reviewLessons?: LessonMode;
+    /** Show the reviewer the repository's own rules (AGENTS.md, …) that name what the change touches. */
+    repoRules?: boolean;
     /** Whole-run budget: files not started in time are skipped and counted, never an error. */
     budgetMs?: number;
     /** Ask intent questions at engine-proven sites in scoped reviews (deep-intent.ts). */
@@ -217,7 +220,8 @@ export class DeepAnalysisGate extends Gate {
         const related = relatedChanges(cwd, changedFiles, rankChangedFunctions(cwd, options.focusLines ?? {}, options.removedLines));
         this.config.onProgress?.(`  Reviewing the PR as a whole (${focus.length} risky function(s) first)...`);
         try {
-            const result = await reviewPullRequest(this.provider!, { cwd, diff: options.diff!, focus, related, lessons: lessonsSection(lessonsForDiff(cwd, options.diff!, this.config.reviewLessons)), prBody: options.prBody }, inferenceOptions(this.config));
+            const result = await reviewPullRequest(this.provider!, { cwd, diff: options.diff!, focus, related, lessons: lessonsSection(lessonsForDiff(cwd, options.diff!, this.config.reviewLessons)),
+                rules: rulesSection(rulesForDiff(cwd, options.diff!, this.config.repoRules)), prBody: options.prBody }, inferenceOptions(this.config));
             this.recordPass({ findings: [], chunksTotal: 1, chunksFailed: 0 });
             this.outcome.findingsProposed = result.findings.length;
             this.outcome.findingsWithdrawn = 0;

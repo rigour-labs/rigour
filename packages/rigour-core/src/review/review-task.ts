@@ -13,6 +13,7 @@ import { rankChangedFunctions, type FunctionRisk } from '../deep/risk.js';
 import { changedLinesByFile, parseDiff, removedByFile } from '../utils/diff.js';
 import { isReviewed, reviewedKeys } from './ledger.js';
 import { lessonsForDiff, type LessonMode } from '../review-learning/team-lessons.js';
+import { rulesForDiff } from '../review-learning/repo-rules.js';
 
 export interface ReviewTaskItem {
     file: string;
@@ -31,6 +32,8 @@ export interface ReviewTask {
     alreadyReviewed: number;
     /** The team's past review lessons that apply to this change. */
     lessons: Array<{ file: string; text: string; prs: number[] }>;
+    /** The repository's own rules (AGENTS.md, …) that name what this change touches. */
+    rules: Array<{ source: string; text: string }>;
     instructions: string;
 }
 
@@ -43,7 +46,7 @@ const QUESTIONS: Record<string, string> = {
     network: 'Are timeouts, aborts and non-2xx responses handled, and does a retry repeat a side effect?',
 };
 
-export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy = {}, lessonMode: LessonMode = 'off'): ReviewTask {
+export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy = {}, lessonMode: LessonMode = 'off', repoRules = false): ReviewTask {
     const changed = parseDiff(diff);
     const ranked = rankChangedFunctions(cwd, changedLinesByFile(changed), removedByFile(diff));
     const risky = ranked.filter(f => f.score >= (policy.min_score ?? DEFAULT_MIN_SCORE)).slice(0, policy.max_functions ?? DEFAULT_MAX_FUNCTIONS);
@@ -54,6 +57,7 @@ export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy 
         items: pending.map(toItem),
         alreadyReviewed: risky.length - pending.length,
         lessons,
+        rules: rulesForDiff(cwd, diff, repoRules).map(r => ({ source: r.source, text: r.text })),
         instructions: pending.length === 0
             ? 'No risky changed function is waiting for review.'
             : 'For each item: read the function, its callers and what it calls; answer its questions against the code. '

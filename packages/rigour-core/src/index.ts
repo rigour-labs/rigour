@@ -22,6 +22,7 @@ export { appendDeepRun, readDeepRuns, summarizeDeepRuns, type DeepRun, type Deep
 export { learnFromReviews, type LearnFromReviewsOptions, type LearnFromReviewsResult } from './review-learning/learn-from-reviews.js';
 export { readLessons, writeLessons, promoteLesson, matchLessons, lessonText, lessonsPath, type ReviewLesson } from './review-learning/lessons.js';
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
+export { readRepoRules, rulesForDiff, rulesSection, splitRules, type RepoRule } from './review-learning/repo-rules.js';
 export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
 export { recordReviewOutcome, listResolvedFixes, removeResolvedFix, openFindingCount, type ResolvedFix, type FixCapture } from './review/agent-fixes.js';
 export { computeEffectiveness, readAgentEvents, appendAgentEvent, findingKeys, type AgentEvent, type ReviewEffectiveness } from './review/effectiveness.js';
