@@ -5,7 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockGlobby = vi.hoisted(() => vi.fn());
 const mockReadFile = vi.hoisted(() => vi.fn());
 
-vi.mock('globby', () => ({
+vi.mock('globby', async (importOriginal) => ({
+    isDynamicPattern: (await importOriginal<typeof import('globby')>()).isDynamicPattern,
     globby: mockGlobby,
 }));
 

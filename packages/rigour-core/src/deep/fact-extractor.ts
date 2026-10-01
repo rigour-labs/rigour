@@ -6,6 +6,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { globby } from 'globby';
+import { directoriesAsGlobs, withDirectoryForms } from '../utils/glob-paths.js';
 
 /**
  * Facts extracted from a single file.
@@ -100,7 +101,7 @@ export async function extractFacts(cwd: string, ignore?: string[], scope?: strin
         '**/*.min.js', '**/*.bundle.js',
     ];
 
-    const matched = await globby(patterns, { cwd, ignore: ignorePatterns, followSymbolicLinks: false });
+    const matched = await globby(directoriesAsGlobs(cwd, patterns), { cwd, ignore: withDirectoryForms(ignorePatterns), expandDirectories: false, followSymbolicLinks: false });
     const files = matched.filter(f => ANALYZABLE_EXTENSION.test(f));
     const allFacts: FileFacts[] = [];
 

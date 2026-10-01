@@ -4,6 +4,7 @@ import readline from 'node:readline';
 import { Gate, GateContext } from './base.js';
 import { Failure, Gates } from '../types/index.js';
 import { globby } from 'globby';
+import { withDirectoryForms } from '../utils/glob-paths.js';
 
 export class CoverageGate extends Gate {
     constructor(private config: Gates) {
@@ -71,7 +72,8 @@ export class CoverageGate extends Gate {
             followSymbolicLinks: false,
             onlyFiles: true,
             deep: 8,
-            ignore: [...new Set([
+            expandDirectories: false,
+            ignore: withDirectoryForms([...new Set([
                 ...(context.ignore || []),
                 '**/node_modules/**',
                 '**/.git/**',
@@ -84,7 +86,7 @@ export class CoverageGate extends Gate {
                 '**/vendor/**',
                 '**/.venv/**',
                 '**/venv/**',
-            ])],
+            ])]),
         });
 
         if (reports.length === 0) return null;

@@ -7,6 +7,7 @@ import { ASTHandler } from './ast-handlers/base.js';
 import { TypeScriptHandler } from './ast-handlers/typescript.js';
 import { PythonHandler } from './ast-handlers/python.js';
 import { UniversalASTHandler } from './ast-handlers/universal.js';
+import { directoriesAsGlobs, withDirectoryForms } from '../utils/glob-paths.js';
 
 export class ASTGate extends Gate {
     private handlers: ASTHandler[] = [];
@@ -40,9 +41,10 @@ export class ASTGate extends Gate {
         const normalizedCwd = context.cwd.replace(/\\/g, '/');
 
         // Find all supported files
-        const files = await globby(patterns, {
+        const files = await globby(directoriesAsGlobs(normalizedCwd, patterns), {
             cwd: normalizedCwd,
-            ignore: ignore,
+            ignore: withDirectoryForms(ignore),
+            expandDirectories: false,
         });
 
         // Process files concurrently in batches for performance
