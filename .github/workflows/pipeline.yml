@@ -75,6 +75,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # Published builds carry the telemetry project token (send-only, opt-in; TELEMETRY.md).
+      # Without the secret the placeholder stays empty and the package never sends anything.
+      - name: Embed telemetry token
+        env:
+          RIGOUR_MIXPANEL_TOKEN: ${{ secrets.RIGOUR_MIXPANEL_TOKEN }}
+        run: |
+          if [ -n "$RIGOUR_MIXPANEL_TOKEN" ]; then
+            printf "export const MIXPANEL_TOKEN = '%s';\n" "$RIGOUR_MIXPANEL_TOKEN" > packages/rigour-core/src/telemetry/token.ts
+          fi
+
       - name: Build
         run: pnpm build
 

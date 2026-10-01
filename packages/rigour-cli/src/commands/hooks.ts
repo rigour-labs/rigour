@@ -27,6 +27,7 @@ import {
     recordInteractionEvidence,
     recordInteractionLesson,
     runHookChecker,
+    countUsage,
     scanInputForCredentials,
     updateAutomaticIndexForFiles,
     writeDLPBlockManifest,
@@ -782,6 +783,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
 
     const requestId = randomUUID();
     const outcome = result.status === 'pass' ? 'success' : result.status === 'fail' ? 'rejected' : 'error';
+    countUsage('hook_check');
+    for (const failure of result.failures) countUsage(`hook_finding:${failure.gate}`);
     await Promise.allSettled([
         updateAutomaticIndexForFiles(cwd, files),
         recordInteractionEvidence(cwd, {

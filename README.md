@@ -133,6 +133,7 @@ Commit `.rigour/dismissed.json` and it stays quiet for the whole team and the PR
 - A model finding is kept only if it cites a line and identifiers the model actually read.
 - Rigour enforces what passes through its hooks, MCP tools, or gateway; it cannot see work that bypasses them.
 - Spend is observed per run; estimates are labelled as estimates.
+- Anonymous usage telemetry is opt-in, asked once, never in CI, and never includes code, paths or repository names ([TELEMETRY.md](TELEMETRY.md)). `DO_NOT_TRACK=1` always wins.
 
 ## Documentation
 
