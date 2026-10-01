@@ -15,7 +15,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, diffFromGit, findingKey, resolveDeepOptions, reviewChange, toReviewFinding, GitDiffError } from '@rigour-labs/core';
+import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError } from '@rigour-labs/core';
 import type { DeepOptions, ReviewResult } from '@rigour-labs/core';
 import { loadConfig, UsageError } from './review-config.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
@@ -42,6 +42,7 @@ export interface ReviewOptions {
 }
 
 export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
+    const started = Date.now();
     try {
         const config = await loadConfig(cwd, options);
         const diff = await readDiff(cwd, options);
@@ -61,6 +62,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         if (!isDeep && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
         }
+        await reportUsage(result, isDeep, options, Date.now() - started);
         process.exit(exitCodeFor(result));
     } catch (error: any) {
         fail(error, options);
@@ -200,6 +202,27 @@ function hintReviewTask(cwd: string, diff: string, router: Parameters<typeof bui
     } catch {
         // The hint must never fail a review.
     }
+}
+
+/** Anonymous usage (opt-in; TELEMETRY.md): counts and gate names only, never files or messages. */
+async function reportUsage(result: ReviewResult, isDeep: boolean, options: ReviewOptions, ms: number): Promise<void> {
+    const byGate = (findings: ReviewResult['findings']) => findings.reduce<Record<string, number>>((acc, f) => ({ ...acc, [f.id]: (acc[f.id] ?? 0) + 1 }), {});
+    const deep = result.report?.stats.deep;
+    await trackUsage('review_completed', {
+        status: result.status,
+        surface: options.githubSummary ? 'github' : options.ci ? 'ci' : options.json ? 'json' : 'terminal',
+        changed_files: Object.keys(result.changedLines).length,
+        findings_by_gate: byGate(result.findings),
+        advisory_by_gate: byGate(result.advisory),
+        dismissed_by_gate: result.dismissedByGate,
+        context_findings: result.contextFindings.length,
+        deep_tier: isDeep ? deep?.tier ?? 'unknown' : 'none',
+        deep_routed: deep?.router?.routed,
+        deep_tool_calls: deep?.tool_calls,
+        deep_cost_bucket: typeof deep?.cost_usd === 'number' ? (deep.cost_usd < 0.1 ? '<$0.10' : deep.cost_usd < 0.5 ? '$0.10-0.50' : deep.cost_usd < 2 ? '$0.50-2' : '>$2') : undefined,
+        duration: durationBucket(ms),
+    }, { version: process.env.RIGOUR_CLI_VERSION });
+    await flushDailyUsage();
 }
 
 /** A deep run that did not happen overrides the changed-line verdict. */

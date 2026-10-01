@@ -25,7 +25,7 @@ describe('quiet by default', () => {
         expect(dismissFinding(dir, findingKey(leak), 'test fixture token, never deployed')).toBe(true);
         expect(dismissFinding(dir, findingKey(leak), 'again')).toBe(true); // idempotent
         const moved = { ...leak, line: 40 };
-        expect(quietSplit(dir, [moved, finding('semantic-bugs')])).toMatchObject({ dismissed: 1, speaking: [expect.objectContaining({ id: 'semantic-bugs' })] });
+        expect(quietSplit(dir, [moved, finding('semantic-bugs')])).toMatchObject({ dismissed: 1, dismissedByGate: { 'security-patterns': 1 }, speaking: [expect.objectContaining({ id: 'semantic-bugs' })] });
         expect(JSON.parse(fs.readFileSync(path.join(dir, '.rigour/dismissed.json'), 'utf8')).entries).toHaveLength(1);
         expect(dismissFinding(dir, 'not-a-key', 'x')).toBe(false);
     });

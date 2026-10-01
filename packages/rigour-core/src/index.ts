@@ -15,6 +15,7 @@ export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, typ
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
 export { dismissFinding, dismissedKeys, findingKey, isProven, quietSplit, DISMISSED_FILE } from './review/quiet.js';
 export { isGeneratedFile } from './review/generated-files.js';
+export { countUsage, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';
 export { buildReviewTask, type ReviewTask, type ReviewTaskItem } from './review/review-task.js';
 export { acknowledgeReview, type ReviewAck, type AckResult } from './review/review-ack.js';
 export { exportReviewed, readLedger, reviewedKeys, isReviewed, recordReview, REVIEWED_FILE, type LedgerEntry, type ReviewedKey, type ReviewVerdict } from './review/ledger.js';

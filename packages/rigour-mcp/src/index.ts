@@ -18,7 +18,7 @@ import {
     ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
-import { GateRunner } from "@rigour-labs/core";
+import { GateRunner, countUsage, flushDailyUsage } from "@rigour-labs/core";
 
 // Utils
 import { loadConfig, loadMcpSettings, logStudioEvent } from './utils/config.js';
@@ -341,9 +341,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             // Client doesn't support resource notifications — fine
         }
 
+        countUsage(`mcp:${name}`);
         return result;
 
     } catch (error: any) {
+        countUsage(`mcp_error:${name}`);
         const errorResponse = {
             content: [{ type: "text", text: `RIGOUR ERROR: ${error.message}` }],
             isError: true,
@@ -493,6 +495,7 @@ async function main() {
     }
     const transport = new StdioServerTransport();
     await server.connect(transport);
+    void flushDailyUsage(); // a day's agent activity, if a day has passed; never awaited by the agent
     console.error("Rigour MCP server v4.0.0 running on stdio");
 }
 
