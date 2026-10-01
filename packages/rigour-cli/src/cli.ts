@@ -22,6 +22,7 @@ import { reviewCommand } from './commands/review.js';
 import { reviewStatsCommand } from './commands/review-stats.js';
 import { reviewAckCommand, reviewExportCommand, reviewTaskCommand } from './commands/review-task.js';
 import { reviewPostCommand } from './commands/review-post.js';
+import { learnReviewsCommand } from './commands/learn-reviews.js';
 import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
 import { scanRulesCommand } from './commands/scan-rules.js';
 import { exportReviewContextCommand } from './commands/export-review-context.js';
@@ -358,6 +359,19 @@ Examples:
     `)
     .action(async (options: any) => {
         await checkPatternCommand(process.cwd(), options);
+    });
+
+program
+    .command('learn-reviews')
+    .description("Learn from review comments this repository's developers acted on, so agents get them before the next PR")
+    .option('--since <date>', 'Only PRs merged on or after this date (ISO)')
+    .option('--until <date>', 'Only PRs merged before this date (ISO)')
+    .option('--limit <n>', 'Merged PRs to read at most', '100')
+    .option('--list', 'List the lessons learned so far')
+    .option('--promote <id>', 'Mark a candidate lesson verified')
+    .option('--json', 'Output as JSON')
+    .action(async (options: any) => {
+        await learnReviewsCommand(process.cwd(), options);
     });
 
 program

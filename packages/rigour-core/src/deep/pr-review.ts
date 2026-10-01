@@ -16,6 +16,7 @@ import { REVIEW_CATEGORIES } from './code-review-prompt.js';
 import { parseFindings } from './parse-findings.js';
 import { diffSections } from './pr-diff.js';
 import { runToolLoop } from './tool-loop.js';
+import type { RelatedChange } from './related-changes.js';
 
 const BUDGET = { maxToolCalls: 24, maxTurns: 14 };
 const MAX_DIFF_CHARS = 80_000;
@@ -34,6 +35,10 @@ export interface PrReviewInput {
     diff: string;
     /** Risk-ranked changed functions to look at first, with what to check. */
     focus: FocusItem[];
+    /** Changed functions called from other changed files: both sides of a contract moved. */
+    related?: RelatedChange[];
+    /** The team's past review lessons that apply to this change, already rendered. */
+    lessons?: string;
     prBody?: string;
 }
 
@@ -54,8 +59,11 @@ export async function reviewPullRequest(provider: InferenceProvider, input: PrRe
 }
 
 export function buildPrPrompt(input: PrReviewInput): { prompt: string; sentDiff: string } {
+    const related = input.related ?? [];
+    const relatedFiles = new Set(related.flatMap(r => [r.calleeFile, r.callerFile]));
     const focusFiles = new Set(input.focus.map(f => f.file));
-    const sections = diffSections(input.diff).sort((a, b) => Number(focusFiles.has(b.file)) - Number(focusFiles.has(a.file)));
+    const rank = (file: string) => (relatedFiles.has(file) ? 2 : 0) + (focusFiles.has(file) ? 1 : 0);
+    const sections = diffSections(input.diff).sort((a, b) => rank(b.file) - rank(a.file));
     const sent: string[] = [];
     const omitted: string[] = [];
     let used = 0;
@@ -70,6 +78,7 @@ export function buildPrPrompt(input: PrReviewInput): { prompt: string; sentDiff:
     const sentDiff = sent.join('\n\n');
     const categories = REVIEW_CATEGORIES.map(c => `- ${c.key}: ${c.focus}`).join('\n');
     const focus = input.focus.map(f => `- ${f.file}:${f.start} \`${f.function}\`: ${f.questions.join(' ')}`).join('\n');
+    const contracts = related.map(r => `- \`${r.callee}\` changed at ${r.calleeFile}:${r.calleeLine}; called from ${r.callerFile}:${r.callerLine}, a file this PR also changes. Does the caller still match what the function now expects and returns?`).join('\n');
     const prompt = [
         'You are a senior engineer reviewing a pull request before it merges. Find defects this change introduces that would make the code behave wrongly, unsafely, or fail in production.',
         `CATEGORIES:\n${categories}`,
@@ -81,6 +90,8 @@ export function buildPrPrompt(input: PrReviewInput): { prompt: string; sentDiff:
 5. At most ${MAX_FINDINGS} findings, only ones you are confident are real. An empty list is a good answer.
 6. You have at most ${BUDGET.maxToolCalls} tool calls. Finish with ONLY JSON: {"findings":[{"category","severity","file","line","description","suggestion","confidence"}]}.`,
         input.prBody ? `PR DESCRIPTION (what the author intended):\n${input.prBody.slice(0, PR_BODY_CHARS)}` : '',
+        input.lessons ?? '',
+        contracts ? `BOTH SIDES OF A CALL CHANGED (check these contracts first):\n${contracts}` : '',
         focus ? `LOOK FIRST (riskiest changed functions, and what to check):\n${focus}` : '',
         `PR DIFF (new-side line numbers on the left; "-" lines were removed):\n${sentDiff}`,
         omitted.length ? `NOT SHOWN (diff too large):\n${omitted.join('\n')}` : '',

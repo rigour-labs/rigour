@@ -30,7 +30,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
     try {
         const diff = args.diff ?? diffFromGit(cwd, args.base ? { mode: 'base', base: args.base } : { mode: 'working' });
         const result = await reviewChange({ cwd, config, diff, files: args.files });
-        const task = args.mode === 'agent' ? buildReviewTask(cwd, diff, config.gates.deep?.router) : undefined;
+        const task = args.mode === 'agent' ? buildReviewTask(cwd, diff, config.gates.deep?.router, config.gates.deep?.review_lessons) : undefined;
         recordReviewOutcome(cwd, result.findings, Object.keys(result.changedLines));
         const stats = result.report?.stats;
         return text({
@@ -44,7 +44,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
             context_findings: result.contextFindings.map(toReviewFinding),
             excluded_outside_changed_lines: result.excludedOutsideChangedLines,
             unlocated_failures: result.unlocated,
-            ...(task ? { review_task: { items: task.items, already_reviewed: task.alreadyReviewed, instructions: task.instructions } } : {}),
+            ...(task ? { review_task: { items: task.items, already_reviewed: task.alreadyReviewed, team_lessons: task.lessons, instructions: task.instructions } } : {}),
             next_step: nextStep(result.findings.length, task?.items.length ?? 0),
         });
     } catch (error) {

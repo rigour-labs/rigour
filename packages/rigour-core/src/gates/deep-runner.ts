@@ -36,6 +36,7 @@ export async function runDeepAnalysis(
         budgetMs: config.gates.deep?.budget_ms,
         agentic: config.gates.deep?.agentic,
         router: config.gates.deep?.router,
+        reviewLessons: config.gates.deep?.review_lessons,
         intentChecks: config.gates.deep?.intent_checks,
         onProgress: deepOptions.onProgress,
     });

@@ -12,6 +12,7 @@ import { DEFAULT_MAX_FUNCTIONS, DEFAULT_MIN_SCORE, type RouterPolicy } from '../
 import { rankChangedFunctions, type FunctionRisk } from '../deep/risk.js';
 import { changedLinesByFile, parseDiff, removedByFile } from '../utils/diff.js';
 import { isReviewed, reviewedKeys } from './ledger.js';
+import { lessonsForDiff, type LessonMode } from '../review-learning/team-lessons.js';
 
 export interface ReviewTaskItem {
     file: string;
@@ -28,6 +29,8 @@ export interface ReviewTask {
     items: ReviewTaskItem[];
     /** Risky functions already reviewed at their current content. */
     alreadyReviewed: number;
+    /** The team's past review lessons that apply to this change. */
+    lessons: Array<{ file: string; text: string; prs: number[] }>;
     instructions: string;
 }
 
@@ -40,15 +43,17 @@ const QUESTIONS: Record<string, string> = {
     network: 'Are timeouts, aborts and non-2xx responses handled, and does a retry repeat a side effect?',
 };
 
-export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy = {}): ReviewTask {
+export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy = {}, lessonMode: LessonMode = 'verified'): ReviewTask {
     const changed = parseDiff(diff);
     const ranked = rankChangedFunctions(cwd, changedLinesByFile(changed), removedByFile(diff));
     const risky = ranked.filter(f => f.score >= (policy.min_score ?? DEFAULT_MIN_SCORE)).slice(0, policy.max_functions ?? DEFAULT_MAX_FUNCTIONS);
     const reviewed = reviewedKeys(cwd);
     const pending = risky.filter(f => !isReviewed(reviewed, { file: f.file, function: f.name, hash: f.hash }));
+    const lessons = lessonsForDiff(cwd, diff, lessonMode).map(l => ({ file: l.file, text: l.text, prs: [...new Set(l.evidence.map(e => e.pr))] }));
     return {
         items: pending.map(toItem),
         alreadyReviewed: risky.length - pending.length,
+        lessons,
         instructions: pending.length === 0
             ? 'No risky changed function is waiting for review.'
             : 'For each item: read the function, its callers and what it calls; answer its questions against the code. '

@@ -23,6 +23,9 @@ import { routeFiles, type RouterPolicy, type RouterStats } from '../deep/router.
 import { reviewedKeys } from '../review/ledger.js';
 import { buildReviewTask } from '../review/review-task.js';
 import { reviewPullRequest } from '../deep/pr-review.js';
+import { relatedChanges } from '../deep/related-changes.js';
+import { rankChangedFunctions } from '../deep/risk.js';
+import { lessonsForDiff, lessonsSection, type LessonMode } from '../review-learning/team-lessons.js';
 import { verifyCodeFindings } from '../deep/code-verifier.js';
 import { runIntentChecks } from './deep-intent.js';
 import type { VerifiedFinding } from '../deep/verifier.js';
@@ -57,6 +60,8 @@ export interface DeepGateConfig {
     agentic?: boolean;
     /** Cloud tier: review only the riskiest changed functions. */
     router?: RouterPolicy;
+    /** Which of the team's review lessons the reviewer is told about. */
+    reviewLessons?: LessonMode;
     /** Whole-run budget: files not started in time are skipped and counted, never an error. */
     budgetMs?: number;
     /** Ask intent questions at engine-proven sites in scoped reviews (deep-intent.ts). */
@@ -208,9 +213,11 @@ export class DeepAnalysisGate extends Gate {
             return [];
         }
         const focus = buildReviewTask(cwd, options.diff!, this.config.router).items;
+        const changedFiles = Object.keys(options.focusLines ?? {});
+        const related = relatedChanges(cwd, changedFiles, rankChangedFunctions(cwd, options.focusLines ?? {}, options.removedLines));
         this.config.onProgress?.(`  Reviewing the PR as a whole (${focus.length} risky function(s) first)...`);
         try {
-            const result = await reviewPullRequest(this.provider!, { cwd, diff: options.diff!, focus, prBody: options.prBody }, inferenceOptions(this.config));
+            const result = await reviewPullRequest(this.provider!, { cwd, diff: options.diff!, focus, related, lessons: lessonsSection(lessonsForDiff(cwd, options.diff!, this.config.reviewLessons)), prBody: options.prBody }, inferenceOptions(this.config));
             this.recordPass({ findings: [], chunksTotal: 1, chunksFailed: 0 });
             this.outcome.findingsProposed = result.findings.length;
             this.outcome.findingsWithdrawn = 0;

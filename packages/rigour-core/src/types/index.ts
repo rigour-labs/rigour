@@ -315,6 +315,7 @@ export const GatesSchema = z.object({
         timeout_ms: z.number().optional(), // per inference call; default per provider: local 60s, cloud 120s
         budget_ms: z.number().optional(), // whole deep run; files not started in time are reported as skipped
         agentic: z.boolean().optional(), // cloud tier: the model may read the repository while it reviews (default true)
+        review_lessons: z.enum(['verified', 'all', 'off']).optional(), // the team's past review lessons shown to the reviewer (default verified)
         router: z.object({ // cloud tier: review only the riskiest changed functions (deep/risk.ts)
             enabled: z.boolean().optional(), // default true
             min_score: z.number().optional(), // functions below this get the deterministic gates only

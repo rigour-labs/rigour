@@ -19,6 +19,9 @@ export { exportReviewed, readLedger, reviewedKeys, isReviewed, recordReview, REV
 export { rankChangedFunctions, scoreRisk, functionHash, findFunction, type FunctionRisk, type RiskSignals } from './deep/risk.js';
 export { routeFiles, type RouterPolicy, type RouterStats } from './deep/router.js';
 export { appendDeepRun, readDeepRuns, summarizeDeepRuns, type DeepRun, type DeepRunSummary } from './review/deep-runs.js';
+export { learnFromReviews, type LearnFromReviewsOptions, type LearnFromReviewsResult } from './review-learning/learn-from-reviews.js';
+export { readLessons, writeLessons, promoteLesson, matchLessons, lessonText, type ReviewLesson } from './review-learning/lessons.js';
+export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
 export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
 export { recordReviewOutcome, listResolvedFixes, removeResolvedFix, openFindingCount, type ResolvedFix, type FixCapture } from './review/agent-fixes.js';
 export { computeEffectiveness, readAgentEvents, appendAgentEvent, findingKeys, type AgentEvent, type ReviewEffectiveness } from './review/effectiveness.js';

@@ -17,9 +17,9 @@ export interface ReviewTaskOptions {
 export async function reviewTaskCommand(cwd: string, options: ReviewTaskOptions = {}): Promise<void> {
     const config = await loadConfig(cwd, options);
     const diff = diffFromGit(cwd, options.base ? { mode: 'base', base: options.base } : { mode: 'working' });
-    const task = buildReviewTask(cwd, diff, config.gates.deep?.router);
+    const task = buildReviewTask(cwd, diff, config.gates.deep?.router, config.gates.deep?.review_lessons);
     if (options.json) {
-        console.log(JSON.stringify({ items: task.items, already_reviewed: task.alreadyReviewed, instructions: task.instructions }, null, 2));
+        console.log(JSON.stringify({ items: task.items, already_reviewed: task.alreadyReviewed, team_lessons: task.lessons, instructions: task.instructions }, null, 2));
         return;
     }
     printTask(task);
@@ -34,6 +34,10 @@ export function printTask(task: ReviewTask): void {
     for (const item of task.items) {
         console.log(`  ${chalk.yellow(`${item.file}:${item.start}`)} ${chalk.bold(item.function)}`);
         for (const question of item.questions) console.log(chalk.dim(`    - ${question}`));
+    }
+    if (task.lessons.length) {
+        console.log(chalk.bold('\n  Your team asked for these in past reviews:'));
+        for (const lesson of task.lessons) console.log(chalk.dim(`    - ${lesson.file}: ${lesson.text} (PR ${lesson.prs.map(n => `#${n}`).join(', ')})`));
     }
     console.log(chalk.cyan('\n  When checked: rigour review-ack <file> <function> --verdict no_issue|fixed --note "what you checked"\n'));
 }
