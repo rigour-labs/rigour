@@ -17,7 +17,12 @@ jobs:
     name: Test & Build
     strategy:
       matrix:
+        # The active LTS on every OS, and the maintenance LTS users may still run.
         os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [24]
+        include:
+          - os: ubuntu-latest
+            node: 22
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +31,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -61,7 +66,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
         env:
@@ -269,10 +274,12 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            node: 22
+            node: 24
           - os: macos-latest
-            node: 22
+            node: 24
           - os: windows-latest
+            node: 24
+          - os: ubuntu-latest
             node: 22
           - os: ubuntu-latest
             node: 26

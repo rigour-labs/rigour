@@ -2,6 +2,9 @@
     "name": "@rigour-labs/core",
     "version": "1.0.0",
     "description": "AI-native quality gate engine with local Bayesian learning. AST analysis, drift detection, Fix Packet generation, and agent self-healing across TypeScript, JavaScript, Python, Go, Ruby, and C#.",
+    "engines": {
+        "node": ">=22"
+    },
     "license": "MIT",
     "homepage": "https://rigour.run",
     "keywords": [
