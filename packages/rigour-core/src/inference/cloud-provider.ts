@@ -128,6 +128,7 @@ export class CloudProvider implements InferenceProvider {
             temperature: options?.temperature ?? 0.1,
             messages: toAnthropicMessages(messages),
             ...(tools.length ? { tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}),
+            ...(tools.length && options?.toolChoice === 'none' ? { tool_choice: { type: 'none' } } : {}),
         }, requestOptions(options));
         this.record(response.usage?.input_tokens, response.usage?.output_tokens);
         const blocks: any[] = response.content ?? [];
@@ -144,6 +145,7 @@ export class CloudProvider implements InferenceProvider {
             temperature: options?.temperature ?? 0.1,
             messages: toOpenAIMessages(messages),
             ...(tools.length ? { tools: tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
+            ...(tools.length && options?.toolChoice === 'none' ? { tool_choice: 'none' } : {}),
             ...(this.isOpenRouter() ? { usage: { include: true } } : {}),
         }, requestOptions(options));
         this.record(response.usage?.prompt_tokens, response.usage?.completion_tokens, response.usage?.cost);

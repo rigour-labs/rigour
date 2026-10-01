@@ -37,9 +37,9 @@ export async function reviewWithTools(
     const messages: ChatMessage[] = [{ role: 'user', content: `${buildCodeReviewPrompt(context, reference)}\n\n${TOOL_GUIDANCE}` }];
     let toolCalls = 0;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
-        const tools = toolCalls < MAX_TOOL_CALLS ? REVIEW_TOOLS : [];
-        const reply = await provider.chat(messages, tools, { ...inference, jsonMode: false });
-        if (reply.toolCalls.length === 0 || tools.length === 0) {
+        const exhausted = toolCalls >= MAX_TOOL_CALLS;
+        const reply = await provider.chat(messages, REVIEW_TOOLS, { ...inference, jsonMode: false, toolChoice: exhausted ? 'none' : 'auto' });
+        if (reply.toolCalls.length === 0 || exhausted) {
             return { findings: parseFindings(reply.text), context: grounded(context, toolbox), toolCalls };
         }
         messages.push({ role: 'assistant', content: reply.text, toolCalls: reply.toolCalls });
@@ -50,7 +50,7 @@ export async function reviewWithTools(
         }
     }
     messages.push({ role: 'user', content: 'Answer now with the JSON findings only.' });
-    const final = await provider.chat(messages, [], { ...inference, jsonMode: false });
+    const final = await provider.chat(messages, REVIEW_TOOLS, { ...inference, jsonMode: false, toolChoice: 'none' });
     return { findings: parseFindings(final.text), context: grounded(context, toolbox), toolCalls };
 }
 

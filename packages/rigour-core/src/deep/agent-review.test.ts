@@ -18,11 +18,11 @@ afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
 const context: CodeContext = { file: 'page.ts', language: 'typescript', text: '1| export function page() {}', ranges: [[1, 5]], source: 'export function page() {}' };
 
 function scripted(replies: ChatReply[]) {
-    const seen: Array<{ messages: ChatMessage[]; tools: number }> = [];
+    const seen: Array<{ messages: ChatMessage[]; tools: number; toolChoice?: string }> = [];
     const provider: InferenceProvider = {
         name: 'fake', isAvailable: async () => true, setup: async () => {}, dispose: () => {}, analyze: async () => '',
-        chat: async (messages, tools) => {
-            seen.push({ messages: [...messages], tools: tools.length });
+        chat: async (messages, tools, options) => {
+            seen.push({ messages: [...messages], tools: tools.length, toolChoice: options?.toolChoice });
             return replies.shift() ?? { text: '{"findings": []}', toolCalls: [] };
         },
     };
@@ -47,12 +47,12 @@ describe('reviewWithTools', () => {
         expect(verifyCodeFindings(result.findings, [context])).toHaveLength(0);
     });
 
-    it('stops offering tools after the budget and asks for the answer', async () => {
+    it('forbids tool calls after the budget, keeping the tools defined for the history, and asks for the answer', async () => {
         const greedy = Array.from({ length: 20 }, (_, i) => ({ text: '', toolCalls: [{ id: `t${i}`, name: 'grep', arguments: { pattern: 'line' } }] }));
         const { provider, seen } = scripted(greedy);
         const result = await reviewWithTools(provider, context, '', repo, {});
         expect(result.toolCalls).toBeLessThanOrEqual(12);
-        expect(seen.at(-1)!.tools).toBe(0);
+        expect(seen.at(-1)).toMatchObject({ tools: 2, toolChoice: 'none' });
         expect(result.findings).toEqual([]);
     });
 

@@ -73,6 +73,19 @@ describe('CloudProvider.chat', () => {
         expect(sent.messages[2].content.map((b: any) => b.tool_use_id)).toEqual(['a', 'b']);
         expect(sent.tools[0]).toEqual({ name: 'read_file', description: 'd', input_schema: { type: 'object' } });
         expect(reply).toEqual({ text: 'checking', toolCalls: [{ id: 'c', name: 'read_file', arguments: { path: 'z.ts' } }] });
+        expect(sent).not.toHaveProperty('tool_choice');
+    });
+
+    it('keeps tools defined but forbids calls when asked for a final answer', async () => {
+        anthropicCreate.mockResolvedValue({ content: [{ type: 'text', text: '{}' }] });
+        openaiCreate.mockResolvedValue({ choices: [{ message: { content: '{}' } }] });
+        for (const name of ['claude', 'openai']) {
+            const provider = new CloudProvider(name, 'k', { modelName: 'm' });
+            await provider.setup();
+            await provider.chat(history, tools, { toolChoice: 'none' });
+        }
+        expect(anthropicCreate.mock.calls[0][0]).toMatchObject({ tools: [expect.anything()], tool_choice: { type: 'none' } });
+        expect(openaiCreate.mock.calls[0][0]).toMatchObject({ tools: [expect.anything()], tool_choice: 'none' });
     });
 
     it('speaks OpenAI function calling, and survives malformed arguments', async () => {

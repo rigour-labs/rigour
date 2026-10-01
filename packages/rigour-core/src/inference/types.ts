@@ -76,6 +76,8 @@ export interface InferenceOptions {
     jsonMode?: boolean;
     /** Constrain local output to this JSON schema instead of the findings schema. */
     jsonSchema?: Record<string, unknown>;
+    /** chat(): 'none' forbids tool calls while keeping the tools defined (a history with tool calls needs them). */
+    toolChoice?: 'auto' | 'none';
 }
 
 /**
