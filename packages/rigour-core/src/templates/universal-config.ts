@@ -277,6 +277,7 @@ export const UNIVERSAL_CONFIG: Config = {
         fast_gates: ['hallucinated-imports', 'phantom-apis', 'deprecated-apis', 'promise-safety', 'security-patterns', 'file-size'],
         timeout_ms: 5000,
         block_on_failure: false,
+        require_review_ack: false,
         dlp: true,
     },
     output: {

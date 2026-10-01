@@ -43,7 +43,7 @@ export const PROMPT_DEFINITIONS = [
     },
     {
         name: "rigour-pre-commit",
-        description: "Pre-commit quality gate check. Runs fast hooks on staged files and full gate check. Returns PASS/FAIL verdict for commit safety.",
+        description: "Pre-commit review: Rigour's gates plus your own review of the risky changed functions it picks, acknowledged one by one. Returns PASS/FAIL.",
         arguments: [
             {
                 name: "cwd",

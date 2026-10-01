@@ -7,6 +7,7 @@ import type { GateContext } from './base.js';
 import type { Config, DeepOptions, Failure, Report, Status } from '../types/index.js';
 import { localTier } from '../inference/types.js';
 import { Logger } from '../utils/logger.js';
+import { appendDeepRun } from '../review/deep-runs.js';
 
 export interface DeepRunResult {
     failures: Failure[];
@@ -75,6 +76,8 @@ export async function runDeepAnalysis(
         findings_count: findings.length,
         findings_verified: findings.filter(f => f.verified).length,
     };
+
+    appendDeepRun(context.cwd, stats);
 
     if (outcome.status === 'error') {
         return {

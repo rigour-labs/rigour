@@ -101,6 +101,22 @@ describe('CloudProvider.chat', () => {
     });
 });
 
+describe('prompt caching', () => {
+    it('caches the first prompt for Claude, directly and through OpenRouter, and nowhere else', async () => {
+        anthropicCreate.mockResolvedValue({ content: [{ type: 'text', text: '{}' }] });
+        openaiCreate.mockResolvedValue({ choices: [{ message: { content: '{}' } }] });
+        const first = [{ role: 'user' as const, content: 'big diff' }];
+        const claude = new CloudProvider('claude', 'k', { modelName: 'claude-sonnet-5-5' });
+        const viaOpenRouter = new CloudProvider('openrouter', 'k', { baseUrl: 'https://openrouter.ai/api/v1', modelName: 'anthropic/claude-sonnet-5.5' });
+        const other = new CloudProvider('openrouter', 'k', { baseUrl: 'https://openrouter.ai/api/v1', modelName: 'openai/gpt-5' });
+        for (const p of [claude, viaOpenRouter, other]) { await p.setup(); await p.chat(first, []); }
+        const cached = { role: 'user', content: [{ type: 'text', text: 'big diff', cache_control: { type: 'ephemeral' } }] };
+        expect(anthropicCreate.mock.calls[0][0].messages[0]).toEqual(cached);
+        expect(openaiCreate.mock.calls[0][0].messages[0]).toEqual(cached);
+        expect(openaiCreate.mock.calls[1][0].messages[0]).toEqual({ role: 'user', content: 'big diff' });
+    });
+});
+
 describe('priceTokens', () => {
     it('prices known models and refuses to guess for the rest', () => {
         expect(priceTokens('anthropic/claude-opus-5.5', 1_000_000, 1_000_000)).toBe(24);

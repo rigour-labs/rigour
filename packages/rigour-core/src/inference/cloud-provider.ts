@@ -126,7 +126,7 @@ export class CloudProvider implements InferenceProvider {
             model: this.modelName,
             max_tokens: options?.maxTokens || 4096,
             temperature: options?.temperature ?? 0.1,
-            messages: toAnthropicMessages(messages),
+            messages: cacheFirstPrompt(toAnthropicMessages(messages)),
             ...(tools.length ? { tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}),
             ...(tools.length && options?.toolChoice === 'none' ? { tool_choice: { type: 'none' } } : {}),
         }, requestOptions(options));
@@ -143,7 +143,7 @@ export class CloudProvider implements InferenceProvider {
             model: this.modelName,
             max_tokens: options?.maxTokens || 4096,
             temperature: options?.temperature ?? 0.1,
-            messages: toOpenAIMessages(messages),
+            messages: this.cachesPrompts() ? cacheFirstPrompt(toOpenAIMessages(messages)) : toOpenAIMessages(messages),
             ...(tools.length ? { tools: tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
             ...(tools.length && options?.toolChoice === 'none' ? { tool_choice: 'none' } : {}),
             ...(this.isOpenRouter() ? { usage: { include: true } } : {}),
@@ -213,6 +213,11 @@ export class CloudProvider implements InferenceProvider {
         return content;
     }
 
+    /** OpenRouter forwards Anthropic's cache_control to Claude models. */
+    private cachesPrompts(): boolean {
+        return this.isOpenRouter() && /(^|\/)(anthropic\/|claude)/i.test(this.modelName);
+    }
+
     private isOpenRouter(): boolean {
         return /(^|\.)openrouter\.ai(\/|$)/.test((this.baseUrl || '').replace(/^https?:\/\//, ''));
     }
@@ -225,6 +230,16 @@ export class CloudProvider implements InferenceProvider {
 /** The per-call timeout, honoured by both SDKs (their default is minutes, with retries). */
 function requestOptions(options?: InferenceOptions): { timeout?: number } {
     return options?.timeout ? { timeout: options.timeout } : {};
+}
+
+/**
+ * Mark the first prompt for caching: a tool conversation resends it every
+ * turn, and it is most of the input (the diff and the instructions).
+ */
+function cacheFirstPrompt(messages: any[]): any[] {
+    const [first, ...rest] = messages;
+    if (!first || first.role !== 'user' || typeof first.content !== 'string') return messages;
+    return [{ role: 'user', content: [{ type: 'text', text: first.content, cache_control: { type: 'ephemeral' } }] }, ...rest];
 }
 
 /** Anthropic wants tool results as user turns, consecutive results grouped into one. */

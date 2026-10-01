@@ -27,7 +27,7 @@ export interface ReviewInput {
     /** Run changed functions before and after the change (needs deep, on the max or a cloud tier). */
     diffTests?: boolean;
     /** Deep analysis; `focusLines` and `removedLines` are filled from the diff. */
-    deep?: Omit<DeepOptions, 'focusLines' | 'removedLines'>;
+    deep?: Omit<DeepOptions, 'focusLines' | 'removedLines' | 'diff'>;
 }
 
 export interface ReviewResult {
@@ -63,7 +63,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     if (targets.length === 0) {
         return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null };
     }
-    const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff) } : undefined;
+    const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {});

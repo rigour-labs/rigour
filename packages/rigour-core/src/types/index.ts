@@ -357,6 +357,8 @@ export const HooksSchema = z.object({
     ]),
     timeout_ms: z.number().optional().default(5000),
     block_on_failure: z.boolean().optional().default(false),
+    /** Stop hook: hold "done" until the agent acknowledges each risky changed function (rigour_review_ack). */
+    require_review_ack: z.boolean().optional().default(false),
     /** Enable DLP (Data Loss Prevention) pre-input hooks — default ON for security */
     dlp: z.boolean().optional().default(true),
 }).optional().default({});
@@ -464,7 +466,7 @@ export const ReportSchema = z.object({
             /** Repository lookups the model made in an agentic review. */
             tool_calls: z.number().optional(),
             /** Cloud router: changed functions ranked, how many went to the model, files it left to the gates. */
-            router: z.object({ functions: z.number(), routed: z.number(), files_skipped: z.number() }).optional(),
+            router: z.object({ functions: z.number(), routed: z.number(), files_skipped: z.number(), already_reviewed: z.number() }).optional(),
             input_tokens: z.number().optional(),
             output_tokens: z.number().optional(),
             /** Provider-reported cost when available, else tokens × list price; undefined for an unpriced model. */
@@ -495,4 +497,6 @@ export interface DeepOptions {
     removedLines?: Record<string, Array<{ line: number; text: string[] }>>;
     /** What the change intends (a PR description): reference for the stronger tiers. */
     prBody?: string;
+    /** The change's unified diff (from reviewChange): a cloud agentic review reads the PR as a whole. */
+    diff?: string;
 }

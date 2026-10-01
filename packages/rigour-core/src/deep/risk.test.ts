@@ -58,6 +58,15 @@ describe('routeFiles', () => {
         fs.writeFileSync(path.join(dir, 'query.py'), 'def f():\n    return 1\n');
         const routed = routeFiles(dir, ['helper.ts', 'query.py'], { 'helper.ts': [2], 'query.py': [2] }, {}, { min_score: 1 });
         expect([...routed.files]).toEqual(['query.py']);
-        expect(routed.stats).toEqual({ functions: 1, routed: 0, files_skipped: 1 });
+        expect(routed.stats).toEqual({ functions: 1, routed: 0, files_skipped: 1, already_reviewed: 0 });
+    });
+
+    it('skips a risky function reviewed before at exactly this code, and only that code', () => {
+        fs.writeFileSync(path.join(dir, 'sync.ts'), SYNC);
+        const [risky] = rankChangedFunctions(dir, { 'sync.ts': [4] });
+        const cleared = routeFiles(dir, ['sync.ts'], { 'sync.ts': [4] }, {}, {}, [{ file: 'sync.ts', function: 'syncLeads', hash: risky.hash }]);
+        expect(cleared.stats).toMatchObject({ routed: 0, already_reviewed: 1, files_skipped: 1 });
+        const stale = routeFiles(dir, ['sync.ts'], { 'sync.ts': [4] }, {}, {}, [{ file: 'sync.ts', function: 'syncLeads', hash: 'old' }]);
+        expect(stale.stats).toMatchObject({ routed: 1, already_reviewed: 0 });
     });
 });

@@ -7,6 +7,7 @@
  * leaves the rest to the deterministic gates. Signals are syntactic and cheap
  * (no type checker), so ranking a large PR takes milliseconds.
  */
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import ts from 'typescript';
@@ -32,7 +33,7 @@ export interface RiskSignals {
     /** Deepest nesting of branches and loops. */
     nesting: number;
     lines: number;
-    /** The change deleted a condition, early return or throw inside this function. */
+    /** The change removed more conditions, early returns or throws from this function than it added. */
     removedGuard: boolean;
     /** SENSITIVE kinds this function touches. */
     sensitive: string[];
@@ -45,6 +46,8 @@ export interface FunctionRisk {
     end: number;
     signals: RiskSignals;
     score: number;
+    /** sha256 of the function's text with whitespace collapsed: any edit to it changes this. */
+    hash: string;
 }
 
 /**
@@ -75,25 +78,65 @@ export function rankChangedFunctions(cwd: string, focusLines: Record<string, num
             continue;
         }
         const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+        const textLines = text.split('\n');
         for (const fn of changedFunctions(sourceFile, lines)) {
             const start = sourceFile.getLineAndCharacterOfPosition(fn.getStart(sourceFile)).line + 1;
             const end = sourceFile.getLineAndCharacterOfPosition(fn.getEnd()).line + 1;
-            const signals = signalsOf(fn, sourceFile, start, end, removed[file] ?? []);
-            ranked.push({ file, name: nameOf(fn, sourceFile), start, end, signals, score: scoreRisk(signals) });
+            const added = lines.filter(l => l >= start && l <= end).map(l => textLines[l - 1] ?? '');
+            const signals = signalsOf(fn, sourceFile, start, end, removed[file] ?? [], added);
+            ranked.push({ file, name: nameOf(fn, sourceFile), start, end, signals, score: scoreRisk(signals), hash: functionHash(fn.getText(sourceFile)) });
         }
     }
     return ranked.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file) || a.start - b.start);
 }
 
-function signalsOf(fn: FunctionLike, sourceFile: ts.SourceFile, start: number, end: number, removed: RemovedBlock[]): RiskSignals {
+/** The current text hash and span of a named function in a file, if the file parses and has it. */
+export function findFunction(cwd: string, file: string, name: string): { hash: string; start: number; end: number } | undefined {
+    if (!PARSEABLE.test(file)) return undefined;
+    let text: string;
+    try {
+        text = fs.readFileSync(path.join(cwd, file), 'utf-8');
+    } catch {
+        return undefined;
+    }
+    const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+    let found: { hash: string; start: number; end: number } | undefined;
+    const visit = (node: ts.Node): void => {
+        if (found) return;
+        if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node))
+            && node.body && nameOf(node, sourceFile) === name) {
+            found = {
+                hash: functionHash(node.getText(sourceFile)),
+                start: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
+                end: sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
+            };
+            return;
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return found;
+}
+
+export function functionHash(text: string): string {
+    return crypto.createHash('sha256').update(text.replace(/\s+/g, ' ').trim()).digest('hex');
+}
+
+const GUARD = /\b(?:if|else|return|throw|break|continue|catch)\b|\?\?|\?\./g;
+
+function guards(lines: string[]): number {
+    return lines.reduce((count, line) => count + (line.match(GUARD)?.length ?? 0), 0);
+}
+
+function signalsOf(fn: FunctionLike, sourceFile: ts.SourceFile, start: number, end: number, removed: RemovedBlock[], added: string[]): RiskSignals {
     const body = fn.getText(sourceFile);
+    const removedLines = removed.filter(block => block.line >= start && block.line <= end + 1).flatMap(block => block.text);
     return {
         exported: isExported(fn),
         async: !!ts.getModifiers(fn)?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword),
         nesting: maxNesting(fn),
         lines: end - start + 1,
-        removedGuard: removed.some(block => block.line >= start && block.line <= end + 1
-            && block.text.some(line => /\b(?:if|else|return|throw|break|continue|catch)\b|\?\?|\?\./.test(line))),
+        removedGuard: guards(removedLines) > guards(added),
         sensitive: SENSITIVE.filter(s => s.pattern.test(body)).map(s => s.kind),
     };
 }

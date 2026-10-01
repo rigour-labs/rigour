@@ -20,6 +20,9 @@ import { extractFacts, verifyFindings, type FileFacts } from '../deep/index.js';
 import { runFactsPass, type PassResult } from '../deep/facts-pass.js';
 import { runCodePass } from '../deep/code-pass.js';
 import { routeFiles, type RouterPolicy, type RouterStats } from '../deep/router.js';
+import { reviewedKeys } from '../review/ledger.js';
+import { buildReviewTask } from '../review/review-task.js';
+import { reviewPullRequest } from '../deep/pr-review.js';
 import { verifyCodeFindings } from '../deep/code-verifier.js';
 import { runIntentChecks } from './deep-intent.js';
 import type { VerifiedFinding } from '../deep/verifier.js';
@@ -163,6 +166,7 @@ export class DeepAnalysisGate extends Gate {
     }
 
     private async reviewCode(cwd: string, scoped: FileFacts[]): Promise<VerifiedFinding[]> {
+        if (this.reviewsWholePr()) return this.reviewPr(cwd, scoped);
         const facts = this.route(cwd, scoped);
         this.config.onProgress?.(`  Reviewing ${facts.length} scoped file(s) with source...`);
         const result = await runCodePass(this.provider!, facts, {
@@ -191,11 +195,41 @@ export class DeepAnalysisGate extends Gate {
         return verified;
     }
 
+    /** A cloud model that can call tools reviews a change as one PR: it sees how files relate. */
+    private reviewsWholePr(): boolean {
+        const { options } = this.config;
+        return isCloud(options) && this.config.agentic !== false && !!this.provider?.chat && !!options.diff;
+    }
+
+    private async reviewPr(cwd: string, scoped: FileFacts[]): Promise<VerifiedFinding[]> {
+        const { options } = this.config;
+        if (this.route(cwd, scoped).length === 0) {
+            this.config.onProgress?.('  Router: no risky change for the model; the gates cover this PR.');
+            return [];
+        }
+        const focus = buildReviewTask(cwd, options.diff!, this.config.router).items;
+        this.config.onProgress?.(`  Reviewing the PR as a whole (${focus.length} risky function(s) first)...`);
+        try {
+            const result = await reviewPullRequest(this.provider!, { cwd, diff: options.diff!, focus, prBody: options.prBody }, inferenceOptions(this.config));
+            this.recordPass({ findings: [], chunksTotal: 1, chunksFailed: 0 });
+            this.outcome.findingsProposed = result.findings.length;
+            this.outcome.findingsWithdrawn = 0;
+            this.outcome.toolCalls = result.toolCalls;
+            const rejected: Record<string, number> = {};
+            const verified = verifyCodeFindings(result.findings, result.contexts, rejected);
+            this.outcome.findingsRejected = rejected;
+            return verified;
+        } catch (error: any) {
+            this.recordPass({ findings: [], chunksTotal: 1, chunksFailed: 1, firstError: error?.message ?? String(error) });
+            return [];
+        }
+    }
+
     /** Cloud only: a paid model reviews the riskiest changed functions; local tiers cost nothing to run. */
     private route(cwd: string, facts: FileFacts[]): FileFacts[] {
         const { options } = this.config;
         if (!isCloud(options) || this.config.router?.enabled === false || !options.focusLines) return facts;
-        const routed = routeFiles(cwd, facts.map(f => f.path), options.focusLines, options.removedLines, this.config.router);
+        const routed = routeFiles(cwd, facts.map(f => f.path), options.focusLines, options.removedLines, this.config.router, reviewedKeys(cwd));
         this.outcome.router = routed.stats;
         if (routed.stats.files_skipped > 0) {
             this.config.onProgress?.(`  Router: ${routed.stats.routed} of ${routed.stats.functions} changed function(s) to the model; ${routed.stats.files_skipped} file(s) left to the gates.`);

@@ -204,9 +204,11 @@ export function resolveDeepOptions(cliOptions: CLIDeepOptions): ResolvedDeepOpti
   }
 
   // 4. Resolve API key
-  // CLI flag takes highest precedence
+  // CLI flag takes highest precedence, then RIGOUR_API_KEY (CI secrets: never on a command line)
   if (cliOptions.apiKey) {
     result.apiKey = cliOptions.apiKey;
+  } else if (process.env.RIGOUR_API_KEY?.trim()) {
+    result.apiKey = process.env.RIGOUR_API_KEY.trim();
   } else if (settings.providers) {
     // Otherwise look up provider key in settings.providers
     const normalizedProvider = normalizeProviderName(selectedProvider);

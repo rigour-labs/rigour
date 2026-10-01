@@ -528,12 +528,36 @@ export const TOOL_DEFINITIONS = [
                 base: { type: "string", description: "Review this branch against a base ref instead of uncommitted work, e.g. 'main'." },
                 diff: { type: "string", description: "A unified diff to review instead of reading git. Rarely needed." },
                 files: { type: "array", items: { type: "string" }, description: "Review exactly these files instead of the ones the change touches." },
+                mode: { type: "string", enum: ["gates", "agent"], description: "\"agent\": also return review_task, the risky changed functions for you to review yourself, with what to check in each. No model is called by Rigour." },
             },
             required: ["cwd"],
         },
         annotations: {
             title: "Review Change",
             readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+
+    {
+        name: "rigour_review_ack",
+        description: "Record that you reviewed a function from rigour_review's review_task: verdict \"fixed\" (you fixed a defect) or \"no_issue\", with a note saying what you checked. Covers the function's current code only; editing it later puts it back in the task.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                file: { type: "string", description: "Repository-relative path, as in review_task." },
+                function: { type: "string", description: "Function name, as in review_task." },
+                verdict: { type: "string", enum: ["fixed", "no_issue"] },
+                note: { type: "string", description: "What you checked, e.g. 'callers pass a non-empty cursor; upsert conflict key matches the unique index'." },
+            },
+            required: ["cwd", "file", "function", "verdict", "note"],
+        },
+        annotations: {
+            title: "Acknowledge Review",
+            readOnlyHint: false,
             destructiveHint: false,
             idempotentHint: true,
             openWorldHint: false,
