@@ -60,7 +60,7 @@ To make the agent finish only after the risky functions are reviewed, set `hooks
 ```bash
 rigour review                 # gates on your uncommitted change
 rigour review-task            # the risky functions to look at, and what to check
-rigour review-ack src/sync.ts syncLeads --verdict no_issue --note "cursor advances on every page"
+rigour review-ack src/sync.ts syncOrders --verdict no_issue --note "cursor advances on every page"
 ```
 
 ## The PR bot

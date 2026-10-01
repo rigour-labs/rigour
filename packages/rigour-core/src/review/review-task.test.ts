@@ -14,7 +14,7 @@ const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { 
 const write = (body: string) => fs.writeFileSync(path.join(repo, 'sync.ts'), body);
 
 const BEFORE = [
-    'export async function syncLeads(db, cursor) {',
+    'export async function syncOrders(db, cursor) {',
     '  const rows = await page(cursor);',
     '  return rows;',
     '}',
@@ -25,9 +25,9 @@ const BEFORE = [
 ].join('\n');
 
 const AFTER = [
-    'export async function syncLeads(db, cursor) {',
+    'export async function syncOrders(db, cursor) {',
     '  const rows = await page(cursor);',
-    "  await db.from('leads').upsert(rows);",
+    "  await db.from('orders').upsert(rows);",
     '  return rows;',
     '}',
     'function label(name) {',
@@ -52,29 +52,29 @@ afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
 describe('review task and acknowledgements', () => {
     it('asks about the risky changed function only, with questions from its signals', () => {
         const task = buildReviewTask(repo, diffFromGit(repo));
-        expect(task.items.map(i => i.function)).toEqual(['syncLeads']);
+        expect(task.items.map(i => i.function)).toEqual(['syncOrders']);
         expect(task.items[0].questions[0]).toMatch(/concurrent calls/);
-        expect(task.items[0].questions.at(-1)).toContain('`syncLeads`');
+        expect(task.items[0].questions.at(-1)).toContain('`syncOrders`');
     });
 
     it('drops an acknowledged function from the task until its code changes again', () => {
-        const ack = acknowledgeReview(repo, { file: 'sync.ts', function: 'syncLeads', verdict: 'no_issue', note: 'upsert key is the unique lead id; callers retry safely' });
+        const ack = acknowledgeReview(repo, { file: 'sync.ts', function: 'syncOrders', verdict: 'no_issue', note: 'upsert key is the unique order id; callers retry safely' });
         expect(ack.ok).toBe(true);
         expect(buildReviewTask(repo, diffFromGit(repo))).toMatchObject({ items: [], alreadyReviewed: 1 });
 
         write(AFTER.replace('return rows;', 'return rows.slice(1);'));
-        expect(buildReviewTask(repo, diffFromGit(repo)).items.map(i => i.function)).toEqual(['syncLeads']);
+        expect(buildReviewTask(repo, diffFromGit(repo)).items.map(i => i.function)).toEqual(['syncOrders']);
     });
 
     it('refuses an acknowledgement without a real note, a known verdict, or a real function', () => {
-        expect(acknowledgeReview(repo, { file: 'sync.ts', function: 'syncLeads', verdict: 'no_issue', note: 'ok' })).toMatchObject({ ok: false });
-        expect(acknowledgeReview(repo, { file: 'sync.ts', function: 'syncLeads', verdict: 'lgtm', note: 'looked at it carefully' })).toMatchObject({ ok: false });
+        expect(acknowledgeReview(repo, { file: 'sync.ts', function: 'syncOrders', verdict: 'no_issue', note: 'ok' })).toMatchObject({ ok: false });
+        expect(acknowledgeReview(repo, { file: 'sync.ts', function: 'syncOrders', verdict: 'lgtm', note: 'looked at it carefully' })).toMatchObject({ ok: false });
         expect(acknowledgeReview(repo, { file: 'sync.ts', function: 'nope', verdict: 'fixed', note: 'looked at it carefully' })).toMatchObject({ ok: false });
         expect(readLedger(repo)).toEqual([]);
     });
 
     it('exports hashes and verdicts only, and a committed export clears the task too', () => {
-        acknowledgeReview(repo, { file: 'sync.ts', function: 'syncLeads', verdict: 'fixed', note: 'made the upsert key explicit' });
+        acknowledgeReview(repo, { file: 'sync.ts', function: 'syncOrders', verdict: 'fixed', note: 'made the upsert key explicit' });
         exportReviewed(repo);
         const exported = JSON.parse(fs.readFileSync(path.join(repo, REVIEWED_FILE), 'utf8'));
         expect(Object.keys(exported.entries[0]).sort()).toEqual(['file', 'function', 'hash', 'reviewer', 'verdict']);
@@ -85,7 +85,7 @@ describe('review task and acknowledgements', () => {
 
     it('tells a stopping agent which functions still need review, and how', () => {
         const message = reviewAckMessage(buildReviewTask(repo, diffFromGit(repo)).items, 1);
-        expect(message).toContain('sync.ts:1 `syncLeads`');
+        expect(message).toContain('sync.ts:1 `syncOrders`');
         expect(message).toContain('rigour_review_ack');
     });
 });

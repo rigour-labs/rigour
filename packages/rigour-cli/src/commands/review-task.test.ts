@@ -18,7 +18,7 @@ beforeEach(() => {
     fs.writeFileSync(path.join(repo, 'README.md'), 'x\n');
     git('add', '-A');
     git('commit', '-qm', 'init');
-    fs.writeFileSync(path.join(repo, 'sync.ts'), "export async function syncLeads(db, rows) {\n  await db.from('leads').upsert(rows);\n}\n");
+    fs.writeFileSync(path.join(repo, 'sync.ts'), "export async function syncOrders(db, rows) {\n  await db.from('orders').upsert(rows);\n}\n");
     out = [];
     vi.spyOn(console, 'log').mockImplementation((...args) => { out.push(args.join(' ')); });
     vi.spyOn(console, 'error').mockImplementation((...args) => { out.push(args.join(' ')); });
@@ -32,10 +32,10 @@ afterEach(() => {
 describe('review-task, review-ack, review-export', () => {
     it('lists the risky function, records a human review, and exports it', async () => {
         await reviewTaskCommand(repo, { json: true });
-        expect(JSON.parse(out.join('\n')).items).toEqual([expect.objectContaining({ file: 'sync.ts', function: 'syncLeads' })]);
+        expect(JSON.parse(out.join('\n')).items).toEqual([expect.objectContaining({ file: 'sync.ts', function: 'syncOrders' })]);
 
-        reviewAckCommand(repo, 'sync.ts', 'syncLeads', { verdict: 'no_issue', note: 'rows are one page; key is the lead id' });
-        expect(out.at(-1)).toContain('Recorded: sync.ts syncLeads (no_issue)');
+        reviewAckCommand(repo, 'sync.ts', 'syncOrders', { verdict: 'no_issue', note: 'rows are one page; key is the order id' });
+        expect(out.at(-1)).toContain('Recorded: sync.ts syncOrders (no_issue)');
 
         out = [];
         await reviewTaskCommand(repo, {});
@@ -43,11 +43,11 @@ describe('review-task, review-ack, review-export', () => {
 
         reviewExportCommand(repo);
         const exported = JSON.parse(fs.readFileSync(path.join(repo, '.rigour', 'reviewed.json'), 'utf8'));
-        expect(exported.entries).toEqual([expect.objectContaining({ file: 'sync.ts', function: 'syncLeads', reviewer: 'human', verdict: 'no_issue' })]);
+        expect(exported.entries).toEqual([expect.objectContaining({ file: 'sync.ts', function: 'syncOrders', reviewer: 'human', verdict: 'no_issue' })]);
     });
 
     it('rejects an acknowledgement without a real note, with a failing exit code', () => {
-        reviewAckCommand(repo, 'sync.ts', 'syncLeads', { verdict: 'no_issue', note: 'ok' });
+        reviewAckCommand(repo, 'sync.ts', 'syncOrders', { verdict: 'no_issue', note: 'ok' });
         expect(out.at(-1)).toContain('Not recorded: note must say what was checked');
         expect(process.exitCode).toBe(1);
     });
