@@ -27,7 +27,7 @@ import path from 'path';
 import { isNodeBuiltin, isPythonStdlib } from '../hallucinated-imports-stdlib.js';
 import { checkGoImports, checkRubyImports, checkCSharpImports, checkRustImports, checkJavaKotlinImports } from '../hallucinated-imports-lang.js';
 import { checkJSImports, collectJSImportSpecs, type JsImportContext } from './js-resolver.js';
-import { SvelteKitRoots } from './framework-modules.js';
+import { NuxtRoots, SvelteKitRoots } from './framework-modules.js';
 import { checkPyImports } from './python-resolver.js';
 import { discoverWorkspacePackages, loadPackageJson } from './manifest-discovery.js';
 
@@ -111,6 +111,7 @@ export class HallucinatedImportsGate extends Gate {
         const jsContext: JsImportContext = {
             cwd: context.cwd, projectFiles, rootDeps, depCacheByDir, hasNodeModules, hallucinated, tsPathCacheByDir,
             kitRoots: new SvelteKitRoots(context.cwd),
+            nuxtRoots: new NuxtRoots(context.cwd),
             shouldIgnore: (importPath) => this.shouldIgnore(importPath),
             resolveRelativeImport: (fromFile, importPath, files) => this.resolveRelativeImport(fromFile, importPath, files),
             extractPackageName: (importPath) => this.extractPackageName(importPath),

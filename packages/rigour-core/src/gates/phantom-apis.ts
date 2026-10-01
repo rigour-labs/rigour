@@ -231,7 +231,7 @@ export class PhantomApisGate extends Gate {
 
             for (const [alias, moduleName] of moduleAliases) {
                 // Match: alias.methodName( or alias.property.something(
-                const callPattern = new RegExp(`\\b${this.escapeRegex(alias)}\\.(\\w+)\\s*\\(`, 'g');
+                const callPattern = new RegExp(`(?<![\\w$.])${this.escapeRegex(alias)}\\.(\\w+)\\s*\\(`, 'g'); // not `obj.path.split(`
                 let match;
                 while ((match = callPattern.exec(line)) !== null) {
                     const method = match[1];
@@ -293,7 +293,7 @@ export class PhantomApisGate extends Gate {
             const line = this.stripStringLiterals(lines[i]);
 
             for (const [alias, moduleName] of moduleAliases) {
-                const callPattern = new RegExp(`\\b${this.escapeRegex(alias)}\\.(\\w+)\\s*\\(`, 'g');
+                const callPattern = new RegExp(`(?<![\\w$.])${this.escapeRegex(alias)}\\.(\\w+)\\s*\\(`, 'g'); // not `obj.path.split(`
                 let match;
                 while ((match = callPattern.exec(line)) !== null) {
                     const method = match[1];

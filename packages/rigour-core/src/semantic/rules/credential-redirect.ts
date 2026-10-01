@@ -18,6 +18,8 @@ import type { RuleContext, SemanticFinding, SemanticRule } from '../types.js';
 const CREDENTIAL_HEADER = /^(?:x-[\w-]*(?:token|secret|key|signature|password|auth[\w-]*)|[\w-]*(?:api[-_]?key|secret|access[-_]?token|private[-_]?token))$/i;
 /** Removed by fetch (or not settable) on a cross-origin redirect. */
 const STRIPPED_ON_REDIRECT = /^(?:authorization|proxy-authorization|cookie)$/i;
+/** Named like a key but not a secret: identifiers for deduplication, routing, caching and tracing. */
+const NOT_A_CREDENTIAL = /idempoten|request[-_]?id|correlation|trace|dedup|cache[-_]?key|partition[-_]?key|routing[-_]?key|public[-_]?key|key[-_]?id$/i;
 const SECRET_ENV = /SECRET|TOKEN|API_?KEY|PASSWORD|PRIVATE_KEY/i;
 
 interface Credential { header: string; node: ts.Node }
@@ -154,7 +156,8 @@ function credentialHeader(checker: ts.TypeChecker, headers: ts.Expression): Cred
             if (!ts.isPropertyAssignment(prop)) continue;
             const header = propertyNameText(prop.name);
             if (!header || STRIPPED_ON_REDIRECT.test(header)) continue;
-            if (CREDENTIAL_HEADER.test(header) || readsSecretEnv(prop.initializer)) return { header, node: prop };
+            const named = CREDENTIAL_HEADER.test(header) && !NOT_A_CREDENTIAL.test(header);
+            if (named || readsSecretEnv(prop.initializer)) return { header, node: prop };
         }
     }
     return null;

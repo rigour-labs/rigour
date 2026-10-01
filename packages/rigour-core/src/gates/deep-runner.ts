@@ -7,6 +7,7 @@ import type { GateContext } from './base.js';
 import type { Config, DeepOptions, Failure, Report, Status } from '../types/index.js';
 import { localTier } from '../inference/types.js';
 import { Logger } from '../utils/logger.js';
+import { appendDeepRun } from '../review/deep-runs.js';
 
 export interface DeepRunResult {
     failures: Failure[];
@@ -32,6 +33,11 @@ export async function runDeepAnalysis(
         maxTokens: config.gates.deep?.max_tokens,
         temperature: config.gates.deep?.temperature,
         timeoutMs: config.gates.deep?.timeout_ms,
+        budgetMs: config.gates.deep?.budget_ms,
+        agentic: config.gates.deep?.agentic,
+        router: config.gates.deep?.router,
+        reviewLessons: config.gates.deep?.review_lessons,
+        repoRules: config.gates.deep?.repo_rules,
         intentChecks: config.gates.deep?.intent_checks,
         onProgress: deepOptions.onProgress,
     });
@@ -62,9 +68,18 @@ export async function runDeepAnalysis(
         error: outcome.error,
         findings_proposed: outcome.findingsProposed,
         findings_withdrawn: outcome.findingsWithdrawn,
+        findings_rejected: outcome.findingsRejected,
+        files_skipped: outcome.filesSkipped,
+        tool_calls: outcome.toolCalls,
+        router: outcome.router,
+        input_tokens: outcome.usage?.inputTokens,
+        output_tokens: outcome.usage?.outputTokens,
+        cost_usd: outcome.usage?.costUsd,
         findings_count: findings.length,
         findings_verified: findings.filter(f => f.verified).length,
     };
+
+    appendDeepRun(context.cwd, stats);
 
     if (outcome.status === 'error') {
         return {

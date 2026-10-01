@@ -34,6 +34,7 @@ import { EnforcementRail } from './components/EnforcementRail';
 import { HandoffFlow } from './components/HandoffFlow';
 import { LearningBrain } from './components/LearningBrain';
 import { FirewallConsole } from './components/FirewallConsole';
+import { PrePrReview } from './components/PrePrReview';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemHealth, type HealthData } from './components/SystemHealth';
 import { StudioSettings } from './components/StudioSettings';
@@ -221,7 +222,7 @@ function App() {
     const navItems = [
         { id: 'knowledge', label: 'Map', icon: Network, tabs: ['knowledge'] },
         { id: 'agents', label: 'Agents', icon: Users, tabs: ['agents', 'handoffs', 'checkpoints'] },
-        { id: 'enforcement', label: 'Review', icon: ShieldCheck, tabs: ['enforcement', 'firewall', 'gates', 'audit'] },
+        { id: 'enforcement', label: 'Review', icon: ShieldCheck, tabs: ['enforcement', 'prepr', 'firewall', 'gates', 'audit'] },
         { id: 'learning', label: 'Knowledge', icon: Brain, tabs: ['learning', 'lessons', 'patterns', 'memory', 'cost', 'deep', 'drift'] },
         { id: 'settings', label: 'Settings', icon: Settings, tabs: ['settings'] },
     ];
@@ -233,6 +234,7 @@ function App() {
         ],
         enforcement: [
             { id: 'enforcement', label: 'Enforcement' },
+            { id: 'prepr', label: 'Pre-PR review' },
             { id: 'firewall', label: 'Firewall' },
             { id: 'gates', label: 'Quality gates' },
             { id: 'audit', label: 'Audit trail' },
@@ -340,6 +342,11 @@ function App() {
                         {activeTab === 'enforcement' && (
                             <motion.div key="enforcement" {...tabTransition} className="full-view">
                                 <EnforcementRail onNavigate={setActiveTab} />
+                            </motion.div>
+                        )}
+                        {activeTab === 'prepr' && (
+                            <motion.div key="prepr" {...tabTransition} className="full-view">
+                                <PrePrReview />
                             </motion.div>
                         )}
                         {activeTab === 'firewall' && (

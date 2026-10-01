@@ -16,6 +16,15 @@
  */
 
 import type { HookTool } from './types.js';
+import { STOP_MAX_ATTEMPTS } from './stop-review.js';
+
+/** Seconds Claude Code waits for the stop review before letting the agent stop. */
+const STOP_HOOK_TIMEOUT_S = 120;
+
+/** The `rigour hooks stop` command matching a `rigour hooks check` command, if the checker is the CLI. */
+export function stopCommandFor(checkerCommand: string, tool: 'claude' | 'cursor'): string | undefined {
+    return /\bhooks check$/.test(checkerCommand.trim()) ? `${checkerCommand.trim().replace(/hooks check$/, 'hooks stop')} --tool ${tool}` : undefined;
+}
 
 export interface GeneratedHookFile {
     path: string;
@@ -55,7 +64,11 @@ function generateClaudeHooks(checkerCommand: string): GeneratedHookFile[] {
                         }
                     ]
                 }
-            ]
+            ],
+            // Before the agent finishes: review the uncommitted change, as `rigour hooks init` does.
+            ...(stopCommandFor(checkerCommand, 'claude')
+                ? { Stop: [{ hooks: [{ type: "command", command: stopCommandFor(checkerCommand, 'claude'), timeout: STOP_HOOK_TIMEOUT_S }] }] }
+                : {}),
         }
     };
 
@@ -76,7 +89,10 @@ function generateCursorHooks(checkerCommand: string): GeneratedHookFile[] {
                 {
                     command: `${checkerCommand} --stdin`,
                 }
-            ]
+            ],
+            ...(stopCommandFor(checkerCommand, 'cursor')
+                ? { stop: [{ command: stopCommandFor(checkerCommand, 'cursor'), loop_limit: STOP_MAX_ATTEMPTS }] }
+                : {}),
         }
     };
 

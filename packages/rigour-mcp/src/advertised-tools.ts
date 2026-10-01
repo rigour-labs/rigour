@@ -18,6 +18,7 @@ export const TOOL_GROUPS = {
         'rigour_check_pattern',
         'rigour_check',
         'rigour_review',
+        'rigour_review_ack',
         'rigour_get_fix_packet',
         'rigour_remember',
     ],

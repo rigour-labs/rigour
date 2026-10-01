@@ -15,9 +15,9 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import yaml from 'yaml';
-import { ConfigSchema, resolveDeepOptions, reviewChange, toReviewFinding, GitDiffError } from '@rigour-labs/core';
-import type { Config, DeepOptions, ReviewResult } from '@rigour-labs/core';
+import { buildReviewTask, diffFromGit, findingKey, resolveDeepOptions, reviewChange, toReviewFinding, GitDiffError } from '@rigour-labs/core';
+import type { DeepOptions, ReviewResult } from '@rigour-labs/core';
+import { loadConfig, UsageError } from './review-config.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
 import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR } from './exit-codes.js';
 
@@ -41,8 +41,6 @@ export interface ReviewOptions {
     modelName?: string;
 }
 
-class UsageError extends Error {}
-
 export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
     try {
         const config = await loadConfig(cwd, options);
@@ -52,26 +50,21 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
             throw new UsageError('--diff-tests needs a model that can propose test inputs: add --max, or -k for a cloud model.');
         }
         if (!options.ci && !options.json && !options.githubSummary && isDeep) console.log(chalk.blue.bold('Deep analysis enabled.\n'));
+        const source = options.base ? { mode: 'base' as const, base: options.base } : { mode: 'working' as const };
         const result = await reviewChange({
-            cwd, config, diff,
-            source: options.base ? { mode: 'base', base: options.base } : { mode: 'working' },
+            cwd, config, diff, source,
             files: options.files ? options.files.split(',').map(f => f.trim()).filter(Boolean) : undefined,
             diffTests: !!options.diffTests,
             deep: isDeep ? deepOptions(cwd, options) : undefined,
         });
         await print(result, options);
+        if (!isDeep && !options.ci && !options.json && !options.githubSummary) {
+            hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
+        }
         process.exit(exitCodeFor(result));
     } catch (error: any) {
         fail(error, options);
     }
-}
-
-/** rigour.yml, the file named by -c, or Rigour's defaults when the repository has none. */
-async function loadConfig(cwd: string, options: ReviewOptions): Promise<Config> {
-    const configPath = options.config ? path.resolve(cwd, options.config) : path.join(cwd, 'rigour.yml');
-    if (await fs.pathExists(configPath)) return ConfigSchema.parse(yaml.parse(await fs.readFile(configPath, 'utf-8')));
-    if (options.config) throw new UsageError(`Config file not found: ${configPath}`);
-    return ConfigSchema.parse({ version: 1 });
 }
 
 /** --diff, else piped input, else undefined (core then takes the diff from git). */
@@ -153,6 +146,9 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         ...(stats?.deep ? { deep: stats.deep } : {}),
         failures: result.findings.map(toReviewFinding),
         file_findings: result.fileFindings.map(toReviewFinding),
+        context_findings: result.contextFindings.map(toReviewFinding),
+        advisory: result.advisory.map(toReviewFinding),
+        dismissed: result.dismissed,
     }, null, 2);
     return new Promise(resolve => process.stdout.write(json + '\n', () => resolve()));
 }
@@ -182,12 +178,28 @@ function printHuman(result: ReviewResult): void {
         for (const f of result.findings) {
             console.log(`  ${chalk.red(`[${(f.severity || 'medium').toUpperCase()}]`)} ${f.files?.[0] || '?'}:${f.line ?? '?'}`);
             console.log(`    ${f.title}`);
+            console.log(chalk.dim(`    not a bug? rigour dismiss ${findingKey(f)} --reason "…"`));
             if (f.hint) console.log(chalk.cyan(`    → ${f.hint}`));
             console.log('');
         }
     }
     if (result.fileFindings.length) console.log(chalk.dim(`  ${result.fileFindings.length} file-level note(s) on changed files (see --json).`));
+    if (result.advisory.length) console.log(chalk.dim(`  ${result.advisory.length} advisory note(s) from heuristic checks (see --json; they never decide the verdict).`));
+    if (result.dismissed) console.log(chalk.dim(`  ${result.dismissed} finding(s) dismissed as not a bug (.rigour/dismissed.json).`));
+    for (const f of result.contextFindings) {
+        console.log(chalk.yellow(`  [context] ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));
+    }
     if (result.excludedOutsideChangedLines) console.log(chalk.dim(`  (${result.excludedOutsideChangedLines} issue(s) on unchanged lines were excluded)\n`));
+}
+
+/** Without a model, point at the risky changed functions a person or their agent should still check. */
+function hintReviewTask(cwd: string, diff: string, router: Parameters<typeof buildReviewTask>[2]): void {
+    try {
+        const pending = buildReviewTask(cwd, diff, router).items.length;
+        if (pending) console.log(chalk.cyan(`  ${pending} risky changed function(s) to review before the PR: run \`rigour review-task\`.\n`));
+    } catch {
+        // The hint must never fail a review.
+    }
 }
 
 /** A deep run that did not happen overrides the changed-line verdict. */

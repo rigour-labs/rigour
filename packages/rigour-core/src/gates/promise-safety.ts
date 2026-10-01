@@ -37,7 +37,7 @@ export class PromiseSafetyGate extends Gate {
         this.config = {
             enabled: config.enabled ?? true,
             check_unhandled_then: config.check_unhandled_then ?? true,
-            check_unsafe_parse: config.check_unsafe_parse ?? true,
+            check_unsafe_parse: config.check_unsafe_parse ?? false,
             check_async_without_await: config.check_async_without_await ?? true,
             check_unsafe_fetch: config.check_unsafe_fetch ?? true,
             ignore_patterns: config.ignore_patterns ?? [],

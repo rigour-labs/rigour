@@ -1,0 +1,63 @@
+name: Rigour review
+description: Review a pull request with Rigour (gates, plus a model of your choice on the riskiest changed code) and post a few precise comments.
+branding:
+  icon: check-circle
+  color: blue
+inputs:
+  api-key:
+    description: Model API key (BYOK). Without one, only the deterministic gates run.
+    required: false
+    default: ''
+  provider:
+    description: claude, openai, openrouter, gemini, groq, ... or any OpenAI-compatible name used with base-url.
+    required: false
+    default: claude
+  model:
+    description: Model name, e.g. claude-sonnet-5-5 or anthropic/claude-sonnet-5.5 on OpenRouter.
+    required: false
+    default: ''
+  base-url:
+    description: API base URL for OpenAI-compatible providers, e.g. https://openrouter.ai/api/v1.
+    required: false
+    default: ''
+  max-comments:
+    description: Inline comments at most per push.
+    required: false
+    default: '2'
+  version:
+    description: "@rigour-labs/cli version to fetch with npx, used only when the repository does not install Rigour itself (a devDependency is preferred: it goes through the repo's own lockfile and dependency review)."
+    required: false
+    default: latest
+runs:
+  using: composite
+  steps:
+    - name: Review the change
+      shell: bash
+      env:
+        RIGOUR_API_KEY: ${{ inputs.api-key }}
+        BASE_REF: ${{ github.base_ref }}
+        PROVIDER: ${{ inputs.provider }}
+        MODEL: ${{ inputs.model }}
+        BASE_URL: ${{ inputs.base-url }}
+        CLI: '@rigour-labs/cli@${{ inputs.version }}'
+      run: |
+        args=(review --base "origin/${BASE_REF}" --json)
+        if [ -n "$RIGOUR_API_KEY" ]; then
+          args+=(--deep --provider "$PROVIDER")
+          [ -n "$MODEL" ] && args+=(--model-name "$MODEL")
+          [ -n "$BASE_URL" ] && args+=(--api-base-url "$BASE_URL")
+        fi
+        # Prefer the repository's own pinned install; fall back to npx only when Rigour is not a dependency.
+        if [ -x node_modules/.bin/rigour ]; then run=(node_modules/.bin/rigour); else run=(npx --yes "$CLI"); fi
+        # FAIL (exit 1) still produces a report to post; only a missing report is an error.
+        "${run[@]}" "${args[@]}" > rigour-review.json || true
+        test -s rigour-review.json
+    - name: Post the review
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        CLI: '@rigour-labs/cli@${{ inputs.version }}'
+        MAX_COMMENTS: ${{ inputs.max-comments }}
+      run: |
+        if [ -x node_modules/.bin/rigour ]; then run=(node_modules/.bin/rigour); else run=(npx --yes "$CLI"); fi
+        "${run[@]}" review-post --report rigour-review.json --max-comments "$MAX_COMMENTS"

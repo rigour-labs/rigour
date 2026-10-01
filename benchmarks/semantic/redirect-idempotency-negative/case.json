@@ -1,0 +1,6 @@
+{
+  "rule": null,
+  "file": null,
+  "line": null,
+  "note": "An idempotency key is named like a key but is not a secret; following a redirect with it leaks nothing."
+}

@@ -38,7 +38,7 @@ import { handleRemember, handleRecall, handleForget } from './tools/memory-handl
 import { handleCheckPattern, handleSecurityAudit } from './tools/pattern-handlers.js';
 import { handleRun, handleRunSupervised } from './tools/execution-handlers.js';
 import { handleAgentRegister, handleCheckpoint, handleHandoff, handleAgentDeregister, handleHandoffAccept } from './tools/agent-handlers.js';
-import { handleReview } from './tools/review-handler.js';
+import { handleReview, handleReviewAck } from './tools/review-handler.js';
 import { handleHooksCheck, handleHooksInit } from './tools/hooks-handler.js';
 import { handleCheckDeep, handleDeepStats } from './tools/deep-handlers.js';
 import { handleMcpGetSettings, handleMcpSetSettings } from './tools/mcp-settings-handler.js';
@@ -211,6 +211,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             // Code review
             case "rigour_review": result = await handleReview(config, cwd, args as any); break;
+            case "rigour_review_ack": result = handleReviewAck(cwd, args as any); break;
 
             // Context Telemetry & Cost Tools
             case "rigour_context_stats":   result = await handleContextStats(cwd, (args as any).taskId); break;
@@ -441,7 +442,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
                         role: "user" as const,
                         content: {
                             type: "text" as const,
-                            text: `Run a pre-commit quality check on ${cwd}. Execute \`rigour_check\` (default deep mode "${deepMode}") and \`rigour_hooks_check\` on all staged files. If any critical or high severity violations exist, list them and block the commit. For medium/low violations, warn but allow. Provide a one-line summary: PASS (safe to commit) or FAIL (must fix first).`,
+                            text: `Run a pre-commit review on ${cwd}. Call \`rigour_review\` with mode "agent". Fix every critical or high failure. Then review each review_task item yourself: read the function, its callers and what it calls, answer its questions against the code, fix any real defect, and call \`rigour_review_ack\` with what you checked. Call \`rigour_review\` again to confirm. Provide a one-line summary: PASS (safe to commit) or FAIL (must fix first).`,
                         },
                     },
                 ],

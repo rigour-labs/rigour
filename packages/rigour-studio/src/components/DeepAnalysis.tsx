@@ -41,6 +41,24 @@ interface DeepStats {
     files_analyzed?: number;
     findings_count?: number;
     findings_verified?: number;
+    findings_proposed?: number;
+    findings_withdrawn?: number;
+    findings_rejected?: Record<string, number>;
+    cost_usd?: number;
+    tool_calls?: number;
+}
+
+/** Proposed → withdrawn by the self-check → rejected by grounding → kept: where the model's findings went. */
+export function funnelText(deep: DeepStats): string | null {
+    if (deep.findings_proposed === undefined) return null;
+    const rejected = Object.values(deep.findings_rejected ?? {}).reduce((a, b) => a + b, 0);
+    const reasons = Object.entries(deep.findings_rejected ?? {}).map(([reason, n]) => `${reason.replace(/_/g, ' ')} ${n}`).join(', ');
+    return [
+        `${deep.findings_proposed} proposed`,
+        `${deep.findings_withdrawn ?? 0} withdrawn by self-check`,
+        `${rejected} rejected by grounding${reasons ? ` (${reasons})` : ''}`,
+        `${deep.findings_count ?? 0} kept`,
+    ].join(' → ');
 }
 
 interface ReportData {
@@ -214,6 +232,12 @@ export const DeepAnalysis: React.FC = () => {
                             <span className="stat-value">{deep?.model || '—'}</span>
                             <span className="stat-label">Model</span>
                         </div>
+                        {typeof deep?.cost_usd === 'number' && (
+                            <div className="stat-card">
+                                <span className="stat-value">${deep.cost_usd.toFixed(3)}</span>
+                                <span className="stat-label">Model cost (observed)</span>
+                            </div>
+                        )}
                         {deep?.total_ms && (
                             <div className="stat-card">
                                 <span className="stat-value">{(deep.total_ms / 1000).toFixed(1)}s</span>
@@ -221,6 +245,8 @@ export const DeepAnalysis: React.FC = () => {
                             </div>
                         )}
                     </div>
+
+                    {deep && funnelText(deep) && <p className="cost-panel-help">Funnel: {funnelText(deep)}</p>}
 
                     {/* Score Cards */}
                     {(data?.score !== undefined || data?.code_quality_score !== undefined) && (

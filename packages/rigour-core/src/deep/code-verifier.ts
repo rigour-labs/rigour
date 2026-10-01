@@ -17,25 +17,29 @@ import type { VerifiedFinding } from './verifier.js';
 
 const MIN_CONFIDENCE = 0.3;
 
-export function verifyCodeFindings(findings: DeepFinding[], contexts: CodeContext[]): VerifiedFinding[] {
+export type RejectionReason = 'no_context' | 'low_confidence' | 'no_line' | 'out_of_range' | 'ungrounded_identifier';
+
+/** Grounded findings, and how many were dropped for each reason (so a drop is never silent). */
+export function verifyCodeFindings(findings: DeepFinding[], contexts: CodeContext[], rejected: Partial<Record<RejectionReason, number>> = {}): VerifiedFinding[] {
     const verified: VerifiedFinding[] = [];
     for (const finding of findings) {
         const context = findContext(finding.file, contexts);
-        if (!context) continue;
-        const note = rejectionReason(finding, context);
-        if (note) continue;
-        verified.push({ ...finding, file: context.file, verified: true, verificationNotes: 'grounded in sent source' });
+        const reason = context ? rejectionReason(finding, context) : 'no_context';
+        if (reason) {
+            rejected[reason] = (rejected[reason] ?? 0) + 1;
+            continue;
+        }
+        verified.push({ ...finding, file: context!.file, verified: true, verificationNotes: 'grounded in sent source' });
     }
     return verified;
 }
 
-function rejectionReason(finding: DeepFinding, context: CodeContext): string | null {
-    if (finding.confidence < MIN_CONFIDENCE) return 'low confidence';
+function rejectionReason(finding: DeepFinding, context: CodeContext): RejectionReason | null {
+    if (finding.confidence < MIN_CONFIDENCE) return 'low_confidence';
     const line = typeof finding.line === 'number' && finding.line > 0 ? finding.line : null;
-    if (line === null) return 'no line';
-    if (!context.ranges.some(([s, e]) => line >= s && line <= e)) return 'line outside sent source';
-    const missing = quotedIdentifiers(finding.description).find(id => !context.source.includes(id));
-    if (missing) return `identifier \`${missing}\` not in sent source`;
+    if (line === null) return 'no_line';
+    if (!context.ranges.some(([s, e]) => line >= s && line <= e)) return 'out_of_range';
+    if (quotedIdentifiers(finding.description).some(id => !context.source.includes(id))) return 'ungrounded_identifier';
     return null;
 }
 

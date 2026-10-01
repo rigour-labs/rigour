@@ -173,7 +173,7 @@ export const GatesSchema = z.object({
     promise_safety: z.object({
         enabled: z.boolean().optional().default(true),
         check_unhandled_then: z.boolean().optional().default(true),
-        check_unsafe_parse: z.boolean().optional().default(true),
+        check_unsafe_parse: z.boolean().optional().default(false), // opt-in: a regex cannot tell trusted JSON (own files, own serializer) from untrusted input
         check_async_without_await: z.boolean().optional().default(true),
         check_unsafe_fetch: z.boolean().optional().default(true),
         ignore_patterns: z.array(z.string()).optional().default([]),
@@ -212,10 +212,13 @@ export const GatesSchema = z.object({
     // v4.2+ Memory & Skills Governance
     governance: z.object({
         enabled: z.boolean().optional().default(true),
-        /** Enforce rigour_remember for all persistent storage — block native agent memory writes */
-        enforce_memory: z.boolean().optional().default(true),
-        /** Enforce rigour skills over native agent skills/rules files */
-        enforce_skills: z.boolean().optional().default(true),
+        /**
+         * Block agent writes to native memory files (CLAUDE.md, …) and point to rigour_remember.
+         * Off by default: teams edit their agent instructions deliberately; their content is still scanned for secrets.
+         */
+        enforce_memory: z.boolean().optional().default(false),
+        /** Block agent writes to native skills/rules files (.cursor/rules, …). Off by default, like enforce_memory. */
+        enforce_skills: z.boolean().optional().default(false),
         /** Block writes and tell agent to use rigour_remember / rigour_recall */
         block_native_memory: z.boolean().optional().default(true),
         /** Agent-native MEMORY paths — where agents auto-save context (glob patterns) */
@@ -313,6 +316,15 @@ export const GatesSchema = z.object({
         max_tokens: z.number().optional(), // default per provider: local 1024, cloud 4096
         temperature: z.number().optional().default(0.1),
         timeout_ms: z.number().optional(), // per inference call; default per provider: local 60s, cloud 120s
+        budget_ms: z.number().optional(), // whole deep run; files not started in time are reported as skipped
+        agentic: z.boolean().optional(), // cloud tier: the model may read the repository while it reviews (default true)
+        repo_rules: z.boolean().optional(), // show the reviewer the rules in AGENTS.md / CLAUDE.md / Cursor rules that name what the change touches (default false)
+        review_lessons: z.enum(['verified', 'all', 'off']).optional(), // the team's past review lessons shown to the reviewer: off (default), verified, or all
+        router: z.object({ // cloud tier: review only the riskiest changed functions (deep/risk.ts)
+            enabled: z.boolean().optional(), // default true
+            min_score: z.number().optional(), // functions below this get the deterministic gates only
+            max_functions: z.number().optional(), // at most this many functions go to the model
+        }).optional(),
         // Intent questions at engine-proven sites (optional-read-no-fallback) in scoped reviews.
         // Off: the stock local models failed the zero-false-finding bar (docs/DEEP_ANALYSIS.md).
         intent_checks: z.boolean().optional().default(false),
@@ -350,6 +362,8 @@ export const HooksSchema = z.object({
     ]),
     timeout_ms: z.number().optional().default(5000),
     block_on_failure: z.boolean().optional().default(false),
+    /** Stop hook: hold "done" until the agent acknowledges each risky changed function (rigour_review_ack). */
+    require_review_ack: z.boolean().optional().default(false),
     /** Enable DLP (Data Loss Prevention) pre-input hooks — default ON for security */
     dlp: z.boolean().optional().default(true),
 }).optional().default({});
@@ -363,6 +377,11 @@ export const ConfigSchema = z.object({
     hooks: HooksSchema,
     output: z.object({
         report_path: z.string().default('rigour-report.json'),
+    }).optional().default({}),
+    /** rigour review / rigour_review / the PR bot / the stop hook. */
+    review: z.object({
+        /** Let heuristic gates decide the verdict too; by default only findings that prove a defect do (quiet.ts). */
+        include_heuristics: z.boolean().optional().default(false),
     }).optional().default({}),
     planned: z.array(z.string()).optional().default([]),
     ignore: z.array(z.string()).optional().default([]),
@@ -406,6 +425,8 @@ export const FailureSchema = z.object({
     files: z.array(z.string()).optional(),
     line: z.number().optional(),
     endLine: z.number().optional(),
+    /** The changed line a finding about its enclosing changed function is posted on. */
+    anchorLine: z.number().optional(),
     hint: z.string().optional(),
     // Deep analysis fields
     confidence: z.number().min(0).max(1).optional(), // LLM confidence score
@@ -448,6 +469,18 @@ export const ReportSchema = z.object({
             error: z.string().optional(),
             findings_proposed: z.number().optional(), // code mode, before the self-check
             findings_withdrawn: z.number().optional(), // by the self-check
+            /** Findings the grounding check dropped, by reason. */
+            findings_rejected: z.record(z.number()).optional(),
+            /** Files a run budget (`gates.deep.budget_ms`) left unreviewed. */
+            files_skipped: z.number().optional(),
+            /** Repository lookups the model made in an agentic review. */
+            tool_calls: z.number().optional(),
+            /** Cloud router: changed functions ranked, how many went to the model, files it left to the gates. */
+            router: z.object({ functions: z.number(), routed: z.number(), files_skipped: z.number(), already_reviewed: z.number() }).optional(),
+            input_tokens: z.number().optional(),
+            output_tokens: z.number().optional(),
+            /** Provider-reported cost when available, else tokens × list price; undefined for an unpriced model. */
+            cost_usd: z.number().optional(),
             findings_count: z.number().optional(),
             findings_verified: z.number().optional(),
         }).optional(),
@@ -474,4 +507,6 @@ export interface DeepOptions {
     removedLines?: Record<string, Array<{ line: number; text: string[] }>>;
     /** What the change intends (a PR description): reference for the stronger tiers. */
     prBody?: string;
+    /** The change's unified diff (from reviewChange): a cloud agentic review reads the PR as a whole. */
+    diff?: string;
 }

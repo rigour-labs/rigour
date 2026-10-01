@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto';
 import { normalizeAgentSession, resolveStudioVersion } from './studio-contracts.js';
 import { getGatewayMediationState, loadStudioGatewayEvidence, summarizeGatewayEvidence } from './studio-firewall.js';
 import { loadStudioLearnedRules } from './studio-learned-rules.js';
+import { loadPrePrReview } from './studio-pre-pr.js';
 
 type StudioContext = {
     cwd: string;
@@ -590,6 +591,15 @@ async function handleApiRequest(
             } else {
                 sendJson(res, 200, {});
             }
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/pre-pr-review') {
+        try {
+            sendJson(res, 200, loadPrePrReview(cwd));
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });
         }

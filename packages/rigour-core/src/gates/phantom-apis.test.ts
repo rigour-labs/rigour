@@ -71,6 +71,17 @@ const exists = path.exists('/tmp');
         expect(failures[0].details).toContain('exists');
     });
 
+    it('should NOT flag a property that shares the module name', async () => {
+        mockFindFiles.mockResolvedValue(['src/generate.ts']);
+        mockReadFile.mockResolvedValue(`
+import * as path from 'node:path';
+const tag = proc.path.split('.')[0];
+const dir = path.dirname(file);
+        `);
+        const failures = await gate.run({ cwd: '/project' });
+        expect(failures).toHaveLength(0);
+    });
+
     it('should NOT flag real path methods', async () => {
         mockFindFiles.mockResolvedValue(['src/paths.ts']);
         mockReadFile.mockResolvedValue(`

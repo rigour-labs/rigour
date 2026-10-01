@@ -20,6 +20,10 @@ import { deepStatsCommand } from './commands/deep-stats.js';
 import { deepCommand } from './commands/deep.js';
 import { reviewCommand } from './commands/review.js';
 import { reviewStatsCommand } from './commands/review-stats.js';
+import { reviewAckCommand, reviewExportCommand, reviewTaskCommand } from './commands/review-task.js';
+import { reviewPostCommand } from './commands/review-post.js';
+import { learnReviewsCommand } from './commands/learn-reviews.js';
+import { dismissCommand } from './commands/dismiss.js';
 import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
 import { scanRulesCommand } from './commands/scan-rules.js';
 import { exportReviewContextCommand } from './commands/export-review-context.js';
@@ -273,6 +277,49 @@ Tip: Use in CI to gate only lines you changed — faster than full rigour check 
     });
 
 program
+    .command('review-task')
+    .description('The risky changed functions to review before the PR, and what to check in each (no model needed)')
+    .option('--base <ref>', 'This branch against a base ref instead of uncommitted work')
+    .option('--json', 'Output as JSON')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .action(async (options: any) => {
+        await reviewTaskCommand(process.cwd(), options);
+    });
+
+program
+    .command('review-ack <file> <function>')
+    .description('Record that you reviewed a function from review-task (covers its current code only)')
+    .requiredOption('--verdict <verdict>', 'fixed or no_issue')
+    .requiredOption('--note <note>', 'What you checked')
+    .action((file: string, fn: string, options: any) => {
+        reviewAckCommand(process.cwd(), file, fn, options);
+    });
+
+program
+    .command('review-export')
+    .description('Write .rigour/reviewed.json (hashes and verdicts only) so the PR bot skips what was reviewed before the PR')
+    .action(() => {
+        reviewExportCommand(process.cwd());
+    });
+
+program
+    .command('review-post')
+    .description('Post a `rigour review --json` report on the pull request (GitHub Actions): a few inline comments and one summary')
+    .requiredOption('--report <path>', 'The JSON report from rigour review --json')
+    .option('--max-comments <n>', 'Inline comments at most (default 2)', '2')
+    .action(async (options: any) => {
+        await reviewPostCommand(options);
+    });
+
+program
+    .command('dismiss <key>')
+    .description('Mark a finding as not a bug: it is never reported again here (commit .rigour/dismissed.json to share)')
+    .requiredOption('--reason <reason>', 'Why it is not a bug')
+    .action((key: string, options: any) => {
+        dismissCommand(process.cwd(), key, options);
+    });
+
+program
     .command('review-stats')
     .description('How well the agent review loop works here: reviews, findings resolved, stop checks (local event log)')
     .option('--json', 'Output as JSON')
@@ -321,6 +368,19 @@ Examples:
     `)
     .action(async (options: any) => {
         await checkPatternCommand(process.cwd(), options);
+    });
+
+program
+    .command('learn-reviews')
+    .description("Learn from review comments this repository's developers acted on, so agents get them before the next PR")
+    .option('--since <date>', 'Only PRs merged on or after this date (ISO)')
+    .option('--until <date>', 'Only PRs merged before this date (ISO)')
+    .option('--limit <n>', 'Merged PRs to read at most', '100')
+    .option('--list', 'List the lessons learned so far')
+    .option('--promote <id>', 'Mark a candidate lesson verified')
+    .option('--json', 'Output as JSON')
+    .action(async (options: any) => {
+        await learnReviewsCommand(process.cwd(), options);
     });
 
 program

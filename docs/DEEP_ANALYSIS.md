@@ -259,27 +259,50 @@ The filter does its job (the constant answers never become findings), but nothin
 
 ## CLI Usage
 
-Enable deep analysis with `--deep` flag:
+Deep analysis runs a model over the change. Locally it uses a bundled model; with a key, the model you choose.
 
 ```bash
-# Run deep analysis with default provider (from settings or config)
+# Local models (downloaded once; no network after that)
+rigour review --deep            # Qwen2.5-Coder-0.5B, fastest
+rigour review --pro             # Qwen2.5-Coder-1.5B
+rigour review --max             # Qwen2.5-Coder-7B, reads callers/callees, reviews twice and self-checks (16 GB RAM)
+
+# Your key (any of: claude, openai, openrouter, gemini, groq, mistral, together, deepseek, ollama, or any OpenAI-compatible name with --api-base-url)
+rigour review --deep --provider claude --model-name claude-sonnet-5-5
+rigour review --deep --provider openrouter --api-base-url https://openrouter.ai/api/v1 --model-name anthropic/claude-sonnet-5.5
+
+# Whole repository instead of a change
 rigour check --deep
-
-# Use Anthropic API
-rigour check --deep --provider anthropic
-
-# Use OpenAI API
-rigour check --deep --provider openai
-
-# Use local model
-rigour check --deep --provider local
-
-# Parallel agents (cloud providers only)
-rigour check --deep --agents 3
-
-# Combined with other gates
-rigour check --deep --ci
 ```
+
+The key is read from `--api-key`, then `RIGOUR_API_KEY`, then `~/.rigour/settings.json` (`rigour settings set-key <provider> <key>`). In CI, use `RIGOUR_API_KEY`: a key on a command line is visible to other processes.
+
+### How a cloud model reviews a change
+
+With a key, `rigour review` reviews the change as one pull request, the way a senior reviewer would:
+
+1. **Router.** Each changed function gets a cheap risk score: a removed condition or early return, a data write, paging, auth, money or time, concurrency, network calls, with size and nesting as weak signals. If nothing is risky, no model call is made. Functions already reviewed at their current code (in `.rigour/review-ledger.jsonl` or a committed `.rigour/reviewed.json`) are skipped.
+2. **One conversation.** The model gets the line-numbered diff (risky files first; lockfiles and build output left out), the riskiest functions with what to check in each, and the PR description.
+3. **Tools.** It can `read_file` and `grep` (read-only, inside the repository, never `.env` files, keys or credentials; at most 24 calls) to check a caller, callee, type or constant before reporting.
+4. **Grounding.** A finding is kept only if it names a line of a changed or read file and every identifier it cites appears in code the model saw. `stats.deep.findings_rejected` counts what was dropped, by reason.
+
+`rigour check --deep` with a key reviews file by file with the same tools.
+
+```yaml
+gates:
+  deep:
+    agentic: true          # cloud models may read the repository (default)
+    router:
+      min_score: 1         # functions below this get the gates only
+      max_functions: 12    # at most this many functions in focus
+    budget_ms: 600000      # whole-run budget; files not started in time are reported as skipped
+```
+
+Every run records what it spent in `.rigour/deep-runs.jsonl` (tokens, the provider's own cost when it reports one, what the router sent and skipped); Studio shows the totals under **Review › Pre-PR review**.
+
+### Review without a key: the agent's own model
+
+Inside Claude Code, Cursor and similar agents, a frontier model is already running. `rigour_review` with `mode: "agent"` (MCP) returns `review_task`: the risky changed functions and what to check in each. The agent reviews them itself, fixes what is real, and calls `rigour_review_ack` with what it checked. Without an agent, `rigour review-task` prints the same list and `rigour review-ack` records a review.
 
 ---
 

@@ -11,6 +11,7 @@ import { buildCodeReviewPrompt } from './code-review-prompt.js';
 import { parseFindings } from './parse-findings.js';
 import { buildReferencePack, type ReferencePack } from './reference-pack.js';
 import { selfCheck } from './self-check.js';
+import { reviewWithTools } from './agent-review.js';
 import type { DeepFinding } from '../inference/types.js';
 import type { RemovedBlock } from '../utils/diff.js';
 import type { PassConfig, PassResult } from './facts-pass.js';
@@ -31,6 +32,12 @@ export interface CodePassConfig extends PassConfig {
         removed?: Record<string, RemovedBlock[]>;
         prBody?: string;
     };
+    /** Epoch ms after which no new file is started (the run budget). */
+    deadline?: number;
+    /** Files reviewed at once. */
+    concurrency?: number;
+    /** Let a tool-capable provider read the repository while it reviews (agent-review.ts). */
+    agentic?: boolean;
 }
 
 export interface CodePassResult extends PassResult {
@@ -39,44 +46,85 @@ export interface CodePassResult extends PassResult {
     proposed: number;
     /** Of those, withdrawn by the self-check. */
     withdrawn: number;
+    /** Files not started before the deadline. */
+    skipped: number;
+    /** Repository lookups the model made (agentic review). */
+    toolCalls: number;
+}
+
+interface FileReview {
+    context?: CodeContext;
+    findings: DeepFinding[];
+    proposed: number;
+    withdrawn: number;
+    toolCalls?: number;
+    error?: string;
 }
 
 export async function runCodePass(provider: InferenceProvider, facts: FileFacts[], config: CodePassConfig): Promise<CodePassResult> {
-    const result: CodePassResult = { findings: [], chunksTotal: facts.length, chunksFailed: 0, contexts: [], proposed: 0, withdrawn: 0 };
+    const result: CodePassResult = { findings: [], chunksTotal: facts.length, chunksFailed: 0, contexts: [], proposed: 0, withdrawn: 0, skipped: 0, toolCalls: 0 };
+    const reviews: Array<FileReview | undefined> = new Array(facts.length);
+    let next = 0;
+    const worker = async () => {
+        while (next < facts.length) {
+            const index = next++;
+            if (config.deadline !== undefined && Date.now() >= config.deadline) continue;
+            config.onProgress?.(`  Reviewing ${facts[index].path} (${index + 1}/${facts.length})...`);
+            reviews[index] = await reviewFile(provider, facts[index], config);
+        }
+    };
+    const workers = Math.max(1, Math.min(config.concurrency ?? 1, facts.length));
+    await Promise.all(Array.from({ length: workers }, worker));
 
-    for (let i = 0; i < facts.length; i++) {
-        const file = facts[i];
-        config.onProgress?.(`  Reviewing ${file.path} (${i + 1}/${facts.length})...`);
-        let context: CodeContext;
-        try {
-            const content = await fs.readFile(path.join(config.cwd, file.path), 'utf-8');
-            context = buildCodeContext(file, content, {
-                maxChars: config.maxSourceChars,
-                focusLines: config.focusLines?.[file.path],
-            });
-        } catch (error: any) {
-            recordFailure(result, `${file.path}: ${error.message}`, config);
+    // Merge in file order, so the result does not depend on which call finished first.
+    for (const review of reviews) {
+        if (!review) {
+            result.skipped++;
             continue;
         }
-        const pack = config.reference ? packFor(file.path, config) : undefined;
-        if (pack) context = { ...context, source: `${context.source}\n${pack.source}` };
-        result.contexts.push(context);
-        try {
-            if (pack) {
-                const checked = await reviewTwiceAndCheck(provider, context, pack, config);
-                result.findings.push(...checked.kept);
-                result.proposed += checked.proposed;
-                result.withdrawn += checked.withdrawn;
-            } else {
-                const found = await reviewOnce(provider, context, '', config);
-                result.findings.push(...found);
-                result.proposed += found.length;
-            }
-        } catch (error: any) {
-            recordFailure(result, `${file.path}: ${error.message}`, config);
-        }
+        if (review.context) result.contexts.push(review.context);
+        if (review.error) recordFailure(result, review.error, config);
+        result.findings.push(...review.findings);
+        result.proposed += review.proposed;
+        result.withdrawn += review.withdrawn;
+        result.toolCalls += review.toolCalls ?? 0;
     }
     return result;
+}
+
+async function reviewFile(provider: InferenceProvider, file: FileFacts, config: CodePassConfig): Promise<FileReview> {
+    const empty: FileReview = { findings: [], proposed: 0, withdrawn: 0 };
+    let context: CodeContext;
+    try {
+        const content = await fs.readFile(path.join(config.cwd, file.path), 'utf-8');
+        context = buildCodeContext(file, content, {
+            maxChars: config.maxSourceChars,
+            focusLines: config.focusLines?.[file.path],
+        });
+    } catch (error: any) {
+        return { ...empty, error: `${file.path}: ${error.message}` };
+    }
+    const pack = config.reference ? packFor(file.path, config) : undefined;
+    if (pack) context = { ...context, source: `${context.source}\n${pack.source}` };
+    try {
+        if (pack && config.agentic && provider.chat) return await reviewAgentically(provider, context, pack, config);
+        if (pack) {
+            const checked = await reviewTwiceAndCheck(provider, context, pack, config);
+            return { context, findings: checked.kept, proposed: checked.proposed, withdrawn: checked.withdrawn };
+        }
+        const found = await reviewOnce(provider, context, '', config);
+        return { context, findings: found, proposed: found.length, withdrawn: 0 };
+    } catch (error: any) {
+        return { ...empty, context, error: `${file.path}: ${error.message}` };
+    }
+}
+
+async function reviewAgentically(provider: InferenceProvider, context: CodeContext, pack: ReferencePack, config: CodePassConfig): Promise<FileReview> {
+    const review = await reviewWithTools(provider, context, pack.text, config.cwd, config.inference);
+    const found = dedupe(review.findings);
+    if (found.length === 0) return { context: review.context, findings: [], proposed: 0, withdrawn: 0, toolCalls: review.toolCalls };
+    const checked = await selfCheck(provider, review.context, pack.text, found, config.inference);
+    return { context: review.context, findings: checked.kept, proposed: found.length, withdrawn: checked.withdrawn, toolCalls: review.toolCalls };
 }
 
 async function reviewOnce(provider: InferenceProvider, context: CodeContext, reference: string, config: CodePassConfig): Promise<DeepFinding[]> {

@@ -1,0 +1,25 @@
+# Rigour PR review: the safety net behind the review your agent already did before the PR.
+# Copy to .github/workflows/rigour-review.yml. Add your model key as the RIGOUR_API_KEY secret
+# (optional: without it, only the deterministic gates run, and nothing leaves the runner).
+name: Rigour review
+on:
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the review diffs this branch against its base
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: rigour-labs/rigour@main # pin a release tag once you adopt it
+        with:
+          api-key: ${{ secrets.RIGOUR_API_KEY }}
+          provider: openrouter
+          base-url: https://openrouter.ai/api/v1
+          model: anthropic/claude-sonnet-5.5
