@@ -7,6 +7,7 @@ import { CODE_QUALITY_RULES, DEBUGGING_RULES, COLLABORATION_RULES, AGNOSTIC_AI_I
 import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
 import { clineRulesRelPath, writeHandshake } from './init-handshake.js';
+import { askTelemetryOnce } from './telemetry-consent.js';
 
 // Helper to log events for Rigour Studio
 async function logStudioEvent(cwd: string, event: any) {
@@ -395,6 +396,9 @@ ${ruleContent}`;
 
     // 5. Auto-prerequisites check
     await checkPrerequisites();
+
+    // 6. The one-time telemetry question (a person at a terminal only; never in CI)
+    await askTelemetryOnce();
 }
 
 /**

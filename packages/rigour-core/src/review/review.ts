@@ -40,8 +40,9 @@ export interface ReviewResult {
     contextFindings: Failure[];
     /** Heuristic findings on changed lines: returned on request, never deciding the verdict (quiet.ts). */
     advisory: Failure[];
-    /** Findings a person dismissed as not a bug. */
+    /** Findings a person dismissed as not a bug, and the gates they came from. */
     dismissed: number;
+    dismissedByGate: Record<string, number>;
     unlocated: number;
     excludedOutsideChangedLines: number;
     changedLines: Record<string, Set<number>>;
@@ -69,7 +70,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], dismissed: 0, unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null };
     }
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
@@ -82,6 +83,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         findings: quiet.speaking,
         advisory: quiet.advisory,
         dismissed: quiet.dismissed,
+        dismissedByGate: quiet.dismissedByGate,
         fileFindings: split.fileFindings,
         contextFindings: split.contextFindings,
         unlocated: split.unlocated,

@@ -34,13 +34,18 @@ export interface QuietSplit {
     speaking: Failure[];
     advisory: Failure[];
     dismissed: number;
+    /** Which gates the dismissed findings came from: where Rigour is wrong for this team. */
+    dismissedByGate: Record<string, number>;
 }
 
 export function quietSplit(cwd: string, findings: Failure[], includeHeuristics = false): QuietSplit {
     const dismissed = dismissedKeys(cwd);
-    const split: QuietSplit = { speaking: [], advisory: [], dismissed: 0 };
+    const split: QuietSplit = { speaking: [], advisory: [], dismissed: 0, dismissedByGate: {} };
     for (const finding of findings) {
-        if (dismissed.has(findingKey(finding))) split.dismissed++;
+        if (dismissed.has(findingKey(finding))) {
+            split.dismissed++;
+            split.dismissedByGate[finding.id] = (split.dismissedByGate[finding.id] ?? 0) + 1;
+        }
         else if (includeHeuristics || isProven(finding)) split.speaking.push(finding);
         else split.advisory.push(finding);
     }

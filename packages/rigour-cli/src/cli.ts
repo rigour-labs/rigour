@@ -24,6 +24,8 @@ import { reviewAckCommand, reviewExportCommand, reviewTaskCommand } from './comm
 import { reviewPostCommand } from './commands/review-post.js';
 import { learnReviewsCommand } from './commands/learn-reviews.js';
 import { dismissCommand } from './commands/dismiss.js';
+import { telemetryCommand } from './commands/telemetry.js';
+import { durationBucket, flushDailyUsage, trackUsage } from '@rigour-labs/core';
 import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
 import { scanRulesCommand } from './commands/scan-rules.js';
 import { exportReviewContextCommand } from './commands/export-review-context.js';
@@ -38,6 +40,7 @@ import { getCliVersion } from './utils/cli-version.js';
 import chalk from 'chalk';
 
 const CLI_VERSION = getCliVersion();
+process.env.RIGOUR_CLI_VERSION ??= CLI_VERSION;
 
 const program = new Command();
 
@@ -312,6 +315,13 @@ program
     });
 
 program
+    .command('telemetry [action]')
+    .description('Anonymous usage telemetry: on, off, or status (default). Every field is listed in TELEMETRY.md')
+    .action((action: string | undefined) => {
+        telemetryCommand(action);
+    });
+
+program
     .command('dismiss <key>')
     .description('Mark a finding as not a bug: it is never reported again here (commit .rigour/dismissed.json to share)')
     .requiredOption('--reason <reason>', 'Why it is not a bug')
@@ -563,5 +573,15 @@ settingsCmd
     } catch {
         // Ignore version check errors
     }
-    program.parse();
+    // Usage telemetry (opt-in, anonymous): which commands run and how they end. Agent hooks run on
+    // every edit and are left out; `review` reports itself before it exits.
+    let commandStart = Date.now();
+    program.hook('preAction', () => { commandStart = Date.now(); });
+    program.hook('postAction', async (_root, action) => {
+        const command = action.name();
+        if (command === 'hooks' || action.parent?.name() === 'hooks' || command === 'telemetry') return;
+        await trackUsage('command_run', { command, outcome: process.exitCode ? 'fail' : 'ok', duration: durationBucket(Date.now() - commandStart) }, { version: CLI_VERSION });
+        await flushDailyUsage({ version: CLI_VERSION });
+    });
+    await program.parseAsync();
 })();
