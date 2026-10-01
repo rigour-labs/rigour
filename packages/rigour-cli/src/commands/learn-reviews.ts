@@ -8,7 +8,8 @@
  */
 import { execFileSync } from 'child_process';
 import chalk from 'chalk';
-import { learnFromReviews, promoteLesson, readLessons } from '@rigour-labs/core';
+import path from 'path';
+import { learnFromReviews, lessonsPath, promoteLesson, readLessons } from '@rigour-labs/core';
 
 export interface LearnReviewsOptions {
     since?: string;
@@ -30,7 +31,7 @@ export async function learnReviewsCommand(cwd: string, options: LearnReviewsOpti
         if (options.json) return void console.log(JSON.stringify(result, null, 2));
         console.log(chalk.green(`✔ ${result.prs} merged PR(s), ${result.comments} review comment(s), ${result.actedOn} acted on.`));
         console.log(`  ${result.added} new lesson(s); ${result.verified} verified (acted on in 2+ PRs); ${result.total} in total.`);
-        console.log(chalk.dim('  Lessons: .rigour/review-lessons.json (local). Review them with `rigour learn-reviews --list`.'));
+        console.log(chalk.dim(`  Lessons: ${path.relative(cwd, lessonsPath(cwd)) || lessonsPath(cwd)} (local). Review them with \`rigour learn-reviews --list\`.`));
     } catch (error) {
         console.error(chalk.red(error instanceof Error ? error.message : String(error)));
         process.exitCode = 1;

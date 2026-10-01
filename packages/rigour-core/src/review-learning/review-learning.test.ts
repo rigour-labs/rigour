@@ -5,7 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { actedOn, gitIn } from './acted-on.js';
 import { learnFromReviews } from './learn-from-reviews.js';
-import { lessonText, matchLessons, mergeLessons, readLessons, type ReviewLesson } from './lessons.js';
+import { isSpecific, lessonText, matchLessons, mergeLessons, readLessons, type ReviewLesson } from './lessons.js';
 import { lessonsForDiff, lessonsSection } from './team-lessons.js';
 
 let repo: string;
@@ -47,6 +47,7 @@ describe('lessons', () => {
         const body = '_⚠️ Potential issue_ | _🟠 Major_\n\n**Use an upsert keyed on `id`.**\n\n<details>\n<summary>🏁 Script executed</summary>\nrg -n insert\n</details>';
         expect(lessonText(body)).toBe('Use an upsert keyed on `id`.');
         expect(lessonText('Callers retry on timeout, so this insert duplicates orders. Please use upsert.')).toBe('Callers retry on timeout, so this insert duplicates orders.');
+        expect(lessonText('### Medium Severity\n\nThe retry loop never resets `attempt`, so a second failure gives up at once.')).toBe('The retry loop never resets `attempt`, so a second failure gives up at once.');
     });
 
     it('verifies a lesson only when it was acted on in two PRs', () => {
@@ -65,14 +66,22 @@ describe('lessons', () => {
         const base = { symbols: ['insert'], evidence: [{ pr: 1, comment: 'c', author: 'r' }], createdAt: '', updatedAt: '' };
         const lessons: ReviewLesson[] = [
             { ...base, id: '1', text: 'same file', file: 'src/orders.ts', state: 'verified' },
-            { ...base, id: '2', text: 'other dir, two shared symbols', file: 'lib/x.ts', state: 'verified', symbols: ['insert', 'orderId'] },
+            { ...base, id: '2', text: 'other dir, two shared symbols', file: 'lib/x.ts', state: 'verified', symbols: ['insertOrder', 'orderId'] },
+            { ...base, id: '6', text: 'a lesson about a runbook', file: 'docs/runbook.md', state: 'verified', symbols: ['insertOrder', 'orderId'] },
             { ...base, id: '5', text: 'other dir, one generic shared symbol', file: 'lib/z.ts', state: 'verified' },
             { ...base, id: '3', text: 'candidate', file: 'src/orders.ts', state: 'candidate' },
             { ...base, id: '4', text: 'unrelated', file: 'lib/y.ts', state: 'verified', symbols: ['other'] },
         ];
-        const change = { files: ['src/orders.ts'], symbols: new Set(['insert', 'orderId']) };
-        expect(matchLessons(lessons, change).map(l => l.id)).toEqual(['1', '2']);
-        expect(matchLessons(lessons, change, { includeCandidates: true }).map(l => l.id)).toEqual(['1', '3', '2']);
+        const change = { files: ['src/orders.ts'], symbols: new Set(['insert', 'insertOrder', 'orderId']) };
+        expect(matchLessons(lessons, change).map(l => l.id)).toEqual(['2', '1']); // two specific shared names outrank a same-file lesson with only generic ones
+        expect(matchLessons(lessons, change, { includeCandidates: true }).map(l => l.id)).toEqual(['2', '1', '3']);
+    });
+});
+
+describe('isSpecific', () => {
+    it('counts identifiers that name something, not common words', () => {
+        expect(['orderId', 'max_rows', 'renderTransactionalMessage'].map(isSpecific)).toEqual([true, true, true]);
+        expect(['data', 'error', 'route', 'insert'].map(isSpecific)).toEqual([false, false, false, false]);
     });
 });
 

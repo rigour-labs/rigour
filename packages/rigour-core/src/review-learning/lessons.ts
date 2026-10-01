@@ -16,6 +16,8 @@ const STORE = path.join('.rigour', 'review-lessons.json');
 const MAX_TEXT = 220;
 const MAX_SYMBOLS = 8;
 const VERIFY_AT_PRS = 2;
+/** Lessons from these teach about one document, test or config file, not about code that will change again. */
+const NOT_CODE = /(\.(md|mdx|txt|ya?ml|json|lock|snap)$)|(\.(test|spec)\.[cm]?[jt]sx?$)|(^|\/)(__tests__|docs?|migrations|\.github)\//i;
 const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 'await', 'async', 'function', 'true', 'false', 'null', 'undefined', 'string', 'number', 'boolean', 'export', 'import', 'type', 'interface', 'else', 'when', 'then', 'should', 'line', 'lines']);
 
 export interface ReviewLesson {
@@ -37,6 +39,7 @@ export function lessonText(body: string): string {
         .replace(/```[\s\S]*?```/g, '')
         .split('\n')
         .filter(line => !/^\s*(_[^_]+_\s*\|?\s*)+$/.test(line) && !/^\s*[🏁💡🧩🔇🧰📝⚠️🛠️]/u.test(line))
+        .filter(line => !/^\s*#*\s*\**\s*(low|medium|high|critical)\s+severity\s*\**\s*$/i.test(line))
         .join('\n');
     const bold = /\*\*(.+?)\*\*/.exec(cleaned)?.[1]?.trim();
     const text = bold || cleaned.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0] || '';
@@ -105,15 +108,20 @@ export interface ChangeShape {
     symbols: Set<string>;
 }
 
-/** Lessons that apply to a change, best first: same file, then shared symbols, then same directory. */
+/**
+ * Lessons that apply to a change, best first. A lesson applies when the change
+ * touches its file, or shares at least two specific identifiers with it; a
+ * shared directory only breaks ties. Lessons about docs, tests or config never
+ * apply to other files.
+ */
 export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, options: { includeCandidates?: boolean; limit?: number } = {}): ReviewLesson[] {
     const dirs = new Set(change.files.map(f => path.posix.dirname(f)));
     const scored = lessons
-        .filter(l => options.includeCandidates || l.state === 'verified')
+        .filter(l => (options.includeCandidates || l.state === 'verified') && !NOT_CODE.test(l.file))
         .map(l => ({
             lesson: l,
-            score: (change.files.includes(l.file) ? 3 : 0) + (dirs.has(path.posix.dirname(l.file)) ? 1 : 0)
-                + 2 * l.symbols.filter(s => change.symbols.has(s)).length,
+            score: (change.files.includes(l.file) ? 3 : 0) + (dirs.has(path.posix.dirname(l.file)) ? 0.5 : 0)
+                + 2 * l.symbols.filter(s => isSpecific(s) && change.symbols.has(s)).length,
         }))
         .filter(s => s.score >= 3)
         .sort((a, b) => b.score - a.score || b.lesson.evidence.length - a.lesson.evidence.length);
@@ -148,6 +156,11 @@ export function promoteLesson(cwd: string, id: string): ReviewLesson | undefined
     lesson.updatedAt = new Date().toISOString();
     writeLessons(cwd, lessons);
     return lesson;
+}
+
+/** An identifier specific enough to link two pieces of code: camelCase, snake_case, or long. */
+export function isSpecific(symbol: string): boolean {
+    return /[a-z][A-Z]|[A-Za-z]_[A-Za-z]/.test(symbol) || symbol.length >= 10;
 }
 
 function normalize(text: string): string {

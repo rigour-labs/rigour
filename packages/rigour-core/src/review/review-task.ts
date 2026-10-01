@@ -43,7 +43,7 @@ const QUESTIONS: Record<string, string> = {
     network: 'Are timeouts, aborts and non-2xx responses handled, and does a retry repeat a side effect?',
 };
 
-export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy = {}, lessonMode: LessonMode = 'verified'): ReviewTask {
+export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy = {}, lessonMode: LessonMode = 'off'): ReviewTask {
     const changed = parseDiff(diff);
     const ranked = rankChangedFunctions(cwd, changedLinesByFile(changed), removedByFile(diff));
     const risky = ranked.filter(f => f.score >= (policy.min_score ?? DEFAULT_MIN_SCORE)).slice(0, policy.max_functions ?? DEFAULT_MAX_FUNCTIONS);

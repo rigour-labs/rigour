@@ -8,7 +8,7 @@ import { matchLessons, readLessons, type ReviewLesson } from './lessons.js';
 
 export type LessonMode = 'verified' | 'all' | 'off';
 
-export function lessonsForDiff(cwd: string, diff: string, mode: LessonMode = 'verified'): ReviewLesson[] {
+export function lessonsForDiff(cwd: string, diff: string, mode: LessonMode = 'off'): ReviewLesson[] {
     if (mode === 'off') return [];
     const lessons = readLessons(cwd);
     if (lessons.length === 0) return [];
