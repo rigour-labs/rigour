@@ -153,6 +153,7 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         ...(stats?.deep ? { deep: stats.deep } : {}),
         failures: result.findings.map(toReviewFinding),
         file_findings: result.fileFindings.map(toReviewFinding),
+        context_findings: result.contextFindings.map(toReviewFinding),
     }, null, 2);
     return new Promise(resolve => process.stdout.write(json + '\n', () => resolve()));
 }
@@ -187,6 +188,9 @@ function printHuman(result: ReviewResult): void {
         }
     }
     if (result.fileFindings.length) console.log(chalk.dim(`  ${result.fileFindings.length} file-level note(s) on changed files (see --json).`));
+    for (const f of result.contextFindings) {
+        console.log(chalk.yellow(`  [context] ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));
+    }
     if (result.excludedOutsideChangedLines) console.log(chalk.dim(`  (${result.excludedOutsideChangedLines} issue(s) on unchanged lines were excluded)\n`));
 }
 

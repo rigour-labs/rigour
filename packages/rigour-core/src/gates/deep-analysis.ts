@@ -14,6 +14,7 @@
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance, DeepOptions } from '../types/index.js';
 import { createProvider, type InferenceProvider, type DeepFinding, type InferenceOptions } from '../inference/index.js';
+import type { InferenceUsage } from '../inference/types.js';
 import { SidecarProvider } from '../inference/sidecar-provider.js';
 import { extractFacts, verifyFindings, type FileFacts } from '../deep/index.js';
 import { runFactsPass, type PassResult } from '../deep/facts-pass.js';
@@ -38,6 +39,8 @@ const CLOUD_SOURCE_CHARS = 60_000;
 /** Reference material (removed lines, callees, callers, PR intent) for the max and cloud tiers. */
 const LOCAL_REFERENCE_CHARS = 12_000;
 const CLOUD_REFERENCE_CHARS = 24_000;
+/** Files reviewed at once on a cloud provider; a local sidecar serves one request at a time. */
+const CLOUD_CONCURRENCY = 4;
 
 export interface DeepGateConfig {
     options: DeepOptions;
@@ -46,6 +49,8 @@ export interface DeepGateConfig {
     maxTokens?: number;
     temperature?: number;
     timeoutMs?: number;
+    /** Whole-run budget: files not started in time are skipped and counted, never an error. */
+    budgetMs?: number;
     /** Ask intent questions at engine-proven sites in scoped reviews (deep-intent.ts). */
     intentChecks?: boolean;
     onProgress?: (message: string) => void;
@@ -62,6 +67,12 @@ export interface DeepRunOutcome {
     /** Code mode: findings the model proposed, and how many the self-check withdrew. */
     findingsProposed?: number;
     findingsWithdrawn?: number;
+    /** Findings the grounding check dropped, by reason. */
+    findingsRejected?: Record<string, number>;
+    /** Files the run budget left unreviewed. */
+    filesSkipped?: number;
+    /** Tokens and cost, for cloud providers. */
+    usage?: InferenceUsage;
     /** Model actually used (the stock fallback is named as such). */
     model?: string;
     modelFallback?: boolean;
@@ -117,6 +128,7 @@ export class DeepAnalysisGate extends Gate {
             this.config.onProgress?.(`  ⚠ Deep analysis error: ${this.outcome.error}`);
             return [];
         } finally {
+            this.outcome.usage = this.provider?.usage?.();
             this.provider?.dispose();
         }
     }
@@ -151,11 +163,21 @@ export class DeepAnalysisGate extends Gate {
             focusLines: this.config.options.focusLines,
             reference: this.referenceOptions(),
             onProgress: this.config.onProgress,
+            deadline: this.config.budgetMs ? Date.now() + this.config.budgetMs : undefined,
+            concurrency: isCloud(this.config.options) ? CLOUD_CONCURRENCY : 1,
         });
         this.recordPass(result);
         this.outcome.findingsProposed = result.proposed;
         this.outcome.findingsWithdrawn = result.withdrawn;
-        return verifyCodeFindings(result.findings, result.contexts);
+        this.outcome.filesSkipped = result.skipped;
+        if (result.skipped > 0) {
+            if (this.outcome.status === 'ok') this.outcome.status = 'partial';
+            this.config.onProgress?.(`  ⚠ Run budget reached: ${result.skipped} file(s) not reviewed.`);
+        }
+        const rejected: Record<string, number> = {};
+        const verified = verifyCodeFindings(result.findings, result.contexts, rejected);
+        this.outcome.findingsRejected = rejected;
+        return verified;
     }
 
     /** The max and cloud tiers read reference material and review twice; the small models do not. */

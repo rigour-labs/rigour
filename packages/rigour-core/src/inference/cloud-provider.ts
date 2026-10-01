@@ -12,7 +12,8 @@
  * User provides: api_key + provider name + optional base_url + optional model_name
  * We figure out the rest. Their key, their choice.
  */
-import type { InferenceProvider, InferenceOptions } from './types.js';
+import type { InferenceProvider, InferenceOptions, InferenceUsage } from './types.js';
+import { priceTokens } from './pricing.js';
 
 /** Default models per provider (user can override via model_name) */
 const DEFAULT_MODELS: Record<string, string> = {
@@ -52,6 +53,7 @@ export class CloudProvider implements InferenceProvider {
     private baseUrl?: string;
     private modelName: string;
     private isClaude: boolean;
+    private spent = { inputTokens: 0, outputTokens: 0, reportedCost: 0, unreportedIn: 0, unreportedOut: 0 };
 
     constructor(providerName: string, apiKey: string, options?: { baseUrl?: string; modelName?: string }) {
         if (!apiKey || apiKey.trim().length === 0) {
@@ -113,6 +115,24 @@ export class CloudProvider implements InferenceProvider {
         }
     }
 
+    /** Tokens used since setup, and their cost: provider-reported where given, else list price. */
+    usage(): InferenceUsage {
+        const { inputTokens, outputTokens, reportedCost, unreportedIn, unreportedOut } = this.spent;
+        const priced = unreportedIn + unreportedOut === 0 ? 0 : priceTokens(this.modelName, unreportedIn, unreportedOut);
+        return { inputTokens, outputTokens, ...(priced === undefined ? {} : { costUsd: reportedCost + priced }) };
+    }
+
+    private record(inputTokens = 0, outputTokens = 0, reportedCost?: number): void {
+        this.spent.inputTokens += inputTokens;
+        this.spent.outputTokens += outputTokens;
+        if (typeof reportedCost === 'number') {
+            this.spent.reportedCost += reportedCost;
+        } else {
+            this.spent.unreportedIn += inputTokens;
+            this.spent.unreportedOut += outputTokens;
+        }
+    }
+
     private async analyzeClaude(prompt: string, options?: InferenceOptions): Promise<string> {
         const response = await this.client.messages.create({
             model: this.modelName,
@@ -121,7 +141,8 @@ export class CloudProvider implements InferenceProvider {
             messages: [
                 { role: 'user', content: prompt }
             ],
-        });
+        }, requestOptions(options));
+        this.record(response.usage?.input_tokens, response.usage?.output_tokens);
 
         const textBlock = response.content.find((b: any) => b.type === 'text');
         if (!textBlock?.text) {
@@ -139,7 +160,10 @@ export class CloudProvider implements InferenceProvider {
                 { role: 'user', content: prompt }
             ],
             ...(options?.jsonMode ? { response_format: { type: 'json_object' } } : {}),
-        });
+            // OpenRouter reports the call's real cost when asked; other endpoints may reject the field.
+            ...(this.isOpenRouter() ? { usage: { include: true } } : {}),
+        }, requestOptions(options));
+        this.record(response.usage?.prompt_tokens, response.usage?.completion_tokens, response.usage?.cost);
 
         const content = response.choices[0]?.message?.content;
         if (!content) {
@@ -148,7 +172,16 @@ export class CloudProvider implements InferenceProvider {
         return content;
     }
 
+    private isOpenRouter(): boolean {
+        return /(^|\.)openrouter\.ai(\/|$)/.test((this.baseUrl || '').replace(/^https?:\/\//, ''));
+    }
+
     dispose(): void {
         this.client = null;
     }
+}
+
+/** The per-call timeout, honoured by both SDKs (their default is minutes, with retries). */
+function requestOptions(options?: InferenceOptions): { timeout?: number } {
+    return options?.timeout ? { timeout: options.timeout } : {};
 }

@@ -26,8 +26,47 @@ export interface InferenceProvider {
      */
     analyze(prompt: string, options?: InferenceOptions): Promise<string>;
 
+    /**
+     * Multi-turn conversation with tools the model may call (cloud providers).
+     * The caller runs the tools and sends their results back as `tool` messages.
+     */
+    chat?(messages: ChatMessage[], tools: ChatTool[], options?: InferenceOptions): Promise<ChatReply>;
+
+    /** Tokens (and cost, when known) used since setup; cloud providers only. */
+    usage?(): InferenceUsage;
+
     /** Clean up resources (kill process, close connection) */
     dispose(): void;
+}
+
+export interface ChatTool {
+    name: string;
+    description: string;
+    /** JSON schema of the tool's arguments. */
+    parameters: Record<string, unknown>;
+}
+
+export interface ToolCall {
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+}
+
+export type ChatMessage =
+    | { role: 'user'; content: string }
+    | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+    | { role: 'tool'; toolCallId: string; content: string };
+
+export interface ChatReply {
+    text: string;
+    toolCalls: ToolCall[];
+}
+
+export interface InferenceUsage {
+    inputTokens: number;
+    outputTokens: number;
+    /** Provider-reported or priced cost in USD; undefined when the model is not priced. */
+    costUsd?: number;
 }
 
 export interface InferenceOptions {

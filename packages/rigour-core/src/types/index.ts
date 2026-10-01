@@ -313,6 +313,7 @@ export const GatesSchema = z.object({
         max_tokens: z.number().optional(), // default per provider: local 1024, cloud 4096
         temperature: z.number().optional().default(0.1),
         timeout_ms: z.number().optional(), // per inference call; default per provider: local 60s, cloud 120s
+        budget_ms: z.number().optional(), // whole deep run; files not started in time are reported as skipped
         // Intent questions at engine-proven sites (optional-read-no-fallback) in scoped reviews.
         // Off: the stock local models failed the zero-false-finding bar (docs/DEEP_ANALYSIS.md).
         intent_checks: z.boolean().optional().default(false),
@@ -406,6 +407,8 @@ export const FailureSchema = z.object({
     files: z.array(z.string()).optional(),
     line: z.number().optional(),
     endLine: z.number().optional(),
+    /** The changed line a finding about its enclosing changed function is posted on. */
+    anchorLine: z.number().optional(),
     hint: z.string().optional(),
     // Deep analysis fields
     confidence: z.number().min(0).max(1).optional(), // LLM confidence score
@@ -448,6 +451,14 @@ export const ReportSchema = z.object({
             error: z.string().optional(),
             findings_proposed: z.number().optional(), // code mode, before the self-check
             findings_withdrawn: z.number().optional(), // by the self-check
+            /** Findings the grounding check dropped, by reason. */
+            findings_rejected: z.record(z.number()).optional(),
+            /** Files a run budget (`gates.deep.budget_ms`) left unreviewed. */
+            files_skipped: z.number().optional(),
+            input_tokens: z.number().optional(),
+            output_tokens: z.number().optional(),
+            /** Provider-reported cost when available, else tokens × list price; undefined for an unpriced model. */
+            cost_usd: z.number().optional(),
             findings_count: z.number().optional(),
             findings_verified: z.number().optional(),
         }).optional(),

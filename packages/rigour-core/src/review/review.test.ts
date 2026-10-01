@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema, type Failure } from '../types/index.js';
 import { parseDiff } from '../utils/diff.js';
 import { splitByChangedLines } from './changed-lines.js';
+import { anchorInChangedFunction, changedFunctionSpans } from './changed-function-spans.js';
 import { diffFromGit } from './git-diff.js';
 import { reviewChange, toReviewFinding } from './review.js';
 
@@ -28,6 +29,31 @@ describe('splitByChangedLines', () => {
         expect(split.fileFindings).toHaveLength(1);
         expect(split.unlocated).toBe(1);
         expect(split.outside).toBe(2);
+    });
+
+    it('keeps a deep finding inside a changed function, anchored on the nearest changed line', () => {
+        const deep = (line: number) => ({ ...failure('a.ts', line), provenance: 'deep-analysis' }) as Failure;
+        const changed = { 'a.ts': new Set([12, 14]) };
+        const spans = { 'a.ts': [[10, 20]] as Array<[number, number]> };
+        const split = splitByChangedLines([deep(11), deep(30), failure('a.ts', 11)], changed, spans);
+        expect(split.findings).toEqual([expect.objectContaining({ line: 11, anchorLine: 12 })]);
+        expect(split.contextFindings.map(f => f.line)).toEqual([30]); // elsewhere in a changed file: shown, not blocking
+        expect(split.outside).toBe(1); // a rule finding on an unchanged line is pre-existing, as before
+    });
+});
+
+describe('changedFunctionSpans', () => {
+    it('spans the outermost function around changed lines, and anchors to the nearest changed line in it', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spans-'));
+        try {
+            fs.writeFileSync(path.join(dir, 'a.ts'), 'const x = 1;\nexport function f(a: number) {\n  if (a > 0) {\n    return a;\n  }\n  return 0;\n}\n');
+            const spans = changedFunctionSpans(dir, { 'a.ts': new Set([4]), 'missing.ts': new Set([1]), 'notes.md': new Set([1]) });
+            expect(spans).toEqual({ 'a.ts': [[2, 7]] });
+            expect(anchorInChangedFunction(6, new Set([4]), spans['a.ts'])).toBe(4);
+            expect(anchorInChangedFunction(1, new Set([4]), spans['a.ts'])).toBeUndefined();
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
 

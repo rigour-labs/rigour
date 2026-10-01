@@ -32,6 +32,7 @@ export async function runDeepAnalysis(
         maxTokens: config.gates.deep?.max_tokens,
         temperature: config.gates.deep?.temperature,
         timeoutMs: config.gates.deep?.timeout_ms,
+        budgetMs: config.gates.deep?.budget_ms,
         intentChecks: config.gates.deep?.intent_checks,
         onProgress: deepOptions.onProgress,
     });
@@ -62,6 +63,11 @@ export async function runDeepAnalysis(
         error: outcome.error,
         findings_proposed: outcome.findingsProposed,
         findings_withdrawn: outcome.findingsWithdrawn,
+        findings_rejected: outcome.findingsRejected,
+        files_skipped: outcome.filesSkipped,
+        input_tokens: outcome.usage?.inputTokens,
+        output_tokens: outcome.usage?.outputTokens,
+        cost_usd: outcome.usage?.costUsd,
         findings_count: findings.length,
         findings_verified: findings.filter(f => f.verified).length,
     };

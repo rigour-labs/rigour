@@ -1,25 +1,33 @@
 /**
  * Which findings belong to a change.
  *
- * - findings: on a changed line; these decide PASS/FAIL.
+ * - findings: on a changed line; these decide PASS/FAIL. A deep finding on an
+ *   unchanged line inside a changed function also belongs here, with
+ *   `anchorLine` set to the nearest changed line (where a PR comment can go).
  * - fileFindings: about a changed file as a whole (no line); shown as context.
+ * - contextFindings: deep findings elsewhere in a changed file; returned so
+ *   nothing the model found disappears, never blocking.
  * - unlocated: no file at all; counted, never shown as a changed-line finding.
- * - outside: on an unchanged line; counted.
+ * - outside: any other finding on an unchanged line; counted.
  *
  * The CLI, the MCP tool and the GitHub integration all use this, so the same
  * change gets the same verdict everywhere.
  */
 import type { Failure } from '../types/index.js';
+import { anchorInChangedFunction, type LineSpan } from './changed-function-spans.js';
 
 export interface ChangedLineSplit {
     findings: Failure[];
     fileFindings: Failure[];
+    contextFindings: Failure[];
     unlocated: number;
     outside: number;
 }
 
-export function splitByChangedLines(failures: Failure[], changedLines: Record<string, Set<number>>): ChangedLineSplit {
-    const split: ChangedLineSplit = { findings: [], fileFindings: [], unlocated: 0, outside: 0 };
+export function splitByChangedLines(
+    failures: Failure[], changedLines: Record<string, Set<number>>, spans: Record<string, LineSpan[]> = {},
+): ChangedLineSplit {
+    const split: ChangedLineSplit = { findings: [], fileFindings: [], contextFindings: [], unlocated: 0, outside: 0 };
     for (const failure of failures) {
         const files = failure.files ?? [];
         if (files.length === 0) {
@@ -29,9 +37,25 @@ export function splitByChangedLines(failures: Failure[], changedLines: Record<st
             else split.outside++;
         } else if (files.some(file => changedLines[file]?.has(failure.line as number))) {
             split.findings.push(failure);
+        } else if (failure.provenance === 'deep-analysis') {
+            placeDeepFinding(failure, files, changedLines, spans, split);
         } else {
             split.outside++;
         }
     }
     return split;
+}
+
+function placeDeepFinding(
+    failure: Failure, files: string[], changedLines: Record<string, Set<number>>, spans: Record<string, LineSpan[]>, split: ChangedLineSplit,
+): void {
+    for (const file of files) {
+        const anchorLine = anchorInChangedFunction(failure.line as number, changedLines[file], spans[file]);
+        if (anchorLine !== undefined) {
+            split.findings.push({ ...failure, anchorLine });
+            return;
+        }
+    }
+    if (files.some(file => changedLines[file])) split.contextFindings.push(failure);
+    else split.outside++;
 }

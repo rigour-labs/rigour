@@ -12,6 +12,7 @@ import { changedLinesByFile, parseDiff, removedByFile } from '../utils/diff.js';
 import { normalizeScopePatterns } from '../utils/scope.js';
 import { deepAnalysisError } from '../utils/deep-status.js';
 import { splitByChangedLines } from './changed-lines.js';
+import { changedFunctionSpans } from './changed-function-spans.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
 import { diffTestFailures } from './diff-test-findings.js';
 
@@ -33,6 +34,8 @@ export interface ReviewResult {
     status: 'PASS' | 'FAIL' | 'ERROR';
     findings: Failure[];
     fileFindings: Failure[];
+    /** Deep findings elsewhere in a changed file: shown, never blocking. */
+    contextFindings: Failure[];
     unlocated: number;
     excludedOutsideChangedLines: number;
     changedLines: Record<string, Set<number>>;
@@ -48,6 +51,8 @@ export interface ReviewFinding {
     message: string;
     file: string;
     line: number | null;
+    /** For a finding inside a changed function but off the changed lines: the changed line to post it on. */
+    anchor_line?: number;
     suggestion?: string;
 }
 
@@ -56,17 +61,18 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = parseDiff(diff);
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null };
     }
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff) } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
-    const split = splitByChangedLines(report.failures, changedLines);
+    const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {});
     const deepError = deepAnalysisError(report);
     return {
         status: deepError ? 'ERROR' : split.findings.length > 0 ? 'FAIL' : 'PASS',
         findings: split.findings,
         fileFindings: split.fileFindings,
+        contextFindings: split.contextFindings,
         unlocated: split.unlocated,
         excludedOutsideChangedLines: split.outside,
         changedLines,
@@ -85,6 +91,7 @@ export function toReviewFinding(failure: Failure): ReviewFinding {
         message: failure.details,
         file: failure.files?.[0] || '',
         line: failure.line ?? null,
+        ...(failure.anchorLine !== undefined ? { anchor_line: failure.anchorLine } : {}),
         ...(failure.hint ? { suggestion: failure.hint } : {}),
     };
 }

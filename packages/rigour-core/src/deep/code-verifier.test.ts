@@ -20,6 +20,15 @@ function finding(overrides: Partial<DeepFinding>): DeepFinding {
 }
 
 describe('verifyCodeFindings', () => {
+    it('counts every dropped finding by reason, so a drop is never silent', () => {
+        const rejected = {};
+        verifyCodeFindings([
+            finding({}), finding({ file: 'src/other.ts' }), finding({ line: 80 }), finding({ line: undefined }),
+            finding({ confidence: 0.1 }), finding({ description: '`fetchEverything` has no limit.' }),
+        ], [context], rejected);
+        expect(rejected).toEqual({ no_context: 1, out_of_range: 1, no_line: 1, low_confidence: 1, ungrounded_identifier: 1 });
+    });
+
     it('keeps a finding grounded in the sent source', () => {
         const [kept] = verifyCodeFindings([finding({})], [context]);
         expect(kept).toMatchObject({ file: 'src/api/report.ts', verified: true });
