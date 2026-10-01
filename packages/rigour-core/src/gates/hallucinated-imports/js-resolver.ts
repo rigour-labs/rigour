@@ -39,6 +39,7 @@ export interface JsImportContext {
 export async function checkJSImports(content: string, file: string, ctx: JsImportContext): Promise<void> {
     const depsForFile = await resolveJSDepsForFile(file, ctx.cwd, ctx.rootDeps, ctx.depCacheByDir);
     const kitRoot = await ctx.kitRoots.rootFor(file);
+    const typeOnly = typeOnlySpecifiers(content, file);
 
     for (const spec of collectJSImportSpecs(content, file)) {
         const { line } = spec;
@@ -48,7 +49,7 @@ export async function checkJSImports(content: string, file: string, ctx: JsImpor
 
         const reason = importPath.startsWith('.')
             ? await checkRelativeImport(file, importPath, ctx)
-            : await checkBareImport(file, importPath, depsForFile, kitRoot, ctx);
+            : await checkBareImport(file, importPath, depsForFile, kitRoot, ctx, typeOnly.has(spec.importPath));
         if (reason) {
             ctx.hallucinated.push({
                 file, line, importPath,
@@ -57,6 +58,22 @@ export async function checkJSImports(content: string, file: string, ctx: JsImpor
             });
         }
     }
+}
+
+/** Specifiers imported only for types: `import type`, `export type … from`, or anything in a .d.ts file. */
+export function typeOnlySpecifiers(content: string, file: string): Set<string> {
+    const all = /\.d\.[cm]?ts$/.test(file);
+    const specs = new Set<string>();
+    const pattern = all
+        ? /(?:import|export)[^;]*?from\s*['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)/g
+        : /(?:import|export)\s+type\s[^;]*?from\s*['"]([^'"]+)['"]/g;
+    for (const match of content.matchAll(pattern)) specs.add(match[1] ?? match[2]);
+    return specs;
+}
+
+/** `@types/x` for `x`; `@types/scope__x` for `@scope/x`. */
+export function typesPackageFor(pkgName: string): string {
+    return pkgName.startsWith('@') ? `@types/${pkgName.slice(1).replace('/', '__')}` : `@types/${pkgName}`;
 }
 
 /**
@@ -104,6 +121,7 @@ async function checkBareImport(
     depsForFile: Set<string>,
     kitRoot: string | null,
     ctx: JsImportContext,
+    typeOnly = false,
 ): Promise<string | null> {
     const aliasResolution = await resolveTsPathAlias(file, importPath, ctx.cwd, ctx.projectFiles, ctx.tsPathCacheByDir);
     if (aliasResolution === true) return null;
@@ -117,6 +135,8 @@ async function checkBareImport(
 
     const pkgName = ctx.extractPackageName(importPath);
     if (isNodeBuiltin(pkgName) || depsForFile.has(pkgName)) return null;
+    // Types for a package can come from DefinitelyTyped; a type-only import needs nothing at runtime.
+    if (typeOnly && depsForFile.has(typesPackageFor(pkgName))) return null;
     if (ctx.hasNodeModules && await fs.pathExists(path.join(ctx.cwd, 'node_modules', pkgName))) return null;
     return `Package '${pkgName}' not in package.json dependencies`;
 }
