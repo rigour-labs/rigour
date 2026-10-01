@@ -151,6 +151,8 @@ export class FrontendSecretExposureGate extends Gate {
 
                 // Skip files guarded by Next.js server-only import
                 if (/import\s+['"]server-only['"]/.test(content)) continue;
+                // A file outside any frontend path that imports Node built-ins cannot be bundled for a browser.
+                if (fileContext === 'ambiguous' && importsNodeBuiltins(content)) continue;
 
                 this.scanFile(content, file, fileContext as 'frontend' | 'ambiguous', exposures);
             } catch {
@@ -336,4 +338,11 @@ export class FrontendSecretExposureGate extends Gate {
 
         return failures;
     }
+}
+
+const NODE_BUILTINS = /(?:from\s+|require\(\s*|import\(\s*)['"](?:node:[\w/]+|fs|fs\/promises|fs-extra|child_process|os|net|tls|worker_threads|cluster|module)['"]/;
+
+/** Imports a Node-only module: server code, whatever its path. */
+export function importsNodeBuiltins(content: string): boolean {
+    return NODE_BUILTINS.test(content);
 }

@@ -157,7 +157,12 @@ export function targetFromEnv(env: NodeJS.ProcessEnv = process.env): PostTarget 
     const token = env.GITHUB_TOKEN?.trim();
     const repo = env.GITHUB_REPOSITORY?.trim();
     if (!token || !repo || !env.GITHUB_EVENT_PATH) throw new Error('review-post runs in GitHub Actions: GITHUB_TOKEN, GITHUB_REPOSITORY and GITHUB_EVENT_PATH are required.');
-    const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
+    let event: any;
+    try {
+        event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
+    } catch (error) {
+        throw new Error(`Cannot read the GitHub event at ${env.GITHUB_EVENT_PATH}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const pr = Number(event.pull_request?.number);
     const sha = String(event.pull_request?.head?.sha ?? '');
     if (!pr || !sha) throw new Error('review-post needs a pull_request event.');

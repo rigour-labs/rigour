@@ -48,6 +48,21 @@ describe('FrontendSecretExposureGate', () => {
         expect(failures.length).toBeGreaterThan(0);
     });
 
+    it('treats a file outside frontend paths that imports Node built-ins as server code', async () => {
+        const cli = path.join(testDir, 'packages/cli/src/commands/post.ts');
+        const shared = path.join(testDir, 'packages/shared/src/config.ts');
+        const component = path.join(testDir, 'src/components/Admin.tsx');
+        for (const file of [cli, shared, component]) fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(cli, "import { execFileSync } from 'child_process';\nexport const token = process.env.GITHUB_TOKEN;\n");
+        fs.writeFileSync(shared, 'export const token = process.env.GITHUB_TOKEN;\n');
+        fs.writeFileSync(component, "import fs from 'node:fs';\nexport const key = process.env.STRIPE_SECRET_KEY;\n");
+
+        const files = (await new FrontendSecretExposureGate().run({ cwd: testDir })).flatMap(f => f.files ?? []);
+        expect(files).not.toContain('packages/cli/src/commands/post.ts'); // Node-only: never bundled
+        expect(files).toContain('packages/shared/src/config.ts'); // could be bundled: still flagged
+        expect(files).toContain('src/components/Admin.tsx'); // a frontend path stays frontend
+    });
+
     it('does not flag public env prefixes in client files', async () => {
         const filePath = path.join(testDir, 'components/Header.tsx');
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
