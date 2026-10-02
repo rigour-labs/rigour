@@ -96,9 +96,13 @@ jobs:
 
       - name: Detect existing release tag on HEAD
         id: release_guard
+        env:
+          # Passed as data, never interpolated into the script: a commit message
+          # is free text and may contain quotes, backticks or $(...).
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
-          if printf '%s' "${{ github.event.head_commit.message }}" | grep -q '\[skip release\]'; then
+          if printf '%s' "$HEAD_COMMIT_MESSAGE" | grep -q '\[skip release\]'; then
             if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
               VERSION=$(npm view @rigour-labs/cli dist-tags.beta 2>/dev/null || npm view @rigour-labs/cli version)
             else
