@@ -31,6 +31,7 @@ import { StyleDriftGate } from './style-drift.js';
 import { SemanticBugsGate } from './semantic-bugs.js';
 import { LogicDriftGate } from './logic-drift.js';
 import { UnindexedReadsGate } from './unindexed-reads/index.js';
+import { DeprecatedDependenciesGate } from './deprecated-dependencies.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 import { FileSystemCache } from '../services/filesystem-cache.js';
@@ -118,6 +119,10 @@ export class GateRunner {
         // v3.1+ Extended Hallucination Detection
         if (this.config.gates.phantom_apis?.enabled !== false) {
             this.gates.push(new PhantomApisGate(this.config.gates.phantom_apis));
+        }
+
+        if (this.config.gates.deprecated_dependencies?.enabled) {
+            this.gates.push(new DeprecatedDependenciesGate(this.config.gates.deprecated_dependencies));
         }
 
         if (this.config.gates.unindexed_reads?.enabled) {

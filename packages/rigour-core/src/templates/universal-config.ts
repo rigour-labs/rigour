@@ -240,6 +240,9 @@ export const UNIVERSAL_CONFIG: Config = {
             enabled: false,
             migrations: [],
         },
+        deprecated_dependencies: {
+            enabled: false,
+        },
         migration_order: {
             enabled: false,
             dirs: ['**/supabase/migrations'],
