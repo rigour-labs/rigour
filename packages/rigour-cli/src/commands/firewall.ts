@@ -118,8 +118,8 @@ export async function firewallAdversarialCommand(cwd: string) {
     if (report.failed > 0) process.exit(1);
 }
 
-export async function firewallAdmitCommand(cwd: string) {
-    const result = await admitForCi(cwd);
+export async function firewallAdmitCommand(cwd: string, options: { policy?: string } = {}) {
+    const result = await admitForCi(cwd, { policyHash: options.policy });
     if (!result.admit) {
         console.error(chalk.red(`ADMIT DENIED: ${result.reason}`));
         process.exit(1);
@@ -233,7 +233,8 @@ export function createFirewallCommand(): Command {
         .action(async () => firewallAdversarialCommand(process.cwd()));
     command.command('admit')
         .description('CI admission: require valid signed attestation with PASS gates')
-        .action(async () => firewallAdmitCommand(process.cwd()));
+        .option('--policy <hash>', 'Require this policy hash (or set RIGOUR_REQUIRED_POLICY_HASH)')
+        .action(async (options: { policy?: string }) => firewallAdmitCommand(process.cwd(), options));
     command.command('gateway-configure')
         .description('Install a trusted MCP gateway configuration outside the repository')
         .requiredOption('--config <path>', 'JSON gateway configuration')

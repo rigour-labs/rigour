@@ -13,6 +13,7 @@ import {
     runTypedCommand,
     evaluateTypedCommand,
     issueArbitrationToken,
+    verifyArbitrationDecision,
 } from "@rigour-labs/core";
 import type { Config } from "@rigour-labs/core";
 import { logStudioEvent } from '../utils/config.js';
@@ -32,11 +33,10 @@ async function requireHumanApproval(
         requestId,
         tool,
         command,
-        arbitrationToken,
     });
 
     console.error(`[RIGOUR] Waiting for human arbitration for command: ${command}`);
-    const decision = await pollArbitration(cwd, requestId, 60000);
+    const decision = await pollArbitration(cwd, requestId, arbitrationToken, 60000);
 
     if (decision === 'approve') return null;
 
@@ -274,19 +274,20 @@ function formatFixPacketForSupervisor(fixPacket: any): string {
 
 /**
  * Fail-closed: timeout with no human decision → timeout-deny (not approve).
+ * Only a decision Studio signed with this request's token counts; any other line is ignored.
  */
-export async function pollArbitration(cwd: string, rid: string, timeout: number): Promise<string | null> {
+export async function pollArbitration(cwd: string, rid: string, token: string, timeout: number): Promise<string | null> {
     const eventsPath = path.join(cwd, '.rigour/events.jsonl');
     const maxIterations = Math.max(1, Math.ceil(timeout / 1000));
     for (let i = 0; i < maxIterations; i++) {
-        const found = await readArbitrationDecision(eventsPath, rid);
+        const found = await readArbitrationDecision(eventsPath, rid, token);
         if (found) return found;
         await sleepMs(1000);
     }
     return "timeout-deny";
 }
 
-async function readArbitrationDecision(eventsPath: string, rid: string): Promise<string | null> {
+async function readArbitrationDecision(eventsPath: string, rid: string, token: string): Promise<string | null> {
     if (!(await fs.pathExists(eventsPath))) return null;
     const content = await fs.readFile(eventsPath, 'utf-8');
     const lines = content.split('\n').filter(l => l.trim());
@@ -297,7 +298,8 @@ async function readArbitrationDecision(eventsPath: string, rid: string): Promise
         } catch {
             continue;
         }
-        if (event.tool === 'human_arbitration' && event.requestId === rid) {
+        if (event.tool === 'human_arbitration' && event.requestId === rid
+            && verifyArbitrationDecision(token, rid, event.decision, event.proof)) {
             return event.decision;
         }
     }

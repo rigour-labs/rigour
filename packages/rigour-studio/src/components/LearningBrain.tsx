@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Brain, RefreshCw, Database, ScanSearch, Sparkles, AlertCircle } from 'lucide-react';
+import { studioWrite } from '../studioWrite';
 
 interface LearningPayload {
     memoryCount?: number;
@@ -60,9 +61,7 @@ export function LearningBrain({ onNavigate }: Props) {
     };
 
     const transition = async (id: string, state: Lesson['state']) => {
-        const response = await fetch('/api/lessons', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, state }),
-        });
+        const response = await studioWrite('/api/lessons', 'POST', JSON.stringify({ id, state }));
         if (!response.ok) throw new Error(`Lesson update failed: HTTP ${response.status}`);
         await load();
     };

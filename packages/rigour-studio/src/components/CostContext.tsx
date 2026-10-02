@@ -13,6 +13,7 @@ import {
     ChevronDown,
     Trash2,
 } from 'lucide-react';
+import { studioWrite } from '../studioWrite';
 
 interface TaskContextStats {
     retrievals?: number;
@@ -151,11 +152,7 @@ export function CostContext() {
     const handleCsvImport = async () => {
         if (!csvInput.trim()) return;
         try {
-            const res = await fetch('/api/import-cursor-usage', {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                body: csvInput,
-            });
+            const res = await studioWrite('/api/import-cursor-usage', 'POST', csvInput, 'text/plain');
             const data = await res.json();
             if (data.success) {
                 setImportStatus(`Imported ${data.importedCount} observed usage record(s).`);
@@ -174,11 +171,7 @@ export function CostContext() {
         setCursorSyncLoading(true);
         setCursorKeyStatus(null);
         try {
-            const res = await fetch('/api/cursor-api-key', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ apiKey: cursorApiKey.trim() }),
-            });
+            const res = await studioWrite('/api/cursor-api-key', 'POST', JSON.stringify({ apiKey: cursorApiKey.trim() }));
             const data = await res.json();
             if (data.success) {
                 setCursorKeyConfigured(true);
@@ -206,7 +199,7 @@ export function CostContext() {
         setCursorSyncLoading(true);
         setCursorKeyStatus(null);
         try {
-            const res = await fetch('/api/cursor-api-key', { method: 'DELETE' });
+            const res = await studioWrite('/api/cursor-api-key', 'DELETE');
             const data = await res.json();
             if (data.success) {
                 setCursorKeyConfigured(Boolean(data.configured));
@@ -231,7 +224,7 @@ export function CostContext() {
         setCursorSyncLoading(true);
         setCursorKeyStatus(null);
         try {
-            const res = await fetch('/api/cursor-sync', { method: 'POST' });
+            const res = await studioWrite('/api/cursor-sync', 'POST');
             const data = await res.json();
             if (data.success) {
                 setCursorImportedCount(Number(data.importedCount ?? 0));

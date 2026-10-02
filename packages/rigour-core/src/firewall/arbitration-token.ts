@@ -1,10 +1,18 @@
 /**
- * One-time arbitration tokens — bind Studio approve/reject to the requesting MCP process.
+ * One-time arbitration tokens — bind a Studio approve/reject to the MCP process that asked.
+ *
+ * The token lives only in the requesting process's memory and in a store outside the workspace
+ * (never in .rigour/ or the event log, which agents write). Studio consumes it once and signs the
+ * decision with it; the requester accepts only a decision whose signature verifies, so appending
+ * a decision line to .rigour/events.jsonl approves nothing.
  */
 
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs-extra';
 import path from 'path';
+import { repoStateDir } from '../utils/user-state.js';
+
+export type ArbitrationDecision = 'approve' | 'reject';
 
 interface TokenEntry {
     token: string;
@@ -14,22 +22,20 @@ interface TokenEntry {
 type TokenStore = Record<string, TokenEntry>;
 
 function storePath(cwd: string): string {
-    return path.join(cwd, '.rigour', 'arbitration-tokens.json');
+    return path.join(repoStateDir(cwd), 'arbitration-tokens.json');
 }
 
 async function readStore(cwd: string): Promise<TokenStore> {
-    const p = storePath(cwd);
-    if (!(await fs.pathExists(p))) return {};
     try {
-        return await fs.readJson(p);
+        return await fs.readJson(storePath(cwd));
     } catch {
         return {};
     }
 }
 
 async function writeStore(cwd: string, store: TokenStore): Promise<void> {
-    await fs.ensureDir(path.join(cwd, '.rigour'));
-    await fs.writeJson(storePath(cwd), store, { spaces: 2 });
+    await fs.ensureDir(path.dirname(storePath(cwd)), { mode: 0o700 });
+    await fs.writeJson(storePath(cwd), store, { spaces: 2, mode: 0o600 });
 }
 
 export async function issueArbitrationToken(cwd: string, requestId: string, ttlMs = 60_000): Promise<string> {
@@ -44,27 +50,28 @@ export async function issueArbitrationToken(cwd: string, requestId: string, ttlM
     return token;
 }
 
+function decisionProof(token: string, requestId: string, decision: ArbitrationDecision): string {
+    return createHmac('sha256', token).update(`${requestId}:${decision}`).digest('hex');
+}
+
 /**
- * Consume a one-time token. Returns false if missing, expired, or mismatched.
+ * Studio side: consume the request's token once and sign the human's decision with it.
+ * Null when the request is unknown, expired or already decided.
  */
-export async function consumeArbitrationToken(
-    cwd: string,
-    requestId: string,
-    token: string | undefined,
-): Promise<boolean> {
-    if (!token || !requestId) return false;
+export async function signArbitrationDecision(cwd: string, requestId: string, decision: ArbitrationDecision): Promise<string | null> {
+    if (!requestId) return null;
     const store = await readStore(cwd);
     const entry = store[requestId];
-    if (!entry) return false;
-    if (Date.now() > entry.expiresAt) {
-        delete store[requestId];
-        await writeStore(cwd, store);
-        return false;
-    }
-    const a = Buffer.from(entry.token);
-    const b = Buffer.from(token);
-    const ok = a.length === b.length && timingSafeEqual(a, b);
+    if (!entry) return null;
     delete store[requestId];
     await writeStore(cwd, store);
-    return ok;
+    return Date.now() > entry.expiresAt ? null : decisionProof(entry.token, requestId, decision);
+}
+
+/** Requester side: true only for a decision signed with the token this process issued. */
+export function verifyArbitrationDecision(token: string, requestId: string, decision: unknown, proof: unknown): boolean {
+    if ((decision !== 'approve' && decision !== 'reject') || typeof proof !== 'string') return false;
+    const expected = Buffer.from(decisionProof(token, requestId, decision));
+    const given = Buffer.from(proof);
+    return expected.length === given.length && timingSafeEqual(expected, given);
 }
