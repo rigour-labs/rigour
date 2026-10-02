@@ -11,10 +11,6 @@ vi.mock('./db.js', () => ({
 }));
 
 import {
-    getStaticCache,
-    setStaticCache,
-    getComponentCache,
-    setComponentCache,
     getSemanticQueryCache,
     setSemanticQueryCache,
     findRelatedSemanticQueryCache,
@@ -27,7 +23,7 @@ import {
     normalizeQuery
 } from './cache-engine.js';
 
-describe('4-Layer Context Cache Engine', () => {
+describe('Context cache engine', () => {
     const testCwd = path.join(os.tmpdir(), `rigour-cache-test-${Date.now()}`);
 
     beforeEach(async () => {
@@ -47,41 +43,6 @@ describe('4-Layer Context Cache Engine', () => {
     it('should normalize intent queries correctly', () => {
         expect(normalizeQuery('  Add priority to task!! ')).toBe('add priority to task');
         expect(normalizeQuery('Task SHOULD Support Priority.')).toBe('task should support priority');
-    });
-
-    it('Layer 1: should store and retrieve content-addressed static cache', async () => {
-        const fileContent = 'export function processTask() { return true; }';
-        const entry = {
-            exports: ['processTask'],
-            imports: [],
-            ownership: 'platform-team',
-            endpoints: ['/api/task']
-        };
-
-        await setStaticCache('rigour-repo', 'main', 'services/task.ts', fileContent, entry, testCwd);
-        const cached = await getStaticCache('rigour-repo', 'main', 'services/task.ts', fileContent, testCwd);
-
-        expect(cached).not.toBeNull();
-        expect(cached?.exports).toEqual(['processTask']);
-        expect(cached?.ownership).toBe('platform-team');
-    });
-
-    it('Layer 2: should store and retrieve component context dossier', async () => {
-        const dossier = {
-            component: 'services/task',
-            responsibility: 'Task lifecycle and persistence',
-            canonicalFiles: ['services/task.ts'],
-            contracts: ['TaskContract'],
-            directConsumers: ['controllers/task'],
-            validationCommands: ['npm test']
-        };
-
-        await setComponentCache('services/task', 'abc123commit', dossier, 'dep-fingerprint-v1', '3', testCwd);
-        const retrieved = await getComponentCache('services/task', 'abc123commit', '3', testCwd);
-
-        expect(retrieved).not.toBeNull();
-        expect(retrieved?.responsibility).toBe('Task lifecycle and persistence');
-        expect(retrieved?.canonicalFiles).toContain('services/task.ts');
     });
 
     it('Layer 3: should store and retrieve semantic query scope', async () => {
@@ -184,23 +145,5 @@ describe('4-Layer Context Cache Engine', () => {
         const result = await filterExistingEditScope(['alive.ts', 'gone.ts'], testCwd);
         expect(result.valid).toEqual(['alive.ts']);
         expect(result.missing).toEqual(['gone.ts']);
-    });
-
-    it('Layer 1: invalidates static cache when file content changes', async () => {
-        const originalContent = 'export function processTask() { return true; }';
-        const entry = {
-            exports: ['processTask'],
-            imports: [],
-            ownership: 'platform-team',
-            endpoints: ['/api/task'],
-        };
-
-        await setStaticCache('rigour-repo', 'main', 'services/task.ts', originalContent, entry, testCwd);
-        const cached = await getStaticCache('rigour-repo', 'main', 'services/task.ts', originalContent, testCwd);
-        expect(cached?.exports).toEqual(['processTask']);
-
-        const changedContent = 'export function processTask() { return false; }';
-        const stale = await getStaticCache('rigour-repo', 'main', 'services/task.ts', changedContent, testCwd);
-        expect(stale).toBeNull();
     });
 });

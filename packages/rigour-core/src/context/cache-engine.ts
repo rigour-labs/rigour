@@ -1,11 +1,10 @@
 /**
- * 4-Layer Context Caching Engine for Rigour
- * 
- * Implements:
- * 1. Content-addressed static cache (AST, exports, imports, dependencies, patterns by content SHA)
- * 2. Component context cache (Compact dossiers per component scope)
- * 3. Semantic-query cache (Intent embeddings & edit/validation scopes)
- * 4. Task checkpoint cache (Subagent handoff packets)
+ * Context caching for Rigour: the two layers something reads.
+ * - Semantic-query cache: the edit and validation scope resolved for a task query.
+ * - Task checkpoint cache: compact handoff packets between agents.
+ *
+ * The static (per-file) and component layers were removed: nothing read them, and the index sync
+ * that wrote them added a fresh row per component on every edit (millions of rows in real use).
  */
 
 import { createHash } from 'crypto';
@@ -18,28 +17,6 @@ import {
     ContextCacheRecord,
     recordCheckpointMetric
 } from '../storage/index.js';
-
-export interface StaticCacheEntry {
-    astSummary?: any;
-    exports?: string[];
-    imports?: string[];
-    dependencies?: string[];
-    ownership?: string;
-    schemas?: any[];
-    endpoints?: string[];
-    eventRelationships?: any[];
-    styleFingerprint?: string;
-    rigourPatterns?: string[];
-}
-
-export interface ComponentDossier {
-    component: string;
-    responsibility: string;
-    canonicalFiles: string[];
-    contracts: string[];
-    directConsumers: string[];
-    validationCommands: string[];
-}
 
 export interface SemanticQueryEntry {
     query: string;
@@ -86,98 +63,7 @@ export function hashContent(content: string): string {
 }
 
 /**
- * Layer 1: Content-Addressed Static Cache
- */
-export async function getStaticCache(
-    repo: string,
-    branch: string,
-    filePath: string,
-    fileContent: string,
-    cwd?: string
-): Promise<StaticCacheEntry | null> {
-    const contentSha = hashContent(fileContent);
-    const cacheKey = `static:${repo}:${branch}:${filePath}:${contentSha}:v1`;
-    const record = await getContextCacheRecord(cacheKey, cwd);
-    if (!record) return null;
-
-    try {
-        return JSON.parse(record.payloadJson) as StaticCacheEntry;
-    } catch {
-        return null;
-    }
-}
-
-export async function setStaticCache(
-    repo: string,
-    branch: string,
-    filePath: string,
-    fileContent: string,
-    entry: StaticCacheEntry,
-    cwd?: string
-): Promise<void> {
-    const contentSha = hashContent(fileContent);
-    const cacheKey = `static:${repo}:${branch}:${filePath}:${contentSha}:v1`;
-    const payloadJson = JSON.stringify(entry);
-    const payloadTokens = Math.ceil(payloadJson.length / 4);
-
-    await setContextCacheRecord({
-        cacheKey,
-        cacheType: 'static',
-        repo,
-        branch,
-        commitSha: contentSha,
-        dependencyFingerprint: `sha-${contentSha}`,
-        payloadJson,
-        payloadTokens,
-    }, cwd);
-}
-
-/**
- * Layer 2: Component Context Cache
- */
-export async function getComponentCache(
-    componentName: string,
-    commitSha: string,
-    profileVersion = '3',
-    cwd?: string
-): Promise<ComponentDossier | null> {
-    const cacheKey = `component:${componentName}:${commitSha}:v${profileVersion}`;
-    const record = await getContextCacheRecord(cacheKey, cwd);
-    if (!record) return null;
-
-    try {
-        return JSON.parse(record.payloadJson) as ComponentDossier;
-    } catch {
-        return null;
-    }
-}
-
-export async function setComponentCache(
-    componentName: string,
-    commitSha: string,
-    dossier: ComponentDossier,
-    dependencyFingerprint: string,
-    profileVersion = '3',
-    cwd?: string
-): Promise<void> {
-    const cacheKey = `component:${componentName}:${commitSha}:v${profileVersion}`;
-    const payloadJson = JSON.stringify(dossier);
-    const payloadTokens = Math.ceil(payloadJson.length / 4);
-
-    await setContextCacheRecord({
-        cacheKey,
-        cacheType: 'component',
-        repo: dossier.component,
-        branch: 'main',
-        commitSha,
-        dependencyFingerprint,
-        payloadJson,
-        payloadTokens,
-    }, cwd);
-}
-
-/**
- * Layer 3: Semantic-Query Cache
+ * Semantic-Query Cache
  */
 export function normalizeQuery(query: string): string {
     return query.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ');
@@ -316,7 +202,7 @@ export async function filterExistingEditScope(
 }
 
 /**
- * Layer 4: Task Checkpoint Cache
+ * Task Checkpoint Cache
  */
 export async function setTaskCheckpointCache(
     packet: TaskCheckpointPacket,

@@ -4,7 +4,6 @@ import { PatternIndexer, getDefaultIndexPath, loadPatternIndex, savePatternIndex
 import type { PatternIndex } from '../pattern-index/types.js';
 import { EMBEDDING_TEXT_VERSION } from '../pattern-index/embeddings.js';
 import { affectedDependents, buildDependencyGraph, updateDependencyGraph, type DependencyGraph } from './dependency-graph.js';
-import { syncIndexToContextCache } from './index-bridge.js';
 
 export type SemanticIndexStatus = 'disabled' | 'warming' | 'ready' | 'degraded';
 
@@ -98,7 +97,6 @@ async function enrichSemantic(cwd: string, index: PatternIndex): Promise<void> {
         const merged = mergeSemanticEmbeddings(latest, enriched);
         const embedded = merged.patterns.filter((pattern) => (pattern.embedding?.length ?? 0) > 0).length;
         await savePatternIndex(merged, indexPath);
-        await syncIndexToContextCache(cwd, merged);
         await writeStatus(cwd, {
             structural: 'ready',
             graph: 'ready',
@@ -136,7 +134,6 @@ export async function ensureAutomaticIndex(
     const index = existing ?? await indexer.buildIndex();
 
     if (!existing) await savePatternIndex(index, indexPath);
-    await syncIndexToContextCache(cwd, index);
     if (!(await fs.pathExists(path.join(cwd, '.rigour', 'dependency-graph.json')))) {
         await buildDependencyGraph(cwd, index);
     }
@@ -163,7 +160,6 @@ export async function updateAutomaticIndexForFiles(cwd: string, changedFiles: st
     const indexer = new PatternIndexer(cwd, { useEmbeddings: false });
     const index = await indexer.updateFiles(existing, affectedFiles);
     await savePatternIndex(index, getDefaultIndexPath(cwd));
-    await syncIndexToContextCache(cwd, index);
     if (graph) await updateDependencyGraph(cwd, index, graph, affectedFiles);
     else await buildDependencyGraph(cwd, index);
     await writeStatus(cwd, {
