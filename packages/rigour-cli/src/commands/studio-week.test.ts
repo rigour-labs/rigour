@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Story } from '@rigour-labs/core';
 import { buildWeek } from './studio-week.js';
+import { reviewFixStory } from './studio-checkouts.js';
 
 const now = new Date('2026-10-09T12:00:00Z');
 const story = (at: string, stage: Story['stage']): Story => ({ id: at, at, stage, file: 'src/a.ts', rule: 'semantic-bugs', title: 'T', diff: [] });
@@ -26,5 +27,11 @@ describe('buildWeek', () => {
         expect(buildWeek({ now, stories: [], open: [], dismissals: [], events: [] }).prCatches).toBeNull();
         const events = [{ type: 'pr_catches', timestamp: '2026-10-08T00:00:00Z', findings: [{ rule: 'r', title: 't', file: 'f' }] }];
         expect(buildWeek({ now, stories: [], open: [], dismissals: [], events }).prCatches).toBe(1);
+    });
+
+    it('counts a function an agent fixed in a pre-PR review as a problem stopped', () => {
+        const fix = reviewFixStory({ file: 'src/insights.ts', function: 'loadDiagnosis', hash: 'h', reviewer: 'agent', verdict: 'fixed', note: 'Six positional parameters replaced by one options object.', at: '2026-10-08T00:00:00Z' });
+        expect(fix).toMatchObject({ stage: 'review', title: 'Six positional parameters replaced by one options object (in `loadDiagnosis`)', diff: [] });
+        expect(buildWeek({ now, stories: [fix], open: [], dismissals: [], events: [] }).stopped.byStage.review).toBe(1);
     });
 });

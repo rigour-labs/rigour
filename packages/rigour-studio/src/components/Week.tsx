@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { studioWrite } from '../studioWrite';
-import { ago, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story } from './storyData';
+import { ago, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story, inlineCode } from './storyData';
 import './story.css';
 
 interface Need { key?: string; file: string; rule: string; title: string; openedAt: string; stage?: CatchStage }
@@ -81,7 +81,7 @@ const HowItWorks: React.FC<{ onHide: () => void }> = ({ onHide }) => (
     </section>
 );
 
-const NeedCard: React.FC<{ need: Need; onDone: () => void }> = ({ need, onDone }) => {
+export const NeedCard: React.FC<{ need: Need; onDone: () => void }> = ({ need, onDone }) => {
     const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
     const dismiss = async () => {
         const reason = window.prompt('Why is this not a bug? Rigour keeps the reason with the dismissal.');
@@ -109,20 +109,25 @@ const NeedCard: React.FC<{ need: Need; onDone: () => void }> = ({ need, onDone }
     );
 };
 
-const StoryCard: React.FC<{ story: Story; open: boolean; onToggle: () => void }> = ({ story, open, onToggle }) => (
+export const StoryCard: React.FC<{ story: Story; open: boolean; onToggle: () => void }> = ({ story, open, onToggle }) => (
     <div>
         <button className="st-story" onClick={onToggle} type="button" aria-expanded={open}>
             <div className="st-row" style={{ justifyContent: 'space-between' }}><span className="st-chip">{STAGE_WORDS[story.stage]}</span><span className="st-sub">{ago(story.at)}</span></div>
-            <div style={{ fontSize: 16, lineHeight: 1.55, marginTop: 10 }}>{story.title}</div>
+            <div style={{ fontSize: 16, lineHeight: 1.55, marginTop: 10 }}>{inlineCode(story.title)}</div>
             <div className="st-sub" style={{ marginTop: 6 }}><span className="st-mono">{story.file}</span> · fixed by the agent</div>
         </button>
         {open && (
             <div className="st-story-body">
-                <div className="st-code st-mono">
-                    {story.diff.map((line, i) => <span key={i} className={`st-ln ${line[0] === '+' ? 'add' : line[0] === '-' ? 'del' : ''}`}>{line}</span>)}
-                </div>
+                {story.diff.length > 0 && (
+                    <div className="st-code st-mono">
+                        {story.diff.map((line, i) => <span key={i} className={`st-ln ${line[0] === '+' ? 'add' : line[0] === '-' ? 'del' : ''}`}>{line}</span>)}
+                    </div>
+                )}
                 {story.details && story.details !== story.title && (
-                    <div style={{ marginTop: 16 }}><strong style={{ fontSize: 13 }}>How Rigour knew</strong><div className="st-sub" style={{ marginTop: 6, lineHeight: 1.6 }}>{story.details}</div></div>
+                    <div style={{ marginTop: story.diff.length ? 16 : 0 }}>
+                        <strong style={{ fontSize: 13 }}>{story.stage === 'review' && story.rule === 'review' ? 'What the agent fixed' : 'How Rigour knew'}</strong>
+                        <div className="st-sub" style={{ marginTop: 6, lineHeight: 1.6 }}>{inlineCode(story.details)}</div>
+                    </div>
                 )}
             </div>
         )}

@@ -26,6 +26,10 @@ export interface AgentEvent {
     lessons?: string[];
     /** pr_catches: what a branch review reported. */
     findings?: Array<{ rule: string; title: string; file: string }>;
+    /** reuse_suggested: what the agent was about to write, what already exists, and BLOCK or WARN. */
+    planned?: string;
+    existing?: string;
+    action?: string;
 }
 
 export interface ReviewEffectiveness {

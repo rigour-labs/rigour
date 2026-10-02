@@ -6,12 +6,11 @@ import { execa } from 'execa';
 import fs from 'fs-extra';
 import { createReadStream, promises as nativeFs } from 'fs';
 import readline from 'readline';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import http from 'http';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
-import { normalizeAgentSession, resolveStudioVersion } from './studio-contracts.js';
-import { getGatewayMediationState, loadStudioGatewayEvidence, summarizeGatewayEvidence } from './studio-firewall.js';
+import { resolveStudioVersion } from './studio-contracts.js';
 import { loadStudioLearnedRules } from './studio-learned-rules.js';
 import { loadPrePrReview } from './studio-pre-pr.js';
 import { createStudioGuard, refuseStudioRequest, STUDIO_KEY_HEADER, studioLaunchUrl, type StudioGuard } from './studio-guard.js';
@@ -49,27 +48,6 @@ async function readRecentLines(filePath: string, limit: number): Promise<string[
     }
 }
 
-async function readEventPage(filePath: string, limit: number, before?: number): Promise<{ events: unknown[]; hasMore: boolean }> {
-    if (!(await fs.pathExists(filePath))) return { events: [], hasMore: false };
-    const ring: unknown[] = [];
-    let matching = 0;
-    const lines = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
-    for await (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-            const event = JSON.parse(line);
-            const timestamp = Date.parse(event.timestamp ?? event.createdAt ?? 0);
-            if (before && (!Number.isFinite(timestamp) || timestamp >= before)) continue;
-            matching++;
-            ring.push(event);
-            if (ring.length > limit) ring.shift();
-        } catch {
-            // Malformed historical lines are ignored without hiding the remaining ledger.
-        }
-    }
-    return { events: ring.reverse(), hasMore: matching > limit };
-}
-
 async function mergeMemoryStores(cwd: string): Promise<{ memories: Record<string, any>; sources: string[] }> {
     const sources: string[] = [];
     const memories: Record<string, any> = {};
@@ -96,75 +74,6 @@ async function mergeMemoryStores(cwd: string): Promise<{ memories: Record<string
     }
 
     return { memories, sources };
-}
-
-function mapCheckpointMetrics(metrics: Array<{
-    checkpointId: string;
-    taskId: string;
-    agentId: string;
-    rawStateTokens?: number;
-    checkpointTokens?: number;
-    replayTokensAvoided?: number;
-    createdAt?: number;
-}>) {
-    return metrics.map((m) => {
-        const raw = m.rawStateTokens || 0;
-        const packed = m.checkpointTokens || 0;
-        const avoided = m.replayTokensAvoided || Math.max(0, raw - packed);
-        const compression = packed > 0 ? Math.round(raw / packed) : 0;
-        const qualityScore = Math.max(40, Math.min(100, 60 + Math.min(40, compression)));
-        const createdAt = m.createdAt ?? Date.now();
-        return {
-            checkpointId: m.checkpointId,
-            agentId: m.agentId,
-            taskId: m.taskId,
-            timestamp: new Date(createdAt).toISOString(),
-            progressPct: Math.min(100, Math.round((avoided / Math.max(raw, 1)) * 100)),
-            filesChanged: [] as string[],
-            summary: `Compressed ${raw.toLocaleString()} → ${packed.toLocaleString()} tokens; avoided ${avoided.toLocaleString()} replay tokens${compression ? ` (${compression}×)` : ''}.`,
-            qualityScore,
-            warnings: [] as string[],
-            rawStateTokens: raw,
-            checkpointTokens: packed,
-            replayTokensAvoided: avoided,
-        };
-    });
-}
-
-async function synthesizeAgents(cwd: string, checkpoints: Array<{ agentId: string; taskId?: string; timestamp: string }>) {
-    const sessionPath = path.join(cwd, '.rigour/agent-session.json');
-    const session = await readJsonIfExists(sessionPath);
-    if (session?.agents?.length) {
-        return normalizeAgentSession(session);
-    }
-
-    const byAgent = new Map<string, { agentId: string; taskScope: string[]; registeredAt: string; lastCheckpoint?: string; status: 'active' | 'idle' | 'completed' }>();
-    for (const cp of checkpoints) {
-        const existing = byAgent.get(cp.agentId);
-        if (!existing) {
-            byAgent.set(cp.agentId, {
-                agentId: cp.agentId,
-                taskScope: cp.taskId ? [`task:${cp.taskId}`] : [],
-                registeredAt: cp.timestamp,
-                lastCheckpoint: cp.timestamp,
-                status: 'completed',
-            });
-        } else {
-            existing.lastCheckpoint = cp.timestamp;
-            if (cp.taskId && !existing.taskScope.includes(`task:${cp.taskId}`)) {
-                existing.taskScope.push(`task:${cp.taskId}`);
-            }
-        }
-    }
-
-    const agents = [...byAgent.values()];
-    return normalizeAgentSession({
-        sessionId: agents.length ? 'derived-from-checkpoints' : 'inactive',
-        agents,
-        status: agents.length ? 'completed' : 'inactive',
-        createdAt: agents[0]?.registeredAt || new Date().toISOString(),
-        derived: true,
-    });
 }
 
 async function handleApiRequest(
@@ -232,38 +141,6 @@ async function handleApiRequest(
         return true;
     }
 
-    if (url.pathname === '/api/file') {
-        const filePath = url.searchParams.get('path');
-        if (!filePath) {
-            res.writeHead(400);
-            res.end('Missing path');
-            return true;
-        }
-        const absolutePath = path.resolve(cwd, filePath);
-        const relativePath = path.relative(path.resolve(cwd), absolutePath);
-        if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
-            res.writeHead(403);
-            res.end('Forbidden');
-            return true;
-        }
-        try {
-            const [realRoot, realFile] = await Promise.all([fs.realpath(cwd), fs.realpath(absolutePath)]);
-            const realRelative = path.relative(realRoot, realFile);
-            if (!realRelative || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) {
-                res.writeHead(403);
-                res.end('Forbidden');
-                return true;
-            }
-            const content = await fs.readFile(realFile, 'utf8');
-            res.writeHead(200, { 'Content-Type': 'text/plain' });
-            res.end(content);
-        } catch {
-            res.writeHead(404);
-            res.end('Not found');
-        }
-        return true;
-    }
-
     if (url.pathname === '/api/info') {
         try {
             const pkgPath = path.join(cwd, 'package.json');
@@ -305,48 +182,6 @@ async function handleApiRequest(
         return true;
     }
 
-    if (url.pathname === '/api/tree') {
-        try {
-            const getTree = async (dir: string): Promise<string[]> => {
-                const entries = await fs.readdir(dir, { withFileTypes: true });
-                let files: string[] = [];
-                const exclude = ['node_modules', '.git', '.rigour', '.venv', 'dist', 'build'];
-                for (const entry of entries) {
-                    if (exclude.includes(entry.name) || entry.name.startsWith('.')) continue;
-                    const fullPath = path.join(dir, entry.name);
-                    if (entry.isDirectory()) {
-                        files = [...files, ...(await getTree(fullPath))];
-                    } else {
-                        files.push(path.relative(cwd, fullPath));
-                    }
-                }
-                return files;
-            };
-            sendJson(res, 200, await getTree(cwd));
-        } catch (e: any) {
-            res.writeHead(500);
-            res.end(e.message);
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/config') {
-        try {
-            const configPath = path.join(cwd, 'rigour.yml');
-            if (await fs.pathExists(configPath)) {
-                res.writeHead(200, { 'Content-Type': 'text/yaml' });
-                res.end(await fs.readFile(configPath, 'utf8'));
-            } else {
-                res.writeHead(404);
-                res.end('Not found');
-            }
-        } catch (e: any) {
-            res.writeHead(500);
-            res.end(e.message);
-        }
-        return true;
-    }
-
     if (url.pathname === '/api/learned-rules') {
         try {
             const rules = loadStudioLearnedRules(cwd);
@@ -378,20 +213,6 @@ async function handleApiRequest(
         return true;
     }
 
-    if (url.pathname === '/api/lessons' && req.method === 'GET') {
-        try {
-            const { listLessons, loadTeamConfiguration } = await import('@rigour-labs/core');
-            const [lessons, teamConfiguration] = await Promise.all([
-                listLessons(cwd),
-                loadTeamConfiguration(),
-            ]);
-            sendJson(res, 200, { schemaVersion: 1, lessons, teamConfigured: Boolean(teamConfiguration) });
-        } catch (e: any) {
-            sendJson(res, 500, { schemaVersion: 1, lessons: [], teamConfigured: false, error: e.message });
-        }
-        return true;
-    }
-
     if (url.pathname === '/api/lessons' && req.method === 'POST') {
         let body = '';
         req.on('data', (chunk) => (body += chunk));
@@ -417,83 +238,6 @@ async function handleApiRequest(
         return true;
     }
 
-    if (url.pathname === '/api/agent-history') {
-        try {
-            const requested = Number(url.searchParams.get('limit') ?? 250);
-            const limit = Math.max(1, Math.min(500, Number.isFinite(requested) ? requested : 250));
-            const beforeValue = Number(url.searchParams.get('before'));
-            const before = Number.isFinite(beforeValue) && beforeValue > 0 ? beforeValue : undefined;
-            const page = await readEventPage(eventsPath, limit, before);
-            const { buildAgentRuns, normalizeAgentEvents } = await import('@rigour-labs/core');
-            const events = normalizeAgentEvents(page.events);
-            sendJson(res, 200, {
-                schemaVersion: 1,
-                events,
-                runs: buildAgentRuns(events),
-                hasMore: page.hasMore,
-                nextBefore: events.length ? Date.parse(events.at(-1)!.timestamp) : null,
-            });
-        } catch (e: any) {
-            sendJson(res, 500, { schemaVersion: 1, events: [], runs: [], hasMore: false, error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/knowledge-graph') {
-        try {
-            const { buildAgentRuns, buildEngineeringKnowledgeGraph, getRepositoryId, listKnowledgeLessons, normalizeAgentEvents } = await import('@rigour-labs/core');
-            const [page, dependencyGraph, lessons, repositoryId, patternIndex, memory, gatewayEvidence] = await Promise.all([
-                readEventPage(eventsPath, 2_000),
-                readJsonIfExists(path.join(cwd, '.rigour/dependency-graph.json')),
-                listKnowledgeLessons(cwd).catch(() => []),
-                getRepositoryId(cwd),
-                readJsonIfExists(path.join(cwd, '.rigour/patterns.json')),
-                mergeMemoryStores(cwd),
-                loadStudioGatewayEvidence(cwd),
-            ]);
-            const events = normalizeAgentEvents(page.events);
-            sendJson(res, 200, buildEngineeringKnowledgeGraph({
-                repository: { id: repositoryId, name: path.basename(cwd) },
-                dependencyGraph,
-                events,
-                runs: buildAgentRuns(events),
-                lessons,
-                patterns: Array.isArray(patternIndex?.patterns) ? patternIndex.patterns : [],
-                memories: Object.entries(memory.memories).map(([id, value]) => ({
-                    id,
-                    label: id,
-                    source: value?.source,
-                    detail: value?.type || value?.category || 'retained memory',
-                })),
-                gateway: gatewayEvidence.config ? {
-                    mode: gatewayEvidence.config.mode,
-                    agentId: gatewayEvidence.config.agentId,
-                    taskId: gatewayEvidence.config.taskId,
-                    serverCount: Object.keys(gatewayEvidence.config.servers).length,
-                    toolCount: Object.values(gatewayEvidence.config.servers).reduce((total, server) => total + server.allow.length, 0),
-                    chainValid: gatewayEvidence.chain.valid,
-                    receiptCount: gatewayEvidence.chain.count,
-                    chainReason: gatewayEvidence.chain.reason,
-                } : null,
-                receipts: gatewayEvidence.receipts,
-                capabilities: gatewayEvidence.capabilities,
-            }));
-        } catch (e: any) {
-            sendJson(res, 500, { schemaVersion: 1, nodes: [], edges: [], counts: {}, truncated: false, error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/check-precision') {
-        try {
-            const { loadStudioCheckPrecision } = await import('./studio-check-precision.js');
-            sendJson(res, 200, loadStudioCheckPrecision(cwd));
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
     if (url.pathname === '/api/index-stats') {
         try {
             const indexPath = path.join(cwd, '.rigour/patterns.json');
@@ -503,120 +247,6 @@ async function handleApiRequest(
                 sendJson(res, 200, { ...index, patterns: (index.patterns ?? []).map(withoutEmbedding) });
             } else {
                 sendJson(res, 200, { patterns: [], stats: { totalPatterns: 0, totalFiles: 0, byType: {} } });
-            }
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/index-search') {
-        const query = url.searchParams.get('q');
-        if (!query) {
-            res.writeHead(400);
-            res.end('Missing query');
-            return true;
-        }
-        try {
-            const { generateEmbedding, semanticSearch, SEMANTIC_MATCH_FLOOR } = await import('@rigour-labs/core/pattern-index');
-            const indexPath = path.join(cwd, '.rigour/patterns.json');
-            if (!(await fs.pathExists(indexPath))) {
-                sendJson(res, 200, []);
-                return true;
-            }
-            const indexData = await fs.readJson(indexPath);
-            const queryVector = await generateEmbedding(query);
-            const similarities = semanticSearch(queryVector, indexData.patterns);
-            const results = indexData.patterns
-                .map((p: any, i: number) => ({ ...withoutEmbedding(p), similarity: similarities[i] }))
-                .filter((p: any) => p.similarity >= SEMANTIC_MATCH_FLOOR)
-                .sort((a: any, b: any) => b.similarity - a.similarity)
-                .slice(0, 20);
-            sendJson(res, 200, results);
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/checkpoints' || url.pathname === '/api/agents') {
-        try {
-            const {
-                getCheckpointMetrics,
-            } = await import('@rigour-labs/core');
-            const metrics = await getCheckpointMetrics(undefined, cwd);
-            const mapped = mapCheckpointMetrics(metrics);
-            const sessionFile = await readJsonIfExists(path.join(cwd, '.rigour/checkpoint-session.json'));
-            const sessionCheckpoints = Array.isArray(sessionFile?.checkpoints) ? sessionFile.checkpoints : [];
-            const checkpoints = sessionCheckpoints.length > 0 ? sessionCheckpoints : mapped;
-
-            if (url.pathname === '/api/checkpoints') {
-                sendJson(res, 200, {
-                    checkpoints,
-                    status: checkpoints.length ? 'active' : 'inactive',
-                    source: sessionCheckpoints.length ? 'session' : 'brain-metrics',
-                    metricsCount: metrics.length,
-                });
-            } else {
-                sendJson(res, 200, await synthesizeAgents(cwd, checkpoints));
-            }
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/overview') {
-        try {
-            const {
-                getTaskContextStats,
-                getTaskCostStats,
-                getCacheStats,
-                getCheckpointSummary,
-                getCheckpointMetrics,
-            } = await import('@rigour-labs/core');
-            const [context, cost, cache, checkpointSummary, metrics, memory, indexStats] = await Promise.all([
-                getTaskContextStats(undefined, cwd),
-                getTaskCostStats(undefined, cwd),
-                getCacheStats(cwd),
-                getCheckpointSummary(undefined, cwd),
-                getCheckpointMetrics(undefined, cwd),
-                mergeMemoryStores(cwd),
-                readJsonIfExists(path.join(cwd, '.rigour/patterns.json')),
-            ]);
-            let recentEvents = 0;
-            if (await fs.pathExists(eventsPath)) {
-                const content = await fs.readFile(eventsPath, 'utf8');
-                recentEvents = content.split('\n').filter((l) => l.trim()).length;
-            }
-            sendJson(res, 200, {
-                context,
-                cost,
-                cache,
-                checkpointSummary,
-                checkpointCount: metrics.length,
-                memoryCount: Object.keys(memory.memories).length,
-                memorySources: memory.sources,
-                patternCount: indexStats?.stats?.totalPatterns ?? indexStats?.patterns?.length ?? 0,
-                patternFiles: indexStats?.stats?.totalFiles ?? 0,
-                eventCount: recentEvents,
-                projectPath: cwd,
-                brainDb: path.join(os.homedir(), '.rigour/rigour.db'),
-            });
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/report-stats') {
-        try {
-            const reportPath = path.join(cwd, 'rigour-report.json');
-            if (await fs.pathExists(reportPath)) {
-                const report = await fs.readJson(reportPath);
-                sendJson(res, 200, report.stats || {});
-            } else {
-                sendJson(res, 200, {});
             }
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });
@@ -675,6 +305,26 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/activity') {
+        try {
+            const { loadActivity } = await import('./studio-activity.js');
+            sendJson(res, 200, { sessions: loadActivity(cwd) });
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/context') {
+        try {
+            const { loadAgentContext } = await import('./studio-context.js');
+            sendJson(res, 200, await loadAgentContext(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/setup') {
         try {
             const { checkRepoSetup } = await import('./repo-setup.js');
@@ -688,504 +338,6 @@ async function handleApiRequest(
     if (url.pathname === '/api/pre-pr-review') {
         try {
             sendJson(res, 200, loadPrePrReview(cwd));
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/deep-findings') {
-        try {
-            const reportPath = path.join(cwd, 'rigour-report.json');
-            if (await fs.pathExists(reportPath)) {
-                const report = await fs.readJson(reportPath);
-                const findings = (report.failures || []).filter(
-                    (f: any) => f.provenance === 'deep-analysis' || f.source === 'llm' || f.source === 'hybrid',
-                );
-                sendJson(res, 200, findings);
-            } else {
-                sendJson(res, 200, []);
-            }
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/drift') {
-        try {
-            const { generateTemporalDriftReport } = await import('@rigour-labs/core');
-            const report = await generateTemporalDriftReport(cwd);
-            sendJson(res, 200, report || { totalScans: 0 });
-        } catch {
-            sendJson(res, 200, { totalScans: 0 });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/context-stats') {
-        try {
-            const { getTaskContextStats } = await import('@rigour-labs/core');
-            const taskId = url.searchParams.get('taskId') || undefined;
-            sendJson(res, 200, await getTaskContextStats(taskId, cwd));
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/task-cost') {
-        try {
-            const { getTaskCostStats } = await import('@rigour-labs/core');
-            const taskId = url.searchParams.get('taskId') || undefined;
-            sendJson(res, 200, await getTaskCostStats(taskId, cwd));
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/cache-stats') {
-        try {
-            const { getCacheStats } = await import('@rigour-labs/core');
-            sendJson(res, 200, await getCacheStats(cwd));
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/context-explain') {
-        try {
-            const { explainContext } = await import('@rigour-labs/core');
-            const target = url.searchParams.get('target') || 'all';
-            const taskId = url.searchParams.get('taskId') || undefined;
-            sendJson(res, 200, await explainContext(target, taskId, cwd));
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/context-scope') {
-        try {
-            const { getContextScopeSummary } = await import('@rigour-labs/core');
-            sendJson(res, 200, await getContextScopeSummary(cwd));
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/checkpoint-metrics') {
-        try {
-            const { getCheckpointSummary } = await import('@rigour-labs/core');
-            const taskId = url.searchParams.get('taskId') || undefined;
-            sendJson(res, 200, await getCheckpointSummary(taskId, cwd));
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/cursor-api-key/status') {
-        try {
-            const {
-                getCursorApiKey,
-                getCursorApiKeyHint,
-                countCursorAdminImportedEvents,
-            } = await import('@rigour-labs/core');
-            const key = getCursorApiKey();
-            const fromEnv = Boolean(
-                process.env.RIGOUR_CURSOR_API_KEY?.trim() || process.env.CURSOR_ADMIN_API_KEY?.trim(),
-            );
-            sendJson(res, 200, {
-                configured: Boolean(key),
-                hint: getCursorApiKeyHint(),
-                source: key ? (fromEnv ? 'env' : 'file') : 'none',
-                importedCount: await countCursorAdminImportedEvents(cwd),
-            });
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/cursor-sync' && req.method === 'POST') {
-        try {
-            const { syncCursorUsageFromAdminApi } = await import('@rigour-labs/core');
-            const result = await syncCursorUsageFromAdminApi(cwd);
-            sendJson(res, 200, { success: true, ...result });
-        } catch (e: any) {
-            sendJson(res, 502, { success: false, error: e.message || 'Cursor usage sync failed' });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/cursor-api-key' && req.method === 'DELETE') {
-        try {
-            const {
-                removeCursorApiKey,
-                getCursorApiKey,
-                getCursorApiKeyHint,
-            } = await import('@rigour-labs/core');
-            removeCursorApiKey();
-            const key = getCursorApiKey();
-            const fromEnv = Boolean(
-                process.env.RIGOUR_CURSOR_API_KEY?.trim() || process.env.CURSOR_ADMIN_API_KEY?.trim(),
-            );
-            sendJson(res, 200, {
-                success: true,
-                configured: Boolean(key),
-                hint: getCursorApiKeyHint(),
-                source: key ? (fromEnv ? 'env' : 'file') : 'none',
-            });
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/cursor-api-key' && req.method === 'POST') {
-        let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', async () => {
-            try {
-                const parsed = JSON.parse(body || '{}');
-                const apiKey = typeof parsed.apiKey === 'string' ? parsed.apiKey.trim() : '';
-                if (!apiKey || apiKey.length > 512) {
-                    sendJson(res, 400, { error: 'Missing or invalid apiKey' });
-                    return;
-                }
-                const {
-                    updateCursorApiKey,
-                    syncCursorUsageFromAdminApi,
-                    getCursorApiKeyHint,
-                } = await import('@rigour-labs/core');
-                updateCursorApiKey(apiKey);
-                let syncResult = { importedCount: 0, totalEvents: 0 };
-                let syncError: string | undefined;
-                try {
-                    syncResult = await syncCursorUsageFromAdminApi(cwd);
-                } catch (syncErr: any) {
-                    syncError = syncErr?.message || 'Initial Cursor sync failed';
-                }
-                sendJson(res, 200, {
-                    success: true,
-                    configured: true,
-                    hint: getCursorApiKeyHint(),
-                    source: 'file',
-                    importedCount: syncResult.importedCount,
-                    totalEvents: syncResult.totalEvents,
-                    syncError,
-                });
-            } catch (e: any) {
-                sendJson(res, 500, { error: e.message });
-            }
-        });
-        return true;
-    }
-
-    if (url.pathname === '/api/handoffs') {
-        try {
-            const handoffPath = path.join(cwd, '.rigour/handoffs.jsonl');
-            const handoffs: any[] = [];
-            if (await fs.pathExists(handoffPath)) {
-                const content = await fs.readFile(handoffPath, 'utf8');
-                for (const line of content.split('\n').filter((l) => l.trim())) {
-                    try {
-                        handoffs.push(JSON.parse(line));
-                    } catch {
-                        // skip bad lines
-                    }
-                }
-            }
-            if (await fs.pathExists(eventsPath)) {
-                const content = await fs.readFile(eventsPath, 'utf8');
-                for (const line of content.split('\n').filter((l) => l.trim()).slice(-500)) {
-                    try {
-                        const ev = JSON.parse(line);
-                        if (ev.type === 'handoff_accepted' && ev.handoffId) {
-                            const target = handoffs.find((h) => h.handoffId === ev.handoffId);
-                            if (target) {
-                                target.status = 'accepted';
-                                target.acceptedAt = ev.timestamp || ev.ts;
-                            }
-                        }
-                    } catch {
-                        // skip
-                    }
-                }
-            }
-            sendJson(res, 200, {
-                handoffs: handoffs.slice(-100).reverse(),
-                count: handoffs.length,
-            });
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/enforcement') {
-        try {
-            const {
-                getCheckpointMetrics,
-            } = await import('@rigour-labs/core');
-            const metrics = await getCheckpointMetrics(undefined, cwd);
-            const mapped = mapCheckpointMetrics(metrics);
-            const agentsSession = await synthesizeAgents(cwd, mapped);
-            const memory = await mergeMemoryStores(cwd);
-
-            let events: any[] = [];
-            if (await fs.pathExists(eventsPath)) {
-                const content = await fs.readFile(eventsPath, 'utf8');
-                events = content
-                    .split('\n')
-                    .filter((l) => l.trim())
-                    .slice(-400)
-                    .map((l) => {
-                        try {
-                            return JSON.parse(l);
-                        } catch {
-                            return null;
-                        }
-                    })
-                    .filter(Boolean);
-            }
-
-            const handoffPath = path.join(cwd, '.rigour/handoffs.jsonl');
-            let handoffCount = 0;
-            let acceptedHandoffs = 0;
-            if (await fs.pathExists(handoffPath)) {
-                const content = await fs.readFile(handoffPath, 'utf8');
-                const lines = content.split('\n').filter((l) => l.trim());
-                handoffCount = lines.length;
-                acceptedHandoffs = events.filter((e) => e.type === 'handoff_accepted').length;
-            }
-
-            const typeCount = (types: string[]) =>
-                events.filter((e) => types.includes(e.type) || types.includes(e.tool)).length;
-
-            const registerCount = Math.max(
-                agentsSession.agents?.length || 0,
-                typeCount(['agent_registered', 'rigour_agent_register']),
-            );
-            const scopeCount = typeCount(['context_scoped', 'rigour_context_scope', 'scope_resolved']);
-            const gateCount = typeCount([
-                'gate_failed',
-                'gate_passed',
-                'hook_blocked',
-                'interception_requested',
-                'rigour_check',
-            ]);
-            const gateBlocked = typeCount(['gate_failed', 'hook_blocked', 'interception_requested']);
-            // A check that errored ran no gates: it is not a pass.
-            const gateErrored = events.filter((e) => e.type === 'tool_response' && e.tool === 'rigour_check' && e.status === 'error').length;
-            const checkpointCount = Math.max(
-                mapped.length,
-                typeCount(['checkpoint_recorded', 'rigour_checkpoint']),
-            );
-            const memoryCount = Object.keys(memory.memories || {}).length;
-
-            const stage = (
-                id: string,
-                label: string,
-                count: number,
-                status: 'idle' | 'pass' | 'warn' | 'block',
-                detail: string,
-            ) => ({ id, label, count, status, detail });
-
-            const stages = [
-                stage(
-                    'register',
-                    'Register',
-                    registerCount,
-                    registerCount > 0 ? 'pass' : 'idle',
-                    registerCount ? `${registerCount} agent scope(s)` : 'Awaiting rigour_agent_register',
-                ),
-                stage(
-                    'scope',
-                    'Context scope',
-                    scopeCount,
-                    scopeCount > 0 ? 'pass' : registerCount > 0 ? 'warn' : 'idle',
-                    scopeCount ? `${scopeCount} scope event(s)` : 'Call rigour_context_scope / recall',
-                ),
-                stage(
-                    'gates',
-                    'Gates',
-                    gateCount,
-                    gateBlocked > 0 ? 'block' : gateErrored > 0 ? 'warn' : gateCount > 0 ? 'pass' : 'idle',
-                    gateBlocked > 0
-                        ? `${gateBlocked} block/intercept event(s)`
-                        : gateErrored > 0
-                          ? `${gateErrored} check(s) errored before running gates`
-                          : gateCount
-                            ? 'Gates exercised'
-                            : 'Hooks & quality gates idle',
-                ),
-                stage(
-                    'checkpoint',
-                    'Checkpoint',
-                    checkpointCount,
-                    checkpointCount > 0 ? 'pass' : 'idle',
-                    checkpointCount ? `${checkpointCount} checkpoint(s)` : 'Awaiting rigour_checkpoint',
-                ),
-                stage(
-                    'handoff',
-                    'Handoff',
-                    handoffCount,
-                    handoffCount > 0 ? (acceptedHandoffs > 0 ? 'pass' : 'warn') : 'idle',
-                    handoffCount
-                        ? `${acceptedHandoffs}/${handoffCount} accepted`
-                        : 'Awaiting rigour_handoff',
-                ),
-                stage(
-                    'memory',
-                    'Memory',
-                    memoryCount,
-                    memoryCount > 0 ? 'pass' : 'idle',
-                    memoryCount ? `${memoryCount} stable memor(ies)` : 'Awaiting rigour_remember',
-                ),
-            ];
-
-            const timeline = events
-                .filter((e) =>
-                    [
-                        'agent_registered',
-                        'checkpoint_recorded',
-                        'handoff_initiated',
-                        'handoff_accepted',
-                        'gate_failed',
-                        'gate_passed',
-                        'hook_blocked',
-                        'interception_requested',
-                        'memory_stored',
-                    ].includes(e.type),
-                )
-                .slice(-40)
-                .reverse()
-                .map((e) => ({
-                    type: e.type,
-                    timestamp: e.timestamp || e.ts || null,
-                    agentId: e.agentId || e.fromAgentId || null,
-                    summary: e.summary || e.taskDescription || e.tool || e.type,
-                }));
-
-            sendJson(res, 200, {
-                stages,
-                timeline,
-                derived: Boolean(agentsSession.derived),
-                agentCount: agentsSession.agents?.length || 0,
-                sessionStatus: agentsSession.status,
-            });
-        } catch (e: any) {
-            sendJson(res, 500, { error: e.message });
-        }
-        return true;
-    }
-
-    if (url.pathname === '/api/import-cursor-usage' && req.method === 'POST') {
-        let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', async () => {
-            try {
-                const { importCursorUsageCsv, importCursorUsageJson } = await import('@rigour-labs/core');
-                let importedCount = 0;
-                if (body.trim().startsWith('{') || body.trim().startsWith('[')) {
-                    importedCount = await importCursorUsageJson(JSON.parse(body), cwd);
-                } else {
-                    importedCount = await importCursorUsageCsv(body, cwd);
-                }
-                sendJson(res, 200, { success: true, importedCount });
-            } catch (e: any) {
-                sendJson(res, 500, { error: e.message });
-            }
-        });
-        return true;
-    }
-
-    if (url.pathname === '/api/firewall') {
-        try {
-            const {
-                loadCurrentTransaction,
-                listTransactions,
-                loadLatestAttestation,
-                verifyAttestation,
-            } = await import('@rigour-labs/core');
-            const current = await loadCurrentTransaction(cwd);
-            const transactions = await listTransactions(cwd);
-            const attestation = await loadLatestAttestation(cwd);
-            const attestationValid = attestation ? await verifyAttestation(cwd, attestation) : false;
-            const advPath = path.join(cwd, '.rigour/adversarial-report.json');
-            const adversarial = await fs.pathExists(advPath) ? await fs.readJson(advPath) : null;
-            const decisionsPath = path.join(cwd, '.rigour/firewall-decisions.jsonl');
-            let decisions: any[] = [];
-            if (await fs.pathExists(decisionsPath)) {
-                const content = await fs.readFile(decisionsPath, 'utf8');
-                decisions = content
-                    .split('\n')
-                    .filter((l) => l.trim())
-                    .slice(-100)
-                    .map((l) => {
-                        try {
-                            return JSON.parse(l);
-                        } catch {
-                            return null;
-                        }
-                    })
-                    .filter(Boolean)
-                    .reverse();
-            }
-            let recentDenies: any[] = [];
-            if (await fs.pathExists(eventsPath)) {
-                const content = await fs.readFile(eventsPath, 'utf8');
-                recentDenies = content
-                    .split('\n')
-                    .filter((l) => l.trim())
-                    .map((l) => {
-                        try {
-                            return JSON.parse(l);
-                        } catch {
-                            return null;
-                        }
-                    })
-                    .filter((e) => e && (e.type === 'firewall_deny' || e.decision === 'timeout-deny' || e.decision === 'deny'))
-                    .slice(-50)
-                    .reverse();
-            }
-            const hooksPresent =
-                (await fs.pathExists(path.join(cwd, '.cursor/hooks.json'))) ||
-                (await fs.pathExists(path.join(cwd, '.claude/settings.json'))) ||
-                (await fs.pathExists(path.join(cwd, '.clinerules'))) ||
-                (await fs.pathExists(path.join(cwd, '.windsurf/hooks.json')));
-            const agentScopesPath = path.join(cwd, '.rigour/agent-session.json');
-            const agentSession = await fs.pathExists(agentScopesPath) ? await fs.readJson(agentScopesPath) : null;
-            const scopeActive = Array.isArray(agentSession?.agents) && agentSession.agents.length > 0;
-            const typedSeen = recentDenies.some((e) => e.ruleId?.startsWith?.('shell.') || e.tool === 'rigour_run');
-            const gatewayEvidence = await loadStudioGatewayEvidence(cwd);
-            const gateway = summarizeGatewayEvidence(gatewayEvidence);
-            const gatewayState = getGatewayMediationState(gateway);
-
-            sendJson(res, 200, {
-                current,
-                transactions: transactions.slice(0, 20),
-                attestation,
-                attestationValid,
-                adversarial,
-                decisions,
-                recentDenies,
-                failClosed: true,
-                mediation: {
-                    status: gatewayState === 'observed' ? 'observed' : 'partial',
-                    typedCommands: typedSeen || hooksPresent ? 'rigour_run_only' : 'not_observed',
-                    scopeEnforcement: scopeActive ? 'requires_agent_id' : 'inactive',
-                    arbitration: 'fail-closed',
-                    hooksInstalled: hooksPresent,
-                    mcpGateway: gatewayState,
-                },
-                gateway,
-            });
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });
         }
@@ -1251,7 +403,9 @@ async function serveStaticFile(studioDist: string, pathname: string, res: Server
         '.svg': 'image/svg+xml',
         '.ico': 'image/x-icon',
     };
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
+    // The page is revalidated so an upgraded Rigour serves its new Studio; hashed assets never change.
+    const cacheControl = ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable';
+    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream', 'Cache-Control': cacheControl });
     res.end(content);
 }
 
@@ -1286,10 +440,9 @@ export const studioCommand = new Command('studio')
         const guard = createStudioGuard([studioPort, apiPort]);
         const ctx: StudioContext = { cwd, eventsPath, guard };
 
-        const { ensureAutomaticIndex, loadTeamConfiguration, syncTeamOutbox } = await import('@rigour-labs/core');
-        void ensureAutomaticIndex(cwd).catch((error: unknown) => {
-            console.warn(chalk.yellow(`Structural index is degraded: ${error instanceof Error ? error.message : String(error)}`));
-        });
+        const { loadTeamConfiguration, syncTeamOutbox } = await import('@rigour-labs/core');
+        // Indexing runs in its own process so the server answers while embeddings are computed.
+        spawn(process.execPath, [new URL('./studio-index-worker.js', import.meta.url).pathname, cwd], { stdio: ['ignore', 'ignore', 'inherit'] }).unref();
         const syncTimer = setInterval(() => {
             void loadTeamConfiguration().then((config) => {
                 if (config) return syncTeamOutbox().catch(() => undefined);

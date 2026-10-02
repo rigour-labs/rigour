@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentEvent, LessonRecord, Story } from '@rigour-labs/core';
-import { buildLearning } from './studio-learning.js';
+import { buildLearning, readableFixLesson } from './studio-learning.js';
 
 const now = new Date('2026-10-09T12:00:00Z');
 const lesson: LessonRecord = {
@@ -36,5 +36,12 @@ describe('buildLearning', () => {
     it('does not repeat the title when the detail says the same thing', () => {
         const same = { ...lesson, subject: 'Fixed before: Stripe API key detected in code (security-patterns). Stripe API key detected in code.' };
         expect(buildLearning({ now, lessons: [same], reviewLessons: [], stories: [], events: [] }).lessons[0].text).toBe('Stripe API key detected in code');
+    });
+
+    it('shows a lesson once, in words, without a truncated title or rule tag', () => {
+        expect(readableFixLesson("Fixed before: [credential-redirect] The `x-hook-signature` header is sent through `fetch(endpoint, { method: 'POST', headers: { 'x-h…` (semantic-bugs). [credential-redirect] The `x-hook-signature` header is sent through `fetch(endpoint, { method: 'POST', headers: { 'x-hook-signature': signature } })` without `redirect: \"manual\"`."))
+            .toBe("The `x-hook-signature` header is sent through `fetch(endpoint, { method: 'POST', headers: { 'x-hook-signature': signature } })` without `redirect: \"manual\"`");
+        const twice = [lesson, { ...lesson, id: 'l2', visibility: 'personal' as any }];
+        expect(buildLearning({ now, lessons: twice, reviewLessons: [], stories: [], events: [] }).lessons).toHaveLength(1);
     });
 });

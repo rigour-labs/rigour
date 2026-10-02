@@ -24,3 +24,8 @@ export function recordPrCatches(cwd: string, findings: Failure[]): void {
         findings: findings.slice(0, MAX_LISTED).map(f => ({ rule: f.id, title: f.title, file: f.files?.[0] ?? '' })),
     });
 }
+
+/** The agent was about to write something that already exists, and was pointed to it. */
+export function recordReuseSuggested(cwd: string, planned: string, existing: string, action: 'BLOCK' | 'WARN'): void {
+    appendAgentEvent(cwd, { type: 'reuse_suggested', planned, existing, action });
+}

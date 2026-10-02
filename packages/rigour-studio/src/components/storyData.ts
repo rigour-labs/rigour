@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 export type CatchStage = 'edit' | 'review' | 'stop' | 'pr';
 
@@ -45,4 +45,12 @@ export function useStudioJson<T>(url: string): { data: T | null; error: string |
     }, [url]);
     useEffect(reload, [reload]);
     return { data, error, reload };
+}
+
+/** Text with `code` spans, as Rigour writes findings and lessons: backticked parts render as code. */
+export function inlineCode(text: string): React.ReactNode[] {
+    return text.split(/(`[^`]+`)/g).map((part, i) =>
+        part.startsWith('`') && part.endsWith('`') && part.length > 2
+            ? React.createElement('code', { key: i, className: 'st-mono st-inline-code' }, part.slice(1, -1))
+            : part);
 }

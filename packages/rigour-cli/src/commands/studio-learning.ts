@@ -76,7 +76,9 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             reachedPr: null,
             canDecide: false,
         })),
-    ].sort((a, b) => b.learnedAt.localeCompare(a.learnedAt));
+    ].sort((a, b) => b.learnedAt.localeCompare(a.learnedAt))
+        // The same lesson learned in several places (this repo and personal lessons from others) shows once.
+        .filter((lesson, i, all) => all.findIndex(other => other.text === lesson.text) === i);
 
     const count = input.weeks ?? WEEKS;
     const weeks = Array.from({ length: count }, (_, i) => {
@@ -97,12 +99,20 @@ export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS)
     return buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
 }
 
-/** "Fixed before: Credential header follows redirects (semantic-bugs). The header…" → the defect, in words. */
-function readableFixLesson(subject: string): string {
-    const match = subject.match(/^Fixed before: (.*?) \([^)]*\)\.\s*(.*)$/);
+/**
+ * "Fixed before: Credential header follows redirects (semantic-bugs). The header…" → the defect,
+ * in words. A title that is a shortened start of the detail is dropped for the detail, and a
+ * leading "[rule-id]" tag is not shown.
+ */
+export function readableFixLesson(subject: string): string {
+    const match = subject.match(/^Fixed before: (.*?) \([^)]*\)\.\s*([\s\S]*)$/);
     if (!match) return subject;
-    const detail = match[2].replace(/\.$/, '');
-    return detail && detail !== match[1] ? `${match[1]}: ${match[2]}` : match[1];
+    const untag = (text: string) => text.replace(/^\[[\w-]+\]\s*/, '').trim();
+    const title = untag(match[1]);
+    const detail = untag(match[2]);
+    if (!detail || detail.replace(/\.$/, '') === title) return title;
+    const stem = title.replace(/(…|\.\.\.)[`'"]*$/, '').trim();
+    return detail.startsWith(stem) ? detail.replace(/\.$/, '') : `${title}: ${detail}`;
 }
 
 function fixOrigin(lesson: LessonRecord, stories: Story[]): string {

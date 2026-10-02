@@ -1,6 +1,6 @@
 import React from 'react';
 import { studioWrite } from '../studioWrite';
-import { useStudioJson } from './storyData';
+import { useStudioJson, inlineCode } from './storyData';
 import './story.css';
 
 interface Journey {
@@ -61,14 +61,15 @@ export const Learning: React.FC = () => {
             {data.lessons.length === 0
                 ? <div className="st-empty">No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</div>
                 : <div className="st-stack">{data.lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} />)}</div>}
+            <OtherKnowledge />
         </div>
     );
 };
 
-const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'rejected') => void }> = ({ lesson, onDecide }) => (
+export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'rejected') => void }> = ({ lesson, onDecide }) => (
     <div className="st-card">
         <div className="st-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{lesson.text}</div>
+            <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{inlineCode(lesson.text)}</div>
             <span className="st-chip">{lesson.scope === 'team' ? 'shared with team' : lesson.scope}</span>
         </div>
         <div className="st-journey">
@@ -80,9 +81,44 @@ const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'val
         {lesson.canDecide && (
             <div className="st-row" style={{ marginTop: 14 }}>
                 <span className="st-sub">Seen once. Keep it so your agents get told?</span>
-                <button className="st-btn" onClick={() => onDecide(lesson.id, 'validated')} type="button">Keep</button>
+                <button className="st-btn primary" onClick={() => onDecide(lesson.id, 'validated')} type="button">Keep</button>
                 <button className="st-btn" onClick={() => onDecide(lesson.id, 'rejected')} type="button">Drop</button>
             </div>
         )}
     </div>
 );
+
+interface LearnedRule { id: string; message: string; requirement: string; appliesTo: string }
+interface MemoryData { memories: Record<string, { value: string; timestamp?: string; source?: string }> }
+
+/** The rest of what Rigour knows: rules it enforces from fixes, facts agents were told, and the functions it can point to. */
+const OtherKnowledge: React.FC = () => {
+    const rules = useStudioJson<LearnedRule[]>('/api/learned-rules').data ?? [];
+    const memories = Object.entries(useStudioJson<MemoryData>('/api/memory').data?.memories ?? {});
+    const patterns = useStudioJson<{ stats?: { totalPatterns?: number } }>('/api/index-stats').data?.stats?.totalPatterns;
+    return (
+        <div className="st-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+            <section className="st-card">
+                <strong>Rules learned from fixes</strong>
+                <div className="st-sub" style={{ marginTop: 4 }}>Checked on every edit, like a built-in check.</div>
+                {rules.length === 0
+                    ? <div className="st-sub" style={{ marginTop: 10, lineHeight: 1.6 }}>None yet. rigour learn turns an agent's fixes into rules once they hold up.</div>
+                    : <ul style={{ margin: '10px 0 0', paddingLeft: 18, lineHeight: 1.6, fontSize: 14 }}>{rules.map(r => <li key={r.id}>{r.message}<div className="st-sub">{r.requirement} · {r.appliesTo}</div></li>)}</ul>}
+            </section>
+            <section className="st-card">
+                <strong>What your agents were told to remember</strong>
+                <div className="st-sub" style={{ marginTop: 4 }}>Facts saved with rigour_remember; agents recall them by meaning.</div>
+                {memories.length === 0
+                    ? <div className="st-sub" style={{ marginTop: 10, lineHeight: 1.6 }}>Nothing saved yet.</div>
+                    : <ul style={{ margin: '10px 0 0', paddingLeft: 18, lineHeight: 1.6, fontSize: 14 }}>{memories.slice(0, 12).map(([key, m]) => <li key={key}><strong>{key.replace(/_/g, ' ')}</strong>: {m.value.length > 220 ? `${m.value.slice(0, 220)}…` : m.value}</li>)}</ul>}
+                {memories.length > 12 && <div className="st-sub" style={{ marginTop: 6 }}>and {memories.length - 12} more</div>}
+            </section>
+            {typeof patterns === 'number' && patterns > 0 && (
+                <section className="st-card" style={{ gridColumn: '1 / -1' }}>
+                    <strong>{patterns} functions indexed</strong>
+                    <div className="st-sub" style={{ marginTop: 4, lineHeight: 1.6 }}>Before an agent writes a new helper, Rigour checks whether one already exists and points to it, so the codebase doesn't fill with near-copies.</div>
+                </section>
+            )}
+        </div>
+    );
+};
