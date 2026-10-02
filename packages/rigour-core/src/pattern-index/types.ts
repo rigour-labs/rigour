@@ -113,6 +113,9 @@ export interface PatternIndex {
     /** Index format version */
     version: string;
 
+    /** Version of the text its embeddings were built from (embeddings.ts EMBEDDING_TEXT_VERSION). */
+    embeddingTextVersion?: number;
+
     /** When the index was last updated */
     lastUpdated: string;
 

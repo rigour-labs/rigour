@@ -21,7 +21,7 @@ import type {
     PatternIndexStats,
     IndexedFile,
 } from './types.js';
-import { generateEmbedding } from './embeddings.js';
+import { EMBEDDING_TEXT_VERSION, embedPattern } from './embeddings.js';
 import { hashContent } from './indexer-helpers.js';
 import {
     extractGoPatterns,
@@ -112,9 +112,7 @@ export class PatternIndexer {
             for (let i = 0; i < patterns.length; i += BATCH_SIZE) {
                 const batch = patterns.slice(i, i + BATCH_SIZE);
                 await Promise.all(batch.map(async (pattern) => {
-                    pattern.embedding = await generateEmbedding(
-                        `${pattern.name} ${pattern.type} ${pattern.description}`
-                    );
+                    pattern.embedding = await embedPattern(pattern);
                 }));
             }
         }
@@ -124,6 +122,8 @@ export class PatternIndexer {
 
         return {
             version: INDEX_VERSION,
+            // Set only when this build embedded the patterns.
+            ...(this.config.useEmbeddings ? { embeddingTextVersion: EMBEDDING_TEXT_VERSION } : {}),
             lastUpdated: new Date().toISOString(),
             rootDir: this.rootDir,
             patterns,
@@ -178,9 +178,7 @@ export class PatternIndexer {
                 const batch = updatedPatterns.slice(i, i + BATCH_SIZE);
                 await Promise.all(batch.map(async (pattern) => {
                     if (!pattern.embedding) {
-                        pattern.embedding = await generateEmbedding(
-                            `${pattern.name} ${pattern.type} ${pattern.description}`
-                        );
+                        pattern.embedding = await embedPattern(pattern);
                     }
                 }));
             }
@@ -191,6 +189,8 @@ export class PatternIndexer {
 
         return {
             version: INDEX_VERSION,
+            // Kept from the index being updated, so an incremental update never looks stale.
+            embeddingTextVersion: this.config.useEmbeddings ? EMBEDDING_TEXT_VERSION : existingIndex.embeddingTextVersion,
             lastUpdated: new Date().toISOString(),
             rootDir: this.rootDir,
             patterns: updatedPatterns,
@@ -222,7 +222,7 @@ export class PatternIndexer {
                 const filePatterns = await this.extractPatterns(absolutePath, content);
                 if (this.config.useEmbeddings) {
                     await Promise.all(filePatterns.map(async pattern => {
-                        pattern.embedding = await generateEmbedding(`${pattern.name} ${pattern.type} ${pattern.description}`);
+                        pattern.embedding = await embedPattern(pattern);
                     }));
                 }
                 patterns.push(...filePatterns);
@@ -239,6 +239,7 @@ export class PatternIndexer {
 
         return {
             version: INDEX_VERSION,
+            embeddingTextVersion: this.config.useEmbeddings ? EMBEDDING_TEXT_VERSION : existingIndex.embeddingTextVersion,
             lastUpdated: new Date().toISOString(),
             rootDir: this.rootDir,
             patterns,
@@ -250,19 +251,22 @@ export class PatternIndexer {
     async enrichIndex(existingIndex: PatternIndex): Promise<PatternIndex> {
         const startTime = Date.now();
         const patterns = existingIndex.patterns.map(pattern => ({ ...pattern }));
-        const pending = patterns.filter(pattern => !pattern.embedding?.length);
+        // An index embedded from an older text is re-embedded whole: mixed vectors would not compare.
+        const stale = existingIndex.embeddingTextVersion !== EMBEDDING_TEXT_VERSION;
+        const pending = patterns.filter(pattern => stale || !pattern.embedding?.length);
         if (pending.length > 0) {
-            pending[0].embedding = await generateEmbedding(`${pending[0].name} ${pending[0].type} ${pending[0].description}`);
+            pending[0].embedding = await embedPattern(pending[0]);
             if (!pending[0].embedding.length) return existingIndex;
         }
         const batchSize = 10;
         for (let i = 1; i < pending.length; i += batchSize) {
             await Promise.all(pending.slice(i, i + batchSize).map(async pattern => {
-                pattern.embedding = await generateEmbedding(`${pattern.name} ${pattern.type} ${pattern.description}`);
+                pattern.embedding = await embedPattern(pattern);
             }));
         }
         return {
             ...existingIndex,
+            embeddingTextVersion: EMBEDDING_TEXT_VERSION,
             lastUpdated: new Date().toISOString(),
             patterns,
             stats: this.calculateStats(patterns, existingIndex.files, Date.now() - startTime),

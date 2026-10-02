@@ -164,7 +164,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "rigour_forget":        result = await handleForget(cwd, (args as any).key, (args as any).scope); break;
 
             // Pattern intelligence
-            case "rigour_check_pattern": result = await handleCheckPattern(cwd, (args as any).name, (args as any).type, (args as any).intent, (args as any).file); break;
+            case "rigour_check_pattern": result = await handleCheckPattern(cwd, (args as any).name, (args as any).type, (args as any).intent, (args as any).file, (args as any).signature, (args as any).keywords); break;
             case "rigour_security_audit": result = await handleSecurityAudit(cwd); break;
 
             // Execution

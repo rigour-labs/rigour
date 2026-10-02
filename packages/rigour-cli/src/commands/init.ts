@@ -505,7 +505,8 @@ const PRIMARY_HOOK_PATH: Record<string, string> = {
 
 /**
  * Build the pattern index so rigour_check_pattern can detect duplicates.
- * Uses semantic embeddings by default for fuzzy matching.
+ * Structural only here, so init stays fast; automatic indexing embeds the patterns in the
+ * background on first use (an explicit `rigour index --no-semantic` opts out).
  * Non-fatal — if indexing fails, init still succeeds.
  */
 async function buildPatternIndex(cwd: string, force?: boolean): Promise<void> {

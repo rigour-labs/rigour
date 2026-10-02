@@ -32,8 +32,12 @@ export {
 export {
     PatternMatcher,
     checkPatternDuplicate,
+    SEMANTIC_MATCH_FLOOR,
     type MatcherConfig
 } from './matcher.js';
+
+// Reuse check before writing
+export { assessPattern, type PatternQuery, type PatternAssessment } from './assess.js';
 
 // Staleness Detection
 export {
@@ -55,5 +59,8 @@ export {
 export {
     generateEmbedding,
     semanticSearch,
-    cosineSimilarity
+    cosineSimilarity,
+    embedPattern,
+    patternEmbeddingText,
+    EMBEDDING_TEXT_VERSION
 } from './embeddings.js';

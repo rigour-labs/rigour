@@ -250,6 +250,8 @@ export const TOOL_DEFINITIONS = [
                 name: { type: "string", description: "The name of the function, class, or component you want to create." },
                 type: { type: "string", description: "The type of pattern (e.g., 'function', 'component', 'hook', 'type')." },
                 intent: { type: "string", description: "What the code is for (e.g., 'format dates', 'user authentication')." },
+                signature: { type: "string", description: "Optional. The signature you plan to write, e.g. '(items: T[], size: number) => T[][]'. Matches existing code by shape, not only by name." },
+                keywords: { type: "array", items: { type: "string" }, description: "Optional. Words for what it does, e.g. ['retry', 'backoff']." },
                 file: { type: "string", description: "Target file path (relative to cwd) where the code will be written. Used to enforce protected path rules — writes to .github/, rigour.yml, etc. will be BLOCKED." },
             },
             required: ["cwd", "name"],
@@ -648,12 +650,12 @@ export const TOOL_DEFINITIONS = [
     // ─── Pattern Index & Scoped Context ──────────────────
     {
         name: "rigour_index",
-        description: "Build or update the Rigour pattern index (.rigour/patterns.json). CALL THIS when the index is missing or stale — before rigour_context_scope or rigour_check_pattern. One AST pass extracts functions, classes, routes, and signatures for reuse. Use semantic=true for embedding-based search.",
+        description: "Build or update the Rigour pattern index (.rigour/patterns.json). CALL THIS when the index is missing or stale — before rigour_context_scope or rigour_check_pattern. One AST pass extracts functions, classes, routes, and signatures for reuse, embedded locally so rigour_check_pattern can match by intent; semantic=false skips the embeddings.",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
-                semantic: { type: "boolean", description: "Generate semantic embeddings for better matching (requires Transformers.js). Default: false." },
+                semantic: { type: "boolean", description: "Embed patterns so an intent can find them (local Transformers.js model). Default: true; false records an explicit opt-out." },
                 force: { type: "boolean", description: "Force a full rebuild instead of incremental update. Default: false." },
                 output: { type: "string", description: "Custom path for the index file." },
             },

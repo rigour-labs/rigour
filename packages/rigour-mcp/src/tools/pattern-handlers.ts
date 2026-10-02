@@ -9,10 +9,9 @@ import path from "path";
 import yaml from "yaml";
 import fs from "fs-extra";
 import {
-    PatternMatcher,
+    assessPattern,
     loadPatternIndex,
     getDefaultIndexPath,
-    StalenessDetector,
     SecurityDetector,
 } from "@rigour-labs/core/pattern-index";
 import { ConfigSchema, estimateTokenCount } from "@rigour-labs/core";
@@ -55,6 +54,8 @@ export async function handleCheckPattern(
     type?: string,
     intent?: string,
     file?: string,
+    signature?: string,
+    keywords?: string[],
 ): Promise<ToolResult> {
     // No answer cache: a cache keyed on the commit kept naming functions renamed since, and the
     // index lookup it saved is milliseconds.
@@ -95,29 +96,25 @@ export async function handleCheckPattern(
         }
     }
 
-    // 1. Check for Reinvention
+    // 1. Reuse: does it exist already, and is what would be reused out of date?
+    let action: 'BLOCK' | 'WARN' | 'ALLOW' = 'ALLOW';
     if (index) {
-        const matcher = new PatternMatcher(index);
-        const matchResult = await matcher.match({ name: patternName, type, intent });
-        if (matchResult.status === "FOUND_SIMILAR") {
-            matchedPattern = matchResult.matches[0].pattern;
-            resultText += `🚨 PATTERN REINVENTION DETECTED\n`;
-            resultText += `Similar pattern already exists: "${matchResult.matches[0].pattern.name}" in ${matchResult.matches[0].pattern.file}\n`;
-            resultText += `SUGGESTION: ${matchResult.suggestion}\n\n`;
+        const assessment = await assessPattern(cwd, index, { name: patternName, type, intent, signature, keywords });
+        action = assessment.action;
+        if (assessment.match) {
+            const best = assessment.match;
+            matchedPattern = best.pattern;
+            resultText += action === 'BLOCK' ? `🚨 PATTERN REINVENTION DETECTED\n` : `💡 SIMILAR PATTERN EXISTS\n`;
+            resultText += `"${best.pattern.name}" in ${best.pattern.file}:${best.pattern.line} (${best.matchType}, ${best.confidence}%)\n`;
+            resultText += `SUGGESTION: ${assessment.suggestion}\n\n`;
+        }
+        if (assessment.deprecations.length) {
+            resultText += `⚠️ THE EXISTING "${matchedPattern?.name}" USES SOMETHING DEPRECATED\n`;
+            for (const issue of assessment.deprecations) resultText += `- ${issue.reason}\n  REPLACEMENT: ${issue.replacement}\n`;
+            resultText += `\n`;
         }
     } else {
         resultText += `⚠️ Pattern index not found. Run rigour_index to enable reinvention detection.\n\n`;
-    }
-
-    // 2. Check for Staleness/Best Practices
-    const detector = new StalenessDetector(cwd);
-    const staleness = await detector.checkStaleness(`${type || 'function'} ${patternName} {}`);
-    if (staleness.status !== "FRESH") {
-        resultText += `⚠️ STALENESS/ANTI-PATTERN WARNING\n`;
-        for (const issue of staleness.issues) {
-            resultText += `- ${issue.reason}\n  REPLACEMENT: ${issue.replacement}\n`;
-        }
-        resultText += `\n`;
     }
 
     // 3. Check Security for this library (if it's an import)
@@ -142,8 +139,10 @@ export async function handleCheckPattern(
         resultText = `✅ Pattern "${patternName}" is fresh, secure, and unique to the codebase.\n\nRECOMMENDED ACTION: Proceed with implementation.`;
     } else {
         recommendation = "Proceed with caution, addressing the warnings above.";
-        if (resultText.includes("🚨 PATTERN REINVENTION")) {
+        if (action === 'BLOCK') {
             recommendation = "STOP and REUSE the existing pattern mentioned above. Do not create a duplicate.";
+        } else if (action === 'WARN') {
+            recommendation = "Look at the similar pattern above and reuse it if it does what you need; otherwise proceed.";
         } else if (resultText.includes("🛡️ SECURITY/CVE WARNING")) {
             recommendation = "STOP and update your dependencies or find an alternative library. Do not proceed with vulnerable code.";
         } else if (resultText.includes("⚠️ STALENESS")) {

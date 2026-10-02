@@ -60,6 +60,25 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 /**
+ * Version of the text patterns are embedded by. An index embedded with an older text is
+ * re-embedded on its next enrichment.
+ *   2: the name split into words (`retryWithBackoff` → "retry with backoff"). Measured by
+ *      scripts/eval/pattern-intent.mjs: recall by intent 87% at 0.30 with no false matches,
+ *      against 13% for the raw name at the old 0.60 bar.
+ */
+export const EMBEDDING_TEXT_VERSION = 2;
+
+export function patternEmbeddingText(pattern: { name: string; type: string; description?: string }): string {
+    const words = pattern.name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase();
+    return `${words} ${pattern.type} ${pattern.description ?? ''}`.trim();
+}
+
+/** A pattern's embedding, rounded to 4 decimals: a third of the size on disk, no change to ranking. */
+export async function embedPattern(pattern: { name: string; type: string; description?: string }): Promise<number[]> {
+    return (await generateEmbedding(patternEmbeddingText(pattern))).map(x => Math.round(x * 1e4) / 1e4);
+}
+
+/**
  * Calculate cosine similarity between two vectors.
  */
 export function cosineSimilarity(v1: number[], v2: number[]): number {

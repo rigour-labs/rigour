@@ -38,37 +38,10 @@ export class StalenessDetector {
     private deprecations: DeprecationEntry[];
     private projectContext: ProjectContext | null = null;
     private rootDir: string;
-    private remoteRulesUrl = 'https://raw.githubusercontent.com/rigour-labs/rules/main/deprecations.json';
 
     constructor(rootDir: string, customDeprecations: DeprecationEntry[] = []) {
         this.rootDir = rootDir;
         this.deprecations = [...BUILT_IN_DEPRECATIONS, ...customDeprecations];
-    }
-
-    /**
-     * Fetch latest deprecation rules from Rigour's remote registry.
-     * This ensures the tool stays up-to-date even without a package update.
-     */
-    async syncRemoteRules(): Promise<number> {
-        try {
-            // Using dynamic import for fetch to avoid Node < 18 issues
-            const response = await fetch(this.remoteRulesUrl);
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-            const data = await response.json();
-            if (data.deprecations && Array.isArray(data.deprecations)) {
-                // Merge remote rules, avoiding duplicates
-                const existingPatterns = new Set(this.deprecations.map(d => d.pattern));
-                const newRules = data.deprecations.filter((d: DeprecationEntry) => !existingPatterns.has(d.pattern));
-
-                this.deprecations.push(...newRules);
-                return newRules.length;
-            }
-            return 0;
-        } catch (error) {
-            console.warn('Failed to sync remote rules, using built-in database:', error);
-            return 0;
-        }
     }
 
     /**

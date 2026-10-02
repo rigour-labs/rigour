@@ -477,7 +477,9 @@ async function handleApiRequest(
         try {
             const indexPath = path.join(cwd, '.rigour/patterns.json');
             if (await fs.pathExists(indexPath)) {
-                sendJson(res, 200, await fs.readJson(indexPath));
+                // Embeddings are 384 numbers per pattern and the view never draws them.
+                const index = await fs.readJson(indexPath);
+                sendJson(res, 200, { ...index, patterns: (index.patterns ?? []).map(withoutEmbedding) });
             } else {
                 sendJson(res, 200, { patterns: [], stats: { totalPatterns: 0, totalFiles: 0, byType: {} } });
             }
@@ -495,14 +497,18 @@ async function handleApiRequest(
             return true;
         }
         try {
-            const { generateEmbedding, semanticSearch } = await import('@rigour-labs/core/pattern-index');
+            const { generateEmbedding, semanticSearch, SEMANTIC_MATCH_FLOOR } = await import('@rigour-labs/core/pattern-index');
             const indexPath = path.join(cwd, '.rigour/patterns.json');
+            if (!(await fs.pathExists(indexPath))) {
+                sendJson(res, 200, []);
+                return true;
+            }
             const indexData = await fs.readJson(indexPath);
             const queryVector = await generateEmbedding(query);
             const similarities = semanticSearch(queryVector, indexData.patterns);
             const results = indexData.patterns
-                .map((p: any, i: number) => ({ ...p, similarity: similarities[i] }))
-                .filter((p: any) => p.similarity > 0.3)
+                .map((p: any, i: number) => ({ ...withoutEmbedding(p), similarity: similarities[i] }))
+                .filter((p: any) => p.similarity >= SEMANTIC_MATCH_FLOOR)
                 .sort((a: any, b: any) => b.similarity - a.similarity)
                 .slice(0, 20);
             sendJson(res, 200, results);
@@ -1283,3 +1289,9 @@ export const studioCommand = new Command('studio')
             announce(`http://127.0.0.1:${studioPort}`);
         });
     });
+
+/** A pattern as Studio shows it: everything but its embedding vector. */
+function withoutEmbedding<T extends { embedding?: unknown }>(pattern: T): Omit<T, 'embedding'> {
+    const { embedding: _embedding, ...rest } = pattern;
+    return rest;
+}

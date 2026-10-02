@@ -13,10 +13,9 @@
  */
 import chalk from 'chalk';
 import {
-    PatternMatcher,
+    assessPattern,
     loadPatternIndex,
     getDefaultIndexPath,
-    StalenessDetector,
     SecurityDetector,
 } from '@rigour-labs/core/pattern-index';
 
@@ -55,15 +54,18 @@ export async function checkPatternCommand(cwd: string, options: CheckPatternOpti
         const indexPath = getDefaultIndexPath(cwd);
         const index = await loadPatternIndex(indexPath);
         if (index) {
-            const matcher = new PatternMatcher(index);
-            const matchResult = await matcher.match({ name: patternName, type, intent });
-            if (matchResult.status === 'FOUND_SIMILAR') {
+            const assessment = await assessPattern(cwd, index, { name: patternName, type, intent });
+            if (assessment.match) {
+                const best = assessment.match.pattern;
                 findings.push({
-                    level: 'error',
+                    level: assessment.action === 'BLOCK' ? 'error' : 'warning',
                     category: 'reinvention',
-                    message: `Similar pattern already exists: "${matchResult.matches[0].pattern.name}" in ${matchResult.matches[0].pattern.file}`,
-                    suggestion: matchResult.suggestion,
+                    message: `${assessment.action === 'BLOCK' ? 'Already exists' : 'Similar pattern exists'}: "${best.name}" in ${best.file}:${best.line} (${assessment.match.matchType}, ${assessment.match.confidence}%)`,
+                    suggestion: assessment.suggestion,
                 });
+            }
+            for (const issue of assessment.deprecations) {
+                findings.push({ level: 'warning', category: 'staleness', message: `The existing function: ${issue.reason}`, suggestion: issue.replacement });
             }
         } else {
             findings.push({
@@ -71,20 +73,6 @@ export async function checkPatternCommand(cwd: string, options: CheckPatternOpti
                 category: 'index_missing',
                 message: 'Pattern index not found. Run `rigour index` to enable reinvention detection.',
             });
-        }
-
-        // 2. Check for Staleness / Anti-patterns
-        const detector = new StalenessDetector(cwd);
-        const staleness = await detector.checkStaleness(`${type || 'function'} ${patternName} {}`);
-        if (staleness.status !== 'FRESH') {
-            for (const issue of staleness.issues) {
-                findings.push({
-                    level: 'warning',
-                    category: 'staleness',
-                    message: issue.reason,
-                    suggestion: issue.replacement,
-                });
-            }
         }
 
         // 3. Security / CVE check (when intent suggests imports)

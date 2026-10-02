@@ -15,6 +15,7 @@ import {
 import {
     setStaticCache,
     setComponentCache,
+    recordIndexChoice,
     type ComponentDossier,
 } from '@rigour-labs/core';
 import { notifyProgress } from '../utils/notifications.js';
@@ -73,7 +74,8 @@ export async function handleIndex(
     try {
         notifyProgress('info', 'Building pattern index...');
 
-        const indexer = new PatternIndexer(cwd, { useEmbeddings: options.semantic ?? true });
+        const semantic = options.semantic ?? true;
+        const indexer = new PatternIndexer(cwd, { useEmbeddings: semantic });
         const existingIndex = await loadPatternIndex(indexPath);
 
         let index: PatternIndex;
@@ -85,6 +87,7 @@ export async function handleIndex(
 
         await savePatternIndex(index, indexPath);
         await syncIndexToCache(cwd, index);
+        await recordIndexChoice(cwd, index, semantic);
 
         notifyProgress('info', 'Pattern index complete');
 
@@ -92,12 +95,12 @@ export async function handleIndex(
             .map(([type, count]) => `${type}: ${count}`)
             .join(', ');
 
-        let text = `✅ PATTERN INDEX ${options.force ? 'REBUILT' : 'UPDATED'}\n\n`;
+        let text = `✅ PATTERN INDEX ${existingIndex && !options.force ? 'UPDATED' : 'BUILT'}\n\n`;
         text += `- Total Patterns: ${index.stats.totalPatterns}\n`;
         text += `- Total Files: ${index.stats.totalFiles}\n`;
         text += `- Index Path: ${indexPath}\n`;
         text += `- Duration: ${index.stats.indexDurationMs}ms\n`;
-        if (options.semantic) text += `- Semantic Search: Enabled\n`;
+        text += `- Search by meaning: ${semantic ? (index.patterns.some(p => p.embedding?.length) ? 'on' : 'unavailable (local model did not load; name matching still works)') : 'off'}\n`;
         text += `- Types: ${byType}\n\n`;
         text += `Index synced to context cache layers. Use rigour_context_scope before reading files.`;
 
