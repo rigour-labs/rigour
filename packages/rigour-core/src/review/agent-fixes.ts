@@ -16,6 +16,7 @@ import path from 'path';
 import type { Failure } from '../types/index.js';
 import { checkId, recordOutcome } from './check-outcomes.js';
 import { appendStory, compactDiff, type CatchStage } from './stories.js';
+import { dismissedKeys, findingKey } from './quiet.js';
 
 const DIR = path.join('.rigour', 'agent-fixes');
 const MAX_FILE_BYTES = 200_000;
@@ -31,6 +32,8 @@ interface OpenFinding {
     openedAt: string;
     /** The stage that first reported it; absent in entries captured before stages were kept. */
     stage?: CatchStage;
+    /** Its dismissal key (quiet.ts): a finding someone dismissed was not fixed. */
+    key?: string;
 }
 
 export interface ResolvedFix {
@@ -71,8 +74,13 @@ export function recordReviewOutcome(cwd: string, findings: Failure[], reviewedFi
 /** Open findings this review no longer reports: resolved when their file was reviewed and changed. */
 function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>, reviewed: Set<string>): ResolvedFix[] {
     const resolved: ResolvedFix[] = [];
+    const dismissed = dismissedKeys(cwd);
     for (const [key, entry] of Object.entries(open)) {
         if (current.has(key)) continue;
+        if (entry.key && dismissed.has(entry.key)) {
+            delete open[key]; // gone because a person dismissed it, not because anyone fixed it
+            continue;
+        }
         if (!reviewed.has(entry.file)) {
             if (Date.now() - Date.parse(entry.openedAt) > OPEN_TTL_MS) delete open[key];
             continue;
@@ -94,7 +102,7 @@ function openNew(cwd: string, open: Record<string, OpenFinding>, current: Map<st
         const file = finding.files![0];
         const before = readSmall(cwd, file);
         if (before === null) continue;
-        open[key] = { file, rule: finding.id, title: finding.title, details: finding.details, before, openedAt: new Date().toISOString(), stage };
+        open[key] = { file, rule: finding.id, title: finding.title, details: finding.details, before, openedAt: new Date().toISOString(), stage, key: findingKey(finding) };
         opened++;
     }
     return opened;
@@ -122,7 +130,11 @@ export function openFindingCount(cwd: string): number {
 
 /** Findings reported and not fixed yet, newest first: what still needs someone. */
 export function listOpenFindings(cwd: string): Array<Omit<OpenFinding, 'before'>> {
-    return Object.values(readOpen(cwd)).map(({ before: _before, ...rest }) => rest).sort((a, b) => b.openedAt.localeCompare(a.openedAt));
+    const dismissed = dismissedKeys(cwd);
+    return Object.values(readOpen(cwd))
+        .filter(entry => !(entry.key && dismissed.has(entry.key)))
+        .map(({ before: _before, ...rest }) => rest)
+        .sort((a, b) => b.openedAt.localeCompare(a.openedAt));
 }
 
 function readOpen(cwd: string): Record<string, OpenFinding> {

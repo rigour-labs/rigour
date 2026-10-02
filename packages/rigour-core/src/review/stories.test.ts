@@ -34,6 +34,17 @@ describe('stories from fixes', () => {
         expect(story.diff).toEqual(['-fetch(url, { headers });', "+fetch(url, { headers, redirect: 'error' });", ' ']);
     });
 
+    it('writes no story for a finding someone dismissed, even after its file changed', async () => {
+        const { dismissFinding, findingKey } = await import('./quiet.js');
+        const f = finding('semantic-bugs', 'Looks risky');
+        fs.writeFileSync(path.join(cwd, 'src/a.ts'), 'x\n');
+        recordReviewOutcome(cwd, [f], ['src/a.ts'], 'review');
+        dismissFinding(cwd, findingKey(f), 'intended');
+        fs.writeFileSync(path.join(cwd, 'src/a.ts'), 'y\n');
+        recordReviewOutcome(cwd, [], ['src/a.ts'], 'review');
+        expect(readStories(cwd)).toEqual([]);
+    });
+
     it('writes no story while the finding is still open', () => {
         fs.writeFileSync(path.join(cwd, 'src/a.ts'), 'x\n');
         recordReviewOutcome(cwd, [finding('semantic-bugs', 'X')], ['src/a.ts'], 'review');
