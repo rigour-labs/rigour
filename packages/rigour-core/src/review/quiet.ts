@@ -11,13 +11,16 @@
  * blocking. A team that wants them back sets review.include_heuristics.
  *
  * A finding a person judged "not a bug" is dismissed by its key and never
- * reported again (.rigour/dismissed.json, meant to be committed).
+ * reported again (.rigour/dismissed.json, meant to be committed). An
+ * independent review reads it from the base (trusted-state.ts), so a change
+ * cannot dismiss its own findings.
  */
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { Failure } from '../types/index.js';
 import { checkId, isMuted, readOutcomes, recordOutcome, reportedCheck } from './check-outcomes.js';
+import { readStateFile } from './trusted-state.js';
 
 const PROVEN_GATES = new Set(['semantic-bugs', 'hallucinated-imports', 'security-patterns', 'deep-analysis', 'diff-tests']);
 export const DISMISSED_FILE = path.join('.rigour', 'dismissed.json');
@@ -41,9 +44,10 @@ export interface QuietSplit {
     dismissedByGate: Record<string, number>;
 }
 
-export function quietSplit(cwd: string, findings: Failure[], includeHeuristics = false): QuietSplit {
-    const dismissed = dismissedKeys(cwd);
-    const outcomes = readOutcomes(cwd);
+/** `trustedRef`: read dismissals and outcomes as of that commit, not as the change left them. */
+export function quietSplit(cwd: string, findings: Failure[], includeHeuristics = false, trustedRef?: string): QuietSplit {
+    const dismissed = dismissedKeys(cwd, trustedRef);
+    const outcomes = readOutcomes(cwd, trustedRef);
     const split: QuietSplit = { speaking: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {} };
     for (const finding of findings) {
         if (dismissed.has(findingKey(finding))) {
@@ -57,9 +61,9 @@ export function quietSplit(cwd: string, findings: Failure[], includeHeuristics =
     return split;
 }
 
-export function dismissedKeys(cwd: string): Set<string> {
+export function dismissedKeys(cwd: string, ref?: string): Set<string> {
     try {
-        const parsed = JSON.parse(fs.readFileSync(path.join(cwd, DISMISSED_FILE), 'utf8'));
+        const parsed = JSON.parse(readStateFile(cwd, DISMISSED_FILE, ref) ?? '');
         return new Set(Array.isArray(parsed?.entries) ? parsed.entries.map((e: any) => e?.key).filter((k: unknown) => typeof k === 'string') : []);
     } catch {
         return new Set();

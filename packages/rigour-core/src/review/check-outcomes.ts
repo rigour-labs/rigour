@@ -13,6 +13,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { readStateFile } from './trusted-state.js';
 
 const OUTCOMES_FILE = path.join('.rigour', 'check-outcomes.json');
 const REPORTED_FILE = path.join('.rigour', 'reported-findings.json');
@@ -49,8 +50,10 @@ export function isMuted(outcome: CheckOutcome | undefined): boolean {
     return outcome.fixed + outcome.dismissed >= MUTE_MIN_OUTCOMES && precisionOf(outcome) < MUTE_BELOW;
 }
 
-export function readOutcomes(cwd: string): Record<string, CheckOutcome> {
-    return readJson(path.join(cwd, OUTCOMES_FILE)) ?? {};
+/** Outcomes in the working tree, or at `ref` for an independent review (trusted-state.ts). */
+export function readOutcomes(cwd: string, ref?: string): Record<string, CheckOutcome> {
+    if (!ref) return readJson(path.join(cwd, OUTCOMES_FILE)) ?? {};
+    try { return JSON.parse(readStateFile(cwd, OUTCOMES_FILE, ref) ?? '{}'); } catch { return {}; }
 }
 
 export function recordOutcome(cwd: string, check: string, kind: keyof CheckOutcome): void {

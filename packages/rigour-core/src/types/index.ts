@@ -522,6 +522,11 @@ export interface DeepOptions {
     removedLines?: Record<string, Array<{ line: number; text: string[] }>>;
     /** What the change intends (a PR description): reference for the stronger tiers. */
     prBody?: string;
+    /**
+     * Review every risky changed function, ignoring the review ledger and reviewed.json. Those
+     * record what an agent said it reviewed; an enforcing check reviews independently.
+     */
+    independent?: boolean;
     /** The change's unified diff (from reviewChange): a cloud agentic review reads the PR as a whole. */
     diff?: string;
 }

@@ -240,7 +240,7 @@ export class DeepAnalysisGate extends Gate {
     private route(cwd: string, facts: FileFacts[]): FileFacts[] {
         const { options } = this.config;
         if (!isCloud(options) || this.config.router?.enabled === false || !options.focusLines) return facts;
-        const routed = routeFiles(cwd, facts.map(f => f.path), options.focusLines, options.removedLines, this.config.router, reviewedKeys(cwd));
+        const routed = routeFiles(cwd, facts.map(f => f.path), options.focusLines, options.removedLines, this.config.router, trustedReviews(cwd, options));
         this.outcome.router = routed.stats;
         if (routed.stats.files_skipped > 0) {
             this.config.onProgress?.(`  Router: ${routed.stats.routed} of ${routed.stats.functions} changed function(s) to the model; ${routed.stats.files_skipped} file(s) left to the gates.`);
@@ -378,4 +378,12 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
     } finally {
         clearTimeout(timer);
     }
+}
+
+/**
+ * Functions the router may skip as already reviewed: what agents recorded (the ledger and
+ * reviewed.json), unless the run is independent, as an enforcing check is.
+ */
+export function trustedReviews(cwd: string, options: Pick<DeepOptions, 'independent'>): ReturnType<typeof reviewedKeys> {
+    return options.independent ? [] : reviewedKeys(cwd);
 }

@@ -13,6 +13,8 @@ const SUMMARY_MARKER = '<!-- rigour:summary -->';
 const FINDING_MARKER = (key: string) => `<!-- rigour:finding:${key} -->`;
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 const PROVENANCE_ORDER = ['security', 'deep-analysis', 'ai-drift', 'traditional', 'governance'];
+/** Who posts with the workflow's GITHUB_TOKEN. Another identity (an app, a PAT) sets RIGOUR_BOT_LOGIN. */
+export const DEFAULT_BOT_LOGIN = 'github-actions[bot]';
 
 export interface ReportFinding {
     id: string;
@@ -33,6 +35,8 @@ export interface ReviewReport {
     failures: ReportFinding[];
     context_findings?: ReportFinding[];
     deep?: { model?: string; cost_usd?: number; router?: { routed: number; functions: number; already_reviewed?: number } };
+    dismissed?: number;
+    control_files_changed?: string[];
 }
 
 export interface PostTarget {
@@ -41,6 +45,8 @@ export interface PostTarget {
     pr: number;
     sha: string;
     apiUrl?: string;
+    /** Only this account's comments count as Rigour's: anyone can write a hidden marker. */
+    botLogin?: string;
 }
 
 type Fetch = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }>;
@@ -70,7 +76,8 @@ export function findingKey(f: ReportFinding): string {
 
 export async function postReview(report: ReviewReport, target: PostTarget, maxComments = 2, fetchImpl: Fetch = fetch as unknown as Fetch): Promise<PostResult> {
     const api = new GitHub(target, fetchImpl);
-    const posted = new Set((await api.list(`/pulls/${target.pr}/comments`)).flatMap(c => markerKeys(c.body)));
+    const ours = (c: any) => c?.user?.login === (target.botLogin || DEFAULT_BOT_LOGIN);
+    const posted = new Set((await api.list(`/pulls/${target.pr}/comments`)).filter(ours).flatMap(c => markerKeys(c.body)));
     const ranked = rankFindings(report.failures.filter(f => f.file && (f.anchor_line ?? f.line)));
     const fresh = ranked.filter(f => !posted.has(findingKey(f)));
     const inline = fresh.slice(0, Math.max(0, maxComments));
@@ -83,7 +90,7 @@ export async function postReview(report: ReviewReport, target: PostTarget, maxCo
         inlinePosted = ok ? inline.length : 0;
     }
     const summary = summaryBody(report, ranked.length, inlinePosted, ranked.length - fresh.length);
-    const existing = (await api.list(`/issues/${target.pr}/comments`)).find(c => typeof c.body === 'string' && c.body.includes(SUMMARY_MARKER));
+    const existing = (await api.list(`/issues/${target.pr}/comments`)).find(c => ours(c) && typeof c.body === 'string' && c.body.includes(SUMMARY_MARKER));
     const summaryUpdated = existing
         ? await api.send('PATCH', `/issues/comments/${existing.id}`, { body: summary })
         : await api.send('POST', `/issues/${target.pr}/comments`, { body: summary });
@@ -114,6 +121,10 @@ export function summaryBody(report: ReviewReport, total: number, inline: number,
             : `${total} finding(s) on changed lines; ${inline} posted inline now${alreadyPosted ? `, ${alreadyPosted} posted on an earlier push` : ''}. The rest are in the job summary.`,
     ];
     if (report.context_findings?.length) lines.push('', `${report.context_findings.length} note(s) elsewhere in changed files (not blocking).`);
+    if (report.dismissed) lines.push('', `${report.dismissed} finding(s) on changed lines were dismissed as not a bug (.rigour/dismissed.json).`);
+    if (report.control_files_changed?.length) {
+        lines.push('', `⚠️ This PR edits Rigour's own settings: ${report.control_files_changed.map(f => `\`${f}\``).join(', ')}. Review them like code.`);
+    }
     if (deep?.router) {
         lines.push('', `Model review: ${deep.router.routed} of ${deep.router.functions} changed function(s) by risk`
             + `${deep.router.already_reviewed ? `; ${deep.router.already_reviewed} already reviewed before the PR` : ''}.`);
@@ -170,7 +181,7 @@ export function targetFromEnv(env: NodeJS.ProcessEnv = process.env): PostTarget 
     const pr = Number(event.pull_request?.number);
     const sha = String(event.pull_request?.head?.sha ?? '');
     if (!pr || !sha) throw new Error('review-post needs a pull_request event.');
-    return { token, repo, pr, sha, apiUrl: env.GITHUB_API_URL };
+    return { token, repo, pr, sha, apiUrl: env.GITHUB_API_URL, botLogin: env.RIGOUR_BOT_LOGIN?.trim() || DEFAULT_BOT_LOGIN };
 }
 
 export async function reviewPostCommand(options: { report: string; maxComments?: string }): Promise<void> {

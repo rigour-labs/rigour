@@ -10,6 +10,7 @@ import { splitByChangedLines } from './changed-lines.js';
 import { anchorInChangedFunction, changedFunctionSpans } from './changed-function-spans.js';
 import { diffFromGit } from './git-diff.js';
 import { reviewChange, toReviewFinding } from './review.js';
+import { findingKey } from './quiet.js';
 
 const LEAKY = [
     'export async function notify(endpoint: string, signature: string) {',
@@ -126,6 +127,27 @@ describe('git-backed review', () => {
         expect(result.status).toBe('FAIL');
         expect(semantic.map(f => [f.files?.[0], f.line])).toEqual([['src/notify.ts', 2]]);
         expect(toReviewFinding(semantic[0])).toMatchObject({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2, severity: 'high' });
+    });
+
+    it('lets a change dismiss its own finding only when the review trusts the working tree', async () => {
+        write('src/old.ts', 'export const a = 1;\n');
+        write('.gitignore', '.rigour/*\n!.rigour/dismissed.json\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        git('checkout', '-q', '-b', 'pr');
+        write('src/notify.ts', LEAKY);
+        const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true } } });
+        const key = findingKey((await reviewChange({ cwd: repo, config })).findings[0]);
+        write('.rigour/dismissed.json', JSON.stringify({ version: 1, entries: [{ key, reason: 'trust me', at: 'now' }] }));
+        git('add', '-A');
+        git('commit', '-qm', 'pr');
+
+        const trusting = await reviewChange({ cwd: repo, config, source: { mode: 'base', base: 'main' } });
+        expect([trusting.status, trusting.dismissed]).toEqual(['PASS', 1]);
+        expect(trusting.controlFilesChanged).toEqual(['.rigour/dismissed.json']);
+
+        const independent = await reviewChange({ cwd: repo, config, source: { mode: 'base', base: 'main' }, trustedRef: 'main' });
+        expect([independent.status, independent.dismissed]).toEqual(['FAIL', 0]);
     });
 
     it('runs every gate in a git worktree, where .git is a file', async () => {

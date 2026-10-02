@@ -24,6 +24,10 @@ inputs:
     description: Inline comments at most per push.
     required: false
     default: '2'
+  enforce:
+    description: "true: fail this job when the review FAILs or ERRORs, so it can be a required check. The review then trusts nothing the PR wrote: every risky function is reviewed regardless of what agents recorded, dismissals and rigour.yml are read from the base branch, and the CLI is the named version, never the PR's own install. Default false: post the review and pass."
+    required: false
+    default: 'false'
   version:
     description: "@rigour-labs/cli version to fetch with npx, used only when the repository does not install Rigour itself (a devDependency is preferred: it goes through the repo's own lockfile and dependency review)."
     required: false
@@ -40,15 +44,18 @@ runs:
         MODEL: ${{ inputs.model }}
         BASE_URL: ${{ inputs.base-url }}
         CLI: '@rigour-labs/cli@${{ inputs.version }}'
+        ENFORCE: ${{ inputs.enforce }}
       run: |
         args=(review --base "origin/${BASE_REF}" --json)
+        [ "$ENFORCE" = "true" ] && args+=(--independent)
         if [ -n "$RIGOUR_API_KEY" ]; then
           args+=(--deep --provider "$PROVIDER")
           [ -n "$MODEL" ] && args+=(--model-name "$MODEL")
           [ -n "$BASE_URL" ] && args+=(--api-base-url "$BASE_URL")
         fi
         # Prefer the repository's own pinned install; fall back to npx only when Rigour is not a dependency.
-        if [ -x node_modules/.bin/rigour ]; then run=(node_modules/.bin/rigour); else run=(npx --yes "$CLI"); fi
+        # Enforcing, the PR's own lockfile must not choose the binary that judges it: always the named version.
+        if [ "$ENFORCE" != "true" ] && [ -x node_modules/.bin/rigour ]; then run=(node_modules/.bin/rigour); else run=(npx --yes "$CLI"); fi
         # FAIL (exit 1) still produces a report to post; only a missing report is an error.
         "${run[@]}" "${args[@]}" > rigour-review.json || true
         test -s rigour-review.json
@@ -58,6 +65,16 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
         CLI: '@rigour-labs/cli@${{ inputs.version }}'
         MAX_COMMENTS: ${{ inputs.max-comments }}
+        ENFORCE: ${{ inputs.enforce }}
       run: |
-        if [ -x node_modules/.bin/rigour ]; then run=(node_modules/.bin/rigour); else run=(npx --yes "$CLI"); fi
+        if [ "$ENFORCE" != "true" ] && [ -x node_modules/.bin/rigour ]; then run=(node_modules/.bin/rigour); else run=(npx --yes "$CLI"); fi
         "${run[@]}" review-post --report rigour-review.json --max-comments "$MAX_COMMENTS"
+    - name: Enforce the verdict
+      if: ${{ inputs.enforce == 'true' }}
+      shell: bash
+      run: |
+        # After posting, so the PR shows why: FAIL (findings on changed lines) and ERROR (a check
+        # that could not run) both block; only PASS lets a protected branch merge.
+        status=$(node -e "process.stdout.write(String(require('./rigour-review.json').status || 'ERROR'))")
+        echo "Rigour review: $status"
+        [ "$status" = "PASS" ]
