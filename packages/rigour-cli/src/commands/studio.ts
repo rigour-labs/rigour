@@ -73,7 +73,8 @@ async function mergeMemoryStores(cwd: string): Promise<{ memories: Record<string
     const memories: Record<string, any> = {};
 
     const projectPath = path.join(cwd, '.rigour/memory.json');
-    const globalPath = path.join(os.homedir(), '.rigour/memory.json');
+    // Same home the MCP server writes user-scope memory to (RIGOUR_HOME when set).
+    const globalPath = path.join(process.env.RIGOUR_HOME || os.homedir(), '.rigour/memory.json');
 
     for (const [label, filePath] of [
         ['project', projectPath],

@@ -42,11 +42,16 @@ export interface MemoryStore {
     memories: Record<string, { value: string; timestamp: string }>;
 }
 
+/** The home whose .rigour/ holds user-scope memory: RIGOUR_HOME when set (tests, sandboxes), else the OS home. */
+export function userHome(): string {
+    return process.env.RIGOUR_HOME || os.homedir();
+}
+
 /** Where memories live: `repo` in this checkout's .rigour/, `user` in ~/.rigour/ for every repository. */
 export type LocalMemoryScope = 'repo' | 'user';
 
 export async function getMemoryPath(cwd: string, scope: LocalMemoryScope = 'repo'): Promise<string> {
-    const rigourDir = scope === 'user' ? path.join(os.homedir(), ".rigour") : path.join(cwd, ".rigour");
+    const rigourDir = scope === 'user' ? path.join(userHome(), ".rigour") : path.join(cwd, ".rigour");
     await fs.ensureDir(rigourDir);
     return path.join(rigourDir, "memory.json");
 }

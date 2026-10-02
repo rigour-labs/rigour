@@ -16,4 +16,5 @@ export function getDashboardHtml(): string {
     return DASHBOARD_HTML.replace('__INITIAL_STATE__', stateJson);
 }
 
-export { getState, pushTimelineEntry, updateScore, updateBrainStatus, setScanning } from './state.js';
+export { getState, pushTimelineEntry, updateScore, updateKnowledge, seedFromLastReport, setScanning } from './state.js';
+export { summarizeKnowledge, type KnowledgeSummary } from './knowledge.js';

@@ -93,7 +93,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 <div class="brain" id="brainSection">
   <span class="brain-icon">&#x1F9E0;</span>
-  <span class="brain-text" id="brainText">Brain: waiting for data</span>
+  <span class="brain-text" id="brainText">Knowledge: waiting for the first tool call</span>
   <span class="brain-trend" id="brainTrend"></span>
 </div>
 
@@ -122,11 +122,11 @@ function updateGauge(score) {
   text.textContent = String(Math.round(score));
 }
 
-function updateBadge(status) {
+function updateBadge(status, source) {
   const badge = document.getElementById('statusBadge');
   badge.className = 'badge badge-' + (status || 'idle');
   const labels = {pass:'PASS',fail:'FAIL',scanning:'SCANNING'};
-  badge.textContent = labels[status] || 'IDLE';
+  badge.textContent = (labels[status] || 'IDLE') + (source === 'last-report' && status !== 'scanning' ? ' \u00b7 LAST CHECK' : '');
 }
 
 function updateSeverity(sev) {
@@ -158,23 +158,26 @@ function renderTimeline(entries) {
   el.scrollTop = el.scrollHeight;
 }
 
-function updateBrain(patterns, trend) {
+function updateBrain(k) {
   const text = document.getElementById('brainText');
-  const trendEl = document.getElementById('brainTrend');
-  text.textContent = 'Brain: ' + patterns + ' patterns learned';
-  if (trend) {
-    const arrows = {improving:'\u2191',stable:'\u2194',declining:'\u2193'};
-    trendEl.textContent = (arrows[trend] || '') + ' ' + trend;
-    trendEl.className = 'brain-trend' + (trend === 'declining' ? ' down' : '');
-  }
+  const detail = document.getElementById('brainTrend');
+  if (!k) { text.textContent = 'Knowledge: waiting for the first tool call'; detail.textContent = ''; return; }
+  const parts = [];
+  if (k.memories) parts.push(k.memories + (k.memories === 1 ? ' memory' : ' memories'));
+  if (k.lessons) parts.push(k.lessons + (k.lessons === 1 ? ' lesson' : ' lessons') + ' (' + k.trustedLessons + ' trusted)');
+  if (k.learnedRules) parts.push(k.learnedRules + ' learned ' + (k.learnedRules === 1 ? 'rule' : 'rules'));
+  if (k.indexedPatterns) parts.push(k.indexedPatterns + ' patterns indexed');
+  text.textContent = parts.length ? 'Knows: ' + parts.join(' \u00b7 ') : 'Nothing learned yet';
+  detail.textContent = k.mutedChecks ? k.mutedChecks + ' noisy check(s) muted' : parts.length ? '' : 'learns from fixes, dismissals and rigour_remember';
+  detail.className = 'brain-trend';
 }
 
 function render() {
   updateGauge(state.currentScore);
-  updateBadge(state.status);
+  updateBadge(state.status, state.scoreSource);
   updateSeverity(state.severityBreakdown || {});
   renderTimeline(state.timeline || []);
-  updateBrain(state.brainPatterns || 0, state.brainTrend);
+  updateBrain(state.knowledge);
 }
 
 render();

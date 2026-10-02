@@ -7,6 +7,8 @@
  *
  * @since v2.17.0 — refactored from 1,487-line monolith
  */
+import fs from 'fs-extra';
+import path from 'path';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -27,7 +29,7 @@ import { getMcpVersion } from './utils/package-version.js';
 import { buildMcpResultMeta, buildStudioImpact } from './utils/impact-receipt.js';
 
 // Dashboard (MCP App)
-import { DASHBOARD_URI, getDashboardHtml, pushTimelineEntry, updateScore } from './dashboard/index.js';
+import { DASHBOARD_URI, getDashboardHtml, pushTimelineEntry, seedFromLastReport, summarizeKnowledge, updateKnowledge, updateScore } from './dashboard/index.js';
 
 // Tool definitions & advertised registry
 import { getAdvertisedToolDefinitions } from './advertised-tools.js';
@@ -303,6 +305,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ? `${report.status.toUpperCase()} — Score: ${report.stats?.score ?? '?'}/100`
             : "completed";
         pushTimelineEntry(name, result.isError ? "error" : "success", details);
+        updateKnowledge(await summarizeKnowledge(cwd).catch(() => null));
+        seedFromLastReport(await readLastReport(cwd));
 
         if (report?.stats) {
             updateScore(
@@ -474,6 +478,16 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
             throw new Error(`Unknown prompt: ${name}`);
     }
 });
+
+/** The last report `rigour check` wrote here (output.report_path), or null. */
+async function readLastReport(cwd: string): Promise<any> {
+    try {
+        const config = await loadConfig(cwd);
+        return await fs.readJson(path.join(cwd, config.output?.report_path ?? 'rigour-report.json'));
+    } catch {
+        return null;
+    }
+}
 
 // ─── Start ────────────────────────────────────────────────────────
 

@@ -16,18 +16,19 @@ const { handleRecall } = await import('./memory-recall.js');
 let repoA: string;
 let repoB: string;
 let home: string;
-const realHome = process.env.HOME;
+const realHome = process.env.RIGOUR_HOME;
 const text = (result: { content: Array<{ text: string }> }) => result.content.map(c => c.text).join('\n');
 
 beforeEach(() => {
     repoA = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-a-'));
     repoB = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-b-'));
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-home-'));
-    process.env.HOME = home;
+    process.env.RIGOUR_HOME = home;
     shared.calls = [];
 });
 afterEach(() => {
-    process.env.HOME = realHome;
+    if (realHome === undefined) delete process.env.RIGOUR_HOME;
+    else process.env.RIGOUR_HOME = realHome;
     for (const dir of [repoA, repoB, home]) fs.rmSync(dir, { recursive: true, force: true });
 });
 
