@@ -14,7 +14,7 @@ export function rigourUserDir(): string {
  */
 export function repoStateDir(cwd: string): string {
     let root = path.resolve(cwd);
-    try { root = fs.realpathSync(root); } catch { /* not created yet: the resolved path is the key */ }
+    try { root = fs.realpathSync.native(root); } catch { /* not created yet: the resolved path is the key */ }
     const key = crypto.createHash('sha256').update(root).digest('hex').slice(0, 16);
     return path.join(rigourUserDir(), 'repos', key);
 }

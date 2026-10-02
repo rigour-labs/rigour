@@ -10,7 +10,7 @@ const repo = (name: string) => {
     const dir = path.join(base, name);
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
     execFileSync('git', ['init', '-q', dir]);
-    return fs.realpathSync(dir);
+    return fs.realpathSync.native(dir);
 };
 beforeEach(() => { base = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-repos-')); });
 afterEach(() => fs.rmSync(base, { recursive: true, force: true }));

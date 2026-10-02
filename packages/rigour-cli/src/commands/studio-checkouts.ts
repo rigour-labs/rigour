@@ -14,8 +14,17 @@ export function checkoutRoots(cwd: string): string[] {
     const roots = list.status === 0
         ? list.stdout.split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length).trim())
         : [];
-    const self = path.resolve(cwd);
-    return [...new Set([self, ...roots.filter(root => fs.existsSync(path.join(root, '.rigour')))])];
+    // One spelling per folder: git lists C:/x on Windows where Node holds C:\x (or a short 8.3 name),
+    // and a checkout listed twice would count everything in it twice.
+    return [...new Set([cwd, ...roots.filter(root => fs.existsSync(path.join(root, '.rigour')))].map(realPath))];
+}
+
+function realPath(dir: string): string {
+    try {
+        return fs.realpathSync.native(dir);
+    } catch {
+        return path.resolve(dir);
+    }
 }
 
 export function eventsAcross(roots: string[]): AgentEvent[] {

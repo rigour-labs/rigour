@@ -114,5 +114,11 @@ export function loadActivity(cwd: string): ActivitySession[] {
 /** Older edit hooks logged every file into the session's folder, even files in other repositories. */
 export function aboutAnotherRepository(event: AgentEvent, roots: string[]): boolean {
     const files = (event as AgentEvent & { files?: string[] }).files ?? [];
-    return files.length > 0 && files.every(f => path.isAbsolute(f) && !roots.some(root => f.startsWith(root + path.sep)));
+    return files.length > 0 && files.every(f => path.isAbsolute(f) && !roots.some(root => isInside(root, f)));
+}
+
+/** True when `file` is inside `root`, whichever separators either uses. */
+function isInside(root: string, file: string): boolean {
+    const rel = path.relative(root, file);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
