@@ -1,19 +1,25 @@
 /**
  * `rigour hooks stop --tool claude|cursor`: the stop hook.
  *
- * When the agent is about to finish, review its uncommitted change and keep
- * it working on high-severity findings. Each tool's contract:
+ * When the agent is about to finish, review what this session changed (since the
+ * commit it started from, so committing hides nothing) and keep it working on
+ * high-severity findings. Each tool's contract:
  *   - Claude Code `Stop`: print {"decision":"block","reason":...}; `stop_hook_active`
  *     marks a stop that a hook already extended.
  *   - Cursor `stop`: print {"followup_message": ...}; `loop_count` counts follow-ups.
  *
- * It never traps an agent: at most STOP_MAX_ATTEMPTS blocks per session, and
- * any failure to review (not a git repository, bad config) lets the agent stop.
+ * It never traps an agent: at most STOP_MAX_ATTEMPTS blocks per session, counted
+ * outside the workspace (session-state.ts) so the agent cannot reset it. A review
+ * that fails (bad config, git error) blocks once with the reason, then lets the
+ * agent stop: a broken setup is surfaced, not silently skipped.
  */
 import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
-import { appendAgentEvent, ConfigSchema, countUsage, recordFixLessons, recordReviewOutcome, STOP_MAX_ATTEMPTS, stopReview, type Config } from '@rigour-labs/core';
+import {
+    appendAgentEvent, clearStopAttempts, ConfigSchema, countUsage, nextStopAttempt, recordFixLessons, recordReviewOutcome,
+    sessionBaseline, STOP_MAX_ATTEMPTS, stopReview, type Config,
+} from '@rigour-labs/core';
 
 export type StopTool = 'claude' | 'cursor';
 
@@ -31,26 +37,31 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
     const cwd = payload.cwd || fallbackCwd;
     const session = payload.session_id || payload.conversation_id || 'default';
     if (!shouldReview(tool, payload)) return '';
-    const attempt = await nextAttempt(cwd, session);
+    const attempt = nextStopAttempt(cwd, session);
     if (attempt > STOP_MAX_ATTEMPTS) return '';
     try {
-        const decision = await stopReview(cwd, await loadConfig(cwd), attempt);
+        const decision = await stopReview(cwd, await loadConfig(cwd), attempt, sessionBaseline(cwd, session));
         appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking });
         countUsage('stop_review');
         if (decision.block) countUsage(attempt > 1 ? 'stop_block_repeat' : 'stop_block');
         const capture = recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles);
         await recordFixLessons(cwd, capture.fixes).catch(() => undefined); // learning never blocks the agent
         if (!decision.block) {
-            await clearAttempts(cwd, session);
+            clearStopAttempts(cwd, session);
             return '';
         }
-        return tool === 'claude'
-            ? JSON.stringify({ decision: 'block', reason: decision.message })
-            : JSON.stringify({ followup_message: decision.message });
+        return blockWith(tool, decision.message);
     } catch (error) {
-        process.stderr.write(`Rigour stop review skipped: ${error instanceof Error ? error.message : String(error)}\n`);
-        return '';
+        const reason = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Rigour stop review failed: ${reason}\n`);
+        return attempt === 1
+            ? blockWith(tool, `Rigour could not review this change: ${reason}\nFix the cause (often rigour.yml) and finish again; the next stop is not blocked.`)
+            : '';
     }
+}
+
+function blockWith(tool: StopTool, message: string): string {
+    return tool === 'claude' ? JSON.stringify({ decision: 'block', reason: message }) : JSON.stringify({ followup_message: message });
 }
 
 /** Review only a finished turn; Cursor's aborted or errored runs are left alone. */
@@ -71,21 +82,4 @@ function parsePayload(stdin: string): StopPayload {
 async function loadConfig(cwd: string): Promise<Config> {
     const file = path.join(cwd, 'rigour.yml');
     return ConfigSchema.parse(await fs.pathExists(file) ? yaml.parse(await fs.readFile(file, 'utf8')) : { version: 1 });
-}
-
-function stateFile(cwd: string): string {
-    return path.join(cwd, '.rigour', 'stop-hook.json');
-}
-
-/** Blocks so far this session plus one; counted by Rigour so the cap holds even without the tool's own counter. */
-async function nextAttempt(cwd: string, session: string): Promise<number> {
-    const state = await fs.readJson(stateFile(cwd)).catch(() => ({})) as Record<string, number>;
-    const attempt = (state[session] ?? 0) + 1;
-    await fs.outputJson(stateFile(cwd), { [session]: attempt }).catch(() => {});
-    return attempt;
-}
-
-async function clearAttempts(cwd: string, session: string): Promise<void> {
-    const state = await fs.readJson(stateFile(cwd)).catch(() => null) as Record<string, number> | null;
-    if (state && session in state) await fs.outputJson(stateFile(cwd), {}).catch(() => {});
 }

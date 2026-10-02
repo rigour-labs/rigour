@@ -32,6 +32,7 @@ import {
     writeDLPBlockManifest,
     STOP_MAX_ATTEMPTS,
     recordHookPayload,
+    recordSessionBaseline,
 } from '@rigour-labs/core';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
@@ -210,7 +211,7 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
             matcher: "Write|Edit|MultiEdit",
             hooks: [{
                 type: "command" as const,
-                command: `${checkerCommand} --files "$TOOL_INPUT_file_path"${blockFlag}`,
+                command: `${checkerCommand} --stdin${blockFlag}`,
             }]
         }],
     };
@@ -581,7 +582,7 @@ async function readStdin(): Promise<string> {
     return Buffer.concat(chunks).toString('utf-8').trim();
 }
 
-function parseStdinFiles(input: string): string[] {
+export function parseStdinFiles(input: string): string[] {
     if (!input) {
         return [];
     }
@@ -758,6 +759,9 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             if (isCursorHookPayload(payload) || typeof payload.new_content === 'string') {
                 cursorMode = true;
             }
+            // The session's first edit fixes the commit its stop review starts from (hooks-stop.ts).
+            const session = payload.session_id || payload.conversation_id;
+            if (typeof session === 'string') recordSessionBaseline(cwd, session);
         } catch (parseErr: any) {
             // Not valid JSON — log for debugging (stderr only, stdout must stay clean)
             process.stderr.write(`[rigour-hook-debug] stdin JSON parse failed: ${parseErr?.message?.slice(0, 100)}\n`);
@@ -769,7 +773,9 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         : (options.files ?? '').split(',').map(f => f.trim()).filter(Boolean);
 
     if (files.length === 0) {
-        process.stdout.write(JSON.stringify(cursorMode ? { continue: true } : { status: 'pass', failures: [], duration_ms: 0 }));
+        // Nothing was checked: never report pass, or a hook wired to the wrong input looks healthy.
+        if (!cursorMode) process.stderr.write('[rigour] hooks check: no file in the hook input, nothing checked\n');
+        process.stdout.write(JSON.stringify(cursorMode ? { continue: true } : { status: 'skipped', reason: 'no files', failures: [], duration_ms: 0 }));
         return;
     }
 

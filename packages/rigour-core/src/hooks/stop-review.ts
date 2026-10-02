@@ -1,7 +1,8 @@
 /**
- * The "before you say done" review: when an agent is about to stop, review the
- * uncommitted change and, if it introduced serious findings, tell the agent
- * what to fix instead of letting it finish.
+ * The "before you say done" review: when an agent is about to stop, review what
+ * the session changed (since its baseline commit, or the uncommitted change when
+ * none was recorded) and, if it introduced serious findings, tell the agent what
+ * to fix instead of letting it finish.
  *
  * Only findings that deserve it block: critical ones, and high ones that are
  * proven (the semantic engine traced them) or security findings. A high
@@ -11,7 +12,7 @@
 import type { Config, Failure, Severity } from '../types/index.js';
 import { reviewChange } from '../review/review.js';
 import { buildReviewTask, type ReviewTaskItem } from '../review/review-task.js';
-import { diffFromGit } from '../review/git-diff.js';
+import { diffFromGit, type DiffSource } from '../review/git-diff.js';
 
 export const STOP_MAX_ATTEMPTS = 3;
 const MAX_LISTED = 8;
@@ -26,9 +27,11 @@ export interface StopDecision {
     reviewedFiles: string[];
 }
 
-export async function stopReview(cwd: string, config: Config, attempt: number): Promise<StopDecision> {
-    const diff = diffFromGit(cwd, { mode: 'working' });
-    const result = await reviewChange({ cwd, config, diff });
+/** `since`: the session's baseline commit (session-state.ts); committing after it hides nothing. */
+export async function stopReview(cwd: string, config: Config, attempt: number, since?: string): Promise<StopDecision> {
+    const source: DiffSource = since ? { mode: 'since', commit: since } : { mode: 'working' };
+    const diff = diffFromGit(cwd, source);
+    const result = await reviewChange({ cwd, config, diff, source });
     const blocking = result.findings.filter(blocksStop);
     const unreviewed = config.hooks?.require_review_ack ? buildReviewTask(cwd, diff, config.gates.deep?.router).items : [];
     const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines) };

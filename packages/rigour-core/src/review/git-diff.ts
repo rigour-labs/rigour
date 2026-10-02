@@ -5,10 +5,12 @@
  *   git does not track yet (what an agent has just written).
  * - base: everything on this branch since it left `base` (the merge-base),
  *   including uncommitted changes (what a pull request contains).
+ * - since: everything after `commit`, committed or not, plus untracked files
+ *   (what an agent session wrote, even if it committed along the way).
  */
 import { spawnSync } from 'child_process';
 
-export type DiffSource = { mode: 'working' } | { mode: 'base'; base: string };
+export type DiffSource = { mode: 'working' } | { mode: 'base'; base: string } | { mode: 'since'; commit: string };
 
 export class GitDiffError extends Error {}
 
@@ -16,6 +18,9 @@ export function diffFromGit(cwd: string, source: DiffSource = { mode: 'working' 
     if (source.mode === 'base') {
         const mergeBase = git(cwd, ['merge-base', source.base, 'HEAD']).trim();
         return git(cwd, ['diff', '--no-color', '--no-ext-diff', mergeBase]);
+    }
+    if (source.mode === 'since') {
+        return git(cwd, ['diff', '--no-color', '--no-ext-diff', source.commit]) + untrackedFiles(cwd).map(file => newFileDiff(cwd, file)).join('');
     }
     const tracked = hasHead(cwd) ? git(cwd, ['diff', '--no-color', '--no-ext-diff', 'HEAD']) : '';
     return tracked + untrackedFiles(cwd).map(file => newFileDiff(cwd, file)).join('');
