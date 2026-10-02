@@ -3,66 +3,17 @@
  *
  * Wraps PatternIndexer for agent-accessible index build/update.
  */
-import path from 'path';
 import {
     PatternIndexer,
     savePatternIndex,
     loadPatternIndex,
     getDefaultIndexPath,
     type PatternIndex,
-    type PatternEntry,
 } from '@rigour-labs/core/pattern-index';
-import {
-    setStaticCache,
-    setComponentCache,
-    recordIndexChoice,
-    type ComponentDossier,
-} from '@rigour-labs/core';
+import { recordIndexChoice } from '@rigour-labs/core';
 import { notifyProgress } from '../utils/notifications.js';
-import { buildTelemetryMeta, getWorkspaceCommitSha, type ToolResult } from '../utils/context-telemetry.js';
+import { buildTelemetryMeta, type ToolResult } from '../utils/context-telemetry.js';
 import { appendContextFooter } from '../utils/context-footer.js';
-import fs from 'fs-extra';
-
-async function syncIndexToCache(cwd: string, index: PatternIndex): Promise<void> {
-    const commitSha = await getWorkspaceCommitSha(cwd);
-    const repo = path.basename(cwd);
-
-    const byFile = new Map<string, PatternEntry[]>();
-    for (const pattern of index.patterns) {
-        const list = byFile.get(pattern.file) ?? [];
-        list.push(pattern);
-        byFile.set(pattern.file, list);
-    }
-
-    for (const [filePath, patterns] of byFile) {
-        const absPath = path.join(cwd, filePath);
-        let content = '';
-        try {
-            if (await fs.pathExists(absPath)) {
-                content = await fs.readFile(absPath, 'utf-8');
-            }
-        } catch {
-            content = patterns.map(p => p.signature ?? p.name).join('\n');
-        }
-
-        await setStaticCache(repo, 'main', filePath, content || filePath, {
-            exports: patterns.map(p => p.name),
-            rigourPatterns: patterns.map(p => `${p.type}:${p.name}`),
-            ownership: path.dirname(filePath),
-        }, cwd);
-
-        const componentName = path.dirname(filePath) || filePath;
-        const dossier: ComponentDossier = {
-            component: componentName,
-            responsibility: `Indexed patterns in ${filePath}`,
-            canonicalFiles: [filePath],
-            contracts: patterns.filter(p => p.type === 'interface' || p.type === 'type').map(p => p.name),
-            directConsumers: [],
-            validationCommands: [],
-        };
-        await setComponentCache(componentName, commitSha, dossier, `index-${index.lastUpdated}`, '3', cwd);
-    }
-}
 
 export async function handleIndex(
     cwd: string,
@@ -86,7 +37,6 @@ export async function handleIndex(
         }
 
         await savePatternIndex(index, indexPath);
-        await syncIndexToCache(cwd, index);
         await recordIndexChoice(cwd, index, semantic);
 
         notifyProgress('info', 'Pattern index complete');
@@ -102,7 +52,7 @@ export async function handleIndex(
         text += `- Duration: ${index.stats.indexDurationMs}ms\n`;
         text += `- Search by meaning: ${semantic ? (index.patterns.some(p => p.embedding?.length) ? 'on' : 'unavailable (local model did not load; name matching still works)') : 'off'}\n`;
         text += `- Types: ${byType}\n\n`;
-        text += `Index synced to context cache layers. Use rigour_context_scope before reading files.`;
+        text += `Use rigour_context_scope before reading files.`;
 
         const telemetry = buildTelemetryMeta({
             candidateText: candidateEstimate,
