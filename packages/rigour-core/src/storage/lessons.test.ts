@@ -4,7 +4,7 @@ import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase } from './db.js';
 import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js';
-import { getRepositoryId, shouldValidateInteractionLesson } from './lessons.js';
+import { getRepositoryId } from './lessons.js';
 import { queueLocalLessonsForTeam } from './team-import.js';
 
 const roots: string[] = [];
@@ -44,24 +44,6 @@ describe('getRepositoryId', () => {
 
         expect(await getRepositoryId(worktree)).toBe(await getRepositoryId(regular));
         expect(await getRepositoryId(worktree)).toHaveLength(64);
-    });
-});
-
-describe('interaction lesson validation', () => {
-    const evidence = { tool: 'rigour_context_scope', outcome: 'success' as const, requestId: 'req-1' };
-
-    it('keeps repeated unverified interaction as evidence only', () => {
-        expect(shouldValidateInteractionLesson(evidence, 0)).toBe(false);
-        expect(shouldValidateInteractionLesson(evidence, 2)).toBe(false);
-    });
-
-    it('validates deterministic or repeatedly verified outcomes', () => {
-        expect(shouldValidateInteractionLesson({ ...evidence, deterministic: true, reusableClaim: 'Use scoped retrieval before edits.' }, 0)).toBe(true);
-        expect(shouldValidateInteractionLesson({ ...evidence, verifiedOutcome: true, reusableClaim: 'Run the focused test suite.' }, 3)).toBe(true);
-    });
-
-    it('does not turn a successful tool call into reusable knowledge', () => {
-        expect(shouldValidateInteractionLesson({ ...evidence, deterministic: true }, 3)).toBe(false);
     });
 });
 

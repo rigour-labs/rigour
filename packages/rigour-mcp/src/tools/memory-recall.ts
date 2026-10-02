@@ -3,13 +3,14 @@
  *
  * - `key`: that memory, from this repository, else from the user's own memory.
  * - `query`: the few memories that match by meaning (local, see core
- *   memory/recall.ts), plus team knowledge from pgvector when team mode is on:
- *   lessons a person promoted, never a teammate's unreviewed candidate.
+ *   memory/recall.ts); lessons this machine has validated or a person promoted,
+ *   such as a kind of defect agents keep fixing; and team knowledge from
+ *   pgvector when team mode is on, never a teammate's unreviewed candidate.
  * - neither: every repository and user memory, as an agent loads at the start.
  *
  * Every returned memory passes the credential scan first; nothing is cached.
  */
-import { formatDLPAlert, createDLPAuditEntry, rankMemories, scanInputForCredentials, searchTeamKnowledge, type MemoryEntry } from '@rigour-labs/core';
+import { formatDLPAlert, createDLPAuditEntry, listKnowledgeLessons, rankByMeaning, rankMemories, scanInputForCredentials, searchTeamKnowledge, type MemoryEntry } from '@rigour-labs/core';
 import { loadMemory } from '../utils/config.js';
 import type { GuidanceMeta, ToolResult } from '../utils/context-telemetry.js';
 import { appendDLPAudit, getIndexHealthBlock, wrapRecallResult } from './memory-handlers.js';
@@ -52,21 +53,30 @@ async function recallKey(cwd: string, key: string, entries: MemoryEntry[], candi
 
 async function recallQuery(cwd: string, query: string, entries: MemoryEntry[], candidateText: string): Promise<ToolResult> {
     const clean = await cleanEntries(cwd, entries);
-    const [ranked, team] = await Promise.all([rankMemories(query, clean), searchTeamKnowledge(query, 3)]);
+    const [ranked, lessons, team] = await Promise.all([
+        rankMemories(query, clean),
+        rankByMeaning(query, await trustedLessons(cwd), lesson => lesson.subject),
+        searchTeamKnowledge(query, 3),
+    ]);
+    const teamOnly = team.status === 'ready' ? team.candidates.filter(c => !lessons.some(l => l.id === c.lessonId)) : [];
     const sections: string[] = [];
     if (ranked.length) {
         sections.push(`MEMORIES MATCHING "${query}":\n\n` + ranked.map(m =>
             `## ${m.key} (${m.scope}, ${m.match} ${m.score.toFixed(2)})\n${m.value}`).join('\n\n'));
     }
-    if (team.status === 'ready' && team.candidates.length) {
-        sections.push('TEAM KNOWLEDGE (promoted lessons):\n\n' + team.candidates.map(c =>
+    if (lessons.length) {
+        sections.push('LESSONS (validated by repeated fixes, or promoted):\n\n' + lessons.map(l =>
+            `- ${l.subject} (${l.state}, ${l.match} ${l.score.toFixed(2)})`).join('\n'));
+    }
+    if (teamOnly.length) {
+        sections.push('TEAM KNOWLEDGE (promoted lessons):\n\n' + teamOnly.map(c =>
             `- ${c.subject} (similarity ${c.similarity.toFixed(2)}, ${c.state})`).join('\n'));
     }
     const text = sections.length
         ? `${sections.join('\n\n---\n\n')}\n\nApply these where they fit the task.`
         : `NO MEMORY MATCHES "${query}". Recall with no arguments lists every memory.`;
     const keys = ranked.map(m => m.key);
-    return wrapRecallResult(text, candidateText, 'miss', 0, guidance(query, `Apply ${keys.length + team.candidates.length} matching memory item(s).`, keys));
+    return wrapRecallResult(text, candidateText, 'miss', 0, guidance(query, `Apply ${keys.length + lessons.length + teamOnly.length} matching item(s).`, keys));
 }
 
 async function recallAll(cwd: string, entries: MemoryEntry[], candidateText: string): Promise<ToolResult> {
@@ -81,6 +91,11 @@ async function recallAll(cwd: string, entries: MemoryEntry[], candidateText: str
         : 'No clean memories to recall. All stored memories contain credentials.';
     text += await getIndexHealthBlock(cwd);
     return wrapRecallResult(text, candidateText, 'miss', 0, guidance('all memories', `Apply ${clean.length} recalled memory item(s) where relevant.`, clean.map(m => m.key)));
+}
+
+/** Lessons an agent may act on: validated by evidence, or promoted by a person. */
+async function trustedLessons(cwd: string) {
+    return (await listKnowledgeLessons(cwd)).filter(lesson => lesson.state === 'validated' || lesson.state === 'promoted');
 }
 
 /** Memories with no credential in them; a blocked one is audited, and never returned. */

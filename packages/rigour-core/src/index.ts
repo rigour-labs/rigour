@@ -66,8 +66,9 @@ export type { RigourDB, CompactResult } from './storage/index.js';
 // Local Project Memory (hybrid intelligence — SQLite-backed per-project learning)
 export { checkLocalPatterns, persistAndReinforce, getProjectStats } from './storage/index.js';
 export type { ProjectStats } from './storage/index.js';
-export { recordInteractionEvidence, countInteractionEvidence, recordInteractionLesson, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId, shareMemoryLesson, queueLocalLessonsForTeam } from './storage/index.js';
-export { rankMemories, memoryText, SEMANTIC_FLOOR, RECALL_LIMIT, type MemoryEntry, type MemoryScope, type RankedMemory } from './memory/recall.js';
+export { recordFixLessons, fixLessonSubject, fixLessonPrefix, FILES_TO_VALIDATE } from './storage/index.js';
+export { recordInteractionEvidence, countInteractionEvidence, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId, shareMemoryLesson, queueLocalLessonsForTeam } from './storage/index.js';
+export { rankMemories, rankByMeaning, memoryText, SEMANTIC_FLOOR, RECALL_LIMIT, type MemoryEntry, type MemoryScope, type RankedMemory, type Ranked } from './memory/recall.js';
 export type { ApplicableLessons, InteractionEvidence, LessonRecord, LessonState, LessonVisibility, LocalLessonImportOptions, LocalLessonImportResult } from './storage/index.js';
 export {
   loadTeamConfiguration,

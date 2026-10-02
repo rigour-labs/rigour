@@ -25,7 +25,6 @@ import {
     formatDLPAlert,
     generateDLPHookFiles,
     recordInteractionEvidence,
-    recordInteractionLesson,
     runHookChecker,
     countUsage,
     scanInputForCredentials,
@@ -789,11 +788,6 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         updateAutomaticIndexForFiles(cwd, files),
         recordInteractionEvidence(cwd, {
             tool: 'rigour_hooks_check', requestId, phase: 'response', outcome,
-            deterministic: result.status === 'pass', agentId: options.agent || process.env.RIGOUR_AGENT_ID,
-            files, summary: `${result.failures.length} finding(s)`,
-        }),
-        recordInteractionLesson(cwd, {
-            tool: 'rigour_hooks_check', requestId, outcome,
             deterministic: result.status === 'pass', agentId: options.agent || process.env.RIGOUR_AGENT_ID,
             files, summary: `${result.failures.length} finding(s)`,
         }),

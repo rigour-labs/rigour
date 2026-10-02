@@ -45,7 +45,7 @@ import { handleCheckDeep, handleDeepStats } from './tools/deep-handlers.js';
 import { handleMcpGetSettings, handleMcpSetSettings } from './tools/mcp-settings-handler.js';
 import { handleContextStats, handleTaskCost, handleCacheStats, handleContextExplain, handleContextScope } from './tools/context-handlers.js';
 import { handleIndex } from './tools/index-handlers.js';
-import { recordContextEvent, recordInteractionEvidence, recordInteractionLesson, syncTeamOutbox, estimateTokenCount } from '@rigour-labs/core';
+import { recordContextEvent, recordInteractionEvidence, syncTeamOutbox, estimateTokenCount } from '@rigour-labs/core';
 
 // ─── Server Setup ─────────────────────────────────────────────────
 
@@ -273,15 +273,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 phase: 'response',
                 requestId,
                 deterministic,
-                summary: result?._guidance?.recommendation,
-                ...interactionMetadata(args),
-            });
-            await recordInteractionLesson(cwd, {
-                tool: name,
-                outcome,
-                requestId,
-                deterministic,
-                verifiedOutcome: deterministic,
                 summary: result?._guidance?.recommendation,
                 ...interactionMetadata(args),
             });

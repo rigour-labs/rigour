@@ -17,10 +17,7 @@ export interface MemoryEntry {
     timestamp?: string;
 }
 
-export interface RankedMemory extends MemoryEntry {
-    score: number;
-    match: 'semantic' | 'keyword';
-}
+export type RankedMemory = Ranked<MemoryEntry>;
 
 /**
  * The similarity a memory needs to be returned, for local memory and team knowledge alike. Measured
@@ -36,32 +33,40 @@ const MAX_CANDIDATES = 300;
 
 type Embed = (text: string) => Promise<number[]>;
 
+export type Ranked<T> = T & { score: number; match: 'semantic' | 'keyword' };
+
 export async function rankMemories(query: string, entries: MemoryEntry[], embed?: Embed): Promise<RankedMemory[]> {
-    const candidates = entries.slice(0, MAX_CANDIDATES);
+    return rankByMeaning(query, entries, memoryText, embed);
+}
+
+/** The items whose text best matches the query by meaning, at most RECALL_LIMIT, each above the floor. */
+export async function rankByMeaning<T>(query: string, items: T[], textOf: (item: T) => string, embed?: Embed): Promise<Array<Ranked<T>>> {
+    const candidates = items.slice(0, MAX_CANDIDATES);
+    if (candidates.length === 0) return [];
     const embedText = embed ?? (await import('../pattern-index/embeddings.js')).generateEmbedding;
     const queryVector = await embedText(query);
     const ranked = queryVector.length > 0
-        ? await bySimilarity(queryVector, candidates, embedText)
-        : byKeywords(query, candidates);
+        ? await bySimilarity(queryVector, candidates, textOf, embedText)
+        : byKeywords(query, candidates, textOf);
     return ranked.sort((a, b) => b.score - a.score).slice(0, RECALL_LIMIT);
 }
 
-async function bySimilarity(queryVector: number[], entries: MemoryEntry[], embed: Embed): Promise<RankedMemory[]> {
-    const ranked: RankedMemory[] = [];
-    for (const entry of entries) {
-        const score = cosine(queryVector, await embed(memoryText(entry)));
-        if (score >= SEMANTIC_FLOOR) ranked.push({ ...entry, score, match: 'semantic' });
+async function bySimilarity<T>(queryVector: number[], items: T[], textOf: (item: T) => string, embed: Embed): Promise<Array<Ranked<T>>> {
+    const ranked: Array<Ranked<T>> = [];
+    for (const item of items) {
+        const score = cosine(queryVector, await embed(textOf(item)));
+        if (score >= SEMANTIC_FLOOR) ranked.push({ ...item, score, match: 'semantic' });
     }
     return ranked;
 }
 
-function byKeywords(query: string, entries: MemoryEntry[]): RankedMemory[] {
+function byKeywords<T>(query: string, items: T[], textOf: (item: T) => string): Array<Ranked<T>> {
     const wanted = words(query);
     if (wanted.size === 0) return [];
-    return entries.flatMap(entry => {
-        const have = words(memoryText(entry));
+    return items.flatMap(item => {
+        const have = words(textOf(item));
         const score = [...wanted].filter(word => have.has(word)).length / wanted.size;
-        return score >= KEYWORD_FLOOR ? [{ ...entry, score, match: 'keyword' as const }] : [];
+        return score >= KEYWORD_FLOOR ? [{ ...item, score, match: 'keyword' as const }] : [];
     });
 }
 

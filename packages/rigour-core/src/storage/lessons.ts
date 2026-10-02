@@ -43,12 +43,6 @@ export interface InteractionEvidence {
     reusableClaim?: string;
 }
 
-export function shouldValidateInteractionLesson(evidence: InteractionEvidence, verifiedSuccessfulOutcomes = 0): boolean {
-    return evidence.outcome === 'success'
-        && Boolean(evidence.reusableClaim?.trim())
-        && (evidence.deterministic === true || verifiedSuccessfulOutcomes >= 3);
-}
-
 export async function recordInteractionEvidence(cwd: string, evidence: InteractionEvidence): Promise<string | null> {
     const db = await openDatabase();
     if (!db) return null;
@@ -129,7 +123,7 @@ export async function getRepositoryId(cwd: string): Promise<string> {
     return createHash('sha256').update(identity).digest('hex');
 }
 
-async function registerRepository(db: { run(sql: string, ...params: unknown[]): Promise<unknown> }, cwd: string, repositoryId: string): Promise<void> {
+export async function registerRepository(db: { run(sql: string, ...params: unknown[]): Promise<unknown> }, cwd: string, repositoryId: string): Promise<void> {
     let canonicalUri = path.resolve(cwd);
     try {
         const config = await readGitConfig(cwd);
@@ -145,91 +139,6 @@ async function registerRepository(db: { run(sql: string, ...params: unknown[]): 
              display_name=excluded.display_name, last_seen=excluded.last_seen`,
         repositoryId, canonicalUri, remoteName || path.basename(cwd), Date.now(),
     );
-}
-
-export async function recordInteractionLesson(cwd: string, evidence: InteractionEvidence): Promise<string | null> {
-    const db = await openDatabase();
-    if (!db) return null;
-    try {
-        const repositoryId = await getRepositoryId(cwd);
-        await registerRepository(db, cwd, repositoryId);
-        const id = `lesson-${randomUUID()}`;
-        const now = Date.now();
-        const verifiedSuccess = shouldValidateInteractionLesson(evidence, evidence.verifiedOutcome ? 3 : 0);
-        const confidence = verifiedSuccess ? 0.8 : 0.3;
-        const state: LessonState = confidence >= 0.8 ? 'validated' : 'candidate';
-        const config = await loadTeamConfiguration();
-        const actorId = config?.actorId || process.env.RIGOUR_ACTOR_ID || null;
-        const priorRow = await db.get(
-            `SELECT * FROM lessons
-             WHERE repository_id = ? AND actor_id IS ? AND visibility = 'personal'
-               AND state = 'candidate' AND kind = 'interaction' AND subject = ?
-             ORDER BY updated_at DESC LIMIT 1`,
-            repositoryId, actorId, evidence.reusableClaim?.trim() || `interaction:${evidence.tool}`,
-        );
-        if (priorRow) {
-            const prior = await rowToLesson(priorRow);
-            const previousSuccesses = Number(prior.evidence.successfulOutcomes ?? 0);
-            const successfulOutcomes = previousSuccesses + (evidence.outcome === 'success' ? 1 : 0);
-            const previousVerified = Number(prior.evidence.verifiedSuccessfulOutcomes ?? 0);
-            const verifiedSuccessfulOutcomes = previousVerified + (evidence.verifiedOutcome && evidence.outcome === 'success' ? 1 : 0);
-            const repeatedValidation = shouldValidateInteractionLesson(evidence, verifiedSuccessfulOutcomes);
-            const mergedEvidence = {
-                ...evidence,
-                observationCount: Number(prior.evidence.observationCount ?? 1) + 1,
-                successfulOutcomes,
-                verifiedSuccessfulOutcomes,
-                previousRequestId: prior.evidence.requestId,
-            };
-            const updated: LessonRecord = {
-                ...prior,
-                state: repeatedValidation ? 'validated' : 'candidate',
-                evidence: mergedEvidence,
-                confidence: repeatedValidation ? 0.8 : Math.min(0.7, prior.confidence + 0.15),
-                updatedAt: now,
-            };
-            await db.run(
-                'UPDATE lessons SET state = ?, evidence_json = ?, confidence = ?, updated_at = ? WHERE id = ?',
-                updated.state,
-                await encryptLocalPayload(updated.evidence),
-                updated.confidence,
-                updated.updatedAt,
-                updated.id,
-            );
-            if (config) await queueLessonSync(db, updated, now);
-            return prior.id;
-        }
-        const storedEvidence = {
-            ...evidence,
-            observationCount: 1,
-            successfulOutcomes: evidence.outcome === 'success' ? 1 : 0,
-            verifiedSuccessfulOutcomes: evidence.verifiedOutcome && evidence.outcome === 'success' ? 1 : 0,
-        };
-        const encryptedEvidence = await encryptLocalPayload(storedEvidence);
-        await db.run(
-            `INSERT INTO lessons (
-                id, repository_id, actor_id, team_id, visibility, state, kind, subject,
-                evidence_json, confidence, source, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'personal', ?, 'interaction', ?, ?, ?, 'mcp', ?, ?)`,
-            id,
-            repositoryId,
-            actorId,
-            config?.teamId || process.env.RIGOUR_TEAM_ID || null,
-            state,
-            evidence.reusableClaim?.trim() || `interaction:${evidence.tool}`,
-            encryptedEvidence,
-            confidence,
-            now,
-            now,
-        );
-        if (config) {
-            const personal = await txSafeLesson(db, id);
-            if (personal) await queueLessonSync(db, personal, now);
-        }
-        return id;
-    } finally {
-        await db.close();
-    }
 }
 
 /**
@@ -272,7 +181,7 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
     }
 }
 
-async function queueLessonSync(
+export async function queueLessonSync(
     db: { run(sql: string, ...params: unknown[]): Promise<unknown> },
     lesson: LessonRecord,
     now: number,
@@ -294,7 +203,7 @@ export async function listLessons(cwd: string, limit = 100): Promise<LessonRecor
         const rows = await db.all(
             `SELECT lessons.*, repositories.display_name AS repository_name
              FROM lessons LEFT JOIN repositories ON repositories.id = lessons.repository_id
-             WHERE repository_id = ?
+             WHERE repository_id = ? AND kind != 'interaction'
              ORDER BY updated_at DESC LIMIT ?`,
             repositoryId,
             limit,
@@ -321,17 +230,19 @@ export async function listKnowledgeLessons(cwd: string, limit = 500): Promise<Le
             ? await db.all(
                 `SELECT lessons.*, repositories.display_name AS repository_name
                  FROM lessons LEFT JOIN repositories ON repositories.id = lessons.repository_id
-                 WHERE lessons.repository_id = ?
+                 WHERE lessons.kind != 'interaction'
+                   AND (lessons.repository_id = ?
                     OR (lessons.visibility = 'personal' AND lessons.actor_id = ?)
-                    OR (lessons.visibility = 'team' AND lessons.team_id = ? AND lessons.state = 'promoted')
+                    OR (lessons.visibility = 'team' AND lessons.team_id = ? AND lessons.state = 'promoted'))
                  ORDER BY lessons.updated_at DESC LIMIT ?`,
                 repositoryId, config.actorId, config.teamId, limit,
             )
             : await db.all(
                 `SELECT lessons.*, repositories.display_name AS repository_name
                  FROM lessons LEFT JOIN repositories ON repositories.id = lessons.repository_id
-                 WHERE lessons.repository_id = ?
-                    OR (lessons.visibility = 'personal' AND lessons.actor_id IS NULL)
+                 WHERE lessons.kind != 'interaction'
+                   AND (lessons.repository_id = ?
+                    OR (lessons.visibility = 'personal' AND lessons.actor_id IS NULL))
                  ORDER BY lessons.updated_at DESC LIMIT ?`,
                 repositoryId, limit,
             );
@@ -444,7 +355,7 @@ export async function transitionLesson(
     }
 }
 
-async function txSafeLesson(db: { get(sql: string, ...params: unknown[]): Promise<any> }, id: string): Promise<LessonRecord | null> {
+export async function txSafeLesson(db: { get(sql: string, ...params: unknown[]): Promise<any> }, id: string): Promise<LessonRecord | null> {
     const row = await db.get('SELECT * FROM lessons WHERE id = ?', id);
     return row ? rowToLesson(row) : null;
 }
