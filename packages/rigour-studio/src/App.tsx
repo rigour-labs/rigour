@@ -1,95 +1,60 @@
-import React, { Suspense, useState, useEffect } from 'react';
-import {
-    Activity,
-    ShieldCheck,
-    Terminal,
-    Settings,
-    Info,
-    Lock,
-    X,
-    Folder,
-    Sun,
-    Moon,
-    CheckCircle,
-    XCircle,
-    AlertTriangle,
-    Users,
-    Brain,
-    Network,
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { DiffViewer } from './components/DiffViewer';
-import { FileTree } from './components/FileTree';
-import { MemoryBank } from './components/MemoryBank';
-import { PatternIndex } from './components/PatternIndex';
-import { QualityGates } from './components/QualityGates';
-import { AuditLog, LogEntry } from './components/AuditLog';
-import { AgentTeams } from './components/AgentTeams';
-import { CheckpointTimeline } from './components/CheckpointTimeline';
-import { DeepAnalysis } from './components/DeepAnalysis';
-import { TemporalDrift } from './components/TemporalDrift';
-import { CostContext } from './components/CostContext';
-import { Overview } from './components/Overview';
-import { EnforcementRail } from './components/EnforcementRail';
-import { HandoffFlow } from './components/HandoffFlow';
-import { LearningBrain } from './components/LearningBrain';
-import { CheckPrecision } from './components/CheckPrecision';
-import { SemanticBugs, semanticBugsEnabledIn } from './components/SemanticBugs';
-import { FirewallConsole } from './components/FirewallConsole';
-import { PrePrReview } from './components/PrePrReview';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Activity as ActivityIcon, Compass, GraduationCap, Inbox, ListChecks, Lock, Moon, ShieldCheck, Sun, TrendingUp, Trophy, Wrench, X, Folder } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { studioWrite } from './studioWrite';
 import { SystemHealth, type HealthData } from './components/SystemHealth';
-import { StudioSettings } from './components/StudioSettings';
+import { Week } from './components/Week';
+import { Progress } from './components/Progress';
+import { OnlyRigour } from './components/OnlyRigour';
+import { Learning } from './components/Learning';
+import { AgentContext } from './components/AgentContext';
+import { Reviews } from './components/Reviews';
+import { Activity } from './components/Activity';
+import { SetupView } from './components/SetupView';
+import { Approval, type ApprovalRequest } from './components/Approval';
+import { hasStudioKey } from './studioWrite';
 
-const KnowledgeGraph = React.lazy(() => import('./components/KnowledgeGraph').then(module => ({ default: module.KnowledgeGraph })));
+// A new key: the old one holds the dark default every earlier Studio stored on first load.
+const THEME_KEY = 'rigour-theme-v2';
 
 interface ProjectInfo {
-    name?: string;
-    path?: string;
     projectName?: string;
     projectPath?: string;
-    projectVersion?: string;
-    version?: string;
+    projectVersion?: string | null;
+    branch?: string | null;
+    teamSync?: boolean;
     studioVersion?: string;
-    mcpVersion?: string;
 }
 
-const tabTransition = {
-    initial: { opacity: 0, y: 10 },
-    animate: { opacity: 1, y: 0 },
-    exit: { opacity: 0, y: -10 },
-    transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] as const },
-};
+const PAGES = [
+    { id: 'week', label: 'This week', icon: Inbox, page: (go: (id: string) => void) => <Week onNavigate={go} /> },
+    { id: 'progress', label: 'Progress', icon: TrendingUp, page: () => <Progress /> },
+    { id: 'only', label: 'Only Rigour', icon: Trophy, page: () => <OnlyRigour /> },
+    { id: 'learns', label: 'How it learns', icon: GraduationCap, page: () => <Learning /> },
+    { id: 'context', label: 'Agent context', icon: Compass, page: () => <AgentContext /> },
+    { id: 'reviews', label: 'Reviews', icon: ListChecks, page: () => <Reviews /> },
+    { id: 'activity', label: 'Activity', icon: ActivityIcon, page: () => <Activity /> },
+    { id: 'setup', label: 'Setup', icon: Wrench, page: () => <SetupView /> },
+] as const;
+
+/** An approval request is shown only while an answer can still count. */
+const APPROVAL_WINDOW_MS = 60_000;
 
 function App() {
-    const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
-    const [activeTab, setActiveTab] = useState('knowledge');
-    const [logs, setLogs] = useState<any[]>([]);
-    const [selectedDiff, setSelectedDiff] = useState<{
-        filename: string;
-        original: string;
-        modified: string;
-    } | null>(null);
-    const [inspectingLog, setInspectingLog] = useState<any | null>(null);
-    const [isGovernanceOpen, setIsGovernanceOpen] = useState(false);
-    const [arbitrationSecondsLeft, setArbitrationSecondsLeft] = useState<number | null>(null);
-    const [projectTree, setProjectTree] = useState<string[]>([]);
+    const [theme, setTheme] = useState(() => { try { return localStorage.getItem(THEME_KEY) || 'light'; } catch { return 'light'; } });
+    const [active, setActive] = useState<string>('week');
     const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-    const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'offline'>('connecting');
+    const [connection, setConnection] = useState<'connecting' | 'live' | 'offline'>('connecting');
+    const [approval, setApproval] = useState<ApprovalRequest | null>(null);
     const [health, setHealth] = useState<HealthData | null>(null);
     const [healthLoading, setHealthLoading] = useState(true);
-    const [healthUpdatedAt, setHealthUpdatedAt] = useState(0);
     const [healthOpen, setHealthOpen] = useState(false);
 
-    const fetchHealth = React.useCallback(async () => {
+    const fetchHealth = useCallback(async () => {
         setHealthLoading(true);
         try {
             const response = await fetch('/api/health');
             const payload = await response.json();
-            if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-            setHealth(payload);
-            setHealthUpdatedAt(Date.now());
+            setHealth(response.ok ? payload : { error: payload.error || `HTTP ${response.status}` });
         } catch (error) {
             setHealth({ error: error instanceof Error ? error.message : String(error) });
         } finally {
@@ -97,204 +62,53 @@ function App() {
         }
     }, []);
 
-    React.useEffect(() => {
-        const eventSource = new EventSource('/api/events');
-        eventSource.onopen = () => setConnectionState('live');
-        eventSource.onerror = () => setConnectionState('offline');
-        eventSource.onmessage = (event) => {
+    useEffect(() => {
+        const events = new EventSource('/api/events');
+        events.onopen = () => setConnection('live');
+        events.onerror = () => setConnection('offline');
+        events.onmessage = (message) => {
             try {
-                const data = JSON.parse(event.data);
-                setLogs(prev => [data, ...prev].slice(0, 100));
-            } catch (e) {
-                console.error('Failed to parse event', e);
+                const event = JSON.parse(message.data);
+                const fresh = !event.timestamp || Date.now() - Date.parse(event.timestamp) < APPROVAL_WINDOW_MS;
+                if (event.type === 'interception_requested' && fresh) setApproval(event);
+            } catch {
+                // Not an event Studio understands; the pages read their own data.
             }
         };
-        void fetchHealth();
-        const healthTimer = window.setInterval(fetchHealth, 15_000);
-
-        // Fetch project tree
-        fetch('/api/tree')
-            .then(res => res.json())
-            .then(setProjectTree)
-            .catch(err => console.error('Failed to fetch tree', err));
-
-        // Fetch project info
-        fetch('/api/info')
-            .then(res => res.json())
-            .then(setProjectInfo)
-            .catch(err => console.error('Failed to fetch info', err));
-
-        return () => { eventSource.close(); window.clearInterval(healthTimer); };
-    }, [fetchHealth]);
-
-    useEffect(() => {
-        if (!inspectingLog || inspectingLog.type !== 'interception_requested' || !isGovernanceOpen) {
-            setArbitrationSecondsLeft(null);
-            return;
-        }
-        const started = inspectingLog.timestamp ? Date.parse(inspectingLog.timestamp) : Date.now();
-        const tick = () => {
-            const elapsed = Math.floor((Date.now() - started) / 1000);
-            const left = Math.max(0, 60 - elapsed);
-            setArbitrationSecondsLeft(left);
-        };
-        tick();
-        const id = setInterval(tick, 1000);
-        return () => clearInterval(id);
-    }, [inspectingLog, isGovernanceOpen]);
+        fetch('/api/info').then(res => res.json()).then(setProjectInfo).catch(() => setProjectInfo(null));
+        return () => events.close();
+    }, []);
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('rigour-theme', theme);
+        try { localStorage.setItem(THEME_KEY, theme); } catch { /* not remembered */ }
     }, [theme]);
 
-    const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
-
-    const [rigourConfig, setRigourConfig] = useState<string>('');
-    const [memoryData, setMemoryData] = useState<any>({});
-    const [indexStats, setIndexStats] = useState<any>({});
-    const [agentSession, setAgentSession] = useState<any>(null);
-    const [checkpointSession, setCheckpointSession] = useState<any>(null);
-    const [metaState, setMetaState] = useState<'loading' | 'ready' | 'degraded'>('loading');
-
-    const fetchMeta = React.useCallback(async () => {
-            setMetaState('loading');
-            const results = await Promise.allSettled([
-                    fetch('/api/config').then(r => r.ok ? r.text() : ''),
-                    fetch('/api/memory').then(r => r.ok ? r.json() : Promise.reject(new Error(`Memory HTTP ${r.status}`))),
-                    fetch('/api/index-stats').then(r => r.ok ? r.json() : Promise.reject(new Error(`Index HTTP ${r.status}`))),
-                    fetch('/api/agents').then(r => r.ok ? r.json() : Promise.reject(new Error(`Agents HTTP ${r.status}`))),
-                    fetch('/api/checkpoints').then(r => r.ok ? r.json() : Promise.reject(new Error(`Checkpoints HTTP ${r.status}`)))
-                ]);
-            if (results[0].status === 'fulfilled') setRigourConfig(results[0].value);
-            if (results[1].status === 'fulfilled') setMemoryData(results[1].value);
-            if (results[2].status === 'fulfilled') setIndexStats(results[2].value);
-            if (results[3].status === 'fulfilled') setAgentSession(results[3].value);
-            if (results[4].status === 'fulfilled') setCheckpointSession(results[4].value);
-            setMetaState(results.every(result => result.status === 'fulfilled') ? 'ready' : 'degraded');
-    }, []);
-
-    useEffect(() => { void fetchMeta(); }, [fetchMeta]);
-
-    const fetchFileContent = async (filename: string) => {
-        try {
-            // Strip line count annotation if present (e.g., "file.py (123 lines)")
-            const cleanPath = filename.replace(/\s*\(\d+\s*lines\)$/, '');
-            const res = await fetch(`/api/file?path=${encodeURIComponent(cleanPath)}`);
-            const content = await res.text();
-            setSelectedDiff({
-                filename: cleanPath,
-                original: content,
-                modified: content
-            });
-        } catch (err) {
-            console.error('Failed to fetch file content', err);
-        }
-    };
-
-    const handleArbitration = async (decision: 'approve' | 'reject') => {
-        if (!inspectingLog) return;
-
-        try {
-            const res = await studioWrite('/api/arbitrate', 'POST', JSON.stringify({
-                requestId: inspectingLog.requestId || inspectingLog.id,
-                decision,
-            }));
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-            // Optimistic update
-            setLogs(prev => prev.map(l => {
-                if ((l.requestId || l.id) === (inspectingLog.requestId || inspectingLog.id)) {
-                    return { ...l, status: decision === 'approve' ? 'success' : 'error', arbitrated: true, decision };
-                }
-                return l;
-            }));
-
-            setIsGovernanceOpen(false);
-            setInspectingLog(null);
-        } catch (err) {
-            console.error('Arbitration failed', err);
-        }
-    };
-
-    const navItems = [
-        { id: 'knowledge', label: 'Map', icon: Network, tabs: ['knowledge'] },
-        { id: 'agents', label: 'Agents', icon: Users, tabs: ['agents', 'handoffs', 'checkpoints'] },
-        { id: 'enforcement', label: 'Review', icon: ShieldCheck, tabs: ['overview', 'enforcement', 'prepr', 'firewall', 'gates', 'audit'] },
-        { id: 'learning', label: 'Knowledge', icon: Brain, tabs: ['learning', 'lessons', 'precision', 'rules', 'patterns', 'memory', 'cost', 'deep', 'drift'] },
-        { id: 'settings', label: 'Settings', icon: Settings, tabs: ['settings'] },
-    ];
-    const sectionTabs: Record<string, Array<{ id: string; label: string }>> = {
-        agents: [
-            { id: 'agents', label: 'Agent history' },
-            { id: 'handoffs', label: 'Handoffs' },
-            { id: 'checkpoints', label: 'Checkpoints' },
-        ],
-        enforcement: [
-            { id: 'overview', label: 'Overview' },
-            { id: 'enforcement', label: 'Enforcement' },
-            { id: 'prepr', label: 'Pre-PR review' },
-            { id: 'firewall', label: 'Firewall' },
-            { id: 'gates', label: 'Quality gates' },
-            { id: 'audit', label: 'Audit trail' },
-        ],
-        learning: [
-            { id: 'learning', label: 'Knowledge map' },
-            { id: 'lessons', label: 'Lessons' },
-            { id: 'precision', label: 'Check precision' },
-            { id: 'rules', label: 'Learned rules' },
-            { id: 'patterns', label: 'Patterns' },
-            { id: 'memory', label: 'Memory' },
-            { id: 'cost', label: 'Cost & context' },
-            { id: 'deep', label: 'Deep analysis' },
-            { id: 'drift', label: 'Drift' },
-        ],
-    };
-    const activeNav = navItems.find((item) => item.tabs.includes(activeTab)) ?? navItems[0];
-    const semanticBugsEnabled = semanticBugsEnabledIn(rigourConfig);
-
-    const studioVersion = projectInfo?.studioVersion || projectInfo?.mcpVersion || '—';
-    const projectVersion = projectInfo?.projectVersion || projectInfo?.version || '—';
-    const projectName = projectInfo?.projectName || projectInfo?.name || 'project';
-    const projectPath = projectInfo?.projectPath || projectInfo?.path || '';
-
+    const current = PAGES.find(p => p.id === active) ?? PAGES[0];
     return (
         <div className="studio">
-            <div className="cinema-ambient" aria-hidden="true">
-                <div className="ambient-blob blob-a" />
-                <div className="ambient-blob blob-b" />
-            </div>
             <aside className="sidebar glass-shell">
                 <div className="brand">
                     <div className="logo-icon"><ShieldCheck size={18} /></div>
-                    <span>Rigour Studio</span>
-                    <div className="version-pill">v{studioVersion}</div>
+                    <span>Rigour</span>
+                    {projectInfo?.studioVersion && <div className="version-pill">v{projectInfo.studioVersion}</div>}
                 </div>
-
                 <nav>
-                    {navItems.map((item) => (
-                        <button
-                            key={item.id}
-                            className={`nav-item ${item.tabs.includes(activeTab) ? 'active' : ''}`}
-                            onClick={() => setActiveTab(item.id)}
-                        >
-                            <item.icon size={18} />
-                            <span>{item.label}</span>
-                            {item.tabs.includes(activeTab) && (
-                                <motion.div layoutId="nav-glow" className="nav-glow" />
-                            )}
+                    {PAGES.map(page => (
+                        <button key={page.id} className={`nav-item ${page.id === current.id ? 'active' : ''}`} onClick={() => setActive(page.id)} type="button">
+                            <page.icon size={18} />
+                            <span>{page.label}</span>
                         </button>
                     ))}
                 </nav>
-
-                <div className="sidebar-footer">
-                    <div className="trust-indicator">
-                        <Lock size={14} />
-                        <span>Local Governance</span>
+                {projectInfo && (
+                    <div className="sidebar-footer">
+                        <div className="trust-indicator" title={projectInfo.teamSync ? 'Lessons your team promotes are shared through your team store' : 'Nothing leaves this machine'}>
+                            <Lock size={14} />
+                            <span>{projectInfo.teamSync ? 'Synced with your team' : 'Stored on this machine'}</span>
+                        </div>
                     </div>
-                    <button className="footer-item" onClick={() => setActiveTab('settings')} aria-label="Open settings"><Settings size={18} /></button>
-                    <button className="footer-item"><Info size={18} /></button>
-                </div>
+                )}
             </aside>
 
             <main className="main-content">
@@ -303,320 +117,41 @@ function App() {
                         {projectInfo && (
                             <div className="project-identity">
                                 <Folder size={14} className="folder-icon" />
-                                <span className="project-name">{projectName}</span>
-                                <span className="project-version-pill">v{projectVersion}</span>
-                                <span className="project-path">{projectPath}</span>
+                                <span className="project-name">{projectInfo.projectName}</span>
+                                {projectInfo.projectVersion && <span className="project-version-pill">v{projectInfo.projectVersion}</span>}
+                                {projectInfo.branch && <span className="project-version-pill" title="Current branch">{projectInfo.branch}</span>}
+                                <span className="project-path">{projectInfo.projectPath}</span>
                             </div>
                         )}
                     </div>
                     <div className="header-right">
-                        <button type="button" className="connection-status" onClick={() => setHealthOpen(open => !open)} aria-expanded={healthOpen}>
-                            <div className={`status-indicator ${connectionState}`}>
+                        <button type="button" className="connection-status" onClick={() => { setHealthOpen(open => !open); void fetchHealth(); }} aria-expanded={healthOpen} title="Studio receives Rigour's events live">
+                            <div className={`status-indicator ${connection}`}>
                                 <div className="pulse-emitter" />
-                                <span>{connectionState === 'live' && !health?.error ? 'CONNECTED' : connectionState.toUpperCase()}</span>
+                                <span>{connection === 'live' ? 'Live' : connection === 'offline' ? 'Offline' : 'Connecting'}</span>
                             </div>
                         </button>
-                        <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
+                        <button className="theme-toggle" onClick={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} aria-label="Toggle theme" type="button">
                             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
                         </button>
                     </div>
                 </header>
-                {healthOpen && <div className="health-popover"><div className="health-popover-title"><strong>Rigour system health</strong><button type="button" onClick={() => setHealthOpen(false)} aria-label="Close health"><X size={15} /></button></div><SystemHealth data={health} loading={healthLoading} stale={Boolean(healthUpdatedAt && Date.now() - healthUpdatedAt > 45_000)} onRetry={fetchHealth} /></div>}
+                {healthOpen && (
+                    <div className="health-popover">
+                        <div className="health-popover-title"><strong>Rigour system health</strong><button type="button" onClick={() => setHealthOpen(false)} aria-label="Close health"><X size={15} /></button></div>
+                        <SystemHealth data={health} loading={healthLoading} stale={false} onRetry={fetchHealth} />
+                    </div>
+                )}
                 <div className="view-container">
-                    {sectionTabs[activeNav.id] && (
-                        <nav className="section-tabs" aria-label={`${activeNav.label} views`}>
-                            {sectionTabs[activeNav.id].map((tab) => (
-                                <button
-                                    type="button"
-                                    key={tab.id}
-                                    className={activeTab === tab.id ? 'active' : ''}
-                                    onClick={() => setActiveTab(tab.id)}
-                                >
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </nav>
+                    {!hasStudioKey() && (
+                        <div className="overview-banner" role="note"><Lock size={18} /><div><strong>Read-only</strong><p>Open Studio from the link printed in your terminal to dismiss findings, keep lessons or answer an approval.</p></div></div>
                     )}
-                    {metaState === 'loading' && <div className="overview-banner"><Activity size={18} className="spinning" /><div><strong>Loading workspace data</strong><p>Views will appear as their data becomes available.</p></div></div>}
-                    {metaState === 'degraded' && <div className="overview-banner warn" role="alert"><AlertTriangle size={18} /><div><strong>Some workspace data is unavailable</strong><p>Available views remain usable.</p></div><button type="button" className="refresh-btn" onClick={fetchMeta}>Retry</button></div>}
-                    <ErrorBoundary resetKey={activeTab}>
-                    <AnimatePresence mode="wait">
-                        {activeTab === 'enforcement' && (
-                            <motion.div key="enforcement" {...tabTransition} className="full-view">
-                                <EnforcementRail onNavigate={setActiveTab} />
-                            </motion.div>
-                        )}
-                        {activeTab === 'prepr' && (
-                            <motion.div key="prepr" {...tabTransition} className="full-view">
-                                <PrePrReview />
-                            </motion.div>
-                        )}
-                        {activeTab === 'firewall' && (
-                            <motion.div key="firewall" {...tabTransition} className="full-view">
-                                <FirewallConsole />
-                            </motion.div>
-                        )}
-                        {activeTab === 'learning' && (
-                            <motion.div key="learning" {...tabTransition} className="full-view">
-                                <Suspense fallback={<div className="graph-state"><Activity size={18} className="spinning" /> Preparing expertise graph…</div>}>
-                                    <KnowledgeGraph mode="expertise" onNavigate={setActiveTab} />
-                                </Suspense>
-                            </motion.div>
-                        )}
-                        {activeTab === 'lessons' && (
-                            <motion.div key="lessons" {...tabTransition} className="full-view">
-                                <LearningBrain onNavigate={setActiveTab} />
-                            </motion.div>
-                        )}
-                        {activeTab === 'precision' && (
-                            <motion.div key="precision" {...tabTransition} className="full-view">
-                                <CheckPrecision />
-                            </motion.div>
-                        )}
-                        {activeTab === 'rules' && (
-                            <motion.div key="rules" {...tabTransition} className="full-view">
-                                <SemanticBugs enabled={semanticBugsEnabled} />
-                            </motion.div>
-                        )}
-                        {activeTab === 'overview' && (
-                            <motion.div key="overview" {...tabTransition} className="full-view">
-                                <Overview onNavigate={setActiveTab} />
-                            </motion.div>
-                        )}
-                        {activeTab === 'handoffs' && (
-                            <motion.div key="handoffs" {...tabTransition} className="full-view">
-                                <HandoffFlow />
-                            </motion.div>
-                        )}
-                        {activeTab === 'audit' && (
-                            <motion.div
-                                key="audit"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <AuditLog
-                                    logs={logs}
-                                    onClearLogs={() => setLogs([])}
-                                    onSelectLog={(log: LogEntry | null) => {
-                                        setInspectingLog(log);
-                                        // Open overlay for reports OR interception requests
-                                        if (log?._rigour_report || log?.type === 'interception_requested') {
-                                            if (log?._rigour_report) {
-                                                const firstFile = log._rigour_report.failures?.[0]?.files?.[0];
-                                                if (firstFile) fetchFileContent(firstFile);
-                                                else setSelectedDiff(null);
-                                            } else {
-                                                setSelectedDiff(null);
-                                            }
-                                            setIsGovernanceOpen(true);
-                                        } else {
-                                            setSelectedDiff(null);
-                                            setIsGovernanceOpen(false);
-                                        }
-                                    }}
-                                    selectedLog={inspectingLog}
-                                />
-                            </motion.div>
-                        )}
-                        {activeTab === 'gates' && (
-                            <motion.div
-                                key="gates"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <QualityGates />
-                            </motion.div>
-                        )}
-
-                        {activeTab === 'deep' && (
-                            <motion.div
-                                key="deep"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <DeepAnalysis />
-                            </motion.div>
-                        )}
-
-                        {activeTab === 'drift' && (
-                            <motion.div
-                                key="drift"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <TemporalDrift />
-                            </motion.div>
-                        )}
-
-                        {activeTab === 'patterns' && (
-                            <motion.div
-                                key="patterns"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <PatternIndex />
-                            </motion.div>
-                        )}
-
-                        {activeTab === 'memory' && (
-                            <motion.div
-                                key="memory"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <MemoryBank />
-                            </motion.div>
-                        )}
-
-                        {activeTab === 'agents' && (
-                            <motion.div
-                                key="agents"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <AgentTeams session={agentSession} />
-                            </motion.div>
-                        )}
-
-                        {activeTab === 'knowledge' && (
-                            <motion.div key="knowledge" {...tabTransition} className="full-view">
-                                <Suspense fallback={<div className="graph-state"><Activity size={18} className="spinning" /> Preparing impact map…</div>}>
-                                    <KnowledgeGraph />
-                                </Suspense>
-                            </motion.div>
-                        )}
-
-                        {activeTab === 'checkpoints' && (
-                            <motion.div
-                                key="checkpoints"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <CheckpointTimeline checkpoints={checkpointSession?.checkpoints || []} />
-                            </motion.div>
-                        )}
-
-                        {activeTab === 'cost' && (
-                            <motion.div
-                                key="cost"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="full-view"
-                            >
-                                <CostContext />
-                            </motion.div>
-                        )}
-                        {activeTab === 'settings' && (
-                            <motion.div key="settings" {...tabTransition} className="full-view">
-                                <StudioSettings health={health} />
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                    <ErrorBoundary resetKey={current.id}>
+                        <div className="full-view">{current.page(setActive)}</div>
                     </ErrorBoundary>
-
-                    {inspectingLog && isGovernanceOpen && (
-                        <div className="governance-overlay">
-                            <div className="governance-window">
-                                <div className="governance-header">
-                                    <div className="title">
-                                        <ShieldCheck size={20} />
-                                        <span>Governance Audit: {inspectingLog.tool}</span>
-                                    </div>
-                                    <div className="hitl-actions">
-                                        {inspectingLog.type === 'interception_requested' && (
-                                            <>
-                                                <button className="btn-approve" onClick={() => handleArbitration('approve')}>
-                                                    <CheckCircle size={16} /> Approve
-                                                </button>
-                                                <button className="btn-reject" onClick={() => handleArbitration('reject')}>
-                                                    <XCircle size={16} /> Reject
-                                                </button>
-                                                <div className="divider" />
-                                            </>
-                                        )}
-                                        <button onClick={() => setIsGovernanceOpen(false)} className="close-btn"><X size={20} /></button>
-                                    </div>
-                                </div>
-                                <div className="governance-body">
-                                    {inspectingLog.type === 'interception_requested' ? (
-                                        <div className="interception-view">
-                                            <div className="interception-card">
-                                                <Terminal size={48} />
-                                                <h4>Command Intercepted</h4>
-                                                <div className="command-box">
-                                                    <code>{inspectingLog.command}</code>
-                                                </div>
-                                                <p>An AI agent is requesting to execute this command. Review the project state below before arbitrating.</p>
-                                                <div className="warning-note">
-                                                    <AlertTriangle size={16} />
-                                                    <span>
-                                                        Fail-closed: auto-DENY in {arbitrationSecondsLeft ?? 60}s if no decision.
-                                                        Silent approve is disabled.
-                                                    </span>
-                                                </div>
-                                                {inspectingLog.firewallDecision && inspectingLog.firewallDecision !== 'allow' && (
-                                                    <div className="warning-note">
-                                                        <XCircle size={16} />
-                                                        <span>Pre-check: {inspectingLog.firewallDecision} — {inspectingLog.firewallReason}</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <FileTree
-                                                files={projectTree.map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}
-                                                onSelect={(file) => fetchFileContent(file)}
-                                                activeFile={selectedDiff?.filename}
-                                                violatedFiles={[]}
-                                            />
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <FileTree
-                                                files={(inspectingLog._rigour_report?.failures?.flatMap((f: any) => f.files || []) || projectTree).map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}
-                                                onSelect={(file) => fetchFileContent(file)}
-                                                activeFile={selectedDiff?.filename}
-                                                violatedFiles={(inspectingLog._rigour_report?.failures?.flatMap((f: any) => f.files || []) || []).map((f: string) => f.replace(/\s*\(\d+\s*lines\)$/, ''))}
-                                            />
-                                            <div className="diff-view-area">
-                                                {selectedDiff ? (
-                                                    <DiffViewer
-                                                        filename={selectedDiff.filename}
-                                                        originalCode={selectedDiff.original}
-                                                        modifiedCode={selectedDiff.modified}
-                                                        onClose={() => setSelectedDiff(null)}
-                                                        theme={theme as 'dark' | 'light'}
-                                                    />
-                                                ) : (
-                                                    <div className="diff-placeholder">
-                                                        <Activity size={48} />
-                                                        <p>Select a file to audit the proposed changes</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
             </main>
+            {approval && <Approval request={approval} onClose={() => setApproval(null)} />}
         </div>
     );
 }

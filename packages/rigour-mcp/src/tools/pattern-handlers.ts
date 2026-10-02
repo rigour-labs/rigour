@@ -14,7 +14,7 @@ import {
     getDefaultIndexPath,
     SecurityDetector,
 } from "@rigour-labs/core/pattern-index";
-import { ConfigSchema, estimateTokenCount } from "@rigour-labs/core";
+import { ConfigSchema, estimateTokenCount, recordReuseSuggested } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 import { buildTelemetryMeta, type GuidanceMeta, type ToolResult } from '../utils/context-telemetry.js';
 import { appendContextFooter } from '../utils/context-footer.js';
@@ -107,6 +107,7 @@ export async function handleCheckPattern(
             resultText += action === 'BLOCK' ? `🚨 PATTERN REINVENTION DETECTED\n` : `💡 SIMILAR PATTERN EXISTS\n`;
             resultText += `"${best.pattern.name}" in ${best.pattern.file}:${best.pattern.line} (${best.matchType}, ${best.confidence}%)\n`;
             resultText += `SUGGESTION: ${assessment.suggestion}\n\n`;
+            if (action !== 'ALLOW') recordReuseSuggested(cwd, patternName, `${best.pattern.name} in ${best.pattern.file}:${best.pattern.line}`, action);
         }
         if (assessment.deprecations.length) {
             resultText += `⚠️ THE EXISTING "${matchedPattern?.name}" USES SOMETHING DEPRECATED\n`;

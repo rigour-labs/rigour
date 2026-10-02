@@ -60,6 +60,17 @@ describe('runHookChecker', () => {
         expect(result.failures[0]).toMatchObject({ gate: 'file-guard', severity: 'critical' });
     });
 
+    it('catches a real vendor key whatever it is named, and leaves publishable and test keys alone', async () => {
+        // Built at runtime: a key-shaped literal in this source would be (rightly) refused by secret scanning.
+        const fake = (prefix: string) => `${prefix}_${'51HxQ'}${'abcdefghijklmnopqrstuv'}`;
+        fs.writeFileSync(path.join(testDir, 'pay.ts'), `export const stripe = {\n  value: "${fake('sk_live')}",\n};\n`);
+        fs.writeFileSync(path.join(testDir, 'public.ts'), `export const key = "${fake('pk_live')}";\nexport const t = "${fake('sk_test')}";\n`);
+        const leaked = await runHookChecker({ cwd: testDir, files: ['pay.ts'] });
+        expect(leaked.failures).toEqual([expect.objectContaining({ gate: 'security-patterns', line: 2, severity: 'critical', message: 'Stripe API key detected in code' })]);
+        const fine = await runHookChecker({ cwd: testDir, files: ['public.ts'] });
+        expect(fine.failures.filter(f => f.gate === 'security-patterns')).toEqual([]);
+    });
+
     it('should detect file size violations', async () => {
         const filePath = path.join(testDir, 'big.ts');
         const lines = Array.from({ length: 100 }, (_, i) => `export const v${i} = ${i};`);

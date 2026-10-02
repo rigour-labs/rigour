@@ -44,7 +44,7 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
         appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking });
         countUsage('stop_review');
         if (decision.block) countUsage(attempt > 1 ? 'stop_block_repeat' : 'stop_block');
-        const capture = recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles);
+        const capture = recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles, 'stop');
         await recordFixLessons(cwd, capture.fixes).catch(() => undefined); // learning never blocks the agent
         if (!decision.block) {
             clearStopAttempts(cwd, session);

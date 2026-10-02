@@ -21,6 +21,15 @@ export interface AgentEvent {
     blocked?: boolean;
     /** Findings that blocked a stop. */
     blocking?: number;
+    /** lessons_served: where the agent got them, and their subjects (learning-events.ts). */
+    via?: string;
+    lessons?: string[];
+    /** pr_catches: what a branch review reported. */
+    findings?: Array<{ rule: string; title: string; file: string }>;
+    /** reuse_suggested: what the agent was about to write, what already exists, and BLOCK or WARN. */
+    planned?: string;
+    existing?: string;
+    action?: string;
 }
 
 export interface ReviewEffectiveness {

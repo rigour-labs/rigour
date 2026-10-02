@@ -29,8 +29,10 @@ export { readLessons, writeLessons, promoteLesson, matchLessons, lessonText, les
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
 export { readRepoRules, rulesForDiff, rulesSection, splitRules, type RepoRule } from './review-learning/repo-rules.js';
 export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
-export { checkPrecisions, checkId, precisionOf, isMuted, MUTE_MIN_OUTCOMES, MUTE_BELOW, type CheckPrecision, type CheckOutcome } from './review/check-outcomes.js';
-export { recordReviewOutcome, listResolvedFixes, removeResolvedFix, openFindingCount, type ResolvedFix, type FixCapture } from './review/agent-fixes.js';
+export { checkPrecisions, checkId, precisionOf, isMuted, readOutcomes, MUTE_MIN_OUTCOMES, MUTE_BELOW, type CheckPrecision, type CheckOutcome } from './review/check-outcomes.js';
+export { recordReviewOutcome, listResolvedFixes, removeResolvedFix, openFindingCount, listOpenFindings, type ResolvedFix, type FixCapture } from './review/agent-fixes.js';
+export { appendStory, readStories, compactDiff, STORIES_FILE, type Story, type CatchStage } from './review/stories.js';
+export { recordLessonsServed, recordPrCatches, recordReuseSuggested, type LessonChannel } from './review/learning-events.js';
 export { computeEffectiveness, readAgentEvents, appendAgentEvent, findingKeys, type AgentEvent, type ReviewEffectiveness } from './review/effectiveness.js';
 export { parseDiff, changedLinesByFile } from './utils/diff.js';
 export { FileScanner } from './utils/scanner.js';

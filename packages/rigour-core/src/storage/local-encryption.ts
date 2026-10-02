@@ -1,10 +1,10 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { chmod, link, readFile, unlink, writeFile } from 'node:fs/promises';
 import fs from 'fs-extra';
-import os from 'os';
 import path from 'path';
+import { rigourUserDir } from '../utils/user-state.js';
 
-const KEY_PATH = path.join(os.homedir(), '.rigour', 'team-cache.key');
+const KEY_PATH = path.join(rigourUserDir(), 'team-cache.key');
 let fileKeyPromise: Promise<Buffer> | undefined;
 
 function decodeKey(value: string, source: string): Buffer {

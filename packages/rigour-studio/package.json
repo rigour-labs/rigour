@@ -13,16 +13,9 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@monaco-editor/react": "^4.7.0",
-        "@react-sigma/core": "^5.0.6",
-        "@react-sigma/layout-forceatlas2": "^5.0.6",
-        "framer-motion": "^11.5.4",
-        "graphology": "^0.26.0",
         "lucide-react": "^0.441.0",
-        "monaco-editor": "^0.55.1",
         "react": "^18.3.1",
-        "react-dom": "^18.3.1",
-        "sigma": "^3.0.3"
+        "react-dom": "^18.3.1"
     },
     "devDependencies": {
         "@types/react": "^18.3.5",

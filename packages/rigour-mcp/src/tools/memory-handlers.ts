@@ -169,7 +169,7 @@ async function shareWithTeam(cwd: string, key: string, value: string): Promise<s
     if (!(await loadTeamConfiguration())) {
         return '\nKept as a team candidate on this machine; it is shared once team mode is configured (rigour team configure).';
     }
-    return '\nShared with your team as a candidate. Teammates\' agents receive it once someone promotes it in Studio (Knowledge › Lessons).';
+    return '\nShared with your team as a candidate. Teammates\' agents receive it once someone shares it from Studio (How it learns).';
 }
 
 export async function handleForget(cwd: string, key: string, scope: LocalMemoryScope = 'repo'): Promise<ToolResult> {

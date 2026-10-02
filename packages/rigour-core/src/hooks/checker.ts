@@ -311,6 +311,22 @@ function checkSecurityPatterns(
         checkHardcodedSecrets(line, i, relPath, isTestFile, failures);
         checkCommandInjection(line, i, relPath, failures);
     }
+    if (!isTestFile) checkVendorKeys(lines.join('\n'), relPath, failures);
+}
+
+/** Credential formats a vendor issues: unambiguous in code, unlike entropy or variable-name guesses. */
+const VENDOR_KEYS = new Set(['aws_access_key', 'openai_key', 'anthropic_key', 'github_token', 'stripe_key', 'slack_token', 'sendgrid_key', 'private_key', 'private_key_full']);
+
+/** A real vendor key written into code, whatever the variable is called. */
+function checkVendorKeys(content: string, relPath: string, failures: FailureEntry[]): void {
+    for (const detection of scanInputForCredentials(content).detections) {
+        if (!VENDOR_KEYS.has(detection.type) || !detection.position) continue;
+        const raw = content.slice(detection.position.start, detection.position.end);
+        if (/^pk_|_test_/.test(raw)) continue; // publishable and test keys are meant to be shared
+        const line = content.slice(0, detection.position.start).split('\n').length;
+        if (failures.some(f => f.gate === 'security-patterns' && f.line === line)) continue;
+        failures.push({ gate: 'security-patterns', file: relPath, message: `${detection.description} in code`, severity: 'critical', line });
+    }
 }
 
 function checkHardcodedSecrets(

@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { loadSettings, resolveDeepOptions, getCachedModel, SidecarProvider } from '@rigour-labs/core';
+import { checkRepoSetup, type SetupState } from './repo-setup.js';
 
 function runText(command: string, args: string[]): string {
     try {
@@ -63,8 +64,9 @@ export function hasVersionShadowing(versions: string[]): boolean {
     return new Set(normalized).size > 1;
 }
 
-export async function doctorCommand(): Promise<void> {
+export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     console.log(chalk.bold.cyan('\nRigour Doctor\n'));
+    await printRepoSetup(cwd);
 
     const paths = Array.from(new Set(listRigourPaths()));
     if (paths.length === 0) {
@@ -136,5 +138,17 @@ export async function doctorCommand(): Promise<void> {
     console.log(chalk.dim('  2) rigour deep pull [--pro]'));
     console.log(chalk.dim('  3) rigour check <changed files> --deep'));
     console.log(chalk.dim('  4) rigour check --deep -k <KEY> --provider <name>'));
+    console.log('');
+}
+
+const MARK: Record<SetupState, string> = { working: chalk.green('✓'), 'set up': chalk.yellow('○'), broken: chalk.red('✘'), missing: chalk.yellow('○') };
+
+/** This repository first: is each part of Rigour wired up, and did it fire this week. */
+export async function printRepoSetup(cwd: string): Promise<void> {
+    console.log(chalk.bold('This repository'));
+    for (const check of await checkRepoSetup(cwd)) {
+        console.log(`  ${MARK[check.state]} ${check.name}: ${chalk.dim(check.detail)}`);
+        if (check.fix && check.state !== 'working') console.log(chalk.dim(`      fix: ${check.fix}`));
+    }
     console.log('');
 }

@@ -1,10 +1,10 @@
 import fs from 'fs-extra';
-import os from 'os';
 import path from 'path';
 import { openDatabase } from './db.js';
 import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js';
 import { TEAM_SCHEMA } from './team-schema.js';
 import { diagnoseMissingMembership, explainTeamConnectionError } from './team-diagnostics.js';
+import { rigourUserDir } from '../utils/user-state.js';
 import {
     TEAM_VECTOR_SCHEMA,
     backfillConfiguredTeamEmbeddings,
@@ -78,7 +78,7 @@ const DEFAULT_SEMANTIC: TeamSemanticConfiguration = {
     dimensions: 384,
 };
 
-export const TEAM_CONFIG_PATH = path.join(os.homedir(), '.rigour', 'team.json');
+export const TEAM_CONFIG_PATH = path.join(rigourUserDir(), 'team.json');
 
 function nonEmpty(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;

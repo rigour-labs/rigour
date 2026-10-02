@@ -10,6 +10,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
 import { createRequire } from 'module';
+import { rigourUserDir } from '../utils/user-state.js';
 
 // ---------------------------------------------------------------------------
 // Optional dynamic import of sqlite3
@@ -45,7 +46,8 @@ function loadSqlite3(): any {
     return sqlite3Module;
 }
 
-const RIGOUR_DIR = path.join(os.homedir(), '.rigour');
+// RIGOUR_HOME when set (tests, sandboxes) so nothing but a real run touches ~/.rigour.
+const RIGOUR_DIR = rigourUserDir();
 const DB_PATH = path.join(RIGOUR_DIR, 'rigour.db');
 
 /** Current schema version — bump when adding migrations. */

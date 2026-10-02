@@ -5,7 +5,7 @@
  * With no diff, the change is taken from git: uncommitted work (what the
  * agent just wrote, new files included), or the branch against `base`.
  */
-import { acknowledgeReview, buildReviewTask, diffFromGit, recordFixLessons, recordReviewOutcome, reviewChange, toReviewFinding, type Config } from "@rigour-labs/core";
+import { acknowledgeReview, buildReviewTask, diffFromGit, recordFixLessons, recordLessonsServed, recordReviewOutcome, reviewChange, toReviewFinding, type Config } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
@@ -31,7 +31,8 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
         const diff = args.diff ?? diffFromGit(cwd, args.base ? { mode: 'base', base: args.base } : { mode: 'working' });
         const result = await reviewChange({ cwd, config, diff, files: args.files });
         const task = args.mode === 'agent' ? buildReviewTask(cwd, diff, config.gates.deep?.router, config.gates.deep?.review_lessons, config.gates.deep?.repo_rules) : undefined;
-        const capture = recordReviewOutcome(cwd, result.findings, Object.keys(result.changedLines));
+        const capture = recordReviewOutcome(cwd, result.findings, Object.keys(result.changedLines), 'review');
+        if (task) recordLessonsServed(cwd, 'review', task.lessons.map(l => l.text));
         await recordFixLessons(cwd, capture.fixes).catch(() => undefined); // learning never fails a review
         const stats = result.report?.stats;
         return text({

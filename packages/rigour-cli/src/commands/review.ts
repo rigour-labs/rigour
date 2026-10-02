@@ -15,7 +15,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf } from '@rigour-labs/core';
+import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, recordPrCatches } from '@rigour-labs/core';
 import type { DeepOptions, ReviewResult } from '@rigour-labs/core';
 import { loadConfig, UsageError } from './review-config.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
@@ -62,6 +62,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
             deep: isDeep ? deepOptions(cwd, options) : undefined,
             trustedRef,
         });
+        if (options.base) recordPrCatches(cwd, result.findings);
         await print(result, options);
         if (!isDeep && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
