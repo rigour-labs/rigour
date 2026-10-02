@@ -17,4 +17,4 @@ export function getDashboardHtml(): string {
 }
 
 export { getState, pushTimelineEntry, updateScore, updateKnowledge, seedFromLastReport, setScanning } from './state.js';
-export { summarizeKnowledge, type KnowledgeSummary } from './knowledge.js';
+export { summarizeKnowledge, LEARNING_TOOLS, type KnowledgeSummary } from './knowledge.js';

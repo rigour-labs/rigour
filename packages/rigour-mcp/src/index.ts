@@ -29,7 +29,7 @@ import { getMcpVersion } from './utils/package-version.js';
 import { buildMcpResultMeta, buildStudioImpact } from './utils/impact-receipt.js';
 
 // Dashboard (MCP App)
-import { DASHBOARD_URI, getDashboardHtml, pushTimelineEntry, seedFromLastReport, summarizeKnowledge, updateKnowledge, updateScore } from './dashboard/index.js';
+import { DASHBOARD_URI, getDashboardHtml, LEARNING_TOOLS, pushTimelineEntry, seedFromLastReport, summarizeKnowledge, updateKnowledge, updateScore } from './dashboard/index.js';
 
 // Tool definitions & advertised registry
 import { getAdvertisedToolDefinitions } from './advertised-tools.js';
@@ -305,7 +305,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ? `${report.status.toUpperCase()} — Score: ${report.stats?.score ?? '?'}/100`
             : "completed";
         pushTimelineEntry(name, result.isError ? "error" : "success", details);
-        updateKnowledge(await summarizeKnowledge(cwd).catch(() => null));
+        updateKnowledge(await summarizeKnowledge(cwd, { fresh: LEARNING_TOOLS.has(name) }).catch(() => null));
         seedFromLastReport(await readLastReport(cwd));
 
         if (report?.stats) {

@@ -33,4 +33,15 @@ describe('summarizeKnowledge', () => {
         fs.writeFileSync(path.join(cwd, '.rigour', 'check-outcomes.json'), JSON.stringify({ 'ast: Too many parameters': { fixed: 0, dismissed: 6 } }));
         expect(await summarizeKnowledge(cwd)).toEqual({ memories: 3, lessons: 3, trustedLessons: 2, learnedRules: 0, indexedPatterns: 0, mutedChecks: 1 });
     });
+
+    it('serves a recent summary from cache, and recomputes after a tool that changes knowledge', async () => {
+        fs.mkdirSync(path.join(cwd, '.rigour'), { recursive: true });
+        const write = (keys: string[]) => fs.writeFileSync(path.join(cwd, '.rigour', 'memory.json'), JSON.stringify({ memories: Object.fromEntries(keys.map(k => [k, { value: k, timestamp: '' }])) }));
+        write(['a']);
+        expect((await summarizeKnowledge(cwd, { now: 1_000 })).memories).toBe(1);
+        write(['a', 'b']);
+        expect((await summarizeKnowledge(cwd, { now: 2_000 })).memories).toBe(1);
+        expect((await summarizeKnowledge(cwd, { now: 3_000, fresh: true })).memories).toBe(2);
+        expect((await summarizeKnowledge(cwd, { now: 100_000 })).memories).toBe(2);
+    });
 });

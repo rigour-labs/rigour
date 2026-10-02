@@ -30,4 +30,14 @@ describe('rankMemories', () => {
         const many = Array.from({ length: 10 }, (_, i) => ({ scope: 'repo' as const, key: `retry_${i}`, value: 'network retry backoff' }));
         expect(await rankMemories('network retry backoff', many, embed)).toHaveLength(RECALL_LIMIT);
     });
+
+    it('embeds each text once, not on every recall', async () => {
+        let calls = 0;
+        const counting = async (text: string) => { calls++; return embed(text); };
+        const fresh = memories.map(m => ({ ...m, value: `${m.value} (cache test)` }));
+        await rankMemories('network retry', fresh, counting);
+        const first = calls;
+        await rankMemories('replica reports', fresh, counting);
+        expect(calls - first).toBe(1); // only the new query
+    });
 });

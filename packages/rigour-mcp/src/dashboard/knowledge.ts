@@ -18,7 +18,23 @@ export interface KnowledgeSummary {
     mutedChecks: number;
 }
 
-export async function summarizeKnowledge(cwd: string): Promise<KnowledgeSummary> {
+/** Summaries per repository for a short while: tool calls come in bursts and the counts change slowly. */
+const SUMMARY_TTL_MS = 30_000;
+const summaries = new Map<string, { at: number; summary: KnowledgeSummary }>();
+
+/** Tools that change what Rigour knows: after them the summary is recomputed, never served from cache. */
+export const LEARNING_TOOLS = new Set(['rigour_remember', 'rigour_forget', 'rigour_index', 'rigour_review', 'rigour_review_ack']);
+
+export async function summarizeKnowledge(cwd: string, options: { fresh?: boolean; now?: number } = {}): Promise<KnowledgeSummary> {
+    const now = options.now ?? Date.now();
+    const cached = summaries.get(cwd);
+    if (!options.fresh && cached && now - cached.at < SUMMARY_TTL_MS) return cached.summary;
+    const summary = await computeSummary(cwd);
+    summaries.set(cwd, { at: now, summary });
+    return summary;
+}
+
+async function computeSummary(cwd: string): Promise<KnowledgeSummary> {
     const [repo, user, lessons, index] = await Promise.all([
         loadMemory(cwd, 'repo').catch(() => ({ memories: {} })),
         loadMemory(cwd, 'user').catch(() => ({ memories: {} })),

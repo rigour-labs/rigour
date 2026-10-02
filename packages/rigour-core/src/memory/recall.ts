@@ -33,6 +33,23 @@ const MAX_CANDIDATES = 300;
 
 type Embed = (text: string) => Promise<number[]>;
 
+/**
+ * Embeddings by text, kept for the life of the process: the MCP server is long-lived and the same
+ * memories and lessons are ranked on every recall, so each text is embedded once, not per query.
+ */
+const EMBEDDING_CACHE_LIMIT = 2000;
+const embeddingCache = new Map<string, number[]>();
+
+async function cachedEmbedding(embed: Embed, text: string): Promise<number[]> {
+    const hit = embeddingCache.get(text);
+    if (hit) return hit;
+    const vector = await embed(text);
+    if (vector.length === 0) return vector; // unavailable: do not remember a failure
+    if (embeddingCache.size >= EMBEDDING_CACHE_LIMIT) embeddingCache.delete(embeddingCache.keys().next().value as string);
+    embeddingCache.set(text, vector);
+    return vector;
+}
+
 export type Ranked<T> = T & { score: number; match: 'semantic' | 'keyword' };
 
 export async function rankMemories(query: string, entries: MemoryEntry[], embed?: Embed): Promise<RankedMemory[]> {
@@ -54,7 +71,7 @@ export async function rankByMeaning<T>(query: string, items: T[], textOf: (item:
 async function bySimilarity<T>(queryVector: number[], items: T[], textOf: (item: T) => string, embed: Embed): Promise<Array<Ranked<T>>> {
     const ranked: Array<Ranked<T>> = [];
     for (const item of items) {
-        const score = cosine(queryVector, await embed(textOf(item)));
+        const score = cosine(queryVector, await cachedEmbedding(embed, textOf(item)));
         if (score >= SEMANTIC_FLOOR) ranked.push({ ...item, score, match: 'semantic' });
     }
     return ranked;

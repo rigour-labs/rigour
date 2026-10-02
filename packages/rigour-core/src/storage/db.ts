@@ -534,9 +534,9 @@ async function runMigrations(db: RigourDB): Promise<void> {
     if (current < 8) {
         // Telemetry rows record their repository, so Studio shows this repository's numbers, not
         // every repository's on the machine. Older rows stay NULL and are left out of per-repo views.
-        for (const table of ['context_events', 'model_usage', 'checkpoint_metrics']) {
-            await addColumnIfMissing(db, table, 'repository_id', 'TEXT');
-        }
+        await addColumnIfMissing(db, 'context_events', 'repository_id', 'ALTER TABLE context_events ADD COLUMN repository_id TEXT');
+        await addColumnIfMissing(db, 'model_usage', 'repository_id', 'ALTER TABLE model_usage ADD COLUMN repository_id TEXT');
+        await addColumnIfMissing(db, 'checkpoint_metrics', 'repository_id', 'ALTER TABLE checkpoint_metrics ADD COLUMN repository_id TEXT');
         await db.exec(`
             CREATE INDEX IF NOT EXISTS idx_context_events_repo ON context_events(repository_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_model_usage_repo ON model_usage(repository_id, created_at);
@@ -567,11 +567,12 @@ async function enableWal(db: RigourDB, attempts = 10): Promise<void> {
  * Add a column unless it is there: a hook and an MCP server can open the database at once, and
  * both may run the same migration; a second plain ALTER would fail with "duplicate column".
  */
-async function addColumnIfMissing(db: RigourDB, table: string, column: string, type: string): Promise<void> {
-    const columns = await db.all(`PRAGMA table_info(${table})`);
+async function addColumnIfMissing(db: RigourDB, table: string, column: string, alterSql: string): Promise<void> {
+    // The table is a bound parameter and the ALTER a literal written by the caller: nothing is interpolated.
+    const columns = await db.all('SELECT name FROM pragma_table_info(?)', table);
     if (columns.some((c: { name: string }) => c.name === column)) return;
     try {
-        await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+        await db.exec(alterSql);
     } catch (error) {
         if (!/duplicate column/i.test(String(error))) throw error;
     }
