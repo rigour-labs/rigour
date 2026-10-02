@@ -45,6 +45,7 @@ export const indexCommand = new Command('index')
             loadPatternIndex,
             getDefaultIndexPath
         } = await import('@rigour-labs/core/pattern-index');
+        const { recordIndexChoice } = await import('@rigour-labs/core');
 
         const indexPath = options.output || getDefaultIndexPath(cwd);
         const spinner = ora('Initializing pattern indexer...').start();
@@ -75,6 +76,7 @@ export const indexCommand = new Command('index')
 
             spinner.text = 'Saving index to disk...';
             await savePatternIndex(index, indexPath);
+            await recordIndexChoice(cwd, index, options.semantic !== false);
 
             spinner.succeed(chalk.green(`Pattern index built successfully!`));
 

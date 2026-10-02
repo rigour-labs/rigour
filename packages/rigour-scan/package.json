@@ -1,7 +1,7 @@
 {
     "name": "rigour-scan",
     "version": "1.0.0",
-    "description": "AI-native code quality scanner. npx rigour-scan → instant security, drift, and structural analysis on any repo. Zero config. Local Bayesian learning. Catches what AI agents miss.",
+    "description": "AI-native code quality scanner. npx rigour-scan → instant security, drift, and structural analysis on any repo. Zero config. Learns which checks your team acts on. Catches what AI agents miss.",
     "license": "MIT",
     "homepage": "https://rigour.run",
     "keywords": [

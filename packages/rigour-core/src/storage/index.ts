@@ -14,7 +14,8 @@ export {
     recordCheckpointMetric, getContextEvents, getModelUsages, getCheckpointMetrics
 } from './context-telemetry.js';
 export type { ContextEvent, ModelUsage, ContextCacheRecord, CheckpointMetric } from './context-telemetry.js';
-export { recordInteractionEvidence, countInteractionEvidence, recordInteractionLesson, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId } from './lessons.js';
+export { recordFixLessons, fixLessonSubject, fixLessonPrefix, FILES_TO_VALIDATE } from './fix-lessons.js';
+export { recordInteractionEvidence, countInteractionEvidence, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId, shareMemoryLesson } from './lessons.js';
 export type { ApplicableLessons, InteractionEvidence, LessonRecord, LessonState, LessonVisibility } from './lessons.js';
 export { queueLocalLessonsForTeam } from './team-import.js';
 export type { LocalLessonImportOptions, LocalLessonImportResult } from './team-import.js';

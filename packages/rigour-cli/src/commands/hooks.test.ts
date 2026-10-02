@@ -13,7 +13,6 @@ vi.mock('@rigour-labs/core', async (importOriginal) => {
     return {
         ...actual,
         recordInteractionEvidence: vi.fn().mockResolvedValue(undefined),
-        recordInteractionLesson: vi.fn().mockResolvedValue(null),
         updateAutomaticIndexForFiles: vi.fn().mockResolvedValue(undefined),
     };
 });

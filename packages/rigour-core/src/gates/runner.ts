@@ -31,6 +31,7 @@ import { StyleDriftGate } from './style-drift.js';
 import { SemanticBugsGate } from './semantic-bugs.js';
 import { LogicDriftGate } from './logic-drift.js';
 import { UnindexedReadsGate } from './unindexed-reads/index.js';
+import { DeprecatedDependenciesGate } from './deprecated-dependencies.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 import { FileSystemCache } from '../services/filesystem-cache.js';
@@ -118,6 +119,10 @@ export class GateRunner {
         // v3.1+ Extended Hallucination Detection
         if (this.config.gates.phantom_apis?.enabled !== false) {
             this.gates.push(new PhantomApisGate(this.config.gates.phantom_apis));
+        }
+
+        if (this.config.gates.deprecated_dependencies?.enabled) {
+            this.gates.push(new DeprecatedDependenciesGate(this.config.gates.deprecated_dependencies));
         }
 
         if (this.config.gates.unindexed_reads?.enabled) {
@@ -248,17 +253,8 @@ export class GateRunner {
         const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
 
         // Severity-weighted scoring with per-gate cap and deduplication
-        // Step 1: Deduplicate — same file + line + gate should not stack
-        const deduped: Failure[] = [];
-        const seen = new Set<string>();
-        for (const f of failures) {
-            const key = `${f.id}:${(f.files || []).join(',')}:${f.line || 0}`;
-            if (!seen.has(key)) {
-                seen.add(key);
-                deduped.push(f);
-            }
-        }
-        // Replace failures array with deduplicated version
+        // Step 1: Deduplicate — the same rule on the same file and line should not stack
+        const deduped = dedupeFailures(failures);
         failures.length = 0;
         failures.push(...deduped);
 
@@ -379,4 +375,19 @@ export class GateRunner {
 
         return report;
     }
+}
+
+/**
+ * One finding per rule, file and line. The title names the rule: a learned rule shares its gate
+ * id with the built-in rules, and keying on the gate alone dropped it whenever a built-in rule
+ * fired on the same line.
+ */
+export function dedupeFailures(failures: Failure[]): Failure[] {
+    const seen = new Set<string>();
+    return failures.filter(f => {
+        const key = `${f.id}:${f.title}:${(f.files || []).join(',')}:${f.line || 0}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 }

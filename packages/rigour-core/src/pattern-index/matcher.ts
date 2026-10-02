@@ -15,7 +15,14 @@ import type {
     PatternMatchResult,
     PatternOverride
 } from './types.js';
-import { generateEmbedding, cosineSimilarity } from './embeddings.js';
+import { generateEmbedding, cosineSimilarity, patternEmbeddingText } from './embeddings.js';
+
+/**
+ * The similarity a match by meaning needs. Measured by scripts/eval/pattern-intent.mjs: at 0.30,
+ * 87% of intents found the existing function with no false matches; name-based strategies keep
+ * minConfidence, which this cosine scale does not share.
+ */
+export const SEMANTIC_MATCH_FLOOR = 0.3;
 
 /**
  * Configuration for pattern matching.
@@ -98,7 +105,8 @@ export class PatternMatcher {
         // Pre-calculate query embedding if semantic search is enabled
         let queryEmbedding: number[] | null = null;
         if (this.config.useEmbeddings && (query.intent || query.name)) {
-            queryEmbedding = await generateEmbedding(`${query.name || ''} ${query.intent || ''}`);
+            // The same text shape patterns are embedded by: the name split into words, then the intent.
+            queryEmbedding = await generateEmbedding(`${patternEmbeddingText({ name: query.name || '', type: '' })} ${query.intent || ''}`.trim());
         }
 
         // Check for override first
@@ -179,7 +187,10 @@ export class PatternMatcher {
                 }
             }
 
-            if (currentBest && maxConfidence >= this.config.minConfidence) {
+            const accepted = currentBest?.matchType === 'semantic'
+                ? maxConfidence >= SEMANTIC_MATCH_FLOOR * 100
+                : maxConfidence >= this.config.minConfidence;
+            if (currentBest && accepted) {
                 matches.push(currentBest);
             }
         }

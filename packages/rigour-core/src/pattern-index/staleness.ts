@@ -38,89 +38,10 @@ export class StalenessDetector {
     private deprecations: DeprecationEntry[];
     private projectContext: ProjectContext | null = null;
     private rootDir: string;
-    private remoteRulesUrl = 'https://raw.githubusercontent.com/rigour-labs/rules/main/deprecations.json';
 
     constructor(rootDir: string, customDeprecations: DeprecationEntry[] = []) {
         this.rootDir = rootDir;
         this.deprecations = [...BUILT_IN_DEPRECATIONS, ...customDeprecations];
-    }
-
-    /**
-     * Fetch latest deprecation rules from Rigour's remote registry.
-     * This ensures the tool stays up-to-date even without a package update.
-     */
-    async syncRemoteRules(): Promise<number> {
-        try {
-            // Using dynamic import for fetch to avoid Node < 18 issues
-            const response = await fetch(this.remoteRulesUrl);
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-            const data = await response.json();
-            if (data.deprecations && Array.isArray(data.deprecations)) {
-                // Merge remote rules, avoiding duplicates
-                const existingPatterns = new Set(this.deprecations.map(d => d.pattern));
-                const newRules = data.deprecations.filter((d: DeprecationEntry) => !existingPatterns.has(d.pattern));
-
-                this.deprecations.push(...newRules);
-                return newRules.length;
-            }
-            return 0;
-        } catch (error) {
-            console.warn('Failed to sync remote rules, using built-in database:', error);
-            return 0;
-        }
-    }
-
-    /**
-     * Check NPM registry for live deprecation status of project dependencies.
-     * This is the ultimate "up-to-date" check.
-     */
-    async checkLiveRegistry(context: ProjectContext): Promise<StalenessIssue[]> {
-        const issues: StalenessIssue[] = [];
-        const { execa } = await import('execa');
-
-        // We only check top-level dependencies to avoid noise/performance hits
-        const deps = Object.keys(context.dependencies);
-
-        for (const dep of deps) {
-            try {
-                // Run 'npm info <package> --json' to get metadata
-                const { stdout } = await execa('npm', ['info', dep, '--json']);
-                const info = JSON.parse(stdout);
-
-                // 1. Check if package is deprecated
-                if (info.deprecated) {
-                    issues.push({
-                        line: 0, // Package-level
-                        pattern: dep,
-                        severity: 'error',
-                        reason: `Package "${dep}" is marked as DEPRECATED in NPM registry: ${info.deprecated}`,
-                        replacement: 'Check package README for suggested alternatives',
-                        docs: `https://www.npmjs.com/package/${dep}`
-                    });
-                }
-
-                // 2. Check for latest version staleness
-                const current = context.dependencies[dep].replace(/^[\^~>=<]+/, '');
-                const latest = info['dist-tags']?.latest;
-
-                if (latest && semver.major(latest) > semver.major(current)) {
-                    issues.push({
-                        line: 0,
-                        pattern: dep,
-                        severity: 'info',
-                        reason: `Package "${dep}" has a new major version available (${latest}). Your version: ${current}`,
-                        replacement: `npm install ${dep}@latest`,
-                        docs: `https://www.npmjs.com/package/${dep}`
-                    });
-                }
-            } catch (error) {
-                // Silently skip if npm check fails
-                continue;
-            }
-        }
-
-        return issues;
     }
 
     /**
@@ -157,7 +78,7 @@ export class StalenessDetector {
     /**
      * Check code for staleness issues.
      */
-    async checkStaleness(code: string, filePath?: string, options: { live?: boolean } = {}): Promise<StalenessResult> {
+    async checkStaleness(code: string, filePath?: string): Promise<StalenessResult> {
         const context = await this.loadProjectContext();
         const issues: StalenessIssue[] = [];
 
@@ -199,12 +120,6 @@ export class StalenessDetector {
                 }
                 regex.lastIndex = 0;
             }
-        }
-
-        // 2. Perform live registry check if requested (only once per run/file usually)
-        if (options.live) {
-            const liveIssues = await this.checkLiveRegistry(context);
-            issues.push(...liveIssues);
         }
 
         // Determine overall status

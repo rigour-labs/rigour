@@ -2,7 +2,7 @@
  * Turns a learned rule (data) into a semantic rule the engine runs.
  */
 import ts from 'typescript';
-import { forEachNode, lineOf, relativeFile, snippet } from '../ast.js';
+import { endLineOf, forEachNode, lineOf, relativeFile, snippet } from '../ast.js';
 import type { RuleContext, SemanticFinding, SemanticRule } from '../types.js';
 import { guardsOf, mentionsName, namesIn, propertiesNamed, setsProperty } from './conditions.js';
 import { calleeKey, functionKeyOf, invocationArgs, isInvocation, type Invocation } from './identity.js';
@@ -28,6 +28,8 @@ export function compileLearnedRule(rule: LearnedRule): SemanticRule {
                     provenance: 'traditional',
                     file,
                     line: lineOf(at),
+                    // The whole call: an option deleted from inside it is a change to this line.
+                    endLine: endLineOf(node),
                     message: rule.message,
                     hint: `Learned from ${describeSource(rule)}. Apply the same fix here, or delete .rigour/rules/${rule.id}.json if the rule no longer holds.`,
                     evidence: [`${file}:${lineOf(node)} ${snippet(node)}`],

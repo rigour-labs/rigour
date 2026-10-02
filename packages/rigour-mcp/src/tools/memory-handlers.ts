@@ -1,7 +1,12 @@
 /**
  * Memory Persistence Tool Handlers
  *
- * Handlers for: rigour_remember, rigour_recall, rigour_forget
+ * Handlers for: rigour_remember, rigour_forget (rigour_recall is in memory-recall.ts)
+ *
+ * Three scopes: `repo` (.rigour/memory.json in this checkout), `user`
+ * (~/.rigour/memory.json, every repository) and `team` (stored for the repo and
+ * shared as a team lesson candidate; teammates' agents receive it once a
+ * person promotes it).
  *
  * DLP enforcement: rigour_remember scans BOTH key and value for
  * credentials before persisting. Blocked if secrets detected.
@@ -9,20 +14,19 @@
  * @since v2.17.0 — extracted from monolithic index.ts
  * @since v4.2.0  — DLP gate on memory persistence
  */
-import { loadMemory, saveMemory } from '../utils/config.js';
+import { loadMemory, saveMemory, type LocalMemoryScope } from '../utils/config.js';
 import {
     scanInputForCredentials,
     formatDLPAlert,
     createDLPAuditEntry,
-    getSemanticQueryCache,
-    setSemanticQueryCache,
-    estimateTokenCount,
+    loadTeamConfiguration,
+    shareMemoryLesson,
 } from '@rigour-labs/core';
 import {
     loadPatternIndex,
     getDefaultIndexPath,
 } from '@rigour-labs/core/pattern-index';
-import { buildTelemetryMeta, getWorkspaceCommitSha, type GuidanceMeta, type ToolResult } from '../utils/context-telemetry.js';
+import { buildTelemetryMeta, type GuidanceMeta, type ToolResult } from '../utils/context-telemetry.js';
 import { appendContextFooter } from '../utils/context-footer.js';
 import fs from 'fs-extra';
 import path from 'path';
@@ -30,7 +34,7 @@ import path from 'path';
 /**
  * Append a DLP audit event to .rigour/events.jsonl
  */
-async function appendDLPAudit(cwd: string, entry: Record<string, unknown>): Promise<void> {
+export async function appendDLPAudit(cwd: string, entry: Record<string, unknown>): Promise<void> {
     try {
         const eventsPath = path.join(cwd, '.rigour', 'events.jsonl');
         await fs.ensureDir(path.dirname(eventsPath));
@@ -61,7 +65,7 @@ function extractStrings(obj: unknown, out: string[]): void {
     }
 }
 
-async function getIndexHealthBlock(cwd: string): Promise<string> {
+export async function getIndexHealthBlock(cwd: string): Promise<string> {
     const indexPath = getDefaultIndexPath(cwd);
     const index = await loadPatternIndex(indexPath);
     if (!index) {
@@ -70,7 +74,7 @@ async function getIndexHealthBlock(cwd: string): Promise<string> {
     return `\n\n📊 Pattern Index: ${index.stats.totalPatterns} patterns across ${index.stats.totalFiles} files (updated ${index.lastUpdated}).`;
 }
 
-function wrapRecallResult(
+export function wrapRecallResult(
     text: string,
     candidateText: string,
     cacheStatus: 'exact-hit' | 'semantic-hit' | 'miss',
@@ -93,7 +97,9 @@ function wrapRecallResult(
     };
 }
 
-export async function handleRemember(cwd: string, key: string, value: string): Promise<ToolResult> {
+export type MemoryScope = LocalMemoryScope | 'team';
+
+export async function handleRemember(cwd: string, key: string, value: string, scope: MemoryScope = 'repo'): Promise<ToolResult> {
     // Fallback: if key is missing but value exists, auto-generate a key
     if (!key && value) {
         key = value.slice(0, 40).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'convention';
@@ -129,10 +135,13 @@ export async function handleRemember(cwd: string, key: string, value: string): P
         };
     }
 
-    // Clean — proceed with storage
-    const store = await loadMemory(cwd);
+    // Clean — proceed with storage. A team memory is kept for this repository too.
+    const local: LocalMemoryScope = scope === 'user' ? 'user' : 'repo';
+    const store = await loadMemory(cwd, local);
     store.memories[key] = { value, timestamp: new Date().toISOString() };
-    await saveMemory(cwd, store);
+    await saveMemory(cwd, store, local);
+    await appendDLPAudit(cwd, { type: 'memory_stored', key, scope, timestamp: new Date().toISOString() });
+    const sharing = scope === 'team' ? await shareWithTeam(cwd, key, value) : '';
 
     // If there were warnings (non-blocking), include them
     if (dlpResult.status === 'warning') {
@@ -140,7 +149,7 @@ export async function handleRemember(cwd: string, key: string, value: string): P
         return {
             content: [{
                 type: "text",
-                text: `MEMORY STORED: "${key}" has been saved (with warnings).\n\n${alert}\n\nStored value: ${value}`,
+                text: `MEMORY STORED: "${key}" has been saved (with warnings).${sharing}\n\n${alert}\n\nStored value: ${value}`,
             }],
         };
     }
@@ -148,149 +157,27 @@ export async function handleRemember(cwd: string, key: string, value: string): P
     return {
         content: [{
             type: "text",
-            text: `MEMORY STORED: "${key}" has been saved. This instruction will persist across sessions.\n\nStored value: ${value}`,
+            text: `MEMORY STORED: "${key}" has been saved ${scope === 'user' ? 'for all your repositories' : 'for this repository'}.${sharing}\n\nStored value: ${value}`,
         }],
     };
 }
 
-export async function handleRecall(cwd: string, key?: string): Promise<ToolResult> {
-    const commitSha = await getWorkspaceCommitSha(cwd);
-    const cacheQuery = key ? `recall:${key}` : 'recall:all';
-    const store = await loadMemory(cwd);
-    const candidateText = JSON.stringify(store);
-
-    const cached = await getSemanticQueryCache(cacheQuery, commitSha, cwd);
-    if (cached?.evidence?.length) {
-        const cachedBody = cached.evidence.join('\n');
-        const indexHealth = await getIndexHealthBlock(cwd);
-        return wrapRecallResult(
-            `${cachedBody}${indexHealth}`,
-            candidateText,
-            'semantic-hit',
-            Math.max(0, estimateTokenCount(candidateText) - estimateTokenCount(cachedBody)),
-            cached.guidance ?? {
-                kind: 'memory',
-                query: key ?? 'all memories',
-                recommendation: key ? `Apply recalled memory "${key}" where relevant.` : 'Apply the recalled project memories where relevant.',
-                memoryRefs: key ? [{ id: key, label: key }] : [],
-            },
-        );
+/** Share as a team lesson candidate and say what happens next. */
+async function shareWithTeam(cwd: string, key: string, value: string): Promise<string> {
+    const lessonId = await shareMemoryLesson(cwd, key, value);
+    if (!lessonId) return '\nNot shared: the local knowledge store is unavailable.';
+    if (!(await loadTeamConfiguration())) {
+        return '\nKept as a team candidate on this machine; it is shared once team mode is configured (rigour team configure).';
     }
-
-    if (key) {
-        const memory = store.memories[key];
-        if (!memory) {
-            const text = `NO MEMORY FOUND for key "${key}". Use rigour_remember to store instructions.${await getIndexHealthBlock(cwd)}`;
-            return wrapRecallResult(text, candidateText, 'miss');
-        }
-
-        // ── DLP Gate on recall: catch credentials stored before DLP existed ──
-        const dlpResult = scanInputForCredentials(memory.value);
-        if (dlpResult.status === 'blocked') {
-            const alert = formatDLPAlert(dlpResult);
-            await appendDLPAudit(cwd, {
-                ...createDLPAuditEntry(dlpResult, { agent: 'rigour_recall' }),
-                memory_key: key,
-                action: 'recall_blocked',
-            });
-            return {
-                content: [{
-                    type: "text",
-                    text: `🛑 RECALL BLOCKED — memory "${key}" contains ${dlpResult.detections.length} credential(s).\n\n${alert}\n\nThis memory was stored before DLP was active. Remove it with rigour_forget("${key}") and use environment variables instead.`,
-                }],
-            };
-        }
-
-        const body = `RECALLED MEMORY [${key}]:\n${memory.value}\n\n(Stored: ${memory.timestamp})`;
-        const indexHealth = await getIndexHealthBlock(cwd);
-        const fullText = `${body}${indexHealth}`;
-
-        const guidance: GuidanceMeta = {
-            kind: 'memory',
-            query: key,
-            recommendation: `Apply recalled memory "${key}" where relevant.`,
-            memoryRefs: [{ id: key, label: key }],
-        };
-        await setSemanticQueryCache(cacheQuery, commitSha, {
-            query: cacheQuery,
-            resolvedOwner: 'memory',
-            editScope: [],
-            validationScope: [],
-            evidence: [body],
-            commitSha,
-            confidence: 1,
-            guidance,
-        }, cwd);
-
-        return wrapRecallResult(fullText, candidateText, 'miss', 0, guidance);
-    }
-
-    const keys = Object.keys(store.memories);
-    if (keys.length === 0) {
-        const text = `NO MEMORIES STORED. Use rigour_remember to persist important instructions.${await getIndexHealthBlock(cwd)}`;
-        return wrapRecallResult(text, candidateText, 'miss');
-    }
-
-    // ── DLP scan all memories on bulk recall ──
-    const cleanMemories: string[] = [];
-    const taintedKeys: string[] = [];
-
-    for (const k of keys) {
-        const mem = store.memories[k];
-        const dlpResult = scanInputForCredentials(mem.value);
-        if (dlpResult.status === 'blocked') {
-            taintedKeys.push(k);
-        } else {
-            cleanMemories.push(`## ${k}\n${mem.value}\n(Stored: ${mem.timestamp})`);
-        }
-    }
-
-    let text = '';
-    if (taintedKeys.length > 0) {
-        text += `🛑 ${taintedKeys.length} memory(ies) BLOCKED — contain credentials: ${taintedKeys.join(', ')}\nUse rigour_forget to remove them.\n\n---\n\n`;
-    }
-    if (cleanMemories.length > 0) {
-        text += `RECALLED ${cleanMemories.length} CLEAN MEMORIES:\n\n${cleanMemories.join('\n\n---\n\n')}\n\n---\nIMPORTANT: Follow these stored instructions throughout this session.`;
-    } else if (taintedKeys.length > 0) {
-        text += `No clean memories to recall. All stored memories contain credentials.`;
-    } else {
-        text = "NO MEMORIES STORED. Use rigour_remember to persist important instructions.";
-    }
-
-    text += await getIndexHealthBlock(cwd);
-
-    const guidance: GuidanceMeta = {
-        kind: 'memory',
-        query: 'all memories',
-        recommendation: `Apply ${cleanMemories.length} recalled project memory item(s) where relevant.`,
-        memoryRefs: keys.filter(k => !taintedKeys.includes(k)).map(k => ({ id: k, label: k })),
-    };
-    await setSemanticQueryCache(cacheQuery, commitSha, {
-        query: cacheQuery,
-        resolvedOwner: 'memory',
-        editScope: [],
-        validationScope: [],
-        evidence: [text],
-        commitSha,
-        confidence: 1,
-        guidance,
-    }, cwd);
-
-    return wrapRecallResult(
-        text,
-        candidateText,
-        'miss',
-        Math.max(0, estimateTokenCount(candidateText) - estimateTokenCount(text)),
-        guidance,
-    );
+    return '\nShared with your team as a candidate. Teammates\' agents receive it once someone promotes it in Studio (Knowledge › Lessons).';
 }
 
-export async function handleForget(cwd: string, key: string): Promise<ToolResult> {
-    const store = await loadMemory(cwd);
+export async function handleForget(cwd: string, key: string, scope: LocalMemoryScope = 'repo'): Promise<ToolResult> {
+    const store = await loadMemory(cwd, scope);
     if (!store.memories[key]) {
-        return { content: [{ type: "text", text: `NO MEMORY FOUND for key "${key}". Nothing to forget.` }] };
+        return { content: [{ type: "text", text: `NO MEMORY FOUND for key "${key}" in ${scope} memory. Nothing to forget.` }] };
     }
     delete store.memories[key];
-    await saveMemory(cwd, store);
-    return { content: [{ type: "text", text: `MEMORY DELETED: "${key}" has been removed.` }] };
+    await saveMemory(cwd, store, scope);
+    return { content: [{ type: "text", text: `MEMORY DELETED: "${key}" has been removed from ${scope} memory.` }] };
 }

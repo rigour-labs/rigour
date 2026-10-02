@@ -2,6 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { PatternIndexer, getDefaultIndexPath, loadPatternIndex, savePatternIndex } from '../pattern-index/indexer.js';
 import type { PatternIndex } from '../pattern-index/types.js';
+import { EMBEDDING_TEXT_VERSION } from '../pattern-index/embeddings.js';
 import { affectedDependents, buildDependencyGraph, updateDependencyGraph, type DependencyGraph } from './dependency-graph.js';
 import { syncIndexToContextCache } from './index-bridge.js';
 
@@ -51,14 +52,36 @@ async function writeStatus(cwd: string, status: AutomaticIndexStatus): Promise<v
     await fs.writeJson(statusPath(cwd), status, { spaces: 2 });
 }
 
+/** Embedded, and from the current embedding text (an older one is re-embedded on enrichment). */
+function hasCurrentEmbeddings(index: PatternIndex): boolean {
+    return index.embeddingTextVersion === EMBEDDING_TEXT_VERSION
+        && index.patterns.some(pattern => (pattern.embedding?.length ?? 0) > 0);
+}
+
+/**
+ * What an explicit `rigour index` (CLI or MCP) chose, so automatic indexing and Studio's health
+ * agree with it: 'disabled' for --no-semantic, else ready or degraded by what was embedded.
+ */
+export async function recordIndexChoice(cwd: string, index: PatternIndex, semantic: boolean): Promise<void> {
+    const embedded = index.patterns.filter(pattern => (pattern.embedding?.length ?? 0) > 0).length;
+    await writeStatus(cwd, {
+        structural: 'ready',
+        graph: 'ready',
+        semantic: !semantic ? 'disabled' : embedded > 0 ? 'ready' : 'degraded',
+        ...(semantic && embedded === 0 ? { message: 'Local embedding model unavailable; text matching remains active.' } : {}),
+        updatedAt: new Date().toISOString(),
+    });
+}
+
 export async function getAutomaticIndexStatus(cwd: string): Promise<AutomaticIndexStatus> {
     try {
         return await fs.readJson(statusPath(cwd)) as AutomaticIndexStatus;
     } catch {
+        // No status yet is not an opt-out: only `rigour index --no-semantic` records 'disabled'.
         return {
             structural: 'missing',
             graph: 'missing',
-            semantic: 'disabled',
+            semantic: 'warming',
             updatedAt: new Date().toISOString(),
         };
     }
@@ -118,7 +141,7 @@ export async function ensureAutomaticIndex(
         await buildDependencyGraph(cwd, index);
     }
 
-    const hasEmbeddings = index.patterns.some((pattern) => (pattern.embedding?.length ?? 0) > 0);
+    const hasEmbeddings = hasCurrentEmbeddings(index);
     await writeStatus(cwd, {
         structural: 'ready',
         graph: 'ready',
@@ -145,7 +168,7 @@ export async function updateAutomaticIndexForFiles(cwd: string, changedFiles: st
     else await buildDependencyGraph(cwd, index);
     await writeStatus(cwd, {
         structural: 'ready', graph: 'ready',
-        semantic: index.patterns.some(pattern => (pattern.embedding?.length ?? 0) > 0)
+        semantic: hasCurrentEmbeddings(index)
             ? 'ready'
             : previousStatus.semantic === 'disabled' ? 'disabled' : 'warming',
         message: `${normalizedChangedFiles.length} changed file(s); ${affectedFiles.length} affected file(s) refreshed without a full scan.`,

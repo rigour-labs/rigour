@@ -73,7 +73,8 @@ async function mergeMemoryStores(cwd: string): Promise<{ memories: Record<string
     const memories: Record<string, any> = {};
 
     const projectPath = path.join(cwd, '.rigour/memory.json');
-    const globalPath = path.join(os.homedir(), '.rigour/memory.json');
+    // Same home the MCP server writes user-scope memory to (RIGOUR_HOME when set).
+    const globalPath = path.join(process.env.RIGOUR_HOME || os.homedir(), '.rigour/memory.json');
 
     for (const [label, filePath] of [
         ['project', projectPath],
@@ -473,11 +474,23 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/check-precision') {
+        try {
+            const { loadStudioCheckPrecision } = await import('./studio-check-precision.js');
+            sendJson(res, 200, loadStudioCheckPrecision(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/index-stats') {
         try {
             const indexPath = path.join(cwd, '.rigour/patterns.json');
             if (await fs.pathExists(indexPath)) {
-                sendJson(res, 200, await fs.readJson(indexPath));
+                // Embeddings are 384 numbers per pattern and the view never draws them.
+                const index = await fs.readJson(indexPath);
+                sendJson(res, 200, { ...index, patterns: (index.patterns ?? []).map(withoutEmbedding) });
             } else {
                 sendJson(res, 200, { patterns: [], stats: { totalPatterns: 0, totalFiles: 0, byType: {} } });
             }
@@ -495,14 +508,18 @@ async function handleApiRequest(
             return true;
         }
         try {
-            const { generateEmbedding, semanticSearch } = await import('@rigour-labs/core/pattern-index');
+            const { generateEmbedding, semanticSearch, SEMANTIC_MATCH_FLOOR } = await import('@rigour-labs/core/pattern-index');
             const indexPath = path.join(cwd, '.rigour/patterns.json');
+            if (!(await fs.pathExists(indexPath))) {
+                sendJson(res, 200, []);
+                return true;
+            }
             const indexData = await fs.readJson(indexPath);
             const queryVector = await generateEmbedding(query);
             const similarities = semanticSearch(queryVector, indexData.patterns);
             const results = indexData.patterns
-                .map((p: any, i: number) => ({ ...p, similarity: similarities[i] }))
-                .filter((p: any) => p.similarity > 0.3)
+                .map((p: any, i: number) => ({ ...withoutEmbedding(p), similarity: similarities[i] }))
+                .filter((p: any) => p.similarity >= SEMANTIC_MATCH_FLOOR)
                 .sort((a: any, b: any) => b.similarity - a.similarity)
                 .slice(0, 20);
             sendJson(res, 200, results);
@@ -892,6 +909,8 @@ async function handleApiRequest(
                 'rigour_check',
             ]);
             const gateBlocked = typeCount(['gate_failed', 'hook_blocked', 'interception_requested']);
+            // A check that errored ran no gates: it is not a pass.
+            const gateErrored = events.filter((e) => e.type === 'tool_response' && e.tool === 'rigour_check' && e.status === 'error').length;
             const checkpointCount = Math.max(
                 mapped.length,
                 typeCount(['checkpoint_recorded', 'rigour_checkpoint']),
@@ -925,12 +944,14 @@ async function handleApiRequest(
                     'gates',
                     'Gates',
                     gateCount,
-                    gateBlocked > 0 ? 'block' : gateCount > 0 ? 'pass' : 'idle',
+                    gateBlocked > 0 ? 'block' : gateErrored > 0 ? 'warn' : gateCount > 0 ? 'pass' : 'idle',
                     gateBlocked > 0
                         ? `${gateBlocked} block/intercept event(s)`
-                        : gateCount
-                          ? 'Gates exercised'
-                          : 'Hooks & quality gates idle',
+                        : gateErrored > 0
+                          ? `${gateErrored} check(s) errored before running gates`
+                          : gateCount
+                            ? 'Gates exercised'
+                            : 'Hooks & quality gates idle',
                 ),
                 stage(
                     'checkpoint',
@@ -1279,3 +1300,9 @@ export const studioCommand = new Command('studio')
             announce(`http://127.0.0.1:${studioPort}`);
         });
     });
+
+/** A pattern as Studio shows it: everything but its embedding vector. */
+function withoutEmbedding<T extends { embedding?: unknown }>(pattern: T): Omit<T, 'embedding'> {
+    const { embedding: _embedding, ...rest } = pattern;
+    return rest;
+}

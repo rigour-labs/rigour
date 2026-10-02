@@ -59,7 +59,7 @@ export class SemanticBugsGate extends Gate {
             finding.hint,
             `[${finding.rule}] ${finding.message.split('. ')[0]}`.slice(0, 120),
             finding.line,
-            undefined,
+            finding.endLine,
             finding.severity,
         );
         const category = finding.rule.startsWith(LEARNED_PREFIX) ? 'learned-rule' : finding.rule;

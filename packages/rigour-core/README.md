@@ -46,7 +46,7 @@ Rigour's deep analysis is not a wrapper around a generic LLM. The model operates
 2. **Interpret** — the model receives structured facts (not raw source), focuses on SOLID, design patterns, language idioms, architecture. Constrained input prevents hallucination.
 3. **Verify** — every LLM finding is cross-referenced against all five signal streams. Wrong line numbers, phantom patterns, non-existent functions → discarded. Only verified findings with confidence scores reach the report.
 
-Both model tiers (lite sidecar + pro code-specialized) are fine-tuned via the [DriftBench RLAIF pipeline](https://github.com/rigour-labs/driftbench) where the five signal streams serve as the teacher signal.
+The lite and deep tiers are fine-tuned via the [DriftBench RLAIF pipeline](https://github.com/rigour-labs/driftbench), where the five signal streams serve as the teacher signal. The max tier (Qwen2.5-Coder-7B) runs the stock model until a fine-tune passes the evaluation gate.
 
 ### Temporal Drift Engine (v5.1)
 

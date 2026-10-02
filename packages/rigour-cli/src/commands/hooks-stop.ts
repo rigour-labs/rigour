@@ -13,7 +13,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
-import { appendAgentEvent, ConfigSchema, countUsage, recordReviewOutcome, STOP_MAX_ATTEMPTS, stopReview, type Config } from '@rigour-labs/core';
+import { appendAgentEvent, ConfigSchema, countUsage, recordFixLessons, recordReviewOutcome, STOP_MAX_ATTEMPTS, stopReview, type Config } from '@rigour-labs/core';
 
 export type StopTool = 'claude' | 'cursor';
 
@@ -38,7 +38,8 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
         appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking });
         countUsage('stop_review');
         if (decision.block) countUsage(attempt > 1 ? 'stop_block_repeat' : 'stop_block');
-        recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles);
+        const capture = recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles);
+        await recordFixLessons(cwd, capture.fixes).catch(() => undefined); // learning never blocks the agent
         if (!decision.block) {
             await clearAttempts(cwd, session);
             return '';

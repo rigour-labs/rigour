@@ -130,7 +130,7 @@ Rigour runs fully local with SQLite; nothing needs an account. For teams, Postgr
 
 A review only speaks when it can prove the defect: a value traced from where it enters to where it does harm, an import that resolves to nothing, a secret in the source, a model finding grounded in code it read. Heuristics (size, complexity, patterns that guess) are advisory: in `--json` for anyone who wants them, never failing a review, never posted on a PR, never blocking an agent. Turn them back on with `review.include_heuristics: true`.
 
-Two database checks are advisory and off by default: a supabase-js read that no index in your migrations can serve, and a branch migration dated before the newest one on main. Turn them on with `gates.unindexed_reads` and `gates.migration_order` ([Configuration](docs/CONFIGURATION.md)).
+Three more checks are advisory and off by default: a supabase-js read that no index in your migrations can serve, a branch migration dated before the newest one on main, and a dependency whose installed version npm has deprecated. Turn them on with `gates.unindexed_reads`, `gates.migration_order` and `gates.deprecated_dependencies` ([Configuration](docs/CONFIGURATION.md)).
 
 Generated files are never reviewed. If a finding is wrong for your code, silence it for good:
 
@@ -139,6 +139,8 @@ rigour dismiss 3f9a1c0b7d2e4a51 --reason "test fixture token, never deployed"
 ```
 
 Commit `.rigour/dismissed.json` and it stays quiet for the whole team and the PR bot.
+
+Rigour also learns which checks your repository acts on. Every fixed or dismissed finding updates that check's precision here (a Beta posterior: fixed + 1 over fixed + dismissed + 2). An advisory check your team has dismissed at least five times, with precision under 25%, is muted. Proven checks never are. `rigour precision` shows the table.
 
 ## Guarantees and boundaries
 

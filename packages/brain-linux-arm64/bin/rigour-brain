@@ -2,5 +2,5 @@
 if command -v llama-cli >/dev/null 2>&1; then
   exec llama-cli "$@"
 fi
-echo "rigour-brain is a placeholder. Run `rigour deep pull` to install the llama.cpp engine, or put llama-cli on PATH." >&2
+echo 'rigour-brain is a placeholder. Run "rigour deep pull" to install the llama.cpp engine, or put llama-cli on PATH.' >&2
 exit 1

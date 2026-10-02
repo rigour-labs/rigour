@@ -231,6 +231,17 @@ rigour learn a1b2c3d                                 # Save validated rules to .
 rigour learn --before old/http.ts --after src/http.ts
 ```
 
+### `deprecated_dependencies` (advisory, opt-in)
+
+A dependency in package.json whose **installed** version npm marks deprecated (npm deprecates individual versions, so the latest is never what is judged). The installed version comes from package-lock.json, else node_modules; when it cannot be known, nothing is said. The finding sits on the dependency's line, so review reports it when a change adds or moves a dependency onto a deprecated version. It sends package names and versions to the registry, as `npm install` does; answers are cached for a day in `.rigour/`, and a slow or unreachable registry means no findings, never a failed check.
+
+```yaml
+gates:
+  deprecated_dependencies:
+    enabled: true
+    registry: https://registry.npmjs.org   # Default; point at a mirror if you use one
+```
+
 ### `unindexed_reads` and `migration_order` (database, advisory)
 
 Two checks for Postgres migrations. Both are off by default and advisory: they appear in `--json` and the MCP review, and never decide the verdict.

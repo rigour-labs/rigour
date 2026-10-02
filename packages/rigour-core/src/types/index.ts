@@ -276,6 +276,11 @@ export const GatesSchema = z.object({
         enabled: z.boolean().optional().default(false),
         migrations: z.array(z.string()).optional().default([]),
     }).optional().default({}),
+    // A dependency whose installed version npm marks deprecated (advisory, off by default: it asks the registry).
+    deprecated_dependencies: z.object({
+        enabled: z.boolean().optional().default(false),
+        registry: z.string().optional(),
+    }).optional().default({}),
     // A migration added on a branch that sorts before the newest one on the base (advisory, off by default).
     migration_order: z.object({
         enabled: z.boolean().optional().default(false),

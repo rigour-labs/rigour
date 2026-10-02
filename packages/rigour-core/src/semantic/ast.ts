@@ -100,6 +100,11 @@ export function lineOf(node: ts.Node): number {
     return sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
 }
 
+export function endLineOf(node: ts.Node): number {
+    const sf = node.getSourceFile();
+    return sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
+}
+
 /** "http.ts:51" style location for evidence, relative to cwd. */
 export function locationOf(cwd: string, node: ts.Node): string {
     return `${relativeFile(cwd, node.getSourceFile())}:${lineOf(node)}`;

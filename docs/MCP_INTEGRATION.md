@@ -72,7 +72,7 @@ Key tools:
 - **`rigour_get_fix_packet`**: a bounded, severity-ordered view of Fix Packet v3. Start with `offset=0` and follow the returned offset.
 - **`rigour_context_scope`**: the smallest evidence-backed file scope, plus the patterns and validated learning that apply.
 - **`rigour_check_pattern`**: whether to reuse an existing pattern, replace a stale approach, or stop for a security or protected-path issue.
-- **`rigour_recall`** / **`rigour_remember`**: retained project memory, DLP-filtered.
+- **`rigour_recall`** / **`rigour_remember`**: memory in three scopes: `repo` (this repository), `user` (all your repositories) and `team` (shared as a candidate; teammates' agents receive it once a person promotes it). `rigour_recall` with `query` returns the few memories that match by meaning, plus promoted team knowledge when team mode is on. Credentials are refused on store and withheld on recall.
 
 A repository without `rigour.yml` uses Rigour's defaults. Tool calls never write configuration into the repository; run `npx rigour init` for that.
 

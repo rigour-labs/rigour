@@ -93,7 +93,7 @@ export async function getPatterns(store: RigourDB, repo: string): Promise<Patter
 
 /**
  * Get patterns promoted to hard rules (strength > 0.9).
- * These can be used as AST-level checks without LLM inference.
+ * Categories seen this often; shown by `rigour brain`. They are counts, not checks.
  */
 export async function getHardRules(store: RigourDB, repo: string): Promise<PatternRecord[]> {
     return store.all(

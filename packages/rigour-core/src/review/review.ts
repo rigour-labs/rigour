@@ -16,6 +16,7 @@ import { splitByChangedLines } from './changed-lines.js';
 import { changedFunctionSpans } from './changed-function-spans.js';
 import { withoutGenerated } from './generated-files.js';
 import { findingKey, isProven, quietSplit } from './quiet.js';
+import { checkId, rememberReported } from './check-outcomes.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
 import { diffTestFailures } from './diff-test-findings.js';
 import { migrationOrderFailures } from './migration-order.js';
@@ -42,6 +43,8 @@ export interface ReviewResult {
     contextFindings: Failure[];
     /** Heuristic findings on changed lines: returned on request, never deciding the verdict (quiet.ts). */
     advisory: Failure[];
+    /** Advisory findings from checks this repository keeps dismissing: counted, not listed. */
+    muted: number;
     /** Findings a person dismissed as not a bug, and the gates they came from. */
     dismissed: number;
     dismissedByGate: Record<string, number>;
@@ -74,21 +77,23 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null, gateErrors: [] };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null, gateErrors: [] };
     }
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     report.failures.push(...migrationOrderFailures(input.cwd, diff, input.source, input.config));
-    const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {});
+    const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);
     const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics);
+    rememberReported(input.cwd, [...quiet.speaking, ...quiet.advisory].map(f => ({ key: findingKey(f), check: checkId(f) })));
     const gateErrors = crashedGates(report);
     const provenCrashed = gateErrors.some(id => isProven({ id } as Failure));
     return {
         status: deepError || provenCrashed ? 'ERROR' : quiet.speaking.length > 0 ? 'FAIL' : 'PASS',
         findings: quiet.speaking,
         advisory: quiet.advisory,
+        muted: quiet.muted,
         dismissed: quiet.dismissed,
         dismissedByGate: quiet.dismissedByGate,
         fileFindings: split.fileFindings,

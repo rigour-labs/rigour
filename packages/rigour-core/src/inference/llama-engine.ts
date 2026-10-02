@@ -18,12 +18,16 @@ const LLAMA_RELEASE_BASE = `https://github.com/ggml-org/llama.cpp/releases/downl
 const PROBE_TIMEOUT_MS = 5_000;
 const EXTRACT_TIMEOUT_MS = 120_000;
 
-/** Platform → llama.cpp release asset. linux-arm64 has no published build. */
-const LLAMA_RELEASE_ASSETS: Record<string, string> = {
-    'darwin-arm64': `llama-${LLAMA_RELEASE_TAG}-bin-macos-arm64.zip`,
-    'darwin-x64': `llama-${LLAMA_RELEASE_TAG}-bin-macos-x64.zip`,
-    'linux-x64': `llama-${LLAMA_RELEASE_TAG}-bin-ubuntu-x64.zip`,
-    'win32-x64': `llama-${LLAMA_RELEASE_TAG}-bin-win-cpu-x64.zip`,
+/**
+ * Platform → llama.cpp release asset and its SHA-256, checked against the digest GitHub publishes
+ * for the release. A download that does not match is refused: the engine runs code on the
+ * user's machine. linux-arm64 has no published build.
+ */
+const LLAMA_RELEASE_ASSETS: Record<string, { file: string; sha256: string }> = {
+    'darwin-arm64': { file: `llama-${LLAMA_RELEASE_TAG}-bin-macos-arm64.zip`, sha256: '673c5f8c4a7a2226ca6f3db5141d1ed78dcdf178d902c1486b77b3dda41e6a61' },
+    'darwin-x64': { file: `llama-${LLAMA_RELEASE_TAG}-bin-macos-x64.zip`, sha256: 'ab9ba59f3e355aebe6bc2c632b3489d4ab98d727f0ee03b9df6b4a6207452ad2' },
+    'linux-x64': { file: `llama-${LLAMA_RELEASE_TAG}-bin-ubuntu-x64.zip`, sha256: '3981c1e353399fbc35ea23316854b3c302877c00fb6b7fa4063a0623ad9e0309' },
+    'win32-x64': { file: `llama-${LLAMA_RELEASE_TAG}-bin-win-cpu-x64.zip`, sha256: 'df32d58de0b57c3c9de2e68e44b947efbac1b8a3e417536b6703cbd8da11eddd' },
 };
 
 export function llamaBinaryName(): string {
@@ -39,7 +43,7 @@ export function managedEnginePath(): string {
     return path.join(managedEngineDir(), llamaBinaryName());
 }
 
-export function releaseAssetFor(platformKey: string): string | undefined {
+export function releaseAssetFor(platformKey: string): { file: string; sha256: string } | undefined {
     return LLAMA_RELEASE_ASSETS[platformKey];
 }
 
@@ -103,14 +107,17 @@ export async function installLlamaEngine(
 
     const installDir = managedEngineDir();
     const workDir = `${installDir}.partial`;
-    const zipPath = path.join(path.dirname(installDir), asset);
+    const zipPath = path.join(path.dirname(installDir), asset.file);
     await fs.ensureDir(path.dirname(installDir));
     await fs.remove(workDir);
 
     onProgress?.(`⬇ Downloading inference engine (llama.cpp ${LLAMA_RELEASE_TAG})...`);
     try {
-        await downloadToFile(`${LLAMA_RELEASE_BASE}/${asset}`, zipPath, { get });
-        onProgress?.('  Extracting...');
+        const { sha256 } = await downloadToFile(`${LLAMA_RELEASE_BASE}/${asset.file}`, zipPath, { get });
+        if (sha256 !== asset.sha256) {
+            throw new Error(`llama.cpp ${asset.file} does not match its pinned checksum (got ${sha256.slice(0, 12)}…, expected ${asset.sha256.slice(0, 12)}…); not installing it.`);
+        }
+        onProgress?.('  Verified checksum. Extracting...');
         await extractZip(zipPath, workDir);
         await installBinFolder(workDir, installDir);
     } finally {

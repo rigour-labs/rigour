@@ -303,7 +303,7 @@ export const QualityGates: React.FC = () => {
                         </div>
                     </div>
 
-                    <SemanticBugs enabled={gates.semantic_bugs?.enabled === true} rules={gates.semantic_bugs?.rules} />
+                    <SemanticBugs enabled={gates.semantic_bugs?.enabled !== false} rules={gates.semantic_bugs?.rules} />
 
                     {/* Score Dashboard */}
                     {reportStats && (

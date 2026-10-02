@@ -48,8 +48,8 @@ Rigour moves code quality enforcement from "Post-Commit" to "In-Progress." By ru
 
 | Tool | Description |
 |:---|:---|
-| `rigour_remember` | DLP-gated persistent memory — scans values before storing. |
-| `rigour_recall` | DLP-gated recall — blocks tainted memories on read. |
+| `rigour_remember` | Memory for this repository, all your repositories (`scope: "user"`), or your team (`scope: "team"`, served once promoted). Refuses values containing credentials. |
+| `rigour_recall` | `query`: the memories that match by meaning, plus promoted team knowledge; `key`: one memory. Withholds any memory containing a credential. |
 | `rigour_forget` | Removes a stored memory by key. |
 
 ### Real-Time Hooks & DLP

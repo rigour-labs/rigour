@@ -27,6 +27,7 @@ export { readLessons, writeLessons, promoteLesson, matchLessons, lessonText, les
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
 export { readRepoRules, rulesForDiff, rulesSection, splitRules, type RepoRule } from './review-learning/repo-rules.js';
 export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
+export { checkPrecisions, checkId, precisionOf, isMuted, MUTE_MIN_OUTCOMES, MUTE_BELOW, type CheckPrecision, type CheckOutcome } from './review/check-outcomes.js';
 export { recordReviewOutcome, listResolvedFixes, removeResolvedFix, openFindingCount, type ResolvedFix, type FixCapture } from './review/agent-fixes.js';
 export { computeEffectiveness, readAgentEvents, appendAgentEvent, findingKeys, type AgentEvent, type ReviewEffectiveness } from './review/effectiveness.js';
 export { parseDiff, changedLinesByFile } from './utils/diff.js';
@@ -66,7 +67,9 @@ export type { RigourDB, CompactResult } from './storage/index.js';
 // Local Project Memory (hybrid intelligence — SQLite-backed per-project learning)
 export { checkLocalPatterns, persistAndReinforce, getProjectStats } from './storage/index.js';
 export type { ProjectStats } from './storage/index.js';
-export { recordInteractionEvidence, countInteractionEvidence, recordInteractionLesson, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId, queueLocalLessonsForTeam } from './storage/index.js';
+export { recordFixLessons, fixLessonSubject, fixLessonPrefix, FILES_TO_VALIDATE } from './storage/index.js';
+export { recordInteractionEvidence, countInteractionEvidence, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId, shareMemoryLesson, queueLocalLessonsForTeam } from './storage/index.js';
+export { rankMemories, rankByMeaning, memoryText, SEMANTIC_FLOOR, RECALL_LIMIT, type MemoryEntry, type MemoryScope, type RankedMemory, type Ranked } from './memory/recall.js';
 export type { ApplicableLessons, InteractionEvidence, LessonRecord, LessonState, LessonVisibility, LocalLessonImportOptions, LocalLessonImportResult } from './storage/index.js';
 export {
   loadTeamConfiguration,

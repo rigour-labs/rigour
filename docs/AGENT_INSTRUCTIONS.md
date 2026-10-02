@@ -7,7 +7,7 @@ Your access to this codebase is conditional upon your strict adherence to the **
 ## 🚦 The Mandatory Governance Loop
 You MUST execute this loop for every task. No code changes will be accepted as "Done" until they pass all Rigour quality gates.
 
-1.  **Context Loading**: Call `rigour_recall` (MCP) to align with project-specific engineering memory.
+1.  **Context Loading**: Call `rigour_recall` (MCP) with a `query` describing the task, to load the memories and team knowledge that apply to it.
 2.  **Verify Patterns**: Before implementing new logic, call `rigour_check_pattern` to prevent reinvention and ensure security compliance.
 3.  **Audit Enforcement**: Before finishing, you MUST call `npx @rigour-labs/cli check`.
 4.  **Failure Remediation**: If the check returns **FAIL**, you MUST implement all required engineering refinements.

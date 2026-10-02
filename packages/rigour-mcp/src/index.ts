@@ -7,6 +7,8 @@
  *
  * @since v2.17.0 — refactored from 1,487-line monolith
  */
+import fs from 'fs-extra';
+import path from 'path';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -27,14 +29,15 @@ import { getMcpVersion } from './utils/package-version.js';
 import { buildMcpResultMeta, buildStudioImpact } from './utils/impact-receipt.js';
 
 // Dashboard (MCP App)
-import { DASHBOARD_URI, getDashboardHtml, pushTimelineEntry, updateScore } from './dashboard/index.js';
+import { DASHBOARD_URI, getDashboardHtml, LEARNING_TOOLS, pushTimelineEntry, seedFromLastReport, summarizeKnowledge, updateKnowledge, updateScore } from './dashboard/index.js';
 
 // Tool definitions & advertised registry
 import { getAdvertisedToolDefinitions } from './advertised-tools.js';
 
 // Tool handlers
 import { handleCheck, handleExplain, handleStatus, handleGetFixPacket, handleListGates, handleGetConfig } from './tools/quality-handlers.js';
-import { handleRemember, handleRecall, handleForget } from './tools/memory-handlers.js';
+import { handleRemember, handleForget } from './tools/memory-handlers.js';
+import { handleRecall } from './tools/memory-recall.js';
 import { handleCheckPattern, handleSecurityAudit } from './tools/pattern-handlers.js';
 import { handleRun, handleRunSupervised } from './tools/execution-handlers.js';
 import { handleAgentRegister, handleCheckpoint, handleHandoff, handleAgentDeregister, handleHandoffAccept } from './tools/agent-handlers.js';
@@ -44,7 +47,7 @@ import { handleCheckDeep, handleDeepStats } from './tools/deep-handlers.js';
 import { handleMcpGetSettings, handleMcpSetSettings } from './tools/mcp-settings-handler.js';
 import { handleContextStats, handleTaskCost, handleCacheStats, handleContextExplain, handleContextScope } from './tools/context-handlers.js';
 import { handleIndex } from './tools/index-handlers.js';
-import { recordContextEvent, recordInteractionEvidence, recordInteractionLesson, syncTeamOutbox, estimateTokenCount } from '@rigour-labs/core';
+import { recordContextEvent, recordInteractionEvidence, syncTeamOutbox, estimateTokenCount } from '@rigour-labs/core';
 
 // ─── Server Setup ─────────────────────────────────────────────────
 
@@ -158,12 +161,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "rigour_mcp_set_settings": result = await handleMcpSetSettings(cwd, args as any); break;
 
             // Memory
-            case "rigour_remember":      result = await handleRemember(cwd, (args as any).key, (args as any).value || (args as any).content); break;
-            case "rigour_recall":        result = await handleRecall(cwd, (args as any).key); break;
-            case "rigour_forget":        result = await handleForget(cwd, (args as any).key); break;
+            case "rigour_remember":      result = await handleRemember(cwd, (args as any).key, (args as any).value || (args as any).content, (args as any).scope); break;
+            case "rigour_recall":        result = await handleRecall(cwd, { key: (args as any).key, query: (args as any).query }); break;
+            case "rigour_forget":        result = await handleForget(cwd, (args as any).key, (args as any).scope); break;
 
             // Pattern intelligence
-            case "rigour_check_pattern": result = await handleCheckPattern(cwd, (args as any).name, (args as any).type, (args as any).intent, (args as any).file); break;
+            case "rigour_check_pattern": result = await handleCheckPattern(cwd, (args as any).name, (args as any).type, (args as any).intent, (args as any).file, (args as any).signature, (args as any).keywords); break;
             case "rigour_security_audit": result = await handleSecurityAudit(cwd); break;
 
             // Execution
@@ -275,15 +278,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 summary: result?._guidance?.recommendation,
                 ...interactionMetadata(args),
             });
-            await recordInteractionLesson(cwd, {
-                tool: name,
-                outcome,
-                requestId,
-                deterministic,
-                verifiedOutcome: deterministic,
-                summary: result?._guidance?.recommendation,
-                ...interactionMetadata(args),
-            });
             void syncTeamOutbox().catch(() => undefined);
         } catch {
             // Learning is evidence collection and must not block governance tools.
@@ -311,6 +305,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ? `${report.status.toUpperCase()} — Score: ${report.stats?.score ?? '?'}/100`
             : "completed";
         pushTimelineEntry(name, result.isError ? "error" : "success", details);
+        updateKnowledge(await summarizeKnowledge(cwd, { fresh: LEARNING_TOOLS.has(name) }).catch(() => null));
+        seedFromLastReport(await readLastReport(cwd));
 
         if (report?.stats) {
             updateScore(
@@ -482,6 +478,16 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
             throw new Error(`Unknown prompt: ${name}`);
     }
 });
+
+/** The last report `rigour check` wrote here (output.report_path), or null. */
+async function readLastReport(cwd: string): Promise<any> {
+    try {
+        const config = await loadConfig(cwd);
+        return await fs.readJson(path.join(cwd, config.output?.report_path ?? 'rigour-report.json'));
+    } catch {
+        return null;
+    }
+}
 
 // ─── Start ────────────────────────────────────────────────────────
 

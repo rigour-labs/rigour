@@ -4,6 +4,7 @@ import type {
     TeamConfiguration,
     TeamModeStatus,
 } from './team-store.js';
+import { SEMANTIC_FLOOR } from '../memory/recall.js';
 
 type PgPool = {
     query: (sql: string, params?: unknown[]) => Promise<any>;
@@ -220,7 +221,7 @@ export async function searchConfiguredTeamKnowledge(
                     AND 1 - (embedding.embedding <=> $1::vector) >= $6
                   ORDER BY embedding.embedding <=> $1::vector LIMIT $5`,
                 [vectorLiteral(embedding), config.organizationId, config.teamId, config.semantic.model,
-                    Math.max(1, Math.min(25, limit)), 0.45, config.actorId],
+                    Math.max(1, Math.min(25, limit)), SEMANTIC_FLOOR, config.actorId],
             );
             return {
                 status: 'ready', provider: 'pgvector', model: config.semantic.model,
