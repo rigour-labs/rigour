@@ -45,7 +45,7 @@ export async function getFindingsForScan(store: RigourDB, scanId: string): Promi
  */
 export async function getDeepFindings(store: RigourDB, repo: string, limit = 50): Promise<any[]> {
     return store.all(
-        `SELECT f.* FROM findings f
+        `SELECT f.*, s.timestamp AS scan_time FROM findings f
          JOIN scans s ON f.scan_id = s.id
          WHERE s.repo = ? AND (f.source = 'llm' OR f.source = 'hybrid' OR f.confidence >= 0.7)
          ORDER BY f.confidence DESC LIMIT ?`,

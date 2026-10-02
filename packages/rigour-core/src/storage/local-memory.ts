@@ -13,6 +13,8 @@ import { insertScan, getRecentScans } from './scans.js';
 import { insertFindings, getDeepFindings } from './findings.js';
 import { reinforcePattern, getStrongPatterns, getHardRules, decayPatterns } from './patterns.js';
 import { Logger } from '../utils/logger.js';
+import { getRepositoryId } from './lessons.js';
+import fs from 'fs-extra';
 
 /** Minimum pattern strength to produce instant findings (skip LLM). */
 const INSTANT_MATCH_THRESHOLD = 0.7;
@@ -26,6 +28,14 @@ const MIN_REUSE_CONFIDENCE = 0.7;
 /**
  * Build a map of relative file path → known issues from past findings.
  */
+async function fileModifiedAt(cwd: string, relPath: string): Promise<number | undefined> {
+    try {
+        return (await fs.stat(path.join(cwd, relPath))).mtimeMs;
+    } catch {
+        return undefined;
+    }
+}
+
 function buildFileIssueMap(recentFindings: any[]): Map<string, any[]> {
     const map = new Map<string, any[]>();
     for (const f of recentFindings) {
@@ -50,7 +60,9 @@ export async function checkLocalPatterns(
     const db = await openDatabase();
     if (!db) return [];
 
-    const repoName = path.basename(cwd);
+    // The repository's identity (its remote, else its path), never the folder name: two
+    // checkouts called `api` are different projects.
+    const repoName = await getRepositoryId(cwd);
     const findings: DeepFinding[] = [];
 
     try {
@@ -64,12 +76,20 @@ export async function checkLocalPatterns(
         const fileIssueMap = buildFileIssueMap(recentFindings);
 
         // fileList contains relative paths — match directly against DB (also relative)
+        const seen = new Set<string>();
         for (const relPath of fileList) {
             const known = fileIssueMap.get(relPath);
             if (!known) continue;
+            const modifiedAt = await fileModifiedAt(cwd, relPath);
 
             for (const issue of known) {
                 if ((issue.confidence ?? 0) < MIN_REUSE_CONFIDENCE) continue;
+                // A finding still holds only while its file is the one it was found in: an edit
+                // since that scan may be the fix, and replaying it would report fixed code.
+                if (modifiedAt === undefined || modifiedAt > Number(issue.scan_time)) continue;
+                const key = `${issue.line}:${issue.category}:${issue.description}`;
+                if (seen.has(`${relPath}:${key}`)) continue;
+                seen.add(`${relPath}:${key}`);
 
                 const matchingPattern = patterns.find(
                     (p: any) => p.pattern === issue.category && p.strength >= INSTANT_MATCH_THRESHOLD
@@ -112,7 +132,9 @@ export async function persistAndReinforce(
     const db = await openDatabase();
     if (!db) return;
 
-    const repoName = path.basename(cwd);
+    // The repository's identity (its remote, else its path), never the folder name: two
+    // checkouts called `api` are different projects.
+    const repoName = await getRepositoryId(cwd);
 
     try {
         const scanId = await insertScan(db, repoName, report as any, meta);
@@ -121,8 +143,14 @@ export async function persistAndReinforce(
             await insertFindings(db, scanId, report.failures);
         }
 
+        // One reinforcement per category per scan: five findings of one kind in one scan are
+        // one observation of that kind, not five.
+        const byCategory = new Map<string, Failure>();
         for (const f of report.failures) {
             const category = f.category || f.id;
+            if (!byCategory.has(category)) byCategory.set(category, f);
+        }
+        for (const [category, f] of byCategory) {
             const source: 'ast' | 'llm' = f.source === 'llm' ? 'llm' : 'ast';
             await reinforcePattern(
                 db, repoName, category,
@@ -135,7 +163,7 @@ export async function persistAndReinforce(
 
         Logger.info(
             `Local memory: stored ${report.failures.length} findings, ` +
-            `reinforced ${report.failures.length} patterns for ${repoName}`
+            `reinforced ${byCategory.size} patterns`
         );
     } catch (error) {
         Logger.warn(`Local memory persist failed: ${error}`);
@@ -151,7 +179,9 @@ export async function getProjectStats(cwd: string): Promise<ProjectStats | null>
     const db = await openDatabase();
     if (!db) return null;
 
-    const repoName = path.basename(cwd);
+    // The repository's identity (its remote, else its path), never the folder name: two
+    // checkouts called `api` are different projects.
+    const repoName = await getRepositoryId(cwd);
 
     try {
         const scans = await getRecentScans(db, repoName, 100);

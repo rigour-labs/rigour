@@ -892,6 +892,8 @@ async function handleApiRequest(
                 'rigour_check',
             ]);
             const gateBlocked = typeCount(['gate_failed', 'hook_blocked', 'interception_requested']);
+            // A check that errored ran no gates: it is not a pass.
+            const gateErrored = events.filter((e) => e.type === 'tool_response' && e.tool === 'rigour_check' && e.status === 'error').length;
             const checkpointCount = Math.max(
                 mapped.length,
                 typeCount(['checkpoint_recorded', 'rigour_checkpoint']),
@@ -925,12 +927,14 @@ async function handleApiRequest(
                     'gates',
                     'Gates',
                     gateCount,
-                    gateBlocked > 0 ? 'block' : gateCount > 0 ? 'pass' : 'idle',
+                    gateBlocked > 0 ? 'block' : gateErrored > 0 ? 'warn' : gateCount > 0 ? 'pass' : 'idle',
                     gateBlocked > 0
                         ? `${gateBlocked} block/intercept event(s)`
-                        : gateCount
-                          ? 'Gates exercised'
-                          : 'Hooks & quality gates idle',
+                        : gateErrored > 0
+                          ? `${gateErrored} check(s) errored before running gates`
+                          : gateCount
+                            ? 'Gates exercised'
+                            : 'Hooks & quality gates idle',
                 ),
                 stage(
                     'checkpoint',

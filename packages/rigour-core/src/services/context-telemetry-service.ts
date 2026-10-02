@@ -620,7 +620,8 @@ export async function getContextScopeSummary(cwd?: string): Promise<ContextScope
     let alwaysOnRuleTokens = 0;
     for (const fileName of GOVERNANCE_RULE_FILES) {
         const filePath = path.join(projectRoot, fileName);
-        if (await fs.pathExists(filePath)) {
+        // .clinerules may be a directory of rule files; only count regular files.
+        if ((await fs.stat(filePath).catch(() => null))?.isFile()) {
             alwaysOnRuleTokens += estimateTokenCount(await fs.readFile(filePath, 'utf8'));
         }
     }

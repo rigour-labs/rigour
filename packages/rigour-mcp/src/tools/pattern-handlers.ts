@@ -15,9 +15,9 @@ import {
     StalenessDetector,
     SecurityDetector,
 } from "@rigour-labs/core/pattern-index";
-import { ConfigSchema, getSemanticQueryCache, setSemanticQueryCache, estimateTokenCount } from "@rigour-labs/core";
+import { ConfigSchema, estimateTokenCount } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
-import { buildTelemetryMeta, getWorkspaceCommitSha, type GuidanceMeta, type ToolResult } from '../utils/context-telemetry.js';
+import { buildTelemetryMeta, type GuidanceMeta, type ToolResult } from '../utils/context-telemetry.js';
 import { appendContextFooter } from '../utils/context-footer.js';
 
 /**
@@ -49,10 +49,6 @@ async function checkFileGuard(cwd: string, filePath: string): Promise<string | n
     }) ?? null;
 }
 
-function buildCacheQuery(patternName: string, type?: string, intent?: string, file?: string): string {
-    return `check_pattern:${patternName}:${type ?? ''}:${intent ?? ''}:${file ?? ''}`;
-}
-
 export async function handleCheckPattern(
     cwd: string,
     patternName: string,
@@ -60,35 +56,13 @@ export async function handleCheckPattern(
     intent?: string,
     file?: string,
 ): Promise<ToolResult> {
-    const commitSha = await getWorkspaceCommitSha(cwd);
-    const cacheQuery = buildCacheQuery(patternName, type, intent, file);
+    // No answer cache: a cache keyed on the commit kept naming functions renamed since, and the
+    // index lookup it saved is milliseconds.
     const indexPath = getDefaultIndexPath(cwd);
     const index = await loadPatternIndex(indexPath);
     const indexScanEstimate = index
         ? `Pattern index scan (${index.stats.totalPatterns} patterns) for ${patternName}`
         : `Full pattern discovery for ${patternName}`;
-
-    const cached = await getSemanticQueryCache(cacheQuery, commitSha, cwd);
-    if (cached?.evidence?.length) {
-        const cachedText = cached.evidence.join('\n');
-        const telemetry = buildTelemetryMeta({
-            candidateText: indexScanEstimate,
-            returnedText: cachedText,
-            cacheStatus: 'exact-hit',
-        });
-        return {
-            content: [{
-                type: 'text',
-                text: appendContextFooter(cachedText, telemetry, 'proceed with implementation or rigour_check when done'),
-            }],
-            _telemetry: telemetry,
-            _guidance: cached.guidance ?? {
-                kind: 'pattern',
-                query: patternName,
-                recommendation: `Apply the cached pattern guidance for "${patternName}".`,
-            },
-        };
-    }
 
     let resultText = "";
     let matchedPattern: { id: string; name: string; file: string } | undefined;
@@ -185,17 +159,6 @@ export async function handleCheckPattern(
         patternRefs: matchedPattern ? [{ id: matchedPattern.id, label: matchedPattern.name, file: matchedPattern.file }] : [],
         selectedFiles: file ? [file] : matchedPattern?.file ? [matchedPattern.file] : [],
     };
-
-    await setSemanticQueryCache(cacheQuery, commitSha, {
-        query: cacheQuery,
-        resolvedOwner: file ? path.dirname(file) : 'patterns',
-        editScope: file ? [file] : [],
-        validationScope: [],
-        evidence: [resultText],
-        commitSha,
-        confidence: resultText.includes('✅') ? 0.9 : 0.7,
-        guidance,
-    }, cwd);
 
     const telemetry = buildTelemetryMeta({
         candidateText: indexScanEstimate,
