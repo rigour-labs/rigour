@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * rigour-scan — shortcut for `npx @rigour-labs/cli scan`
+ * rigour-scan — shortcut for `npx @rigour-labs/cli@latest scan`
  *
  * Usage: npx rigour-scan [options]
  *
@@ -12,7 +12,8 @@ import { fileURLToPath } from 'url';
 const args = process.argv.slice(2);
 
 try {
-    execFileSync('npx', ['-y', '@rigour-labs/cli', 'scan', ...args], {
+    // @latest, never bare: a bare name makes npx run any older global install instead.
+    execFileSync('npx', ['-y', '@rigour-labs/cli@latest', 'scan', ...args], {
         stdio: 'inherit',
         env: process.env,
     });

@@ -496,7 +496,7 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     void flushDailyUsage(); // a day's agent activity, if a day has passed; never awaited by the agent
-    console.error("Rigour MCP server v4.0.0 running on stdio");
+    console.error(`Rigour MCP server v${getMcpVersion('unknown')} running on stdio`);
 }
 
 main().catch((error) => {

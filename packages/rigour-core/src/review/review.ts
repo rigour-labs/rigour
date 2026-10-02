@@ -18,6 +18,7 @@ import { withoutGenerated } from './generated-files.js';
 import { findingKey, isProven, quietSplit } from './quiet.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
 import { diffTestFailures } from './diff-test-findings.js';
+import { migrationOrderFailures } from './migration-order.js';
 
 export interface ReviewInput {
     cwd: string;
@@ -78,6 +79,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
+    report.failures.push(...migrationOrderFailures(input.cwd, diff, input.source, input.config));
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {});
     const deepError = deepAnalysisError(report);
     const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics);

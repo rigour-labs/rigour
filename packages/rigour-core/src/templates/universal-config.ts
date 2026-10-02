@@ -236,6 +236,14 @@ export const UNIVERSAL_CONFIG: Config = {
             track_branches: false,
             track_returns: false,
         },
+        unindexed_reads: {
+            enabled: false,
+            migrations: [],
+        },
+        migration_order: {
+            enabled: false,
+            dirs: ['**/supabase/migrations'],
+        },
         semantic_bugs: {
             enabled: true,
         },

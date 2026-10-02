@@ -271,6 +271,16 @@ export const GatesSchema = z.object({
     }).optional().default({}),
     // v4.3+ Side-Effect Safety Analysis
     // On by default: full scans of three real repositories reported no finding that was not a real defect.
+    // A supabase-js read no index can serve, proved from the repository's own migrations (advisory, off by default).
+    unindexed_reads: z.object({
+        enabled: z.boolean().optional().default(false),
+        migrations: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
+    // A migration added on a branch that sorts before the newest one on the base (advisory, off by default).
+    migration_order: z.object({
+        enabled: z.boolean().optional().default(false),
+        dirs: z.array(z.string()).optional().default(['**/supabase/migrations']),
+    }).optional().default({}),
     semantic_bugs: z.object({
         enabled: z.boolean().optional().default(true),
         rules: z.array(z.string()).optional(),

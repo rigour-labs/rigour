@@ -111,21 +111,17 @@ Hallucinated import detection with full stdlib whitelists and dependency manifes
 
 ## 📦 Installation
 
-### 1. Install via npm
-```bash
-npm install -g @rigour-labs/mcp
-```
+No global install: npx fetches the server when your agent starts it. Keep a version in the package name (`@latest`, or a major such as `@6`); with a bare `@rigour-labs/mcp`, npx runs any older copy installed globally instead. If you once ran `npm install -g @rigour-labs/mcp`, remove it with `npm rm -g @rigour-labs/mcp`.
 
-### 2. Configure your IDE
+**Claude Code:** use the plugin (`/plugin marketplace add rigour-labs/rigour-plugin`, then `/plugin install rigour@rigour-labs`).
 
-#### Cursor / Claude Desktop
-Add the following to your MCP settings:
+**Cursor, Claude Desktop and other MCP clients:**
 ```json
 {
   "mcpServers": {
     "rigour": {
       "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp@5.3.2"],
+      "args": ["-y", "@rigour-labs/mcp@latest"],
       "env": {
         "RIGOUR_CWD": "/path/to/your/project"
       }
@@ -133,6 +129,8 @@ Add the following to your MCP settings:
   }
 }
 ```
+
+Only Rigour's core tools are listed by default; add `"RIGOUR_MCP_TOOLS": "governance,telemetry"` (or `"full"`) to `env` for the rest. Node.js 22 or later is required.
 
 ---
 

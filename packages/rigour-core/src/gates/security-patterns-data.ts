@@ -136,7 +136,8 @@ export const VULNERABILITY_PATTERNS: {
     // ReDoS — Denial of Service via regex (OWASP #7)
     {
         type: 'redos',
-        regex: /new RegExp\s*\([^)]*(?:req\.|params|query|body|input|user)/g,
+        // Request data, or a first argument that is exactly an input name; not any argument that merely contains "user" or "query".
+        regex: /new RegExp\s*\(\s*(?:[^)]*\b(?:req|request)\.(?:query|params|body)\b|(?:userInput|input|searchTerm|search|query|term|keyword|pattern)\s*[,)])/g,
         severity: 'high',
         description: 'Dynamic regex from user input — potential ReDoS',
         cwe: 'CWE-1333',

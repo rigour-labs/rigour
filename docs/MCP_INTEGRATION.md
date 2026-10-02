@@ -35,7 +35,7 @@ It is critical to understand how Rigour integrates with your workflow:
   "mcpServers": {
     "rigour": {
       "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp"]
+      "args": ["-y", "@rigour-labs/mcp@latest"]
     }
   }
 }
@@ -59,7 +59,7 @@ Add groups with `RIGOUR_MCP_TOOLS` in the server's environment (`"governance,tel
   "mcpServers": {
     "rigour": {
       "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp"],
+      "args": ["-y", "@rigour-labs/mcp@latest"],
       "env": { "RIGOUR_MCP_TOOLS": "governance" }
     }
   }
