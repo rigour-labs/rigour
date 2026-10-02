@@ -3,12 +3,12 @@
  * Keys prefer env / home directory — not agent-writable workspace keys for CI admit.
  */
 
-import { createHash, createHmac, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs-extra';
-import os from 'os';
 import path from 'path';
 import { execa } from 'execa';
 import type { AttestationBundle, TransactionRecord } from './types.js';
+import { rigourUserDir } from '../utils/user-state.js';
 
 const KEY_FILE = 'attestation.key';
 
@@ -18,7 +18,7 @@ export async function resolveAttestationKey(cwd: string): Promise<{ key: Buffer;
         return { key: Buffer.from(envKey, 'utf8'), source: 'env' };
     }
 
-    const homeKeyPath = path.join(os.homedir(), '.rigour', KEY_FILE);
+    const homeKeyPath = path.join(rigourUserDir(), KEY_FILE);
     if (await fs.pathExists(homeKeyPath)) {
         return { key: await fs.readFile(homeKeyPath), source: 'home' };
     }
@@ -29,7 +29,7 @@ export async function resolveAttestationKey(cwd: string): Promise<{ key: Buffer;
     }
 
     // Create home key by default (outside agent workspace)
-    await fs.ensureDir(path.join(os.homedir(), '.rigour'));
+    await fs.ensureDir(rigourUserDir());
     const key = randomBytes(32);
     await fs.writeFile(homeKeyPath, key, { mode: 0o600 });
     return { key, source: 'home' };
@@ -159,10 +159,11 @@ export async function createAttestation(
 export async function verifyAttestation(cwd: string, bundle: AttestationBundle): Promise<boolean> {
     const { key } = await resolveAttestationKey(cwd);
     const { signature, signedAt, ...rest } = bundle;
-    const expected = createHmac('sha256', key)
+    const expected = Buffer.from(createHmac('sha256', key)
         .update(payloadForSign(rest) + signedAt)
-        .digest('hex');
-    return expected === signature;
+        .digest('hex'));
+    const given = Buffer.from(String(signature ?? ''));
+    return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
 export async function loadLatestAttestation(cwd: string): Promise<AttestationBundle | null> {
@@ -176,9 +177,12 @@ export async function loadLatestAttestation(cwd: string): Promise<AttestationBun
 }
 
 /**
- * CI admission: valid signature, PASS gates, bound commit/tree, fresh, non-workspace-key unless allowed.
+ * CI admission. Admits only a bundle that is signed with a key outside the workspace, records PASS
+ * gates, is fresh, is bound to this checkout (commit or tree, and at least one must be present and
+ * match), whose artifact digest recomputes from the files here, and, when the caller names the
+ * policy it requires, was produced under that policy.
  */
-export async function admitForCi(cwd: string): Promise<{ admit: boolean; reason: string }> {
+export async function admitForCi(cwd: string, options: { policyHash?: string } = {}): Promise<{ admit: boolean; reason: string }> {
     const { source } = await resolveAttestationKey(cwd);
     if (source === 'workspace' && process.env.RIGOUR_ALLOW_WORKSPACE_ATTESTATION_KEY !== '1') {
         return {
@@ -198,11 +202,9 @@ export async function admitForCi(cwd: string): Promise<{ admit: boolean; reason:
     if (bundle.gateResults.status !== 'PASS') {
         return { admit: false, reason: `Gates not PASS (${bundle.gateResults.status})` };
     }
-    if (!bundle.treeDigest && (!bundle.filesUsed || bundle.filesUsed.length === 0)) {
-        return { admit: false, reason: 'Attestation missing treeDigest and filesUsed' };
-    }
-    if (!bundle.artifactDigest || bundle.artifactDigest.length < 16) {
-        return { admit: false, reason: 'Attestation artifactDigest missing or trivial' };
+    const requiredPolicy = options.policyHash ?? process.env.RIGOUR_REQUIRED_POLICY_HASH;
+    if (requiredPolicy && bundle.policyHash !== requiredPolicy) {
+        return { admit: false, reason: `Attestation policy ${bundle.policyHash} is not the required ${requiredPolicy}` };
     }
 
     const maxAgeMs = Number(process.env.RIGOUR_ATTESTATION_MAX_AGE_MS || 24 * 60 * 60 * 1000);
@@ -211,20 +213,35 @@ export async function admitForCi(cwd: string): Promise<{ admit: boolean; reason:
         return { admit: false, reason: 'Attestation expired or has invalid signedAt' };
     }
 
-    const headSha = await getGitCommitSha(cwd);
-    if (bundle.commitSha && headSha && bundle.commitSha !== headSha) {
-        return {
-            admit: false,
-            reason: `Attestation commitSha ${bundle.commitSha.slice(0, 8)}≠ HEAD ${headSha.slice(0, 8)}`,
-        };
-    }
-    const headTree = await getGitTreeDigest(cwd);
-    if (bundle.treeDigest && headTree && bundle.treeDigest !== headTree) {
-        return {
-            admit: false,
-            reason: `Attestation treeDigest mismatch vs HEAD tree`,
-        };
+    const binding = await checkBinding(cwd, bundle);
+    if (binding) return { admit: false, reason: binding };
+    if (await recomputeArtifactDigest(cwd, bundle) !== bundle.artifactDigest) {
+        return { admit: false, reason: 'Attestation artifactDigest does not match the files in this checkout' };
     }
 
-    return { admit: true, reason: 'Valid attestation with PASS gates and bound tree/commit' };
+    return { admit: true, reason: 'Valid attestation with PASS gates, bound to this checkout, artifacts verified' };
+}
+
+/** Why the bundle is not bound to this checkout, or null when it is. A bundle bound to nothing is refused. */
+async function checkBinding(cwd: string, bundle: AttestationBundle): Promise<string | null> {
+    if (!bundle.commitSha && !bundle.treeDigest) return 'Attestation is bound to no commit or tree';
+    const [headSha, headTree] = await Promise.all([getGitCommitSha(cwd), getGitTreeDigest(cwd)]);
+    if (bundle.commitSha && bundle.commitSha !== headSha) {
+        return `Attestation commitSha ${bundle.commitSha.slice(0, 8)} is not HEAD ${(headSha ?? 'none').slice(0, 8)}`;
+    }
+    if (bundle.treeDigest && bundle.treeDigest !== headTree) return 'Attestation treeDigest mismatch vs HEAD tree';
+    return null;
+}
+
+/** The digest createAttestation would compute for this checkout: the named files' contents, or the tree. */
+async function recomputeArtifactDigest(cwd: string, bundle: AttestationBundle): Promise<string> {
+    const files = bundle.filesUsed ?? [];
+    if (files.length === 0) return createHash('sha256').update(`tree:${bundle.treeDigest ?? ''}`).digest('hex');
+    const contents = new Map<string, string>();
+    for (const f of files) {
+        const abs = path.resolve(cwd, f);
+        if (!abs.startsWith(path.resolve(cwd) + path.sep)) continue; // never read outside the checkout
+        if (await fs.pathExists(abs)) contents.set(f, await fs.readFile(abs, 'utf-8'));
+    }
+    return computeArtifactDigest(files, contents);
 }

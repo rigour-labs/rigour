@@ -259,17 +259,19 @@ The filter does its job (the constant answers never become findings), but nothin
 
 ## CLI Usage
 
-Deep analysis runs a model over the change. Locally it uses a bundled model; with a key, the model you choose.
+Deep analysis runs a frontier model over the riskiest part of the change: the model of your choice with your own key, or, inside an agent, the agent's own model (`rigour_review` with `mode: "agent"`, no key needed). Rigour supplies the context, checks every finding against the code the model read, and records what was reviewed.
+
+Small local models are kept for fully offline use, but they are no longer developed: on the labelled cases below they did not meet the bar of no false findings with useful recall, and frontier models improve faster than a small model can be trained.
 
 ```bash
-# Local models (downloaded once; no network after that)
-rigour review --deep            # Qwen2.5-Coder-0.5B, fastest
-rigour review --pro             # Qwen2.5-Coder-1.5B
-rigour review --max             # Qwen2.5-Coder-7B, reads callers/callees, reviews twice and self-checks (16 GB RAM)
-
 # Your key (any of: claude, openai, openrouter, gemini, groq, mistral, together, deepseek, ollama, or any OpenAI-compatible name with --api-base-url)
 rigour review --deep --provider claude --model-name claude-sonnet-5-5
 rigour review --deep --provider openrouter --api-base-url https://openrouter.ai/api/v1 --model-name anthropic/claude-sonnet-5.5
+
+# Offline only (downloaded once; no network after that; no longer developed)
+rigour review --deep            # Qwen2.5-Coder-0.5B
+rigour review --pro             # Qwen2.5-Coder-1.5B
+rigour review --max             # Qwen2.5-Coder-7B (16 GB RAM)
 
 # Whole repository instead of a change
 rigour check --deep

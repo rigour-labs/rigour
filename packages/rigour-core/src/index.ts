@@ -11,8 +11,10 @@ export { FrontendSecretExposureGate } from './gates/frontend-secret-exposure.js'
 export * from './utils/logger.js';
 export { normalizeScopePatterns, isScoped } from './utils/scope.js';
 export { deepAnalysisError } from './utils/deep-status.js';
+export { rigourUserDir, repoStateDir } from './utils/user-state.js';
 export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, type ReviewFinding } from './review/review.js';
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
+export { isControlFile, mergeBaseOf, readStateFile } from './review/trusted-state.js';
 export { dismissFinding, dismissedKeys, findingKey, isProven, quietSplit, DISMISSED_FILE } from './review/quiet.js';
 export { isGeneratedFile } from './review/generated-files.js';
 export { countUsage, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';

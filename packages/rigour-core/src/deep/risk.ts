@@ -118,8 +118,14 @@ export function findFunction(cwd: string, file: string, name: string): { hash: s
     return found;
 }
 
+/**
+ * What a review record is bound to: the function's exact source. Collapsing whitespace once let
+ * `"a  b"` and `"a b"` share a hash, so a string changed after review still counted as reviewed.
+ * Only line endings are normalised (a Windows checkout is the same code); any other change,
+ * formatting included, asks for a new review.
+ */
 export function functionHash(text: string): string {
-    return crypto.createHash('sha256').update(text.replace(/\s+/g, ' ').trim()).digest('hex');
+    return crypto.createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
 }
 
 const GUARD = /\b(?:if|else|return|throw|break|continue|catch)\b|\?\?|\?\./g;

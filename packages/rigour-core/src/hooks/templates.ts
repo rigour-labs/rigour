@@ -60,7 +60,7 @@ function generateClaudeHooks(checkerCommand: string): GeneratedHookFile[] {
                     hooks: [
                         {
                             type: "command",
-                            command: `${checkerCommand} --files "$TOOL_INPUT_file_path"`,
+                            command: `${checkerCommand} --stdin`,
                         }
                     ]
                 }

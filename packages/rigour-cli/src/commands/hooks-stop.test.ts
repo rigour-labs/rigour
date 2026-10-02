@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { recordSessionBaseline } from '@rigour-labs/core';
 import { hooksStopCommand } from './hooks-stop.js';
 
 // A credential header on a redirect-following request: a proven (verified) high finding.
@@ -56,12 +57,31 @@ describe('rigour hooks stop', () => {
         expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 's2' }), '/')).toBe('');
     });
 
-    it('lets the agent stop when the review cannot run', async () => {
+    it('says once when the review cannot run, then lets the agent stop', async () => {
         const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'stop-hook-norepo-'));
-        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-        expect(await hooksStopCommand('claude', JSON.stringify({ cwd: notARepo }), '/')).toBe('');
-        expect(String(stderr.mock.calls[0]?.[0])).toContain('Rigour stop review skipped');
+        vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const payload = JSON.stringify({ cwd: notARepo, session_id: 'broken' });
+        const first = JSON.parse(await hooksStopCommand('claude', payload, '/'));
+        expect(first).toMatchObject({ decision: 'block' });
+        expect(first.reason).toContain('Rigour could not review this change');
+        expect(await hooksStopCommand('claude', payload, '/')).toBe('');
         fs.rmSync(notARepo, { recursive: true, force: true });
+    });
+
+    it('still reviews what the session committed', async () => {
+        recordSessionBaseline(repo, 's3');
+        write('src/notify.ts', LEAKY);
+        git('add', '-A');
+        git('commit', '-qm', 'hide it in a commit');
+        const reply = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 's3' }), '/'));
+        expect(reply.reason).toContain('src/notify.ts:2');
+    });
+
+    it('ignores an attempt counter written into the workspace', async () => {
+        write('.rigour/stop-hook.json', JSON.stringify({ s4: 3 }));
+        write('src/notify.ts', LEAKY);
+        const reply = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 's4' }), '/'));
+        expect(reply.reason).toContain('attempt 1 of 3');
     });
 });
 

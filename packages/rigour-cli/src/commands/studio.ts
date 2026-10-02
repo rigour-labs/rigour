@@ -13,11 +13,12 @@ import { normalizeAgentSession, resolveStudioVersion } from './studio-contracts.
 import { getGatewayMediationState, loadStudioGatewayEvidence, summarizeGatewayEvidence } from './studio-firewall.js';
 import { loadStudioLearnedRules } from './studio-learned-rules.js';
 import { loadPrePrReview } from './studio-pre-pr.js';
+import { createStudioGuard, refuseStudioRequest, STUDIO_KEY_HEADER, studioLaunchUrl, type StudioGuard } from './studio-guard.js';
 
 type StudioContext = {
     cwd: string;
     eventsPath: string;
-    allowedOrigins: Set<string>;
+    guard: StudioGuard;
 };
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -173,13 +174,18 @@ async function handleApiRequest(
 ): Promise<boolean> {
     if (!url.pathname.startsWith('/api')) return false;
 
+    const refusal = refuseStudioRequest(req, ctx.guard);
+    if (refusal) {
+        sendJson(res, 403, { error: refusal });
+        return true;
+    }
     const requestOrigin = req.headers.origin;
-    if (typeof requestOrigin === 'string' && ctx.allowedOrigins.has(requestOrigin)) {
+    if (typeof requestOrigin === 'string' && ctx.guard.allowedOrigins.has(requestOrigin)) {
         res.setHeader('Access-Control-Allow-Origin', requestOrigin);
         res.setHeader('Vary', 'Origin');
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', `Content-Type, ${STUDIO_KEY_HEADER}`);
     res.setHeader('X-Rigour-Api-Version', '1');
 
     if (req.method === 'OPTIONS') {
@@ -1127,10 +1133,14 @@ async function handleApiRequest(
         req.on('end', async () => {
             try {
                 const decision = JSON.parse(body);
-                const { consumeArbitrationToken } = await import('@rigour-labs/core');
-                const ok = await consumeArbitrationToken(cwd, decision.requestId, decision.token);
-                if (!ok) {
-                    sendJson(res, 403, { error: 'Invalid or missing arbitration token (one-time, fail-closed)' });
+                if (decision.decision !== 'approve' && decision.decision !== 'reject') {
+                    sendJson(res, 400, { error: 'decision must be approve or reject' });
+                    return;
+                }
+                const { signArbitrationDecision } = await import('@rigour-labs/core');
+                const proof = await signArbitrationDecision(cwd, String(decision.requestId ?? ''), decision.decision);
+                if (!proof) {
+                    sendJson(res, 403, { error: 'Unknown, expired or already decided request (one-time, fail-closed)' });
                     return;
                 }
                 const logEntry =
@@ -1140,6 +1150,7 @@ async function handleApiRequest(
                         tool: 'human_arbitration',
                         requestId: decision.requestId,
                         decision: decision.decision,
+                        proof,
                         status: decision.decision === 'approve' ? 'success' : 'error',
                         arbitrated: true,
                     }) + '\n';
@@ -1207,11 +1218,8 @@ export const studioCommand = new Command('studio')
         ];
         const localStudioDist = candidates.find((p) => fs.pathExistsSync(p)) ?? candidates[0];
         const workspaceRoot = path.join(__dirname, '../../../../');
-        const allowedOrigins = new Set([
-            `http://localhost:${studioPort}`,
-            `http://127.0.0.1:${studioPort}`,
-        ]);
-        const ctx: StudioContext = { cwd, eventsPath, allowedOrigins };
+        const guard = createStudioGuard([studioPort, apiPort]);
+        const ctx: StudioContext = { cwd, eventsPath, guard };
 
         const { ensureAutomaticIndex, loadTeamConfiguration, syncTeamOutbox } = await import('@rigour-labs/core');
         void ensureAutomaticIndex(cwd).catch((error: unknown) => {
@@ -1267,7 +1275,7 @@ export const studioCommand = new Command('studio')
                 apiServer.listen(apiPort, '127.0.0.1', () => {
                     console.log(chalk.gray(`API Streamer active on 127.0.0.1:${apiPort}`));
                 });
-                announce(`http://127.0.0.1:${studioPort}`);
+                announce(studioLaunchUrl(`http://127.0.0.1:${studioPort}`, guard));
                 await studioProcess;
                 return;
             } catch {
@@ -1297,7 +1305,7 @@ export const studioCommand = new Command('studio')
 
         server.listen(parseInt(studioPort, 10), '127.0.0.1', () => {
             console.log(chalk.gray(`Studio + API on 127.0.0.1:${studioPort}`));
-            announce(`http://127.0.0.1:${studioPort}`);
+            announce(studioLaunchUrl(`http://127.0.0.1:${studioPort}`, guard));
         });
     });
 

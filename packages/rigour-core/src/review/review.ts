@@ -20,6 +20,7 @@ import { checkId, rememberReported } from './check-outcomes.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
 import { diffTestFailures } from './diff-test-findings.js';
 import { migrationOrderFailures } from './migration-order.js';
+import { isControlFile } from './trusted-state.js';
 
 export interface ReviewInput {
     cwd: string;
@@ -33,6 +34,8 @@ export interface ReviewInput {
     diffTests?: boolean;
     /** Deep analysis; `focusLines` and `removedLines` are filled from the diff. */
     deep?: Omit<DeepOptions, 'focusLines' | 'removedLines' | 'diff'>;
+    /** Read dismissals and check outcomes at this commit (the base), not as the change left them. */
+    trustedRef?: string;
 }
 
 export interface ReviewResult {
@@ -55,6 +58,8 @@ export interface ReviewResult {
     deepError?: string;
     /** Gates that crashed instead of running; a proven one makes the result ERROR. */
     gateErrors: string[];
+    /** rigour.yml or .rigour/ files this change edits: they steer the review, so they are called out. */
+    controlFilesChanged: string[];
 }
 
 export interface ReviewFinding {
@@ -77,7 +82,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null, gateErrors: [] };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff) };
     }
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
@@ -85,7 +90,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     report.failures.push(...migrationOrderFailures(input.cwd, diff, input.source, input.config));
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);
-    const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics);
+    const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics, input.trustedRef);
     rememberReported(input.cwd, [...quiet.speaking, ...quiet.advisory].map(f => ({ key: findingKey(f), check: checkId(f) })));
     const gateErrors = crashedGates(report);
     const provenCrashed = gateErrors.some(id => isProven({ id } as Failure));
@@ -103,8 +108,18 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         changedLines,
         report,
         gateErrors,
+        controlFilesChanged: controlFiles(diff),
         ...(deepError ? { deepError } : {}),
     };
+}
+
+/** Every path the diff touches (including deletions, which parseDiff drops) that steers Rigour itself. */
+function controlFiles(diff: string): string[] {
+    const files = new Set<string>();
+    for (const match of diff.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)) {
+        for (const file of [match[1], match[2]]) if (isControlFile(file)) files.add(file);
+    }
+    return [...files].sort();
 }
 
 function crashedGates(report: Report): string[] {

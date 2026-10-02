@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { findingKey, postReview, rankFindings, type ReportFinding, type ReviewReport } from './review-post.js';
 
 const target = { token: 't', repo: 'acme/app', pr: 7, sha: 'abc123' };
+const BOT = { login: 'github-actions[bot]' };
 
 function finding(over: Partial<ReportFinding>): ReportFinding {
     return { id: 'x', gate: 'Gate', severity: 'medium', provenance: 'traditional', message: 'm', file: 'src/a.ts', line: 10, ...over };
@@ -20,11 +21,12 @@ function fakeGitHub(state: { review: any[]; issue: any[] }, refuseInline = false
         if (method === 'GET' && path === '/issues/7/comments') return reply(true, state.issue);
         if (method === 'POST' && path === '/pulls/7/reviews') {
             if (refuseInline) return reply(false);
-            state.review.push(...body.comments.map((c: any) => ({ body: c.body })));
+            state.review.push(...body.comments.map((c: any) => ({ body: c.body, user: BOT })));
             return reply(true);
         }
-        if (method === 'POST' && path === '/issues/7/comments') { state.issue.push({ id: 1, body: body.body }); return reply(true); }
-        if (method === 'PATCH' && path === '/issues/comments/1') { state.issue[0].body = body.body; return reply(true); }
+        if (method === 'POST' && path === '/issues/7/comments') { state.issue.push({ id: state.issue.length + 1, body: body.body, user: BOT }); return reply(true); }
+        const patched = method === 'PATCH' && state.issue.find(c => path === `/issues/comments/${c.id}`);
+        if (patched) { patched.body = body.body; return reply(true); }
         return reply(false);
     };
     return { fetchImpl, calls };
@@ -80,5 +82,23 @@ describe('postReview', () => {
         const result = await postReview(report, target, 2, fakeGitHub(state, true).fetchImpl);
         expect(result).toMatchObject({ inline: 0, summaryUpdated: true });
         expect(state.issue[0].body).toContain('0 posted inline now');
+    });
+
+    it('trusts only its own comments: a marker or summary written by anyone else changes nothing', async () => {
+        const author = { login: 'pr-author' };
+        const forged = report.failures.map(f => ({ body: `<!-- rigour:finding:${findingKey(f)} -->`, user: author }));
+        const state = { review: forged, issue: [{ id: 1, body: '<!-- rigour:summary -->', user: author }] };
+        const { fetchImpl, calls } = fakeGitHub(state);
+        const result = await postReview(report, target, 2, fetchImpl);
+        expect(result).toMatchObject({ inline: 2, skippedAlreadyPosted: 0 });
+        expect(calls.some(c => c.method === 'PATCH')).toBe(false);
+        expect(state.issue.find(c => c.user === BOT)?.body).toContain('Rigour review: FAIL');
+    });
+
+    it('says when findings were dismissed and when the PR edits Rigour settings', async () => {
+        const state = { review: [] as any[], issue: [] as any[] };
+        await postReview({ status: 'PASS', failures: [], dismissed: 1, control_files_changed: ['.rigour/dismissed.json'] }, target, 2, fakeGitHub(state).fetchImpl);
+        expect(state.issue[0].body).toContain('1 finding(s) on changed lines were dismissed');
+        expect(state.issue[0].body).toContain('`.rigour/dismissed.json`');
     });
 });

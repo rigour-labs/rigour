@@ -38,6 +38,7 @@ import { SemanticBugs, semanticBugsEnabledIn } from './components/SemanticBugs';
 import { FirewallConsole } from './components/FirewallConsole';
 import { PrePrReview } from './components/PrePrReview';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { studioWrite } from './studioWrite';
 import { SystemHealth, type HealthData } from './components/SystemHealth';
 import { StudioSettings } from './components/StudioSettings';
 
@@ -195,16 +196,11 @@ function App() {
         if (!inspectingLog) return;
 
         try {
-            await fetch('/api/arbitrate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    requestId: inspectingLog.requestId || inspectingLog.id,
-                    decision,
-                    token: inspectingLog.arbitrationToken,
-                    timestamp: new Date().toISOString()
-                })
-            });
+            const res = await studioWrite('/api/arbitrate', 'POST', JSON.stringify({
+                requestId: inspectingLog.requestId || inspectingLog.id,
+                decision,
+            }));
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
             // Optimistic update
             setLogs(prev => prev.map(l => {

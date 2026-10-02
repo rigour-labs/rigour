@@ -2,7 +2,7 @@
  * Tests for hooks init command.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { hooksInitCommand, hooksCheckCommand } from './hooks.js';
+import { hooksInitCommand, hooksCheckCommand, parseStdinFiles } from './hooks.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -46,6 +46,13 @@ describe('hooksInitCommand', () => {
         expect(settings.hooks).toBeDefined();
         expect(settings.hooks.PostToolUse).toBeDefined();
         expect(settings.hooks.PostToolUse[0].hooks[0].command).toContain('hooks check');
+        // Claude Code sends the edited path as JSON on stdin; it exports no TOOL_INPUT_* variable.
+        expect(settings.hooks.PostToolUse[0].hooks[0].command).toContain('--stdin');
+        expect(settings.hooks.PostToolUse[0].hooks[0].command).not.toContain('TOOL_INPUT');
+    });
+
+    it('reads the edited file from the JSON Claude Code sends on stdin', () => {
+        expect(parseStdinFiles(JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: 'src/a.ts', content: 'x' } }))).toEqual(['src/a.ts']);
     });
 
     it('should generate Cursor hooks', async () => {
@@ -248,6 +255,13 @@ describe('hooksCheckCommand', () => {
 
         const output = stdoutSpy.mock.calls.map(call => String(call[0])).join('');
         expect(output).toContain('"status":"pass"');
+    });
+
+    it('reports skipped, not pass, when the hook named no file', async () => {
+        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        await hooksCheckCommand(testDir, { files: '' });
+        expect(stdoutSpy.mock.calls.map(call => String(call[0])).join('')).toContain('"status":"skipped"');
     });
 
     it('should return fail JSON and set exit code 2 in block mode', async () => {

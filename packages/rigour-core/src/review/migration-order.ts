@@ -21,7 +21,7 @@ const GIT_TIMEOUT_MS = 10_000;
 export function migrationOrderFailures(cwd: string, diff: string, source: DiffSource | undefined, config: Config): Failure[] {
     const settings = config.gates.migration_order;
     if (!settings?.enabled) return [];
-    const base = source?.mode === 'base' ? source.base : 'HEAD';
+    const base = source?.mode === 'base' ? source.base : source?.mode === 'since' ? source.commit : 'HEAD';
     const byDirectory = new Map<string, string[]>();
     for (const file of addedFiles(diff)) {
         const directory = path.posix.dirname(file);

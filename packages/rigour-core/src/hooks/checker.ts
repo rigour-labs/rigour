@@ -141,6 +141,12 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
                 continue;
             }
 
+            // Before ignore patterns: rigour.yml commonly ignores .rigour/ for scanning, not for writes.
+            if (isRigourState(resolved.relPath)) {
+                failures.push(rigourStateFailure(resolved.relPath));
+                continue;
+            }
+
             // Respect rigour.yml ignore patterns
             if (isIgnored(resolved.relPath, ignorePatterns)) {
                 continue;
@@ -336,6 +342,26 @@ function checkCommandInjection(
             line: i + 1,
         });
     }
+}
+
+// ── Rigour's own state (always on) ────────────────────────────────
+
+/**
+ * .rigour/ holds what decides a review: dismissals, check outcomes, learned rules, the review
+ * ledger, operator scopes. Rigour writes it through its own commands and tools, never through
+ * the agent's edit tool, so an agent edit there is refused whatever rigour.yml says.
+ */
+function isRigourState(relPath: string): boolean {
+    return relPath.replace(/\\/g, '/').startsWith('.rigour/');
+}
+
+function rigourStateFailure(relPath: string): FailureEntry {
+    return {
+        gate: 'file-guard',
+        file: relPath,
+        message: `BLOCKED: "${relPath}" is Rigour's own state. Change it with Rigour's commands (rigour dismiss, rigour_review_ack, rigour_remember), not by editing the file.`,
+        severity: 'critical',
+    };
 }
 
 // ── Protected Paths Enforcement (real-time) ───────────────────────

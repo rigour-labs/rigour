@@ -15,7 +15,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError } from '@rigour-labs/core';
+import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf } from '@rigour-labs/core';
 import type { DeepOptions, ReviewResult } from '@rigour-labs/core';
 import { loadConfig, UsageError } from './review-config.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
@@ -35,6 +35,7 @@ export interface ReviewOptions {
     modelPath?: string;
     prBody?: string;     // path to a file with the PR description
     diffTests?: boolean; // run changed functions before and after the change
+    independent?: boolean; // ignore self-reported reviews (ledger, reviewed.json)
     apiKey?: string;
     provider?: string;
     apiBaseUrl?: string;
@@ -44,7 +45,9 @@ export interface ReviewOptions {
 export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
     const started = Date.now();
     try {
-        const config = await loadConfig(cwd, options);
+        // An independent PR review trusts Rigour's settings as of the base, not as the PR left them.
+        const trustedRef = options.independent && options.base ? mergeBaseOf(cwd, options.base) : undefined;
+        const config = await loadConfig(cwd, options, trustedRef);
         const diff = await readDiff(cwd, options);
         const isDeep = !!options.deep || !!options.pro || !!options.max || !!options.apiKey;
         if (options.diffTests && !options.max && !options.apiKey) {
@@ -57,6 +60,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
             files: options.files ? options.files.split(',').map(f => f.trim()).filter(Boolean) : undefined,
             diffTests: !!options.diffTests,
             deep: isDeep ? deepOptions(cwd, options) : undefined,
+            trustedRef,
         });
         await print(result, options);
         if (!isDeep && !options.ci && !options.json && !options.githubSummary) {
@@ -140,6 +144,7 @@ function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'fo
         provider: resolved.apiKey ? (resolved.provider || 'claude') : 'local',
         apiBaseUrl: resolved.apiBaseUrl,
         modelName: resolved.modelName,
+        independent: !!options.independent,
     };
 }
 
@@ -172,6 +177,7 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         advisory: result.advisory.map(toReviewFinding),
         muted: result.muted,
         dismissed: result.dismissed,
+        control_files_changed: result.controlFilesChanged,
         gate_errors: result.gateErrors,
     }, null, 2);
     return new Promise(resolve => process.stdout.write(json + '\n', () => resolve()));
@@ -211,6 +217,7 @@ function printHuman(result: ReviewResult): void {
     if (result.advisory.length) console.log(chalk.dim(`  ${result.advisory.length} advisory note(s) from heuristic checks (see --json; they never decide the verdict).`));
     if (result.muted) console.log(chalk.dim(`  ${result.muted} more muted: from checks this repository usually dismisses (rigour precision).`));
     if (result.dismissed) console.log(chalk.dim(`  ${result.dismissed} finding(s) dismissed as not a bug (.rigour/dismissed.json).`));
+    if (result.controlFilesChanged.length) console.log(chalk.yellow(`  This change edits Rigour's own settings: ${result.controlFilesChanged.join(', ')}`));
     for (const f of result.contextFindings) {
         console.log(chalk.yellow(`  [context] ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));
     }

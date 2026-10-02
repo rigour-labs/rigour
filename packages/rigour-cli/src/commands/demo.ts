@@ -10,7 +10,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import os from 'os';
 import chalk from 'chalk';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import type { DemoOptions } from './demo-helpers.js';
 export type { DemoOptions } from './demo-helpers.js';
 import { pause, typewrite } from './demo-helpers.js';
@@ -86,7 +86,8 @@ async function runRepoDemo(options: DemoOptions) {
         console.error(chalk.red('Invalid repo URL. Use https://github.com/owner/repo format.'));
         return;
     }
-    execSync(`git clone --depth 1 ${repoUrl} ${demoDir}`, { stdio: 'pipe' });
+    // No shell: the URL is one argument, so $(…), backticks and redirects in it are never run.
+    execFileSync('git', ['clone', '--depth', '1', '--', repoUrl, demoDir], { stdio: 'pipe' });
     console.log(chalk.green(`✓ Cloned ${repoName}\n`));
     await pause(400, options);
 

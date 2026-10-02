@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { rankChangedFunctions, scoreRisk, type RiskSignals } from './risk.js';
+import { functionHash, rankChangedFunctions, scoreRisk, type RiskSignals } from './risk.js';
 import { routeFiles } from './router.js';
 
 let dir: string;
@@ -68,5 +68,18 @@ describe('routeFiles', () => {
         expect(cleared.stats).toMatchObject({ routed: 0, already_reviewed: 1, files_skipped: 1 });
         const stale = routeFiles(dir, ['sync.ts'], { 'sync.ts': [4] }, {}, {}, [{ file: 'sync.ts', function: 'syncOrders', hash: 'old' }]);
         expect(stale.stats).toMatchObject({ routed: 1, already_reviewed: 0 });
+    });
+});
+
+describe('functionHash', () => {
+    it('changes when anything inside the function changes, strings included', () => {
+        const a = 'function f() { return "a  b"; }';
+        const b = 'function f() { return "a b"; }';
+        expect(functionHash(a)).not.toBe(functionHash(b));
+        expect(functionHash('function f() { return `x ${y}`; }')).not.toBe(functionHash('function f() { return `x  ${y}`; }'));
+    });
+
+    it('treats a Windows checkout of the same code as the same code', () => {
+        expect(functionHash('function f() {\r\n  return 1;\r\n}')).toBe(functionHash('function f() {\n  return 1;\n}'));
     });
 });

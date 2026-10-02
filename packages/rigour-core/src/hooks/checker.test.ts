@@ -51,6 +51,15 @@ describe('runHookChecker', () => {
         expect(optedIn.failures.some(f => f.gate === 'governance')).toBe(true);
     });
 
+    it("refuses an agent edit to Rigour's own state, even when rigour.yml ignores .rigour/", async () => {
+        fs.writeFileSync(path.join(testDir, 'rigour.yml'), 'version: 1\nignore:\n  - ".rigour/**"\n');
+        fs.mkdirSync(path.join(testDir, '.rigour'), { recursive: true });
+        fs.writeFileSync(path.join(testDir, '.rigour', 'dismissed.json'), '{"version":1,"entries":[]}');
+        const result = await runHookChecker({ cwd: testDir, files: ['.rigour/dismissed.json'] });
+        expect(result.status).toBe('fail');
+        expect(result.failures[0]).toMatchObject({ gate: 'file-guard', severity: 'critical' });
+    });
+
     it('should detect file size violations', async () => {
         const filePath = path.join(testDir, 'big.ts');
         const lines = Array.from({ length: 100 }, (_, i) => `export const v${i} = ${i};`);
