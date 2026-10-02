@@ -20,13 +20,22 @@ async function receiptKey(cwd: string, controlRoot?: string): Promise<Buffer> {
     return key;
 }
 
+/**
+ * Another append holds the lock. On Windows, creating a file another process is still deleting
+ * fails with EPERM (or EACCES/EBUSY) rather than EEXIST; elsewhere those are real permission errors.
+ */
+export function isLockContention(code: unknown, platform: NodeJS.Platform = process.platform): boolean {
+    if (code === 'EEXIST') return true;
+    return platform === 'win32' && (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY');
+}
+
 async function acquireReceiptLock(logPath: string): Promise<FileHandle> {
     const lockPath = `${logPath}.append-lock`;
     for (let attempt = 0; attempt < 100; attempt += 1) {
         try {
             return await fs.promises.open(lockPath, 'wx', 0o600);
         } catch (error: any) {
-            if (error?.code !== 'EEXIST') throw error;
+            if (!isLockContention(error?.code)) throw error;
             await delay(10);
         }
     }

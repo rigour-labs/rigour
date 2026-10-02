@@ -3,6 +3,7 @@
  * Everything in one file: ~/.rigour/rigour.db
  */
 export { openDatabase, isSQLiteAvailable, compactDatabase, getDatabaseSize, resetDatabase, RIGOUR_DIR, DB_PATH } from './db.js';
+export { cleanContextCache, deadCacheRows, DEAD_CACHE_TYPES, type CacheCleanupReport } from './cache-cleanup.js';
 export type { RigourDB, CompactResult } from './db.js';
 export { insertScan, getRecentScans, getScoreTrendFromDB, getTopIssues } from './scans.js';
 export { insertFindings, getFindingsForScan, getDeepFindings } from './findings.js';

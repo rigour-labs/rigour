@@ -66,6 +66,7 @@ export { installLlamaEngine, probeBinary, managedEnginePath, LLAMA_RELEASE_TAG }
 export { SidecarProvider } from './inference/sidecar-provider.js';
 export { extractFacts, factsToPromptString } from './deep/fact-extractor.js';
 // Storage (SQLite Brain)
+export { cleanContextCache, deadCacheRows, type CacheCleanupReport } from './storage/index.js';
 export { openDatabase, isSQLiteAvailable, compactDatabase, getDatabaseSize, resetDatabase, insertScan, insertFindings, getRecentScans, getScoreTrendFromDB, getTopIssues, reinforcePattern, getStrongPatterns } from './storage/index.js';
 export type { RigourDB, CompactResult } from './storage/index.js';
 // Local Project Memory (hybrid intelligence — SQLite-backed per-project learning)
