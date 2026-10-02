@@ -5,7 +5,8 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { listOpenFindings, readAgentEvents, readStories, type AgentEvent, type CatchStage, type Story } from '@rigour-labs/core';
+import type { AgentEvent, CatchStage, Story } from '@rigour-labs/core';
+import { checkoutRoots, eventsAcross, openFindingsAcross, storiesAcross } from './studio-checkouts.js';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_STORIES = 50;
@@ -61,7 +62,8 @@ export function buildWeek(input: WeekInputs): StudioWeek {
 }
 
 export function loadWeek(cwd: string, now = new Date()): StudioWeek {
-    return buildWeek({ now, stories: readStories(cwd), open: listOpenFindings(cwd), dismissals: readDismissals(cwd), events: readAgentEvents(cwd) });
+    const roots = checkoutRoots(cwd);
+    return buildWeek({ now, stories: storiesAcross(roots), open: openFindingsAcross(roots), dismissals: readDismissals(cwd), events: eventsAcross(roots) });
 }
 
 function readDismissals(cwd: string): Dismissal[] {

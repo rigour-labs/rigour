@@ -7,10 +7,8 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import {
-    fixLessonPrefix, listKnowledgeLessons, readAgentEvents, readLessons, readStories,
-    type AgentEvent, type LessonRecord, type ReviewLesson, type Story,
-} from '@rigour-labs/core';
+import { fixLessonPrefix, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const WEEKS = 4;
@@ -94,7 +92,8 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
 }
 
 export async function loadLearning(cwd: string, now = new Date()): Promise<StudioLearning> {
-    return buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: readStories(cwd), events: readAgentEvents(cwd) });
+    const roots = checkoutRoots(cwd);
+    return buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots) });
 }
 
 /** "Fixed before: Credential header follows redirects (semantic-bugs). The header…" → the defect, in words. */

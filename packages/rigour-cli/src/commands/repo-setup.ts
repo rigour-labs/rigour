@@ -5,7 +5,8 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { readAgentEvents, type AgentEvent } from '@rigour-labs/core';
+import type { AgentEvent } from '@rigour-labs/core';
+import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 
 export type SetupState = 'working' | 'set up' | 'broken' | 'missing';
 
@@ -21,15 +22,17 @@ export interface SetupCheck {
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function checkRepoSetup(cwd: string, now = new Date()): SetupCheck[] {
-    const events = readAgentEvents(cwd);
+    const events = eventsAcross(checkoutRoots(cwd));
     const read = (rel: string) => { try { return fs.readFileSync(path.join(cwd, rel), 'utf8'); } catch { return ''; } };
-    const claude = read('.claude/settings.json') + read('.claude/settings.local.json');
-    const cursor = read('.cursor/hooks.json');
+    const agents = [
+        { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') },
+        { name: 'Cursor', config: read('.cursor/hooks.json') },
+        { name: 'Windsurf', config: read('.windsurf/hooks.json') },
+    ].filter(a => a.config);
     return [
         configCheck(cwd),
-        hookCheck('claude-edit', 'Checks Claude Code as it writes', claude, now, events),
-        ...(cursor ? [hookCheck('cursor-edit', 'Checks Cursor as it writes', cursor, now, events)] : []),
-        stopCheck(claude + cursor, now, events),
+        editCheck(agents, now, events),
+        stopCheck(agents.map(a => a.config).join('\n'), now, events),
         mcpCheck(read('.mcp.json'), now, events),
         prCheck(cwd),
     ];
@@ -41,12 +44,16 @@ function configCheck(cwd: string): SetupCheck {
         : { id: 'config', name: 'Project settings', state: 'missing', detail: 'No rigour.yml: Rigour uses its defaults', fix: 'rigour setup' };
 }
 
-function hookCheck(id: string, name: string, config: string, now: Date, events: AgentEvent[]): SetupCheck {
-    if (!config.includes('hooks check')) return { id, name, state: 'missing', detail: 'No edit hook configured', fix: 'rigour setup' };
-    if (config.includes('TOOL_INPUT_file_path')) {
-        return { id, name, state: 'broken', detail: 'The hook reads a variable the agent never sets, so it checks nothing', fix: 'rigour hooks init --force' };
+/** One check for every agent's edit hook: events do not say which agent fired them, so counts are not split. */
+function editCheck(agents: Array<{ name: string; config: string }>, now: Date, events: AgentEvent[]): SetupCheck {
+    const wired = agents.filter(a => a.config.includes('hooks check'));
+    const name = wired.length ? `Checks ${listOf(wired.map(a => a.name))} as it writes` : 'Checks your agent as it writes';
+    if (wired.length === 0) return { id: 'edit', name, state: 'missing', detail: 'No edit hook configured', fix: 'rigour setup' };
+    const broken = wired.find(a => a.config.includes('TOOL_INPUT_file_path'));
+    if (broken) {
+        return { id: 'edit', name, state: 'broken', detail: `The ${broken.name} hook reads a variable the agent never sets, so it checks nothing`, fix: 'rigour hooks init --force' };
     }
-    return fired(id, name, events.filter(e => e.type === 'hook_check'), now, 'edit checks');
+    return fired('edit', name, events.filter(e => e.type === 'hook_check'), now, 'edit checks');
 }
 
 function stopCheck(config: string, now: Date, events: AgentEvent[]): SetupCheck {
@@ -91,4 +98,8 @@ function ago(at: string, now: Date): string {
     if (minutes < 60) return `${Math.max(1, minutes)} min ago`;
     const hours = Math.round(minutes / 60);
     return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
+}
+
+function listOf(names: string[]): string {
+    return names.length <= 2 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
