@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs-extra';
-import { loadSettings, getSettingsPath, isModelCached, getModelsDir } from '@rigour-labs/core';
+import { loadSettings, getSettingsPath, isModelCached, getModelsDir, MODELS, managedEnginePath, probeBinary } from '@rigour-labs/core';
 import { getCliVersion } from '../utils/cli-version.js';
 
 export async function setupCommand() {
@@ -51,33 +51,19 @@ export async function setupCommand() {
     // Check local models
     const hasDeep = await isModelCached('deep');
     const hasLite = await isModelCached('lite');
-    if (hasDeep) console.log(chalk.green('    ✔ Local model: deep (Qwen2.5-Coder-1.5B, 900MB)'));
-    if (hasLite) console.log(chalk.green('    ✔ Local model: lite (Qwen2.5-Coder-0.5B, 500MB)'));
+    if (hasDeep) console.log(chalk.green(`    ✔ Local model: deep (${MODELS.deep.name}, ${MODELS.deep.sizeHuman})`));
+    if (hasLite) console.log(chalk.green(`    ✔ Local model: lite (${MODELS.lite.name}, ${MODELS.lite.sizeHuman})`));
     if (!hasDeep && !hasLite) {
         console.log(chalk.yellow('    ○ No local models cached'));
         console.log(chalk.dim(`      Models dir: ${getModelsDir()}`));
     }
 
-    // Check sidecar binary
-    let hasSidecar = false;
-    try {
-        const { execSync } = await import('child_process');
-        if (process.platform === 'win32') {
-            execSync('where llama-cli || where rigour-brain', { encoding: 'utf-8', timeout: 3000 });
-        } else {
-            execSync('which llama-cli 2>/dev/null || which rigour-brain 2>/dev/null', { encoding: 'utf-8', timeout: 3000 });
-        }
-        hasSidecar = true;
-        console.log(chalk.green('    ✔ Inference binary found'));
-    } catch {
-        const binDir = path.join(getModelsDir(), '..', 'bin');
-        if (fs.existsSync(path.join(binDir, 'rigour-brain')) || fs.existsSync(path.join(binDir, 'llama-cli'))) {
-            hasSidecar = true;
-            console.log(chalk.green('    ✔ Inference binary found'));
-        } else if (configuredKeys.length === 0) {
-            console.log(chalk.yellow('    ○ No local inference binary'));
-        }
-    }
+    // The engine inference will use: the one `rigour deep pull` installs, else llama-cli on PATH,
+    // each accepted only if it actually runs (a placeholder script does not).
+    const engine = await findWorkingEngine();
+    const hasSidecar = engine !== undefined;
+    if (engine) console.log(chalk.green(`    ✔ Inference engine: ${engine}`));
+    else if (configuredKeys.length === 0) console.log(chalk.yellow('    ○ No local inference engine (rigour deep pull installs one)'));
 
     // Cloud readiness
     const hasCloudKey = configuredKeys.length > 0;
@@ -98,7 +84,7 @@ export async function setupCommand() {
         console.log(`    ${chalk.cyan('rigour settings set-key groq')} ${chalk.dim('gsk_xxx')}`);
         console.log('');
         console.log(chalk.dim('    # Option B: 100% Local'));
-        console.log(`    ${chalk.cyan('rigour check --deep')}  ${chalk.dim('# auto-downloads 350MB model')}`);
+        console.log(`    ${chalk.cyan('rigour check --deep')}  ${chalk.dim(`# downloads the ${MODELS.lite.sizeHuman} lite model`)}`);
     }
 
     // ── Section 5: Installation Methods ──
@@ -109,4 +95,19 @@ export async function setupCommand() {
     console.log(chalk.dim('    Diagnostics: ') + chalk.cyan('rigour doctor'));
     console.log(chalk.dim('    MCP:     ') + chalk.cyan('packages/rigour-mcp/dist/index.js'));
     console.log('');
+}
+
+async function findWorkingEngine(): Promise<string | undefined> {
+    const candidates = [managedEnginePath()];
+    try {
+        const { execFileSync } = await import('child_process');
+        const onPath = execFileSync(process.platform === 'win32' ? 'where' : 'which', ['llama-cli'], { encoding: 'utf-8', timeout: 3000 }).split(/\r?\n/)[0]?.trim();
+        if (onPath) candidates.push(onPath);
+    } catch {
+        // Not on PATH.
+    }
+    for (const candidate of candidates) {
+        if ((await probeBinary(candidate)).ok) return candidate;
+    }
+    return undefined;
 }

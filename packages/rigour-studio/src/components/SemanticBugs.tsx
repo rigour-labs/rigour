@@ -99,3 +99,8 @@ const SemanticCard: React.FC<{ label: string; value: React.ReactNode }> = ({ lab
         </div>
     </div>
 );
+
+/** The semantic-bugs gate is on by default: only an explicit `enabled: false` under it turns it off. */
+export function semanticBugsEnabledIn(yaml: string | null | undefined): boolean {
+    return !/^\s*semantic_bugs:\s*\n(?:\s+#.*\n)*\s+enabled:\s*false\b/m.test(yaml ?? '');
+}

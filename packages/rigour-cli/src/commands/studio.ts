@@ -474,6 +474,16 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/check-precision') {
+        try {
+            const { loadStudioCheckPrecision } = await import('./studio-check-precision.js');
+            sendJson(res, 200, loadStudioCheckPrecision(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/index-stats') {
         try {
             const indexPath = path.join(cwd, '.rigour/patterns.json');

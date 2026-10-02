@@ -6,6 +6,22 @@ import { randomUUID } from 'crypto';
 import fs from 'fs-extra';
 import path from 'path';
 import { openDatabase, isSQLiteAvailable, DB_PATH } from './db.js';
+import { getRepositoryId } from './lessons.js';
+
+/** The repository a telemetry row belongs to, or null when no working directory was given. */
+async function repositoryOf(cwd?: string): Promise<string | null> {
+    return cwd ? getRepositoryId(cwd) : null;
+}
+
+/** WHERE clause for a telemetry read: the task when given, and this repository when cwd is given. */
+async function scopedWhere(taskId?: string, cwd?: string): Promise<{ where: string; params: unknown[] }> {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (taskId) { clauses.push('task_id = ?'); params.push(taskId); }
+    const repositoryId = await repositoryOf(cwd);
+    if (repositoryId) { clauses.push('repository_id = ?'); params.push(repositoryId); }
+    return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
+}
 
 export interface ContextEvent {
     id?: string;
@@ -87,8 +103,8 @@ export async function recordContextEvent(event: ContextEvent, cwd?: string): Pro
                 await db.run(
                     `INSERT INTO context_events (
                         id, task_id, session_id, agent_id, tool_name, query_hash, cache_status,
-                        candidate_tokens, returned_tokens, deduplicated_tokens, candidate_files, returned_files, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        candidate_tokens, returned_tokens, deduplicated_tokens, candidate_files, returned_files, created_at, repository_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     id,
                     event.taskId || null,
                     event.sessionId || null,
@@ -101,7 +117,8 @@ export async function recordContextEvent(event: ContextEvent, cwd?: string): Pro
                     deduplicatedTokens,
                     candidateFiles,
                     returnedFiles,
-                    timestamp
+                    timestamp,
+                    await repositoryOf(cwd),
                 );
                 await db.close();
                 return id;
@@ -133,8 +150,8 @@ export async function recordModelUsage(usage: ModelUsage, cwd?: string): Promise
                 await db.run(
                     `INSERT INTO model_usage (
                         id, task_id, session_id, agent_id, provider, model,
-                        input_tokens, output_tokens, cached_input_tokens, observed_cost_usd, source, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        input_tokens, output_tokens, cached_input_tokens, observed_cost_usd, source, created_at, repository_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     id,
                     usage.taskId || null,
                     usage.sessionId || null,
@@ -146,7 +163,8 @@ export async function recordModelUsage(usage: ModelUsage, cwd?: string): Promise
                     usage.cachedInputTokens || 0,
                     usage.observedCostUsd || 0,
                     usage.source,
-                    timestamp
+                    timestamp,
+                    await repositoryOf(cwd),
                 );
                 await db.close();
                 return id;
@@ -346,8 +364,8 @@ export async function recordCheckpointMetric(metric: CheckpointMetric, cwd?: str
             if (db) {
                 await db.run(
                     `INSERT INTO checkpoint_metrics (
-                        checkpoint_id, task_id, agent_id, raw_state_tokens, checkpoint_tokens, replay_tokens_avoided, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        checkpoint_id, task_id, agent_id, raw_state_tokens, checkpoint_tokens, replay_tokens_avoided, created_at, repository_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(checkpoint_id) DO UPDATE SET
                         raw_state_tokens=excluded.raw_state_tokens,
                         checkpoint_tokens=excluded.checkpoint_tokens,
@@ -358,7 +376,8 @@ export async function recordCheckpointMetric(metric: CheckpointMetric, cwd?: str
                     metric.rawStateTokens,
                     metric.checkpointTokens,
                     metric.replayTokensAvoided,
-                    timestamp
+                    timestamp,
+                    await repositoryOf(cwd),
                 );
                 await db.close();
                 return;
@@ -382,10 +401,8 @@ export async function getContextEvents(taskId?: string, cwd?: string): Promise<C
         try {
             const db = await openDatabase();
             if (db) {
-                const query = taskId
-                    ? `SELECT * FROM context_events WHERE task_id = ? ORDER BY created_at DESC`
-                    : `SELECT * FROM context_events ORDER BY created_at DESC`;
-                const params = taskId ? [taskId] : [];
+                const { where, params } = await scopedWhere(taskId, cwd);
+                const query = `SELECT * FROM context_events ${where} ORDER BY created_at DESC`;
                 const rows = await db.all(query, ...params);
                 await db.close();
                 return rows.map((r: any) => ({
@@ -424,10 +441,8 @@ export async function getModelUsages(taskId?: string, cwd?: string): Promise<Mod
         try {
             const db = await openDatabase();
             if (db) {
-                const query = taskId
-                    ? `SELECT * FROM model_usage WHERE task_id = ? ORDER BY created_at DESC`
-                    : `SELECT * FROM model_usage ORDER BY created_at DESC`;
-                const params = taskId ? [taskId] : [];
+                const { where, params } = await scopedWhere(taskId, cwd);
+                const query = `SELECT * FROM model_usage ${where} ORDER BY created_at DESC`;
                 const rows = await db.all(query, ...params);
                 await db.close();
                 return rows.map((r: any) => ({
@@ -465,10 +480,8 @@ export async function getCheckpointMetrics(taskId?: string, cwd?: string): Promi
         try {
             const db = await openDatabase();
             if (db) {
-                const query = taskId
-                    ? `SELECT * FROM checkpoint_metrics WHERE task_id = ? ORDER BY created_at DESC`
-                    : `SELECT * FROM checkpoint_metrics ORDER BY created_at DESC`;
-                const params = taskId ? [taskId] : [];
+                const { where, params } = await scopedWhere(taskId, cwd);
+                const query = `SELECT * FROM checkpoint_metrics ${where} ORDER BY created_at DESC`;
                 const rows = await db.all(query, ...params);
                 await db.close();
                 return rows.map((r: any) => ({

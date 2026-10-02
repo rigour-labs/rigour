@@ -147,7 +147,7 @@ export function KnowledgeGraph({ mode = 'impact', onNavigate }: KnowledgeGraphPr
         <section className="knowledge-graph" aria-labelledby="knowledge-graph-title">
             <div className="knowledge-hero">
                 <div>
-                    <span className="knowledge-eyebrow">{mode === 'expertise' ? 'Rigour SME growth graph' : 'Rigour impact graph'}</span>
+                    <span className="knowledge-eyebrow">{mode === 'expertise' ? 'What Rigour knows here' : 'Rigour impact graph'}</span>
                     <h1 id="knowledge-graph-title">{mode === 'expertise' ? 'See Rigour become your team’s SME' : 'See how agents improve your codebase'}</h1>
                     <p>{mode === 'expertise'
                         ? 'Every governed interaction becomes evidence. Patterns, memory and verified outcomes mature into reusable personal and team judgment.'

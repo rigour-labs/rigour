@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { LearnedRuleRow, SemanticBugs, ruleList, type LearnedRule } from './SemanticBugs';
+import { LearnedRuleRow, SemanticBugs, ruleList, semanticBugsEnabledIn, type LearnedRule } from './SemanticBugs';
 
 const rule: LearnedRule = {
     id: 'require-option-redirect-d3cf9986',
@@ -33,5 +33,15 @@ describe('SemanticBugs', () => {
         expect(ruleList(['a'])).toEqual(['a']);
         expect(ruleList("[credential-redirect, 'in-memory-aggregation']")).toEqual(['credential-redirect', 'in-memory-aggregation']);
         expect(ruleList(undefined)).toEqual([]);
+    });
+});
+
+describe('semanticBugsEnabledIn', () => {
+    it('is on by default, and off only when the config says so', () => {
+        expect(semanticBugsEnabledIn('')).toBe(true);
+        expect(semanticBugsEnabledIn('gates:\n  semantic_bugs:\n    enabled: true\n')).toBe(true);
+        expect(semanticBugsEnabledIn('gates:\n  semantic_bugs:\n    enabled: false\n')).toBe(false);
+        expect(semanticBugsEnabledIn('gates:\n  semantic_bugs:\n    # temporarily\n    enabled: false\n')).toBe(false);
+        expect(semanticBugsEnabledIn('gates:\n  phantom_apis:\n    enabled: false\n')).toBe(true);
     });
 });

@@ -359,8 +359,11 @@ export async function openDatabase(dbPath?: string): Promise<RigourDB | null> {
 
     const db = wrapDatabase(raw);
 
+    // Wait for a lock instead of failing at once: a hook and an MCP server often open the database
+    // at the same moment, and without this the second open fails with SQLITE_BUSY.
+    await db.exec('PRAGMA busy_timeout = 5000');
     // WAL mode for better concurrent read performance
-    await db.exec('PRAGMA journal_mode = WAL');
+    await enableWal(db);
     await db.exec('PRAGMA foreign_keys = ON');
 
     // Run schema creation + migrations
@@ -527,6 +530,50 @@ async function runMigrations(db: RigourDB): Promise<void> {
                 ON interaction_events(request_id);
         `);
         await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '7')");
+    }
+    if (current < 8) {
+        // Telemetry rows record their repository, so Studio shows this repository's numbers, not
+        // every repository's on the machine. Older rows stay NULL and are left out of per-repo views.
+        for (const table of ['context_events', 'model_usage', 'checkpoint_metrics']) {
+            await addColumnIfMissing(db, table, 'repository_id', 'TEXT');
+        }
+        await db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_context_events_repo ON context_events(repository_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_repo ON model_usage(repository_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_checkpoint_metrics_repo ON checkpoint_metrics(repository_id, created_at);
+        `);
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '8')");
+    }
+}
+
+/**
+ * Switch to WAL. On a new database, two connections switching at once make the second fail with
+ * SQLITE_BUSY at once (busy_timeout does not cover a journal-mode change), so retry briefly; the
+ * mode is persistent, so once either succeeds, every later open finds WAL already set.
+ */
+async function enableWal(db: RigourDB, attempts = 10): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            await db.exec('PRAGMA journal_mode = WAL');
+            return;
+        } catch (error) {
+            if (!/SQLITE_BUSY/.test(String(error)) || attempt >= attempts) throw error;
+            await new Promise(resolve => setTimeout(resolve, 25 * attempt));
+        }
+    }
+}
+
+/**
+ * Add a column unless it is there: a hook and an MCP server can open the database at once, and
+ * both may run the same migration; a second plain ALTER would fail with "duplicate column".
+ */
+async function addColumnIfMissing(db: RigourDB, table: string, column: string, type: string): Promise<void> {
+    const columns = await db.all(`PRAGMA table_info(${table})`);
+    if (columns.some((c: { name: string }) => c.name === column)) return;
+    try {
+        await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch (error) {
+        if (!/duplicate column/i.test(String(error))) throw error;
     }
 }
 

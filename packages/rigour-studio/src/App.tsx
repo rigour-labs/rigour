@@ -33,6 +33,8 @@ import { Overview } from './components/Overview';
 import { EnforcementRail } from './components/EnforcementRail';
 import { HandoffFlow } from './components/HandoffFlow';
 import { LearningBrain } from './components/LearningBrain';
+import { CheckPrecision } from './components/CheckPrecision';
+import { SemanticBugs, semanticBugsEnabledIn } from './components/SemanticBugs';
 import { FirewallConsole } from './components/FirewallConsole';
 import { PrePrReview } from './components/PrePrReview';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -222,8 +224,8 @@ function App() {
     const navItems = [
         { id: 'knowledge', label: 'Map', icon: Network, tabs: ['knowledge'] },
         { id: 'agents', label: 'Agents', icon: Users, tabs: ['agents', 'handoffs', 'checkpoints'] },
-        { id: 'enforcement', label: 'Review', icon: ShieldCheck, tabs: ['enforcement', 'prepr', 'firewall', 'gates', 'audit'] },
-        { id: 'learning', label: 'Knowledge', icon: Brain, tabs: ['learning', 'lessons', 'patterns', 'memory', 'cost', 'deep', 'drift'] },
+        { id: 'enforcement', label: 'Review', icon: ShieldCheck, tabs: ['overview', 'enforcement', 'prepr', 'firewall', 'gates', 'audit'] },
+        { id: 'learning', label: 'Knowledge', icon: Brain, tabs: ['learning', 'lessons', 'precision', 'rules', 'patterns', 'memory', 'cost', 'deep', 'drift'] },
         { id: 'settings', label: 'Settings', icon: Settings, tabs: ['settings'] },
     ];
     const sectionTabs: Record<string, Array<{ id: string; label: string }>> = {
@@ -233,6 +235,7 @@ function App() {
             { id: 'checkpoints', label: 'Checkpoints' },
         ],
         enforcement: [
+            { id: 'overview', label: 'Overview' },
             { id: 'enforcement', label: 'Enforcement' },
             { id: 'prepr', label: 'Pre-PR review' },
             { id: 'firewall', label: 'Firewall' },
@@ -240,8 +243,10 @@ function App() {
             { id: 'audit', label: 'Audit trail' },
         ],
         learning: [
-            { id: 'learning', label: 'SME growth' },
+            { id: 'learning', label: 'Knowledge map' },
             { id: 'lessons', label: 'Lessons' },
+            { id: 'precision', label: 'Check precision' },
+            { id: 'rules', label: 'Learned rules' },
             { id: 'patterns', label: 'Patterns' },
             { id: 'memory', label: 'Memory' },
             { id: 'cost', label: 'Cost & context' },
@@ -250,6 +255,7 @@ function App() {
         ],
     };
     const activeNav = navItems.find((item) => item.tabs.includes(activeTab)) ?? navItems[0];
+    const semanticBugsEnabled = semanticBugsEnabledIn(rigourConfig);
 
     const studioVersion = projectInfo?.studioVersion || projectInfo?.mcpVersion || '—';
     const projectVersion = projectInfo?.projectVersion || projectInfo?.version || '—';
@@ -364,6 +370,16 @@ function App() {
                         {activeTab === 'lessons' && (
                             <motion.div key="lessons" {...tabTransition} className="full-view">
                                 <LearningBrain onNavigate={setActiveTab} />
+                            </motion.div>
+                        )}
+                        {activeTab === 'precision' && (
+                            <motion.div key="precision" {...tabTransition} className="full-view">
+                                <CheckPrecision />
+                            </motion.div>
+                        )}
+                        {activeTab === 'rules' && (
+                            <motion.div key="rules" {...tabTransition} className="full-view">
+                                <SemanticBugs enabled={semanticBugsEnabled} />
                             </motion.div>
                         )}
                         {activeTab === 'overview' && (

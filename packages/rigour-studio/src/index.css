@@ -5017,3 +5017,18 @@ textarea:focus-visible {
     .project-path { display: none; }
     .header-right { gap: 8px; }
 }
+
+/* Check precision (CheckPrecision.tsx) */
+.precision-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.precision-row { display: grid; grid-template-columns: 48px 120px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--border-dim); border-radius: 8px; }
+.precision-row[data-muted] { opacity: 0.7; }
+.precision-pct { font-variant-numeric: tabular-nums; font-weight: 600; }
+.precision-bar { height: 6px; border-radius: 3px; background: var(--border-med); overflow: hidden; }
+.precision-bar > span { display: block; height: 100%; background: var(--accent-primary); }
+.precision-check { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.precision-counts { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.precision-muted { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--accent-tertiary); }
+@media (max-width: 640px) {
+    .precision-row { grid-template-columns: 48px minmax(0, 1fr); }
+    .precision-bar, .precision-counts { display: none; }
+}

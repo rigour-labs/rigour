@@ -1,7 +1,7 @@
 {
     "name": "@rigour-labs/core",
     "version": "1.0.0",
-    "description": "AI-native quality gate engine with local Bayesian learning. AST analysis, drift detection, Fix Packet generation, and agent self-healing across TypeScript, JavaScript, Python, Go, Ruby, and C#.",
+    "description": "Rigour's review engine: deterministic gates on changed lines, rules and lessons learned from your team's fixes, and per-check precision from what you fix versus dismiss, across TypeScript, JavaScript, Python, Go, Ruby and C#.",
     "engines": {
         "node": ">=22"
     },

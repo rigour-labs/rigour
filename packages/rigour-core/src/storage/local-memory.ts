@@ -3,7 +3,8 @@
  *
  * Before deep scan: checks local SQLite for known patterns in this project.
  * After any scan: stores verified findings and reinforces patterns.
- * Result: Rigour gets smarter every time you use it, code never leaves the machine.
+ * Counts are per repository and stay on the machine; replayed findings are limited to files
+ * unchanged since the scan that found them.
  */
 import path from 'path';
 import type { Failure } from '../types/index.js';
