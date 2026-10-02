@@ -15,7 +15,10 @@ export type CatchStage = 'edit' | 'review' | 'stop' | 'pr';
 
 export interface Story {
     id: string;
+    /** When the agent fixed it. */
     at: string;
+    /** When Rigour first reported it; absent in stories kept before this was recorded. */
+    openedAt?: string;
     stage: CatchStage;
     file: string;
     rule: string;

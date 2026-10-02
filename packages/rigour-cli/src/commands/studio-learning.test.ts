@@ -32,4 +32,9 @@ describe('buildLearning', () => {
         expect(learning.lessons[0].reachedPr).toBe(1);
         expect(learning.weeks[3].reachedPr).toBe(1);
     });
+
+    it('does not repeat the title when the detail says the same thing', () => {
+        const same = { ...lesson, subject: 'Fixed before: Stripe API key detected in code (security-patterns). Stripe API key detected in code.' };
+        expect(buildLearning({ now, lessons: [same], reviewLessons: [], stories: [], events: [] }).lessons[0].text).toBe('Stripe API key detected in code');
+    });
 });

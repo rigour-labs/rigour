@@ -36,7 +36,7 @@ export interface StudioLearning {
 
 interface Catch { at: string; prefix: string }
 
-export function buildLearning(input: { now: Date; lessons: LessonRecord[]; reviewLessons: ReviewLesson[]; stories: Story[]; events: AgentEvent[] }): StudioLearning {
+export function buildLearning(input: { now: Date; lessons: LessonRecord[]; reviewLessons: ReviewLesson[]; stories: Story[]; events: AgentEvent[]; weeks?: number }): StudioLearning {
     const served = input.events.filter(e => e.type === 'lessons_served');
     const prEvents = input.events.filter(e => e.type === 'pr_catches');
     const prRecorded = prEvents.length > 0;
@@ -50,7 +50,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
     const repeatsOf = (l: LessonRecord, catches: Catch[]) => catches.filter(c => l.subject.startsWith(c.prefix) && c.at > learnedAt(l)).length;
 
     const lessons: LessonJourney[] = [
-        ...input.lessons.filter(l => l.kind === 'fix' || l.kind === 'memory').map(l => ({
+        ...input.lessons.filter(l => (l.kind === 'fix' || l.kind === 'memory') && l.state !== 'rejected' && l.state !== 'superseded').map(l => ({
             id: l.id,
             text: l.kind === 'fix' ? readableFixLesson(l.subject) : l.subject,
             origin: l.kind === 'fix' ? 'development' as const : 'memory' as const,
@@ -78,8 +78,9 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
         })),
     ].sort((a, b) => b.learnedAt.localeCompare(a.learnedAt));
 
-    const weeks = Array.from({ length: WEEKS }, (_, i) => {
-        const end = input.now.getTime() - (WEEKS - 1 - i) * WEEK_MS;
+    const count = input.weeks ?? WEEKS;
+    const weeks = Array.from({ length: count }, (_, i) => {
+        const end = input.now.getTime() - (count - 1 - i) * WEEK_MS;
         const start = end - WEEK_MS;
         const within = (c: Catch) => Date.parse(c.at) > start && Date.parse(c.at) <= end;
         return {
@@ -91,15 +92,17 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
     return { lessons, weeks, prRecorded };
 }
 
-export async function loadLearning(cwd: string, now = new Date()): Promise<StudioLearning> {
+export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS): Promise<StudioLearning> {
     const roots = checkoutRoots(cwd);
-    return buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots) });
+    return buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
 }
 
 /** "Fixed before: Credential header follows redirects (semantic-bugs). The header…" → the defect, in words. */
 function readableFixLesson(subject: string): string {
     const match = subject.match(/^Fixed before: (.*?) \([^)]*\)\.\s*(.*)$/);
-    return match ? (match[2] ? `${match[1]}: ${match[2]}` : match[1]) : subject;
+    if (!match) return subject;
+    const detail = match[2].replace(/\.$/, '');
+    return detail && detail !== match[1] ? `${match[1]}: ${match[2]}` : match[1];
 }
 
 function fixOrigin(lesson: LessonRecord, stories: Story[]): string {

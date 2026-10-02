@@ -58,7 +58,7 @@ function editCheck(agents: Array<{ name: string; config: string }>, now: Date, e
 
 function stopCheck(config: string, now: Date, events: AgentEvent[]): SetupCheck {
     const name = 'Stops an agent finishing with a known bug';
-    if (!config.includes('hooks stop')) return { id: 'stop', name, state: 'missing', detail: 'No stop hook configured', fix: 'rigour hooks init --force' };
+    if (!config.includes('hooks stop')) return { id: 'stop', name, state: 'missing', detail: 'No stop hook configured', fix: 'rigour setup' };
     return fired('stop', name, events.filter(e => e.type === 'stop_review'), now, 'finish checks');
 }
 

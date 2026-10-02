@@ -12,6 +12,11 @@ export function captureStudioKey(): void {
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
 }
 
+/** False when Studio was opened without the terminal link: it can read, not change anything. */
+export function hasStudioKey(): boolean {
+    return studioKey().length > 0;
+}
+
 function studioKey(): string {
     try { return sessionStorage.getItem(KEY_STORAGE) ?? ''; } catch { return ''; }
 }

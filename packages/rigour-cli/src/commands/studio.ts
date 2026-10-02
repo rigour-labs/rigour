@@ -6,6 +6,7 @@ import { execa } from 'execa';
 import fs from 'fs-extra';
 import { createReadStream, promises as nativeFs } from 'fs';
 import readline from 'readline';
+import { spawnSync } from 'child_process';
 import http from 'http';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
@@ -288,8 +289,11 @@ async function handleApiRequest(
                 projectName: pkg.name || path.basename(cwd),
                 path: cwd,
                 projectPath: cwd,
-                version: pkg.version || '0.0.0',
-                projectVersion: pkg.version || '0.0.0',
+                // null, not a made-up 0.0.0, when the project declares no version
+                version: pkg.version || null,
+                projectVersion: pkg.version || null,
+                branch: currentBranch(cwd),
+                teamSync: Boolean(await (await import('@rigour-labs/core')).loadTeamConfiguration()),
                 studioVersion,
                 mcpVersion,
                 brainDb: path.join(os.homedir(), '.rigour/rigour.db'),
@@ -630,10 +634,41 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/dismiss' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', async () => {
+            try {
+                const payload = JSON.parse(body || '{}');
+                const reason = typeof payload.reason === 'string' ? payload.reason.trim() : '';
+                if (typeof payload.key !== 'string' || !reason) {
+                    sendJson(res, 400, { error: 'A finding key and a reason are required.' });
+                    return;
+                }
+                const { dismissFinding } = await import('@rigour-labs/core');
+                const ok = dismissFinding(cwd, payload.key, reason);
+                sendJson(res, ok ? 200 : 400, ok ? { success: true } : { error: 'Not a finding key.' });
+            } catch (e: any) {
+                sendJson(res, 400, { error: e.message });
+            }
+        });
+        return true;
+    }
+
     if (url.pathname === '/api/learning') {
         try {
             const { loadLearning } = await import('./studio-learning.js');
             sendJson(res, 200, await loadLearning(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/progress') {
+        try {
+            const { loadProgress } = await import('./studio-progress.js');
+            sendJson(res, 200, await loadProgress(cwd));
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });
         }
@@ -1343,4 +1378,11 @@ export const studioCommand = new Command('studio')
 function withoutEmbedding<T extends { embedding?: unknown }>(pattern: T): Omit<T, 'embedding'> {
     const { embedding: _embedding, ...rest } = pattern;
     return rest;
+}
+
+/** The checked-out branch, or null outside git or on a detached HEAD. */
+function currentBranch(cwd: string): string | null {
+    const result = spawnSync('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' });
+    const branch = result.status === 0 ? result.stdout.trim() : '';
+    return branch && branch !== 'HEAD' ? branch : null;
 }

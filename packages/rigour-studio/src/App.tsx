@@ -1,10 +1,13 @@
 import React, { Suspense, useState, useEffect } from 'react';
 import {
     Activity,
+    Inbox,
+    Trophy,
+    GraduationCap,
+    Wrench,
     ShieldCheck,
     Terminal,
     Settings,
-    Info,
     Lock,
     X,
     Folder,
@@ -38,7 +41,13 @@ import { SemanticBugs, semanticBugsEnabledIn } from './components/SemanticBugs';
 import { FirewallConsole } from './components/FirewallConsole';
 import { PrePrReview } from './components/PrePrReview';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { studioWrite } from './studioWrite';
+import { hasStudioKey, studioWrite } from './studioWrite';
+
+const THEME_KEY = 'rigour-theme-v2';
+import { Week } from './components/Week';
+import { OnlyRigour } from './components/OnlyRigour';
+import { Learning } from './components/Learning';
+import { SetupView } from './components/SetupView';
 import { SystemHealth, type HealthData } from './components/SystemHealth';
 import { StudioSettings } from './components/StudioSettings';
 
@@ -49,7 +58,9 @@ interface ProjectInfo {
     path?: string;
     projectName?: string;
     projectPath?: string;
-    projectVersion?: string;
+    projectVersion?: string | null;
+    branch?: string | null;
+    teamSync?: boolean;
     version?: string;
     studioVersion?: string;
     mcpVersion?: string;
@@ -63,8 +74,9 @@ const tabTransition = {
 };
 
 function App() {
-    const [theme, setTheme] = useState(() => localStorage.getItem('rigour-theme') || 'dark');
-    const [activeTab, setActiveTab] = useState('knowledge');
+    // A new key: the old one holds the dark default every earlier Studio stored on first load.
+    const [theme, setTheme] = useState(() => { try { return localStorage.getItem(THEME_KEY) || 'light'; } catch { return 'light'; } });
+    const [activeTab, setActiveTab] = useState('week');
     const [logs, setLogs] = useState<any[]>([]);
     const [selectedDiff, setSelectedDiff] = useState<{
         filename: string;
@@ -145,7 +157,7 @@ function App() {
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('rigour-theme', theme);
+        try { localStorage.setItem(THEME_KEY, theme); } catch { /* not remembered */ }
     }, [theme]);
 
     const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
@@ -217,13 +229,21 @@ function App() {
         }
     };
 
-    const navItems = [
-        { id: 'knowledge', label: 'Map', icon: Network, tabs: ['knowledge'] },
+    const primaryNav = [
+        { id: 'week', label: 'This week', icon: Inbox, tabs: ['week'] },
+        { id: 'only', label: 'Only Rigour', icon: Trophy, tabs: ['only'] },
+        { id: 'learns', label: 'How it learns', icon: GraduationCap, tabs: ['learns'] },
+        { id: 'setup', label: 'Setup', icon: Wrench, tabs: ['setup'] },
+    ];
+    const moreNav = [
+        { id: 'knowledge', label: 'Evidence map', icon: Network, tabs: ['knowledge'] },
         { id: 'agents', label: 'Agents', icon: Users, tabs: ['agents', 'handoffs', 'checkpoints'] },
         { id: 'enforcement', label: 'Review', icon: ShieldCheck, tabs: ['overview', 'enforcement', 'prepr', 'firewall', 'gates', 'audit'] },
         { id: 'learning', label: 'Knowledge', icon: Brain, tabs: ['learning', 'lessons', 'precision', 'rules', 'patterns', 'memory', 'cost', 'deep', 'drift'] },
         { id: 'settings', label: 'Settings', icon: Settings, tabs: ['settings'] },
     ];
+    const navItems = [...primaryNav, ...moreNav];
+    const onPrimary = primaryNav.some((item) => item.tabs.includes(activeTab));
     const sectionTabs: Record<string, Array<{ id: string; label: string }>> = {
         agents: [
             { id: 'agents', label: 'Agent history' },
@@ -254,7 +274,7 @@ function App() {
     const semanticBugsEnabled = semanticBugsEnabledIn(rigourConfig);
 
     const studioVersion = projectInfo?.studioVersion || projectInfo?.mcpVersion || '—';
-    const projectVersion = projectInfo?.projectVersion || projectInfo?.version || '—';
+    const projectVersion = projectInfo?.projectVersion || projectInfo?.version || null;
     const projectName = projectInfo?.projectName || projectInfo?.name || 'project';
     const projectPath = projectInfo?.projectPath || projectInfo?.path || '';
 
@@ -272,7 +292,21 @@ function App() {
                 </div>
 
                 <nav>
-                    {navItems.map((item) => (
+                    {primaryNav.map((item) => (
+                        <button
+                            key={item.id}
+                            className={`nav-item ${item.tabs.includes(activeTab) ? 'active' : ''}`}
+                            onClick={() => setActiveTab(item.id)}
+                        >
+                            <item.icon size={18} />
+                            <span>{item.label}</span>
+                            {item.tabs.includes(activeTab) && (
+                                <motion.div layoutId="nav-glow" className="nav-glow" />
+                            )}
+                        </button>
+                    ))}
+                    <div className="nav-group-label">More</div>
+                    {moreNav.map((item) => (
                         <button
                             key={item.id}
                             className={`nav-item ${item.tabs.includes(activeTab) ? 'active' : ''}`}
@@ -287,14 +321,14 @@ function App() {
                     ))}
                 </nav>
 
-                <div className="sidebar-footer">
-                    <div className="trust-indicator">
-                        <Lock size={14} />
-                        <span>Local Governance</span>
+                {projectInfo && (
+                    <div className="sidebar-footer">
+                        <div className="trust-indicator" title={projectInfo.teamSync ? 'Lessons your team promotes are shared through your team store' : 'Nothing leaves this machine'}>
+                            <Lock size={14} />
+                            <span>{projectInfo.teamSync ? 'Synced with your team' : 'Stored on this machine'}</span>
+                        </div>
                     </div>
-                    <button className="footer-item" onClick={() => setActiveTab('settings')} aria-label="Open settings"><Settings size={18} /></button>
-                    <button className="footer-item"><Info size={18} /></button>
-                </div>
+                )}
             </aside>
 
             <main className="main-content">
@@ -304,7 +338,8 @@ function App() {
                             <div className="project-identity">
                                 <Folder size={14} className="folder-icon" />
                                 <span className="project-name">{projectName}</span>
-                                <span className="project-version-pill">v{projectVersion}</span>
+                                {projectVersion && <span className="project-version-pill">v{projectVersion}</span>}
+                                {projectInfo.branch && <span className="project-version-pill" title="Current branch">{projectInfo.branch}</span>}
                                 <span className="project-path">{projectPath}</span>
                             </div>
                         )}
@@ -337,10 +372,23 @@ function App() {
                             ))}
                         </nav>
                     )}
-                    {metaState === 'loading' && <div className="overview-banner"><Activity size={18} className="spinning" /><div><strong>Loading workspace data</strong><p>Views will appear as their data becomes available.</p></div></div>}
-                    {metaState === 'degraded' && <div className="overview-banner warn" role="alert"><AlertTriangle size={18} /><div><strong>Some workspace data is unavailable</strong><p>Available views remain usable.</p></div><button type="button" className="refresh-btn" onClick={fetchMeta}>Retry</button></div>}
+                    {!hasStudioKey() && <div className="overview-banner" role="note"><Lock size={18} /><div><strong>Read-only</strong><p>Open Studio from the link printed in your terminal to dismiss findings or keep lessons.</p></div></div>}
+                    {!onPrimary && metaState === 'loading' && <div className="overview-banner"><Activity size={18} className="spinning" /><div><strong>Loading workspace data</strong><p>Views will appear as their data becomes available.</p></div></div>}
+                    {!onPrimary && metaState === 'degraded' && <div className="overview-banner warn" role="alert"><AlertTriangle size={18} /><div><strong>Some workspace data is unavailable</strong><p>Available views remain usable.</p></div><button type="button" className="refresh-btn" onClick={fetchMeta}>Retry</button></div>}
                     <ErrorBoundary resetKey={activeTab}>
                     <AnimatePresence mode="wait">
+                        {activeTab === 'week' && (
+                            <motion.div key="week" {...tabTransition} className="full-view"><Week onNavigate={setActiveTab} /></motion.div>
+                        )}
+                        {activeTab === 'only' && (
+                            <motion.div key="only" {...tabTransition} className="full-view"><OnlyRigour /></motion.div>
+                        )}
+                        {activeTab === 'learns' && (
+                            <motion.div key="learns" {...tabTransition} className="full-view"><Learning /></motion.div>
+                        )}
+                        {activeTab === 'setup' && (
+                            <motion.div key="setup" {...tabTransition} className="full-view"><SetupView /></motion.div>
+                        )}
                         {activeTab === 'enforcement' && (
                             <motion.div key="enforcement" {...tabTransition} className="full-view">
                                 <EnforcementRail onNavigate={setActiveTab} />

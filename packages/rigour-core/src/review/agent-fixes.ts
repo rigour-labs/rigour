@@ -46,6 +46,8 @@ export interface ResolvedFix {
     after: string;
     resolvedAt: string;
     stage?: CatchStage;
+    /** When the finding was first reported, for time to fix. */
+    openedAt?: string;
 }
 
 export interface FixCapture {
@@ -64,7 +66,7 @@ export function recordReviewOutcome(cwd: string, findings: Failure[], reviewedFi
     const current = new Map(findings.flatMap(f => (f.files?.[0] ? [[`${f.id}:${f.files[0]}`, f] as const] : [])));
     const fixes = resolveGone(cwd, open, current, new Set(reviewedFiles));
     for (const fix of fixes) {
-        appendStory(cwd, { at: fix.resolvedAt, stage: fix.stage ?? stage, file: fix.file, rule: fix.rule, title: fix.title ?? fix.rule, details: fix.details, diff: compactDiff(fix.before, fix.after) });
+        appendStory(cwd, { at: fix.resolvedAt, openedAt: fix.openedAt, stage: fix.stage ?? stage, file: fix.file, rule: fix.rule, title: fix.title ?? fix.rule, details: fix.details, diff: compactDiff(fix.before, fix.after) });
     }
     const opened = openNew(cwd, open, current, stage);
     writeOpen(cwd, open);
@@ -156,7 +158,7 @@ function writeOpen(cwd: string, open: Record<string, OpenFinding>): void {
 
 function writeResolved(cwd: string, entry: OpenFinding, after: string): ResolvedFix {
     const id = crypto.createHash('sha256').update(`${entry.rule}\0${entry.file}\0${entry.before}\0${after}`).digest('hex').slice(0, 16);
-    const fix: ResolvedFix = { id, file: entry.file, rule: entry.rule, title: entry.title, details: entry.details, before: entry.before, after, resolvedAt: new Date().toISOString(), ...(entry.stage ? { stage: entry.stage } : {}) };
+    const fix: ResolvedFix = { id, file: entry.file, rule: entry.rule, title: entry.title, details: entry.details, before: entry.before, after, resolvedAt: new Date().toISOString(), ...(entry.stage ? { stage: entry.stage } : {}), openedAt: entry.openedAt };
     try {
         fs.mkdirSync(path.join(cwd, DIR, 'resolved'), { recursive: true });
         fs.writeFileSync(path.join(cwd, DIR, 'resolved', `${id}.json`), JSON.stringify(fix));

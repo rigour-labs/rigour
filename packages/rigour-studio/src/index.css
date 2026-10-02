@@ -1,34 +1,34 @@
-/* Light Theme (Default) */
+/* Light theme (default): Indigo */
 :root {
-    --bg-main: #fafbfc;
+    --bg-main: #f7f8fa;
     --bg-sidebar: #ffffff;
     --bg-header: #ffffff;
     --bg-card: #ffffff;
-    --bg-accent: #f4f6f8;
-    --bg-surface: #fafbfc;
+    --bg-accent: #eef0f4;
+    --bg-surface: #f3f4f7;
 
-    --border-dim: #e8eaed;
-    --border-med: #d0d7de;
-    --border-color: #e8eaed;
+    --border-dim: #e3e5ea;
+    --border-med: #d2d6de;
+    --border-color: #e3e5ea;
 
-    --text-main: #1f2328;
-    --text-dim: #656d76;
+    --text-main: #14161a;
+    --text-dim: #5e6573;
     --text-vibrant: #000000;
-    --text-primary: #1f2328;
+    --text-primary: #14161a;
 
-    --accent-primary: #0891b2;
-    --accent-secondary: #0d9488;
-    --accent-tertiary: #7c3aed;
-    --accent-glow: rgba(8, 145, 178, 0.1);
+    --accent-primary: #4f46e5;
+    --accent-secondary: #6366f1;
+    --accent-tertiary: #3730a3;
+    --accent-glow: rgba(79, 70, 229, 0.1);
 
-    --status-ready: #059669;
-    --status-success: #059669;
-    --status-error: #dc2626;
-    --status-warning: #d97706;
+    --status-ready: #17663f;
+    --status-success: #17663f;
+    --status-error: #a12a2a;
+    --status-warning: #8a5300;
 
-    --code-bg: #f6f8fa;
+    --code-bg: #f1f2f5;
 
-    --gradient-accent: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%);
+    --gradient-accent: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
 }
 
 /* Dark Theme - Cinema control room */
@@ -49,10 +49,10 @@
     --text-vibrant: #ffffff;
     --text-primary: #f8fafc;
 
-    --accent-primary: #22d3ee;
-    --accent-secondary: #2dd4bf;
-    --accent-tertiary: #67e8f9;
-    --accent-glow: rgba(34, 211, 238, 0.18);
+    --accent-primary: #818cf8;
+    --accent-secondary: #a5b4fc;
+    --accent-tertiary: #c7d2fe;
+    --accent-glow: rgba(129, 140, 248, 0.18);
 
     --status-ready: #34d399;
     --status-success: #34d399;
@@ -63,7 +63,7 @@
     --radius-card: 16px;
     --easing-cinema: cubic-bezier(0.16, 1, 0.3, 1);
 
-    --gradient-accent: linear-gradient(135deg, #06b6d4 0%, #22d3ee 100%);
+    --gradient-accent: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
     --bg-cinema: linear-gradient(180deg, #0a0a0f 0%, #050506 100%);
 }
 
@@ -5031,4 +5031,12 @@ textarea:focus-visible {
 @media (max-width: 640px) {
     .precision-row { grid-template-columns: 48px minmax(0, 1fr); }
     .precision-bar, .precision-counts { display: none; }
+}
+
+.nav-group-label {
+    margin: 18px 12px 6px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
 }

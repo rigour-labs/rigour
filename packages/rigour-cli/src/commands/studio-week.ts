@@ -66,7 +66,7 @@ export function loadWeek(cwd: string, now = new Date()): StudioWeek {
     return buildWeek({ now, stories: storiesAcross(roots), open: openFindingsAcross(roots), dismissals: readDismissals(cwd), events: eventsAcross(roots) });
 }
 
-function readDismissals(cwd: string): Dismissal[] {
+export function readDismissals(cwd: string): Dismissal[] {
     try {
         const parsed = JSON.parse(fs.readFileSync(path.join(cwd, '.rigour', 'dismissed.json'), 'utf8'));
         return Array.isArray(parsed?.entries) ? parsed.entries.filter((e: Dismissal) => typeof e?.at === 'string') : [];
