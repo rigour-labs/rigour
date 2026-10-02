@@ -243,8 +243,9 @@ program
 program
     .command('doctor')
     .description('Check that Rigour is wired up and firing here, and that the install is healthy')
-    .action(async () => {
-        await doctorCommand();
+    .option('--clean-cache', 'Remove context-cache rows Rigour no longer reads, and shrink the database when the disk has room')
+    .action(async (options: { cleanCache?: boolean }) => {
+        await doctorCommand(options);
     });
 
 program

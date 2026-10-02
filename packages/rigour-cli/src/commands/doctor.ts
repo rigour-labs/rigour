@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
-import { loadSettings, resolveDeepOptions, getCachedModel, SidecarProvider } from '@rigour-labs/core';
+import { cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
 
 function runText(command: string, args: string[]): string {
@@ -64,9 +64,11 @@ export function hasVersionShadowing(versions: string[]): boolean {
     return new Set(normalized).size > 1;
 }
 
-export async function doctorCommand(cwd = process.cwd()): Promise<void> {
+export async function doctorCommand(options: { cleanCache?: boolean } = {}, cwd = process.cwd()): Promise<void> {
     console.log(chalk.bold.cyan('\nRigour Doctor\n'));
+    if (options.cleanCache) return cleanCache();
     await printRepoSetup(cwd);
+    await printDatabaseHealth();
 
     const paths = Array.from(new Set(listRigourPaths()));
     if (paths.length === 0) {
@@ -151,4 +153,33 @@ export async function printRepoSetup(cwd: string): Promise<void> {
         if (check.fix && check.state !== 'working') console.log(chalk.dim(`      fix: ${check.fix}`));
     }
     console.log('');
+}
+
+const GB = 1024 ** 3;
+const size = (bytes: number) => (bytes >= GB ? `${(bytes / GB).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`);
+
+/** The database's size, and the cache rows nothing reads any more, with the command that removes them. */
+async function printDatabaseHealth(): Promise<void> {
+    const dead = await deadCacheRows().catch(() => null);
+    if (!dead) return;
+    console.log(chalk.bold('Rigour database'));
+    if (dead.rows === 0) {
+        console.log(chalk.green(`  ✓ ${size(dead.bytes)}, no unused cache rows\n`));
+        return;
+    }
+    console.log(chalk.yellow(`  ○ ${size(dead.bytes)}, of which ${dead.rows.toLocaleString()} cache rows Rigour no longer reads`));
+    console.log(chalk.dim('      fix: rigour doctor --clean-cache   (stop rigour studio first)\n'));
+}
+
+async function cleanCache(): Promise<void> {
+    console.log(chalk.bold('Cleaning the context cache'));
+    const report = await cleanContextCache();
+    if (report.removed === 0) {
+        console.log(chalk.green(`  ✓ Nothing to remove (${size(report.sizeBefore)})\n`));
+        return;
+    }
+    console.log(chalk.green(`  ✓ Removed ${report.removed.toLocaleString()} unused rows; kept ${report.kept.toLocaleString()}`));
+    console.log(report.vacuumed
+        ? chalk.green(`  ✓ Database ${size(report.sizeBefore)} → ${size(report.sizeAfter)}\n`)
+        : chalk.yellow(`  ○ File not shrunk: ${report.vacuumSkipped}\n`));
 }
