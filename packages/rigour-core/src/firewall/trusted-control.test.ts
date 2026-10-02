@@ -200,3 +200,14 @@ describe('action normalization and receipts', () => {
         expect(await verifyExecutionReceiptChain(cwd, root)).toMatchObject({ valid: true, count: 1 });
     });
 });
+
+describe('receipt lock contention', () => {
+    it('retries while another append releases the lock, including Windows delete-pending errors', async () => {
+        const { isLockContention } = await import('./execution-receipt.js');
+        expect(isLockContention('EEXIST', 'linux')).toBe(true);
+        expect(isLockContention('EPERM', 'win32')).toBe(true);
+        expect(isLockContention('EBUSY', 'win32')).toBe(true);
+        expect(isLockContention('EPERM', 'linux')).toBe(false); // a real permission error elsewhere
+        expect(isLockContention('ENOENT', 'win32')).toBe(false);
+    });
+});
