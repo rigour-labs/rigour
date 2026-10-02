@@ -34,7 +34,8 @@ import { getAdvertisedToolDefinitions } from './advertised-tools.js';
 
 // Tool handlers
 import { handleCheck, handleExplain, handleStatus, handleGetFixPacket, handleListGates, handleGetConfig } from './tools/quality-handlers.js';
-import { handleRemember, handleRecall, handleForget } from './tools/memory-handlers.js';
+import { handleRemember, handleForget } from './tools/memory-handlers.js';
+import { handleRecall } from './tools/memory-recall.js';
 import { handleCheckPattern, handleSecurityAudit } from './tools/pattern-handlers.js';
 import { handleRun, handleRunSupervised } from './tools/execution-handlers.js';
 import { handleAgentRegister, handleCheckpoint, handleHandoff, handleAgentDeregister, handleHandoffAccept } from './tools/agent-handlers.js';
@@ -158,9 +159,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "rigour_mcp_set_settings": result = await handleMcpSetSettings(cwd, args as any); break;
 
             // Memory
-            case "rigour_remember":      result = await handleRemember(cwd, (args as any).key, (args as any).value || (args as any).content); break;
-            case "rigour_recall":        result = await handleRecall(cwd, (args as any).key); break;
-            case "rigour_forget":        result = await handleForget(cwd, (args as any).key); break;
+            case "rigour_remember":      result = await handleRemember(cwd, (args as any).key, (args as any).value || (args as any).content, (args as any).scope); break;
+            case "rigour_recall":        result = await handleRecall(cwd, { key: (args as any).key, query: (args as any).query }); break;
+            case "rigour_forget":        result = await handleForget(cwd, (args as any).key, (args as any).scope); break;
 
             // Pattern intelligence
             case "rigour_check_pattern": result = await handleCheckPattern(cwd, (args as any).name, (args as any).type, (args as any).intent, (args as any).file); break;

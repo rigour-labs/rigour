@@ -232,6 +232,46 @@ export async function recordInteractionLesson(cwd: string, evidence: Interaction
     }
 }
 
+/**
+ * Share a memory with the team: a lesson of kind `memory` whose subject is the memory itself.
+ * It starts as a team candidate, so teammates' agents only receive it once a person promotes it
+ * (team knowledge search serves team lessons in the `promoted` state). Returns the lesson id, or
+ * null when the local store is unavailable.
+ */
+export async function shareMemoryLesson(cwd: string, key: string, value: string): Promise<string | null> {
+    const db = await openDatabase();
+    if (!db) return null;
+    try {
+        const repositoryId = await getRepositoryId(cwd);
+        await registerRepository(db, cwd, repositoryId);
+        const config = await loadTeamConfiguration();
+        const now = Date.now();
+        const subject = `${key}: ${value}`;
+        const existing = await db.get(
+            `SELECT id FROM lessons WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND subject = ?`,
+            repositoryId, subject,
+        );
+        if (existing) return String(existing.id);
+        const id = `lesson-${randomUUID()}`;
+        await db.run(
+            `INSERT INTO lessons (
+                id, repository_id, actor_id, team_id, visibility, state, kind, subject,
+                evidence_json, confidence, source, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'team', 'candidate', 'memory', ?, ?, 0.5, 'rigour_remember', ?, ?)`,
+            id, repositoryId, config?.actorId || process.env.RIGOUR_ACTOR_ID || null,
+            config?.teamId || process.env.RIGOUR_TEAM_ID || null, subject,
+            await encryptLocalPayload({ key, value, sharedAt: now }), now, now,
+        );
+        if (config) {
+            const lesson = await txSafeLesson(db, id);
+            if (lesson) await queueLessonSync(db, lesson, now);
+        }
+        return id;
+    } finally {
+        await db.close();
+    }
+}
+
 async function queueLessonSync(
     db: { run(sql: string, ...params: unknown[]): Promise<unknown> },
     lesson: LessonRecord,

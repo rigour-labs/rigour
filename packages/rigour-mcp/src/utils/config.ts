@@ -8,6 +8,7 @@
  */
 import fs from "fs-extra";
 import path from "path";
+import os from "os";
 import yaml from "yaml";
 import { randomUUID } from "crypto";
 import { ConfigSchema } from "@rigour-labs/core";
@@ -41,14 +42,17 @@ export interface MemoryStore {
     memories: Record<string, { value: string; timestamp: string }>;
 }
 
-export async function getMemoryPath(cwd: string): Promise<string> {
-    const rigourDir = path.join(cwd, ".rigour");
+/** Where memories live: `repo` in this checkout's .rigour/, `user` in ~/.rigour/ for every repository. */
+export type LocalMemoryScope = 'repo' | 'user';
+
+export async function getMemoryPath(cwd: string, scope: LocalMemoryScope = 'repo'): Promise<string> {
+    const rigourDir = scope === 'user' ? path.join(os.homedir(), ".rigour") : path.join(cwd, ".rigour");
     await fs.ensureDir(rigourDir);
     return path.join(rigourDir, "memory.json");
 }
 
-export async function loadMemory(cwd: string): Promise<MemoryStore> {
-    const memPath = await getMemoryPath(cwd);
+export async function loadMemory(cwd: string, scope: LocalMemoryScope = 'repo'): Promise<MemoryStore> {
+    const memPath = await getMemoryPath(cwd, scope);
     if (await fs.pathExists(memPath)) {
         const content = await fs.readFile(memPath, "utf-8");
         try {
@@ -63,8 +67,8 @@ export async function loadMemory(cwd: string): Promise<MemoryStore> {
     return { memories: {} };
 }
 
-export async function saveMemory(cwd: string, store: MemoryStore): Promise<void> {
-    const memPath = await getMemoryPath(cwd);
+export async function saveMemory(cwd: string, store: MemoryStore, scope: LocalMemoryScope = 'repo'): Promise<void> {
+    const memPath = await getMemoryPath(cwd, scope);
     await fs.writeFile(memPath, JSON.stringify(store, null, 2));
 }
 

@@ -1,0 +1,42 @@
+{
+  "memories": {
+    "retry_policy": "Wrap outbound HTTP calls in withRetry from lib/net; never hand-roll exponential backoff.",
+    "db_access": "Analytics reports must read from the replica database, never the primary.",
+    "pr_size": "Keep pull requests under 400 changed lines; split migrations into their own PR.",
+    "money_units": "Store money as integer cents; never use floating point for amounts.",
+    "auth_tokens": "Read API tokens from the secrets manager at startup; never log or hard-code them.",
+    "date_handling": "Store timestamps in UTC and convert to the user's timezone only in the UI.",
+    "error_reporting": "Report unexpected errors through captureError so they reach the error tracker with context.",
+    "feature_flags": "Gate unfinished features behind a flag in flags/registry.ts; remove the flag once fully rolled out.",
+    "test_style": "Tests sit next to the code as *.test.ts and use real temp directories, not mocked file systems.",
+    "pagination": "Page large reads with keyset pagination on (created_at, id), never OFFSET.",
+    "logging": "Use the structured logger with a request id; no console.log in production code.",
+    "migrations": "Database migrations are append-only; never edit a migration that has been applied."
+  },
+  "queries": [
+    { "q": "the payment client sometimes times out, make it try again", "expect": ["retry_policy"] },
+    { "q": "add retries with backoff to the http client", "expect": ["retry_policy"] },
+    { "q": "which database should the monthly report query", "expect": ["db_access"] },
+    { "q": "build a usage analytics dashboard", "expect": ["db_access"] },
+    { "q": "this PR is getting too big", "expect": ["pr_size"] },
+    { "q": "add a discount amount to the invoice total", "expect": ["money_units"] },
+    { "q": "calculate the refund price for an order", "expect": ["money_units"] },
+    { "q": "where should the stripe api key come from", "expect": ["auth_tokens"] },
+    { "q": "show the order time in the customer's local time", "expect": ["date_handling"] },
+    { "q": "save when the user signed up", "expect": ["date_handling"] },
+    { "q": "the background job crashed and nobody noticed", "expect": ["error_reporting"] },
+    { "q": "ship the new checkout behind a toggle", "expect": ["feature_flags"] },
+    { "q": "write tests for the file importer", "expect": ["test_style"] },
+    { "q": "list all orders for the admin page, there are millions", "expect": ["pagination"] },
+    { "q": "debug output when the request fails", "expect": ["logging"] },
+    { "q": "fix a typo in last week's schema migration", "expect": ["migrations"] },
+    { "q": "rename a css class on the settings page", "expect": [] },
+    { "q": "update the README badge colours", "expect": [] },
+    { "q": "make the logo bigger on mobile", "expect": [] },
+    { "q": "translate the onboarding copy to spanish", "expect": [] },
+    { "q": "bump eslint to the latest version", "expect": [] },
+    { "q": "add an empty state illustration", "expect": [] },
+    { "q": "change the font on the marketing page", "expect": [] },
+    { "q": "reorder the sidebar menu items", "expect": [] }
+  ]
+}

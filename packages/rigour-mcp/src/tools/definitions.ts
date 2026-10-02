@@ -179,13 +179,14 @@ export const TOOL_DEFINITIONS = [
     // ─── Memory Persistence ───────────────────────────────
     {
         name: "rigour_remember",
-        description: "Store a persistent instruction or context that the AI should remember across sessions. Use this to persist user preferences, project conventions, or critical instructions. IMPORTANT: You must provide both 'key' (a short snake_case identifier) and 'value' (the full text to remember).",
+        description: "Store an instruction or convention to remember across sessions. Provide 'key' (short snake_case) and 'value' (the full text). scope: 'repo' (default, this repository), 'user' (all your repositories), or 'team' (this repository, and shared as a team candidate that teammates' agents receive once a person promotes it). Values containing credentials are refused.",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
                 key: { type: "string", description: "A short snake_case identifier for this memory, e.g. 'api_response_format', 'naming_convention', 'testing_strategy'. This is used to retrieve the memory later." },
                 value: { type: "string", description: "The full instruction or convention text to persist. This is the content that will be recalled in future sessions." },
+                scope: { type: "string", enum: ["repo", "user", "team"], description: "Where the memory applies. Default: repo." },
             },
             required: ["cwd", "key", "value"],
         },
@@ -199,12 +200,13 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_recall",
-        description: "Load project memory and stored conventions. CALL THIS at the START of every coding task (before reading files) to restore team decisions, naming conventions, and architectural preferences. Returns index health status and uses semantic cache on repeat calls — second recall with the same key is served from cache.",
+        description: "Load stored conventions. At the START of a task, call it with 'query' describing the task to get the few memories that match by meaning, plus promoted team knowledge when team mode is on. With 'key' it returns that memory; with neither, every repository and user memory.",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
                 key: { type: "string", description: "Optional. Key of specific memory to retrieve." },
+                query: { type: "string", description: "Optional. What you are about to do, e.g. 'add retry to the payments client'. Returns the closest memories by meaning." },
             },
             required: ["cwd"],
         },
@@ -224,6 +226,7 @@ export const TOOL_DEFINITIONS = [
             properties: {
                 ...cwdParam(),
                 key: { type: "string", description: "Key of the memory to remove." },
+                scope: { type: "string", enum: ["repo", "user"], description: "Which memory to remove it from. Default: repo." },
             },
             required: ["cwd", "key"],
         },
