@@ -66,7 +66,7 @@ export function hasVersionShadowing(versions: string[]): boolean {
 
 export async function doctorCommand(cwd = process.cwd()): Promise<void> {
     console.log(chalk.bold.cyan('\nRigour Doctor\n'));
-    printRepoSetup(cwd);
+    await printRepoSetup(cwd);
 
     const paths = Array.from(new Set(listRigourPaths()));
     if (paths.length === 0) {
@@ -144,9 +144,9 @@ export async function doctorCommand(cwd = process.cwd()): Promise<void> {
 const MARK: Record<SetupState, string> = { working: chalk.green('✓'), 'set up': chalk.yellow('○'), broken: chalk.red('✘'), missing: chalk.yellow('○') };
 
 /** This repository first: is each part of Rigour wired up, and did it fire this week. */
-function printRepoSetup(cwd: string): void {
+export async function printRepoSetup(cwd: string): Promise<void> {
     console.log(chalk.bold('This repository'));
-    for (const check of checkRepoSetup(cwd)) {
+    for (const check of await checkRepoSetup(cwd)) {
         console.log(`  ${MARK[check.state]} ${check.name}: ${chalk.dim(check.detail)}`);
         if (check.fix && check.state !== 'working') console.log(chalk.dim(`      fix: ${check.fix}`));
     }

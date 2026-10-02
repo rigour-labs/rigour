@@ -57,12 +57,13 @@ Keep a version in the package name (`@latest`, or a major such as `@6`): with a 
 
 Then ask it to *"review before you finish"*, or use the `rigour-pre-commit` prompt. It calls `rigour_review` (with `mode: "agent"`), fixes what it finds, and acknowledges each risky function with `rigour_review_ack`.
 
-**Add the hooks** so this happens without asking:
+**Add the hooks** so this happens without asking. One command writes the settings, the hooks for every agent it supports, and the agent instructions, then checks that each one works:
 
 ```bash
-npx @rigour-labs/cli init
-npx @rigour-labs/cli hooks init --tool claude   # or cursor, cline, windsurf
+npx @rigour-labs/cli setup
 ```
+
+`rigour doctor` runs the same checks later. `rigour --help` lists the four everyday commands (`setup`, `review`, `studio`, `doctor`); `rigour help --all` lists the rest.
 
 To make the agent finish only after the risky functions are reviewed, set `hooks.require_review_ack: true` in `rigour.yml`.
 
@@ -107,7 +108,15 @@ rigour review --deep --provider openrouter --api-base-url https://openrouter.ai/
 npx @rigour-labs/cli studio
 ```
 
-**Review › Pre-PR review** shows the functions reviewed and the defects fixed before a PR existed, what is still waiting, and the model spend Rigour actually observed. The rest of Studio maps agent work: context each agent received, gates and Fix Packets, lessons learned from fixes, and drift.
+Studio opens on **This week**: what needs you, and what Rigour stopped before a PR, each with the code change and how Rigour knew. The other pages:
+
+- **Progress**: 8 weeks of trends (problems stopped, repeat mistakes, time to fix, how often you overruled Rigour) and which lessons and checks did the most.
+- **Only Rigour**: what the agent itself missed, counted only where Rigour can show it.
+- **How it learns**: each lesson's path from where it was learned to whether the mistake still reaches a PR.
+- **Agent context**: what Rigour gave agents before they wrote: focused file lists, lessons, existing code to reuse.
+- **Reviews**, **Activity** and **Setup**: the pre-PR reviews with the agent's notes, agent sessions, and what is wired up and firing.
+
+Every number is counted from what Rigour recorded on this machine; what it cannot know there (CI runs, for example) says so instead of showing zero.
 
 ## Rules learned from your fixes
 

@@ -29,7 +29,7 @@ export const Learning: React.FC = () => {
     const { data, error, reload } = useStudioJson<LearningData>('/api/learning');
     if (error) return <div className="st-page"><div className="st-empty">Couldn't load lessons: {error}.</div></div>;
     if (!data) return <div className="st-page"><div className="st-sub">Loading…</div></div>;
-    const decide = async (id: string, state: 'validated' | 'rejected') => {
+    const decide = async (id: string, state: 'validated' | 'promoted' | 'rejected') => {
         const res = await studioWrite('/api/lessons', 'POST', JSON.stringify({ id, state }));
         if (res.ok) reload();
     };
@@ -66,7 +66,7 @@ export const Learning: React.FC = () => {
     );
 };
 
-export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'rejected') => void }> = ({ lesson, onDecide }) => (
+export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void }> = ({ lesson, onDecide }) => (
     <div className="st-card">
         <div className="st-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{inlineCode(lesson.text)}</div>
@@ -80,8 +80,8 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         </div>
         {lesson.canDecide && (
             <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">Seen once. Keep it so your agents get told?</span>
-                <button className="st-btn primary" onClick={() => onDecide(lesson.id, 'validated')} type="button">Keep</button>
+                <span className="st-sub">{lesson.scope === 'team' ? 'Shared by a teammate. Give it to everyone\'s agents?' : 'Seen once. Keep it so your agents get told?'}</span>
+                <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>
                 <button className="st-btn" onClick={() => onDecide(lesson.id, 'rejected')} type="button">Drop</button>
             </div>
         )}

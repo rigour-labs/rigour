@@ -5,7 +5,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import type { AgentEvent } from '@rigour-labs/core';
+import { getContextEvents, type AgentEvent, type ContextEvent } from '@rigour-labs/core';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 
 export type SetupState = 'working' | 'set up' | 'broken' | 'missing';
@@ -21,8 +21,10 @@ export interface SetupCheck {
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function checkRepoSetup(cwd: string, now = new Date()): SetupCheck[] {
+export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: ContextEvent[]): Promise<SetupCheck[]> {
     const events = eventsAcross(checkoutRoots(cwd));
+    // Only the MCP server writes context records, one per tool call: the CLI's own events would count otherwise.
+    const calls = toolCalls ?? await getContextEvents(undefined, cwd).catch(() => []);
     const read = (rel: string) => { try { return fs.readFileSync(path.join(cwd, rel), 'utf8'); } catch { return ''; } };
     const agents = [
         { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') },
@@ -33,7 +35,7 @@ export function checkRepoSetup(cwd: string, now = new Date()): SetupCheck[] {
         configCheck(cwd),
         editCheck(agents, now, events),
         stopCheck(agents.map(a => a.config).join('\n'), now, events),
-        mcpCheck(read('.mcp.json'), now, events),
+        mcpCheck(read('.mcp.json'), now, calls),
         prCheck(cwd),
     ];
 }
@@ -62,13 +64,13 @@ function stopCheck(config: string, now: Date, events: AgentEvent[]): SetupCheck 
     return fired('stop', name, events.filter(e => e.type === 'stop_review'), now, 'finish checks');
 }
 
-function mcpCheck(mcpJson: string, now: Date, events: AgentEvent[]): SetupCheck {
+function mcpCheck(mcpJson: string, now: Date, calls: ContextEvent[]): SetupCheck {
     const name = 'Rigour tools for agents (MCP)';
-    const calls = events.filter(e => e.type === 'tool_call');
     if (!mcpJson.includes('rigour') && calls.length === 0) {
-        return { id: 'mcp', name, state: 'missing', detail: 'Agents cannot ask Rigour for review tasks or lessons', fix: 'rigour setup' };
+        return { id: 'mcp', name, state: 'missing', detail: 'Agents cannot ask Rigour for review tasks or lessons', fix: 'claude mcp add rigour -- npx -y @rigour-labs/mcp@latest' };
     }
-    return fired('mcp', name, calls, now, 'tool calls');
+    const asEvents = calls.map(c => ({ type: 'tool_call', timestamp: c.createdAt ? new Date(c.createdAt).toISOString() : undefined }));
+    return fired('mcp', name, asEvents, now, 'tool calls');
 }
 
 function prCheck(cwd: string): SetupCheck {

@@ -300,7 +300,7 @@ gates:
     budget_ms: 600000      # whole-run budget; files not started in time are reported as skipped
 ```
 
-Every run records what it spent in `.rigour/deep-runs.jsonl` (tokens, the provider's own cost when it reports one, what the router sent and skipped); Studio shows the totals under **Review › Pre-PR review**.
+Every run records what it spent in `.rigour/deep-runs.jsonl` (tokens, the provider's own cost when it reports one, what the router sent and skipped); Studio shows the totals on the **Reviews** page.
 
 ### Review without a key: the agent's own model
 

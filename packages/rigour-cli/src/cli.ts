@@ -38,6 +38,7 @@ import { teamCommand } from './commands/team.js';
 import { createSkillsCommand } from './commands/skills.js';
 import { checkForUpdates } from './utils/version.js';
 import { getCliVersion } from './utils/cli-version.js';
+import { configureHelp } from './cli-help.js';
 import chalk from 'chalk';
 
 const CLI_VERSION = getCliVersion();
@@ -234,14 +235,14 @@ program
 
 program
     .command('setup')
-    .description('Show installation and global setup guidance')
+    .description('Set up Rigour in this repository: settings, agent hooks and instructions, then check it all works')
     .action(async () => {
         await setupCommand();
     });
 
 program
     .command('doctor')
-    .description('Diagnose install conflicts and deep-mode readiness')
+    .description('Check that Rigour is wired up and firing here, and that the install is healthy')
     .action(async () => {
         await doctorCommand();
     });
@@ -593,5 +594,5 @@ settingsCmd
         await trackUsage('command_run', { command, outcome: process.exitCode ? 'fail' : 'ok', duration: durationBucket(Date.now() - commandStart) }, { version: CLI_VERSION });
         await flushDailyUsage({ version: CLI_VERSION });
     });
-    await program.parseAsync();
+    await program.parseAsync(configureHelp(program, process.argv));
 })();

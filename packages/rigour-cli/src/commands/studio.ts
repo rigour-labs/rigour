@@ -328,7 +328,7 @@ async function handleApiRequest(
     if (url.pathname === '/api/setup') {
         try {
             const { checkRepoSetup } = await import('./repo-setup.js');
-            sendJson(res, 200, { checks: checkRepoSetup(cwd) });
+            sendJson(res, 200, { checks: await checkRepoSetup(cwd) });
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });
         }
@@ -421,7 +421,7 @@ function announce(url: string): void {
 }
 
 export const studioCommand = new Command('studio')
-    .description('Launch Rigour Studio (Local-First Governance UI)')
+    .description('Open Studio: what Rigour stopped, learned and gave your agents')
     .option('-p, --port <number>', 'Port to run the studio on', '3000')
     .option('--dev', 'Opt-in: run Vite against monorepo studio source (developers only)', false)
     .action(async (options) => {
