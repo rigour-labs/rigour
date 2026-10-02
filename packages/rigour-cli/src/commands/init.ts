@@ -8,6 +8,7 @@ import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
 import { clineRulesRelPath, writeHandshake } from './init-handshake.js';
 import { askTelemetryOnce } from './telemetry-consent.js';
+import { getCliVersion } from '../utils/cli-version.js';
 
 // Helper to log events for Rigour Studio
 async function logStudioEvent(cwd: string, event: any) {
@@ -589,20 +590,17 @@ function resolveMCPServerConfig(): { command: string; args: string[] } {
         // Running from local dev checkout — use local path
         return { command: 'node', args: [localMcpEntry] };
     }
-    // Fallback: pin published npm package so Cursor resolves a known build
-    let mcpSpec = '@rigour-labs/mcp@5.3.2';
-    try {
-        const mcpPkgPath = path.resolve(thisDir, '../../../rigour-mcp/package.json');
-        if (fs.existsSync(mcpPkgPath)) {
-            const pkg = JSON.parse(fs.readFileSync(mcpPkgPath, 'utf-8')) as { version?: string };
-            if (pkg.version && pkg.version.trim().length > 0) {
-                mcpSpec = `@rigour-labs/mcp@${pkg.version}`;
-            }
-        }
-    } catch {
-        // Keep pinned fallback.
-    }
-    return { command: 'npx', args: ['-y', mcpSpec] };
+    return { command: 'npx', args: ['-y', mcpPackageSpec(getCliVersion())] };
+}
+
+/**
+ * The MCP server pinned to this CLI's major version (`@rigour-labs/mcp@6`): fixes
+ * arrive without editing the config, a breaking major does not, and a bare name
+ * (which makes npx run any older global install) is never written.
+ */
+export function mcpPackageSpec(cliVersion: string): string {
+    const major = /^(\d+)\./.exec(cliVersion)?.[1];
+    return major && major !== '0' ? `@rigour-labs/mcp@${major}` : '@rigour-labs/mcp@latest';
 }
 
 async function initMCPForDetectedTools(

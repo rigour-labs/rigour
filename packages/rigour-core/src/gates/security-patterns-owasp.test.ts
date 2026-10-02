@@ -31,6 +31,23 @@ describe('SecurityPatternsGate — OWASP extended patterns', () => {
             expect(vulns.some(v => v.type === 'redos')).toBe(true);
         });
 
+        it('detects request data and input-named arguments, not constants that contain those words', async () => {
+            const tainted = path.join(testDir, 'tainted.ts');
+            fs.writeFileSync(tainted, `
+                const a = new RegExp(\`^\${req.body.term}$\`);
+                const b = new RegExp(input, 'i');
+            `);
+            expect((await checkSecurityPatterns(tainted)).filter(v => v.type === 'redos')).toHaveLength(2);
+
+            const constant = path.join(testDir, 'constant.ts');
+            fs.writeFileSync(constant, `
+                const user = String.raw\`auth\\.uid\\(\\)\`;
+                const left = new RegExp(String.raw\`^\${user} ?= ?(\${NAME})$\`, 'i');
+                const byQuery = new RegExp(queryPrefix + '$');
+            `);
+            expect((await checkSecurityPatterns(constant)).filter(v => v.type === 'redos')).toEqual([]);
+        });
+
         it('should detect nested quantifiers', async () => {
             const filePath = path.join(testDir, 'regex.ts');
             fs.writeFileSync(filePath, `

@@ -12,7 +12,9 @@ Most review happens after the fact: a bot comments on a finished PR, someone fix
 Free and local by default. Bring your own model key only if you want one.
 
 ```bash
-npx rigour-scan
+brew install rigour-labs/tap/rigour      # macOS and Linux
+npm install -g @rigour-labs/cli          # or with npm; needs Node.js 22+
+rigour review                            # review your uncommitted change
 ```
 
 ## How it works
@@ -34,7 +36,14 @@ npx rigour-scan
 
 ## Start
 
-**Give your agent Rigour** (MCP):
+**Claude Code:** install the plugin. It adds the review before Claude finishes, a `/rigour:review` skill, and the MCP tools.
+
+```text
+/plugin marketplace add rigour-labs/rigour-plugin
+/plugin install rigour@rigour-labs
+```
+
+**Any other agent** (MCP):
 
 ```json
 {
@@ -43,6 +52,8 @@ npx rigour-scan
   }
 }
 ```
+
+Keep a version in the package name (`@latest`, or a major such as `@6`): with a bare `@rigour-labs/mcp`, npx runs any older copy installed globally instead.
 
 Then ask it to *"review before you finish"*, or use the `rigour-pre-commit` prompt. It calls `rigour_review` (with `mode: "agent"`), fixes what it finds, and acknowledges each risky function with `rigour_review_ack`.
 
@@ -118,6 +129,8 @@ Rigour runs fully local with SQLite; nothing needs an account. For teams, Postgr
 ## Quiet by default
 
 A review only speaks when it can prove the defect: a value traced from where it enters to where it does harm, an import that resolves to nothing, a secret in the source, a model finding grounded in code it read. Heuristics (size, complexity, patterns that guess) are advisory: in `--json` for anyone who wants them, never failing a review, never posted on a PR, never blocking an agent. Turn them back on with `review.include_heuristics: true`.
+
+Two database checks are advisory and off by default: a supabase-js read that no index in your migrations can serve, and a branch migration dated before the newest one on main. Turn them on with `gates.unindexed_reads` and `gates.migration_order` ([Configuration](docs/CONFIGURATION.md)).
 
 Generated files are never reviewed. If a finding is wrong for your code, silence it for good:
 

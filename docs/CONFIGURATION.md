@@ -231,6 +231,23 @@ rigour learn a1b2c3d                                 # Save validated rules to .
 rigour learn --before old/http.ts --after src/http.ts
 ```
 
+### `unindexed_reads` and `migration_order` (database, advisory)
+
+Two checks for Postgres migrations. Both are off by default and advisory: they appear in `--json` and the MCP review, and never decide the verdict.
+
+- **`unindexed_reads`**: a supabase-js read (`.from('t').select(…)` with filters) whose table, as the repository's own migrations define it, has no index that starts with a column the read compares to a value or sorts by first. Row-level security policies count: `auth.uid() = owner_id` makes every user read filter on `owner_id`. A partial index counts only when the read's filters satisfy its `WHERE`. It stays silent when it cannot prove the claim: a computed table or column, `.or(…)`, a filter on an embedded resource, a table not created in the migrations, a policy it cannot read, or DDL it does not model (renames, `LIKE … INCLUDING`, partitions, index DDL inside a function). A small table read without an index is fine: dismiss the finding.
+- **`migration_order`**: a migration the change adds that sorts before the newest migration already on the base (the `--base` ref, or `HEAD` for uncommitted work). The Supabase CLI applies migrations in filename order and `db push` stops at one older than the last applied. Only directories in `dirs` are checked, because runners such as Rails apply older migrations without complaint.
+
+```yaml
+gates:
+  unindexed_reads:
+    enabled: true
+    migrations: []                      # Globs for migration .sql files; default **/migrations/**/*.sql, each directory one database
+  migration_order:
+    enabled: true
+    dirs: ['**/supabase/migrations']    # Default
+```
+
 ---
 
 ## Two-Score System (v2.17+)
