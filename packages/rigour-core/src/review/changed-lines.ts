@@ -14,6 +14,7 @@
  * change gets the same verdict everywhere.
  */
 import type { Failure } from '../types/index.js';
+import type { RemovedBlock } from '../utils/diff.js';
 import { anchorInChangedFunction, type LineSpan } from './changed-function-spans.js';
 
 export interface ChangedLineSplit {
@@ -26,6 +27,7 @@ export interface ChangedLineSplit {
 
 export function splitByChangedLines(
     failures: Failure[], changedLines: Record<string, Set<number>>, spans: Record<string, LineSpan[]> = {},
+    removed: Record<string, RemovedBlock[]> = {},
 ): ChangedLineSplit {
     const split: ChangedLineSplit = { findings: [], fileFindings: [], contextFindings: [], unlocated: 0, outside: 0 };
     for (const failure of failures) {
@@ -35,7 +37,7 @@ export function splitByChangedLines(
         } else if (failure.line === undefined) {
             if (files.some(file => changedLines[file])) split.fileFindings.push(failure);
             else split.outside++;
-        } else if (files.some(file => changedLines[file]?.has(failure.line as number))) {
+        } else if (files.some(file => changedLines[file]?.has(failure.line as number) || removedInside(failure, removed[file]))) {
             split.findings.push(failure);
         } else if (failure.provenance === 'deep-analysis') {
             placeDeepFinding(failure, files, changedLines, spans, split);
@@ -58,4 +60,14 @@ function placeDeepFinding(
     }
     if (files.some(file => changedLines[file])) split.contextFindings.push(failure);
     else split.outside++;
+}
+
+/**
+ * Whether the change deleted lines inside a multi-line finding (its line to endLine), such as an
+ * option removed from a call whose first line did not change: that call is part of the change.
+ */
+function removedInside(failure: Failure, blocks: RemovedBlock[] | undefined): boolean {
+    const end = failure.endLine;
+    if (!blocks?.length || end === undefined || failure.line === undefined || end <= failure.line) return false;
+    return blocks.some(block => block.line > (failure.line as number) && block.line <= end);
 }

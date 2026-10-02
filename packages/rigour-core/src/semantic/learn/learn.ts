@@ -16,6 +16,8 @@ import { analyzeFiles } from '../engine.js';
 import { programBatches, loadProjectConfig } from '../program.js';
 import { compileLearnedRule, LEARNED_PREFIX } from './compile.js';
 import { extractEdits, type ProposedEdit, type TreeFile } from './extract.js';
+import { endLineOf, forEachNode, lineOf } from '../ast.js';
+import { functionKeyOf, isInvocation } from './identity.js';
 import type { LearnedPattern, LearnedRule } from './types.js';
 
 export interface LearnInput {
@@ -100,6 +102,12 @@ function openTree(cwd: string, file: string): TreeFile {
 
 interface Counts { before: number; after: number; hits: string[] }
 
+/**
+ * How often each candidate fires: before the fix, after it, and elsewhere. "After" counts only
+ * the function that was fixed: an unfixed copy of the bug next to it in the same file is
+ * another place the rule should find (listed with the repository hits), not a sign the rule
+ * is wrong about the fix.
+ */
 function countFindings(input: LearnInput, rules: LearnedRule[], files: string[], repoFiles: string[]): Map<string, Counts> {
     const compiled = rules.map(compileLearnedRule);
     const tally = (dir: string, scan: string[]) => analyzeFiles(dir, scan, { rules: compiled });
@@ -107,11 +115,35 @@ function countFindings(input: LearnInput, rules: LearnedRule[], files: string[],
     const before = tally(input.beforeDir, files);
     const after = tally(input.afterDir, files);
     const repo = tally(input.repoDir, repoFiles);
-    return new Map(rules.map(rule => [rule.id, {
-        before: byRule(before, rule.id).length,
-        after: byRule(after, rule.id).length,
-        hits: byRule(repo, rule.id).map(f => `${f.file}:${f.line}`),
-    }]));
+    const keyAt = functionKeysAt(input.afterDir, files);
+    return new Map(rules.map(rule => {
+        const afterHits = byRule(after, rule.id);
+        const atFix = afterHits.filter(f => f.file === rule.source.file && keyAt(f.file, f.line) === rule.source.function);
+        const besideFix = afterHits.filter(f => !atFix.includes(f)).map(f => `${f.file}:${f.line}`);
+        const elsewhere = byRule(repo, rule.id).map(f => `${f.file}:${f.line}`);
+        return [rule.id, { before: byRule(before, rule.id).length, after: atFix.length, hits: [...new Set([...besideFix, ...elsewhere])] }];
+    }));
+}
+
+/** The key of the function enclosing a call on a given line of a fixed file (the same key rules are scoped by). */
+function functionKeysAt(dir: string, files: string[]): (file: string, line: number) => string | undefined {
+    const keys = new Map<string, Map<number, string>>();
+    return (file, line) => {
+        if (!keys.has(file)) {
+            const byLine = new Map<number, string>();
+            try {
+                forEachNode(openTree(dir, file).sourceFile, node => {
+                    // Every line a call spans: a finding can point inside the call, not at its first line.
+                    if (!isInvocation(node)) return;
+                    for (let line = lineOf(node); line <= endLineOf(node); line++) if (!byLine.has(line)) byLine.set(line, functionKeyOf(node));
+                });
+            } catch {
+                // An unparseable file attributes nothing to the fix.
+            }
+            keys.set(file, byLine);
+        }
+        return files.includes(file) ? keys.get(file)!.get(line) : undefined;
+    };
 }
 
 function failure(counts: Counts, maxHits: number): string | null {

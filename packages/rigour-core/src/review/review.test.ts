@@ -41,6 +41,18 @@ describe('splitByChangedLines', () => {
         expect(split.contextFindings.map(f => f.line)).toEqual([30]); // elsewhere in a changed file: shown, not blocking
         expect(split.outside).toBe(1); // a rule finding on an unchanged line is pre-existing, as before
     });
+
+    it('counts a multi-line finding as changed when lines inside it were deleted', () => {
+        // fetch(url, {      <- line 4, unchanged
+        //   redirect: ...   <- deleted, so the removal sits before new line 5
+        // })                <- line 5
+        const call = { ...failure('a.ts', 4), endLine: 5 } as Failure;
+        const outsideCall = { ...failure('a.ts', 9), endLine: 10 } as Failure;
+        const removed = { 'a.ts': [{ line: 5, text: ["  redirect: 'manual',"] }] };
+        const split = splitByChangedLines([call, outsideCall, failure('a.ts', 4)], {}, {}, removed);
+        expect(split.findings).toEqual([call]);
+        expect(split.outside).toBe(2);
+    });
 });
 
 describe('changedFunctionSpans', () => {

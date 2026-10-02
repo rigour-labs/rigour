@@ -17,6 +17,8 @@ export interface SemanticFinding {
     /** cwd-relative posix path of the reported line. */
     file: string;
     line: number;
+    /** Last line of the code the finding is about (a call), when it spans several lines. */
+    endLine?: number;
     message: string;
     hint: string;
     /** Supporting locations, e.g. "http.ts:51 deps.fetch(url, init)". */

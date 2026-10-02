@@ -1,0 +1,5 @@
+{
+  "note": "The same fix with an unfixed copy of the bug next to it in the same file: the copy is another place the rule should find, not a reason to narrow it.",
+  "expect": { "template": "require-option", "property": "redirect", "scoped": false },
+  "variants": ["notify.ts:2"]
+}

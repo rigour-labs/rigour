@@ -83,7 +83,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     report.failures.push(...migrationOrderFailures(input.cwd, diff, input.source, input.config));
-    const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {});
+    const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);
     const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics);
     rememberReported(input.cwd, [...quiet.speaking, ...quiet.advisory].map(f => ({ key: findingKey(f), check: checkId(f) })));
