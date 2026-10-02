@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Failure } from '../types/index.js';
 import { checkId, recordOutcome } from './check-outcomes.js';
+import { appendStory, compactDiff, type CatchStage } from './stories.js';
 
 const DIR = path.join('.rigour', 'agent-fixes');
 const MAX_FILE_BYTES = 200_000;
@@ -28,6 +29,8 @@ interface OpenFinding {
     details?: string;
     before: string;
     openedAt: string;
+    /** The stage that first reported it; absent in entries captured before stages were kept. */
+    stage?: CatchStage;
 }
 
 export interface ResolvedFix {
@@ -39,6 +42,7 @@ export interface ResolvedFix {
     before: string;
     after: string;
     resolvedAt: string;
+    stage?: CatchStage;
 }
 
 export interface FixCapture {
@@ -48,12 +52,18 @@ export interface FixCapture {
     fixes: ResolvedFix[];
 }
 
-/** Record a review's findings: open new ones, resolve open ones the review no longer reports. */
-export function recordReviewOutcome(cwd: string, findings: Failure[], reviewedFiles: string[]): FixCapture {
+/**
+ * Record a review's findings: open new ones, resolve open ones the review no longer reports.
+ * Each resolved fix is also kept as a story, credited to the stage that first reported it.
+ */
+export function recordReviewOutcome(cwd: string, findings: Failure[], reviewedFiles: string[], stage: CatchStage = 'review'): FixCapture {
     const open = readOpen(cwd);
     const current = new Map(findings.flatMap(f => (f.files?.[0] ? [[`${f.id}:${f.files[0]}`, f] as const] : [])));
     const fixes = resolveGone(cwd, open, current, new Set(reviewedFiles));
-    const opened = openNew(cwd, open, current);
+    for (const fix of fixes) {
+        appendStory(cwd, { at: fix.resolvedAt, stage: fix.stage ?? stage, file: fix.file, rule: fix.rule, title: fix.title ?? fix.rule, details: fix.details, diff: compactDiff(fix.before, fix.after) });
+    }
+    const opened = openNew(cwd, open, current, stage);
     writeOpen(cwd, open);
     return { opened, resolved: fixes.length, fixes };
 }
@@ -77,14 +87,14 @@ function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Ma
     return resolved;
 }
 
-function openNew(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>): number {
+function openNew(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>, stage: CatchStage): number {
     let opened = 0;
     for (const [key, finding] of current) {
         if (open[key]) continue;
         const file = finding.files![0];
         const before = readSmall(cwd, file);
         if (before === null) continue;
-        open[key] = { file, rule: finding.id, title: finding.title, details: finding.details, before, openedAt: new Date().toISOString() };
+        open[key] = { file, rule: finding.id, title: finding.title, details: finding.details, before, openedAt: new Date().toISOString(), stage };
         opened++;
     }
     return opened;
@@ -110,6 +120,11 @@ export function openFindingCount(cwd: string): number {
     return Object.keys(readOpen(cwd)).length;
 }
 
+/** Findings reported and not fixed yet, newest first: what still needs someone. */
+export function listOpenFindings(cwd: string): Array<Omit<OpenFinding, 'before'>> {
+    return Object.values(readOpen(cwd)).map(({ before: _before, ...rest }) => rest).sort((a, b) => b.openedAt.localeCompare(a.openedAt));
+}
+
 function readOpen(cwd: string): Record<string, OpenFinding> {
     try {
         return JSON.parse(fs.readFileSync(path.join(cwd, DIR, 'open.json'), 'utf8'));
@@ -129,7 +144,7 @@ function writeOpen(cwd: string, open: Record<string, OpenFinding>): void {
 
 function writeResolved(cwd: string, entry: OpenFinding, after: string): ResolvedFix {
     const id = crypto.createHash('sha256').update(`${entry.rule}\0${entry.file}\0${entry.before}\0${after}`).digest('hex').slice(0, 16);
-    const fix: ResolvedFix = { id, file: entry.file, rule: entry.rule, title: entry.title, details: entry.details, before: entry.before, after, resolvedAt: new Date().toISOString() };
+    const fix: ResolvedFix = { id, file: entry.file, rule: entry.rule, title: entry.title, details: entry.details, before: entry.before, after, resolvedAt: new Date().toISOString(), ...(entry.stage ? { stage: entry.stage } : {}) };
     try {
         fs.mkdirSync(path.join(cwd, DIR, 'resolved'), { recursive: true });
         fs.writeFileSync(path.join(cwd, DIR, 'resolved', `${id}.json`), JSON.stringify(fix));

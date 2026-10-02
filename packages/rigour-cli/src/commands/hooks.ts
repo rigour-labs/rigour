@@ -34,6 +34,8 @@ import {
     recordHookPayload,
     recordSessionBaseline,
 } from '@rigour-labs/core';
+import type { HookCheckerResult } from '@rigour-labs/core';
+import { groupFilesByRepo, recordEditCatches } from './hooks-check-repos.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -779,30 +781,33 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         return;
     }
 
-    const result = await runHookChecker({
-        cwd,
-        files,
-        timeout_ms: Number.isFinite(timeout) ? timeout : 5000,
-        agentId: options.agent || process.env.RIGOUR_AGENT_ID,
-    });
+    const agentId = options.agent || process.env.RIGOUR_AGENT_ID;
+    const runs = await Promise.all(groupFilesByRepo(cwd, files).map(async (group) => ({
+        ...group,
+        result: await runHookChecker({ cwd: group.root, files: group.files, timeout_ms: Number.isFinite(timeout) ? timeout : 5000, agentId }),
+    })));
+    const result = mergeHookResults(runs.map(r => r.result));
 
-    const requestId = randomUUID();
-    const outcome = result.status === 'pass' ? 'success' : result.status === 'fail' ? 'rejected' : 'error';
     countUsage('hook_check');
     for (const failure of result.failures) countUsage(`hook_finding:${failure.gate}`);
-    await Promise.allSettled([
-        updateAutomaticIndexForFiles(cwd, files),
-        recordInteractionEvidence(cwd, {
-            tool: 'rigour_hooks_check', requestId, phase: 'response', outcome,
-            deterministic: result.status === 'pass', agentId: options.agent || process.env.RIGOUR_AGENT_ID,
-            files, summary: `${result.failures.length} finding(s)`,
-        }),
-        logStudioEvent(cwd, {
-            type: 'hook_check', requestId, outcome, status: result.status,
-            agentId: options.agent || process.env.RIGOUR_AGENT_ID,
-            files, summary: `${files.length} file(s), ${result.failures.length} finding(s)`,
-        }),
-    ]);
+    await Promise.allSettled(runs.flatMap(({ root, files: repoFiles, result: repoResult }) => {
+        const requestId = randomUUID();
+        const outcome = repoResult.status === 'pass' ? 'success' : repoResult.status === 'fail' ? 'rejected' : 'error';
+        return [
+            updateAutomaticIndexForFiles(root, repoFiles),
+            recordEditCatches(root, repoResult, repoFiles),
+            recordInteractionEvidence(root, {
+                tool: 'rigour_hooks_check', requestId, phase: 'response', outcome,
+                deterministic: repoResult.status === 'pass', agentId,
+                files: repoFiles, summary: `${repoResult.failures.length} finding(s)`,
+            }),
+            logStudioEvent(root, {
+                type: 'hook_check', requestId, outcome, status: repoResult.status, agentId,
+                files: repoFiles, summary: `${repoFiles.length} file(s), ${repoResult.failures.length} finding(s)`,
+                findings: repoResult.failures.slice(0, 10).map(f => ({ gate: f.gate, file: f.file, line: f.line, message: f.message, severity: f.severity })),
+            }),
+        ];
+    }));
 
     // Return Cursor-compatible format if detected as Cursor hook
     if (cursorMode) {
@@ -833,4 +838,11 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             process.exitCode = 2;
         }
     }
+}
+
+/** One verdict for a hook call that checked files in several repositories. */
+function mergeHookResults(results: HookCheckerResult[]): HookCheckerResult {
+    const failures = results.flatMap(r => r.failures);
+    const status = results.some(r => r.status === 'error') ? 'error' : failures.length > 0 ? 'fail' : 'pass';
+    return { status, failures, duration_ms: Math.max(0, ...results.map(r => r.duration_ms)) };
 }

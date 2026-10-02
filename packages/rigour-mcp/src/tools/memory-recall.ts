@@ -10,7 +10,7 @@
  *
  * Every returned memory passes the credential scan first; nothing is cached.
  */
-import { formatDLPAlert, createDLPAuditEntry, listKnowledgeLessons, rankByMeaning, rankMemories, scanInputForCredentials, searchTeamKnowledge, type MemoryEntry } from '@rigour-labs/core';
+import { formatDLPAlert, createDLPAuditEntry, listKnowledgeLessons, rankByMeaning, rankMemories, recordLessonsServed, scanInputForCredentials, searchTeamKnowledge, type MemoryEntry } from '@rigour-labs/core';
 import { loadMemory } from '../utils/config.js';
 import type { GuidanceMeta, ToolResult } from '../utils/context-telemetry.js';
 import { appendDLPAudit, getIndexHealthBlock, wrapRecallResult } from './memory-handlers.js';
@@ -59,6 +59,7 @@ async function recallQuery(cwd: string, query: string, entries: MemoryEntry[], c
         searchTeamKnowledge(query, 3),
     ]);
     const teamOnly = team.status === 'ready' ? team.candidates.filter(c => !lessons.some(l => l.id === c.lessonId)) : [];
+    recordLessonsServed(cwd, 'recall', [...lessons.map(l => l.subject), ...teamOnly.map(c => c.subject)]);
     const sections: string[] = [];
     if (ranked.length) {
         sections.push(`MEMORIES MATCHING "${query}":\n\n` + ranked.map(m =>

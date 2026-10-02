@@ -24,6 +24,7 @@ import {
     estimateTokenCount,
     ensureAutomaticIndex,
     getApplicableLessons,
+    recordLessonsServed,
     searchTeamKnowledge,
     recordScopeOffer,
 } from '@rigour-labs/core';
@@ -335,6 +336,8 @@ export async function handleContextScope(
         getApplicableLessons(cwd, agentId, process.env.RIGOUR_TEAM_ID),
         searchTeamKnowledge(query, Math.min(limit, 8)),
     ]);
+
+    recordLessonsServed(cwd, 'context', applicableLearning.lessons.map(lesson => lesson.subject));
 
     let fullFileTokens = 0;
     const offered: Array<{ path: string; tokens: number }> = [];
