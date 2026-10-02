@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { Failure } from '../types/index.js';
+import { checkId, isMuted, readOutcomes, recordOutcome, reportedCheck } from './check-outcomes.js';
 
 const PROVEN_GATES = new Set(['semantic-bugs', 'hallucinated-imports', 'security-patterns', 'deep-analysis', 'diff-tests']);
 export const DISMISSED_FILE = path.join('.rigour', 'dismissed.json');
@@ -33,6 +34,8 @@ export function findingKey(failure: Failure): string {
 export interface QuietSplit {
     speaking: Failure[];
     advisory: Failure[];
+    /** Advisory findings from checks this repository keeps dismissing (check-outcomes.ts); counted, not listed. */
+    muted: number;
     dismissed: number;
     /** Which gates the dismissed findings came from: where Rigour is wrong for this team. */
     dismissedByGate: Record<string, number>;
@@ -40,13 +43,15 @@ export interface QuietSplit {
 
 export function quietSplit(cwd: string, findings: Failure[], includeHeuristics = false): QuietSplit {
     const dismissed = dismissedKeys(cwd);
-    const split: QuietSplit = { speaking: [], advisory: [], dismissed: 0, dismissedByGate: {} };
+    const outcomes = readOutcomes(cwd);
+    const split: QuietSplit = { speaking: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {} };
     for (const finding of findings) {
         if (dismissed.has(findingKey(finding))) {
             split.dismissed++;
             split.dismissedByGate[finding.id] = (split.dismissedByGate[finding.id] ?? 0) + 1;
         }
         else if (includeHeuristics || isProven(finding)) split.speaking.push(finding);
+        else if (isMuted(outcomes[checkId(finding)])) split.muted++;
         else split.advisory.push(finding);
     }
     return split;
@@ -65,14 +70,18 @@ export function dismissedKeys(cwd: string): Set<string> {
 export function dismissFinding(cwd: string, key: string, reason: string, at = new Date().toISOString()): boolean {
     if (!/^[0-9a-f]{16}$/.test(key)) return false;
     const file = path.join(cwd, DISMISSED_FILE);
-    let entries: Array<{ key: string; reason: string; at: string }> = [];
+    let entries: Array<{ key: string; reason: string; at: string; check?: string }> = [];
     try {
         const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
         if (Array.isArray(parsed?.entries)) entries = parsed.entries;
     } catch {
         // First dismissal in this repository.
     }
-    if (!entries.some(e => e.key === key)) entries.push({ key, reason: reason.trim(), at });
+    if (entries.some(e => e.key === key)) return true;
+    // The check this key came from (remembered when review reported it) feeds its precision.
+    const check = reportedCheck(cwd, key);
+    entries.push({ key, reason: reason.trim(), at, ...(check ? { check } : {}) });
+    if (check) recordOutcome(cwd, check, 'dismissed');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify({ version: 1, entries }, null, 2) + '\n');
     return true;

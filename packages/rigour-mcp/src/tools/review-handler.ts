@@ -44,6 +44,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
             file_findings: result.fileFindings.map(toReviewFinding),
             context_findings: result.contextFindings.map(toReviewFinding),
             advisory_count: result.advisory.length,
+            muted_count: result.muted,
             excluded_outside_changed_lines: result.excludedOutsideChangedLines,
             unlocated_failures: result.unlocated,
             gate_errors: result.gateErrors,

@@ -14,6 +14,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { Failure } from '../types/index.js';
+import { checkId, recordOutcome } from './check-outcomes.js';
 
 const DIR = path.join('.rigour', 'agent-fixes');
 const MAX_FILE_BYTES = 200_000;
@@ -69,6 +70,7 @@ function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Ma
         const after = readSmall(cwd, entry.file);
         if (after !== null && after !== entry.before) {
             resolved.push(writeResolved(cwd, entry, after));
+            recordOutcome(cwd, checkId({ rule: entry.rule, title: entry.title }), 'fixed');
         }
         delete open[key];
     }

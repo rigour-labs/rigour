@@ -170,6 +170,7 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         file_findings: result.fileFindings.map(toReviewFinding),
         context_findings: result.contextFindings.map(toReviewFinding),
         advisory: result.advisory.map(toReviewFinding),
+        muted: result.muted,
         dismissed: result.dismissed,
         gate_errors: result.gateErrors,
     }, null, 2);
@@ -208,6 +209,7 @@ function printHuman(result: ReviewResult): void {
     }
     if (result.fileFindings.length) console.log(chalk.dim(`  ${result.fileFindings.length} file-level note(s) on changed files (see --json).`));
     if (result.advisory.length) console.log(chalk.dim(`  ${result.advisory.length} advisory note(s) from heuristic checks (see --json; they never decide the verdict).`));
+    if (result.muted) console.log(chalk.dim(`  ${result.muted} more muted: from checks this repository usually dismisses (rigour precision).`));
     if (result.dismissed) console.log(chalk.dim(`  ${result.dismissed} finding(s) dismissed as not a bug (.rigour/dismissed.json).`));
     for (const f of result.contextFindings) {
         console.log(chalk.yellow(`  [context] ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));

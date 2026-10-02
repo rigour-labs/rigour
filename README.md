@@ -140,6 +140,8 @@ rigour dismiss 3f9a1c0b7d2e4a51 --reason "test fixture token, never deployed"
 
 Commit `.rigour/dismissed.json` and it stays quiet for the whole team and the PR bot.
 
+Rigour also learns which checks your repository acts on. Every fixed or dismissed finding updates that check's precision here (a Beta posterior: fixed + 1 over fixed + dismissed + 2). An advisory check your team has dismissed at least five times, with precision under 25%, is muted. Proven checks never are. `rigour precision` shows the table.
+
 ## Guarantees and boundaries
 
 - Checks and storage are local; a model is used only when you configure one.

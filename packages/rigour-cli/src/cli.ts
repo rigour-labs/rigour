@@ -24,6 +24,7 @@ import { reviewAckCommand, reviewExportCommand, reviewTaskCommand } from './comm
 import { reviewPostCommand } from './commands/review-post.js';
 import { learnReviewsCommand } from './commands/learn-reviews.js';
 import { dismissCommand } from './commands/dismiss.js';
+import { precisionCommand } from './commands/precision.js';
 import { telemetryCommand } from './commands/telemetry.js';
 import { durationBucket, flushDailyUsage, trackUsage } from '@rigour-labs/core';
 import { exportTrainingSitesCommand } from './commands/export-training-sites.js';
@@ -327,6 +328,14 @@ program
     .requiredOption('--reason <reason>', 'Why it is not a bug')
     .action((key: string, options: any) => {
         dismissCommand(process.cwd(), key, options);
+    });
+
+program
+    .command('precision')
+    .description('How this repository treats each check: findings fixed vs dismissed, and which advisory checks are muted')
+    .option('--json', 'Output as JSON')
+    .action((options: any) => {
+        precisionCommand(process.cwd(), options);
     });
 
 program
