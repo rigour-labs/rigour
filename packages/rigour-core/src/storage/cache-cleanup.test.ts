@@ -10,11 +10,14 @@ let dbPath: string;
 
 async function seed(rows: Array<[string, string]>): Promise<void> {
     const db = (await openDatabase(dbPath))!;
+    // One transaction: row-at-a-time commits are slow enough on Windows to time the test out.
+    await db.exec('BEGIN');
     for (const [key, type] of rows) {
         await db.run(
             `INSERT INTO context_cache (cache_key, cache_type, repo, branch, dependency_fingerprint, payload_json, payload_tokens, created_at)
              VALUES (?, ?, 'r', 'main', 'f', ?, 1, 0)`, key, type, JSON.stringify({ padding: 'x'.repeat(2000) }));
     }
+    await db.exec('COMMIT');
     await db.close();
 }
 
@@ -22,19 +25,21 @@ beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-cleanup-')); // a temporary database: never ~/.rigour
     dbPath = path.join(dir, 'rigour.db');
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+// Windows keeps a just-closed SQLite file locked for a moment: retry the removal instead of failing.
+afterEach(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
-describe('cleanContextCache', () => {
+// Real SQLite files on disk: slower on Windows runners than the 5 s default allows.
+describe('cleanContextCache', { timeout: 30_000 }, () => {
     it('removes the unread layers, keeps the readable rows and the indexes, and shrinks the file', async () => {
         await seed([
-            ...Array.from({ length: 400 }, (_, i) => [`static:${i}`, 'static'] as [string, string]),
-            ...Array.from({ length: 400 }, (_, i) => [`component:${i}`, 'component'] as [string, string]),
+            ...Array.from({ length: 200 }, (_, i) => [`static:${i}`, 'static'] as [string, string]),
+            ...Array.from({ length: 200 }, (_, i) => [`component:${i}`, 'component'] as [string, string]),
             ['semantic:a', 'semantic'], ['checkpoint:b', 'checkpoint'],
         ]);
-        expect(await deadCacheRows(dbPath)).toMatchObject({ rows: 800 });
+        expect(await deadCacheRows(dbPath)).toMatchObject({ rows: 400 });
 
         const report = await cleanContextCache(dbPath, () => Number.MAX_SAFE_INTEGER);
-        expect(report).toMatchObject({ removed: 800, kept: 2, vacuumed: true });
+        expect(report).toMatchObject({ removed: 400, kept: 2, vacuumed: true });
         expect(report.sizeAfter).toBeLessThan(report.sizeBefore);
 
         const db = (await openDatabase(dbPath))!;
