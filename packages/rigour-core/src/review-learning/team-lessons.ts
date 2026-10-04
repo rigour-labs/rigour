@@ -8,7 +8,16 @@ import { matchLessons, readLessons, type ReviewLesson } from './lessons.js';
 
 export type LessonMode = 'verified' | 'all' | 'off';
 
-export function lessonsForDiff(cwd: string, diff: string, mode: LessonMode = 'off'): ReviewLesson[] {
+/** Lessons a person or repeated evidence verified reach the reviewer unless a team turns them off. */
+export const DEFAULT_LESSON_MODE: LessonMode = 'verified';
+
+/** The team's review lessons in play for this mode: none when off, verified ones by default. */
+export function activeLessons(cwd: string, mode: LessonMode = DEFAULT_LESSON_MODE): ReviewLesson[] {
+    if (mode === 'off') return [];
+    return readLessons(cwd).filter(l => mode === 'all' || l.state === 'verified');
+}
+
+export function lessonsForDiff(cwd: string, diff: string, mode: LessonMode = DEFAULT_LESSON_MODE): ReviewLesson[] {
     if (mode === 'off') return [];
     const lessons = readLessons(cwd);
     if (lessons.length === 0) return [];
