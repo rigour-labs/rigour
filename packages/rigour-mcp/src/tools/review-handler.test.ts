@@ -45,6 +45,7 @@ describe('rigour_review', () => {
         const first = JSON.parse((await handleReview(config, repo, { mode: 'agent' })).content[0].text);
         expect(first.review_task.items).toEqual([expect.objectContaining({ file: 'src/sync.ts', function: 'syncOrders' })]);
         expect(first.next_step).toContain('rigour_review_ack');
+        expect(first.quality_receipt).toMatchObject({ functions: 1, reviewed: 0, not_covered: [expect.objectContaining({ function: 'syncOrders', line: 1 })] });
 
         const refused = handleReviewAck(repo, { file: 'src/sync.ts', function: 'syncOrders', verdict: 'no_issue', note: 'ok' });
         expect(refused.isError).toBe(true);
@@ -53,6 +54,7 @@ describe('rigour_review', () => {
 
         const second = JSON.parse((await handleReview(config, repo, { mode: 'agent' })).content[0].text);
         expect(second.review_task).toMatchObject({ items: [], already_reviewed: 1 });
+        expect(second.quality_receipt).toMatchObject({ reviewed: 1, not_covered: [], reviewers: { agent: 1 } });
     });
 
     it('reports a bad base ref as a tool error, not a crash', async () => {

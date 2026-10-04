@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findingKey, postReview, rankFindings, type ReportFinding, type ReviewReport } from './review-post.js';
+import { findingKey, postReview, rankFindings, receiptLines, type ReportFinding, type ReviewReport } from './review-post.js';
 
 const target = { token: 't', repo: 'acme/app', pr: 7, sha: 'abc123' };
 const BOT = { login: 'github-actions[bot]' };
@@ -100,5 +100,21 @@ describe('postReview', () => {
         await postReview({ status: 'PASS', failures: [], dismissed: 1, control_files_changed: ['.rigour/dismissed.json'] }, target, 2, fakeGitHub(state).fetchImpl);
         expect(state.issue[0].body).toContain('1 finding(s) on changed lines were dismissed');
         expect(state.issue[0].body).toContain('`.rigour/dismissed.json`');
+    });
+
+    it('shows the quality receipt: what was reviewed before the PR and what was not', () => {
+        const lines = receiptLines({
+            functions: 12, reviewed: 7, changed_since_review: 1, low_risk: 3, set_aside: 0,
+            not_covered: [
+                { file: 'src/refund.ts', function: 'issueRefund', line: 40, changed_since_review: true },
+                { file: 'src/pay.ts', function: 'formatTotal', line: 3, changed_since_review: false, lesson: 'Format money from integer cents.' },
+            ],
+        });
+        expect(lines[0]).toBe('**Quality receipt:** 12 changed functions · 7 reviewed before this PR · 1 changed after review · 3 low risk · **2 not covered**');
+        expect(lines.slice(1)).toEqual([
+            '- `issueRefund` in `src/refund.ts:40`: changed after its review',
+            '- `formatTotal` in `src/pay.ts:3`: matches a team lesson: Format money from integer cents.',
+        ]);
+        expect(receiptLines({ functions: 2, reviewed: 0, changed_since_review: 0, low_risk: 0, set_aside: 2, not_covered: [] })[1]).toContain('not counted: this check is independent');
     });
 });
