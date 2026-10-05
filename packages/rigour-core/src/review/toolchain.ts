@@ -108,11 +108,11 @@ async function batched(tool: ToolResult['tool'], cwd: string, bin: string, args:
         const result = await once(tool, cwd, bin, [...args, ...files.slice(i, i + BATCH)]);
         if (result.status !== 'pass') return result;
     }
-    return { tool, status: 'pass', command: `${path.basename(bin)} ${args.join(' ')} (${files.length} files)` };
+    return { tool, status: 'pass', command: `${programName(bin)} ${args.join(' ')} (${files.length} files)` };
 }
 
 async function once(tool: ToolResult['tool'], cwd: string, bin: string, args: string[]): Promise<ToolResult> {
-    const command = `${path.basename(bin)} ${args.slice(0, 6).join(' ')}${args.length > 6 ? ' …' : ''}`;
+    const command = `${programName(bin)} ${args.slice(0, 6).join(' ')}${args.length > 6 ? ' …' : ''}`;
     const result = await execa(bin, args, { cwd, reject: false, timeout: TIMEOUT_MS, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
     if (result.exitCode === 0 && !result.timedOut) return { tool, status: 'pass', command };
     const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim().split('\n').slice(-OUTPUT_LINES).join('\n');
@@ -122,6 +122,11 @@ async function once(tool: ToolResult['tool'], cwd: string, bin: string, args: st
 async function majorVersion(cwd: string, bin: string): Promise<number> {
     const result = await execa(bin, ['--version'], { cwd, reject: false, timeout: 30_000 });
     return Number(String(result.stdout).match(/(\d+)\./)?.[1] ?? 0);
+}
+
+/** The program as a person types it: `prettier`, not `prettier.cmd` (a Windows shim). */
+function programName(bin: string): string {
+    return path.basename(bin).replace(/\.(cmd|exe|bat)$/i, '');
 }
 
 function skipped(tool: ToolResult['tool'], why: string): ToolResult {
