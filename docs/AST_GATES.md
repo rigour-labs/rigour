@@ -40,12 +40,12 @@ Large parameter lists are a sign of poor abstraction. Rigour forces the use of o
 Deep analysis combines **AST extraction** with **LLM interpretation** to detect issues pure syntax trees cannot catch:
 
 1. **AST Extracts Facts**: Functions, classes, error handling, concurrency, imports, testing patterns
-2. **LLM Interprets Facts**: Identifies 40+ quality issues across SOLID, design patterns, error handling, architecture, concurrency, and language idioms
+2. **LLM Interprets Facts**: Checks 47 named categories across SOLID, design patterns, error handling, architecture, concurrency, and language idioms
 3. **AST Verifies Findings**: Drops hallucinated results (references to non-existent entities)
 
-The three-step pipeline achieves accuracy impossible with either component alone.
+The three-step pipeline is how a whole-repository `rigour check --deep` works. Reviewing a change works differently: the router picks the risky changed functions and the model reviews them with read-only access to the repository (see [Deep Analysis](./DEEP_ANALYSIS.md#how-a-cloud-model-reviews-a-change)).
 
-**Categories checked** (40+):
+**Categories checked** (whole-repository runs):
 - SOLID Principles (SRP, OCP, LSP, ISP, DIP violations)
 - Design Patterns (god classes, feature envy, shotgun surgery, data clumps)
 - DRY (duplication, copy-paste code)

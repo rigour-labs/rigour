@@ -37,7 +37,20 @@ export interface ReviewReport {
     deep?: { model?: string; cost_usd?: number; router?: { routed: number; functions: number; already_reviewed?: number } };
     dismissed?: number;
     control_files_changed?: string[];
+    receipt?: ReportReceipt;
 }
+
+/** The quality receipt as `rigour review --json` writes it (review-receipt.ts). */
+export interface ReportReceipt {
+    functions: number;
+    reviewed: number;
+    changed_since_review: number;
+    low_risk: number;
+    not_covered: Array<{ file: string; function: string; line: number; changed_since_review: boolean; lesson?: string }>;
+    set_aside: number;
+}
+
+const RECEIPT_LISTED = 5;
 
 export interface PostTarget {
     token: string;
@@ -121,6 +134,7 @@ export function summaryBody(report: ReviewReport, total: number, inline: number,
             : `${total} finding(s) on changed lines; ${inline} posted inline now${alreadyPosted ? `, ${alreadyPosted} posted on an earlier push` : ''}. The rest are in the job summary.`,
     ];
     if (report.context_findings?.length) lines.push('', `${report.context_findings.length} note(s) elsewhere in changed files (not blocking).`);
+    if (report.receipt && report.receipt.functions > 0) lines.push('', ...receiptLines(report.receipt));
     if (report.dismissed) lines.push('', `${report.dismissed} finding(s) on changed lines were dismissed as not a bug (.rigour/dismissed.json).`);
     if (report.control_files_changed?.length) {
         lines.push('', `⚠️ This PR edits Rigour's own settings: ${report.control_files_changed.map(f => `\`${f}\``).join(', ')}. Review them like code.`);
@@ -131,6 +145,25 @@ export function summaryBody(report: ReviewReport, total: number, inline: number,
     }
     if (deep?.model) lines.push(`Model: \`${deep.model}\`${typeof deep.cost_usd === 'number' ? ` · cost $${deep.cost_usd.toFixed(3)}` : ''}.`);
     return lines.join('\n');
+}
+
+/** What was known about the changed functions before any model looked: reviewed, changed since, low risk, not covered. */
+export function receiptLines(r: ReportReceipt): string[] {
+    const counts = [
+        `${r.functions} changed function${r.functions === 1 ? '' : 's'}`,
+        `${r.reviewed} reviewed before this PR`,
+        ...(r.changed_since_review ? [`${r.changed_since_review} changed after review`] : []),
+        `${r.low_risk} low risk`,
+        `**${r.not_covered.length} not covered**`,
+    ];
+    const lines = [`**Quality receipt:** ${counts.join(' · ')}`];
+    if (r.set_aside) lines.push(`${r.set_aside} review(s) recorded by agents were not counted: this check is independent.`);
+    for (const gap of r.not_covered.slice(0, RECEIPT_LISTED)) {
+        const why = gap.lesson ? `matches a team lesson: ${gap.lesson}` : gap.changed_since_review ? 'changed after its review' : 'risky, not reviewed';
+        lines.push(`- \`${gap.function}\` in \`${gap.file}:${gap.line}\`: ${why}`);
+    }
+    if (r.not_covered.length > RECEIPT_LISTED) lines.push(`- …and ${r.not_covered.length - RECEIPT_LISTED} more in the job summary.`);
+    return lines;
 }
 
 function markerKeys(body: unknown): string[] {

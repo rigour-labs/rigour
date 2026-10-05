@@ -11,8 +11,8 @@
 import { DEFAULT_MAX_FUNCTIONS, DEFAULT_MIN_SCORE, type RouterPolicy } from '../deep/router.js';
 import { rankChangedFunctions, type FunctionRisk } from '../deep/risk.js';
 import { changedLinesByFile, parseDiff, removedByFile } from '../utils/diff.js';
-import { isReviewed, reviewedKeys } from './ledger.js';
-import { lessonsForDiff, type LessonMode } from '../review-learning/team-lessons.js';
+import { isReviewed, reviewedKeys, type ReviewedKey } from './ledger.js';
+import { activeLessons, DEFAULT_LESSON_MODE, lessonsForDiff, type LessonMode } from '../review-learning/team-lessons.js';
 import { rulesForDiff } from '../review-learning/repo-rules.js';
 
 export interface ReviewTaskItem {
@@ -46,11 +46,14 @@ const QUESTIONS: Record<string, string> = {
     network: 'Are timeouts, aborts and non-2xx responses handled, and does a retry repeat a side effect?',
 };
 
-export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy = {}, lessonMode: LessonMode = 'off', repoRules = false): ReviewTask {
+/** `reviewed`: the reviews to trust; an independent (enforcing) review passes none, so self-reported reviews skip nothing. */
+export function buildReviewTask(
+    cwd: string, diff: string, policy: RouterPolicy = {}, lessonMode: LessonMode = DEFAULT_LESSON_MODE, repoRules = false,
+    reviewed: ReviewedKey[] = reviewedKeys(cwd),
+): ReviewTask {
     const changed = parseDiff(diff);
-    const ranked = rankChangedFunctions(cwd, changedLinesByFile(changed), removedByFile(diff));
+    const ranked = rankChangedFunctions(cwd, changedLinesByFile(changed), removedByFile(diff), activeLessons(cwd, lessonMode));
     const risky = ranked.filter(f => f.score >= (policy.min_score ?? DEFAULT_MIN_SCORE)).slice(0, policy.max_functions ?? DEFAULT_MAX_FUNCTIONS);
-    const reviewed = reviewedKeys(cwd);
     const pending = risky.filter(f => !isReviewed(reviewed, { file: f.file, function: f.name, hash: f.hash }));
     const lessons = lessonsForDiff(cwd, diff, lessonMode).map(l => ({ file: l.file, text: l.text, prs: [...new Set(l.evidence.map(e => e.pr))] }));
     return {
@@ -67,6 +70,7 @@ export function buildReviewTask(cwd: string, diff: string, policy: RouterPolicy 
 
 function toItem(f: FunctionRisk): ReviewTaskItem {
     const questions = [
+        ...(f.signals.lesson ? [`Your team flagged this before: "${f.signals.lesson}" Does this change repeat it?`] : []),
         ...(f.signals.removedGuard ? ['The change removed a condition, return or throw here: which inputs did it guard against, and are they still handled?'] : []),
         ...f.signals.sensitive.map(kind => QUESTIONS[kind]).filter(Boolean),
         `Do the callers of \`${f.name}\` still get what they assume (types, empty and error cases)?`,

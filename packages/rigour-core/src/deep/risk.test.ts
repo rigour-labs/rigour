@@ -3,7 +3,8 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { functionHash, rankChangedFunctions, scoreRisk, type RiskSignals } from './risk.js';
-import { routeFiles } from './router.js';
+import { DEFAULT_MIN_SCORE, routeFiles } from './router.js';
+import type { ReviewLesson } from '../review-learning/lessons.js';
 
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'risk-')); });
@@ -34,6 +35,36 @@ describe('rankChangedFunctions', () => {
         });
         expect(byName.label.signals).toMatchObject({ exported: false, async: false, nesting: 0, removedGuard: false, sensitive: [] });
         expect([byName.label.start, byName.label.end]).toEqual([8, 10]);
+    });
+});
+
+describe('test files', () => {
+    it('are never routed, however their fixtures read', () => {
+        fs.mkdirSync(path.join(dir, '__tests__'));
+        for (const file of ['sync.test.ts', 'sync.spec.js', '__tests__/sync.ts']) fs.writeFileSync(path.join(dir, file), SYNC);
+        expect(rankChangedFunctions(dir, { 'sync.test.ts': [4], 'sync.spec.js': [4], '__tests__/sync.ts': [4] })).toEqual([]);
+    });
+});
+
+describe('team lessons as a risk signal', () => {
+    const lesson = (over: Partial<ReviewLesson>): ReviewLesson => ({
+        id: 'l1', text: 'Trim before comparing names.', file: 'sync.ts', symbols: ['trimStart'], state: 'verified',
+        evidence: [{ pr: 1, comment: 'c', author: 'r' }], createdAt: '', updatedAt: '', ...over,
+    });
+    const LABEL = 'function label(name) {\n  return name.trimStart();\n}\n';
+
+    it('makes a plain function risky when a lesson for its file names a symbol it uses', () => {
+        fs.writeFileSync(path.join(dir, 'sync.ts'), LABEL);
+        const [f] = rankChangedFunctions(dir, { 'sync.ts': [2] }, {}, [lesson({})]);
+        expect(f.signals.lesson).toBe('Trim before comparing names.');
+        expect(f.score).toBeGreaterThanOrEqual(DEFAULT_MIN_SCORE);
+    });
+
+    it('ignores lessons for other files and lessons naming only common words', () => {
+        fs.writeFileSync(path.join(dir, 'sync.ts'), LABEL);
+        const other = rankChangedFunctions(dir, { 'sync.ts': [2] }, {}, [lesson({ file: 'other.ts' }), lesson({ symbols: ['name'] })]);
+        expect(other[0].signals.lesson).toBeUndefined();
+        expect(other[0].score).toBe(0);
     });
 });
 

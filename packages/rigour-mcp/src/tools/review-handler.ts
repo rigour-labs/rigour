@@ -5,7 +5,7 @@
  * With no diff, the change is taken from git: uncommitted work (what the
  * agent just wrote, new files included), or the branch against `base`.
  */
-import { acknowledgeReview, buildReviewTask, diffFromGit, recordFixLessons, recordLessonsServed, recordReviewOutcome, reviewChange, toReviewFinding, type Config } from "@rigour-labs/core";
+import { acknowledgeReview, buildQualityReceipt, buildReviewTask, receiptReport, diffFromGit, recordFixLessons, recordLessonsServed, recordReviewOutcome, reviewChange, toReviewFinding, type Config } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
@@ -23,6 +23,15 @@ export interface ReviewAckArgs {
     function: string;
     verdict: string;
     note: string;
+}
+
+/** What is known about each changed function before a model looks; never fails the review. */
+function qualityReceipt(config: Config, cwd: string, diff: string) {
+    try {
+        return { quality_receipt: receiptReport(buildQualityReceipt(cwd, diff, { policy: config.gates.deep?.router, lessonMode: config.gates.deep?.review_lessons })) };
+    } catch {
+        return {};
+    }
 }
 
 export async function handleReview(config: Config, cwd: string, args: ReviewArgs): Promise<ToolResult> {
@@ -49,6 +58,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
             excluded_outside_changed_lines: result.excludedOutsideChangedLines,
             unlocated_failures: result.unlocated,
             gate_errors: result.gateErrors,
+            ...qualityReceipt(config, cwd, diff),
             ...(task ? { review_task: { items: task.items, already_reviewed: task.alreadyReviewed, team_lessons: task.lessons, repo_rules: task.rules, instructions: task.instructions } } : {}),
             next_step: nextStep(result.findings.length, task?.items.length ?? 0),
         });

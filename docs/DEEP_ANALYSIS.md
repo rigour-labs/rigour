@@ -6,10 +6,14 @@ Rigour's deep analysis layer adds **semantic code review** powered by large lang
 
 ## Overview
 
-Deep analysis runs a **three-step pipeline**:
+Deep analysis works in two ways, depending on what it is asked to look at.
+
+**A change** (`rigour review --deep`, `rigour check <paths> --deep`, the PR action): the router scores each changed function for risk, the model reviews the risky ones with read-only access to the repository, and every finding must point at code the model actually saw. The run ends with a quality receipt: which risky functions were reviewed during development, which changed after that review, and which nobody has reviewed. See [How a cloud model reviews a change](#how-a-cloud-model-reviews-a-change).
+
+**The whole repository** (`rigour check --deep` with no paths) runs a three-step pipeline that sends no source code:
 
 1. **AST Extraction**: Structured facts from source code (functions, classes, structs, interfaces, error handling, concurrency metrics, imports)
-2. **LLM Interpretation**: Analyzes facts and identifies quality issues across 40+ categories
+2. **LLM Interpretation**: Analyzes the facts against 47 named categories (listed below)
 3. **AST Verification**: Validates that LLM findings reference real code entities (prevents hallucination)
 
 **Critical insight**: Neither AST nor LLM works alone. AST provides structure but no semantics. LLM understands intent but can hallucinate. Together, with verification, they achieve accuracy impossible with either alone.
@@ -31,7 +35,7 @@ The AST parser walks your codebase and extracts:
 
 ### Step 2: LLM Interprets Facts and Identifies Issues
 
-The LLM receives the extracted facts and identifies issues across **40+ categories**:
+In a whole-repository run, the LLM receives the extracted facts and checks them against these categories:
 
 **SOLID Principles (5 checks)**
 - `srp_violation` — Function or class with multiple reasons to change
@@ -234,7 +238,7 @@ Number of parallel agents. Cloud providers (`anthropic`, `openai`) spawn multipl
 
 ### `checks`
 
-Array of check categories to enable. Omit to check all 40+ categories.
+Array of check categories to enable in a whole-repository run. Omit to check all of them.
 
 ### `maxTokens`, `temperature`, `timeoutMs`
 
@@ -290,10 +294,24 @@ With a key, `rigour review` reviews the change as one pull request, the way a se
 
 `rigour check --deep` with a key reviews file by file with the same tools.
 
+**Team lessons.** A verified lesson in `.rigour/review-lessons.json` (`rigour learn-reviews` verifies a lesson once it recurs in two PRs; `rigour learn-reviews --promote <id>` verifies one by hand) counts as a risk signal: a changed function in the lesson's file that uses one of its symbols is sent to review even when nothing else about it looks risky, and the reviewer is asked whether the change repeats it. `review_lessons: verified` is the default; `all` adds unpromoted candidates, `off` ignores lessons.
+
+**Quality receipt.** Every `rigour review` ends with what is known about each changed function before any model looks at it:
+
+```
+Quality receipt
+14 changed functions · 6 reviewed before this · 1 changed after review · 5 low risk · 2 not covered
+  src/billing/refund.ts:42 applyRefund  changed after its review
+  src/billing/invoice.ts:88 formatTotal  risky, not reviewed
+```
+
+*Reviewed* means a review was recorded for the function's current code; *changed after review* means a review exists for an earlier version only. *Not covered* is where a PR review should spend. The PR action puts the same receipt in its summary comment, `--json` returns it as `receipt`, and MCP `rigour_review` as `quality_receipt`. An independent review (`--independent`, the enforcing PR mode) does not count reviews the change recorded itself, and says how many it set aside.
+
 ```yaml
 gates:
   deep:
     agentic: true          # cloud models may read the repository (default)
+    review_lessons: verified  # verified team lessons raise risk (default); all | off
     router:
       min_score: 1         # functions below this get the gates only
       max_functions: 12    # at most this many functions in focus
@@ -421,7 +439,7 @@ Running `rigour check --deep` produces structured findings:
 ```
 
 Each finding includes:
-- `category` — One of the 40+ check types
+- `category` — One of the categories above (whole-repository runs); in a change review it is the model's own short label
 - `verified` — AST confirmed this finding is real (not hallucinated)
 - `instructions` — Agent-consumable remediation steps
 - `severity` — `critical`, `high`, `medium`, `low`, or `info`

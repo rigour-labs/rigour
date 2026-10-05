@@ -25,7 +25,7 @@ import { buildReviewTask } from '../review/review-task.js';
 import { reviewPullRequest } from '../deep/pr-review.js';
 import { relatedChanges } from '../deep/related-changes.js';
 import { rankChangedFunctions } from '../deep/risk.js';
-import { lessonsForDiff, lessonsSection, type LessonMode } from '../review-learning/team-lessons.js';
+import { activeLessons, lessonsForDiff, lessonsSection, type LessonMode } from '../review-learning/team-lessons.js';
 import { rulesForDiff, rulesSection } from '../review-learning/repo-rules.js';
 import { verifyCodeFindings } from '../deep/code-verifier.js';
 import { runIntentChecks } from './deep-intent.js';
@@ -215,7 +215,7 @@ export class DeepAnalysisGate extends Gate {
             this.config.onProgress?.('  Router: no risky change for the model; the gates cover this PR.');
             return [];
         }
-        const focus = buildReviewTask(cwd, options.diff!, this.config.router).items;
+        const focus = buildReviewTask(cwd, options.diff!, this.config.router, this.config.reviewLessons, false, trustedReviews(cwd, options)).items;
         const changedFiles = Object.keys(options.focusLines ?? {});
         const related = relatedChanges(cwd, changedFiles, rankChangedFunctions(cwd, options.focusLines ?? {}, options.removedLines));
         this.config.onProgress?.(`  Reviewing the PR as a whole (${focus.length} risky function(s) first)...`);
@@ -240,7 +240,7 @@ export class DeepAnalysisGate extends Gate {
     private route(cwd: string, facts: FileFacts[]): FileFacts[] {
         const { options } = this.config;
         if (!isCloud(options) || this.config.router?.enabled === false || !options.focusLines) return facts;
-        const routed = routeFiles(cwd, facts.map(f => f.path), options.focusLines, options.removedLines, this.config.router, trustedReviews(cwd, options));
+        const routed = routeFiles(cwd, facts.map(f => f.path), options.focusLines, options.removedLines, this.config.router, trustedReviews(cwd, options), activeLessons(cwd, this.config.reviewLessons));
         this.outcome.router = routed.stats;
         if (routed.stats.files_skipped > 0) {
             this.config.onProgress?.(`  Router: ${routed.stats.routed} of ${routed.stats.functions} changed function(s) to the model; ${routed.stats.files_skipped} file(s) left to the gates.`);

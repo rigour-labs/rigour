@@ -8,6 +8,7 @@
 import type { RemovedBlock } from '../utils/diff.js';
 import { rankChangedFunctions } from './risk.js';
 import { isReviewed, type ReviewedKey } from '../review/ledger.js';
+import type { ReviewLesson } from '../review-learning/lessons.js';
 
 export interface RouterPolicy {
     enabled?: boolean;
@@ -28,10 +29,10 @@ export const DEFAULT_MAX_FUNCTIONS = 12;
 
 export function routeFiles(
     cwd: string, files: string[], focusLines: Record<string, number[]>, removed: Record<string, RemovedBlock[]> = {}, policy: RouterPolicy = {},
-    reviewed: ReviewedKey[] = [],
+    reviewed: ReviewedKey[] = [], lessons: ReviewLesson[] = [],
 ): { files: Set<string>; stats: RouterStats } {
     const inScope = Object.fromEntries(files.filter(f => focusLines[f]?.length).map(f => [f, focusLines[f]]));
-    const ranked = rankChangedFunctions(cwd, inScope, removed);
+    const ranked = rankChangedFunctions(cwd, inScope, removed, lessons);
     const minScore = policy.min_score ?? DEFAULT_MIN_SCORE;
     const risky = ranked.filter(f => f.score >= minScore);
     const unreviewed = risky.filter(f => !isReviewed(reviewed, { file: f.file, function: f.name, hash: f.hash }));
