@@ -129,8 +129,9 @@ a file alive, and a group of new files that only import each other is reported
 together). Rigour's own reports never count as a use.
 
 Four more read the syntax tree of what a change adds. Before any of them was
-allowed to block, each ran over the last 20 merged pull requests of three
-different repositories (60 in all) and every finding was judged:
+allowed to block, each ran over recent merged pull requests in several real
+repositories and every finding was judged; a check that raised a false alarm
+was fixed or kept advisory:
 
 | Check | What it reports | Blocks |
 | --- | --- | --- |
