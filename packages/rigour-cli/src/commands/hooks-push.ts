@@ -3,7 +3,7 @@
  * Bash). Everything a push should pass, on what the branch changed since it left main, committed,
  * uncommitted and new files alike:
  *   - the review's findings that must be fixed (as at stop: critical, proven high, security, dead
- *     code) and migrations out of order;
+ *     code), migrations out of order, a merge conflict with main and mentions of deleted files;
  *   - the repository's own formatter, linter, type checker and related tests (review/toolchain.ts);
  *   - the fresh reviewer, when review.reviewer.enabled (review/reviewer.ts).
  * Exit 2 blocks the push and tells the agent each failure; the full output goes to a log file.
@@ -14,7 +14,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    blocksStop, branchBase, diffFromGit, mergeBaseOf, reviewChange, reviewerBlocks, runReviewer, runToolchain,
+    blocksStop, branchBase, branchFailures, diffFromGit, mergeBaseOf, reviewChange, reviewerBlocks, runReviewer, runToolchain,
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
@@ -36,7 +36,7 @@ export async function hooksPushCommand(stdin: string, fallbackCwd: string): Prom
     if (!branch) return { exitCode: 0, message: '' }; // no main branch to measure against: nothing to gate
     const base = mergeBaseOf(repo, branch.mainRef);
     const config = await loadHookConfig(repo);
-    const failures = await gates(repo, base, branch.mainRef.replace(/^refs\/(remotes\/|heads\/)/, ''), config);
+    const failures = await gates(repo, base, branch.mainRef, config);
     if (failures.lines.length === 0) return { exitCode: 0, message: '' };
     const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-push-')), 'gates.log');
     fs.writeFileSync(log, failures.log.join('\n\n'));
@@ -46,13 +46,15 @@ export async function hooksPushCommand(stdin: string, fallbackCwd: string): Prom
     };
 }
 
-async function gates(repo: string, base: string, baseName: string, config: Config): Promise<{ lines: string[]; log: string[] }> {
+async function gates(repo: string, base: string, mainRef: string, config: Config): Promise<{ lines: string[]; log: string[] }> {
+    const baseName = mainRef.replace(/^refs\/(remotes\/|heads\/)/, '');
     const lines: string[] = [];
     const log: string[] = [];
     const source = { mode: 'since' as const, commit: base };
     const diff = diffFromGit(repo, source);
     const review = await reviewChange({ cwd: repo, config, diff, source });
     const mustFix = [...review.findings, ...review.advisory].filter(f => blocksStop(f) || f.id === 'migration-order');
+    mustFix.push(...branchFailures(repo, base, mainRef, config));
     for (const f of mustFix) lines.push(`- ${finding(f)}`);
     for (const tool of await runToolchain(repo, Object.keys(review.changedLines), config)) {
         if (tool.status === 'fail') {

@@ -8,7 +8,8 @@
  *
  * Only findings that deserve it block: critical ones, high ones that are proven
  * (the semantic engine traced them) or security findings, and dead code the
- * change added (an unused export, an orphaned file: certain, and quick to fix).
+ * change added (an unused export, an orphaned file: certain, and quick to fix), and on a branch a
+ * merge conflict with main or a mention of a file the branch deleted (review/branch-checks.ts).
  * A high heuristic (a regex that sees `fetch` without `.catch`) is not enough to
  * hold an agent back; callers also cap the number of attempts.
  */
@@ -17,6 +18,7 @@ import { reviewChange } from '../review/review.js';
 import { buildReviewTask, type ReviewTaskItem } from '../review/review-task.js';
 import { diffFromGit, type DiffSource } from '../review/git-diff.js';
 import { branchBase } from '../gates/logic-drift-git-base.js';
+import { branchFailures } from '../review/branch-checks.js';
 
 export const STOP_MAX_ATTEMPTS = 3;
 const MAX_LISTED = 8;
@@ -49,7 +51,9 @@ export async function stopReview(cwd: string, config: Config, attempt: number, s
     const { source, against } = stopSource(cwd, sessionBaseline);
     const diff = diffFromGit(cwd, source);
     const result = await reviewChange({ cwd, config, diff, source });
-    const blocking = result.findings.filter(blocksStop);
+    const branch = branchBase(cwd);
+    const whole = branch && !branch.onMain ? branchFailures(cwd, branch.base, branch.mainRef, config) : [];
+    const blocking = [...result.findings.filter(blocksStop), ...whole];
     const unreviewed = config.hooks?.require_review_ack ? buildReviewTask(cwd, diff, config.gates.deep?.router).items : [];
     const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines), against };
     if (blocking.length === 0 && unreviewed.length === 0) return { block: false, message: '', blocking: 0, ...reviewed };

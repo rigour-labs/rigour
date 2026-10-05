@@ -2,7 +2,10 @@
  * A fresh reviewer for a branch, working from what a human reviewer works from: the pull
  * request's latest human review (with its inline comments), the diff, and the repository's
  * rules (AGENTS.md, CLAUDE.md). It first decides, for every point of that review, whether the
- * code now resolves all of it, then looks for new blocking issues.
+ * code now resolves all of it, then traces every read the change adds (which rules decide whether
+ * its rows matter, and whether each runs before the read), then looks for new blocking issues.
+ * Blocking is decided by the kind of finding, not the model's own sense of severity: on a real
+ * multi-round review, that structure is what turned noted issues into caught blocking ones.
  *
  * It runs the person's own coding agent CLI (Claude Code by default) headless and read-only: no
  * MCP servers, no hooks, only read and git-read tools, editing and pushing refused. So it needs
@@ -150,14 +153,26 @@ Do this in order.
    whether the current code fully resolves it. "Fully" means the whole point, every case it names, not a
    part of it. Check against the code itself, not against commit messages or replies. Quote the file:line
    you checked.
-2. Then review the diff the way that reviewer would: production cost (reads bounded, scoped to eligible
-   data, nothing read that cannot change a result), correctness, dead code and unreferenced exports,
+2. Trace every read the change adds or alters (a database query, an API call, a file or cache read).
+   For each read, list the rules that decide whether its rows can matter to the result (eligibility,
+   feature flags and switched-off categories, time windows, locks and kill switches, ids already
+   handled) and, for each rule, whether it is applied BEFORE the read or only after it. A rule whose
+   inputs are known before the read but is applied after it is a wasted read. A rule keyed on what
+   the read itself returns cannot run first: that is not a finding. Also check, per read: is the time
+   window bounded at both ends, is paging keyset (not OFFSET in a loop), does the read have a deadline,
+   is the same lookup read more than once in a run.
+3. Then review the diff the way that reviewer would: correctness, dead code and unreferenced exports,
    duplicated logic, every comment and claim still true of the code, and the repository's rules.
-3. Report only what you verified in the code. Blocking means a reviewer would request changes for it.
+4. Blocking is decided by the kind of finding, not by how severe it feels. These are always blocking:
+   a previous point not fully resolved; a read before a filter known before it; an unbounded window;
+   OFFSET paging in a loop; a read with no deadline in a scheduled job; a lock or kill switch checked
+   after work starts; dead code or an unreferenced export the change adds; a comment, doc or PR claim
+   the code no longer makes true; a violation of the repository's rules. Report only what you verified
+   in the code.
 
 Your final message must be ONLY this JSON, nothing before or after it:
 {"prior_points":[{"point":"...","resolved":true,"evidence":"file:line ..."}],
- "blocking":[{"file":"...","line":0,"issue":"...","why":"..."}],
+ "blocking":[{"file":"...","line":0,"issue":"...","why":"...","kind":"wasted-read|unbounded-window|..."}],
  "non_blocking":[{"file":"...","issue":"..."}]}`;
 }
 

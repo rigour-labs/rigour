@@ -39,6 +39,15 @@ describe('unused exports', () => {
         expect(failures[0].details).toContain('`lonely`');
     });
 
+    it('reports a re-export nothing imports, without counting the module it comes from as a use', () => {
+        write('src/types.ts', 'export type Row = { id: string };\nexport type Used = { n: number };\n');
+        write('src/index.ts', "import { start } from './app';\nstart();\nexport type { Row, Used } from './types';\n");
+        write('src/consumer.ts', "import type { Used } from './index';\nexport const u: Used = { n: 1 };\nconsole.log(u);\n");
+        const names = unusedExportFailures(repo, diffFromGit(repo), config()).map(f => [f.files?.[0], f.details.match(/`([^`]+)`/)![1]]);
+        expect(names).toContainEqual(['src/index.ts', 'Row']);
+        expect(names).not.toContainEqual(['src/index.ts', 'Used']);
+    });
+
     it('skips what a framework calls by name, and names the team allows', () => {
         write('src/routes/+page.server.ts', 'export const load = () => ({});\nexport const helper = 1;\n');
         write('src/plugin.ts', 'export const register = () => {};\n');

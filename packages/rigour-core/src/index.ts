@@ -21,6 +21,7 @@ export { countUsage, durationBucket, flushDailyUsage, isTelemetryEnabled, readTe
 export { buildReviewTask, type ReviewTask, type ReviewTaskItem } from './review/review-task.js';
 export { buildQualityReceipt, receiptReport, type QualityReceipt, type ReceiptGap, type ReceiptOptions } from './review/receipt.js';
 export { runToolchain, type ToolResult, type ToolStatus } from './review/toolchain.js';
+export { branchFailures, mergeConflicts, staleReferences } from './review/branch-checks.js';
 export { runReviewer, reviewerBlocks, type ReviewerResult, type ReviewerVerdict } from './review/reviewer.js';
 export { branchBase, type BranchBase } from './gates/logic-drift-git-base.js';
 export { acknowledgeReview, type ReviewAck, type AckResult } from './review/review-ack.js';
