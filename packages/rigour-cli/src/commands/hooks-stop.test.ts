@@ -39,8 +39,11 @@ describe('rigour hooks stop', () => {
         expect(first.decision).toBe('block');
         expect(first.reason).toContain('src/notify.ts:2');
         expect(first.reason).toContain('attempt 1 of 3');
-        await hooksStopCommand('claude', payload, '/');
-        await hooksStopCommand('claude', payload, '/');
+        for (const n of [1, 2]) {
+            write('src/notify.ts', `${LEAKY}// attempt ${n}\n`); // the agent edits, still leaking
+            await hooksStopCommand('claude', payload, '/');
+        }
+        write('src/notify.ts', `${LEAKY}// attempt 3\n`);
         expect(await hooksStopCommand('claude', payload, '/')).toBe('');
     });
 
@@ -102,6 +105,15 @@ describe('rigour hooks stop', () => {
         write('src/main.ts', "import { used } from './util';\nconsole.log(used);\n");
         const reply = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'dead' }), '/'));
         expect(reply.reason).toContain('src/util.ts:2 Unused export');
+    });
+
+    it('does not repeat itself after a turn that changed nothing, and reviews again after an edit', async () => {
+        write('src/notify.ts', LEAKY);
+        const payload = JSON.stringify({ cwd: repo, session_id: 'quiet' });
+        expect(JSON.parse(await hooksStopCommand('claude', payload, '/')).decision).toBe('block');
+        expect(await hooksStopCommand('claude', payload, '/')).toBe(''); // a read-only turn: already said
+        write('src/notify.ts', LEAKY + '// touched\n');
+        expect(JSON.parse(await hooksStopCommand('claude', payload, '/')).decision).toBe('block');
     });
 
     it('ignores an attempt counter written into the workspace', async () => {

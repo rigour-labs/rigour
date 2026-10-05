@@ -6,6 +6,7 @@
  *   - attempts: how many times the stop review has blocked this session.
  */
 import { spawnSync } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { repoStateDir } from '../utils/user-state.js';
@@ -13,6 +14,8 @@ import { repoStateDir } from '../utils/user-state.js';
 interface SessionEntry {
     baseline?: string;
     attempts?: number;
+    /** The state of the work when the stop review last ran (workFingerprint). */
+    reviewed?: string;
     at: number;
 }
 
@@ -57,6 +60,38 @@ export function sessionBaseline(cwd: string, session: string): string | undefine
     if (!baseline) return undefined;
     const known = spawnSync('git', ['cat-file', '-e', `${baseline}^{commit}`], { cwd });
     return known.status === 0 ? baseline : undefined;
+}
+
+/**
+ * The state of the work: HEAD, the uncommitted diff, and the new files with their size and time.
+ * A stop in the same state as the last review (a turn that only read, or only talked) has
+ * nothing new to review, so the agent is not told the same thing again.
+ */
+export function workFingerprint(cwd: string): string | undefined {
+    const run = (args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    const head = run(['rev-parse', '--verify', '--quiet', 'HEAD']);
+    const diff = run(['diff', 'HEAD', '--no-color', '--no-ext-diff']);
+    const untracked = run(['ls-files', '--others', '--exclude-standard', '-z']);
+    if (diff.status !== 0 || untracked.status !== 0) return undefined;
+    const hash = createHash('sha256').update(head.stdout).update(diff.stdout);
+    for (const file of untracked.stdout.split('\0').filter(Boolean)) {
+        try {
+            const stat = fs.statSync(path.join(cwd, file));
+            hash.update(`${file}\0${stat.size}\0${stat.mtimeMs}\0`);
+        } catch {
+            hash.update(`${file}\0gone\0`);
+        }
+    }
+    return hash.digest('hex');
+}
+
+/** Whether the work is in the state the last stop review saw. */
+export function alreadyReviewed(cwd: string, session: string, fingerprint: string | undefined): boolean {
+    return !!fingerprint && readStore(cwd)[session]?.reviewed === fingerprint;
+}
+
+export function recordReviewed(cwd: string, session: string, fingerprint: string | undefined): void {
+    if (fingerprint) update(cwd, session, entry => ({ ...entry, reviewed: fingerprint }));
 }
 
 /** This stop's attempt number: blocks so far plus one. */

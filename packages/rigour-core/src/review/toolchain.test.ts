@@ -57,6 +57,15 @@ describe('runToolchain', () => {
         expect(calls()).toContain('prettier --check --ignore-unknown src/a.ts\n');
     });
 
+    it('finds svelte-check by its binary, generating SvelteKit types first, with no svelte.config file', async () => {
+        tool('svelte-kit', 'process.exit(0);');
+        tool('svelte-check', 'process.exit(0);');
+        fs.writeFileSync(path.join(dir, 'tsconfig.json'), '{}');
+        const typecheck = (await runToolchain(dir, ['src/a.ts'], config())).find(r => r.tool === 'typecheck')!;
+        expect(typecheck).toMatchObject({ status: 'pass', command: expect.stringContaining('svelte-check') });
+        expect(calls().indexOf('svelte-kit sync')).toBeLessThan(calls().indexOf('svelte-check'));
+    });
+
     it('runs a test file that failed in the parallel run again alone, so a timing flake passes', async () => {
         tool('vitest', "if (args[0] === 'related') { console.log(' FAIL  src/a.test.ts > flaky'); process.exit(1); }\nprocess.exit(0);");
         const test = (await runToolchain(dir, ['src/a.ts'], config())).find(r => r.tool === 'test')!;

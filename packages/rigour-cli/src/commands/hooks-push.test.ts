@@ -12,6 +12,9 @@ describe('push command parsing', () => {
         expect(isPush('git push --dry-run')).toBe(false);
         expect(isPush('git status && npm test')).toBe(false);
         expect(isPush('echo "do not git pushx"')).toBe(false);
+        expect(isPush('claude -p review --disallowedTools "Bash(git push:*)"')).toBe(false); // text inside an argument
+        expect(isPush('npm test && git push origin main')).toBe(true);
+        expect(isPush('git -C "/work/my app" push')).toBe(true);
     });
 
     it('finds the repository the push runs in', () => {

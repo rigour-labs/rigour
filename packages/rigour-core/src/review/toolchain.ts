@@ -65,14 +65,16 @@ async function lint(cwd: string, files: string[]): Promise<ToolResult> {
 /**
  * The project's own type check when it has one (a `typecheck` or `check` script: teams put the
  * right command there, e.g. generating SvelteKit's types first); else svelte-check after
- * `svelte-kit sync` for a SvelteKit project; else tsc. A type check covers the whole project.
+ * `svelte-kit sync` when svelte-check is installed (found by its binary, not by a config file a
+ * SvelteKit project may not have); else tsc. A type check covers the whole project.
  */
 async function typecheck(cwd: string): Promise<ToolResult> {
     const pkg = readPackage(cwd);
     const script = ['typecheck', 'check'].find(name => typeof pkg.scripts?.[name] === 'string');
     if (script) return once('typecheck', cwd, process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', '--silent', script]);
     const svelteCheck = installedBin(cwd, cwd, 'svelte-check');
-    if (svelteCheck && (pkg.dependencies?.['@sveltejs/kit'] || pkg.devDependencies?.['@sveltejs/kit'])) {
+    if (svelteCheck) {
+        // SvelteKit's generated types must exist first; a plain Svelte project has no svelte-kit binary.
         const kit = installedBin(cwd, cwd, 'svelte-kit');
         if (kit) await once('typecheck', cwd, kit, ['sync']);
         return once('typecheck', cwd, svelteCheck, ['--threshold', 'error', '--output', 'machine']);

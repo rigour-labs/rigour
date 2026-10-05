@@ -91,3 +91,4 @@ describe('duplicate functions', () => {
         expect(duplicateFunctionFailures(repo, changed(), config)).toEqual([]);
     });
 });
+

@@ -81,9 +81,13 @@ function reviewerLines(result: ReviewerResult): string[] {
     ];
 }
 
-/** A real push: `git push` (also `git -C dir push`), not a dry run. */
+/**
+ * A real push: `git push` (or `git -C dir push`) where a command starts (the beginning, or after
+ * `;`, `&&`, `||`, `|` or a newline), not a dry run. The words inside an argument or a quoted
+ * string (`--disallowedTools "Bash(git push:*)"`) are not a push.
+ */
 export function isPush(command: string): boolean {
-    return /\bgit\b(?:\s+-C\s+\S+)?\s+push\b/.test(command) && !/--dry-run\b/.test(command);
+    return /(?:^|[;&|\n]\s*)git(?:\s+-C\s+(?:"[^"]*"|'[^']*'|\S+))?\s+push(?:\s|$)/.test(command.trim()) && !/--dry-run\b/.test(command);
 }
 
 /** The directory the push runs in: `cd <dir> && git push` or `git -C <dir> push`. */

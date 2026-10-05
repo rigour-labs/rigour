@@ -20,7 +20,13 @@ import os from 'os';
 import path from 'path';
 import type { Config } from '../types/index.js';
 
-export interface PriorPoint { point: string; resolved: boolean; evidence?: string }
+export interface PriorPoint {
+    point: string;
+    resolved: boolean;
+    evidence?: string;
+    /** As the human marked it: false for a nit, a question, or a point they said was optional. Open non-blocking points are listed for the reply, not held against the push. */
+    blocking?: boolean;
+}
 export interface BlockingIssue { file: string; line?: number; issue: string; why?: string }
 export interface ReviewerVerdict {
     prior_points: PriorPoint[];
@@ -48,19 +54,32 @@ const defaultExec: Exec = async (command, args, options) => {
 
 const GH_TIMEOUT_MS = 60_000;
 
-export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec): Promise<ReviewerResult> {
+/** Called while the reviewer works, so a slow run and a stuck one look different. */
+export type Progress = (message: string) => void;
+const PROGRESS_EVERY_MS = 60_000;
+
+export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec, progress: Progress = message => process.stderr.write(`${message}\n`)): Promise<ReviewerResult> {
     const settings = config.review?.reviewer;
     const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim();
     const previous = await previousHumanReview(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec);
-    const cacheFile = await cachePath(cwd, head, previous.text, exec);
+    const cacheFile = await cachePath(cwd, head, `${PROMPT_VERSION}\0${previous.text ?? ''}`, exec);
     if (cacheFile && fs.existsSync(cacheFile)) {
         return { verdict: JSON.parse(fs.readFileSync(cacheFile, 'utf8')), previousReview: previous.label, cached: true };
     }
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
     try {
         fs.writeFileSync(path.join(work, 'previous-review.md'), previous.text ?? '(no previous human review on this branch)\n');
+        fs.writeFileSync(path.join(work, 'pr-description.md'), previous.description ?? '(no pull request description)\n');
         fs.writeFileSync(path.join(work, 'diffstat.txt'), (await exec('git', ['diff', '--stat', `${base}...HEAD`], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout);
-        const answer = await exec(settings?.command ?? 'claude', reviewerArgs(reviewPrompt(cwd, base, work), settings?.model), { cwd, timeoutMs: settings?.timeout_ms ?? 15 * 60_000 });
+        const started = Date.now();
+        progress('Rigour reviewer: reading the change and the previous reviews (a few minutes)');
+        const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
+        let answer: Awaited<ReturnType<Exec>>;
+        try {
+            answer = await exec(settings?.command ?? 'claude', reviewerArgs(reviewPrompt(cwd, base, work), settings?.model), { cwd, timeoutMs: settings?.timeout_ms ?? 15 * 60_000 });
+        } finally {
+            clearInterval(ticker);
+        }
         const parsed = parseVerdict(answer, !!previous.text);
         if ('error' in parsed) return { error: parsed.error, previousReview: previous.label, cached: false };
         if (cacheFile) fs.writeFileSync(cacheFile, JSON.stringify(parsed.verdict, null, 2));
@@ -70,33 +89,40 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     }
 }
 
-/** Open points and blocking issues: what stops a push. */
+/** Open blocking points and new blocking issues: what stops a push. An open non-blocking point is answered in the reply, not held against the push. */
 export function reviewerBlocks(result: ReviewerResult): boolean {
     if (!result.verdict) return true;
-    return result.verdict.prior_points.some(p => !p.resolved) || result.verdict.blocking.length > 0;
+    return result.verdict.prior_points.some(p => !p.resolved && p.blocking !== false) || result.verdict.blocking.length > 0;
 }
 
-/** The pull request's latest review by a person (bots and the author excluded), with its inline comments. */
-async function previousHumanReview(cwd: string, account: string | undefined, exec: Exec): Promise<{ text?: string; label?: string }> {
+/**
+ * Every review by a person on the pull request, oldest first (bots and the author excluded), each
+ * with its inline comments, and the pull request's description. Earlier rounds matter: a point
+ * from round one can come back in round three.
+ */
+async function previousHumanReview(cwd: string, account: string | undefined, exec: Exec): Promise<{ text?: string; label?: string; description?: string }> {
     const env = await githubEnv(cwd, account, exec);
     const gh = (args: string[]) => exec('gh', args, { cwd, timeoutMs: GH_TIMEOUT_MS, env });
-    const pr = await gh(['pr', 'view', '--json', 'number,author', '-q', '[.number, .author.login] | @tsv']);
+    const pr = await gh(['pr', 'view', '--json', 'number,author,body', '-q', '[.number, .author.login, (.body | @base64)] | @tsv']);
     if (pr.exitCode !== 0 || !pr.stdout.trim()) return {};
-    const [number, author] = pr.stdout.trim().split('\t');
+    const [number, author, body64] = pr.stdout.trim().split('\t');
+    const description = body64 ? Buffer.from(body64, 'base64').toString('utf8') : undefined;
     const reviews = await gh(['api', `repos/{owner}/{repo}/pulls/${number}/reviews`, '--paginate']);
-    if (reviews.exitCode !== 0) return {};
-    const human = parseJsonArrays(reviews.stdout)
-        .filter((r: any) => r?.user && r.user.type !== 'Bot' && !/bot/i.test(r.user.login) && r.user.login !== author && (r.body?.trim() || r.state === 'CHANGES_REQUESTED'))
-        .at(-1);
-    if (!human) return {};
-    const comments = await gh(['api', `repos/{owner}/{repo}/pulls/${number}/reviews/${human.id}/comments`, '--paginate']);
-    const inline = comments.exitCode === 0
-        ? parseJsonArrays(comments.stdout).map((c: any) => `- ${c.path}:${c.line ?? c.original_line ?? '?'}: ${String(c.body ?? '').trim()}`)
-        : [];
-    const label = `${human.user.login}, ${human.submitted_at}`;
-    const text = [`Reviewer: ${human.user.login}`, `Submitted: ${human.submitted_at}`, `State: ${human.state}`, '', String(human.body ?? '').trim(),
-        ...(inline.length ? ['', 'Inline comments:', ...inline] : [])].join('\n') + '\n';
-    return { text, label };
+    if (reviews.exitCode !== 0) return { description };
+    const humans = parseJsonArrays(reviews.stdout)
+        .filter((r: any) => r?.user && r.user.type !== 'Bot' && !/bot/i.test(r.user.login) && r.user.login !== author && (r.body?.trim() || r.state === 'CHANGES_REQUESTED'));
+    if (humans.length === 0) return { description };
+    const rounds: string[] = [];
+    for (const [index, review] of humans.entries()) {
+        const comments = await gh(['api', `repos/{owner}/{repo}/pulls/${number}/reviews/${review.id}/comments`, '--paginate']);
+        const inline = comments.exitCode === 0
+            ? parseJsonArrays(comments.stdout).map((c: any) => `- ${c.path}:${c.line ?? c.original_line ?? '?'}: ${String(c.body ?? '').trim()}`)
+            : [];
+        rounds.push([`## Review ${index + 1} of ${humans.length}`, `Reviewer: ${review.user.login}`, `Submitted: ${review.submitted_at}`, `State: ${review.state}`, '',
+            String(review.body ?? '').trim(), ...(inline.length ? ['', 'Inline comments:', ...inline] : [])].join('\n'));
+    }
+    const latest = humans.at(-1);
+    return { text: rounds.join('\n\n') + '\n', label: `${latest.user.login}, ${latest.submitted_at} (${humans.length} review${humans.length === 1 ? '' : 's'})`, description };
 }
 
 /** `gh --paginate` prints one JSON array per page. */
@@ -137,6 +163,9 @@ function reviewerArgs(prompt: string, model: string | undefined): string[] {
     ];
 }
 
+/** Changes when the instructions change, so a cached verdict from older instructions is not reused. */
+const PROMPT_VERSION = createHash('sha256').update(reviewPrompt('<repo>', '<base>', '<work>')).digest('hex').slice(0, 12);
+
 function reviewPrompt(cwd: string, base: string, work: string): string {
     return `You are a strict senior reviewer of a pull request you did not write. You are not the author and owe
 the code nothing. Your answer will be read by a program: it must be one JSON object (format at the end), with
@@ -145,34 +174,41 @@ register agents, call tools of other systems or run setup steps; your only job i
 
 Repository: ${cwd}, reviewed against ${base}.
 Inputs:
-- The previous human review: ${path.join(work, 'previous-review.md')}
+- Every previous human review, oldest first, with inline comments: ${path.join(work, 'previous-review.md')}
+- The pull request's description: ${path.join(work, 'pr-description.md')}
 - What changed: ${path.join(work, 'diffstat.txt')}; read the full diff with \`git diff ${base}...HEAD\`.
 - The repository's rules: AGENTS.md (and CLAUDE.md). A violation of a rule there in changed code is a finding.
 
 Do this in order.
-1. For EVERY point in the previous review (blocking and non-blocking, inline comments included), decide
-   whether the current code fully resolves it. "Fully" means the whole point, every case it names, not a
-   part of it. Check against the code itself, not against commit messages or replies. Quote the file:line
-   you checked.
+1. For EVERY point in the previous reviews (blocking and non-blocking, inline comments included, every
+   round), decide whether the current code fully resolves it. "Fully" means the whole point, every case it
+   names, not a part of it. Check against the code itself, not against commit messages or replies. Quote
+   the file:line you checked. Record "blocking" as the human marked it: false for a nit, a question, or a
+   point they called optional or non-blocking; true otherwise.
 2. Trace every read the change adds or alters (a database query, an API call, a file or cache read).
    For each read, list the rules that decide whether its rows can matter to the result (eligibility,
    feature flags and switched-off categories, time windows, locks and kill switches, ids already
-   handled) and, for each rule, whether it is applied BEFORE the read or only after it. A rule whose
-   inputs are known before the read but is applied after it is a wasted read. A rule keyed on what
-   the read itself returns cannot run first: that is not a finding. Also check, per read: is the time
-   window bounded at both ends, is paging keyset (not OFFSET in a loop), does the read have a deadline,
+   handled, constants such as minimum lengths or "started at least N ago") and, for each rule, whether
+   it is applied BEFORE the read or only after it. A rule whose inputs are known before the read
+   (configuration, flags, constants, ids already in hand) but is applied after it is a wasted read. A
+   rule keyed on what the read itself returns cannot run first: that is not a finding. Also check, per
+   read: is the time window bounded at both ends (a read keyed by ids, such as IN on a key, has no
+   window: do not report one), is paging keyset (not OFFSET in a loop), does the read have a deadline,
    is the same lookup read more than once in a run.
-3. Then review the diff the way that reviewer would: correctness, dead code and unreferenced exports,
+3. Read the pull request's description. Every absolute claim in it ("every", "all", "each", "both ends",
+   "never", "only") must be true of the code; a claim the code does not make true is blocking.
+4. Then review the diff the way that reviewer would: correctness, dead code and unreferenced exports,
    duplicated logic, every comment and claim still true of the code, and the repository's rules.
-4. Blocking is decided by the kind of finding, not by how severe it feels. These are always blocking:
-   a previous point not fully resolved; a read before a filter known before it; an unbounded window;
+5. Blocking is decided by the kind of finding, not by how severe it feels. These are always blocking:
+   a previous blocking point not fully resolved; a read before a filter known before it; an unbounded window;
    OFFSET paging in a loop; a read with no deadline in a scheduled job; a lock or kill switch checked
-   after work starts; dead code or an unreferenced export the change adds; a comment, doc or PR claim
+   after work starts; a request hook that sets or clears cookies and then returns a response it built
+   itself without those cookies reaching it (check whether anything adds queued cookies afterwards); dead code or an unreferenced export the change adds; a comment, doc or PR claim
    the code no longer makes true; a violation of the repository's rules. Report only what you verified
    in the code.
 
 Your final message must be ONLY this JSON object, starting with { and ending with }, nothing before or after it:
-{"prior_points":[{"point":"...","resolved":true,"evidence":"file:line ..."}],
+{"prior_points":[{"point":"...","resolved":true,"blocking":true,"evidence":"file:line ..."}],
  "blocking":[{"file":"...","line":0,"issue":"...","why":"...","kind":"wasted-read|unbounded-window|..."}],
  "non_blocking":[{"file":"...","issue":"..."}]}`;
 }

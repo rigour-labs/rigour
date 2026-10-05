@@ -18,7 +18,7 @@ const REVIEWS = [
 const INLINE = [{ path: 'src/job.ts', line: 12, body: 'Check the lock before the first read.' }];
 
 /** Real git; scripted gh; a reviewer that records what it was shown and answers `answer`. */
-function fakes(answer: string, seen: { prompts: string[]; review?: string; ghToken?: string }): Exec {
+function fakes(answer: string, seen: { prompts: string[]; review?: string; description?: string; ghToken?: string }): Exec {
     return async (command, args, options) => {
         if (command === 'git') {
             try {
@@ -30,13 +30,14 @@ function fakes(answer: string, seen: { prompts: string[]; review?: string; ghTok
         if (command === 'gh') {
             if (args[0] === 'auth') return { exitCode: 0, stdout: 'token-for-account\n', stderr: '' };
             seen.ghToken = options.env?.GH_TOKEN;
-            if (args[0] === 'pr') return { exitCode: 0, stdout: '42\tauthor\n', stderr: '' };
+            if (args[0] === 'pr') return { exitCode: 0, stdout: `42\tauthor\t${Buffer.from('Every read is bounded at both ends.').toString('base64')}\n`, stderr: '' };
             if (args[1].endsWith('/reviews')) return { exitCode: 0, stdout: JSON.stringify(REVIEWS), stderr: '' };
             return { exitCode: 0, stdout: JSON.stringify(INLINE), stderr: '' };
         }
         const prompt = args[args.indexOf('-p') + 1];
         seen.prompts.push(prompt);
-        seen.review = fs.readFileSync(prompt.match(/previous human review: (\S+)/)![1], 'utf8');
+        seen.review = fs.readFileSync(prompt.match(/inline comments: (\S+)/)![1], 'utf8');
+        seen.description = fs.readFileSync(prompt.match(/description: (\S+)/)![1], 'utf8');
         return { exitCode: 0, stdout: JSON.stringify({ result: answer }), stderr: '' };
     };
 }
@@ -55,23 +56,24 @@ afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
 
 describe('the reviewer', () => {
     it("works from the latest person's review with its inline comments, and blocks on an open point", async () => {
-        const seen = { prompts: [] as string[] } as { prompts: string[]; review?: string; ghToken?: string };
+        const seen = { prompts: [] as string[] } as { prompts: string[]; review?: string; description?: string; ghToken?: string };
         const answer = JSON.stringify({ prior_points: [{ point: 'lock before read', resolved: false, evidence: 'src/job.ts:12' }], blocking: [], non_blocking: [] });
-        const result = await runReviewer(repo, 'main', config, fakes(answer, seen));
+        const result = await runReviewer(repo, 'main', config, fakes(answer, seen), () => undefined);
         expect(seen.review).toContain('Reviewer: senior');
         expect(seen.review).toContain('- src/job.ts:12: Check the lock before the first read.');
         expect(seen.review).not.toContain('automated');
         expect(seen.review).not.toContain('self note');
         expect(seen.ghToken).toBe('token-for-account');
-        expect(result).toMatchObject({ cached: false, previousReview: 'senior, 2026-10-03' });
+        expect(seen.description).toBe('Every read is bounded at both ends.');
+        expect(result).toMatchObject({ cached: false, previousReview: 'senior, 2026-10-03 (1 review)' });
         expect(reviewerBlocks(result)).toBe(true);
     });
 
     it('caches the verdict per commit and review, so the same push is free', async () => {
         const seen = { prompts: [] as string[] };
         const answer = JSON.stringify({ prior_points: [{ point: 'p', resolved: true }], blocking: [] });
-        await runReviewer(repo, 'main', config, fakes(answer, seen));
-        const again = await runReviewer(repo, 'main', config, fakes(answer, seen));
+        await runReviewer(repo, 'main', config, fakes(answer, seen), () => undefined);
+        const again = await runReviewer(repo, 'main', config, fakes(answer, seen), () => undefined);
         expect(again.cached).toBe(true);
         expect(seen.prompts).toHaveLength(1);
         expect(reviewerBlocks(again)).toBe(false);
@@ -84,6 +86,12 @@ describe('the reviewer', () => {
             const parsed = parseVerdict({ exitCode: 0, stdout: JSON.stringify({ result }), stderr: '' }, true);
             expect(parsed).toMatchObject({ verdict: { prior_points: [{ point: 'p', resolved: false }] } });
         }
+    });
+
+    it('holds a push for an open blocking point, not for a nit the reviewer left open', () => {
+        const verdict = (blocking: boolean) => ({ prior_points: [{ point: 'p', resolved: false, blocking }], blocking: [], non_blocking: [] });
+        expect(reviewerBlocks({ verdict: verdict(true), cached: false })).toBe(true);
+        expect(reviewerBlocks({ verdict: verdict(false), cached: false })).toBe(false);
     });
 
     it('never passes on an answer that is not a verdict', () => {

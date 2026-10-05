@@ -82,7 +82,9 @@ review:
   show_preexisting: false      # true lists findings the code already had before the change
   github_account: my-login     # the account whose token fetches the PR's previous review (or set it in a profile)
   reviewer:
-    enabled: false             # true runs the fresh reviewer at every push (rigour review --reviewer runs it on request)
+    enabled: false             # true runs the fresh reviewer at every push (rigour review --reviewer runs it on request).
+                               # It reads every human review on the PR (with inline comments) and the PR description;
+                               # an open point the human marked non-blocking is listed, not held against the push.
     command: claude            # your coding agent's CLI, run headless and read-only
     model: claude-opus-5-5     # optional
     timeout_ms: 900000
