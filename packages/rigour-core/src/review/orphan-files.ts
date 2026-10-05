@@ -56,7 +56,9 @@ function referrersOf(cwd: string, added: string[], files: string[]): Map<string,
     const underFolder = new Map<string, string[]>();
     for (const file of added) {
         for (let dir = path.posix.dirname(file); dir !== '.' && dir !== '/'; dir = path.posix.dirname(dir)) {
-            underFolder.set(dir, [...(underFolder.get(dir) ?? []), file]);
+            const files = underFolder.get(dir);
+            if (files) files.push(file);
+            else underFolder.set(dir, [file]);
         }
     }
     const referrers = new Map(added.map(file => [file, new Set<string>()]));

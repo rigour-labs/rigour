@@ -199,8 +199,16 @@ Do this in order.
    "never", "only") must be true of the code; a claim the code does not make true is blocking.
 4. Then review the diff the way that reviewer would: correctness, dead code and unreferenced exports,
    duplicated logic, every comment and claim still true of the code, and the repository's rules.
-5. Blocking is decided by the kind of finding, not by how severe it feels. These are always blocking:
-   a previous blocking point not fully resolved; a read before a filter known before it; an unbounded window;
+5. Sweep the author's own fixes. For each condition, helper or field the change introduces or changes:
+   is the old form still used elsewhere in the module or its sibling routes (a fix applied to some
+   places only)? Does an equivalent already exist nearby (a helper written again)? Is a field the
+   producers fill overwritten before anything reads it (a later spread, a merge), and does its comment
+   name where it really comes from? When a fix depends on what a third-party library does (for
+   example, a call that silently does nothing for an unknown id), cite the library's own types or docs,
+   and check that a test fake can fail the way the library does.
+6. Blocking is decided by the kind of finding, not by how severe it feels. These are always blocking:
+   a previous blocking point not fully resolved; a fix applied to some of the places that need it;
+   state recorded as done before an unconfirmed library call; a read before a filter known before it; an unbounded window;
    OFFSET paging in a loop; a read with no deadline in a scheduled job; a lock or kill switch checked
    after work starts; a request hook that sets or clears cookies and then returns a response it built
    itself without those cookies reaching it (check whether anything adds queued cookies afterwards); dead code or an unreferenced export the change adds; a comment, doc or PR claim

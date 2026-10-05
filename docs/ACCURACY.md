@@ -139,6 +139,9 @@ was fixed or kept advisory:
 | `unbounded-window` | a time column read from a window's start (`window.from`) with no upper bound; a bare "since" is not reported | yes |
 | `duplicate-function` | a changed function (TypeScript or a Svelte script) whose body copies another in the files the change touched | yes |
 | `optional-for-tests` | an optional parameter or option that every production call passes and only tests omit | advisory: most hits are deliberate test seams |
+| `partial-fix` | a new named condition widens one (`a.length > 0 \|\| count > 0`) while the narrower form (`count > 0`) is still tested on its own in the same folder | yes |
+| `partial-wiring` | a callback the change adds to most same-kind mounts of the project's own component (`mode="quiz"`, in several files) but not one | yes |
+| `quadratic-copy` | an accumulator spread into a new copy on every step of a loop or reduce | advisory: true, but usually on small collections |
 
 Two more run on the branch as a whole before an agent stops or pushes: a
 **merge conflict** with main (`git merge-tree`, without touching the working

@@ -7,6 +7,9 @@ import { ConfigSchema } from '../types/index.js';
 import { parseDiff } from '../utils/diff.js';
 import { diffFromGit } from './git-diff.js';
 import { duplicateFunctionFailures } from './duplicate-functions.js';
+import { loopCopyFailures } from './loop-copies.js';
+import { partialFixFailures } from './partial-fixes.js';
+import { partialWiringFailures } from './partial-wiring.js';
 import { optionalParamFailures } from './optional-params.js';
 import { queryPatternFailures } from './query-patterns.js';
 
@@ -92,3 +95,60 @@ describe('duplicate functions', () => {
     });
 });
 
+describe('quadratic copies', () => {
+    it('reports an accumulator spread into a new copy on every step, not a push', () => {
+        write('src/group.ts', [
+            'export function group(items: { day: string }[]) {',
+            '  const groups = new Map<string, { day: string }[]>();',
+            '  for (const item of items) groups.set(item.day, [...(groups.get(item.day) ?? []), item]);',
+            '  const ids = items.reduce((acc: string[], item) => [...acc, item.day], []);',
+            '  const fast = new Map<string, string[]>();',
+            '  for (const item of items) (fast.get(item.day) ?? fast.set(item.day, []).get(item.day)!).push(item.day);',
+            '  return { groups, ids, fast };',
+            '}',
+        ].join('\n'));
+        expect(loopCopyFailures(repo, changed(), config).map(f => f.line)).toEqual([3, 4]);
+    });
+});
+
+describe('partial fixes', () => {
+    it('names the places that still test the narrower condition a new predicate widened', () => {
+        write('src/routes/session/page.server.ts', 'export function load(snapshot: any) {\n  if (snapshot.answeredCount > 0) return 1;\n  return 0;\n}\n');
+        write('src/routes/session/page.svelte', '<script lang="ts">\n  const show = data.snapshot.answeredCount > 0;\n</script>\n');
+        git('add', '-A');
+        git('commit', '-qm', 'before');
+        write('src/routes/session/page.server.ts', 'export function load(snapshot: any) {\n  if (snapshot.answeredCount > 0) return 1;\n  return 0;\n}\nexport const resume = (snapshot: any) => {\n  const hasSaved = snapshot.answers.length > 0 || snapshot.answeredCount > 0;\n  return hasSaved;\n};\n');
+        const found = partialFixFailures(repo, changed(), config);
+        expect(found.map(f => [f.id, f.line])).toEqual([['partial-fix', 6]]);
+        expect(found[0].details).toContain('page.server.ts:2');
+        expect(found[0].details).toContain('page.svelte:2');
+    });
+});
+
+describe('partial wiring', () => {
+    const mount = (extra: string) => `<script lang="ts">\n  import Player from '$lib/Player.svelte';\n</script>\n<Player\n  mode="quiz"\n  {questions}${extra}\n/>\n`;
+
+    it('reports a callback added to most same-kind mounts of a local component but not one', () => {
+        write('src/lib/Player.svelte', '<script lang="ts">let { onResume } = $props();</script>\n');
+        for (const route of ['a', 'b', 'c']) write(`src/routes/${route}/+page.svelte`, mount(''));
+        write('src/routes/d/+page.svelte', mount('').replace('mode="quiz"', 'mode="exam"'));
+        git('add', '-A');
+        git('commit', '-qm', 'mounts');
+        write('src/routes/a/+page.svelte', mount('\n  {onResume}'));
+        write('src/routes/b/+page.svelte', mount('\n  {onResume}'));
+        const found = partialWiringFailures(repo, changed(), config);
+        expect(found).toHaveLength(1);
+        expect(found[0].details).toContain('src/routes/c/+page.svelte');
+        expect(found[0].details).not.toContain('routes/d'); // another kind of mount
+    });
+
+    it('ignores styling props and components from packages', () => {
+        const icon = (extra: string) => `<script lang="ts">\n  import { Star } from 'lucide-svelte';\n</script>\n<Star class="h-4"${extra} />\n`;
+        for (const route of ['a', 'b', 'c']) write(`src/routes/${route}/+page.svelte`, icon(''));
+        git('add', '-A');
+        git('commit', '-qm', 'icons');
+        write('src/routes/a/+page.svelte', icon(' onHover={go}'));
+        write('src/routes/b/+page.svelte', icon(' onHover={go}'));
+        expect(partialWiringFailures(repo, changed(), config)).toEqual([]);
+    });
+});

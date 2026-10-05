@@ -25,6 +25,9 @@ import { unusedExportFailures } from './unused-exports.js';
 import { queryPatternFailures } from './query-patterns.js';
 import { optionalParamFailures } from './optional-params.js';
 import { duplicateFunctionFailures } from './duplicate-functions.js';
+import { loopCopyFailures } from './loop-copies.js';
+import { partialFixFailures } from './partial-fixes.js';
+import { partialWiringFailures } from './partial-wiring.js';
 import { isControlFile } from './trusted-state.js';
 import { baseCommit, baseFindings, splitIntroduced } from './baseline.js';
 
@@ -102,6 +105,9 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         ...queryPatternFailures(input.cwd, changedLines, input.config),
         ...optionalParamFailures(input.cwd, changedLines, input.config),
         ...duplicateFunctionFailures(input.cwd, changedLines, input.config),
+        ...loopCopyFailures(input.cwd, changedLines, input.config),
+        ...partialFixFailures(input.cwd, changedLines, input.config),
+        ...partialWiringFailures(input.cwd, changedLines, input.config),
     );
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);

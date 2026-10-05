@@ -24,7 +24,11 @@ export function duplicateFunctionFailures(cwd: string, changedLines: Record<stri
         bodies.push(...bodiesIn(cwd, file, lines));
     }
     const byKey = new Map<string, Body[]>();
-    for (const body of bodies) byKey.set(body.key, [...(byKey.get(body.key) ?? []), body]);
+    for (const body of bodies) {
+        const same = byKey.get(body.key);
+        if (same) same.push(body);
+        else byKey.set(body.key, [body]);
+    }
     const failures: Failure[] = [];
     for (const same of byKey.values()) {
         if (same.length < 2) continue;
