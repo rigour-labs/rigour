@@ -4,9 +4,14 @@
  * Every advertised tool costs every agent session its definition in context
  * and one more choice to get wrong, so the default is the core loop a single
  * agent needs. Other groups are opt-in through RIGOUR_MCP_TOOLS in the MCP
- * client's config, e.g. "governance,telemetry" or "full". Tools outside the
+ * client's config, e.g. "governance,telemetry" or "full". A repository whose
+ * rigour.yml turns on agent teams or checkpoints gets the governance group too,
+ * since its gates expect agents to register and check in. Tools outside the
  * advertised set stay callable; they are just not listed.
  */
+import fs from 'fs';
+import path from 'path';
+import yaml from 'yaml';
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
 
 export const TOOL_GROUPS = {
@@ -59,7 +64,17 @@ export function advertisedToolNames(spec: string | undefined = process.env.RIGOU
     return new Set(groups.filter((g): g is ToolGroup => g in TOOL_GROUPS).flatMap(g => [...TOOL_GROUPS[g]]));
 }
 
-export function getAdvertisedToolDefinitions(spec?: string) {
-    const names = advertisedToolNames(spec);
+/** The repository's rigour.yml enables a gate that needs the governance tools (agent_team, checkpoint). */
+export function repoNeedsGovernance(cwd: string): boolean {
+    try {
+        const gates = yaml.parse(fs.readFileSync(path.join(cwd, 'rigour.yml'), 'utf8'))?.gates ?? {};
+        return gates.agent_team?.enabled === true || gates.checkpoint?.enabled === true;
+    } catch {
+        return false;
+    }
+}
+
+export function getAdvertisedToolDefinitions(spec: string | undefined = process.env.RIGOUR_MCP_TOOLS, cwd = process.env.RIGOUR_CWD || process.cwd()) {
+    const names = advertisedToolNames([spec, repoNeedsGovernance(cwd) ? 'governance' : ''].filter(Boolean).join(','));
     return TOOL_DEFINITIONS.filter(t => names.has(t.name));
 }
