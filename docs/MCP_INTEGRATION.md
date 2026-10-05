@@ -74,6 +74,10 @@ Key tools:
 - **`rigour_check_pattern`**: whether to reuse an existing pattern, replace a stale approach, or stop for a security or protected-path issue.
 - **`rigour_recall`** / **`rigour_remember`**: memory in three scopes: `repo` (this repository), `user` (all your repositories) and `team` (shared as a candidate; teammates' agents receive it once a person promotes it). `rigour_recall` with `query` returns the few memories that match by meaning, plus promoted team knowledge when team mode is on. Credentials are refused on store and withheld on recall.
 
+Server environment:
+- `RIGOUR_CWD`: the repository a call works in when the call does not name one (tools and prompts alike); otherwise the directory the server was started in.
+- `RIGOUR_USER_MEMORY=off`: the server never reads or writes `user` memory (`~/.rigour/memory.json`); `rigour_remember` with `scope: "user"` is refused. Set it on a server that must stay apart from your other work, such as one per employer or client. Pair it with a separate `HOME`, and register no other server named `rigour` where that agent can reach it: a second server under the same name may answer its calls with your usual home.
+
 A repository without `rigour.yml` uses Rigour's defaults. Tool calls never write configuration into the repository; run `npx rigour init` for that.
 
 ### Guidance and impact metadata

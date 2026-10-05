@@ -47,6 +47,23 @@ export function userHome(): string {
     return process.env.RIGOUR_HOME || os.homedir();
 }
 
+/**
+ * False when RIGOUR_USER_MEMORY=off. A server kept apart from the user's other work (a private
+ * HOME per employer, a sandbox) then never reads or writes ~/.rigour/memory.json, even if it is
+ * started with the real home by mistake.
+ */
+export function userMemoryEnabled(): boolean {
+    return process.env.RIGOUR_USER_MEMORY?.trim().toLowerCase() !== 'off';
+}
+
+export const USER_MEMORY_OFF = 'User memory is off on this server (RIGOUR_USER_MEMORY=off); use scope "repo".';
+
+/** The repository a call works in: the call's own cwd, else RIGOUR_CWD, else where the server was started. */
+export function resolveCwd(args: unknown): string {
+    const given = (args as { cwd?: unknown } | undefined)?.cwd;
+    return typeof given === 'string' && given ? given : process.env.RIGOUR_CWD || process.cwd();
+}
+
 /** Where memories live: `repo` in this checkout's .rigour/, `user` in ~/.rigour/ for every repository. */
 export type LocalMemoryScope = 'repo' | 'user';
 
@@ -57,6 +74,7 @@ export async function getMemoryPath(cwd: string, scope: LocalMemoryScope = 'repo
 }
 
 export async function loadMemory(cwd: string, scope: LocalMemoryScope = 'repo'): Promise<MemoryStore> {
+    if (scope === 'user' && !userMemoryEnabled()) return { memories: {} };
     const memPath = await getMemoryPath(cwd, scope);
     if (await fs.pathExists(memPath)) {
         const content = await fs.readFile(memPath, "utf-8");
@@ -73,6 +91,7 @@ export async function loadMemory(cwd: string, scope: LocalMemoryScope = 'repo'):
 }
 
 export async function saveMemory(cwd: string, store: MemoryStore, scope: LocalMemoryScope = 'repo'): Promise<void> {
+    if (scope === 'user' && !userMemoryEnabled()) throw new Error(USER_MEMORY_OFF);
     const memPath = await getMemoryPath(cwd, scope);
     await fs.writeFile(memPath, JSON.stringify(store, null, 2));
 }
