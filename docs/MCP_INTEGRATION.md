@@ -76,7 +76,8 @@ Key tools:
 
 Server environment:
 - `RIGOUR_CWD`: the repository a call works in when the call does not name one (tools and prompts alike); otherwise the directory the server was started in.
-- `RIGOUR_USER_MEMORY=off`: the server never reads or writes `user` memory (`~/.rigour/memory.json`); `rigour_remember` with `scope: "user"` is refused. Set it on a server that must stay apart from your other work, such as one per employer or client. Pair it with a separate `HOME`, and register no other server named `rigour` where that agent can reach it: a second server under the same name may answer its calls with your usual home.
+- `RIGOUR_USER_MEMORY=off`: the server never reads or writes `user` memory (`~/.rigour/memory.json`); `rigour_remember` with `scope: "user"` is refused. Set it on a server that must stay apart from your other work, such as one per employer or client.
+- Profiles (`~/.rigour/profiles.json`, see [Profiles](PROFILES.md)) choose the home and team by repository. A server applies the profile of the repository it serves when it starts, and refuses a call for a repository of another profile, so even a single server registered globally (for example by a desktop app, which can reach every session) never answers one organization's call with another's memory or team.
 
 A repository without `rigour.yml` uses Rigour's defaults. Tool calls never write configuration into the repository; run `npx rigour init` for that.
 

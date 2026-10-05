@@ -15,6 +15,8 @@ Works with Claude Code, Cursor, Codex, Cline and Windsurf. Free, open source, an
 
 - **Mistakes stopped as they're written.** Leaked secrets, imports that don't exist, and bugs Rigour can prove are caught on every edit. The agent fixes them before moving on.
 - **A second look at the risky parts.** Before your agent says "done", Rigour points it at the changes most likely to hide a bug and asks it specific questions. It uses the model you already pay for.
+- **Nothing pushed unchecked.** Before your agent says "done", and again before it pushes, Rigour checks the whole branch: your own formatter, linter, type checker and the tests that touch the change, plus code the change added that nothing uses.
+- **A reviewer that remembers.** Optionally, before each push a fresh reviewer checks every point your human reviewer raised last time against the code, then looks for anything new. It runs on your own agent's login, with no key.
 - **A quiet safety net on pull requests.** At most two comments, only on what wasn't already checked, never repeated.
 - **It learns your codebase.** A mistake fixed once becomes a lesson your agents are told before they write similar code, so it isn't repeated.
 - **Proof you can see.** Studio shows what was stopped this week, what Rigour learned, and how often you overruled it.
@@ -55,6 +57,7 @@ Everything else is in `rigour help --all`.
 ## Built to be trusted
 
 - **It only speaks when it can prove it.** Guesses about style or size never block you and never show up on a PR.
+- **It reports what you changed, not what was already there.** An old problem in code you touched isn't put on your change.
 - **Say "not a bug" once.** That finding never comes back, and checks your team keeps overruling go quiet on their own.
 - **Your code stays on your machine.** Nothing is sent anywhere unless you add a model key, and then only the riskiest changes go to the model.
 - **You see what it costs.** When a model is used, Rigour records the real cost of each run.
@@ -68,7 +71,9 @@ Rigour is free. With an agent you need nothing else, because your agent does the
 
 **Pull request bot.** Add one workflow file and Rigour reviews every PR, quietly. With `enforce: true` it becomes a required check, and a PR can't dismiss its own findings. See [PR Bot](docs/PR_BOT.md).
 
-**Shared knowledge.** Point Rigour at a PostgreSQL database and lessons one person's agent learns can be shared with the whole team, after someone approves them. See [Enterprise & Teams](docs/ENTERPRISE.md).
+**Shared knowledge.** Point Rigour at a PostgreSQL database and lessons one person's agent learns can be shared with the whole team, after someone approves them. Only lessons from the team's own repositories are ever sent. See [Enterprise & Teams](docs/ENTERPRISE.md).
+
+**Working for more than one company?** Profiles keep each one's memory, lessons and team apart, chosen by the repository you're in. See [Profiles](docs/PROFILES.md).
 
 ## Learn more
 

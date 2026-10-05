@@ -59,7 +59,31 @@ Uses AST traversal to calculate **Cyclomatic Complexity**. It counts branches (i
 Ensures classes stay focused. If a class has more than 10-12 methods, it should likely be split into multiple smaller services.
 
 ### `commands`
-Any shell command that returns a non-zero exit code will cause the Rigour check to fail. This is where you integrate your existing CI tools.
+Any shell command that returns a non-zero exit code will cause the Rigour check to fail. This is where you integrate your existing CI tools. Without them, the push gate finds the project's own installed tools (prettier, eslint, svelte-check or tsc, vitest) and runs them on the changed files only; a tool set here is left to this command instead.
+
+### `unused_exports` and `orphan_files` (on by default)
+Dead code a change adds. `unused_exports`: an export on an added line whose name no other file contains (framework route exports, such as SvelteKit `load` or Next.js `metadata`, are skipped). `orphan_files`: a new code file nothing outside the change's new files imports or runs (routes, hooks, tests, migrations and config files are found by their runner and skipped). Both block a review, the stop hook and the push gate.
+
+```yaml
+gates:
+  unused_exports:
+    allow: [register]          # export names a tool loads by name
+  orphan_files:
+    allow: ['scripts/one-off/**'] # files a tool loads by path
+```
+
+### `review`
+
+```yaml
+review:
+  show_preexisting: false      # true lists findings the code already had before the change
+  github_account: my-login     # the account whose token fetches the PR's previous review (or set it in a profile)
+  reviewer:
+    enabled: false             # true runs the fresh reviewer at every push (rigour review --reviewer runs it on request)
+    command: claude            # your coding agent's CLI, run headless and read-only
+    model: claude-opus-5-5     # optional
+    timeout_ms: 900000
+```
 
 ---
 

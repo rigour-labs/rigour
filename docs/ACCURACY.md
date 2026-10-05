@@ -115,3 +115,13 @@ function at complexity 105 that reaches 109 is the same old problem). Findings
 in files the change adds always count as introduced; model findings are never
 compared. Set `review.show_preexisting: true` in `rigour.yml` to list them all.
 Rule scans read files in a fixed order, so the same code gives the same report.
+
+### Dead code a change adds
+
+Two deterministic checks run on what a change adds, and block a review, the
+stop hook and the push gate: an **unused export** (an export on an added line
+whose name no other tracked or new file contains; framework route exports are
+skipped) and an **orphaned file** (a new code file nothing outside the change's
+new files imports or runs; paths are resolved, so a common basename elsewhere
+never keeps a file alive). Rigour's own reports never count as a use. Both err
+toward saying nothing: a name mentioned anywhere else counts as used.
