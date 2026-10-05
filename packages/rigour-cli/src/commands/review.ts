@@ -19,6 +19,7 @@ import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsa
 import type { DeepOptions, DiffSource, QualityReceipt, ReviewResult } from '@rigour-labs/core';
 import { printReceipt, receiptFor } from './review-receipt.js';
 import { loadConfig, UsageError } from './review-config.js';
+import { deepProvider } from './deep-provider.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
 import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR } from './exit-codes.js';
 
@@ -144,7 +145,7 @@ function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'fo
         modelPath: options.modelPath,
         prBody: readPrBody(cwd, options),
         apiKey: resolved.apiKey,
-        provider: resolved.apiKey ? (resolved.provider || 'claude') : 'local',
+        provider: deepProvider(options.provider, resolved.provider, resolved.apiKey),
         apiBaseUrl: resolved.apiBaseUrl,
         modelName: resolved.modelName,
         independent: !!options.independent,

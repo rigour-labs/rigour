@@ -25,6 +25,11 @@ describe('telemetry consent', () => {
     it('never asks in CI or without a terminal, and keeps one random install id', () => {
         expect(shouldAskTelemetry(false, { env, home })).toBe(false);
         expect(shouldAskTelemetry(true, { env: { ...env, GITHUB_ACTIONS: 'true' }, home })).toBe(false);
+        setTelemetryEnabled(true, home);
+        for (const ci of ['JENKINS_URL', 'TF_BUILD', 'TEAMCITY_VERSION']) {
+            expect(isTelemetryEnabled({ env: { ...env, [ci]: 'x' }, home })).toBe(false); // a build agent's stored yes is not a CI opt-in
+            expect(isTelemetryEnabled({ env: { ...env, [ci]: 'x', RIGOUR_TELEMETRY: '1' }, home })).toBe(true);
+        }
         const first = setTelemetryEnabled(false, home).installId;
         expect(readTelemetryState(home).installId).toBe(first);
         expect(first).toMatch(/^[0-9a-f-]{36}$/);
