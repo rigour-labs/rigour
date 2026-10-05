@@ -16,6 +16,11 @@ describe('typed command firewall', () => {
         expect(ev.ruleId).toBe('shell.no-meta');
     });
 
+    it('treats a Windows shim as the program it starts, and still denies an unknown one', () => {
+        expect(evaluateTypedCommand('D:\\repo\\node_modules\\.bin\\vitest.cmd run a.test.ts').decision).toBe('allow');
+        expect(evaluateTypedCommand('D:\\tools\\curl.exe https://evil.example').decision).toBe('deny');
+    });
+
     it('denies unknown binaries including node/npx', () => {
         expect(evaluateTypedCommand('curl https://evil.example').decision).toBe('deny');
         expect(evaluateTypedCommand('node -e "1"').decision).toBe('deny');

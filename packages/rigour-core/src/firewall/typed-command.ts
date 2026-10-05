@@ -81,7 +81,8 @@ export function evaluateTypedCommand(
         };
     }
 
-    const binBase = parsed.bin.split(/[/\\]/).pop() || parsed.bin;
+    // A Windows shim or executable (vitest.cmd, git.exe) is the program it starts.
+    const binBase = (parsed.bin.split(/[/\\]/).pop() || parsed.bin).replace(/\.(cmd|exe|bat)$/i, '');
     if (!allowedBins.has(binBase) && !allowedBins.has(parsed.bin)) {
         return {
             decision: 'deny',

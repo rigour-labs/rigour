@@ -122,11 +122,14 @@ function expandHome(entry: string): string {
     return entry.replace(/^~(?=$|[\\/])/, os.homedir());
 }
 
+/** The real path; for a path that does not exist yet, its nearest existing parent's real path plus the rest. */
 function real(dir: string): string {
+    const absolute = path.resolve(dir);
     try {
-        return fs.realpathSync.native(path.resolve(dir));
+        return fs.realpathSync.native(absolute);
     } catch {
-        return path.resolve(dir);
+        const parent = path.dirname(absolute);
+        return parent === absolute ? absolute : path.join(real(parent), path.basename(absolute));
     }
 }
 
