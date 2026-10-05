@@ -165,7 +165,8 @@ export class GateRunner {
         this.gates.push(gate);
     }
 
-    async run(cwd: string, patterns?: string[], deepOptions?: DeepOptions & { onProgress?: (msg: string) => void }): Promise<Report> {
+    /** `record: false` leaves no trace (no local memory, no adaptive history): a comparison run, not a review. */
+    async run(cwd: string, patterns?: string[], deepOptions?: DeepOptions & { onProgress?: (msg: string) => void }, runOptions: { record?: boolean } = {}): Promise<Report> {
         const start = Date.now();
         const failures: Failure[] = [];
         const summary: Record<string, Status> = {};
@@ -345,6 +346,8 @@ export class GateRunner {
                 ...(deepStats ? { deep: deepStats } : {}),
             },
         };
+
+        if (runOptions.record === false) return report;
 
         // Store findings + reinforce patterns in local SQLite before returning.
         // CLI commands call process.exit(), so fire-and-forget writes can be dropped.

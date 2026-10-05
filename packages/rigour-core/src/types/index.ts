@@ -397,6 +397,8 @@ export const ConfigSchema = z.object({
     review: z.object({
         /** Let heuristic gates decide the verdict too; by default only findings that prove a defect do (quiet.ts). */
         include_heuristics: z.boolean().optional().default(false),
+        /** Also report findings the base already had; by default only what the change introduced is (baseline.ts). */
+        show_preexisting: z.boolean().optional().default(false),
     }).optional().default({}),
     planned: z.array(z.string()).optional().default([]),
     ignore: z.array(z.string()).optional().default([]),

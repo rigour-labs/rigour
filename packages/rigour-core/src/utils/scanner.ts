@@ -44,11 +44,13 @@ export class FileScanner {
         const ignore = [...new Set([...this.DEFAULT_IGNORE, ...userIgnore])].map(toGlobSeparators);
         const normalizedCwd = options.cwd.replace(/\\/g, '/');
 
-        return globby(directoriesAsGlobs(normalizedCwd, patterns), {
+        // Sorted: the walk's order varies run to run, and a check that names "the first file" must name the same one.
+        const files = await globby(directoriesAsGlobs(normalizedCwd, patterns), {
             cwd: normalizedCwd,
             ignore: withDirectoryForms(ignore),
             expandDirectories: false,
         });
+        return files.sort();
     }
 
     /**
