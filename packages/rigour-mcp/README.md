@@ -132,6 +132,8 @@ No global install: npx fetches the server when your agent starts it. Keep a vers
 
 Only Rigour's core tools are listed by default; add `"RIGOUR_MCP_TOOLS": "governance,telemetry"` (or `"full"`) to `env` for the rest. Node.js 22 or later is required.
 
+To keep a server apart from your other work (one per employer or client), add `"RIGOUR_USER_MEMORY": "off"`: it then never reads or writes the memories you keep for all your repositories.
+
 ---
 
 ## 📖 Documentation

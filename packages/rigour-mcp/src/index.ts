@@ -23,7 +23,7 @@ import { randomUUID } from "crypto";
 import { GateRunner, countUsage, flushDailyUsage } from "@rigour-labs/core";
 
 // Utils
-import { loadConfig, loadMcpSettings, logStudioEvent } from './utils/config.js';
+import { loadConfig, loadMcpSettings, logStudioEvent, resolveCwd } from './utils/config.js';
 import { bindServer } from './utils/notifications.js';
 import { getMcpVersion } from './utils/package-version.js';
 import { buildMcpResultMeta, buildStudioImpact } from './utils/impact-receipt.js';
@@ -110,7 +110,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const cwd = (args as any)?.cwd || process.cwd();
+    const cwd = resolveCwd(args);
     const requestId = randomUUID();
 
     try {
@@ -379,7 +379,7 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => ({
 
 server.setRequestHandler(GetPromptRequestSchema, async (request) => {
     const { name, arguments: promptArgs } = request.params;
-    const cwd = (promptArgs as any)?.cwd || process.env.RIGOUR_CWD || process.cwd();
+    const cwd = resolveCwd(promptArgs);
     const mcpSettings = await loadMcpSettings(cwd);
     const deepMode = mcpSettings.deep_default_mode;
 

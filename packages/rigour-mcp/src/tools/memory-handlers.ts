@@ -14,7 +14,7 @@
  * @since v2.17.0 — extracted from monolithic index.ts
  * @since v4.2.0  — DLP gate on memory persistence
  */
-import { loadMemory, saveMemory, type LocalMemoryScope } from '../utils/config.js';
+import { loadMemory, saveMemory, USER_MEMORY_OFF, userMemoryEnabled, type LocalMemoryScope } from '../utils/config.js';
 import {
     scanInputForCredentials,
     formatDLPAlert,
@@ -114,6 +114,8 @@ export async function handleRemember(cwd: string, key: string, value: string, sc
         };
     }
 
+    if (scope === 'user' && !userMemoryEnabled()) return { content: [{ type: "text", text: `MEMORY NOT STORED: ${USER_MEMORY_OFF}` }] };
+
     // ── DLP Gate: deep-scan key + value (including JSON interiors) ──
     const textToScan = deepScanValue(key, value);
     const dlpResult = scanInputForCredentials(textToScan);
@@ -173,6 +175,7 @@ async function shareWithTeam(cwd: string, key: string, value: string): Promise<s
 }
 
 export async function handleForget(cwd: string, key: string, scope: LocalMemoryScope = 'repo'): Promise<ToolResult> {
+    if (scope === 'user' && !userMemoryEnabled()) return { content: [{ type: "text", text: `NOTHING FORGOTTEN: ${USER_MEMORY_OFF}` }] };
     const store = await loadMemory(cwd, scope);
     if (!store.memories[key]) {
         return { content: [{ type: "text", text: `NO MEMORY FOUND for key "${key}" in ${scope} memory. Nothing to forget.` }] };

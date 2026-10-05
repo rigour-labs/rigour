@@ -69,3 +69,24 @@ describe('memory scopes', () => {
         expect(events).toContain('"type":"memory_stored"');
     });
 });
+
+describe('RIGOUR_USER_MEMORY=off', () => {
+    beforeEach(() => { process.env.RIGOUR_USER_MEMORY = 'off'; });
+    afterEach(() => { delete process.env.RIGOUR_USER_MEMORY; });
+
+    it("never reads the user's memory, so a sandboxed server cannot surface another repository's notes", async () => {
+        fs.mkdirSync(path.join(home, '.rigour'));
+        fs.writeFileSync(path.join(home, '.rigour', 'memory.json'), JSON.stringify({ memories: { infra: { value: 'Other employer host list.', timestamp: 't' } } }));
+        await handleRemember(repoA, 'deploy', 'Only deploy from main.');
+        const recalled = text(await handleRecall(repoA));
+        expect(recalled).toContain('Only deploy from main.');
+        expect(recalled).not.toContain('Other employer host list.');
+        expect(text(await handleRecall(repoA, { key: 'infra' }))).toContain('NO MEMORY FOUND');
+    });
+
+    it('refuses to store or forget a user memory, and writes nothing to the home', async () => {
+        expect(text(await handleRemember(repoA, 'style', 'Prefer tabs.', 'user'))).toContain('RIGOUR_USER_MEMORY=off');
+        expect(text(await handleForget(repoA, 'style', 'user'))).toContain('RIGOUR_USER_MEMORY=off');
+        expect(fs.readdirSync(home)).toEqual([]);
+    });
+});
