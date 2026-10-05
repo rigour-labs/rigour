@@ -2,12 +2,14 @@
  * Unused export: an export the change adds that no other file names.
  *
  * Linters skip exports (no-unused-vars only sees module scope) and type checkers accept them, so
- * dead exports pile up in agent-written code. Only exports on added lines are checked. A name
- * counts as used when any other tracked or new file contains it as a whole word, so the check errs
- * toward missing dead code rather than flagging live code. What a framework calls by convention
+ * dead exports pile up in agent-written code. Only exports on added lines are checked. Another
+ * file uses an export when it names the symbol as a whole word AND points at the module: an import,
+ * re-export, dynamic import or mock whose specifier ends in the module's name (its folder's, for an
+ * index file). A same-named word elsewhere, such as an unrelated route parameter, is not a use. What a framework calls by convention
  * (SvelteKit and Next.js route modules, hooks, serverless functions) is never reported.
  */
 import { spawnSync } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import type { Config, Failure } from '../types/index.js';
 
@@ -114,9 +116,30 @@ export function unusedExportFailures(cwd: string, diff: string, config: Config):
     if (candidates.length === 0) return [];
     const users = filesNaming(cwd, [...new Set(candidates.map(exp => exp.name))], ownOutputs(config));
     if (!users) return []; // git could not answer: say nothing rather than guess
+    const points = pointsAtCache(cwd);
     return candidates
-        .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp)))
+        .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && points(user, exp.file)))
         .map(unused);
+}
+
+/** Whether a file names `module` in a specifier: `from './dir/module'`, `import('../module.js')`, `vi.mock('$lib/module')`. */
+function pointsAtCache(cwd: string): (file: string, module: string) => boolean {
+    const texts = new Map<string, string>();
+    return (file, module) => {
+        const ext = path.posix.extname(module);
+        const stem = path.posix.basename(module, ext);
+        const names = stem === 'index' ? [path.posix.basename(path.posix.dirname(module)), 'index'] : [stem];
+        const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+        const specifier = new RegExp(`['"\`][^'"\`]*/(?:${escaped})(\\.(ts|tsx|js|jsx|mjs|svelte))?['"\`]`);
+        if (!texts.has(file)) {
+            try {
+                texts.set(file, fs.readFileSync(path.join(cwd, file), 'utf8'));
+            } catch {
+                texts.set(file, '');
+            }
+        }
+        return specifier.test(texts.get(file)!);
+    };
 }
 
 /** Rigour's own reports name exports and files; they must never count as a use. */

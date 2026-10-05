@@ -56,6 +56,25 @@ describe('unused exports', () => {
         expect(names).toEqual(['helper']);
     });
 
+    it('does not count the same word in a file that never imports the module', () => {
+        write('src/payload.ts', 'export function eventId(kind: string) { return kind; }\nexport const used = eventId("x");\n');
+        write('src/main2.ts', "import { used } from './payload';\nconsole.log(used);\n");
+        write('src/routes/[eventId]/handler.ts', "const eventId = 'route-param';\nconsole.log(eventId);\n");
+        write('src/schedule.ts', 'const eventId = 7;\nconsole.log(eventId);\n');
+        const names = unusedExportFailures(repo, diffFromGit(repo), config()).map(f => f.details.match(/`([^`]+)`/)![1]);
+        expect(names).toContain('eventId');
+        expect(names).not.toContain('used');
+    });
+
+    it('reports a type imported then exported again that nothing imports from here', () => {
+        write('src/entry.ts', "export type Entry = 'a' | 'b';\n");
+        write('src/resume.ts', "import type { Entry } from './entry';\nexport type { Entry };\nexport const pick = (e: Entry) => e;\n");
+        write('src/main.ts', "import { pick } from './resume';\nconsole.log(pick('a'));\n");
+        const found = unusedExportFailures(repo, diffFromGit(repo), config()).map(f => [f.files?.[0], f.details.match(/`([^`]+)`/)![1]]);
+        expect(found).toContainEqual(['src/resume.ts', 'Entry']);
+        expect(found).not.toContainEqual(['src/entry.ts', 'Entry']);
+    });
+
     it("never counts Rigour's own report as a use", () => {
         write('src/app.ts', 'export function start() {}\nexport const orphanName = 1;\n');
         write('rigour-report.json', '{"failures":[{"details":"orphanName"}]}\n');
