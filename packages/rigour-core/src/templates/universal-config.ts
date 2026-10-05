@@ -305,6 +305,11 @@ export const UNIVERSAL_CONFIG: Config = {
     review: {
         include_heuristics: false,
         show_preexisting: false,
+        reviewer: {
+            enabled: true,
+            command: 'claude',
+            timeout_ms: 900000,
+        },
     },
     planned: [],
     ignore: [],

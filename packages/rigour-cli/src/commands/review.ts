@@ -15,9 +15,10 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches } from '@rigour-labs/core';
-import type { DeepOptions, DiffSource, QualityReceipt, ReviewResult } from '@rigour-labs/core';
+import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
+import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { printReceipt, receiptFor } from './review-receipt.js';
+import { printReviewer, reviewerBase, reviewerFor, reviewerJson } from './review-reviewer.js';
 import { loadConfig, UsageError } from './review-config.js';
 import { deepProvider } from './deep-provider.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
@@ -42,6 +43,7 @@ export interface ReviewOptions {
     provider?: string;
     apiBaseUrl?: string;
     modelName?: string;
+    reviewer?: boolean;  // run the fresh reviewer (previous human review, diff, repo rules) after the rules
 }
 
 export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
@@ -66,12 +68,13 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         });
         if (options.base) recordPrCatches(cwd, result.findings);
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
-        await print(result, options, receipt);
+        const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config) : undefined;
+        await print(result, options, receipt, reviewer);
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
         }
         await reportUsage(result, isDeep, options, Date.now() - started);
-        process.exit(exitCodeFor(result));
+        process.exit(reviewer && reviewerBlocks(reviewer) ? Math.max(exitCodeFor(result), EXIT_FAIL) : exitCodeFor(result));
     } catch (error: any) {
         fail(error, options);
     }
@@ -152,16 +155,17 @@ function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'fo
     };
 }
 
-async function print(result: ReviewResult, options: ReviewOptions, receipt: QualityReceipt | null): Promise<void> {
+async function print(result: ReviewResult, options: ReviewOptions, receipt: QualityReceipt | null, reviewer?: ReviewerResult): Promise<void> {
     const summary = buildCiReviewSummary(result.findings, result.report?.failures.length ?? 0, result.changedLines,
         result.unlocated + result.fileFindings.length);
     if (result.deepError && !options.json) console.error(chalk.red(`Deep analysis did not run: ${result.deepError}`));
     if (result.gateErrors.length && !options.json) console.error(chalk.yellow(`Checks that crashed and did not run: ${result.gateErrors.join(', ')}`));
-    if (options.json) return writeJson(result, summary, receipt);
+    if (options.json) return writeJson(result, summary, receipt, reviewer);
     if (options.githubSummary) return void console.log(renderGithubSummary(summary));
     if (options.ci) return printCi(result);
     printHuman(result);
     if (receipt) printReceipt(receipt);
+    if (reviewer) printReviewer(reviewer);
 }
 
 /** The change as git sees it, for the receipt; undefined outside a git repository. */
@@ -173,7 +177,7 @@ function changeDiff(cwd: string, source: DiffSource): string | undefined {
     }
 }
 
-function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiReviewSummary>, receipt: QualityReceipt | null): Promise<void> {
+function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiReviewSummary>, receipt: QualityReceipt | null, reviewer?: ReviewerResult): Promise<void> {
     const stats = result.report?.stats;
     const json = JSON.stringify({
         status: result.status,
@@ -195,6 +199,7 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         control_files_changed: result.controlFilesChanged,
         gate_errors: result.gateErrors,
         ...(receipt ? { receipt: receiptReport(receipt) } : {}),
+        ...(reviewer ? { reviewer: reviewerJson(reviewer) } : {}),
     }, null, 2);
     return new Promise(resolve => process.stdout.write(json + '\n', () => resolve()));
 }

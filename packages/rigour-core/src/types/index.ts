@@ -409,6 +409,15 @@ export const ConfigSchema = z.object({
         include_heuristics: z.boolean().optional().default(false),
         /** Also report findings the base already had; by default only what the change introduced is (baseline.ts). */
         show_preexisting: z.boolean().optional().default(false),
+        /** The GitHub account whose token fetches the pull request's previous review (`gh auth token --user`). */
+        github_account: z.string().optional(),
+        /** The fresh reviewer run before a push (review/reviewer.ts): the person's own coding agent CLI, headless. */
+        reviewer: z.object({
+            enabled: z.boolean().optional().default(true),
+            command: z.string().optional().default('claude'),
+            model: z.string().optional(),
+            timeout_ms: z.number().optional().default(15 * 60_000),
+        }).optional().default({}),
     }).optional().default({}),
     planned: z.array(z.string()).optional().default([]),
     ignore: z.array(z.string()).optional().default([]),

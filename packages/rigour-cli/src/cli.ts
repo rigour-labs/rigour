@@ -269,6 +269,7 @@ program
     .option('--provider <name>', 'Cloud provider for deep analysis')
     .option('--api-base-url <url>', 'Custom API base URL')
     .option('--model-name <name>', 'Override cloud model name')
+    .option('--reviewer', 'Then run a fresh read-only reviewer (your coding agent CLI, no key): every point of the PR\'s previous human review checked against the code, then new blocking issues')
     .addHelpText('after', `
 Examples:
   $ rigour review                                      # Uncommitted changes, taken from git
