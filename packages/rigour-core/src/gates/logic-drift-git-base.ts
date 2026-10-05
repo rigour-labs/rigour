@@ -17,13 +17,16 @@ function git(cwd: string, args: string[]): string | null {
     }
 }
 
-/** Use a fixed commit for the entire scan; never move the baseline on read. */
-export function resolveGitLogicBase(cwd: string): GitLogicBase | null {
-    // Git reports the path relative to the worktree root without relying on
-    // platform-specific path casing or Windows short-name expansion.
-    const prefix = git(cwd, ['rev-parse', '--show-prefix']);
-    if (prefix === null || prefix.trim()) return null;
+export interface BranchBase {
+    /** The main branch as found: GITHUB_BASE_REF, else origin/main, main, origin/master, master. */
+    mainRef: string;
+    /** Where the branch left it (merge-base), or HEAD when on main itself. */
+    base: string;
+    onMain: boolean;
+}
 
+/** The commit a branch is measured against, or null outside a repository or without a main branch. */
+export function branchBase(cwd: string): BranchBase | null {
     const currentBranch = git(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'])?.trim();
     const candidates = [
         process.env.GITHUB_BASE_REF ? `refs/remotes/origin/${process.env.GITHUB_BASE_REF}` : '',
@@ -32,11 +35,20 @@ export function resolveGitLogicBase(cwd: string): GitLogicBase | null {
     ].filter(Boolean);
     const mainRef = candidates.find(ref => git(cwd, ['rev-parse', '--verify', '--quiet', ref])?.trim());
     if (!mainRef) return null;
+    const onMain = currentBranch === 'main' || currentBranch === 'master';
+    const base = onMain ? git(cwd, ['rev-parse', 'HEAD'])?.trim() : git(cwd, ['merge-base', 'HEAD', mainRef])?.trim();
+    return base ? { mainRef, base, onMain } : null;
+}
 
-    const base = currentBranch === 'main' || currentBranch === 'master'
-        ? git(cwd, ['rev-parse', 'HEAD'])?.trim()
-        : git(cwd, ['merge-base', 'HEAD', mainRef])?.trim();
-    if (!base) return null;
+/** Use a fixed commit for the entire scan; never move the baseline on read. */
+export function resolveGitLogicBase(cwd: string): GitLogicBase | null {
+    // Git reports the path relative to the worktree root without relying on
+    // platform-specific path casing or Windows short-name expansion.
+    const prefix = git(cwd, ['rev-parse', '--show-prefix']);
+    if (prefix === null || prefix.trim()) return null;
+    const branch = branchBase(cwd);
+    if (!branch) return null;
+    const base = branch.base;
 
     const diff = git(cwd, ['diff', '--name-only', '-z', '--diff-filter=ACMR', base, '--']);
     if (diff === null) return null;

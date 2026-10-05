@@ -20,6 +20,8 @@ export { isGeneratedFile } from './review/generated-files.js';
 export { countUsage, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';
 export { buildReviewTask, type ReviewTask, type ReviewTaskItem } from './review/review-task.js';
 export { buildQualityReceipt, receiptReport, type QualityReceipt, type ReceiptGap, type ReceiptOptions } from './review/receipt.js';
+export { runToolchain, type ToolResult, type ToolStatus } from './review/toolchain.js';
+export { branchBase, type BranchBase } from './gates/logic-drift-git-base.js';
 export { acknowledgeReview, type ReviewAck, type AckResult } from './review/review-ack.js';
 export { exportReviewed, readLedger, reviewedKeys, isReviewed, recordReview, REVIEWED_FILE, type LedgerEntry, type ReviewedKey, type ReviewVerdict } from './review/ledger.js';
 export { rankChangedFunctions, scoreRisk, functionHash, findFunction, type FunctionRisk, type RiskSignals } from './deep/risk.js';
