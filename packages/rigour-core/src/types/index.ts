@@ -282,6 +282,16 @@ export const GatesSchema = z.object({
         registry: z.string().optional(),
     }).optional().default({}),
     // A migration added on a branch that sorts before the newest one on the base (advisory, off by default).
+    /** Exports the change adds that no other file names (review/unused-exports.ts). */
+    unused_exports: z.object({
+        enabled: z.boolean().optional().default(true),
+        allow: z.array(z.string()).optional().default([]), // export names a tool loads by name
+    }).optional().default({}),
+    /** Code files the change adds that nothing imports or runs (review/orphan-files.ts). */
+    orphan_files: z.object({
+        enabled: z.boolean().optional().default(true),
+        allow: z.array(z.string()).optional().default([]), // globs for files a tool loads by path
+    }).optional().default({}),
     migration_order: z.object({
         enabled: z.boolean().optional().default(false),
         dirs: z.array(z.string()).optional().default(['**/supabase/migrations']),

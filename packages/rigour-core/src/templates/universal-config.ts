@@ -243,6 +243,14 @@ export const UNIVERSAL_CONFIG: Config = {
         deprecated_dependencies: {
             enabled: false,
         },
+        unused_exports: {
+            enabled: true,
+            allow: [],
+        },
+        orphan_files: {
+            enabled: true,
+            allow: [],
+        },
         migration_order: {
             enabled: false,
             dirs: ['**/supabase/migrations'],

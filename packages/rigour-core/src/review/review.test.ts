@@ -12,6 +12,9 @@ import { diffFromGit } from './git-diff.js';
 import { reviewChange, toReviewFinding } from './review.js';
 import { findingKey } from './quiet.js';
 
+/** These tests are about other checks; a new unreferenced fixture file is not their subject. */
+const NO_DEAD_CODE = { unused_exports: { enabled: false }, orphan_files: { enabled: false } };
+
 const LEAKY = [
     'export async function notify(endpoint: string, signature: string) {',
     "  return fetch(endpoint, { method: 'POST', headers: { 'x-hook-signature': signature } });",
@@ -163,7 +166,7 @@ describe('git-backed review', () => {
         git('commit', '-qm', 'init');
         git('checkout', '-q', '-b', 'pr');
         write('src/notify.ts', LEAKY);
-        const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true } } });
+        const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true }, ...NO_DEAD_CODE } });
         const key = findingKey((await reviewChange({ cwd: repo, config })).findings[0]);
         write('.rigour/dismissed.json', JSON.stringify({ version: 1, entries: [{ key, reason: 'trust me', at: 'now' }] }));
         git('add', '-A');
@@ -194,7 +197,7 @@ describe('git-backed review', () => {
 
     it('is ERROR when a proven gate crashed, and only lists a crashed heuristic gate', async () => {
         write('src/a.ts', 'export const a = 1;\n');
-        const config = ConfigSchema.parse({ version: 1 });
+        const config = ConfigSchema.parse({ version: 1, gates: NO_DEAD_CODE });
         const crash = (summary: Record<string, 'ERROR' | 'PASS'>) =>
             vi.spyOn(GateRunner.prototype, 'run').mockResolvedValueOnce({ status: 'FAIL', summary, failures: [], stats: { duration_ms: 0 } } as any);
 
