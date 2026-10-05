@@ -39,8 +39,11 @@ describe('rigour hooks stop', () => {
         expect(first.decision).toBe('block');
         expect(first.reason).toContain('src/notify.ts:2');
         expect(first.reason).toContain('attempt 1 of 3');
-        await hooksStopCommand('claude', payload, '/');
-        await hooksStopCommand('claude', payload, '/');
+        for (const n of [1, 2]) {
+            write('src/notify.ts', `${LEAKY}// attempt ${n}\n`); // the agent edits, still leaking
+            await hooksStopCommand('claude', payload, '/');
+        }
+        write('src/notify.ts', `${LEAKY}// attempt 3\n`);
         expect(await hooksStopCommand('claude', payload, '/')).toBe('');
     });
 
@@ -54,6 +57,8 @@ describe('rigour hooks stop', () => {
 
     it('lets the agent stop when only heuristic findings remain', async () => {
         write('src/load.ts', HEURISTIC);
+        write('src/main.ts', "import { load } from './load';\nvoid load('/');\n");
+        write('package.json', '{"scripts":{"start":"node src/main.ts"}}\n'); // wired in: not dead code
         expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 's2' }), '/')).toBe('');
     });
 
@@ -75,6 +80,40 @@ describe('rigour hooks stop', () => {
         git('commit', '-qm', 'hide it in a commit');
         const reply = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 's3' }), '/'));
         expect(reply.reason).toContain('src/notify.ts:2');
+    });
+
+    it('reviews the whole branch, including commits made before the session started', async () => {
+        git('checkout', '-q', '-b', 'feature');
+        write('src/notify.ts', LEAKY);
+        git('add', '-A');
+        git('commit', '-qm', 'earlier work on the branch');
+        const reply = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'branch' }), '/'));
+        expect(reply.reason).toContain('src/notify.ts:2');
+    });
+
+    it('says there was nothing to review instead of passing silently', async () => {
+        git('checkout', '-q', '-b', 'empty');
+        const said: string[] = [];
+        vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => { said.push(String(chunk)); return true; });
+        expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'empty' }), '/')).toBe('');
+        expect(said.join('')).toContain('nothing to review against main @');
+    });
+
+    it('holds the agent back on an export the branch added that nothing uses', async () => {
+        git('checkout', '-q', '-b', 'dead');
+        write('src/util.ts', 'export const used = 1;\nexport const forgotten = 2;\n');
+        write('src/main.ts', "import { used } from './util';\nconsole.log(used);\n");
+        const reply = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'dead' }), '/'));
+        expect(reply.reason).toContain('src/util.ts:2 Unused export');
+    });
+
+    it('does not repeat itself after a turn that changed nothing, and reviews again after an edit', async () => {
+        write('src/notify.ts', LEAKY);
+        const payload = JSON.stringify({ cwd: repo, session_id: 'quiet' });
+        expect(JSON.parse(await hooksStopCommand('claude', payload, '/')).decision).toBe('block');
+        expect(await hooksStopCommand('claude', payload, '/')).toBe(''); // a read-only turn: already said
+        write('src/notify.ts', LEAKY + '// touched\n');
+        expect(JSON.parse(await hooksStopCommand('claude', payload, '/')).decision).toBe('block');
     });
 
     it('ignores an attempt counter written into the workspace', async () => {
@@ -99,6 +138,7 @@ describe('the agent fix loop', () => {
         git('commit', '-qm', 'init');
         fs.mkdirSync(path.join(repo, 'src'));
         fs.writeFileSync(path.join(repo, 'src/notify.ts'), LEAKY);
+        fs.writeFileSync(path.join(repo, 'package.json'), '{"scripts":{"notify":"node src/notify.ts"}}\n'); // wired in: not dead code
 
         const payload = JSON.stringify({ cwd: repo, session_id: 'loop' });
         expect(JSON.parse(await hooksStopCommand('claude', payload, '/')).decision).toBe('block');

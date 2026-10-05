@@ -1,9 +1,12 @@
 /**
  * `rigour hooks stop --tool claude|cursor`: the stop hook.
  *
- * When the agent is about to finish, review what this session changed (since the
- * commit it started from, so committing hides nothing) and keep it working on
- * high-severity findings. Each tool's contract:
+ * When the agent is about to finish, review the branch against where it left main
+ * (on main, what this session changed since the commit it started from), so
+ * committing hides nothing, and keep it working on findings that must be fixed.
+ * A stop with nothing to review is logged as such, never as a clean pass, and a stop after a turn
+ * that changed nothing since the last review is let through without repeating it. Each
+ * tool's contract:
  *   - Claude Code `Stop`: print {"decision":"block","reason":...}; `stop_hook_active`
  *     marks a stop that a hook already extended.
  *   - Cursor `stop`: print {"followup_message": ...}; `loop_count` counts follow-ups.
@@ -17,7 +20,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
 import {
-    appendAgentEvent, clearStopAttempts, ConfigSchema, countUsage, nextStopAttempt, recordFixLessons, recordReviewOutcome,
+    alreadyReviewed, appendAgentEvent, clearStopAttempts, ConfigSchema, countUsage, nextStopAttempt, recordFixLessons, recordReviewed, recordReviewOutcome, workFingerprint,
     sessionBaseline, STOP_MAX_ATTEMPTS, stopReview, type Config,
 } from '@rigour-labs/core';
 
@@ -37,13 +40,19 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
     const cwd = payload.cwd || fallbackCwd;
     const session = payload.session_id || payload.conversation_id || 'default';
     if (!shouldReview(tool, payload)) return '';
+    // A turn that changed nothing since the last review has nothing new to say: no repeated list.
+    const fingerprint = workFingerprint(cwd);
+    if (alreadyReviewed(cwd, session, fingerprint)) return '';
     const attempt = nextStopAttempt(cwd, session);
     if (attempt > STOP_MAX_ATTEMPTS) return '';
     try {
-        const decision = await stopReview(cwd, await loadConfig(cwd), attempt, sessionBaseline(cwd, session));
-        appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking });
+        const decision = await stopReview(cwd, await loadHookConfig(cwd), attempt, sessionBaseline(cwd, session));
+        const nothing = decision.reviewedFiles.length === 0;
+        appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(nothing ? { nothing_to_review: true } : {}) });
+        if (nothing) process.stderr.write(`Rigour stop review: nothing to review against ${decision.against}.\n`);
         countUsage('stop_review');
         if (decision.block) countUsage(attempt > 1 ? 'stop_block_repeat' : 'stop_block');
+        recordReviewed(cwd, session, fingerprint);
         const capture = recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles, 'stop');
         await recordFixLessons(cwd, capture.fixes).catch(() => undefined); // learning never blocks the agent
         if (!decision.block) {
@@ -79,7 +88,8 @@ function parsePayload(stdin: string): StopPayload {
     }
 }
 
-async function loadConfig(cwd: string): Promise<Config> {
+/** The repository's rigour.yml, or the defaults; shared by the stop and push hooks. */
+export async function loadHookConfig(cwd: string): Promise<Config> {
     const file = path.join(cwd, 'rigour.yml');
     return ConfigSchema.parse(await fs.pathExists(file) ? yaml.parse(await fs.readFile(file, 'utf8')) : { version: 1 });
 }

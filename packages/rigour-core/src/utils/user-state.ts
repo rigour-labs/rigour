@@ -3,9 +3,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-/** The user's Rigour directory: RIGOUR_HOME/.rigour when set (tests, sandboxes), else ~/.rigour. */
+/** The home Rigour keeps its state under: RIGOUR_HOME when set (a profile, a sandbox, tests), else the OS home. */
+export function rigourHome(): string {
+    return process.env.RIGOUR_HOME || os.homedir();
+}
+
+/** The user's Rigour directory: `<rigourHome()>/.rigour`. Every piece of Rigour's own state lives under it. */
 export function rigourUserDir(): string {
-    return path.join(process.env.RIGOUR_HOME || os.homedir(), '.rigour');
+    return path.join(rigourHome(), '.rigour');
 }
 
 /**

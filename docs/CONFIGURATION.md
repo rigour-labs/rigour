@@ -59,7 +59,36 @@ Uses AST traversal to calculate **Cyclomatic Complexity**. It counts branches (i
 Ensures classes stay focused. If a class has more than 10-12 methods, it should likely be split into multiple smaller services.
 
 ### `commands`
-Any shell command that returns a non-zero exit code will cause the Rigour check to fail. This is where you integrate your existing CI tools.
+Any shell command that returns a non-zero exit code will cause the Rigour check to fail. This is where you integrate your existing CI tools. Without them, the push gate runs the project's own installed tools on the changed files (prettier, eslint, the tests vitest relates to them) and its type check: the `typecheck` or `check` script in package.json when there is one, else `svelte-kit sync` and svelte-check for a SvelteKit project, else tsc. A tool set here is left to this command instead. Nothing is ever downloaded; a tool the project did not install is reported as skipped.
+
+### `unused_exports` and `orphan_files` (on by default)
+Dead code a change adds. `unused_exports`: an export or re-export on an added line that no other file imports from its module (framework route exports, such as SvelteKit `load` or Next.js `metadata`, are skipped). `orphan_files`: a new code file nothing outside the change's new files imports or runs (routes, hooks, tests, migrations and config files are found by their runner and skipped). Both block a review, the stop hook and the push gate.
+
+```yaml
+gates:
+  unused_exports:
+    allow: [register]          # export names a tool loads by name
+  orphan_files:
+    allow: ['scripts/one-off/**'] # files a tool loads by path
+```
+
+### `query_patterns`, `duplicate_functions`, `optional_params` (on by default)
+Production-cost shapes and copies in what a change adds: offset paging in a loop or pager callback, a time window read from its start with no end, a function body copied from another in the touched files, and an optional parameter only tests omit (advisory). Turn any off with `enabled: false`.
+
+### `review`
+
+```yaml
+review:
+  show_preexisting: false      # true lists findings the code already had before the change
+  github_account: my-login     # the account whose token fetches the PR's previous review (or set it in a profile)
+  reviewer:
+    enabled: false             # true runs the fresh reviewer at every push (rigour review --reviewer runs it on request).
+                               # It reads every human review on the PR (with inline comments) and the PR description;
+                               # an open point the human marked non-blocking is listed, not held against the push.
+    command: claude            # your coding agent's CLI, run headless and read-only
+    model: claude-opus-5-5     # optional
+    timeout_ms: 900000
+```
 
 ---
 

@@ -1,3 +1,6 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { describe, it, expect } from 'vitest';
 import { TOOL_GROUPS, advertisedToolNames, getAdvertisedToolDefinitions } from './advertised-tools.js';
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
@@ -8,6 +11,15 @@ describe('advertised MCP tools', () => {
         expect([...names].sort()).toEqual([...TOOL_GROUPS.core].sort());
         expect(names.has('rigour_review')).toBe(true);
         expect(names.has('rigour_checkpoint')).toBe(false);
+    });
+
+    it("lists the governance tools when the repository's rigour.yml turns on agent teams or checkpoints", () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-governance-'));
+        const names = () => getAdvertisedToolDefinitions(undefined, repo).map(t => t.name);
+        expect(names()).not.toContain('rigour_checkpoint');
+        fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\ngates:\n  checkpoint:\n    enabled: true\n');
+        expect(names()).toEqual(expect.arrayContaining(['rigour_checkpoint', 'rigour_agent_register']));
+        fs.rmSync(repo, { recursive: true, force: true });
     });
 
     it('adds groups on request, keeps core, ignores unknown groups, and "full" lists them all', () => {

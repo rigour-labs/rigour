@@ -24,6 +24,7 @@ import { GateRunner, countUsage, flushDailyUsage } from "@rigour-labs/core";
 
 // Utils
 import { loadConfig, loadMcpSettings, logStudioEvent, resolveCwd } from './utils/config.js';
+import { profileMismatch } from '@rigour-labs/core/profile';
 import { bindServer } from './utils/notifications.js';
 import { getMcpVersion } from './utils/package-version.js';
 import { buildMcpResultMeta, buildStudioImpact } from './utils/impact-receipt.js';
@@ -112,6 +113,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     const cwd = resolveCwd(args);
     const requestId = randomUUID();
+    const foreign = profileMismatch(cwd);
+    if (foreign) return { content: [{ type: "text", text: `ERROR: ${foreign}` }], isError: true };
 
     try {
         await logStudioEvent(cwd, { type: "tool_call", requestId, tool: name, arguments: args });

@@ -103,3 +103,44 @@ its existing fields and adds `ci_summary` with `schema_version: 1` for bots.
 The summary never copies raw finding messages or source snippets; the full
 JSON report can contain source-derived details and should remain a private CI
 artifact. Deep analysis is opt-in and should use the same changed-line scope.
+
+### Only what the change introduced
+
+A review reports what the change introduced, not what the code it touched
+already had. The same rules run on the repository as it was at the base (the
+merge-base for `--base`, `HEAD` for uncommitted work), extracted read-only into
+a temporary folder, and a finding the base already had is counted as
+`preexisting` instead of reported, even when the change moved its numbers (a
+function at complexity 105 that reaches 109 is the same old problem). Findings
+in files the change adds always count as introduced; model findings are never
+compared. Set `review.show_preexisting: true` in `rigour.yml` to list them all.
+Rule scans read files in a fixed order, so the same code gives the same report.
+
+### Dead code a change adds
+
+Two deterministic checks run on what a change adds, and block a review, the
+stop hook and the push gate: an **unused export** (an export or re-export on an
+added line that no other file uses; a file uses it only when it names it and
+imports, re-exports, dynamically imports or mocks its module, so a same-named
+word elsewhere is not a use; framework route exports are skipped) and an
+**orphaned file** (a new code file nothing outside the change's new files
+imports or runs; paths are resolved, so a common basename elsewhere never keeps
+a file alive, and a group of new files that only import each other is reported
+together). Rigour's own reports never count as a use.
+
+Four more read the syntax tree of what a change adds. Before any of them was
+allowed to block, each ran over recent merged pull requests in several real
+repositories and every finding was judged; a check that raised a false alarm
+was fixed or kept advisory:
+
+| Check | What it reports | Blocks |
+| --- | --- | --- |
+| `offset-paging` | `.range()` / `.offset()` paging inside a loop, or in a callback handed to a pager | yes |
+| `unbounded-window` | a time column read from a window's start (`window.from`) with no upper bound; a bare "since" is not reported | yes |
+| `duplicate-function` | a changed function (TypeScript or a Svelte script) whose body copies another in the files the change touched | yes |
+| `optional-for-tests` | an optional parameter or option that every production call passes and only tests omit | advisory: most hits are deliberate test seams |
+
+Two more run on the branch as a whole before an agent stops or pushes: a
+**merge conflict** with main (`git merge-tree`, without touching the working
+tree) and a **reference to a deleted file** (a file that still names a path
+the branch deleted, matched as the whole path).

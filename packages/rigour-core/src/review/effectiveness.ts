@@ -21,6 +21,9 @@ export interface AgentEvent {
     blocked?: boolean;
     /** Findings that blocked a stop. */
     blocking?: number;
+    /** stop_review: what the review was measured against, and whether there was nothing to look at. */
+    against?: string;
+    nothing_to_review?: boolean;
     /** lessons_served: where the agent got them, and their subjects (learning-events.ts). */
     via?: string;
     lessons?: string[];

@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { rigourHome } from '../utils/user-state.js';
 import { MIXPANEL_TOKEN } from './token.js';
 
 const ENDPOINT = 'https://api.mixpanel.com/track?ip=0';
@@ -49,7 +50,7 @@ function file(home: string, name: string): string {
     return path.join(home, '.rigour', name);
 }
 
-export function readTelemetryState(home = os.homedir()): TelemetryState {
+export function readTelemetryState(home = rigourHome()): TelemetryState {
     try {
         const parsed = JSON.parse(fs.readFileSync(file(home, 'telemetry.json'), 'utf8'));
         if (typeof parsed?.installId === 'string') return { installId: parsed.installId, enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined };
@@ -59,7 +60,7 @@ export function readTelemetryState(home = os.homedir()): TelemetryState {
     return { installId: crypto.randomUUID() };
 }
 
-export function setTelemetryEnabled(enabled: boolean, home = os.homedir()): TelemetryState {
+export function setTelemetryEnabled(enabled: boolean, home = rigourHome()): TelemetryState {
     const state = { ...readTelemetryState(home), enabled };
     writeJson(file(home, 'telemetry.json'), state);
     return state;
@@ -129,7 +130,7 @@ interface Counters {
 export function countUsage(name: string, by = 1, deps: TelemetryDeps = {}): void {
     if (!isTelemetryEnabled(deps)) return;
     try {
-        const home = deps.home ?? os.homedir();
+        const home = deps.home ?? rigourHome();
         const counters = readCounters(home, deps.now ?? Date.now());
         counters.counts[name] = (counters.counts[name] ?? 0) + by;
         writeJson(file(home, 'telemetry-counters.json'), counters);
@@ -141,7 +142,7 @@ export function countUsage(name: string, by = 1, deps: TelemetryDeps = {}): void
 /** Send the day's counters as one `daily_usage` event once they are a day old, then start a new day. */
 export async function flushDailyUsage(deps: TelemetryDeps = {}): Promise<boolean> {
     if (!isTelemetryEnabled(deps)) return false;
-    const home = deps.home ?? os.homedir();
+    const home = deps.home ?? rigourHome();
     const now = deps.now ?? Date.now();
     const counters = readCounters(home, now);
     if (now - counters.since < DAY_MS || Object.keys(counters.counts).length === 0) return false;

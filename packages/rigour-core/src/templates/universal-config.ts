@@ -243,6 +243,23 @@ export const UNIVERSAL_CONFIG: Config = {
         deprecated_dependencies: {
             enabled: false,
         },
+        unused_exports: {
+            enabled: true,
+            allow: [],
+        },
+        orphan_files: {
+            enabled: true,
+            allow: [],
+        },
+        query_patterns: {
+            enabled: true,
+        },
+        optional_params: {
+            enabled: true,
+        },
+        duplicate_functions: {
+            enabled: true,
+        },
         migration_order: {
             enabled: false,
             dirs: ['**/supabase/migrations'],
@@ -296,6 +313,12 @@ export const UNIVERSAL_CONFIG: Config = {
     },
     review: {
         include_heuristics: false,
+        show_preexisting: false,
+        reviewer: {
+            enabled: false,
+            command: 'claude',
+            timeout_ms: 900000,
+        },
     },
     planned: [],
     ignore: [],

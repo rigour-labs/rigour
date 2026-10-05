@@ -12,6 +12,9 @@ import { diffFromGit } from './git-diff.js';
 import { reviewChange, toReviewFinding } from './review.js';
 import { findingKey } from './quiet.js';
 
+/** These tests are about other checks; a new unreferenced fixture file is not their subject. */
+const NO_DEAD_CODE = { unused_exports: { enabled: false }, orphan_files: { enabled: false } };
+
 const LEAKY = [
     'export async function notify(endpoint: string, signature: string) {',
     "  return fetch(endpoint, { method: 'POST', headers: { 'x-hook-signature': signature } });",
@@ -129,6 +132,33 @@ describe('git-backed review', () => {
         expect(toReviewFinding(semantic[0])).toMatchObject({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2, severity: 'high' });
     });
 
+    it('reports what the change introduced, not what the touched code already had', async () => {
+        const branchy = (name: string, extra = '') => [
+            `export function ${name}(x: number) {`,
+            ...Array.from({ length: 12 }, (_, i) => `  if (x === ${i}) return ${i};`),
+            extra,
+            '  return -1;',
+            '}',
+            '',
+        ].join('\n');
+        write('src/old.ts', branchy('legacy'));
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/old.ts', branchy('legacy', '  if (x === 99) return 99;'));
+        write('src/fresh.ts', branchy('fresh'));
+        const config = ConfigSchema.parse({ version: 1 });
+
+        const result = await reviewChange({ cwd: repo, config });
+        const complexity = [...result.findings, ...result.fileFindings, ...result.advisory].filter(f => f.id === 'AST_COMPLEXITY');
+        expect(complexity.map(f => f.files?.[0])).toEqual(['src/fresh.ts']);
+        expect(result.preexisting).toBeGreaterThanOrEqual(1);
+
+        const all = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1, review: { show_preexisting: true } }) });
+        const shown = [...all.findings, ...all.fileFindings, ...all.advisory].filter(f => f.id === 'AST_COMPLEXITY');
+        expect(shown.map(f => f.files?.[0]).sort()).toEqual(['src/fresh.ts', 'src/old.ts']);
+        expect(all.preexisting).toBe(0);
+    });
+
     it('lets a change dismiss its own finding only when the review trusts the working tree', async () => {
         write('src/old.ts', 'export const a = 1;\n');
         write('.gitignore', '.rigour/*\n!.rigour/dismissed.json\n');
@@ -136,7 +166,7 @@ describe('git-backed review', () => {
         git('commit', '-qm', 'init');
         git('checkout', '-q', '-b', 'pr');
         write('src/notify.ts', LEAKY);
-        const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true } } });
+        const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true }, ...NO_DEAD_CODE } });
         const key = findingKey((await reviewChange({ cwd: repo, config })).findings[0]);
         write('.rigour/dismissed.json', JSON.stringify({ version: 1, entries: [{ key, reason: 'trust me', at: 'now' }] }));
         git('add', '-A');
@@ -167,7 +197,7 @@ describe('git-backed review', () => {
 
     it('is ERROR when a proven gate crashed, and only lists a crashed heuristic gate', async () => {
         write('src/a.ts', 'export const a = 1;\n');
-        const config = ConfigSchema.parse({ version: 1 });
+        const config = ConfigSchema.parse({ version: 1, gates: NO_DEAD_CODE });
         const crash = (summary: Record<string, 'ERROR' | 'PASS'>) =>
             vi.spyOn(GateRunner.prototype, 'run').mockResolvedValueOnce({ status: 'FAIL', summary, failures: [], stats: { duration_ms: 0 } } as any);
 

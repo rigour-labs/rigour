@@ -2,7 +2,7 @@
  * Hook configuration templates for each AI coding tool.
  *
  * Each template generates the tool-native config format:
- * - Claude Code: .claude/settings.json (PostToolUse matcher)
+ * - Claude Code: .claude/settings.json (PostToolUse checks, Stop review, PreToolUse push gate)
  * - Cursor: .cursor/hooks.json (afterFileEdit event)
  * - Cline: .clinerules/hooks/PostToolUse (executable script)
  * - Windsurf: .windsurf/hooks.json (post_write_code event)
@@ -20,6 +20,22 @@ import { STOP_MAX_ATTEMPTS } from './stop-review.js';
 
 /** Seconds Claude Code waits for the stop review before letting the agent stop. */
 const STOP_HOOK_TIMEOUT_S = 120;
+
+/** Seconds Claude Code waits for the push gate: the project's tests and the reviewer can take minutes. */
+const PUSH_HOOK_TIMEOUT_S = 1800;
+
+/**
+ * The push gate for a Bash hook: a shell check passes every command that is not a git push straight
+ * through, so the agent's other commands never wait for Rigour to start.
+ */
+export function pushGateShell(rigourPushCommand: string): string {
+    return `sh -c 'payload=$(cat); case "$payload" in *git*push*) printf "%s" "$payload" | ${rigourPushCommand.replace(/'/g, `'\\''`)} ;; esac'`;
+}
+
+/** The `rigour hooks push` command matching a `rigour hooks check` command, if the checker is the CLI. */
+export function pushCommandFor(checkerCommand: string): string | undefined {
+    return /\bhooks check$/.test(checkerCommand.trim()) ? pushGateShell(`${checkerCommand.trim().replace(/hooks check$/, 'hooks push')} --stdin`) : undefined;
+}
 
 /** The `rigour hooks stop` command matching a `rigour hooks check` command, if the checker is the CLI. */
 export function stopCommandFor(checkerCommand: string, tool: 'claude' | 'cursor'): string | undefined {
@@ -65,9 +81,13 @@ function generateClaudeHooks(checkerCommand: string): GeneratedHookFile[] {
                     ]
                 }
             ],
-            // Before the agent finishes: review the uncommitted change, as `rigour hooks init` does.
+            // Before the agent finishes: review the branch against main, as `rigour hooks init` does.
             ...(stopCommandFor(checkerCommand, 'claude')
                 ? { Stop: [{ hooks: [{ type: "command", command: stopCommandFor(checkerCommand, 'claude'), timeout: STOP_HOOK_TIMEOUT_S }] }] }
+                : {}),
+            // Before an agent's git push: the push gate.
+            ...(pushCommandFor(checkerCommand)
+                ? { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: pushCommandFor(checkerCommand), timeout: PUSH_HOOK_TIMEOUT_S }] }] }
                 : {}),
         }
     };

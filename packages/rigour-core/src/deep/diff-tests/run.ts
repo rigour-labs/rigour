@@ -21,6 +21,7 @@ import { loadProjectConfig, programBatches } from '../../semantic/program.js';
 import { ProjectFacts } from '../../semantic/project-facts.js';
 import { changedFunctions, functionName, isExported } from '../changed-functions.js';
 import { safeCalls, testFileSource, type Runner } from './calls.js';
+import { installedBin } from '../../utils/installed-bin.js';
 
 export interface DiffTestInput {
     cwd: string;
@@ -142,7 +143,7 @@ async function record(root: string, head: string, target: Target, calls: string[
     const packageDir = path.join(root, path.relative(head, target.packageDir));
     fs.writeFileSync(testFile, testFileSource(target.runner, target.name, importPath, calls));
     try {
-        const runner = installedRunner(packageDir, root, target.runner);
+        const runner = installedBin(packageDir, root, target.runner);
         const command = runner && `${runner} ${target.runner === 'vitest' ? 'run ' : ''}${path.relative(packageDir, testFile)}`;
         if (!command || evaluateTypedCommand(command).decision !== 'allow') return {};
         const [bin, ...args] = command.split(' ');
@@ -152,16 +153,6 @@ async function record(root: string, head: string, target: Target, calls: string[
         fs.rmSync(testFile, { force: true });
         fs.rmSync(outFile, { force: true });
     }
-}
-
-/** The package's own installed runner, never a download: node_modules/.bin up to the repository root. */
-function installedRunner(packageDir: string, root: string, runner: Runner): string | undefined {
-    for (let dir = packageDir; dir.startsWith(root); dir = path.dirname(dir)) {
-        const bin = path.join(dir, 'node_modules', '.bin', runner);
-        if (fs.existsSync(bin)) return bin;
-        if (dir === root) break;
-    }
-    return undefined;
 }
 
 /** The base worktree has no installed packages: link the head's node_modules into it. */

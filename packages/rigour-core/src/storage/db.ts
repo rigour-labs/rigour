@@ -7,7 +7,6 @@
  * All public APIs are async. Graceful degradation if sqlite3 not installed.
  */
 import path from 'path';
-import os from 'os';
 import fs from 'fs-extra';
 import { createRequire } from 'module';
 import { rigourUserDir } from '../utils/user-state.js';
@@ -29,7 +28,7 @@ function loadSqlite3(): any {
     const searchPaths = [
         import.meta.url,
         `file://${process.cwd()}/package.json`,
-        `file://${path.join(os.homedir(), '.rigour', 'package.json')}`,
+        `file://${path.join(rigourUserDir(), 'package.json')}`,
     ];
 
     for (const base of searchPaths) {

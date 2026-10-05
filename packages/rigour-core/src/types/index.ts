@@ -282,6 +282,22 @@ export const GatesSchema = z.object({
         registry: z.string().optional(),
     }).optional().default({}),
     // A migration added on a branch that sorts before the newest one on the base (advisory, off by default).
+    /** Exports the change adds that no other file names (review/unused-exports.ts). */
+    unused_exports: z.object({
+        enabled: z.boolean().optional().default(true),
+        allow: z.array(z.string()).optional().default([]), // export names a tool loads by name
+    }).optional().default({}),
+    /** Query shapes that cost production: offset paging in a loop, a time window with no upper bound (review/query-patterns.ts). */
+    query_patterns: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    /** A parameter the change adds as optional that only tests omit (review/optional-params.ts). */
+    optional_params: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    /** A changed function whose body duplicates another in the files the change touched (review/duplicate-functions.ts). */
+    duplicate_functions: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    /** Code files the change adds that nothing imports or runs (review/orphan-files.ts). */
+    orphan_files: z.object({
+        enabled: z.boolean().optional().default(true),
+        allow: z.array(z.string()).optional().default([]), // globs for files a tool loads by path
+    }).optional().default({}),
     migration_order: z.object({
         enabled: z.boolean().optional().default(false),
         dirs: z.array(z.string()).optional().default(['**/supabase/migrations']),
@@ -397,6 +413,17 @@ export const ConfigSchema = z.object({
     review: z.object({
         /** Let heuristic gates decide the verdict too; by default only findings that prove a defect do (quiet.ts). */
         include_heuristics: z.boolean().optional().default(false),
+        /** Also report findings the base already had; by default only what the change introduced is (baseline.ts). */
+        show_preexisting: z.boolean().optional().default(false),
+        /** The GitHub account whose token fetches the pull request's previous review (`gh auth token --user`). */
+        github_account: z.string().optional(),
+        /** The fresh reviewer (review/reviewer.ts): the person's own coding agent CLI, headless. `enabled` runs it at every push; `rigour review --reviewer` runs it on request. */
+        reviewer: z.object({
+            enabled: z.boolean().optional().default(false),
+            command: z.string().optional().default('claude'),
+            model: z.string().optional(),
+            timeout_ms: z.number().optional().default(15 * 60_000),
+        }).optional().default({}),
     }).optional().default({}),
     planned: z.array(z.string()).optional().default([]),
     ignore: z.array(z.string()).optional().default([]),

@@ -11,7 +11,7 @@ const LEAKY = "export async function notify(endpoint: string, signature: string)
 describe('rigour_review', () => {
     let repo: string;
     const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
-    const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true } } });
+    const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true }, unused_exports: { enabled: false }, orphan_files: { enabled: false } } });
 
     beforeEach(() => {
         repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-review-'));

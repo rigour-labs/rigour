@@ -1,3 +1,4 @@
+import { spawnSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import { openDatabase } from './db.js';
@@ -5,6 +6,7 @@ import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js'
 import { TEAM_SCHEMA } from './team-schema.js';
 import { diagnoseMissingMembership, explainTeamConnectionError } from './team-diagnostics.js';
 import { rigourUserDir } from '../utils/user-state.js';
+import { withheldReason } from './team-scope.js';
 import {
     TEAM_VECTOR_SCHEMA,
     backfillConfiguredTeamEmbeddings,
@@ -19,6 +21,10 @@ export interface TeamConfiguration {
     actorId: string;
     databaseUrl?: string;
     semantic?: TeamSemanticConfiguration;
+    /** The team's repositories (`github.com/acme/*`); lessons from any other repository stay local. */
+    repositories?: string[];
+    /** Also send lessons marked personal (default false). */
+    syncPersonal?: boolean;
 }
 
 export interface TeamSemanticConfiguration {
@@ -106,11 +112,27 @@ export async function loadTeamConfiguration(): Promise<TeamConfiguration | null>
     const organizationId = nonEmpty(process.env.RIGOUR_ORGANIZATION_ID) ?? nonEmpty(file.organizationId);
     const teamId = nonEmpty(process.env.RIGOUR_TEAM_ID) ?? nonEmpty(file.teamId);
     const actorId = nonEmpty(process.env.RIGOUR_ACTOR_ID) ?? nonEmpty(file.actorId);
-    const databaseUrl = nonEmpty(process.env.RIGOUR_TEAM_DATABASE_URL) ?? nonEmpty(file.databaseUrl);
+    const databaseUrl = nonEmpty(process.env.RIGOUR_TEAM_DATABASE_URL) ?? databaseUrlFromCommand() ?? nonEmpty(file.databaseUrl);
     if (!organizationId || !teamId || !actorId || !databaseUrl) return null;
     const envSemantic = process.env.RIGOUR_TEAM_SEMANTIC === 'pgvector' ? DEFAULT_SEMANTIC : undefined;
     const semantic = envSemantic ?? (file.semantic?.provider === 'pgvector' ? DEFAULT_SEMANTIC : undefined);
-    return { organizationId, teamId, actorId, databaseUrl, semantic };
+    const envRepositories = nonEmpty(process.env.RIGOUR_TEAM_REPOSITORIES)?.split(',').map(r => r.trim()).filter(Boolean);
+    const repositories = envRepositories ?? (Array.isArray(file.repositories) ? file.repositories.filter(r => typeof r === 'string') : undefined);
+    const syncPersonal = process.env.RIGOUR_TEAM_SYNC_PERSONAL !== undefined ? process.env.RIGOUR_TEAM_SYNC_PERSONAL === '1' : file.syncPersonal === true;
+    return { organizationId, teamId, actorId, databaseUrl, semantic, repositories, syncPersonal };
+}
+
+let commandUrl: string | null | undefined;
+
+/** A profile's `databaseUrlCommand` (RIGOUR_TEAM_DATABASE_URL_COMMAND): run once per process, its output never stored. */
+function databaseUrlFromCommand(): string | undefined {
+    const command = nonEmpty(process.env.RIGOUR_TEAM_DATABASE_URL_COMMAND);
+    if (!command) return undefined;
+    if (commandUrl === undefined) {
+        const result = spawnSync(command, { shell: true, encoding: 'utf8', timeout: 15_000 });
+        commandUrl = result.status === 0 ? nonEmpty(result.stdout) ?? null : null;
+    }
+    return commandUrl ?? undefined;
 }
 
 export async function saveTeamConfiguration(config: TeamConfiguration): Promise<void> {
@@ -236,16 +258,34 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
     }
 }
 
-export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promise<{ pending: number; synced: number; pulled: number }> {
+/** Queued items split into those this team may receive and those that stay on this machine, with why. */
+async function splitOutbox(db: { get(sql: string, ...params: unknown[]): Promise<any> }, queued: any[], config: TeamConfiguration) {
+    const sendable: Array<{ item: any; lesson: any }> = [];
+    const held: Array<{ id: string; reason: string }> = [];
+    for (const item of queued) {
+        const lesson = await decryptLocalPayload<any>(item.payload_json);
+        const repo = await db.get('SELECT canonical_uri FROM repositories WHERE id = ?', lesson.repositoryId);
+        const reason = withheldReason(lesson.visibility, repo?.canonical_uri, config);
+        if (reason) held.push({ id: item.id, reason });
+        else sendable.push({ item, lesson });
+    }
+    return { sendable, held };
+}
+
+export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promise<{ pending: number; withheld: number; synced: number; pulled: number }> {
     const config = await loadTeamConfiguration();
     if (!config?.databaseUrl) throw new Error('Team mode is not configured.');
     const db = await openDatabase();
     if (!db) throw new Error('SQLite offline cache is unavailable.');
     try {
-        const pending = await db.all(
+        const queued = await db.all(
             `SELECT * FROM sync_outbox WHERE synced_at IS NULL ORDER BY created_at ASC LIMIT 200`,
         );
-        if (options.dryRun) return { pending: pending.length, synced: 0, pulled: 0 };
+        const { sendable: pending, held } = await splitOutbox(db, queued, config);
+        if (options.dryRun) return { pending: pending.length, withheld: held.length, synced: 0, pulled: 0 };
+        for (const item of held) {
+            await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = ? WHERE id = ?', Date.now(), `not sent: ${item.reason}`, item.id);
+        }
 
         const { Pool } = await loadPg();
         const pool = new Pool({ connectionString: config.databaseUrl });
@@ -259,8 +299,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
                 [config.teamId, config.actorId, config.organizationId],
             );
             if (membership.rowCount !== 1) throw new Error(await diagnoseMissingMembership(pool));
-            for (const item of pending) {
-                const lesson = await decryptLocalPayload<any>(item.payload_json);
+            for (const { item, lesson } of pending) {
                 try {
                     const result = await pool.query(
                         `INSERT INTO rigour.lessons (
@@ -326,7 +365,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
         } finally {
             await pool.end();
         }
-        return { pending: pending.length, synced, pulled };
+        return { pending: pending.length, withheld: held.length, synced, pulled };
     } finally {
         await db.close();
     }

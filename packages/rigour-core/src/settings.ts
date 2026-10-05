@@ -1,5 +1,5 @@
-import os from 'os';
 import path from 'path';
+import { rigourUserDir } from './utils/user-state.js';
 import fs from 'fs-extra';
 import { Logger, LogLevel } from './utils/logger.js';
 
@@ -80,8 +80,7 @@ export interface CLIDeepOptions {
  * Get the settings file path: ~/.rigour/settings.json
  */
 export function getSettingsPath(): string {
-  const homeDir = os.homedir();
-  return path.join(homeDir, '.rigour', 'settings.json');
+  return path.join(rigourUserDir(), 'settings.json');
 }
 
 /**

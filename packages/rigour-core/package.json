@@ -42,6 +42,10 @@
         "./pattern-index": {
             "types": "./dist/pattern-index/index.d.ts",
             "import": "./dist/pattern-index/index.js"
+        },
+        "./profile": {
+          "types": "./dist/utils/profile.d.ts",
+          "import": "./dist/utils/profile.js"
         }
     },
     "repository": {

@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'crypto';
 import fs from 'fs-extra';
 import type { FileHandle } from 'node:fs/promises';
-import os from 'os';
 import path from 'path';
+import { rigourUserDir } from '../utils/user-state.js';
 import type { CapabilityAction, CapabilityGrant, EnforcementMode } from './types.js';
 import { hashPolicy } from './policy-hash.js';
 
@@ -34,7 +34,7 @@ export function getRepositoryControlId(cwd: string): string {
     return createHash('sha256').update(canonicalRepository(cwd)).digest('hex').slice(0, 24);
 }
 
-export function getTrustedControlDir(cwd: string, controlRoot = path.join(os.homedir(), '.rigour', 'control')): string {
+export function getTrustedControlDir(cwd: string, controlRoot = path.join(rigourUserDir(), 'control')): string {
     return path.join(controlRoot, getRepositoryControlId(cwd));
 }
 
