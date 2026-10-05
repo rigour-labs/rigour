@@ -48,7 +48,7 @@ const GH_TIMEOUT_MS = 60_000;
 export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec): Promise<ReviewerResult> {
     const settings = config.review?.reviewer;
     const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim();
-    const previous = await previousHumanReview(cwd, config.review?.github_account, exec);
+    const previous = await previousHumanReview(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec);
     const cacheFile = await cachePath(cwd, head, previous.text, exec);
     if (cacheFile && fs.existsSync(cacheFile)) {
         return { verdict: JSON.parse(fs.readFileSync(cacheFile, 'utf8')), previousReview: previous.label, cached: true };

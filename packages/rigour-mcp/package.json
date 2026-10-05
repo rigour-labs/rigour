@@ -50,7 +50,7 @@
         "README.md"
     ],
     "bin": {
-        "rigour-mcp": "dist/index.js"
+        "rigour-mcp": "dist/bin.js"
     },
     "repository": {
         "type": "git",

@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import path from 'path';
-import os from 'os';
 import chalk from 'chalk';
 import { execa } from 'execa';
 import fs from 'fs-extra';
@@ -14,6 +13,7 @@ import { resolveStudioVersion } from './studio-contracts.js';
 import { loadStudioLearnedRules } from './studio-learned-rules.js';
 import { loadPrePrReview } from './studio-pre-pr.js';
 import { createStudioGuard, refuseStudioRequest, STUDIO_KEY_HEADER, studioLaunchUrl, type StudioGuard } from './studio-guard.js';
+import { rigourUserDir } from '@rigour-labs/core';
 
 type StudioContext = {
     cwd: string;
@@ -54,7 +54,7 @@ async function mergeMemoryStores(cwd: string): Promise<{ memories: Record<string
 
     const projectPath = path.join(cwd, '.rigour/memory.json');
     // Same home the MCP server writes user-scope memory to (RIGOUR_HOME when set).
-    const globalPath = path.join(process.env.RIGOUR_HOME || os.homedir(), '.rigour/memory.json');
+    const globalPath = path.join(rigourUserDir(), 'memory.json');
 
     for (const [label, filePath] of [
         ['project', projectPath],
@@ -173,7 +173,7 @@ async function handleApiRequest(
                 teamSync: Boolean(await (await import('@rigour-labs/core')).loadTeamConfiguration()),
                 studioVersion,
                 mcpVersion,
-                brainDb: path.join(os.homedir(), '.rigour/rigour.db'),
+                brainDb: path.join(rigourUserDir(), 'rigour.db'),
             });
         } catch (e: any) {
             res.writeHead(500);

@@ -14,6 +14,7 @@ import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
+import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
@@ -493,6 +494,25 @@ hooksCmd
         const reply = await hooksStopCommand(tool, Buffer.concat(chunks).toString('utf8'), process.cwd());
         if (reply) process.stdout.write(reply + '\n');
     });
+
+const profileCmd = program
+    .command('profile')
+    .description('One machine, many organizations: which home and team Rigour uses, chosen by repository');
+
+profileCmd.command('list').description('List profiles').action(() => profileListCommand());
+profileCmd.command('which').description('The profile and home that apply in this repository').action(() => profileWhichCommand(process.cwd()));
+profileCmd
+    .command('add <name>')
+    .description('Add or replace a profile')
+    .requiredOption('--match <entries>', 'Comma-separated path prefixes (~/work/acme) or origin remotes (github.com/acme/*)')
+    .option('--home <dir>', "The home whose .rigour/ holds this profile's state")
+    .option('--organization <id>', 'Team: organization id')
+    .option('--team <id>', 'Team: team id')
+    .option('--actor <id>', 'Team: actor id')
+    .option('--repositories <patterns>', "Team: the team's repositories (github.com/acme/*)")
+    .option('--database-url-command <command>', 'Team: a command that prints the database URL (never stored)')
+    .option('--github-account <login>', 'The GitHub account whose token fetches pull request reviews')
+    .action((name: string, options: any) => profileAddCommand(name, options));
 
 hooksCmd
     .command('push')

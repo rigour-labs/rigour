@@ -5,6 +5,8 @@ import { vi } from 'vitest';
 
 // State Rigour keeps outside the workspace (~/.rigour) goes to a throwaway home in tests, never the real one.
 process.env.RIGOUR_HOME ??= fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-home-'));
+// And the person's own profiles (~/.rigour/profiles.json) never steer a test.
+process.env.RIGOUR_PROFILES ??= path.join(process.env.RIGOUR_HOME, 'no-profiles.json');
 
 // Mock Transformers.js to avoid native binary dependency issues and speed up tests
 vi.mock('@xenova/transformers', () => ({

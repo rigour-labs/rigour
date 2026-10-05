@@ -1,3 +1,4 @@
+import { spawnSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import { openDatabase } from './db.js';
@@ -111,7 +112,7 @@ export async function loadTeamConfiguration(): Promise<TeamConfiguration | null>
     const organizationId = nonEmpty(process.env.RIGOUR_ORGANIZATION_ID) ?? nonEmpty(file.organizationId);
     const teamId = nonEmpty(process.env.RIGOUR_TEAM_ID) ?? nonEmpty(file.teamId);
     const actorId = nonEmpty(process.env.RIGOUR_ACTOR_ID) ?? nonEmpty(file.actorId);
-    const databaseUrl = nonEmpty(process.env.RIGOUR_TEAM_DATABASE_URL) ?? nonEmpty(file.databaseUrl);
+    const databaseUrl = nonEmpty(process.env.RIGOUR_TEAM_DATABASE_URL) ?? databaseUrlFromCommand() ?? nonEmpty(file.databaseUrl);
     if (!organizationId || !teamId || !actorId || !databaseUrl) return null;
     const envSemantic = process.env.RIGOUR_TEAM_SEMANTIC === 'pgvector' ? DEFAULT_SEMANTIC : undefined;
     const semantic = envSemantic ?? (file.semantic?.provider === 'pgvector' ? DEFAULT_SEMANTIC : undefined);
@@ -119,6 +120,19 @@ export async function loadTeamConfiguration(): Promise<TeamConfiguration | null>
     const repositories = envRepositories ?? (Array.isArray(file.repositories) ? file.repositories.filter(r => typeof r === 'string') : undefined);
     const syncPersonal = process.env.RIGOUR_TEAM_SYNC_PERSONAL !== undefined ? process.env.RIGOUR_TEAM_SYNC_PERSONAL === '1' : file.syncPersonal === true;
     return { organizationId, teamId, actorId, databaseUrl, semantic, repositories, syncPersonal };
+}
+
+let commandUrl: string | null | undefined;
+
+/** A profile's `databaseUrlCommand` (RIGOUR_TEAM_DATABASE_URL_COMMAND): run once per process, its output never stored. */
+function databaseUrlFromCommand(): string | undefined {
+    const command = nonEmpty(process.env.RIGOUR_TEAM_DATABASE_URL_COMMAND);
+    if (!command) return undefined;
+    if (commandUrl === undefined) {
+        const result = spawnSync(command, { shell: true, encoding: 'utf8', timeout: 15_000 });
+        commandUrl = result.status === 0 ? nonEmpty(result.stdout) ?? null : null;
+    }
+    return commandUrl ?? undefined;
 }
 
 export async function saveTeamConfiguration(config: TeamConfiguration): Promise<void> {
