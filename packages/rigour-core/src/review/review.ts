@@ -21,6 +21,7 @@ import { diffFromGit, type DiffSource } from './git-diff.js';
 import { diffTestFailures } from './diff-test-findings.js';
 import { migrationOrderFailures } from './migration-order.js';
 import { isControlFile } from './trusted-state.js';
+import { baseCommit, baseFindings, splitIntroduced } from './baseline.js';
 
 export interface ReviewInput {
     cwd: string;
@@ -53,6 +54,8 @@ export interface ReviewResult {
     dismissedByGate: Record<string, number>;
     unlocated: number;
     excludedOutsideChangedLines: number;
+    /** Findings the base already had: counted, not reported (baseline.ts). */
+    preexisting: number;
     changedLines: Record<string, Set<number>>;
     report: Report | null;
     deepError?: string;
@@ -82,10 +85,11 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff) };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff) };
     }
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
+    const preexisting = await dropPreexisting(input, report, targets);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     report.failures.push(...migrationOrderFailures(input.cwd, diff, input.source, input.config));
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
@@ -105,12 +109,29 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         contextFindings: split.contextFindings,
         unlocated: split.unlocated,
         excludedOutsideChangedLines: split.outside,
+        preexisting,
         changedLines,
         report,
         gateErrors,
         controlFilesChanged: controlFiles(diff),
         ...(deepError ? { deepError } : {}),
     };
+}
+
+/** Drop the rules' findings the base already had; returns how many. Model findings stay: the model reviews only the change. */
+async function dropPreexisting(input: ReviewInput, report: Report, targets: string[]): Promise<number> {
+    if (input.config.review?.show_preexisting) return 0;
+    const commit = baseCommit(input.cwd, input.source ?? (input.diff ? undefined : { mode: 'working' }));
+    const rules = report.failures.filter(f => f.provenance !== 'deep-analysis');
+    if (!commit || rules.length === 0) return 0;
+    try {
+        const { preexisting } = splitIntroduced(rules, await baseFindings(input.cwd, input.config, commit, targets));
+        const old = new Set(preexisting);
+        report.failures = report.failures.filter(f => !old.has(f));
+        return old.size;
+    } catch {
+        return 0; // the comparison is a courtesy; it never fails a review
+    }
 }
 
 /** Every path the diff touches (including deletions, which parseDiff drops) that steers Rigour itself. */

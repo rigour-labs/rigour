@@ -56,6 +56,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
             advisory_count: result.advisory.length,
             muted_count: result.muted,
             excluded_outside_changed_lines: result.excludedOutsideChangedLines,
+            preexisting_not_reported: result.preexisting,
             unlocated_failures: result.unlocated,
             gate_errors: result.gateErrors,
             ...qualityReceipt(config, cwd, diff),

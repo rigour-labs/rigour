@@ -103,3 +103,15 @@ its existing fields and adds `ci_summary` with `schema_version: 1` for bots.
 The summary never copies raw finding messages or source snippets; the full
 JSON report can contain source-derived details and should remain a private CI
 artifact. Deep analysis is opt-in and should use the same changed-line scope.
+
+### Only what the change introduced
+
+A review reports what the change introduced, not what the code it touched
+already had. The same rules run on the repository as it was at the base (the
+merge-base for `--base`, `HEAD` for uncommitted work), extracted read-only into
+a temporary folder, and a finding the base already had is counted as
+`preexisting` instead of reported, even when the change moved its numbers (a
+function at complexity 105 that reaches 109 is the same old problem). Findings
+in files the change adds always count as introduced; model findings are never
+compared. Set `review.show_preexisting: true` in `rigour.yml` to list them all.
+Rule scans read files in a fixed order, so the same code gives the same report.

@@ -4,10 +4,15 @@ import { globby } from 'globby';
 
 vi.mock('globby', async (importOriginal) => ({
     isDynamicPattern: (await importOriginal<typeof import('globby')>()).isDynamicPattern,
-    globby: vi.fn(),
+    globby: vi.fn(async () => [] as string[]),
 }));
 
 describe('FileScanner', () => {
+    it('returns files in a fixed order, whatever order the walk found them in', async () => {
+        vi.mocked(globby).mockResolvedValueOnce(['src/z.ts', 'scripts/a.ts', 'src/a.ts']);
+        expect(await FileScanner.findFiles({ cwd: '/test' })).toEqual(['scripts/a.ts', 'src/a.ts', 'src/z.ts']);
+    });
+
     it('should merge default ignores with user ignores', async () => {
         const options = {
             cwd: '/test',
@@ -16,7 +21,7 @@ describe('FileScanner', () => {
 
         await FileScanner.findFiles(options);
 
-        const call = vi.mocked(globby).mock.calls[0];
+        const call = vi.mocked(globby).mock.calls.at(-1)!;
         const ignore = (call[1] as any).ignore;
 
         expect(ignore).toContain('**/node_modules/**');

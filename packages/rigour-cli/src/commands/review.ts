@@ -191,6 +191,7 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         advisory: result.advisory.map(toReviewFinding),
         muted: result.muted,
         dismissed: result.dismissed,
+        preexisting: result.preexisting,
         control_files_changed: result.controlFilesChanged,
         gate_errors: result.gateErrors,
         ...(receipt ? { receipt: receiptReport(receipt) } : {}),
@@ -237,6 +238,7 @@ function printHuman(result: ReviewResult): void {
         console.log(chalk.yellow(`  [context] ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));
     }
     if (result.excludedOutsideChangedLines) console.log(chalk.dim(`  (${result.excludedOutsideChangedLines} issue(s) on unchanged lines were excluded)\n`));
+    if (result.preexisting) console.log(chalk.dim(`  (${result.preexisting} issue(s) the changed files already had before this change were not reported; review.show_preexisting: true lists them)\n`));
 }
 
 /** Without a model, point at the risky changed functions a person or their agent should still check. */

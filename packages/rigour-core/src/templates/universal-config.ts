@@ -296,6 +296,7 @@ export const UNIVERSAL_CONFIG: Config = {
     },
     review: {
         include_heuristics: false,
+        show_preexisting: false,
     },
     planned: [],
     ignore: [],

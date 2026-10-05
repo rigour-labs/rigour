@@ -129,6 +129,33 @@ describe('git-backed review', () => {
         expect(toReviewFinding(semantic[0])).toMatchObject({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2, severity: 'high' });
     });
 
+    it('reports what the change introduced, not what the touched code already had', async () => {
+        const branchy = (name: string, extra = '') => [
+            `export function ${name}(x: number) {`,
+            ...Array.from({ length: 12 }, (_, i) => `  if (x === ${i}) return ${i};`),
+            extra,
+            '  return -1;',
+            '}',
+            '',
+        ].join('\n');
+        write('src/old.ts', branchy('legacy'));
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/old.ts', branchy('legacy', '  if (x === 99) return 99;'));
+        write('src/fresh.ts', branchy('fresh'));
+        const config = ConfigSchema.parse({ version: 1 });
+
+        const result = await reviewChange({ cwd: repo, config });
+        const complexity = [...result.findings, ...result.fileFindings, ...result.advisory].filter(f => f.id === 'AST_COMPLEXITY');
+        expect(complexity.map(f => f.files?.[0])).toEqual(['src/fresh.ts']);
+        expect(result.preexisting).toBeGreaterThanOrEqual(1);
+
+        const all = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1, review: { show_preexisting: true } }) });
+        const shown = [...all.findings, ...all.fileFindings, ...all.advisory].filter(f => f.id === 'AST_COMPLEXITY');
+        expect(shown.map(f => f.files?.[0]).sort()).toEqual(['src/fresh.ts', 'src/old.ts']);
+        expect(all.preexisting).toBe(0);
+    });
+
     it('lets a change dismiss its own finding only when the review trusts the working tree', async () => {
         write('src/old.ts', 'export const a = 1;\n');
         write('.gitignore', '.rigour/*\n!.rigour/dismissed.json\n');
