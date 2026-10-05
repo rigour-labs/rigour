@@ -157,7 +157,7 @@ describe('git-backed review', () => {
         const shown = [...all.findings, ...all.fileFindings, ...all.advisory].filter(f => f.id === 'AST_COMPLEXITY');
         expect(shown.map(f => f.files?.[0]).sort()).toEqual(['src/fresh.ts', 'src/old.ts']);
         expect(all.preexisting).toBe(0);
-    });
+    }, 30_000); // two whole reviews, each running the rules on the change and on the base tree
 
     it('lets a change dismiss its own finding only when the review trusts the working tree', async () => {
         write('src/old.ts', 'export const a = 1;\n');

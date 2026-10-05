@@ -67,11 +67,13 @@ export function sessionBaseline(cwd: string, session: string): string | undefine
  * A stop in the same state as the last review (a turn that only read, or only talked) has
  * nothing new to review, so the agent is not told the same thing again.
  */
-export function workFingerprint(cwd: string): string | undefined {
+export function workFingerprint(cwd: string, ownOutputs: string[] = DEFAULT_OWN_OUTPUTS): string | undefined {
     const run = (args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    // Rigour's own files change on every review; where a repository does not ignore them, they must not count as work.
+    const pathspec = ['--', '.', ...ownOutputs.map(own => `:(exclude)${own}`)];
     const head = run(['rev-parse', '--verify', '--quiet', 'HEAD']);
-    const diff = run(['diff', 'HEAD', '--no-color', '--no-ext-diff']);
-    const untracked = run(['ls-files', '--others', '--exclude-standard', '-z']);
+    const diff = run(['diff', 'HEAD', '--no-color', '--no-ext-diff', ...pathspec]);
+    const untracked = run(['ls-files', '--others', '--exclude-standard', '-z', ...pathspec]);
     if (diff.status !== 0 || untracked.status !== 0) return undefined;
     const hash = createHash('sha256').update(head.stdout).update(diff.stdout);
     for (const file of untracked.stdout.split('\0').filter(Boolean)) {
@@ -84,6 +86,9 @@ export function workFingerprint(cwd: string): string | undefined {
     }
     return hash.digest('hex');
 }
+
+/** What a review writes into the repository: its state folder and its reports. */
+const DEFAULT_OWN_OUTPUTS = ['.rigour', 'rigour-report.json', 'rigour-fix-packet.json'];
 
 /** Whether the work is in the state the last stop review saw. */
 export function alreadyReviewed(cwd: string, session: string, fingerprint: string | undefined): boolean {

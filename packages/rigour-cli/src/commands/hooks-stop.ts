@@ -41,12 +41,18 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
     const session = payload.session_id || payload.conversation_id || 'default';
     if (!shouldReview(tool, payload)) return '';
     // A turn that changed nothing since the last review has nothing new to say: no repeated list.
-    const fingerprint = workFingerprint(cwd);
+    let config: Config | undefined;
+    try {
+        config = await loadHookConfig(cwd);
+    } catch {
+        // a broken rigour.yml is reported by the review below
+    }
+    const fingerprint = workFingerprint(cwd, ['.rigour', config?.output?.report_path ?? 'rigour-report.json', 'rigour-fix-packet.json']);
     if (alreadyReviewed(cwd, session, fingerprint)) return '';
     const attempt = nextStopAttempt(cwd, session);
     if (attempt > STOP_MAX_ATTEMPTS) return '';
     try {
-        const decision = await stopReview(cwd, await loadHookConfig(cwd), attempt, sessionBaseline(cwd, session));
+        const decision = await stopReview(cwd, config ?? await loadHookConfig(cwd), attempt, sessionBaseline(cwd, session));
         const nothing = decision.reviewedFiles.length === 0;
         appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(nothing ? { nothing_to_review: true } : {}) });
         if (nothing) process.stderr.write(`Rigour stop review: nothing to review against ${decision.against}.\n`);

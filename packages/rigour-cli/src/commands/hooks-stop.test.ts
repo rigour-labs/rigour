@@ -116,6 +116,18 @@ describe('rigour hooks stop', () => {
         expect(JSON.parse(await hooksStopCommand('claude', payload, '/')).decision).toBe('block');
     });
 
+    it("does not count Rigour's own files as new work where the repository does not ignore them", async () => {
+        write('.gitignore', ''); // a repository that does not ignore .rigour/ or the report
+        git('add', '-A');
+        git('commit', '-qm', 'ignore nothing');
+        write('src/notify.ts', LEAKY);
+        const payload = JSON.stringify({ cwd: repo, session_id: 'own-files' });
+        expect(JSON.parse(await hooksStopCommand('claude', payload, '/')).decision).toBe('block');
+        write('rigour-report.json', '{"rewritten":true}\n'); // what a review leaves behind
+        write('.rigour/scan-cache.json', '{}\n');
+        expect(await hooksStopCommand('claude', payload, '/')).toBe('');
+    });
+
     it('ignores an attempt counter written into the workspace', async () => {
         write('.rigour/stop-hook.json', JSON.stringify({ s4: 3 }));
         write('src/notify.ts', LEAKY);
