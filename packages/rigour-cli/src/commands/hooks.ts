@@ -35,6 +35,7 @@ import {
     recordSessionBaseline,
 } from '@rigour-labs/core';
 import type { HookCheckerResult } from '@rigour-labs/core';
+import { pushGateShell } from '@rigour-labs/core';
 import { groupFilesByRepo, recordEditCatches } from './hooks-check-repos.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
@@ -167,7 +168,7 @@ const PUSH_HOOK_TIMEOUT_S = 1800;
 /** The push gate: same pinned CLI, `hooks push`. */
 function pushHookCommand(checker: CheckerCommandSpec): string {
     const args = checker.args[checker.args.length - 1] === 'check' ? [...checker.args.slice(0, -1), 'push'] : [...checker.args, 'push'];
-    return checkerToShellCommand({ command: checker.command, args: [...args, '--stdin'] });
+    return pushGateShell(checkerToShellCommand({ command: checker.command, args: [...args, '--stdin'] }));
 }
 
 function shellEscape(arg: string): string {

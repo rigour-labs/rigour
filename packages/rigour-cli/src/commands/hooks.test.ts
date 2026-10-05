@@ -174,7 +174,8 @@ describe('hooksInitCommand — DLP integration', () => {
         expect(dlp.hooks[0].command).toContain('--mode dlp');
         expect(dlp.hooks[0].command).toMatch(/npx --yes @rigour-labs\/cli@\d+\.\d+\.\d+/);
         const push = settings.hooks.PreToolUse.find((h: any) => h.matcher === 'Bash');
-        expect(push.hooks[0]).toMatchObject({ command: expect.stringMatching(/hooks push --stdin$/), timeout: 1800 });
+        expect(push.hooks[0]).toMatchObject({ command: expect.stringContaining('hooks push --stdin'), timeout: 1800 });
+        expect(push.hooks[0].command).toContain('case "$payload" in *git*push*)'); // other commands never start Rigour
     });
 
     it('should generate Cursor hooks with DLP (beforeFileEdit) by default', async () => {

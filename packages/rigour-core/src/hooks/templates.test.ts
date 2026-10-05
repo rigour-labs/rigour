@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { generateHookFiles, pushCommandFor, stopCommandFor } from './templates.js';
+import { execFileSync } from 'child_process';
+import { generateHookFiles, pushCommandFor, pushGateShell, stopCommandFor } from './templates.js';
 
 const CHECKER = 'npx @rigour-labs/cli@6.5.0 hooks check';
 
@@ -13,8 +14,14 @@ describe('hook templates', () => {
 
     it("gates the agent's git push when the checker is the CLI", () => {
         const claude = JSON.parse(generateHookFiles('claude', CHECKER)[0].content);
-        expect(claude.hooks.PreToolUse[0]).toEqual({ matcher: 'Bash', hooks: [{ type: 'command', command: 'npx @rigour-labs/cli@6.5.0 hooks push --stdin', timeout: 1800 }] });
+        expect(claude.hooks.PreToolUse[0]).toEqual({ matcher: 'Bash', hooks: [{ type: 'command', command: expect.stringContaining('npx @rigour-labs/cli@6.5.0 hooks push --stdin'), timeout: 1800 }] });
         expect(pushCommandFor('node ./my-checker.js')).toBeUndefined();
+    });
+
+    it.skipIf(process.platform === 'win32')('starts the push gate only for a command that mentions git push', () => {
+        const run = (command: string) => execFileSync('sh', ['-c', pushGateShell('cat > /dev/null; echo gated; exit 2').replace(/^sh -c /, '').slice(1, -1)], { input: JSON.stringify({ tool_input: { command } }), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+        expect(run('npm test')).toBe('');
+        expect(() => run('git push -u origin main')).toThrow(); // the gate's exit 2 reaches the agent
     });
 
     it('adds no stop hook for a checker that is not the CLI', () => {
