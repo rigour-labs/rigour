@@ -119,9 +119,16 @@ Rule scans read files in a fixed order, so the same code gives the same report.
 ### Dead code a change adds
 
 Two deterministic checks run on what a change adds, and block a review, the
-stop hook and the push gate: an **unused export** (an export on an added line
-whose name no other tracked or new file contains; framework route exports are
-skipped) and an **orphaned file** (a new code file nothing outside the change's
-new files imports or runs; paths are resolved, so a common basename elsewhere
-never keeps a file alive). Rigour's own reports never count as a use. Both err
-toward saying nothing: a name mentioned anywhere else counts as used.
+stop hook and the push gate: an **unused export** (an export or re-export on an
+added line that no other file uses; a file uses it only when it names it and
+imports, re-exports, dynamically imports or mocks its module, so a same-named
+word elsewhere is not a use; framework route exports are skipped) and an
+**orphaned file** (a new code file nothing outside the change's new files
+imports or runs; paths are resolved, so a common basename elsewhere never keeps
+a file alive, and a group of new files that only import each other is reported
+together). Rigour's own reports never count as a use.
+
+Two more run on the branch as a whole before an agent stops or pushes: a
+**merge conflict** with main (`git merge-tree`, without touching the working
+tree) and a **reference to a deleted file** (a file that still names a path
+the branch deleted, matched as the whole path).
