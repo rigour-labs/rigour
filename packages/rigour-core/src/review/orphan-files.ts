@@ -27,12 +27,15 @@ const REFERRER = /\.(ts|tsx|js|jsx|mjs|cjs|svelte|json|ya?ml|toml|sh)$/;
 const MAX_REFERRER_BYTES = 2 * 1024 * 1024;
 const SPECIFIER = /['"`\s]((?:\.{1,2}\/|\$lib\/|[\w@-]+\/)[^'"`\s]*)/g;
 
-const withoutExtension = (file: string) => file.replace(/\.(ts|tsx|js|jsx|mjs|cjs|svelte)$/, '').replace(/\/index$/, '');
+/** A module as importers name it: `x.svelte.ts` is imported as `./x.svelte` or `./x.svelte.js`, `dir/index.ts` as `dir`. */
+const withoutExtension = (file: string) => file.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, '').replace(/\.svelte$/, '').replace(/\/index$/, '');
+/** Build output committed to the repository: bundles, not sources anyone imports. */
+const BUILD_OUTPUT = /(^|\/)(dist|build|out|coverage|\.next|[\w-]+-dist)\//;
 
 export function orphanFileFailures(cwd: string, diff: string, config: Config): Failure[] {
     const settings = config.gates.orphan_files;
     if (!settings?.enabled) return [];
-    const added = addedFiles(diff).filter(file => CODE.test(file) && !FOUND_BY_RUNNER.test(file) && !micromatch.isMatch(file, settings.allow));
+    const added = addedFiles(diff).filter(file => CODE.test(file) && !FOUND_BY_RUNNER.test(file) && !BUILD_OUTPUT.test(file) && !micromatch.isMatch(file, settings.allow));
     if (added.length === 0) return [];
     const excluded = ownOutputs(config);
     const files = repositoryFiles(cwd)?.filter(file => !excluded.some(own => file === own || file.startsWith(`${own}/`)));
@@ -50,6 +53,12 @@ function repositoryFiles(cwd: string): string[] | undefined {
 /** For each added file, the files that name it. */
 function referrersOf(cwd: string, added: string[], files: string[]): Map<string, Set<string>> {
     const targets = new Map(added.map(file => [withoutExtension(path.posix.normalize(file)), file]));
+    const underFolder = new Map<string, string[]>();
+    for (const file of added) {
+        for (let dir = path.posix.dirname(file); dir !== '.' && dir !== '/'; dir = path.posix.dirname(dir)) {
+            underFolder.set(dir, [...(underFolder.get(dir) ?? []), file]);
+        }
+    }
     const referrers = new Map(added.map(file => [file, new Set<string>()]));
     for (const referrer of files) {
         if (!REFERRER.test(referrer)) continue;
@@ -62,8 +71,11 @@ function referrersOf(cwd: string, added: string[], files: string[]): Map<string,
         }
         for (const [, specifier] of text.matchAll(SPECIFIER)) {
             for (const candidate of resolve(referrer, specifier)) {
-                const target = targets.get(withoutExtension(path.posix.normalize(candidate)));
+                const named = withoutExtension(path.posix.normalize(candidate)).replace(/\/+$/, '');
+                const target = targets.get(named);
                 if (target && target !== referrer) referrers.get(target)!.add(referrer);
+                // A folder named in code (a fixtures or plugins directory read at run time) reaches every file under it.
+                for (const file of underFolder.get(named) ?? []) if (file !== referrer) referrers.get(file)!.add(referrer);
             }
         }
     }

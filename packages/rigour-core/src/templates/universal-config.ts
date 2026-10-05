@@ -251,6 +251,15 @@ export const UNIVERSAL_CONFIG: Config = {
             enabled: true,
             allow: [],
         },
+        query_patterns: {
+            enabled: true,
+        },
+        optional_params: {
+            enabled: true,
+        },
+        duplicate_functions: {
+            enabled: true,
+        },
         migration_order: {
             enabled: false,
             dirs: ['**/supabase/migrations'],

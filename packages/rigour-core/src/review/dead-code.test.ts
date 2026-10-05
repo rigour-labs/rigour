@@ -92,8 +92,12 @@ describe('package layout', () => {
         write('packages/lib/package.json', '{"name":"lib","main":"dist/index.js","types":"dist/index.d.ts"}\n');
         write('packages/lib/src/index.ts', "export { helper, type Shape } from './helper';\n");
         write('packages/lib/src/helper.ts', 'export type Shape = { a: 1 };\nexport const helper = 1;\n');
+        write('packages/lib/src/tools/index.ts', "export { toolA } from './a';\n");
+        write('packages/lib/src/tools/a.ts', 'export const toolA = 1;\n');
+        write('packages/lib/src/index.ts', "export { helper, type Shape } from './helper';\nexport * from './tools/index.js';\n");
         const reported = unusedExportFailures(repo, diffFromGit(repo), config()).map(f => f.files?.[0]);
         expect(reported).not.toContain('packages/lib/src/index.ts');
+        expect(reported).not.toContain('packages/lib/src/tools/index.ts'); // re-exported whole by the entry
     });
 
     it('keeps an exported type in a signature when the project emits declarations, and only then', () => {

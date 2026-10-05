@@ -16,7 +16,7 @@ import { emitsDeclarations, isPackageEntry } from './package-layout.js';
 
 const GIT_TIMEOUT_MS = 10_000;
 const CODE = /\.(ts|tsx|js|jsx|mjs|svelte)$/;
-const SKIPPED = /\.(test|spec)\.|\.d\.ts$/;
+const SKIPPED = /\.(test|spec)\.|\.d\.ts$|(^|\/)(dist|build|out|coverage|\.next|[\w-]+-dist)\//;
 
 /** What a route or hook module exports for its framework, not for an importer. */
 const FRAMEWORK_EXPORTS = new Set([

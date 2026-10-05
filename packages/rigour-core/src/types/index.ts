@@ -287,6 +287,12 @@ export const GatesSchema = z.object({
         enabled: z.boolean().optional().default(true),
         allow: z.array(z.string()).optional().default([]), // export names a tool loads by name
     }).optional().default({}),
+    /** Query shapes that cost production: offset paging in a loop, a time window with no upper bound (review/query-patterns.ts). */
+    query_patterns: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    /** A parameter the change adds as optional that only tests omit (review/optional-params.ts). */
+    optional_params: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    /** A changed function whose body duplicates another in the files the change touched (review/duplicate-functions.ts). */
+    duplicate_functions: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** Code files the change adds that nothing imports or runs (review/orphan-files.ts). */
     orphan_files: z.object({
         enabled: z.boolean().optional().default(true),

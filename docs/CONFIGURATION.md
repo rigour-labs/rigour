@@ -72,6 +72,9 @@ gates:
     allow: ['scripts/one-off/**'] # files a tool loads by path
 ```
 
+### `query_patterns`, `duplicate_functions`, `optional_params` (on by default)
+Production-cost shapes and copies in what a change adds: offset paging in a loop or pager callback, a time window read from its start with no end, a function body copied from another in the touched files, and an optional parameter only tests omit (advisory). Turn any off with `enabled: false`.
+
 ### `review`
 
 ```yaml

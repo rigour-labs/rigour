@@ -7,9 +7,10 @@
  * reported as a clean pass.
  *
  * Only findings that deserve it block: critical ones, high ones that are proven
- * (the semantic engine traced them) or security findings, and dead code the
- * change added (an unused export, an orphaned file: certain, and quick to fix), and on a branch a
- * merge conflict with main or a mention of a file the branch deleted (review/branch-checks.ts).
+ * (the semantic engine traced them) or security findings, findings the change added that are
+ * certain from the code alone (MUST_FIX: dead code, offset paging, an unbounded window, a
+ * duplicate function), and on a branch a merge conflict with main or a mention of a file the
+ * branch deleted (review/branch-checks.ts).
  * A high heuristic (a regex that sees `fetch` without `.catch`) is not enough to
  * hold an agent back; callers also cap the number of attempts.
  */
@@ -73,12 +74,13 @@ export function reviewAckMessage(items: ReviewTaskItem[], attempt: number): stri
     ].join('\n');
 }
 
-const DEAD_CODE = new Set(['unused-export', 'orphan-file']);
+/** Certain from the code alone, and quick to fix (each measured with no false alarms before it blocks). */
+const MUST_FIX = new Set(['unused-export', 'orphan-file', 'offset-paging', 'unbounded-window', 'duplicate-function']);
 
-/** Critical; high and either proven by the semantic engine or a security finding; or dead code the change added. */
+/** Critical; high and either proven by the semantic engine or a security finding; or a certain, local finding the change added (MUST_FIX). */
 export function blocksStop(finding: Failure): boolean {
     const severity = (finding.severity || 'medium') as Severity;
-    if (severity === 'critical' || DEAD_CODE.has(finding.id)) return true;
+    if (severity === 'critical' || MUST_FIX.has(finding.id)) return true;
     return severity === 'high' && (finding.verified === true || finding.provenance === 'security');
 }
 

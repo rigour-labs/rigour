@@ -16,7 +16,7 @@ export function sourceStem(relative: string): string {
 }
 
 /** The source files a package.json points at (main, module, types, bin, exports), as repository-relative stems. */
-export function packageEntryStems(cwd: string, packageJson: string): string[] {
+function packageEntryStems(cwd: string, packageJson: string): string[] {
     let pkg: any;
     try {
         pkg = JSON.parse(fs.readFileSync(path.join(cwd, packageJson), 'utf8'));
@@ -33,14 +33,50 @@ export function packageEntryStems(cwd: string, packageJson: string): string[] {
     return targets.filter(t => t.startsWith('./') || !t.startsWith('.')).map(t => path.posix.normalize(path.posix.join(dir, sourceStem(t))));
 }
 
-/** The package entry points among all package.json files on the path from `file` up to the repository root. */
+/**
+ * Whether `file` is part of a package's public surface: an entry point a package.json on its path
+ * names, or a module an entry re-exports whole (`export * from './hooks/index.js'`), followed down.
+ */
 export function isPackageEntry(cwd: string, file: string): boolean {
     const stem = file.replace(/\.(ts|tsx|mts|cts|js|jsx|mjs|svelte)$/, '');
     for (let dir = path.posix.dirname(file); ; dir = path.posix.dirname(dir)) {
         const candidate = dir === '.' ? 'package.json' : `${dir}/package.json`;
-        if (fs.existsSync(path.join(cwd, candidate)) && packageEntryStems(cwd, candidate).includes(stem)) return true;
+        if (fs.existsSync(path.join(cwd, candidate)) && publicStems(cwd, candidate).has(stem)) return true;
         if (dir === '.' || dir === '/') return false;
     }
+}
+
+const publicCache = new Map<string, Set<string>>();
+
+/** Entry stems plus every module they re-export whole, transitively. */
+function publicStems(cwd: string, packageJson: string): Set<string> {
+    const key = `${cwd}\0${packageJson}`;
+    const cached = publicCache.get(key);
+    if (cached) return cached;
+    const stems = new Set<string>();
+    const queue = packageEntryStems(cwd, packageJson);
+    while (queue.length) {
+        const stem = queue.shift()!;
+        if (stems.has(stem)) continue;
+        stems.add(stem);
+        const text = readSource(cwd, stem);
+        for (const match of text.matchAll(/export\s+\*\s+(?:as\s+\w+\s+)?from\s+['"](\.[^'"]+)['"]/g)) {
+            queue.push(path.posix.normalize(path.posix.join(path.posix.dirname(stem), match[1].replace(COMPILED_EXT, '').replace(/\.(ts|tsx|mts|cts)$/, ''))));
+        }
+    }
+    publicCache.set(key, stems);
+    return stems;
+}
+
+function readSource(cwd: string, stem: string): string {
+    for (const ext of ['.ts', '.tsx', '.mts', '.js', '.mjs']) {
+        try {
+            return fs.readFileSync(path.join(cwd, stem + ext), 'utf8');
+        } catch {
+            // try the next extension
+        }
+    }
+    return '';
 }
 
 /** Whether the TypeScript project around `file` emits declarations (declaration or composite, following extends). */

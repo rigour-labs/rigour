@@ -22,6 +22,9 @@ import { diffTestFailures } from './diff-test-findings.js';
 import { migrationOrderFailures } from './migration-order.js';
 import { orphanFileFailures } from './orphan-files.js';
 import { unusedExportFailures } from './unused-exports.js';
+import { queryPatternFailures } from './query-patterns.js';
+import { optionalParamFailures } from './optional-params.js';
+import { duplicateFunctionFailures } from './duplicate-functions.js';
 import { isControlFile } from './trusted-state.js';
 import { baseCommit, baseFindings, splitIntroduced } from './baseline.js';
 
@@ -95,6 +98,11 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     report.failures.push(...migrationOrderFailures(input.cwd, diff, input.source, input.config));
     report.failures.push(...unusedExportFailures(input.cwd, diff, input.config), ...orphanFileFailures(input.cwd, diff, input.config));
+    report.failures.push(
+        ...queryPatternFailures(input.cwd, changedLines, input.config),
+        ...optionalParamFailures(input.cwd, changedLines, input.config),
+        ...duplicateFunctionFailures(input.cwd, changedLines, input.config),
+    );
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);
     const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics, input.trustedRef);
