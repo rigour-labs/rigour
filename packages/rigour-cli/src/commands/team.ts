@@ -32,6 +32,8 @@ teamCommand
     .requiredOption('--actor <id>', 'Actor identifier provisioned for the database role')
     .option('--initialize-schema', 'Create or update the Rigour schema (administrator only)')
     .option('--pgvector', 'Use pgvector to rank team knowledge semantically')
+    .option('--repositories <patterns>', "The team's repositories, comma-separated (github.com/acme/*); lessons from any other repository stay on this machine")
+    .option('--sync-personal', 'Also send lessons marked personal (default: they stay on this machine)')
     .action(async (options) => {
         if (options.initializeSchema && !await initializeSchemaOrReport(options.databaseUrl, Boolean(options.pgvector))) return;
         const config = {
@@ -44,7 +46,10 @@ teamCommand
                 model: 'Xenova/all-MiniLM-L6-v2' as const,
                 dimensions: 384 as const,
             } : undefined,
+            repositories: typeof options.repositories === 'string' ? options.repositories.split(',').map((r: string) => r.trim()).filter(Boolean) : undefined,
+            syncPersonal: Boolean(options.syncPersonal),
         };
+        if (!config.repositories?.length) console.log(chalk.yellow('No --repositories given: nothing will be sent to the team until you list them.'));
         const result = await doctorTeamConnection(config);
         if (result.connectivity !== 'online') {
             console.error(chalk.red(`Team database check failed; configuration not saved. ${result.message}`));
@@ -101,7 +106,7 @@ teamCommand
 
 teamCommand
     .command('sync')
-    .description('Synchronize queued personal and shared lesson changes')
+    .description("Send queued lessons from the team's repositories, and receive the team's")
     .option('--dry-run', 'Report pending records without sending them')
     .action(async (options) => {
         const result = await syncTeamOutbox({ dryRun: Boolean(options.dryRun) });

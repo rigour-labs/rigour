@@ -9,8 +9,11 @@ rigour team configure \
   --database-url 'postgresql://USER:PASSWORD@HOST/DB?sslmode=verify-full' \
   --organization ORG_ID \
   --team TEAM_ID \
-  --actor ACTOR_ID
+  --actor ACTOR_ID \
+  --repositories 'github.com/ORG/*'
 ```
+
+**What leaves the machine.** One machine often works in repositories of more than one organization, and Rigour's local store holds lessons from all of them. `rigour team sync` sends a lesson only when its repository's `origin` remote matches one of `--repositories` (`github.com/ORG/*` for every repository under an owner, or an exact `github.com/ORG/REPO`). With no list, nothing is sent. Lessons marked personal stay on the machine unless you add `--sync-personal`. Anything held back is marked `not sent: <reason>` in the local outbox and is not retried; `rigour team sync --dry-run` reports how many would be held back. The same settings can come from `RIGOUR_TEAM_REPOSITORIES` (comma-separated) and `RIGOUR_TEAM_SYNC_PERSONAL=1`.
 
 An administrator can initialize the schema independently. Add `--pgvector` only when the database provides the `vector` extension:
 
@@ -48,7 +51,7 @@ rigour team semantic-backfill
 
 The import is idempotent for a lesson version and preserves candidate or validated
 state. It assigns unowned legacy personal lessons to the configured actor, never
-publishes them as team knowledge, and skips lessons owned by another actor.
+publishes them as team knowledge, and skips lessons owned by another actor. Imported personal lessons are only sent when `--sync-personal` is set.
 
 Use `rigour team semantic-search 'your engineering question'` to inspect ranked candidates and their provenance without changing policy or lesson state.
 
