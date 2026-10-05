@@ -411,9 +411,9 @@ export const ConfigSchema = z.object({
         show_preexisting: z.boolean().optional().default(false),
         /** The GitHub account whose token fetches the pull request's previous review (`gh auth token --user`). */
         github_account: z.string().optional(),
-        /** The fresh reviewer run before a push (review/reviewer.ts): the person's own coding agent CLI, headless. */
+        /** The fresh reviewer (review/reviewer.ts): the person's own coding agent CLI, headless. `enabled` runs it at every push; `rigour review --reviewer` runs it on request. */
         reviewer: z.object({
-            enabled: z.boolean().optional().default(true),
+            enabled: z.boolean().optional().default(false),
             command: z.string().optional().default('claude'),
             model: z.string().optional(),
             timeout_ms: z.number().optional().default(15 * 60_000),

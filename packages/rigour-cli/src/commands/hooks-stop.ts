@@ -42,7 +42,7 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
     const attempt = nextStopAttempt(cwd, session);
     if (attempt > STOP_MAX_ATTEMPTS) return '';
     try {
-        const decision = await stopReview(cwd, await loadConfig(cwd), attempt, sessionBaseline(cwd, session));
+        const decision = await stopReview(cwd, await loadHookConfig(cwd), attempt, sessionBaseline(cwd, session));
         const nothing = decision.reviewedFiles.length === 0;
         appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(nothing ? { nothing_to_review: true } : {}) });
         if (nothing) process.stderr.write(`Rigour stop review: nothing to review against ${decision.against}.\n`);
@@ -83,7 +83,8 @@ function parsePayload(stdin: string): StopPayload {
     }
 }
 
-async function loadConfig(cwd: string): Promise<Config> {
+/** The repository's rigour.yml, or the defaults; shared by the stop and push hooks. */
+export async function loadHookConfig(cwd: string): Promise<Config> {
     const file = path.join(cwd, 'rigour.yml');
     return ConfigSchema.parse(await fs.pathExists(file) ? yaml.parse(await fs.readFile(file, 'utf8')) : { version: 1 });
 }

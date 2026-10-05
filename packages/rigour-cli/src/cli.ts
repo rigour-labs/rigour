@@ -13,6 +13,7 @@ import { exportAuditCommand } from './commands/export-audit.js';
 import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
+import { hooksPushCommand } from './commands/hooks-push.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
@@ -491,6 +492,18 @@ hooksCmd
         const tool = options.tool === 'cursor' ? 'cursor' : 'claude';
         const reply = await hooksStopCommand(tool, Buffer.concat(chunks).toString('utf8'), process.cwd());
         if (reply) process.stdout.write(reply + '\n');
+    });
+
+hooksCmd
+    .command('push')
+    .description('Push gate: before an agent runs git push, run the review, the repository\'s own tools and (if enabled) the reviewer on the branch; exit 2 blocks the push. Reads the PreToolUse payload on stdin')
+    .option('--stdin', 'Read the hook payload from stdin (the default)')
+    .action(async () => {
+        const chunks: Buffer[] = [];
+        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
+        const result = await hooksPushCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
+        if (result.message) process.stderr.write(result.message + '\n');
+        process.exit(result.exitCode);
     });
 
 hooksCmd

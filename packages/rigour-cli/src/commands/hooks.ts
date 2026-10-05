@@ -161,6 +161,14 @@ function stopHookCommand(checker: CheckerCommandSpec, tool: 'claude' | 'cursor')
 
 /** Seconds Claude Code waits for the stop review before letting the agent stop. */
 const STOP_HOOK_TIMEOUT_S = 120;
+/** Seconds Claude Code waits for the push gate: the project's tests and the reviewer can take minutes. */
+const PUSH_HOOK_TIMEOUT_S = 1800;
+
+/** The push gate: same pinned CLI, `hooks push`. */
+function pushHookCommand(checker: CheckerCommandSpec): string {
+    const args = checker.args[checker.args.length - 1] === 'check' ? [...checker.args.slice(0, -1), 'push'] : [...checker.args, 'push'];
+    return checkerToShellCommand({ command: checker.command, args: [...args, '--stdin'] });
+}
 
 function shellEscape(arg: string): string {
     if (/^[A-Za-z0-9_/@%+=:,.-]+$/.test(arg)) {
@@ -218,21 +226,27 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         }],
     };
 
-    // Before the agent finishes: review the uncommitted change (rigour hooks stop).
+    // Before the agent finishes: review the branch against main (rigour hooks stop).
     hooks.Stop = [{
         hooks: [{ type: "command" as const, command: stopHookCommand(checker, 'claude'), timeout: STOP_HOOK_TIMEOUT_S }],
     }];
 
-    // DLP: Add PreToolUse hook for credential warnings
+    // Before an agent's git push: the branch must pass the review, the project's tools and the reviewer.
+    const preToolUse: unknown[] = [{
+        matcher: "Bash",
+        hooks: [{ type: "command" as const, command: pushHookCommand(checker), timeout: PUSH_HOOK_TIMEOUT_S }],
+    }];
+    // DLP: credential warnings before any tool runs
     if (dlp) {
-        hooks.PreToolUse = [{
+        preToolUse.push({
             matcher: ".*",
             hooks: [{
                 type: "command" as const,
                 command: `${checkerCommand} --mode dlp --stdin`,
             }]
-        }];
+        });
     }
+    hooks.PreToolUse = preToolUse;
 
     const settings = { hooks };
 
@@ -240,8 +254,8 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         path: '.claude/settings.json',
         content: JSON.stringify(settings, null, 4),
         description: dlp
-            ? 'Claude Code hooks — PostToolUse quality checks, Stop review before done, PreToolUse DLP credential warnings'
-            : 'Claude Code hooks — PostToolUse quality checks, Stop review before done',
+            ? 'Claude Code hooks — PostToolUse quality checks, Stop review before done, push gate, PreToolUse DLP credential warnings'
+            : 'Claude Code hooks — PostToolUse quality checks, Stop review before done, push gate',
     }];
 }
 

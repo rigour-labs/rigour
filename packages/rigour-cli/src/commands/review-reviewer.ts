@@ -13,7 +13,6 @@ export function reviewerBase(cwd: string, named: string | undefined): string | u
 
 export async function reviewerFor(cwd: string, base: string | undefined, config: Config): Promise<ReviewerResult> {
     if (!base) return { error: 'no base to review against: pass --base, or fetch the main branch', cached: false };
-    if (!config.review?.reviewer?.enabled) return { error: 'review.reviewer.enabled is false', cached: false };
     return runReviewer(cwd, base, config);
 }
 
