@@ -257,6 +257,9 @@ export const UNIVERSAL_CONFIG: Config = {
         optional_params: {
             enabled: true,
         },
+        change_sweep: {
+            enabled: true,
+        },
         duplicate_functions: {
             enabled: true,
         },

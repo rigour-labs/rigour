@@ -22,7 +22,7 @@ import type { Failure } from '../types/index.js';
 import { checkId, isMuted, readOutcomes, recordOutcome, reportedCheck } from './check-outcomes.js';
 import { readStateFile } from './trusted-state.js';
 
-const PROVEN_GATES = new Set(['semantic-bugs', 'hallucinated-imports', 'security-patterns', 'deep-analysis', 'diff-tests', 'unused-export', 'orphan-file', 'offset-paging', 'unbounded-window', 'duplicate-function']);
+const PROVEN_GATES = new Set(['semantic-bugs', 'hallucinated-imports', 'security-patterns', 'deep-analysis', 'diff-tests', 'unused-export', 'orphan-file', 'offset-paging', 'unbounded-window', 'duplicate-function', 'partial-fix', 'partial-wiring']);
 export const DISMISSED_FILE = path.join('.rigour', 'dismissed.json');
 
 export function isProven(failure: Failure): boolean {

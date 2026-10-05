@@ -26,7 +26,9 @@ export function migrationOrderFailures(cwd: string, diff: string, source: DiffSo
     for (const file of addedFiles(diff)) {
         const directory = path.posix.dirname(file);
         if (!file.endsWith('.sql') || !micromatch.isMatch(directory, settings.dirs)) continue;
-        byDirectory.set(directory, [...(byDirectory.get(directory) ?? []), file]);
+        const files = byDirectory.get(directory);
+        if (files) files.push(file);
+        else byDirectory.set(directory, [file]);
     }
     const failures: Failure[] = [];
     for (const [directory, added] of byDirectory) {

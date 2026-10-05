@@ -289,6 +289,8 @@ export const GatesSchema = z.object({
     }).optional().default({}),
     /** Query shapes that cost production: offset paging in a loop, a time window with no upper bound (review/query-patterns.ts). */
     query_patterns: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    /** What a fix leaves half done: the narrower condition still used elsewhere, a prop wired into some sibling mounts only, an accumulator copied every step (review/partial-fixes.ts, partial-wiring.ts, loop-copies.ts). */
+    change_sweep: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** A parameter the change adds as optional that only tests omit (review/optional-params.ts). */
     optional_params: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** A changed function whose body duplicates another in the files the change touched (review/duplicate-functions.ts). */

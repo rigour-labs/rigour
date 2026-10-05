@@ -75,7 +75,7 @@ export function reviewAckMessage(items: ReviewTaskItem[], attempt: number): stri
 }
 
 /** Certain from the code alone, and quick to fix (each measured with no false alarms before it blocks). */
-const MUST_FIX = new Set(['unused-export', 'orphan-file', 'offset-paging', 'unbounded-window', 'duplicate-function']);
+const MUST_FIX = new Set(['unused-export', 'orphan-file', 'offset-paging', 'unbounded-window', 'duplicate-function', 'partial-fix', 'partial-wiring']);
 
 /** Critical; high and either proven by the semantic engine or a security finding; or a certain, local finding the change added (MUST_FIX). */
 export function blocksStop(finding: Failure): boolean {
