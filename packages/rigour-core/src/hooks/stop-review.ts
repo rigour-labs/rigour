@@ -1,18 +1,22 @@
 /**
- * The "before you say done" review: when an agent is about to stop, review what
- * the session changed (since its baseline commit, or the uncommitted change when
- * none was recorded) and, if it introduced serious findings, tell the agent what
- * to fix instead of letting it finish.
+ * The "before you say done" review: when an agent is about to stop, review the
+ * whole branch against the commit it left main at (committed, uncommitted and new
+ * files alike; on main itself, what the session changed since its baseline) and,
+ * if it introduced serious findings, tell the agent what to fix instead of
+ * letting it finish. A review with nothing to look at says so; it is never
+ * reported as a clean pass.
  *
- * Only findings that deserve it block: critical ones, and high ones that are
- * proven (the semantic engine traced them) or security findings. A high
- * heuristic (a regex that sees `fetch` without `.catch`) is not enough to hold
- * an agent back; callers also cap the number of attempts.
+ * Only findings that deserve it block: critical ones, high ones that are proven
+ * (the semantic engine traced them) or security findings, and dead code the
+ * change added (an unused export, an orphaned file: certain, and quick to fix).
+ * A high heuristic (a regex that sees `fetch` without `.catch`) is not enough to
+ * hold an agent back; callers also cap the number of attempts.
  */
 import type { Config, Failure, Severity } from '../types/index.js';
 import { reviewChange } from '../review/review.js';
 import { buildReviewTask, type ReviewTaskItem } from '../review/review-task.js';
 import { diffFromGit, type DiffSource } from '../review/git-diff.js';
+import { branchBase } from '../gates/logic-drift-git-base.js';
 
 export const STOP_MAX_ATTEMPTS = 3;
 const MAX_LISTED = 8;
@@ -25,16 +29,29 @@ export interface StopDecision {
     /** Every finding on changed lines, and the files the review covered (for fix capture). */
     findings: Failure[];
     reviewedFiles: string[];
+    /** What the review was measured against, e.g. `origin/main @ 1a2b3c4` or `uncommitted work`. */
+    against: string;
 }
 
-/** `since`: the session's baseline commit (session-state.ts); committing after it hides nothing. */
-export async function stopReview(cwd: string, config: Config, attempt: number, since?: string): Promise<StopDecision> {
-    const source: DiffSource = since ? { mode: 'since', commit: since } : { mode: 'working' };
+/** The branch since it left main; on main, what the session changed since its baseline (session-state.ts). */
+export function stopSource(cwd: string, sessionBaseline?: string): { source: DiffSource; against: string } {
+    const branch = branchBase(cwd);
+    if (branch && !branch.onMain) {
+        return { source: { mode: 'since', commit: branch.base }, against: `${branch.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '')} @ ${branch.base.slice(0, 7)}` };
+    }
+    return sessionBaseline
+        ? { source: { mode: 'since', commit: sessionBaseline }, against: `this session's start @ ${sessionBaseline.slice(0, 7)}` }
+        : { source: { mode: 'working' }, against: 'uncommitted work' };
+}
+
+/** `sessionBaseline`: the commit the session started from, used on main (session-state.ts). */
+export async function stopReview(cwd: string, config: Config, attempt: number, sessionBaseline?: string): Promise<StopDecision> {
+    const { source, against } = stopSource(cwd, sessionBaseline);
     const diff = diffFromGit(cwd, source);
     const result = await reviewChange({ cwd, config, diff, source });
     const blocking = result.findings.filter(blocksStop);
     const unreviewed = config.hooks?.require_review_ack ? buildReviewTask(cwd, diff, config.gates.deep?.router).items : [];
-    const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines) };
+    const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines), against };
     if (blocking.length === 0 && unreviewed.length === 0) return { block: false, message: '', blocking: 0, ...reviewed };
     const message = [
         ...(blocking.length ? [stopMessage(blocking, attempt)] : []),
@@ -52,10 +69,12 @@ export function reviewAckMessage(items: ReviewTaskItem[], attempt: number): stri
     ].join('\n');
 }
 
-/** Critical, or high and either proven by the semantic engine or a security finding. */
+const DEAD_CODE = new Set(['unused-export', 'orphan-file']);
+
+/** Critical; high and either proven by the semantic engine or a security finding; or dead code the change added. */
 export function blocksStop(finding: Failure): boolean {
     const severity = (finding.severity || 'medium') as Severity;
-    if (severity === 'critical') return true;
+    if (severity === 'critical' || DEAD_CODE.has(finding.id)) return true;
     return severity === 'high' && (finding.verified === true || finding.provenance === 'security');
 }
 
@@ -66,7 +85,7 @@ export function stopMessage(findings: Failure[], attempt: number): string {
     });
     const more = findings.length > MAX_LISTED ? [`- …and ${findings.length - MAX_LISTED} more (run \`rigour review\`).`] : [];
     return [
-        `Rigour review found ${findings.length} serious issue(s) on the lines you changed (attempt ${attempt} of ${STOP_MAX_ATTEMPTS}).`,
+        `Rigour review found ${findings.length} issue(s) to fix in what this branch changed (attempt ${attempt} of ${STOP_MAX_ATTEMPTS}).`,
         'Fix them before finishing, or explain why a finding is wrong:',
         ...listed,
         ...more,

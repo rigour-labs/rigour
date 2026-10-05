@@ -482,7 +482,7 @@ Examples:
 
 hooksCmd
     .command('stop')
-    .description('Stop hook: review the uncommitted change before the agent finishes (reads the hook payload on stdin)')
+    .description('Stop hook: review the branch against main (on main, what the session changed) before the agent finishes; reads the hook payload on stdin')
     .option('--tool <name>', 'Hook format to reply in: claude or cursor', 'claude')
     .action(async (options: any) => {
         const chunks: Buffer[] = [];

@@ -1,9 +1,11 @@
 /**
  * `rigour hooks stop --tool claude|cursor`: the stop hook.
  *
- * When the agent is about to finish, review what this session changed (since the
- * commit it started from, so committing hides nothing) and keep it working on
- * high-severity findings. Each tool's contract:
+ * When the agent is about to finish, review the branch against where it left main
+ * (on main, what this session changed since the commit it started from), so
+ * committing hides nothing, and keep it working on findings that must be fixed.
+ * A stop with nothing to review is logged as such, never as a clean pass. Each
+ * tool's contract:
  *   - Claude Code `Stop`: print {"decision":"block","reason":...}; `stop_hook_active`
  *     marks a stop that a hook already extended.
  *   - Cursor `stop`: print {"followup_message": ...}; `loop_count` counts follow-ups.
@@ -41,7 +43,9 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
     if (attempt > STOP_MAX_ATTEMPTS) return '';
     try {
         const decision = await stopReview(cwd, await loadConfig(cwd), attempt, sessionBaseline(cwd, session));
-        appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking });
+        const nothing = decision.reviewedFiles.length === 0;
+        appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(nothing ? { nothing_to_review: true } : {}) });
+        if (nothing) process.stderr.write(`Rigour stop review: nothing to review against ${decision.against}.\n`);
         countUsage('stop_review');
         if (decision.block) countUsage(attempt > 1 ? 'stop_block_repeat' : 'stop_block');
         const capture = recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles, 'stop');
