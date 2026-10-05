@@ -12,6 +12,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import type { Config, Failure } from '../types/index.js';
+import { emitsDeclarations, isPackageEntry } from './package-layout.js';
 
 const GIT_TIMEOUT_MS = 10_000;
 const CODE = /\.(ts|tsx|js|jsx|mjs|svelte)$/;
@@ -27,7 +28,7 @@ const FRAMEWORK_EXPORTS = new Set([
     'maxDuration', 'middleware', 'proxy',
 ]);
 
-export function isRouteModule(file: string): boolean {
+function isRouteModule(file: string): boolean {
     return /(^|\/)\+(page|layout|server|error)(\.server)?\.(ts|js)$/.test(file)
         || /(^|\/)hooks(\.server|\.client)?\.(ts|js)$/.test(file)
         || /(^|\/)params\/[^/]+\.(ts|js)$/.test(file)
@@ -35,20 +36,22 @@ export function isRouteModule(file: string): boolean {
         || /(^|\/)(page|layout|route|loading|error|not-found|template|default|middleware|proxy)\.(ts|tsx|js|jsx)$/.test(file);
 }
 
-const DECLARATION = /^\s*export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|var|function\*?|class|type|interface|enum|abstract\s+class)\s+([A-Za-z_$][\w$]*)/;
+const DECLARATION = /^\s*export\s+(?:declare\s+)?(?:async\s+)?(const|let|var|function\*?|class|type|interface|enum|abstract\s+class)\s+([A-Za-z_$][\w$]*)/;
 const LIST = /^\s*export\s+(?:type\s+)?\{([^}]*)\}\s*(?:;|$)/;
 const RE_EXPORT = /^\s*export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/;
 
-export interface AddedExport {
+interface AddedExport {
     file: string;
     name: string;
     line: number;
     /** For a re-export (`export { x } from './y'`): the module it comes from, which naming `x` does not make a use. */
     source?: string;
+    /** Declared here as a type (type, interface): part of another export's signature in a project that emits declarations. */
+    type?: boolean;
 }
 
 /** Exports on the diff's added lines, with their line in the new file. */
-export function addedExports(diff: string): AddedExport[] {
+function addedExports(diff: string): AddedExport[] {
     const found: AddedExport[] = [];
     let file: string | undefined;
     let line = 0;
@@ -82,7 +85,7 @@ export function addedExports(diff: string): AddedExport[] {
 
 function exportsOn(text: string, file: string, line: number): AddedExport[] {
     const declaration = text.match(DECLARATION);
-    if (declaration) return [{ file, name: declaration[1], line }];
+    if (declaration) return [{ file, name: declaration[2], line, ...(/^(type|interface)$/.test(declaration[1]) ? { type: true } : {}) }];
     const reExport = text.match(RE_EXPORT);
     if (reExport) {
         const source = reExport[2].startsWith('.') ? path.posix.join(path.posix.dirname(file), reExport[2]) : undefined;
@@ -112,7 +115,8 @@ export function unusedExportFailures(cwd: string, diff: string, config: Config):
     const settings = config.gates.unused_exports;
     if (!settings?.enabled) return [];
     const allowed = new Set(settings.allow);
-    const candidates = addedExports(diff).filter(exp => !allowed.has(exp.name) && !(isRouteModule(exp.file) && FRAMEWORK_EXPORTS.has(exp.name)));
+    const candidates = addedExports(diff).filter(exp => !allowed.has(exp.name) && !(isRouteModule(exp.file) && FRAMEWORK_EXPORTS.has(exp.name))
+        && !isPackageEntry(cwd, exp.file) && !signatureType(cwd, exp));
     if (candidates.length === 0) return [];
     const users = filesNaming(cwd, [...new Set(candidates.map(exp => exp.name))], ownOutputs(config));
     if (!users) return []; // git could not answer: say nothing rather than guess
@@ -120,6 +124,20 @@ export function unusedExportFailures(cwd: string, diff: string, config: Config):
     return candidates
         .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && points(user, exp.file)))
         .map(unused);
+}
+
+/**
+ * In a project that emits declarations, an exported type named elsewhere in its own file is part
+ * of another export's signature (TypeScript requires it to stay exported); in an application it is not.
+ */
+function signatureType(cwd: string, exp: AddedExport): boolean {
+    if (!exp.type || !emitsDeclarations(cwd, exp.file)) return false;
+    try {
+        const pattern = new RegExp(`\\b${exp.name.replace(/\$/g, '\\$')}\\b`, 'g');
+        return (fs.readFileSync(path.join(cwd, exp.file), 'utf8').match(pattern)?.length ?? 0) > 1;
+    } catch {
+        return false;
+    }
 }
 
 /** Whether a file names `module` in a specifier: `from './dir/module'`, `import('../module.js')`, `vi.mock('$lib/module')`. */

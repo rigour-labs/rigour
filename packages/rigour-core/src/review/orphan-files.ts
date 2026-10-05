@@ -15,6 +15,7 @@ import path from 'path';
 import micromatch from 'micromatch';
 import type { Config, Failure } from '../types/index.js';
 import { addedFiles } from './migration-order.js';
+import { sourceStem } from './package-layout.js';
 import { ownOutputs } from './unused-exports.js';
 
 const GIT_TIMEOUT_MS = 10_000;
@@ -60,17 +61,25 @@ function referrersOf(cwd: string, added: string[], files: string[]): Map<string,
             continue; // deleted in the working tree
         }
         for (const [, specifier] of text.matchAll(SPECIFIER)) {
-            const target = targets.get(withoutExtension(path.posix.normalize(resolve(referrer, specifier))));
-            if (target && target !== referrer) referrers.get(target)!.add(referrer);
+            for (const candidate of resolve(referrer, specifier)) {
+                const target = targets.get(withoutExtension(path.posix.normalize(candidate)));
+                if (target && target !== referrer) referrers.get(target)!.add(referrer);
+            }
         }
     }
     return referrers;
 }
 
-function resolve(referrer: string, specifier: string): string {
-    if (specifier.startsWith('.')) return path.posix.join(path.posix.dirname(referrer), specifier);
-    if (specifier.startsWith('$lib/')) return `src/lib/${specifier.slice('$lib/'.length)}`;
-    return specifier;
+/**
+ * The files a specifier can name: relative to the naming file; `$lib/` as `src/lib/`; any other
+ * path from the repository root (as npm scripts and CI write them) and from the naming file's
+ * folder (a package.json in a subfolder); a compiled path (`dist/bin.js`) as its source.
+ */
+function resolve(referrer: string, specifier: string): string[] {
+    if (specifier.startsWith('.')) return [path.posix.join(path.posix.dirname(referrer), specifier)];
+    if (specifier.startsWith('$lib/')) return [`src/lib/${specifier.slice('$lib/'.length)}`];
+    const fromFolder = path.posix.join(path.posix.dirname(referrer), specifier);
+    return [specifier, fromFolder, sourceStem(specifier), path.posix.join(path.posix.dirname(referrer), sourceStem(specifier))];
 }
 
 /** Added files nothing outside the added set reaches, found by clearing suspects until nothing changes. */

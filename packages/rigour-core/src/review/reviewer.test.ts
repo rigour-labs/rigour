@@ -78,6 +78,14 @@ describe('the reviewer', () => {
         expect(fs.readdirSync(repo)).toEqual(['.git', 'a.ts']); // nothing written to the working tree
     });
 
+    it('finds the verdict when the reviewer wraps it in a summary or a code fence', () => {
+        const verdict = '{"prior_points":[{"point":"p","resolved":false}],"blocking":[]}';
+        for (const result of [`## Summary\nAll checked.\n\n\`\`\`json\n${verdict}\n\`\`\`\nDone.`, `Notes first.\n${verdict}\nThat is all {see above}.`]) {
+            const parsed = parseVerdict({ exitCode: 0, stdout: JSON.stringify({ result }), stderr: '' }, true);
+            expect(parsed).toMatchObject({ verdict: { prior_points: [{ point: 'p', resolved: false }] } });
+        }
+    });
+
     it('never passes on an answer that is not a verdict', () => {
         expect(parseVerdict({ exitCode: 1, stdout: '', stderr: 'API error' }, false)).toMatchObject({ error: expect.stringContaining('did not answer') });
         expect(parseVerdict({ exitCode: 0, stdout: JSON.stringify({ result: 'Looks good to me!' }), stderr: '' }, false)).toMatchObject({ error: expect.stringContaining('not a verdict') });

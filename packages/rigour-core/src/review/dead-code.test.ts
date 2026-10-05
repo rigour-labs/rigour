@@ -87,6 +87,32 @@ describe('unused exports', () => {
     });
 });
 
+describe('package layout', () => {
+    it("never reports a package entry point's exports, which are its public API", () => {
+        write('packages/lib/package.json', '{"name":"lib","main":"dist/index.js","types":"dist/index.d.ts"}\n');
+        write('packages/lib/src/index.ts', "export { helper, type Shape } from './helper';\n");
+        write('packages/lib/src/helper.ts', 'export type Shape = { a: 1 };\nexport const helper = 1;\n');
+        const reported = unusedExportFailures(repo, diffFromGit(repo), config()).map(f => f.files?.[0]);
+        expect(reported).not.toContain('packages/lib/src/index.ts');
+    });
+
+    it('keeps an exported type in a signature when the project emits declarations, and only then', () => {
+        write('src/run.ts', 'export interface RunResult { ok: boolean }\nexport function run(): RunResult { return { ok: true }; }\n');
+        write('src/main.ts', "import { run } from './run';\nrun();\n");
+        const names = () => unusedExportFailures(repo, diffFromGit(repo), config()).map(f => f.details.match(/`([^`]+)`/)![1]);
+        expect(names()).toContain('RunResult'); // an application: drop the export
+        write('tsconfig.base.json', '{ "compilerOptions": { "declaration": true } }\n');
+        write('tsconfig.json', '{ "extends": "./tsconfig.base.json" }\n');
+        expect(names()).not.toContain('RunResult'); // a library: TypeScript needs it exported
+    });
+
+    it("counts a package.json bin or main path as running its source file", () => {
+        write('packages/tool/package.json', '{"name":"tool","bin":{"tool":"dist/bin.js"}}\n');
+        write('packages/tool/src/bin.ts', 'console.log("hi");\n');
+        expect(orphanFileFailures(repo, diffFromGit(repo), config())).toEqual([]);
+    });
+});
+
 describe('orphaned files', () => {
     it('reports new files nothing outside the new files reaches, including a pair that only import each other', () => {
         write('src/wired.ts', 'export const w = 1;\n');

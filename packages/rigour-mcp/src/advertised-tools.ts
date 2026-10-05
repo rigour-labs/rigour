@@ -65,7 +65,7 @@ export function advertisedToolNames(spec: string | undefined = process.env.RIGOU
 }
 
 /** The repository's rigour.yml enables a gate that needs the governance tools (agent_team, checkpoint). */
-export function repoNeedsGovernance(cwd: string): boolean {
+function repoNeedsGovernance(cwd: string): boolean {
     try {
         const gates = yaml.parse(fs.readFileSync(path.join(cwd, 'rigour.yml'), 'utf8'))?.gates ?? {};
         return gates.agent_team?.enabled === true || gates.checkpoint?.enabled === true;

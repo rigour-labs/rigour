@@ -36,7 +36,7 @@ export interface StopDecision {
 }
 
 /** The branch since it left main; on main, what the session changed since its baseline (session-state.ts). */
-export function stopSource(cwd: string, sessionBaseline?: string): { source: DiffSource; against: string } {
+function stopSource(cwd: string, sessionBaseline?: string): { source: DiffSource; against: string } {
     const branch = branchBase(cwd);
     if (branch && !branch.onMain) {
         return { source: { mode: 'since', commit: branch.base }, against: `${branch.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '')} @ ${branch.base.slice(0, 7)}` };
