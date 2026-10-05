@@ -8,6 +8,8 @@ import inquirer from 'inquirer';
 import { randomUUID } from 'crypto';
 
 import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR, exitCodeFor } from './exit-codes.js';
+import { deepProvider } from './deep-provider.js';
+import { UsageError } from './review-config.js';
 
 export interface CheckOptions {
     ci?: boolean;
@@ -159,7 +161,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                 max: !!options.max,
                 modelPath: options.modelPath,
                 apiKey: resolved.apiKey,
-                provider: hasApiKey ? (resolved.provider || 'claude') : 'local',
+                provider: deepProvider(options.provider, resolved.provider, resolved.apiKey),
                 apiBaseUrl: resolved.apiBaseUrl,
                 modelName: resolved.modelName,
                 agents: agentCount > 1 ? agentCount : undefined,
@@ -179,8 +181,6 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                     console.log(chalk.dim('Use `--provider local` to force local sidecar execution.\n'));
                 } else if (options.provider === 'local' && hasApiKey) {
                     console.log(chalk.green('Deep execution forced to local (`--provider local`) even though an API key is configured.\n'));
-                } else if (options.provider && options.provider !== 'local' && !hasApiKey) {
-                    console.log(chalk.yellow(`Provider "${options.provider}" requested, but no API key was resolved. Falling back to local execution.\n`));
                 }
             }
         }
@@ -300,6 +300,11 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
             process.exit(EXIT_CONFIG_ERROR);
         }
 
+        if (error instanceof UsageError) {
+            if (options.json) console.log(JSON.stringify({ error: 'INPUT_ERROR', message: error.message }));
+            else console.error(chalk.red(`Error: ${error.message}`));
+            process.exit(EXIT_CONFIG_ERROR);
+        }
         if (options.json) {
             console.log(JSON.stringify({ error: 'INTERNAL_ERROR', message: error.message }));
         } else if (!options.ci) {
