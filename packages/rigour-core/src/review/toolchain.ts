@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Config } from '../types/index.js';
 import { installedBin } from '../utils/installed-bin.js';
+import { ownOutputs } from './unused-exports.js';
 
 export type ToolStatus = 'pass' | 'fail' | 'skipped';
 
@@ -30,7 +31,8 @@ const TIMEOUT_MS = 10 * 60_000;
 const OUTPUT_LINES = 30;
 
 export async function runToolchain(cwd: string, changedFiles: string[], config: Config): Promise<ToolResult[]> {
-    const files = changedFiles.filter(file => fs.existsSync(path.join(cwd, file)));
+    const own = ownOutputs(config);
+    const files = changedFiles.filter(file => !own.some(o => file === o || file.startsWith(`${o}/`)) && fs.existsSync(path.join(cwd, file)));
     const code = files.filter(file => CODE.test(file));
     const configured = config.commands ?? {};
     const results: ToolResult[] = [];
@@ -60,12 +62,32 @@ async function lint(cwd: string, files: string[]): Promise<ToolResult> {
     return batched('lint', cwd, bin, ['--max-warnings=0', ...quietIgnored], files);
 }
 
+/**
+ * The project's own type check when it has one (a `typecheck` or `check` script: teams put the
+ * right command there, e.g. generating SvelteKit's types first); else svelte-check after
+ * `svelte-kit sync` for a SvelteKit project; else tsc. A type check covers the whole project.
+ */
 async function typecheck(cwd: string): Promise<ToolResult> {
-    const svelte = fs.readdirSync(cwd).some(name => /^svelte\.config\./.test(name)) && installedBin(cwd, cwd, 'svelte-check');
-    if (svelte) return once('typecheck', cwd, svelte, ['--threshold', 'error', '--output', 'machine']);
+    const pkg = readPackage(cwd);
+    const script = ['typecheck', 'check'].find(name => typeof pkg.scripts?.[name] === 'string');
+    if (script) return once('typecheck', cwd, process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', '--silent', script]);
+    const svelteCheck = installedBin(cwd, cwd, 'svelte-check');
+    if (svelteCheck && (pkg.dependencies?.['@sveltejs/kit'] || pkg.devDependencies?.['@sveltejs/kit'])) {
+        const kit = installedBin(cwd, cwd, 'svelte-kit');
+        if (kit) await once('typecheck', cwd, kit, ['sync']);
+        return once('typecheck', cwd, svelteCheck, ['--threshold', 'error', '--output', 'machine']);
+    }
     const tsc = fs.existsSync(path.join(cwd, 'tsconfig.json')) && installedBin(cwd, cwd, 'tsc');
     if (tsc) return once('typecheck', cwd, tsc, ['--noEmit']);
-    return skipped('typecheck', 'no svelte-check or tsc with a tsconfig.json');
+    return skipped('typecheck', 'no typecheck/check script, svelte-check or tsc with a tsconfig.json');
+}
+
+function readPackage(cwd: string): { scripts?: Record<string, unknown>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> } {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
+    } catch {
+        return {};
+    }
 }
 
 /** Tests that import a changed file; a file that fails in the parallel run is run again alone, so a timing flake passes. */

@@ -35,11 +35,14 @@ export function isRouteModule(file: string): boolean {
 
 const DECLARATION = /^\s*export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|var|function\*?|class|type|interface|enum|abstract\s+class)\s+([A-Za-z_$][\w$]*)/;
 const LIST = /^\s*export\s+(?:type\s+)?\{([^}]*)\}\s*(?:;|$)/;
+const RE_EXPORT = /^\s*export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/;
 
 export interface AddedExport {
     file: string;
     name: string;
     line: number;
+    /** For a re-export (`export { x } from './y'`): the module it comes from, which naming `x` does not make a use. */
+    source?: string;
 }
 
 /** Exports on the diff's added lines, with their line in the new file. */
@@ -78,27 +81,42 @@ export function addedExports(diff: string): AddedExport[] {
 function exportsOn(text: string, file: string, line: number): AddedExport[] {
     const declaration = text.match(DECLARATION);
     if (declaration) return [{ file, name: declaration[1], line }];
+    const reExport = text.match(RE_EXPORT);
+    if (reExport) {
+        const source = reExport[2].startsWith('.') ? path.posix.join(path.posix.dirname(file), reExport[2]) : undefined;
+        return source ? names(reExport[1]).map(name => ({ file, name, line, source })) : []; // a package's export is that package's to judge
+    }
     const list = text.match(LIST);
     if (!list || /\bfrom\b/.test(text)) return [];
-    return list[1].split(',')
-        .map(part => part.trim().split(/\s+as\s+/).pop()?.trim())
-        .filter((name): name is string => !!name && /^[A-Za-z_$][\w$]*$/.test(name))
-        .map(name => ({ file, name, line }));
+    return names(list[1]).map(name => ({ file, name, line }));
+}
+
+/** The exported names in `a, b as c, type D`: what importers would write. */
+function names(list: string): string[] {
+    return list.split(',')
+        .map(part => part.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()?.trim())
+        .filter((name): name is string => !!name && /^[A-Za-z_$][\w$]*$/.test(name));
+}
+
+const withoutExtension = (file: string) => path.posix.normalize(file).replace(/\.(ts|tsx|js|jsx|mjs|cjs|svelte)$/, '').replace(/\/index$/, '');
+
+/** A file that names the export without using it: the exporting file itself, and a re-export's source module. */
+function isOwnFile(user: string, exp: AddedExport): boolean {
+    const normalized = path.posix.normalize(user);
+    return normalized === path.posix.normalize(exp.file) || (!!exp.source && withoutExtension(normalized) === withoutExtension(exp.source));
 }
 
 export function unusedExportFailures(cwd: string, diff: string, config: Config): Failure[] {
     const settings = config.gates.unused_exports;
     if (!settings?.enabled) return [];
     const allowed = new Set(settings.allow);
-    const failures: Failure[] = [];
-    for (const exp of addedExports(diff)) {
-        if (allowed.has(exp.name) || (isRouteModule(exp.file) && FRAMEWORK_EXPORTS.has(exp.name))) continue;
-        const users = filesNaming(cwd, exp.name, ownOutputs(config));
-        if (users === undefined) continue; // git could not answer: say nothing rather than guess
-        if (users.some(user => path.posix.normalize(user) !== path.posix.normalize(exp.file))) continue;
-        failures.push(unused(exp));
-    }
-    return failures;
+    const candidates = addedExports(diff).filter(exp => !allowed.has(exp.name) && !(isRouteModule(exp.file) && FRAMEWORK_EXPORTS.has(exp.name)));
+    if (candidates.length === 0) return [];
+    const users = filesNaming(cwd, [...new Set(candidates.map(exp => exp.name))], ownOutputs(config));
+    if (!users) return []; // git could not answer: say nothing rather than guess
+    return candidates
+        .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp)))
+        .map(unused);
 }
 
 /** Rigour's own reports name exports and files; they must never count as a use. */
@@ -106,13 +124,27 @@ export function ownOutputs(config: Config): string[] {
     return ['.rigour', config.output?.report_path ?? 'rigour-report.json', 'rigour-fix-packet.json'];
 }
 
-/** Tracked and new (untracked, not ignored) files containing `name` as a whole word, Rigour's outputs aside. */
-function filesNaming(cwd: string, name: string, excluded: string[]): string[] | undefined {
+/** Names per batch: one git grep over the repository answers them all. */
+const NAMES_PER_SEARCH = 200;
+
+/**
+ * For each name, the tracked and new (untracked, not ignored) files containing it as a whole word,
+ * Rigour's outputs aside: one `git grep -o` pass per batch of names instead of one per name.
+ */
+function filesNaming(cwd: string, names: string[], excluded: string[]): Map<string, Set<string>> | undefined {
+    const found = new Map<string, Set<string>>();
     const pathspec = ['.', ...excluded.map(p => `:(exclude)${p}`)];
-    const result = spawnSync('git', ['grep', '--untracked', '-l', '-w', '-F', '-e', name, '--', ...pathspec], { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
-    if (result.status === 1) return [];
-    if (result.status !== 0) return undefined;
-    return result.stdout.split('\n').filter(Boolean);
+    for (let i = 0; i < names.length; i += NAMES_PER_SEARCH) {
+        const patterns = names.slice(i, i + NAMES_PER_SEARCH).flatMap(name => ['-e', name]);
+        const result = spawnSync('git', ['grep', '--untracked', '-z', '-o', '-w', '-F', ...patterns, '--', ...pathspec], { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 256 * 1024 * 1024 });
+        if (result.status === 1) continue;
+        if (result.status !== 0) return undefined;
+        for (const line of result.stdout.split('\n')) {
+            const [file, name] = line.split('\0');
+            if (file && name) found.set(name, (found.get(name) ?? new Set()).add(file));
+        }
+    }
+    return found;
 }
 
 function unused(exp: AddedExport): Failure {

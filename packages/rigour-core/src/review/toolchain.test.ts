@@ -49,6 +49,14 @@ describe('runToolchain', () => {
         expect(results.find(r => r.tool === 'format')).toMatchObject({ status: 'skipped', command: 'commands.format runs it' });
     });
 
+    it("uses the project's own check script for types, and never hands a tool Rigour's own files", async () => {
+        fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { check: 'node -e "process.exit(3)"' } }));
+        tool('prettier', 'process.exit(0);');
+        const results = await runToolchain(dir, ['src/a.ts', '.rigour/scan-cache.json', 'rigour-report.json'], config());
+        expect(results.find(r => r.tool === 'typecheck')).toMatchObject({ status: 'fail', command: expect.stringContaining('npm') });
+        expect(calls()).toContain('prettier --check --ignore-unknown src/a.ts\n');
+    });
+
     it('runs a test file that failed in the parallel run again alone, so a timing flake passes', async () => {
         tool('vitest', "if (args[0] === 'related') { console.log(' FAIL  src/a.test.ts > flaky'); process.exit(1); }\nprocess.exit(0);");
         const test = (await runToolchain(dir, ['src/a.ts'], config())).find(r => r.tool === 'test')!;
