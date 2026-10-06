@@ -9,9 +9,11 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import type { Config, Failure } from '../types/index.js';
+import { isTestFile } from './test-files.js';
 
 const MOUNTING = /\.(svelte|tsx|jsx)$/;
-const SKIPPED = /\.(test|spec|stories)\.|(^|\/)(__tests__|tests?)\//;
+/** Tests and stories mount components to exercise them, not to wire behaviour. */
+const skipped = (file: string) => isTestFile(file) || /\.stories\./.test(file);
 const GIT_TIMEOUT_MS = 10_000;
 
 interface Mount { file: string; line: number; endLine: number; component: string; props: Set<string>; literals: Map<string, string>; spreads: boolean }
@@ -21,7 +23,7 @@ export function partialWiringFailures(cwd: string, changedLines: Record<string, 
     const failures: Failure[] = [];
     const seen = new Set<string>();
     for (const [file, lines] of Object.entries(changedLines)) {
-        if (!MOUNTING.test(file) || SKIPPED.test(file) || lines.size === 0) continue;
+        if (!MOUNTING.test(file) || skipped(file) || lines.size === 0) continue;
         for (const mount of mountsIn(cwd, file)) {
             for (const { prop, line } of addedProps(cwd, mount, lines)) {
                 const key = `${mount.component}\0${prop}`;
@@ -77,7 +79,7 @@ function mountsOf(cwd: string, component: string): Mount[] {
     const cached = mountCache.get(key);
     if (cached) return cached;
     const grep = spawnSync('git', ['grep', '--untracked', '-l', '-F', '-e', `<${component}`], { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS });
-    const files = grep.status === 0 ? grep.stdout.split('\n').filter(f => f && MOUNTING.test(f) && !SKIPPED.test(f)) : [];
+    const files = grep.status === 0 ? grep.stdout.split('\n').filter(f => f && MOUNTING.test(f) && !skipped(f)) : [];
     const mounts = files.flatMap(file => mountsIn(cwd, file).filter(m => m.component === component));
     mountCache.set(key, mounts);
     return mounts;

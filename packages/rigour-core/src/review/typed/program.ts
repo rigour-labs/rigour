@@ -13,6 +13,7 @@ import path from 'path';
 import ownTs from 'typescript';
 import type * as TS from 'typescript';
 import { installedBin } from '../../utils/installed-bin.js';
+import { isTestFile } from '../test-files.js';
 
 export interface TextFile { file: string; text: string }
 
@@ -30,7 +31,6 @@ export interface TypedProgram {
     inProgram: Set<string>;
 }
 
-export const TEST_FILE = /\.(test|spec|e2e)\.[cm]?[jt]sx?$|(^|\/)(tests?|e2e|__tests__|__mocks__)\//;
 const GIT_TIMEOUT_MS = 10_000;
 
 /** The program, `skip` when this is not a TypeScript project, or `error` when it is one that cannot be loaded. */
@@ -48,7 +48,7 @@ export function loadProgram(root: string): { program: TypedProgram } | { skip: s
     return {
         program: {
             ts, program, checker: program.getTypeChecker(), root, rel,
-            appSources: sources.filter(sf => !TEST_FILE.test(rel(sf))),
+            appSources: sources.filter(sf => !isTestFile(rel(sf))),
             textFiles: textFiles(root, inProgram),
             inProgram,
         },
@@ -92,7 +92,7 @@ function textFiles(root: string, inProgram: Set<string>): TextFile[] {
     if (listed.status !== 0) return [];
     const files: TextFile[] = [];
     for (const file of listed.stdout.split('\n')) {
-        if (!file || inProgram.has(file) || file.endsWith('.d.ts') || TEST_FILE.test(file)) continue;
+        if (!file || inProgram.has(file) || file.endsWith('.d.ts') || isTestFile(file)) continue;
         try {
             files.push({ file, text: fs.readFileSync(path.join(root, file), 'utf8') });
         } catch {

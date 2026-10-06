@@ -32,12 +32,22 @@ Works with Claude Code, Cursor, Codex, Cline and Windsurf. Free, open source, an
 
 ## Get started
 
+See what it finds first, changing nothing (on a branch with work on it):
+
+```bash
+npx @rigour-labs/cli review --base origin/main
+```
+
+Worth it? Set it up:
+
 ```bash
 brew install rigour-labs/tap/rigour    # or: npm install -g @rigour-labs/cli
 rigour setup                           # in your repository
 ```
 
-`rigour setup` connects Rigour to your agents, installs the three moments, and checks that everything works. Already set up before the push gate existed? Run `rigour hooks init --force` once.
+`rigour setup` connects Rigour to your agents, installs the three moments, and checks that everything works. It merges into the agent configs you already have rather than replacing them, and lists every file it writes. Changed your mind? `rigour uninstall` takes out exactly what it put in. The [quick start](docs/QUICK_START.md) walks through it.
+
+Rigour is about 70 MB per version. Semantic search (about 230 MB) is installed once per machine by `rigour setup` and shared by every version; skip it with `--no-semantic`.
 
 Using Claude Code? The plugin does all of it:
 
@@ -62,7 +72,7 @@ Then open Studio to watch it work:
 rigour studio
 ```
 
-## Four commands
+## Five commands
 
 | Command | What it does |
 | --- | --- |
@@ -70,6 +80,7 @@ rigour studio
 | `rigour review` | Reviews your current change, or a branch before you open a PR (`--reviewer` adds the reviewer that remembers) |
 | `rigour studio` | Shows what Rigour stopped, learned and gave your agents |
 | `rigour doctor` | Tells you what's working, what isn't, and how to fix it |
+| `rigour uninstall` | Takes out exactly what Rigour put in; your own settings and edited files stay |
 
 Everything else is in `rigour help --all`.
 

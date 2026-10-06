@@ -1,8 +1,10 @@
 /**
  * Semantic Embedding Service
- * 
- * Uses Transformers.js for local vector embeddings.
+ *
+ * Uses Transformers.js for local vector embeddings, loaded from wherever it is installed
+ * (semantic-runtime.ts). Without it, embeddings are empty and callers fall back to keywords.
  */
+import { loadTransformers } from './semantic-runtime.js';
 
 /**
  * Singleton for the embedding pipeline to avoid re-loading the model.
@@ -29,11 +31,15 @@ async function getPipeline() {
 
     if (!embeddingPipeline) {
         try {
-            // Dynamic import to isolate native dependency issues (like sharp)
-            const { pipeline } = await import('@xenova/transformers');
-
+            // Loaded where it is installed; never a dependency of the npm package (semantic-runtime.ts).
+            const transformers = await loadTransformers();
+            if (!transformers) {
+                // Not installed: keyword matching, said once by `rigour doctor`, not on every run.
+                embeddingUnavailable = true;
+                return null;
+            }
             // Using a compact but high-quality model for local embeddings
-            embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+            embeddingPipeline = await transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
         } catch (error) {
             embeddingUnavailable = true;
             console.warn('Semantic enrichment is degraded; structural and text retrieval remain available.');

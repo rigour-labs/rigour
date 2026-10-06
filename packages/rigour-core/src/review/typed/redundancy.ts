@@ -17,7 +17,8 @@ import micromatch from 'micromatch';
 import type * as TS from 'typescript';
 import type { Config, Failure } from '../../types/index.js';
 import { emitsDeclarations } from '../package-layout.js';
-import { loadProgram, TEST_FILE, type TextFile, type TypedProgram } from './program.js';
+import { isTestFile } from '../test-files.js';
+import { loadProgram, type TextFile, type TypedProgram } from './program.js';
 
 export interface Redundancy {
     failures: Failure[];
@@ -30,7 +31,7 @@ export const TYPED_CHECKS = 'typed-checks-unavailable';
 
 /** The typed checks on a change: nothing when it touches no TypeScript or the project has no tsconfig. */
 export function typedChecks(cwd: string, changedLines: Record<string, Set<number>>, config: Config): Redundancy {
-    if (!config.gates.redundancy?.enabled || !Object.keys(changedLines).some(file => /\.[cm]?ts$/.test(file) && !TEST_FILE.test(file))) return { failures: [], hints: [] };
+    if (!config.gates.redundancy?.enabled || !Object.keys(changedLines).some(file => /\.[cm]?ts$/.test(file) && !isTestFile(file))) return { failures: [], hints: [] };
     const loaded = loadProgram(cwd);
     if ('skip' in loaded) return { failures: [], hints: [] };
     if ('error' in loaded) return { failures: [], hints: [], error: `${loaded.error} (install the dependencies, and run the framework's sync if it has one)` };
@@ -44,7 +45,7 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
     const settings = config.gates.redundancy;
     if (!settings?.enabled) return { failures: [], hints: [] };
     const { ts, checker, rel } = typed;
-    const changed = Object.keys(changedLines).filter(file => /\.[cm]?ts$/.test(file) && !file.endsWith('.d.ts') && !TEST_FILE.test(file));
+    const changed = Object.keys(changedLines).filter(file => /\.[cm]?ts$/.test(file) && !file.endsWith('.d.ts') && !isTestFile(file));
     const failures: Failure[] = [];
     const hints: string[] = [];
     const line = (node: TS.Node) => node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1;

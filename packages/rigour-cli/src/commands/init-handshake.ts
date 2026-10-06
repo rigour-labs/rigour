@@ -8,6 +8,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
+import { recordCreated } from './install-record.js';
 
 export async function writeHandshake(cwd: string, relPath: string, content: string, label: string, force?: boolean): Promise<void> {
     const filePath = path.join(cwd, relPath);
@@ -16,8 +17,11 @@ export async function writeHandshake(cwd: string, relPath: string, content: stri
             'Merge them from docs/AGENT_INSTRUCTIONS.md, or re-run with --force to replace the file.'));
         return;
     }
+    const existed = await fs.pathExists(filePath);
     await fs.ensureDir(path.dirname(filePath));
     await fs.writeFile(filePath, content);
+    // Only a file Rigour created is Rigour's to remove later; one it replaced under --force was the team's.
+    if (!existed) recordCreated(cwd, relPath, content);
     console.log(chalk.green(`✔ Initialized ${label} (${relPath})`));
 }
 

@@ -105,30 +105,28 @@ describe('hooksInitCommand', () => {
         expect(fs.existsSync(settingsPath)).toBe(false);
     });
 
-    it('should not overwrite without --force', async () => {
-        // Create existing file
+    it('merges into a settings file the person already has, keeping their settings and hooks, and stays idempotent', async () => {
         const claudeDir = path.join(testDir, '.claude');
         fs.mkdirSync(claudeDir, { recursive: true });
-        fs.writeFileSync(path.join(claudeDir, 'settings.json'), '{"existing": true}');
+        const own = { permissions: { allow: ['Bash(ls)'] }, hooks: { PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'npm run format' }] }] } };
+        fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify(own));
 
-        await hooksInitCommand(testDir, { tool: 'claude' });
+        for (const force of [false, true, true]) await hooksInitCommand(testDir, { tool: 'claude', force });
 
-        // Should keep existing content
-        const content = fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf-8');
-        expect(content).toContain('existing');
+        const merged = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf-8'));
+        expect(merged.permissions).toEqual(own.permissions);
+        const postToolUse = merged.hooks.PostToolUse.flatMap((group: any) => group.hooks.map((h: any) => h.command));
+        expect(postToolUse[0]).toBe('npm run format');
+        expect(postToolUse.filter((c: string) => /hooks check/.test(c))).toHaveLength(1); // three runs, one Rigour entry
+        expect(merged.hooks.Stop).toHaveLength(1);
     });
 
-    it('should overwrite with --force', async () => {
-        // Create existing file
+    it('leaves a settings file that is not valid JSON alone', async () => {
         const claudeDir = path.join(testDir, '.claude');
         fs.mkdirSync(claudeDir, { recursive: true });
-        fs.writeFileSync(path.join(claudeDir, 'settings.json'), '{"existing": true}');
-
+        fs.writeFileSync(path.join(claudeDir, 'settings.json'), '{ not json');
         await hooksInitCommand(testDir, { tool: 'claude', force: true });
-
-        // Should have new hooks content
-        const content = fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf-8');
-        expect(content).toContain('PostToolUse');
+        expect(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf-8')).toBe('{ not json');
     });
 
     it('should propagate --block to generated hook commands', async () => {

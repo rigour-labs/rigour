@@ -5,6 +5,7 @@ import { execFileSync } from 'child_process';
 import { cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
 import { selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
+import { semanticStatusLine } from './semantic.js';
 
 function runText(command: string, args: string[]): string {
     try {
@@ -68,6 +69,7 @@ export async function doctorCommand(options: { cleanCache?: boolean } = {}, cwd 
     console.log(chalk.bold.cyan('\nRigour Doctor\n'));
     if (options.cleanCache) return cleanCache();
     await printRepoSetup(cwd);
+    console.log(semanticStatusLine(cwd) + '\n');
     await printPushGate(cwd);
     await printDatabaseHealth();
 

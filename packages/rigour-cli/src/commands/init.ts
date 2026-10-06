@@ -7,6 +7,7 @@ import { CODE_QUALITY_RULES, DEBUGGING_RULES, COLLABORATION_RULES, AGNOSTIC_AI_I
 import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
 import { clineRulesRelPath, writeHandshake } from './init-handshake.js';
+import { recordCreated } from './install-record.js';
 import { askTelemetryOnce } from './telemetry-consent.js';
 import { getCliVersion } from '../utils/cli-version.js';
 
@@ -207,6 +208,7 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
         if (!(await fs.pathExists(filePath))) {
             await fs.ensureDir(path.dirname(filePath)); // Ensure parent directory exists
             await fs.ensureFile(filePath);
+            recordCreated(cwd, file, '');
             console.log(chalk.dim(`  - Created ${file}`));
         }
     }
@@ -480,27 +482,19 @@ async function initHooksForAllDetectedTools(
     cwd: string,
     detectedIDEs: DetectedIDE[]
 ): Promise<string[]> {
+    // No hook support for vscode, gemini, codex. One run for every agent: one summary, one DLP note, one git hook line.
+    const hookTools = detectedIDEs.map(ide => IDE_TO_HOOK_TOOL[ide]).filter((tool): tool is string => !!tool);
+    if (hookTools.length === 0) return [];
+    try {
+        console.log(chalk.dim(`\n   Setting up real-time hooks for ${hookTools.join(', ')}...`));
+        await hooksInitCommand(cwd, { tool: hookTools.join(','), dlp: true, force: true, block: true });
+    } catch (err: any) {
+        console.log(chalk.dim(`   (Hooks setup failed: ${err?.message || err})`));
+    }
     const enabledTools: string[] = [];
-
-    for (const ide of detectedIDEs) {
-        const hookTool = IDE_TO_HOOK_TOOL[ide];
-        if (!hookTool) continue; // No hook support (vscode, gemini, codex)
-
-        try {
-            console.log(chalk.dim(`\n   Setting up real-time hooks for ${ide}...`));
-            await hooksInitCommand(cwd, { tool: hookTool, dlp: true, force: true, block: true });
-            if (await fs.pathExists(path.join(cwd, PRIMARY_HOOK_PATH[hookTool]))) {
-                enabledTools.push(hookTool);
-            }
-        } catch (err: any) {
-            console.log(chalk.dim(`   (Hooks setup for ${ide} failed: ${err?.message || err})`));
-        }
+    for (const tool of hookTools) {
+        if (await fs.pathExists(path.join(cwd, PRIMARY_HOOK_PATH[tool]))) enabledTools.push(tool);
     }
-
-    if (enabledTools.length > 0) {
-        console.log(chalk.dim(`   ⚠ DLP warnings active for: ${enabledTools.join(', ')}`));
-    }
-
     return enabledTools;
 }
 
@@ -580,38 +574,53 @@ async function setupCursorMCP(
         }
     }
 
+    const created = !(await fs.pathExists(mcpPath));
     if (!existing.mcpServers) existing.mcpServers = {};
     existing.mcpServers.rigour = serverConfig;
 
     await fs.writeJson(mcpPath, existing, { spaces: 4 });
+    if (created) recordCreated(cwd, path.join('.cursor', 'mcp.json'), await fs.readFile(mcpPath, 'utf-8'));
     console.log(chalk.green('✔ Registered Rigour MCP server (.cursor/mcp.json)'));
 }
 
+/**
+ * Claude Code reads a project's MCP servers from `.mcp.json` at the repository root, not from
+ * `.claude/settings.json` (which holds hooks and permissions). The server is merged into an
+ * existing `.mcp.json`; an entry an older Rigour put in `.claude/settings.json` is taken out.
+ */
 async function setupClaudeMCP(
     cwd: string,
     serverConfig: { command: string; args: string[] },
     force?: boolean,
 ): Promise<void> {
-    const settingsPath = path.join(cwd, '.claude', 'settings.json');
-    await fs.ensureDir(path.dirname(settingsPath));
-
-    // Always read existing settings (hooks may have written this file already)
+    const mcpPath = path.join(cwd, '.mcp.json');
+    const created = !(await fs.pathExists(mcpPath));
     let existing: any = {};
-    if (await fs.pathExists(settingsPath)) {
+    if (!created) {
         try {
-            existing = await fs.readJson(settingsPath);
+            existing = await fs.readJson(mcpPath);
         } catch {
-            existing = {};
-        }
-        if (existing?.mcpServers?.rigour && !force) {
+            console.log(chalk.yellow('  Kept .mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
             return;
         }
+        if (existing?.mcpServers?.rigour && !force) return;
     }
-
-    // Merge — preserve existing hooks config, just add/update mcpServers.rigour
     if (!existing.mcpServers) existing.mcpServers = {};
     existing.mcpServers.rigour = serverConfig;
+    await fs.writeJson(mcpPath, existing, { spaces: 4 });
+    if (created) recordCreated(cwd, '.mcp.json', await fs.readFile(mcpPath, 'utf-8'));
 
-    await fs.writeJson(settingsPath, existing, { spaces: 4 });
-    console.log(chalk.green('✔ Registered Rigour MCP server (.claude/settings.json)'));
+    // The old, unread location.
+    const settingsPath = path.join(cwd, '.claude', 'settings.json');
+    try {
+        const settings = await fs.readJson(settingsPath);
+        if (settings?.mcpServers?.rigour) {
+            delete settings.mcpServers.rigour;
+            if (Object.keys(settings.mcpServers).length === 0) delete settings.mcpServers;
+            await fs.writeJson(settingsPath, settings, { spaces: 4 });
+        }
+    } catch {
+        // no settings file, or not ours to repair
+    }
+    console.log(chalk.green('✔ Registered Rigour MCP server (.mcp.json)'));
 }

@@ -38,6 +38,7 @@ import type { HookCheckerResult } from '@rigour-labs/core';
 import { pushGateShell } from '@rigour-labs/core';
 import { groupFilesByRepo, recordEditCatches } from './hooks-check-repos.js';
 import { installGitPushHook } from './hooks-git.js';
+import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -472,9 +473,26 @@ async function writeHookFiles(
     for (const file of files) {
         const fullPath = path.join(cwd, file.path);
         const exists = await fs.pathExists(fullPath);
+        const isConfig = file.path.endsWith('.json');
 
-        if (exists && !force) {
-            console.log(chalk.yellow(`  SKIP ${file.path} (already exists, use --force to overwrite)`));
+        // A JSON config the person already has (their permissions, env, own hooks) is merged into,
+        // never replaced: Rigour's earlier entries are swapped for the new ones, the rest is kept.
+        if (exists && isConfig) {
+            try {
+                const merged = mergeHooksInto(JSON.parse(await fs.readFile(fullPath, 'utf-8')), JSON.parse(file.content));
+                await fs.writeFile(fullPath, JSON.stringify(merged, null, 4) + '\n', 'utf-8');
+                console.log(chalk.green(`  MERGE ${file.path}`));
+                console.log(chalk.dim(`         ${file.description} (your other settings kept)`));
+                written++;
+            } catch (error) {
+                console.error(chalk.yellow(`  SKIP ${file.path} (not valid JSON, so Rigour leaves it alone: ${error instanceof Error ? error.message : String(error)})`));
+                failedPaths.add(file.path);
+            }
+            continue;
+        }
+        // A script of the person's own is never overwritten, --force or not; Rigour's own is refreshed.
+        if (exists && (!force || !isRigourScript(await fs.readFile(fullPath, 'utf-8')))) {
+            console.log(chalk.yellow(`  SKIP ${file.path} (already exists${force ? ' and is not Rigour\'s' : ', use --force to overwrite'})`));
             skipped++;
             continue;
         }
@@ -482,6 +500,7 @@ async function writeHookFiles(
         try {
             await fs.ensureDir(path.dirname(fullPath));
             await fs.writeFile(fullPath, file.content, 'utf-8');
+            recordCreated(cwd, file.path, file.content);
 
             if (file.executable) {
                 await fs.chmod(fullPath, 0o755);

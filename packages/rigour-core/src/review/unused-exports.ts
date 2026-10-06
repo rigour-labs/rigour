@@ -15,12 +15,11 @@ import fs from 'fs';
 import path from 'path';
 import type { Config, Failure } from '../types/index.js';
 import { emitsDeclarations, isPackageEntry } from './package-layout.js';
+import { isTestFile } from './test-files.js';
 
 const GIT_TIMEOUT_MS = 10_000;
 const CODE = /\.(ts|tsx|js|jsx|mjs|svelte)$/;
-const SKIPPED = /\.(test|spec)\.|\.d\.ts$|(^|\/)(dist|build|out|coverage|\.next|[\w-]+-dist)\//;
-/** A test is not a consumer: production code must use the export. */
-const TEST = /\.(test|spec|e2e)\.[cm]?[jt]sx?$|(^|\/)(tests?|e2e|__tests__|__mocks__)\//;
+const SKIPPED = /\.d\.ts$|(^|\/)(dist|build|out|coverage|\.next|[\w-]+-dist)\//;
 
 /** What a route or hook module exports for its framework, not for an importer. */
 const FRAMEWORK_EXPORTS = new Set([
@@ -78,7 +77,7 @@ function addedExports(diff: string): AddedExport[] {
         }
         if (!file || text.startsWith('-')) continue;
         if (text.startsWith('+')) {
-            if (CODE.test(file) && !SKIPPED.test(file)) found.push(...exportsOn(text.slice(1), file, line));
+            if (CODE.test(file) && !SKIPPED.test(file) && !isTestFile(file)) found.push(...exportsOn(text.slice(1), file, line));
             line++;
         } else if (text.startsWith(' ')) {
             line++;
@@ -126,7 +125,7 @@ export function unusedExportFailures(cwd: string, diff: string, config: Config):
     if (!users) return []; // git could not answer: say nothing rather than guess
     const points = pointsAtCache(cwd);
     return candidates
-        .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && !TEST.test(user) && points(user, exp.file)))
+        .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && !isTestFile(user) && points(user, exp.file)))
         .map(unused);
 }
 

@@ -163,7 +163,10 @@ async function print(result: ReviewResult, options: ReviewOptions, receipt: Qual
     const summary = buildCiReviewSummary(result.findings, result.report?.failures.length ?? 0, result.changedLines,
         result.unlocated + result.fileFindings.length);
     if (result.deepError && !options.json) console.error(chalk.red(`Deep analysis did not run: ${result.deepError}`));
-    if (result.gateErrors.length && !options.json) console.error(chalk.yellow(`Checks that crashed and did not run: ${result.gateErrors.join(', ')}`));
+    if (result.gateErrors.length && !options.json) {
+        console.error(chalk.yellow(`Checks that could not run, so this is not a pass: ${result.gateErrors.join(', ')}`));
+        if (result.typedError) console.error(chalk.yellow(`  typed checks: ${result.typedError}`));
+    }
     if (options.json) return writeJson(result, summary, receipt, reviewer);
     if (options.githubSummary) return void console.log(renderGithubSummary(summary));
     if (options.ci) return printCi(result);
@@ -202,6 +205,7 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         preexisting: result.preexisting,
         control_files_changed: result.controlFilesChanged,
         gate_errors: result.gateErrors,
+        ...(result.typedError ? { typed_error: result.typedError } : {}),
         ...(receipt ? { receipt: receiptReport(receipt) } : {}),
         ...(reviewer ? { reviewer: reviewerJson(reviewer) } : {}),
     }, null, 2);
@@ -226,7 +230,9 @@ function printHuman(result: ReviewResult): void {
         console.log(chalk.green('No changes to review.'));
         return;
     }
-    if (result.findings.length === 0) {
+    if (result.findings.length === 0 && result.status === 'ERROR') {
+        console.log(chalk.yellow.bold('\n⚠ NOT A PASS — nothing found, but a check could not run (above).\n'));
+    } else if (result.findings.length === 0) {
         console.log(chalk.green.bold('\n✔ PASS — No quality issues on changed lines.\n'));
     } else {
         console.log(chalk.red.bold(`\n✘ FAIL — ${result.findings.length} issue(s) on changed lines.\n`));

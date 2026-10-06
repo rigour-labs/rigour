@@ -475,6 +475,18 @@ import { cfg } from '~shared/config';
         ).toBe(true);
     });
 
+    it('should NOT flag a package importing itself by its own name (type tests, examples), and still flag an undeclared one', async () => {
+        (FileScanner.findFiles as any).mockResolvedValue(['test-d/types.ts']);
+        mockReadFile.mockResolvedValue(`import ky from 'ky';\nimport left from 'left-pad';\n`);
+        mockPathExists.mockImplementation(async (p: string) => normalizePath(p) === `${testCwdNormalized}/package.json`);
+        mockReadJson.mockResolvedValue({ name: 'ky', dependencies: {}, devDependencies: {} });
+
+        const failures = await gate.run(context);
+        const details = failures.map(f => f.details).join('\n');
+        expect(details).not.toContain("Package 'ky'");
+        expect(details).toContain("Package 'left-pad' not in package.json dependencies");
+    });
+
     it('should resolve configured aliases to hidden generated files', async () => {
         const jsContent = `import { docs } from '@/.source';`;
         const tsconfigContent = `{

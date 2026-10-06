@@ -57,6 +57,14 @@ describe('unused exports', () => {
         expect(names).not.toContainEqual(['src/index.ts', 'Used']);
     });
 
+    it('never reports a type-test file as orphaned: tsd runs test-d/ and *.test-d.ts by itself', () => {
+        write('test-d/types.ts', "import { start } from '../src/app';\nstart();\n");
+        write('src/app.test-d.ts', "import { start } from './app';\nstart();\n");
+        const orphans = orphanFileFailures(repo, diffFromGit(repo), config()).map(f => f.files?.[0]);
+        expect(orphans).not.toContain('test-d/types.ts');
+        expect(orphans).not.toContain('src/app.test-d.ts');
+    });
+
     it('skips what a framework calls by name, and names the team allows', () => {
         write('src/routes/+page.server.ts', 'export const load = () => ({});\nexport const helper = 1;\n');
         write('src/plugin.ts', 'export const register = () => {};\n');

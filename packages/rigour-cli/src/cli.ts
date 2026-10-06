@@ -18,6 +18,7 @@ import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
 import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
+import { uninstallCommand } from './commands/uninstall.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
@@ -240,9 +241,10 @@ program
 
 program
     .command('setup')
-    .description('Set up Rigour in this repository: settings, agent hooks and instructions, then check it all works')
-    .action(async () => {
-        await setupCommand();
+    .description('Set up Rigour in this repository: settings, agent hooks and instructions, semantic search, then check it all works (rigour uninstall takes it out)')
+    .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
+    .action(async (options: { semantic?: boolean }) => {
+        await setupCommand(process.cwd(), options);
     });
 
 program
@@ -528,6 +530,13 @@ backtestCmd
             process.exit(2);
         }
     });
+
+program
+    .command('uninstall')
+    .description('Take Rigour back out of this repository: its hook entries and MCP server from agent configs (your other settings stay), the files it created and you have not edited, and its git pre-push hook. Keeps rigour.yml and .rigour/ unless --all')
+    .option('--all', 'Also remove rigour.yml, .rigour/ (dismissals, ledger) and Rigour\'s .gitignore lines')
+    .option('--dry-run', 'Say what would be removed, change nothing')
+    .action((options: { all?: boolean; dryRun?: boolean }) => process.exit(uninstallCommand(process.cwd(), options)));
 
 const profileCmd = program
     .command('profile')

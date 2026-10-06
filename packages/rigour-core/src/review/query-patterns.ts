@@ -14,13 +14,14 @@
  *
  * Read from the syntax tree, so a comment or string never matches.
  */
+import { isTestFile } from './test-files.js';
 import fs from 'fs';
 import path from 'path';
 import ts from 'typescript';
 import type { Config, Failure } from '../types/index.js';
 
 const CODE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
-const SKIPPED = /\.(test|spec)\.|\.d\.ts$|(^|\/)(__tests__|tests?|e2e)\//;
+const DECLARATIONS = /\.d\.ts$/;
 const TIME_COLUMN = /(_at|_on|At|On|date|Date|time|Time|timestamp|Timestamp)$|^(at|since|until|created|updated)$/;
 const LOWER = new Set(['gt', 'gte']);
 const UPPER = new Set(['lt', 'lte']);
@@ -29,7 +30,7 @@ export function queryPatternFailures(cwd: string, changedLines: Record<string, S
     if (!config.gates.query_patterns?.enabled) return [];
     const failures: Failure[] = [];
     for (const [file, lines] of Object.entries(changedLines)) {
-        if (!CODE.test(file) || SKIPPED.test(file) || lines.size === 0) continue;
+        if (!CODE.test(file) || DECLARATIONS.test(file) || isTestFile(file) || lines.size === 0) continue;
         let text: string;
         try {
             text = fs.readFileSync(path.join(cwd, file), 'utf8');
