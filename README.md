@@ -46,13 +46,15 @@ Using Claude Code? The plugin does all of it:
 /plugin install rigour@rigour-labs
 ```
 
-Want the reviewer at every push too? Add this to `rigour.yml`:
+Want the reviewer too? Add this to `rigour.yml`:
 
 ```yaml
 review:
   reviewer:
     enabled: true
 ```
+
+The push goes through as soon as the checks pass; the reviewer then reads the pushed commit in the background (only when it has an open, non-draft pull request, so you pay for a model only when someone will read the push). `rigour review --status` shows its verdict; `rigour review --reviewer --full` runs two vendors and is the hard stop before you ask a person to review.
 
 Then open Studio to watch it work:
 

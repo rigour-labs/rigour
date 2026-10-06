@@ -346,9 +346,9 @@ export class FrontendSecretExposureGate extends Gate {
     }
 }
 
-const NODE_BUILTINS = /(?:from\s+|require\(\s*|import\(\s*)['"](?:node:[\w/]+|fs|fs\/promises|fs-extra|child_process|os|net|tls|worker_threads|cluster|module)['"]/;
+const NODE_BUILTINS = /(?:from\s+|require\(\s*|import\(\s*)['"](?:node:[\w/]+|fs|fs\/promises|fs-extra|child_process|os|net|tls|worker_threads|cluster|module|execa|cross-spawn)['"]/;
 
-/** Imports a Node-only module: server code, whatever its path. */
+/** Imports a Node-only module (a built-in, or a package that spawns processes): server code, whatever its path. */
 export function importsNodeBuiltins(content: string): boolean {
     return NODE_BUILTINS.test(content);
 }

@@ -15,7 +15,7 @@ import path from 'path';
 import { z } from 'zod';
 import type { Config, Failure } from '../types/index.js';
 import { reviewChange } from './review.js';
-import { defaultExec, runReviewer, type Exec, type Progress } from './reviewer.js';
+import { defaultExec, runReviewer, type Exec, type OpenItem, type Progress } from './reviewer.js';
 
 const Match = z.object({
     /** A regular expression over the finding's file path. */
@@ -176,12 +176,11 @@ async function collectItems(worktree: string, round: LedgerRound, config: Config
         ...[...review.advisory, ...review.contextFindings].map(f => asItem(f, false)),
     ];
     if (!reviewer) return { items };
-    const verdict = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: round.reviewed_at });
-    if (!verdict.verdict) return { items, reviewerError: verdict.error ?? 'no verdict' };
-    items.push(
-        ...verdict.verdict.blocking.map(b => ({ gate: 'reviewer', file: b.file, line: b.line, text: [b.issue, b.why].filter(Boolean).join(' '), blocking: true })),
-        ...verdict.verdict.non_blocking.map(n => ({ gate: 'reviewer', file: n.file, text: n.issue, blocking: false })),
-    );
+    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: round.reviewed_at, trigger: 'backtest', force: true });
+    if (result.outcome === 'unavailable' || result.outcome === 'skipped') return { items, reviewerError: result.reason ?? result.outcome };
+    // The reviewer behind each catch is part of the score, so the gate is `reviewer:<name>`.
+    const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.evidence].filter(Boolean).join(' '), blocking });
+    items.push(...result.items.map(i => asReviewerItem(i, true)), ...result.unverified.map(i => asReviewerItem(i, false)));
     return { items };
 }
 

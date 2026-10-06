@@ -32,7 +32,8 @@ npx @rigour-labs/cli run -- claude "refactor the payment service"
 | --- | --- | --- |
 | Every edit | Fast checks on the file | The agent sees it at once |
 | Before the agent says "done" | The whole branch against main: findings to fix, code the branch added that nothing uses, a merge conflict with main, mentions of files the branch deleted | The agent keeps working (at most three times); a turn that changed nothing is not reviewed again |
-| Before `git push` | The same, plus your project's own formatter, linter, type checker and related tests, and (if `review.reviewer.enabled`) a fresh reviewer that checks every point of the previous human review | The push is blocked with one line per failure |
+| Before `git push` | The same, plus your project's own formatter, linter, type checker and related tests | The push is blocked with one line per failure |
+| After `git push` (if `review.reviewer.enabled`) | The reviewer: your coding agent's CLI, read-only, checks every point of every human review against the code, what a fix left behind, every read the change adds, then new findings. It runs in the background on the pushed commit, only when the branch has an open, non-draft pull request | `rigour review --status` shows the verdict; `rigour review --reviewer --full` is the hard stop before asking a person to review |
 
 Already set up before the push gate existed? `rigour hooks init` never overwrites your hook settings, so run `rigour hooks init --force` once to add it.
 

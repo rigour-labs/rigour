@@ -319,7 +319,10 @@ export const UNIVERSAL_CONFIG: Config = {
         show_preexisting: false,
         reviewer: {
             enabled: false,
-            command: 'claude',
+            on_push: 'background',
+            reviewers: ['claude'],
+            mode: 'single',
+            models: {},
             timeout_ms: 900000,
         },
     },

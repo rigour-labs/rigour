@@ -15,6 +15,7 @@ import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
 import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
+import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -272,7 +273,9 @@ program
     .option('--provider <name>', 'Cloud provider for deep analysis')
     .option('--api-base-url <url>', 'Custom API base URL')
     .option('--model-name <name>', 'Override cloud model name')
-    .option('--reviewer', 'Then run a fresh read-only reviewer (your coding agent CLI, no key): every point of the PR\'s previous human review checked against the code, then new blocking issues')
+    .option('--reviewer', 'Then run the reviewer (your coding agent CLI, read-only, no key): every point of every human review checked against the code, what a fix left behind, every read traced, then new findings')
+    .option('--full', 'With --reviewer: two vendors, verdicts merged. Run it before asking a person to review')
+    .option('--status', 'What the background reviewer has done for this branch: running, last verdict, open items')
     .addHelpText('after', `
 Examples:
   $ rigour review                                      # Uncommitted changes, taken from git
@@ -554,6 +557,22 @@ hooksCmd
         const result = await hooksPushCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
         if (result.message) process.stderr.write(result.message + '\n');
         process.exit(result.exitCode);
+    });
+
+hooksCmd
+    .command('review-background', { hidden: true })
+    .description('The detached model review the push gate starts once its checks pass: reviews the pushed commit in a worktree of its own and records the verdict')
+    .requiredOption('--commit <sha>', 'The pushed commit')
+    .requiredOption('--branch <name>', 'The branch it was pushed from')
+    .requiredOption('--base <ref>', 'The main branch to review against')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .action(async (options: any) => {
+        try {
+            process.exit(await hooksReviewBackgroundCommand(process.cwd(), options));
+        } catch (error: any) {
+            console.error(error.message);
+            process.exit(2);
+        }
     });
 
 hooksCmd

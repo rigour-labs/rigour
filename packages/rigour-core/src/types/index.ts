@@ -419,11 +419,23 @@ export const ConfigSchema = z.object({
         show_preexisting: z.boolean().optional().default(false),
         /** The GitHub account whose token fetches the pull request's previous review (`gh auth token --user`). */
         github_account: z.string().optional(),
-        /** The fresh reviewer (review/reviewer.ts): the person's own coding agent CLI, headless. `enabled` runs it at every push; `rigour review --reviewer` runs it on request. */
+        /** The reviewer (review/reviewer.ts): the person's own coding-agent CLIs, headless and read-only. `enabled` runs it at push; `rigour review --reviewer` runs it on request. */
         reviewer: z.object({
             enabled: z.boolean().optional().default(false),
-            command: z.string().optional().default('claude'),
+            /**
+             * At push, once the deterministic gates pass: `background` (default) starts the model review of the pushed
+             * commit without holding the push; `wait` holds the push for it; `off` reviews only on request. Either way
+             * a model is asked only when the branch has an open, non-draft pull request (someone will read the push).
+             */
+            on_push: z.enum(['background', 'wait', 'off']).optional().default('background'),
+            /** The adapters, in order: claude, cursor, codex. */
+            reviewers: z.array(z.string()).optional().default(['claude']),
+            /** single: the first installed reviewer. cross: prefer a vendor not on the commits' trailers. full: two vendors, verdicts merged. */
+            mode: z.enum(['single', 'cross', 'full']).optional().default('single'),
+            /** The model for the claude reviewer. */
             model: z.string().optional(),
+            /** A model per reviewer name, e.g. { cursor: "auto" }. */
+            models: z.record(z.string()).optional().default({}),
             timeout_ms: z.number().optional().default(15 * 60_000),
         }).optional().default({}),
     }).optional().default({}),

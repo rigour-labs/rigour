@@ -85,11 +85,19 @@ review:
   show_preexisting: false      # true lists findings the code already had before the change
   github_account: my-login     # the account whose token fetches the PR's previous review (or set it in a profile)
   reviewer:
-    enabled: false             # true runs the fresh reviewer at every push (rigour review --reviewer runs it on request).
-                               # It reads every human review on the PR (with inline comments) and the PR description;
-                               # an open point the human marked non-blocking is listed, not held against the push.
-    command: claude            # your coding agent's CLI, run headless and read-only
-    model: claude-opus-5-5     # optional
+    enabled: false             # true runs the reviewer at push (rigour review --reviewer runs it on request).
+                               # It reads every human review on the PR (with inline comments) and the PR description,
+                               # checks every point against the code, traces every read the change adds, and reports
+                               # what a fix left behind; an open point the human marked non-blocking is listed for the
+                               # reply, not held against the push.
+    on_push: background        # background (default): the push goes through once the checks pass and the pushed commit
+                               # is reviewed in a worktree of its own (rigour review --status shows the verdict);
+                               # wait: the push waits for the verdict; off: only on request. A model is asked only
+                               # when the branch has an open, non-draft pull request.
+    reviewers: [claude]        # your coding agents' CLIs, run headless and read-only: claude, cursor, codex
+    mode: single               # single: the first installed; cross: a vendor not on the commits' trailers;
+                               # full: two vendors, verdicts merged (rigour review --reviewer --full, before asking a person)
+    model: claude-opus-5-5     # optional, for claude; models: { cursor: auto } for the others
     timeout_ms: 900000
 ```
 
