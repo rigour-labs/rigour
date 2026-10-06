@@ -37,6 +37,7 @@ import {
 import type { HookCheckerResult } from '@rigour-labs/core';
 import { pushGateShell } from '@rigour-labs/core';
 import { groupFilesByRepo, recordEditCatches } from './hooks-check-repos.js';
+import { installGitPushHook } from './hooks-git.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -578,6 +579,16 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
         console.log(chalk.dim('  Possible credentials will be reported before agent actions.'));
         console.log(chalk.dim('  Use --block only when every input path is covered by the same policy.'));
         console.log(chalk.dim('  Coverage: AWS keys, API tokens, database URLs, private keys, JWTs, passwords.\n'));
+    }
+
+    // Git's own pre-push hook: the same push gate for every tool and for a terminal, not only the agents above.
+    const gitHook = installGitPushHook(cwd, checkerToShellCommand({ command: checker.command, args: checker.args.slice(0, -2) }));
+    if (gitHook.action === 'managed elsewhere') {
+        console.log(chalk.yellow(`Git pre-push hooks are managed outside this repository (${gitHook.path}); Rigour leaves that file alone.`));
+        console.log(chalk.dim(`  To gate every push there, add: ${checkerToShellCommand({ command: checker.command, args: checker.args.slice(0, -2) })} hooks push --git "$@" || exit $?\n`));
+    } else if (gitHook.action !== 'no repository') {
+        console.log(chalk.green(`Git pre-push hook ${gitHook.action}: ${gitHook.path}`));
+        console.log(chalk.dim('  Every push from any tool or terminal goes through the gate; `rigour hooks selftest` proves it with a real push.\n'));
     }
 
     await logStudioEvent(cwd, {

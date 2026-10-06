@@ -16,6 +16,7 @@ import { hooksStopCommand } from './commands/hooks-stop.js';
 import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
+import { gitPushGateCommand, selfTestGitPushHook } from './commands/hooks-git.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -549,14 +550,26 @@ profileCmd
 
 hooksCmd
     .command('push')
-    .description('Push gate: before an agent runs git push, run the review, the repository\'s own tools and (if enabled) the reviewer on the branch; exit 2 blocks the push. Reads the PreToolUse payload on stdin')
+    .description('Push gate: before a push, run the review, the repository\'s own tools and the typed checks on the branch; a failure refuses the push. From an agent hook (PreToolUse payload on stdin, exit 2) or from git\'s pre-push (--git, exit 1)')
     .option('--stdin', 'Read the hook payload from stdin (the default)')
-    .action(async () => {
+    .option('--git', 'Run as git\'s pre-push hook: the refs on stdin, the commit git is about to send')
+    .action(async (options: { git?: boolean }) => {
         const chunks: Buffer[] = [];
         if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
-        const result = await hooksPushCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
+        const stdin = Buffer.concat(chunks).toString('utf8');
+        const result = options.git ? await gitPushGateCommand(stdin, process.cwd()) : await hooksPushCommand(stdin, process.cwd());
         if (result.message) process.stderr.write(result.message + '\n');
         process.exit(result.exitCode);
+    });
+
+hooksCmd
+    .command('selftest')
+    .description('Prove the git pre-push hook: in a scratch clone of a scratch remote, a push the gate must refuse is refused and the fixed push lands, read from the remote\'s refs')
+    .action(async () => {
+        const result = await selfTestGitPushHook(`${process.execPath} ${process.argv[1]}`);
+        for (const step of result.steps) console.log(`  ${step}`);
+        console.log(result.ok ? chalk.green('  The push gate holds.') : chalk.red('  The push gate does not hold.'));
+        process.exit(result.ok ? 0 : 1);
     });
 
 hooksCmd

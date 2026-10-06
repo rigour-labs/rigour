@@ -35,6 +35,13 @@ export async function hooksPushCommand(stdin: string, fallbackCwd: string): Prom
     if (!isPush(command)) return { exitCode: 0, message: '' };
     const repo = repositoryOf(pushTarget(command) ?? payload.cwd ?? fallbackCwd);
     if (!repo) return { exitCode: 0, message: '' };
+    return pushGate(repo);
+}
+
+/** The gate itself, on the repository's branch against main: shared by the agent hook and git's pre-push (hooks-git.ts). */
+export async function pushGate(dir: string): Promise<PushGateResult> {
+    const repo = repositoryOf(dir);
+    if (!repo) return { exitCode: 0, message: '' };
     const branch = branchBase(repo);
     if (!branch) return { exitCode: 0, message: '' }; // no main branch to measure against: nothing to gate
     const base = mergeBaseOf(repo, branch.mainRef);
