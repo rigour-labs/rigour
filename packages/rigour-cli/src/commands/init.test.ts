@@ -107,7 +107,18 @@ describe('initCommand', () => {
 
         const content = fs.readFileSync(gitignorePath, 'utf-8');
         expect(content).toContain('rigour-report.json');
-        expect(content).toContain('.rigour/');
+        expect(content).toContain('.rigour/*');
+        expect(content).toContain('!.rigour/dismissed.json');
+        expect(content).toContain('!.rigour/backtest.json');
+    });
+
+    it('turns an older whole-directory `.rigour/` ignore into one the shared files can escape', async () => {
+        fs.writeFileSync(path.join(testDir, '.gitignore'), 'node_modules\n.rigour/\n');
+        await initCommand(testDir);
+        const lines = fs.readFileSync(path.join(testDir, '.gitignore'), 'utf-8').split('\n');
+        expect(lines).not.toContain('.rigour/');
+        expect(lines.filter(l => l === '.rigour/*')).toHaveLength(1);
+        expect(lines).toContain('!.rigour/dismissed.json');
     });
 
     it('should create .rigour/memory.json for Studio', async () => {

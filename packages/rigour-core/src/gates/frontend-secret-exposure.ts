@@ -100,8 +100,14 @@ export class FrontendSecretExposureGate extends Gate {
                 // Any tool config at the repository root runs in Node, never in a browser bundle.
                 '^[^/]+\\.config\\.[cm]?[jt]s$',
                 '\\.server\\.(?:ts|tsx|js|jsx|mjs|cjs)$',
-                // SvelteKit endpoints (`+server.ts`) are server-only.
+                // SvelteKit endpoints (`+server.ts`) and `src/lib/server/` are server-only.
                 '(^|/)\\+server\\.[cm]?[jt]s$',
+                '(^|/)src/lib/server/',
+                // Serverless functions and workers run on the platform, never in a browser bundle.
+                '(^|/)netlify/(?:functions|edge-functions)/',
+                '(^|/)supabase/functions/',
+                '^api/',
+                '(^|/)(?:functions|lambdas?|workers?|cron|jobs)/',
                 ...(config.server_path_patterns ?? []),
             ],
             allowlist_env_names: config.allowlist_env_names ?? [],

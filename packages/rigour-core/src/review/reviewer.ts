@@ -43,11 +43,18 @@ export interface ReviewerResult {
     cached: boolean;
 }
 
+/** For a backtest (backtest.ts): the pull request to read when the checkout is detached, and the moment from which reviews are hidden. */
+export interface ReviewerOptions {
+    pr?: number;
+    /** ISO time: a review or comment posted from then on is not shown to the reviewer. */
+    reviewsBefore?: string;
+}
+
 /** How commands are run; tests replace it. */
 export type Exec = (command: string, args: string[], options: { cwd: string; timeoutMs: number; env?: Record<string, string> }) =>
     Promise<{ exitCode: number; stdout: string; stderr: string }>;
 
-const defaultExec: Exec = async (command, args, options) => {
+export const defaultExec: Exec = async (command, args, options) => {
     const result = await execa(command, args, { cwd: options.cwd, reject: false, timeout: options.timeoutMs, input: '', env: options.env ? { ...process.env, ...options.env } : undefined });
     return { exitCode: result.exitCode ?? 1, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
 };
@@ -58,11 +65,11 @@ const GH_TIMEOUT_MS = 60_000;
 export type Progress = (message: string) => void;
 const PROGRESS_EVERY_MS = 60_000;
 
-export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec, progress: Progress = message => process.stderr.write(`${message}\n`)): Promise<ReviewerResult> {
+export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec, progress: Progress = message => process.stderr.write(`${message}\n`), options: ReviewerOptions = {}): Promise<ReviewerResult> {
     const settings = config.review?.reviewer;
     const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim();
-    const previous = await previousHumanReview(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec);
-    const cacheFile = await cachePath(cwd, head, `${PROMPT_VERSION}\0${previous.text ?? ''}`, exec);
+    const previous = await previousHumanReview(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec, options);
+    const cacheFile = await cachePath(cwd, head, `${PROMPT_VERSION}\0${options.reviewsBefore ?? ''}\0${previous.text ?? ''}`, exec);
     if (cacheFile && fs.existsSync(cacheFile)) {
         return { verdict: JSON.parse(fs.readFileSync(cacheFile, 'utf8')), previousReview: previous.label, cached: true };
     }
@@ -100,23 +107,24 @@ export function reviewerBlocks(result: ReviewerResult): boolean {
  * with its inline comments, and the pull request's description. Earlier rounds matter: a point
  * from round one can come back in round three.
  */
-async function previousHumanReview(cwd: string, account: string | undefined, exec: Exec): Promise<{ text?: string; label?: string; description?: string }> {
+async function previousHumanReview(cwd: string, account: string | undefined, exec: Exec, options: ReviewerOptions): Promise<{ text?: string; label?: string; description?: string }> {
     const env = await githubEnv(cwd, account, exec);
     const gh = (args: string[]) => exec('gh', args, { cwd, timeoutMs: GH_TIMEOUT_MS, env });
-    const pr = await gh(['pr', 'view', '--json', 'number,author,body', '-q', '[.number, .author.login, (.body | @base64)] | @tsv']);
+    const pr = await gh(['pr', 'view', ...(options.pr ? [String(options.pr)] : []), '--json', 'number,author,body', '-q', '[.number, .author.login, (.body | @base64)] | @tsv']);
     if (pr.exitCode !== 0 || !pr.stdout.trim()) return {};
     const [number, author, body64] = pr.stdout.trim().split('\t');
     const description = body64 ? Buffer.from(body64, 'base64').toString('utf8') : undefined;
     const reviews = await gh(['api', `repos/{owner}/{repo}/pulls/${number}/reviews`, '--paginate']);
     if (reviews.exitCode !== 0) return { description };
+    const before = (at: unknown) => !options.reviewsBefore || (typeof at === 'string' && at < options.reviewsBefore);
     const humans = parseJsonArrays(reviews.stdout)
-        .filter((r: any) => r?.user && r.user.type !== 'Bot' && !/bot/i.test(r.user.login) && r.user.login !== author && (r.body?.trim() || r.state === 'CHANGES_REQUESTED'));
+        .filter((r: any) => r?.user && r.user.type !== 'Bot' && !/bot/i.test(r.user.login) && r.user.login !== author && (r.body?.trim() || r.state === 'CHANGES_REQUESTED') && before(r.submitted_at));
     if (humans.length === 0) return { description };
     const rounds: string[] = [];
     for (const [index, review] of humans.entries()) {
         const comments = await gh(['api', `repos/{owner}/{repo}/pulls/${number}/reviews/${review.id}/comments`, '--paginate']);
         const inline = comments.exitCode === 0
-            ? parseJsonArrays(comments.stdout).map((c: any) => `- ${c.path}:${c.line ?? c.original_line ?? '?'}: ${String(c.body ?? '').trim()}`)
+            ? parseJsonArrays(comments.stdout).filter((c: any) => before(c.created_at)).map((c: any) => `- ${c.path}:${c.line ?? c.original_line ?? '?'}: ${String(c.body ?? '').trim()}`)
             : [];
         rounds.push([`## Review ${index + 1} of ${humans.length}`, `Reviewer: ${review.user.login}`, `Submitted: ${review.submitted_at}`, `State: ${review.state}`, '',
             String(review.body ?? '').trim(), ...(inline.length ? ['', 'Inline comments:', ...inline] : [])].join('\n'));
@@ -126,7 +134,7 @@ async function previousHumanReview(cwd: string, account: string | undefined, exe
 }
 
 /** `gh --paginate` prints one JSON array per page. */
-function parseJsonArrays(text: string): any[] {
+export function parseJsonArrays(text: string): any[] {
     try {
         return JSON.parse(`[${text.trim().replace(/\]\s*\[/g, '],[')}]`).flat();
     } catch {
@@ -135,7 +143,7 @@ function parseJsonArrays(text: string): any[] {
 }
 
 /** The named GitHub account's token for `gh`, when the person keeps several; otherwise gh's own. */
-async function githubEnv(cwd: string, account: string | undefined, exec: Exec): Promise<Record<string, string> | undefined> {
+export async function githubEnv(cwd: string, account: string | undefined, exec: Exec): Promise<Record<string, string> | undefined> {
     if (!account || process.env.GH_TOKEN) return undefined;
     const token = await exec('gh', ['auth', 'token', '--user', account], { cwd, timeoutMs: GH_TIMEOUT_MS });
     return token.exitCode === 0 && token.stdout.trim() ? { GH_TOKEN: token.stdout.trim() } : undefined;

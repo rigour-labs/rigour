@@ -20,6 +20,18 @@ describe('quiet by default', () => {
         expect(quietSplit(dir, all, true).speaking).toHaveLength(5);
     });
 
+    it('speaks on what must be fixed, the one rule the stop hook and the push gate share: critical, or high and verified or from a security gate', () => {
+        const all = [
+            { ...finding('frontend-secret-exposure'), severity: 'high' as const, provenance: 'security' as const },
+            { ...finding('promise-safety'), severity: 'high' as const },
+            { ...finding('promise-safety', 'verified'), severity: 'high' as const, verified: true },
+            { ...finding('file-size'), severity: 'critical' as const },
+            finding('migration-order'),
+        ];
+        expect(quietSplit(dir, all).speaking.map(f => f.id)).toEqual(['frontend-secret-exposure', 'promise-safety', 'file-size', 'migration-order']);
+        expect(quietSplit(dir, all).advisory.map(f => f.details)).toEqual(['d']);
+    });
+
     it('never reports a dismissed finding again, even after its line moves', () => {
         const leak = finding('security-patterns', 'Hardcoded token in `client`');
         expect(dismissFinding(dir, findingKey(leak), 'test fixture token, never deployed')).toBe(true);

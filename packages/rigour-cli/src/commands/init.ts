@@ -343,16 +343,19 @@ ${ruleContent}`;
     // 4. Auto-register MCP server for all supported tools
     await initMCPForDetectedTools(cwd, allSupportedIDEs, options.force);
 
-    // 5. Update .gitignore
+    // 5. Update .gitignore: Rigour's state stays out of git, except what the team shares (the
+    //    dismissals and the backtest ledger). A whole-directory `.rigour/` would hide those too,
+    //    since git cannot re-include a file under an excluded directory, so it becomes `.rigour/*`.
     const gitignorePath = path.join(cwd, '.gitignore');
-    const ignorePatterns = ['rigour-report.json', 'rigour-fix-packet.json', '.rigour/'];
+    const ignorePatterns = ['rigour-report.json', 'rigour-fix-packet.json', '.rigour/*', '!.rigour/dismissed.json', '!.rigour/backtest.json'];
     try {
         let content = '';
         if (await fs.pathExists(gitignorePath)) {
-            content = await fs.readFile(gitignorePath, 'utf-8');
+            content = (await fs.readFile(gitignorePath, 'utf-8')).replace(/^\.rigour\/$/m, '.rigour/*');
         }
 
-        const toAdd = ignorePatterns.filter(p => !content.includes(p));
+        const lines = content.split('\n').map(l => l.trim());
+        const toAdd = ignorePatterns.filter(p => !lines.includes(p));
         if (toAdd.length > 0) {
             const separator = content.endsWith('\n') ? '' : '\n';
             const newContent = `${content}${separator}\n# Rigour Artifacts\n${toAdd.join('\n')}\n`;

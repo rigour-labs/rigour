@@ -80,6 +80,23 @@ describe('the reviewer', () => {
         expect(fs.readdirSync(repo)).toEqual(['.git', 'a.ts']); // nothing written to the working tree
     });
 
+    it('for a backtest, reads the named pull request and hides every review and comment from the reviewed moment on', async () => {
+        const seen = { prompts: [] as string[] } as { prompts: string[]; review?: string; ghArgs?: string[] };
+        const answer = JSON.stringify({ prior_points: [], blocking: [], non_blocking: [] });
+        const exec = fakes(answer, seen);
+        const spying: Exec = (command, args, options) => {
+            if (command === 'gh' && args[0] === 'pr') seen.ghArgs = args;
+            return exec(command, args, options);
+        };
+        const hidden = await runReviewer(repo, 'main', config, spying, () => undefined, { pr: 42, reviewsBefore: '2026-10-03' });
+        expect(seen.ghArgs?.slice(0, 3)).toEqual(['pr', 'view', '42']);
+        expect(seen.review).toContain('(no previous human review on this branch)');
+        expect(hidden.error).toBeUndefined(); // no review was shown, so an empty prior_points is right
+        const shown = await runReviewer(repo, 'main', config, fakes(answer, seen), () => undefined, { pr: 42, reviewsBefore: '2026-10-04' });
+        expect(seen.review).toContain('Reviewer: senior');
+        expect(shown.error).toContain('did not report on the previous review');
+    });
+
     it('finds the verdict when the reviewer wraps it in a summary or a code fence', () => {
         const verdict = '{"prior_points":[{"point":"p","resolved":false}],"blocking":[]}';
         for (const result of [`## Summary\nAll checked.\n\n\`\`\`json\n${verdict}\n\`\`\`\nDone.`, `Notes first.\n${verdict}\nThat is all {see above}.`]) {

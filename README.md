@@ -79,6 +79,8 @@ Everything else is in `rigour help --all`.
 - **Your code stays on your machine.** Nothing is sent anywhere unless you add a model key; team sync sends only lessons from your team's own repositories.
 - **You see what it costs.** When a model is used, Rigour records the real cost of each run.
 - **Measured in the open.** Claims about what Rigour catches are tested on real pull requests in the public [driftbench arena](https://github.com/rigour-labs/driftbench).
+- **Measured against your own reviewers.** `rigour backtest` replays the review on commits your team reviewed, with the review hidden, and scores it: which of the reviewer's points it would have caught first, and whether it would have blocked anything they called good. See [Backtest](docs/BACKTEST.md).
+- **One rule for what blocks.** The review, the stop hook and the push gate decide from the same rule, so they never disagree about a finding.
 
 ## What it costs
 

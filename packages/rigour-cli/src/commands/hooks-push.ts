@@ -14,7 +14,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    blocksStop, branchBase, branchFailures, diffFromGit, mergeBaseOf, reviewChange, reviewerBlocks, runReviewer, runToolchain,
+    branchBase, branchFailures, diffFromGit, mergeBaseOf, reviewChange, reviewerBlocks, runReviewer, runToolchain,
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
@@ -53,8 +53,8 @@ async function gates(repo: string, base: string, mainRef: string, config: Config
     const source = { mode: 'since' as const, commit: base };
     const diff = diffFromGit(repo, source);
     const review = await reviewChange({ cwd: repo, config, diff, source });
-    const mustFix = [...review.findings, ...review.advisory].filter(f => blocksStop(f) || f.id === 'migration-order');
-    mustFix.push(...branchFailures(repo, base, mainRef, config));
+    // What the review reports is what must be fixed (quiet.ts `mustFix`); the stop hook uses the same set.
+    const mustFix = [...review.findings, ...branchFailures(repo, base, mainRef, config)];
     for (const f of mustFix) lines.push(`- ${finding(f)}`);
     for (const tool of await runToolchain(repo, Object.keys(review.changedLines), config)) {
         if (tool.status === 'fail') {

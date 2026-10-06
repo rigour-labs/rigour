@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "key": "f9e920b0783b229b",
+      "reason": "ledger patterns come from the repository's own committed .rigour/backtest.json, written by the team, never from user input",
+      "at": "2026-10-06T04:52:36.945Z",
+      "check": "security-patterns: Security: REDOS"
+    }
+  ]
+}

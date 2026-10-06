@@ -13,6 +13,7 @@ import { exportAuditCommand } from './commands/export-audit.js';
 import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
+import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
@@ -493,6 +494,35 @@ hooksCmd
         const tool = options.tool === 'cursor' ? 'cursor' : 'claude';
         const reply = await hooksStopCommand(tool, Buffer.concat(chunks).toString('utf8'), process.cwd());
         if (reply) process.stdout.write(reply + '\n');
+    });
+
+const backtestCmd = program
+    .command('backtest')
+    .description('Score the review against the points people made reviewing this repository (.rigour/backtest.json); exit 1 until every point is caught with no false block')
+    .option('--round <id>', 'Run one round only')
+    .option('--reviewer', 'Run the reviewer too, with each round\'s human review hidden')
+    .option('--json', 'Output the score in JSON format')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .action(async (options: any) => {
+        try {
+            process.exit(await backtestCommand(process.cwd(), options));
+        } catch (error: any) {
+            console.error(chalk.red(error.message));
+            process.exit(2);
+        }
+    });
+backtestCmd
+    .command('init')
+    .description('Write ledger rounds from a pull request\'s human reviews (inline comments give file and line; body points need a pattern)')
+    .requiredOption('--pr <number>', 'The pull request')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .action(async (options: any) => {
+        try {
+            process.exit(await backtestInitCommand(process.cwd(), options));
+        } catch (error: any) {
+            console.error(chalk.red(error.message));
+            process.exit(2);
+        }
     });
 
 const profileCmd = program

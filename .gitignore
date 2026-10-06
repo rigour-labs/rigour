@@ -38,6 +38,8 @@ yarn-error.log*
 .env.*
 !.env.example
 
-# Rigour Artifacts
+# Rigour Artifacts (the dismissals and the backtest ledger are shared, so they are committed)
 rigour-fix-packet.json
-.rigour/
+.rigour/*
+!.rigour/dismissed.json
+!.rigour/backtest.json
