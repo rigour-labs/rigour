@@ -68,9 +68,10 @@ async function gates(repo: string, base: string, mainRef: string, config: Config
     for (const f of mustFix) lines.push(`- ${finding(f)}`);
     // A check that could not run is never a pass: a checkout that cannot prove the change blocks it.
     if (review.status === 'ERROR') for (const id of review.gateErrors) lines.push(`- ${id} could not run${id === 'typed-checks-unavailable' && review.typedError ? `: ${review.typedError}` : ''}`);
-    for (const tool of await runToolchain(repo, Object.keys(review.changedLines), config)) {
+    for (const tool of await runToolchain(repo, Object.keys(review.changedLines), config, review.changedLines)) {
         if (tool.status === 'fail') {
-            lines.push(`- ${tool.tool} failed: ${tool.command}`);
+            // A tool that names places (the lint overlay, knip) gets one line per place, like a finding.
+            lines.push(...(tool.lines?.length ? tool.lines.map(line => `- ${tool.tool}: ${line}`) : [`- ${tool.tool} failed: ${tool.command}`]));
             log.push(`## ${tool.tool}: ${tool.command}\n${tool.output ?? ''}`);
         }
     }

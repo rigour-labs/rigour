@@ -29,14 +29,48 @@ afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 describe('runToolchain', () => {
     it('reports every tool the project did not install as skipped, never downloading one', async () => {
         const results = await runToolchain(dir, ['src/a.ts'], config());
-        expect(results.map(r => [r.tool, r.status])).toEqual([['format', 'skipped'], ['lint', 'skipped'], ['typecheck', 'skipped'], ['test', 'skipped']]);
+        expect(results.map(r => [r.tool, r.status])).toEqual([['format', 'skipped'], ['lint', 'skipped'], ['overlay', 'skipped'], ['typecheck', 'skipped'], ['test', 'skipped'], ['knip', 'skipped']]);
     });
 
     it('fails, not skips, a tool the project declares but has not installed: a checkout without its dependencies proves nothing', async () => {
         fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ devDependencies: { eslint: '^9', typescript: '^5' } }));
         const results = await runToolchain(dir, ['src/a.ts'], config());
-        expect(results.map(r => [r.tool, r.status])).toEqual([['format', 'skipped'], ['lint', 'fail'], ['typecheck', 'fail'], ['test', 'skipped']]);
+        expect(results.map(r => [r.tool, r.status])).toEqual([['format', 'skipped'], ['lint', 'fail'], ['overlay', 'skipped'], ['typecheck', 'fail'], ['test', 'skipped'], ['knip', 'skipped']]);
         expect(results.find(r => r.tool === 'lint')).toMatchObject({ command: 'eslint is in package.json but not installed', output: expect.stringContaining('install the dependencies') });
+    });
+
+    it('runs type-checked rules the project does not enable, blocking on changed lines only, with the project\'s own eslint and config', async () => {
+        fs.writeFileSync(path.join(dir, 'eslint.config.js'), 'export default [];\n');
+        fs.mkdirSync(path.join(dir, 'node_modules/typescript-eslint'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'node_modules/typescript-eslint/package.json'), '{"name":"typescript-eslint","main":"index.js"}');
+        fs.writeFileSync(path.join(dir, 'node_modules/typescript-eslint/index.js'), 'module.exports = {};');
+        const report = JSON.stringify([{ filePath: path.join(dir, 'src/a.ts'), messages: [
+            { line: 2, column: 5, ruleId: '@typescript-eslint/no-unnecessary-condition', message: 'Unnecessary conditional, value is always truthy.' },
+            { line: 9, column: 1, ruleId: '@typescript-eslint/no-floating-promises', message: 'Promises must be awaited.' },
+        ] }]);
+        tool('eslint', `if (args[0] === '--version') { console.log('v9.0.0'); process.exit(0); }\nif (args.includes('--format')) { console.log(${JSON.stringify(report)}); process.exit(1); }\nprocess.exit(0);`);
+        const results = await runToolchain(dir, ['src/a.ts'], config(), { 'src/a.ts': new Set([1, 2, 3]) });
+        const overlay = results.find(r => r.tool === 'overlay')!;
+        expect(overlay).toMatchObject({ status: 'fail', lines: ['src/a.ts:2:5 @typescript-eslint/no-unnecessary-condition: Unnecessary conditional, value is always truthy.'] });
+        expect(overlay.command).toContain('1 on changed lines, 1 pre-existing (not blocking)');
+        const call = calls().split('\n').find(line => line.includes('--format json'))!;
+        expect(call).toMatch(/eslint --config \S+eslint\.overlay\.config\.mjs --no-warn-ignored --format json src\/a\.ts/);
+        expect(fs.readdirSync(dir)).not.toContain('eslint.overlay.config.mjs'); // never written into the repository
+        // Nothing on a changed line: pass, backlog counted.
+        const clean = await runToolchain(dir, ['src/a.ts'], config(), { 'src/a.ts': new Set([7]) });
+        expect(clean.find(r => r.tool === 'overlay')).toMatchObject({ status: 'pass', command: expect.stringContaining('0 on changed lines, 2 pre-existing') });
+    });
+
+    it('runs knip when the project installs it, and reports only what is in the changed files', async () => {
+        const report = JSON.stringify({ files: [path.join(dir, 'src/dead.ts'), 'src/elsewhere.ts'], issues: [
+            { file: 'src/a.ts', exports: [{ name: 'spare', line: 3, col: 1 }], types: [{ name: 'Spare', line: 4, col: 1 }] },
+            { file: 'src/other.ts', exports: [{ name: 'old', line: 1, col: 1 }], types: [] },
+        ] });
+        tool('knip', `console.log(${JSON.stringify(report)}); process.exit(1);`);
+        fs.writeFileSync(path.join(dir, 'src/dead.ts'), 'export const dead = 1;\n');
+        const results = await runToolchain(dir, ['src/a.ts', 'src/dead.ts'], config());
+        expect(results.find(r => r.tool === 'knip')).toMatchObject({ status: 'fail', lines: ['src/dead.ts: nothing imports or runs this file', 'src/a.ts:3: unused export spare', 'src/a.ts:4: unused export Spare'] });
+        expect(calls()).toContain('knip --production --no-progress --reporter json');
     });
 
     it('runs the formatter on changed files only and reports what it said', async () => {

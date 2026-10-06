@@ -12,17 +12,20 @@ import fs from 'fs';
 import path from 'path';
 import type { Config } from '../types/index.js';
 import { installedBin } from '../utils/installed-bin.js';
+import { onChangedLines, overlayUnavailable, writeOverlayConfig } from './lint-overlay.js';
 import { ownOutputs } from './unused-exports.js';
 
 export type ToolStatus = 'pass' | 'fail' | 'skipped';
 
 export interface ToolResult {
-    tool: 'format' | 'lint' | 'typecheck' | 'test';
+    tool: 'format' | 'lint' | 'overlay' | 'typecheck' | 'test' | 'knip';
     status: ToolStatus;
     /** The command run, or why it was not. */
     command: string;
     /** The tail of the output when it failed. */
     output?: string;
+    /** One line per finding, for tools that report places (the lint overlay, knip). */
+    lines?: string[];
 }
 
 const CODE = /\.(ts|tsx|js|jsx|mjs|cjs|svelte)$/;
@@ -32,20 +35,74 @@ const BATCH = 150;
 const TIMEOUT_MS = 10 * 60_000;
 const OUTPUT_LINES = 30;
 
-export async function runToolchain(cwd: string, changedFiles: string[], config: Config): Promise<ToolResult[]> {
+/** `changedLines`: the lines the change touched, for the tools that report per line (the overlay blocks on those only). */
+export async function runToolchain(cwd: string, changedFiles: string[], config: Config, changedLines: Record<string, Set<number>> = {}): Promise<ToolResult[]> {
     const own = ownOutputs(config);
     const files = changedFiles.filter(file => !own.some(o => file === o || file.startsWith(`${o}/`)) && fs.existsSync(path.join(cwd, file)));
     const code = files.filter(file => CODE.test(file));
-    const configured = config.commands ?? {};
+    const configured: Record<string, string | undefined> = config.commands ?? {};
     const results: ToolResult[] = [];
     const run = async (tool: ToolResult['tool'], step: () => Promise<ToolResult>) => {
         results.push(configured[tool] ? { tool, status: 'skipped', command: `commands.${tool} runs it` } : await step());
     };
     await run('format', () => formatCheck(cwd, files.filter(file => FORMATTED.test(file))));
     await run('lint', () => lint(cwd, code));
+    await run('overlay', () => lintOverlay(cwd, code, changedLines));
     await run('typecheck', () => typecheck(cwd));
     await run('test', () => relatedTests(cwd, code));
+    await run('knip', () => knip(cwd, files));
     return results;
+}
+
+/**
+ * Type-checked rules the repository does not enable (lint-overlay.ts), on changed lines only. The
+ * repository's own eslint and typescript-eslint run it; without them it is skipped and said so.
+ */
+async function lintOverlay(cwd: string, files: string[], changedLines: Record<string, Set<number>>): Promise<ToolResult> {
+    const bin = installedBin(cwd, cwd, 'eslint');
+    if (!bin) return skipped('overlay', 'eslint is not installed');
+    const unavailable = overlayUnavailable(cwd);
+    if (unavailable) return skipped('overlay', unavailable);
+    const lintable = files.filter(file => /\.(ts|mts|cts|js|mjs|svelte)$/.test(file));
+    if (lintable.length === 0) return { tool: 'overlay', status: 'pass', command: 'no lintable changed files' };
+    const configFile = writeOverlayConfig(cwd);
+    try {
+        const command = `eslint --config <typed overlay> --format json (${lintable.length} files)`;
+        const result = await execa(bin, ['--config', configFile, '--no-warn-ignored', '--format', 'json', ...lintable], { cwd, reject: false, timeout: TIMEOUT_MS, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
+        const report = onChangedLines(String(result.stdout ?? ''), cwd, changedLines);
+        if ('error' in report) return { tool: 'overlay', status: 'fail', command, output: `${report.error}\n${String(result.stderr ?? '').trim().split('\n').slice(-OUTPUT_LINES).join('\n')}` };
+        const lines = report.blocking.map(m => `${m.file}:${m.line}:${m.column} ${m.rule}: ${m.message}`);
+        const summary = `${command}: ${lines.length} on changed lines, ${report.preexisting} pre-existing (not blocking)`;
+        return lines.length ? { tool: 'overlay', status: 'fail', command: summary, output: lines.join('\n'), lines } : { tool: 'overlay', status: 'pass', command: summary };
+    } finally {
+        fs.rmSync(path.dirname(configFile), { recursive: true, force: true });
+    }
+}
+
+/**
+ * knip, when the repository installs it, with the repository's own config: unused files and
+ * exports among the files the change touched (a pre-existing dead export elsewhere is backlog).
+ */
+async function knip(cwd: string, files: string[]): Promise<ToolResult> {
+    const bin = installedBin(cwd, cwd, 'knip');
+    if (!bin) return notInstalled('knip', cwd, 'knip');
+    if (files.length === 0) return { tool: 'knip', status: 'pass', command: 'no changed files' };
+    const command = 'knip --production --reporter json';
+    const result = await execa(bin, ['--production', '--no-progress', '--reporter', 'json'], { cwd, reject: false, timeout: TIMEOUT_MS, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
+    let report: { files?: string[]; issues?: Array<{ file: string; exports?: Array<{ name: string; line?: number }>; types?: Array<{ name: string; line?: number }> }> };
+    try {
+        report = JSON.parse(String(result.stdout ?? ''));
+    } catch {
+        return { tool: 'knip', status: 'fail', command, output: `knip printed no JSON (exit ${result.exitCode})\n${String(result.stderr ?? '').trim().split('\n').slice(-OUTPUT_LINES).join('\n')}` };
+    }
+    const changed = new Set(files);
+    const normalize = (file: string) => path.isAbsolute(file) ? path.relative(cwd, file).split(path.sep).join('/') : file;
+    const lines = [
+        ...(report.files ?? []).map(normalize).filter(file => changed.has(file)).map(file => `${file}: nothing imports or runs this file`),
+        ...(report.issues ?? []).filter(issue => changed.has(normalize(issue.file))).flatMap(issue =>
+            [...(issue.exports ?? []), ...(issue.types ?? [])].map(e => `${normalize(issue.file)}${e.line ? `:${e.line}` : ''}: unused export ${e.name}`)),
+    ];
+    return lines.length ? { tool: 'knip', status: 'fail', command: `${command}: ${lines.length} in changed files`, output: lines.join('\n'), lines } : { tool: 'knip', status: 'pass', command };
 }
 
 async function formatCheck(cwd: string, files: string[]): Promise<ToolResult> {

@@ -13,7 +13,7 @@ import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { pushGate, type PushGateResult } from './hooks-push.js';
+import { pushGate } from './hooks-push.js';
 
 const MARK = 'rigour hooks push --git';
 
@@ -117,5 +117,3 @@ function gitOutput(cwd: string, args: string[]): string | undefined {
     const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
     return result.status === 0 ? result.stdout.trim() : undefined;
 }
-
-export type { PushGateResult };

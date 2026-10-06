@@ -87,7 +87,7 @@ describe('the background review', () => {
         await startBackgroundReview(repo, { head: 'b'.repeat(40), branch: 'feature', base: 'main' }, sleeper, exec);
         const second = (await reviewStatus(repo, 'feature', exec))?.running;
         expect(second?.pid).not.toBe(first!.pid);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        for (let waited = 0; alive(first!.pid) && waited < 3000; waited += 50) await new Promise(resolve => setTimeout(resolve, 50)); // under load the signal lands later
         expect(alive(first!.pid)).toBe(false);
         process.kill(second!.pid);
     });
