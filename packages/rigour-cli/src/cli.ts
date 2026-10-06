@@ -281,6 +281,9 @@ program
     .option('--reviewer', 'Then run the reviewer (your coding agent CLI, read-only, no key): every point of every human review checked against the code, what a fix left behind, every read traced, then new findings')
     .option('--full', 'With --reviewer: two vendors, verdicts merged. Run it before asking a person to review')
     .option('--status', 'What the background reviewer has done for this branch: running, last verdict, open items')
+    .option('--all', 'Show every finding, not the first five')
+    .option('--notes', 'List the notes that never block')
+    .option('--receipt', 'Show the receipt of agent reviews even before agents have reviewed anything here')
     .addHelpText('after', `
 Examples:
   $ rigour review                                      # Uncommitted changes, taken from git

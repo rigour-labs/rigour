@@ -18,7 +18,7 @@ Works with Claude Code, Cursor, Codex, Cline and Windsurf. Free, open source, an
 - **It reports what you changed, not what was already there.** Old problems in code you touched stay out of your review, so every finding is yours to fix.
 - **It runs your team's own tools.** Your formatter, linter, type check and the tests that touch the change run before every push, without anyone remembering to.
 - **It only blocks on what it can prove.** Dead code, offset paging, unbounded time windows, copied functions, merge conflicts, stale references: each check was run over real merged pull requests before it was allowed to block. Anything less certain is a note, never a gate.
-- **It shows its work.** Every review ends with a receipt: which risky changes were reviewed during development, which changed after review, and which nobody looked at.
+- **It shows its work.** Once your agents are reviewing as they go, every review ends with a receipt: which risky changes were reviewed during development, which changed after review, and which nobody looked at.
 - **One machine, many companies, nothing crosses.** Profiles keep each employer's or client's memory, lessons and team apart, chosen by the repository you're in.
 
 ## How it works

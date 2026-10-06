@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { asUserLevel, disableHere, enabledHere, enableHere, guardCommand } from './personal.js';
+import { asUserLevel, disableHere, enabledHere, enableHere } from './personal.js';
 import { setupCommand } from './setup.js';
 import { uninstall } from './uninstall.js';
 
@@ -82,10 +82,12 @@ describe('the switch for a repository', () => {
 });
 
 describe.skipIf(!unix)('the guard on a machine-level hook', () => {
+    /** The command a project Stop hook becomes in the user-level Claude settings. */
+    const guarded = (command: string): string => JSON.parse(asUserLevel({ path: '.claude/settings.json', content: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command }] }] } }) }).content).hooks.Stop[0].hooks[0].command;
     const run = (command: string) => spawnSync('sh', ['-c', command], { cwd: repo, input: 'payload', encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: '' } });
 
     it('runs the command only in a repository switched on, with stdin passed through, even for a quoted command', () => {
-        const command = guardCommand(`sh -c 'printf "ran:"; cat'`);
+        const command = guarded(`sh -c 'printf "ran:"; cat'`);
         expect(run(command).stdout).toBe('');
         expect(run(command).status).toBe(0);
         enableHere(repo);
@@ -97,7 +99,7 @@ describe.skipIf(!unix)('the guard on a machine-level hook', () => {
     it('turns each project hook file into its agent\'s user-level twin, every command guarded', () => {
         const claude = asUserLevel({ path: '.claude/settings.json', content: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'npx rigour hooks stop' }] }] } }) });
         expect(claude.path).toBe('.claude/settings.json');
-        expect(JSON.parse(claude.content).hooks.Stop[0].hooks[0].command).toBe(guardCommand('npx rigour hooks stop'));
+        expect(JSON.parse(claude.content).hooks.Stop[0].hooks[0].command).toMatch(/^sh -c '.*rigour-enabled.*exec npx rigour hooks stop'$/);
         expect(asUserLevel({ path: '.windsurf/hooks.json', content: '{}' }).path).toBe('.codeium/windsurf/hooks.json');
         const cline = asUserLevel({ path: '.clinerules/hooks/PostToolUse', content: '#!/usr/bin/env node\nprocess.stdout.write("ran");\n' });
         expect(cline.path).toBe('Documents/Cline/Hooks/PostToolUse');

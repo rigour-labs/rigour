@@ -35,7 +35,7 @@ function claudeCli(): string {
 const EXCLUDE_LINE = '.rigour/';
 
 /** The repository's shared git directory (the same for every worktree), or undefined outside one. */
-export function gitCommonDir(cwd: string): string | undefined {
+function gitCommonDir(cwd: string): string | undefined {
     const result = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
     return result.status === 0 ? result.stdout.trim() : undefined;
 }
@@ -87,13 +87,13 @@ export function disableHere(cwd: string, withState: boolean): string[] {
  * CLAUDE_PROJECT_DIR; the other agents run them in the workspace. Outside a repository, or in one
  * nobody switched on, it exits 0 before anything starts.
  */
-export function guardCommand(command: string): string {
+function guardCommand(command: string): string {
     const inner = `cd "\${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null; d=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0; [ -f "$d/${MARKER}" ] || exit 0; exec ${command}`;
     return `sh -c '${inner.replace(/'/g, `'\\''`)}'`;
 }
 
 /** The same guard for a Node hook script (Cline's): it answers `{}` and stops where Rigour is off. */
-export function guardScript(script: string): string {
+function guardScript(script: string): string {
     const guard = `// Rigour personal install: run only in a repository \`rigour setup\` switched on.
 {
     const found = require('child_process').spawnSync('git', ['rev-parse', '--git-common-dir'], { encoding: 'utf8' });
@@ -106,7 +106,7 @@ export function guardScript(script: string): string {
 }
 
 /** Where each agent reads user-level hooks, relative to the home directory, for the project path Rigour writes. */
-export const USER_LEVEL_PATH: Record<string, string> = {
+const USER_LEVEL_PATH: Record<string, string> = {
     '.claude/settings.json': '.claude/settings.json',
     '.cursor/hooks.json': '.cursor/hooks.json',
     '.windsurf/hooks.json': '.codeium/windsurf/hooks.json',

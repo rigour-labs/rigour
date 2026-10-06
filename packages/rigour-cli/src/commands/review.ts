@@ -12,13 +12,15 @@
  *   git diff | rigour review --json
  *   rigour review --diff changes.patch
  */
+import { execFileSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
+import { buildReviewTask, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
 import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
-import { printReceipt, receiptFor } from './review-receipt.js';
+import { receiptFor } from './review-receipt.js';
 import { printReviewer, printStatus, reviewerBase, reviewerFor, reviewerJson } from './review-reviewer.js';
+import { printHuman, type HumanContext } from './review-human.js';
 import { loadConfig, UsageError } from './review-config.js';
 import { deepProvider } from './deep-provider.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
@@ -46,11 +48,16 @@ export interface ReviewOptions {
     reviewer?: boolean;  // run the reviewer (every human review, diff, repo rules) after the rules
     full?: boolean;      // with --reviewer: two vendors, verdicts merged (the step before asking a person to look)
     status?: boolean;    // what the background reviewer has done for this branch
+    all?: boolean;       // every finding, not the first five
+    notes?: boolean;     // list the notes that never block
+    receipt?: boolean;   // the receipt of agent reviews, even before agents have reviewed anything here
 }
 
 export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
     const started = Date.now();
     if (options.status) process.exit(await printStatus(cwd, !!options.json));
+    // A person reads the verdict, not each gate's progress; warnings and errors still show.
+    if (!options.ci && !options.json && !options.githubSummary) Logger.setLevel(LogLevel.WARN);
     try {
         // An independent PR review trusts Rigour's settings as of the base, not as the PR left them.
         const trustedRef = options.independent && options.base ? mergeBaseOf(cwd, options.base) : undefined;
@@ -73,7 +80,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         if (options.base) recordPrCatches(cwd, result.findings);
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
         const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full) : undefined;
-        await print(result, options, receipt, reviewer);
+        await print(result, options, receipt, reviewer, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started });
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
         }
@@ -159,20 +166,35 @@ function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'fo
     };
 }
 
-async function print(result: ReviewResult, options: ReviewOptions, receipt: QualityReceipt | null, reviewer?: ReviewerResult): Promise<void> {
+async function print(result: ReviewResult, options: ReviewOptions, receipt: QualityReceipt | null, reviewer: ReviewerResult | undefined, context: Omit<HumanContext, 'receipt'>): Promise<void> {
     const summary = buildCiReviewSummary(result.findings, result.report?.failures.length ?? 0, result.changedLines,
         result.unlocated + result.fileFindings.length);
-    if (result.deepError && !options.json) console.error(chalk.red(`Deep analysis did not run: ${result.deepError}`));
-    if (result.gateErrors.length && !options.json) {
-        console.error(chalk.yellow(`Checks that could not run, so this is not a pass: ${result.gateErrors.join(', ')}`));
-        if (result.typedError) console.error(chalk.yellow(`  typed checks: ${result.typedError}`));
-    }
     if (options.json) return writeJson(result, summary, receipt, reviewer);
-    if (options.githubSummary) return void console.log(renderGithubSummary(summary));
-    if (options.ci) return printCi(result);
-    printHuman(result);
-    if (receipt) printReceipt(receipt);
+    if (options.githubSummary || options.ci) {
+        // The machine-read outputs say why a review is not a pass on stderr; the human one says it in its verdict.
+        if (result.deepError) console.error(chalk.red(`Deep analysis did not run: ${result.deepError}`));
+        if (result.gateErrors.length) console.error(chalk.yellow(`Checks that could not run, so this is not a pass: ${result.gateErrors.join(', ')}${result.typedError ? ` (${result.typedError})` : ''}`));
+        return options.githubSummary ? void console.log(renderGithubSummary(summary)) : printCi(result);
+    }
+    printHuman(result, { ...context, receipt, all: options.all, notes: options.notes, showReceipt: options.receipt });
     if (reviewer) printReviewer(reviewer);
+}
+
+function scopeOf(options: ReviewOptions): string {
+    if (options.diff) return 'the diff';
+    return options.base ? `this branch against ${options.base}` : 'your uncommitted changes';
+}
+
+/** Commits on the branch since it left the base; undefined for uncommitted work or outside git. */
+function commitsOf(cwd: string, base: string | undefined): number | undefined {
+    if (!base) return undefined;
+    try {
+        const merged = mergeBaseOf(cwd, base);
+        const count = Number(execFileSync('git', ['rev-list', '--count', `${merged}..HEAD`], { cwd, encoding: 'utf8' }).trim());
+        return Number.isFinite(count) && count > 0 ? count : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /** The change as git sees it, for the receipt; undefined outside a git repository. */
@@ -223,37 +245,6 @@ function printCi(result: ReviewResult): void {
     for (const f of result.findings) {
         console.log(`  - [${(f.severity || 'medium').toUpperCase()}] ${f.files?.[0] || ''}:${f.line ?? '?'} ${f.title}`);
     }
-}
-
-function printHuman(result: ReviewResult): void {
-    if (!result.report) {
-        console.log(chalk.green('No changes to review.'));
-        return;
-    }
-    if (result.findings.length === 0 && result.status === 'ERROR') {
-        console.log(chalk.yellow.bold('\n⚠ NOT A PASS — nothing found, but a check could not run (above).\n'));
-    } else if (result.findings.length === 0) {
-        console.log(chalk.green.bold('\n✔ PASS — No quality issues on changed lines.\n'));
-    } else {
-        console.log(chalk.red.bold(`\n✘ FAIL — ${result.findings.length} issue(s) on changed lines.\n`));
-        for (const f of result.findings) {
-            console.log(`  ${chalk.red(`[${(f.severity || 'medium').toUpperCase()}]`)} ${f.files?.[0] || '?'}:${f.line ?? '?'}`);
-            console.log(`    ${f.title}`);
-            console.log(chalk.dim(`    not a bug? rigour dismiss ${findingKey(f)} --reason "…"`));
-            if (f.hint) console.log(chalk.cyan(`    → ${f.hint}`));
-            console.log('');
-        }
-    }
-    if (result.fileFindings.length) console.log(chalk.dim(`  ${result.fileFindings.length} file-level note(s) on changed files (see --json).`));
-    if (result.advisory.length) console.log(chalk.dim(`  ${result.advisory.length} advisory note(s) from heuristic checks (see --json; they never decide the verdict).`));
-    if (result.muted) console.log(chalk.dim(`  ${result.muted} more muted: from checks this repository usually dismisses (rigour precision).`));
-    if (result.dismissed) console.log(chalk.dim(`  ${result.dismissed} finding(s) dismissed as not a bug (.rigour/dismissed.json).`));
-    if (result.controlFilesChanged.length) console.log(chalk.yellow(`  This change edits Rigour's own settings: ${result.controlFilesChanged.join(', ')}`));
-    for (const f of result.contextFindings) {
-        console.log(chalk.yellow(`  [context] ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));
-    }
-    if (result.excludedOutsideChangedLines) console.log(chalk.dim(`  (${result.excludedOutsideChangedLines} issue(s) on unchanged lines were excluded)\n`));
-    if (result.preexisting) console.log(chalk.dim(`  (${result.preexisting} issue(s) the changed files already had before this change were not reported; review.show_preexisting: true lists them)\n`));
 }
 
 /** Without a model, point at the risky changed functions a person or their agent should still check. */

@@ -10,7 +10,22 @@ On a branch with work on it, in your repository:
 npx @rigour-labs/cli review --base origin/main
 ```
 
-This reviews what the branch changed against main and prints what must be fixed. It writes nothing to your project except Rigour's own state folder, `.rigour/`. If what it shows is not worth your time, stop here.
+This reviews what the branch changed against main. It answers in a few lines: what it reviewed, then one verdict.
+
+```
+Rigour reviewed this branch against origin/main: 10 commits, 86 files, 3 s.
+
+✘ 2 things to fix before this is ready
+
+  src/billing/refund.ts:42  export formatRefund is used nowhere
+    → Remove the export, or use it.
+    not a bug? rigour dismiss 3f9a1c2e7b4d8a60 --reason "…"
+
+Also seen, never blocking: 4 notes (rigour review --notes)
+Not shown: 15 issues the code already had before this change (review.show_preexisting: true lists them).
+```
+
+The verdict is one of three: things to fix (at most five shown, `--all` for the rest), nothing to fix in what the branch changed, or not finished, with the one command that finishes it (usually installing your dependencies so the type checks can run). Problems the code already had before the branch are counted, never listed. It writes nothing to your project except Rigour's own state folder, `.rigour/`. If what it shows is not worth your time, stop here.
 
 ## 2. Set it up
 

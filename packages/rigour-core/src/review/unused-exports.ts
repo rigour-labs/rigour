@@ -194,7 +194,7 @@ function filesNaming(cwd: string, names: string[], excluded: string[]): Map<stri
 function unused(exp: AddedExport): Failure {
     return {
         id: 'unused-export',
-        title: 'Unused export',
+        title: `Unused export \`${exp.name}\``,
         details: `\`${exp.name}\` is exported but no other file uses it (a test is not a consumer). An export nothing imports is dead code that readers and agents treat as part of the module's contract.`,
         severity: 'medium',
         provenance: 'traditional',
