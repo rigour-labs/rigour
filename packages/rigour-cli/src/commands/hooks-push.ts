@@ -17,7 +17,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    branchBase, branchFailures, diffFromGit, itemLine, mergeBaseOf, reviewChange, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
+    branchBase, branchFailures, diffFromGit, itemLine, mergeBaseOf, resolveReviewer, reviewChange, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
@@ -75,7 +75,8 @@ async function gates(repo: string, base: string, mainRef: string, config: Config
             log.push(`## ${tool.tool}: ${tool.command}\n${tool.output ?? ''}`);
         }
     }
-    if (config.review?.reviewer?.enabled && config.review.reviewer.on_push === 'wait') {
+    const settings = resolveReviewer(config);
+    if (settings.enabled && settings.on_push === 'wait') {
         const reviewer = await runReviewer(repo, baseName, config, undefined, undefined, { trigger: 'push', hints: review.hints.join('\n') });
         if (reviewerBlocks(reviewer)) lines.push(...reviewerLines(reviewer));
     }
@@ -84,8 +85,8 @@ async function gates(repo: string, base: string, mainRef: string, config: Config
 
 /** Once the checks pass: start the model review of the pushed commit without holding the push, and say so. */
 async function backgroundReviewNote(repo: string, mainRef: string, config: Config): Promise<string> {
-    const reviewer = config.review?.reviewer;
-    if (!reviewer?.enabled || reviewer.on_push !== 'background') return '';
+    const reviewer = resolveReviewer(config);
+    if (!reviewer.enabled || reviewer.on_push !== 'background') return '';
     const head = gitOutput(repo, ['rev-parse', 'HEAD']);
     const branch = gitOutput(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
     if (!head || !branch || branch === 'HEAD') return '';

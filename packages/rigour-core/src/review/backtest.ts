@@ -16,6 +16,7 @@ import { z } from 'zod';
 import type { Config, Failure } from '../types/index.js';
 import { reviewChange } from './review.js';
 import { defaultExec, runReviewer, type Exec, type OpenItem, type Progress } from './reviewer.js';
+import { formatJudges, judgedFrom, type JudgeCatches, type JudgeRun } from './backtest-judges.js';
 
 const Match = z.object({
     /** A regular expression over the finding's file path. */
@@ -65,6 +66,8 @@ export interface RoundResult {
     durationMs: number;
     /** Why the reviewer gave no verdict, when it ran. */
     reviewerError?: string;
+    /** With two or more judges: the ledger points each raised on its own, and the round's runs and cost. */
+    judges?: JudgeCatches;
 }
 
 export interface BacktestOptions {
@@ -73,7 +76,7 @@ export interface BacktestOptions {
     exec?: Exec;
     progress?: Progress;
     /** Produces the findings for a worktree; tests replace it. */
-    collect?: (worktree: string, round: LedgerRound, config: Config) => Promise<{ items: BacktestItem[]; reviewerError?: string }>;
+    collect?: (worktree: string, round: LedgerRound, config: Config) => Promise<Collected>;
 }
 
 export function loadLedger(cwd: string): Ledger {
@@ -122,8 +125,8 @@ export async function runBacktest(cwd: string, config: Config, ledger: Ledger, o
         const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: worktree, timeoutMs: GIT_TIMEOUT_MS })).stdout.trim();
         progress(`backtest ${round.id}: ${head.slice(0, 9)} against ${round.base}${round.reviewed_at ? `, reviews hidden from ${round.reviewed_at}` : ''}`);
         const collect = options.collect ?? ((tree, r, c) => collectItems(tree, r, c, !!options.reviewer, exec, progress));
-        const { items, reviewerError } = await collect(worktree, round, config);
-        const result = score(round, head, items, Date.now() - started, reviewerError);
+        const { items, reviewerError, judged } = await collect(worktree, round, config);
+        const result = { ...score(round, head, items, Date.now() - started, reviewerError), ...(judged ? { judges: judgeCatches(round, judged) } : {}) };
         record(cwd, result);
         results.push(result);
     }
@@ -180,7 +183,15 @@ function shareDependencies(cwd: string, worktree: string): void {
     if (fs.existsSync(root) && !fs.existsSync(path.join(worktree, 'node_modules'))) fs.symlinkSync(root, path.join(worktree, 'node_modules'), 'junction');
 }
 
-async function collectItems(worktree: string, round: LedgerRound, config: Config, reviewer: boolean, exec: Exec, progress: Progress): Promise<{ items: BacktestItem[]; reviewerError?: string }> {
+interface Collected { items: BacktestItem[]; reviewerError?: string; judged?: JudgeRun }
+
+/** Which ledger points each judge raised itself, matched the way the score matches any finding. */
+function judgeCatches(round: LedgerRound, judged: JudgeRun): JudgeCatches {
+    const caught = Object.fromEntries(judged.judges.map(judge => [judge, round.points.filter(point => judged.raised.some(r => r.judge === judge && matches(point, { gate: `judge:${judge}`, file: r.file, line: r.line, text: r.text, blocking: true }))).map(p => p.id)]));
+    return { judges: judged.judges, caught, points: round.points.map(p => p.id), runs: judged.runs, ...(judged.costUsd !== undefined ? { costUsd: judged.costUsd } : {}) };
+}
+
+async function collectItems(worktree: string, round: LedgerRound, config: Config, reviewer: boolean, exec: Exec, progress: Progress): Promise<Collected> {
     const review = await reviewChange({ cwd: worktree, config, source: { mode: 'base', base: round.base }, typed: true });
     const items = [
         ...review.findings.map(f => asItem(f, true)),
@@ -190,9 +201,10 @@ async function collectItems(worktree: string, round: LedgerRound, config: Config
     const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: round.reviewed_at, trigger: 'backtest', force: true, hints: review.hints.join('\n') });
     if (result.outcome === 'unavailable' || result.outcome === 'skipped') return { items, reviewerError: result.reason ?? result.outcome };
     // The reviewer behind each catch is part of the score, so the gate is `reviewer:<name>`.
-    const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.evidence].filter(Boolean).join(' '), blocking });
-    items.push(...result.items.map(i => asReviewerItem(i, true)), ...result.unverified.map(i => asReviewerItem(i, false)));
-    return { items };
+    const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.consequence, item.evidence].filter(Boolean).join(' '), blocking });
+    items.push(...result.items.map(i => asReviewerItem(i, true)), ...[...result.unverified, ...result.notes, ...result.disputed].map(i => asReviewerItem(i, false)));
+    const judged = judgedFrom(result);
+    return { items, ...(judged ? { judged } : {}) };
 }
 
 function asItem(failure: Failure, blocking: boolean): BacktestItem {
@@ -219,7 +231,7 @@ export function formatBacktest(results: RoundResult[]): string {
         for (const f of r.falseBlocks) lines.push(`  FALSE   ${f.gate} ${f.file}${f.line ? `:${f.line}` : ''} ${f.text.slice(0, 100)}`);
         if (r.reviewerError) lines.push(`  NO VERDICT ${r.reviewerError}`);
     }
-    return lines.join('\n');
+    return lines.join('\n') + formatJudges(results);
 }
 
 /** Which gate (or the reviewer) caught what: `; caught by unused-export 2, reviewer 1`, so a rule is judged on its own rows. */

@@ -280,6 +280,9 @@ program
     .option('--model-name <name>', 'Override cloud model name')
     .option('--reviewer', 'Then run the reviewer (your coding agent CLI, read-only, no key): every point of every human review checked against the code, what a fix left behind, every read traced, then new findings')
     .option('--full', 'With --reviewer: two vendors, verdicts merged. Run it before asking a person to review')
+    .option('--single', 'With --reviewer: one judge for this run, whatever your settings say (a team floor still applies)')
+    .option('--panel', 'With --reviewer: a panel of judges for this run; only what a majority confirms blocks')
+    .option('--no-panel', 'With --reviewer: no panel for this run (a team that requires one refuses this)')
     .option('--status', 'What the background reviewer has done for this branch: running, last verdict, open items')
     .option('--all', 'Show every finding, not the first five')
     .option('--notes', 'List the notes that never block')
@@ -346,8 +349,8 @@ program
     .command('dismiss <key>')
     .description('Mark a finding as not a bug: it is never reported again here (commit .rigour/dismissed.json to share)')
     .requiredOption('--reason <reason>', 'Why it is not a bug')
-    .action((key: string, options: any) => {
-        dismissCommand(process.cwd(), key, options);
+    .action(async (key: string, options: any) => {
+        await dismissCommand(process.cwd(), key, options);
     });
 
 program

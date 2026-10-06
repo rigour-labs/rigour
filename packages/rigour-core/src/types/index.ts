@@ -450,6 +450,26 @@ export const ConfigSchema = z.object({
             /** A model per reviewer name, e.g. { cursor: "auto" }. */
             models: z.record(z.string()).optional().default({}),
             timeout_ms: z.number().optional().default(15 * 60_000),
+            /**
+             * With two vendors: match their findings, cross-examine only what one raised, and block only on what is
+             * confirmed (review/reviewer/panel.ts). `on` implies mode full. `required`: no user or run may turn it off,
+             * and a run without two vendors is unavailable instead of falling back to one.
+             */
+            panel: z.enum(['off', 'on', 'required']).optional().default('off'),
+            /** No user or run may review with fewer than the team's mode (a protected branch, CI). */
+            mode_required: z.boolean().optional().default(false),
+            /** Findings cross-examined per review at most; the rest are shown as disputed. */
+            panel_max_items: z.number().int().positive().optional().default(20),
+            /** Judges in a full or panel review, each from a different vendor; capped by the vendors installed. */
+            judges: z.union([z.literal(2), z.literal(3)]).optional().default(2),
+            /**
+             * When a full or panel review adds judges. `always`: every review. `risk`: only when the change has a
+             * risky function (the router's score), a human review exists, or the run is the --full hard stop; any
+             * other change gets one judge. Measured against `always` by the backtest before you rely on it.
+             */
+            escalate: z.enum(['always', 'risk']).optional().default('always'),
+            /** A model per reviewer name for cross-examination (a narrow verification task), e.g. { claude: "haiku" }. */
+            cross_models: z.record(z.string()).optional().default({}),
         }).optional().default({}),
     }).optional().default({}),
     planned: z.array(z.string()).optional().default([]),

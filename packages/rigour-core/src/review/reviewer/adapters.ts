@@ -152,15 +152,27 @@ export function vendorsOf(trailers: string): Set<Vendor> {
 
 /**
  * The reviewers a run uses. single: the first available of the list. cross: the first available
- * whose vendor is not on the trailers, else the first available. full: that one plus the first
- * available of another vendor. Empty when none is installed.
+ * whose vendor is not on the trailers, else the first available. full: that one plus the next
+ * available of each other vendor, up to `judges`. Empty when none is installed.
  */
-export function selectReviewers(candidates: ReviewerName[], mode: ReviewMode, authors: Set<Vendor>, available: Set<ReviewerName>): ReviewerName[] {
+export function selectReviewers(candidates: ReviewerName[], mode: ReviewMode, authors: Set<Vendor>, available: Set<ReviewerName>, judges = 2): ReviewerName[] {
     const installed = candidates.filter(name => available.has(name));
     if (installed.length === 0) return [];
     let first = installed[0];
     if (mode !== 'single') first = installed.find(name => !authors.has(ADAPTERS[name].vendor)) ?? first;
     if (mode !== 'full') return [first];
-    const second = installed.find(name => name !== first && ADAPTERS[name].vendor !== ADAPTERS[first].vendor);
-    return second ? [first, second] : [first];
+    const chosen = [first];
+    for (const name of installed) {
+        if (chosen.length >= judges) break;
+        if (!chosen.some(c => ADAPTERS[c].vendor === ADAPTERS[name].vendor)) chosen.push(name);
+    }
+    return chosen;
+}
+
+/** Every reviewer Rigour can run, and whether this machine has it: what bounds the judges of a panel. */
+export async function reviewerAvailability(cwd: string, exec: Exec): Promise<Array<{ name: ReviewerName; vendor: Vendor; binary: string; installed: boolean; version?: string }>> {
+    return Promise.all((Object.keys(ADAPTERS) as ReviewerName[]).map(async name => {
+        const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
+        return { name, vendor: ADAPTERS[name].vendor, binary: ADAPTERS[name].binary, installed: !!found, ...(found ? { version: found.version } : {}) };
+    }));
 }

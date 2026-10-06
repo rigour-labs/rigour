@@ -5,6 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './reviewer.js';
+import { dismissReviewerFinding } from './reviewer/context.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
 import { account, carryResolved, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
 
@@ -47,15 +48,16 @@ function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout
         if (args[0] === '--version') return (seen.installed ?? ['claude', 'cursor-agent']).includes(binary) ? { exitCode: 0, stdout: `${seen.versions?.[command] ?? '1.0.0'}\n`, stderr: '' } : { exitCode: 127, stdout: '', stderr: 'not found' };
         seen.ran.push(command);
         const name = binary === 'claude' ? 'claude' : binary === 'cursor-agent' ? 'cursor' : 'codex';
-        const prompt = binary === 'cursor-agent' ? args[args.length - 1] : args[args.indexOf('-p') + 1];
+        const prompt = binary === 'claude' ? args[args.indexOf('-p') + 1] : args[args.length - 1];
         seen.prompts.push(prompt);
         // Paths as the prompt names them, on either separator (Windows writes `D:\...`).
-        for (const match of prompt.matchAll(/(\S+(?:previous-reviews\.md|pr-description\.md|full\.diff|hints\.txt|previous-open\.json|delta\.diff|previous-resolved\.json))/g)) {
+        for (const match of prompt.matchAll(/(\S+(?:previous-reviews\.md|pr-description\.md|full\.diff|hints\.txt|previous-open\.json|delta\.diff|previous-resolved\.json|team-knowledge\.md))/g)) {
             seen.files[path.basename(match[1])] = fs.readFileSync(match[1], 'utf8');
         }
         const reply = answer(name);
         if (typeof reply !== 'string') return reply;
-        return { exitCode: 0, stdout: binary === 'claude' ? JSON.stringify({ result: reply, total_cost_usd: 1.5 }) : JSON.stringify({ result: reply }), stderr: '' };
+        const stdout = binary === 'claude' ? JSON.stringify({ result: reply, total_cost_usd: 1.5 }) : binary === 'codex' ? JSON.stringify({ type: 'item.completed', item: { text: reply } }) : JSON.stringify({ result: reply });
+        return { exitCode: 0, stdout, stderr: '' };
     };
 }
 
@@ -113,7 +115,7 @@ describe('the reviewer', () => {
 
     it('caches the verdict per commit and inputs, so the same push is free, and the next commit gets a delta review that carries what is not accounted for', async () => {
         const seen = seenNow();
-        const open = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', why: 'x' }] });
+        const open = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', consequence: 'a second run reads stale rows', why: 'x' }] });
         const first = await runReviewer(repo, 'main', config, fakes(() => open, seen), () => undefined);
         expect(first.items).toHaveLength(1);
         const again = await runReviewer(repo, 'main', config, fakes(() => open, seen), () => undefined);
@@ -137,7 +139,7 @@ describe('the reviewer', () => {
 
     it('resolves a previous item only with evidence, and never blocks on an item that names code the checkout does not have', async () => {
         const seen = seenNow();
-        const first = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock' }, { class: 'dead-code', file: 'src/ghost.ts', line: 1, issue: 'unused' }, { class: 'dead-code', file: '', issue: 'somewhere, no file named' }] }), seen), () => undefined);
+        const first = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', consequence: 'a second run reads stale rows' }, { class: 'dead-code', file: 'src/ghost.ts', line: 1, issue: 'unused', consequence: 'a second run reads stale rows' }, { class: 'dead-code', file: '', issue: 'somewhere, no file named', consequence: 'a second run reads stale rows' }] }), seen), () => undefined);
         expect(first.items.map(i => i.file)).toEqual(['src/job.ts']);
         expect(first.unverified.map(i => i.file)).toEqual(['src/ghost.ts', '']); // a slip and a finding with no place to check: shown, never a block
         const id = first.items[0].id;
@@ -186,7 +188,7 @@ describe('the reviewer', () => {
 
     it('in full mode runs two vendors and resolves a human point only when both say so', async () => {
         const seen = seenNow();
-        const by = (name: string) => JSON.stringify({ ...EMPTY, prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: name === 'claude', evidence: 'src/job.ts:2' }], findings: name === 'cursor' ? [{ class: 'dead-code', file: 'a.ts', line: 1, issue: 'a is unused' }] : [] });
+        const by = (name: string) => JSON.stringify({ ...EMPTY, prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: name === 'claude', evidence: 'src/job.ts:2' }], findings: name === 'cursor' ? [{ class: 'dead-code', file: 'a.ts', line: 1, issue: 'a is unused', consequence: 'a second run reads stale rows' }] : [] });
         const result = await runReviewer(repo, 'main', config, fakes(by, seen), () => undefined, { full: true });
         expect(result.reviewers).toEqual(['claude', 'cursor']);
         expect(result.items.map(i => [i.kind, i.reviewer])).toEqual([['prior', 'cursor'], ['finding', 'cursor']]);
@@ -261,3 +263,76 @@ describe('verdicts', () => {
         expect(carryResolved({ ...EMPTY, prior_points: [{ point: 'Lock before read', resolved: false }] }, previous, new Set()).prior_points).toHaveLength(2);
     });
 });
+
+describe('a panel of judges', () => {
+    const panelConfig = (reviewer: Record<string, unknown>) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor', 'codex'], mode: 'full', panel: 'on', ...reviewer } } });
+    const LOCK = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' };
+    const LONE = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', consequence: 'a reader treats it as the contract' };
+    const OPINION = { class: 'duplication', file: 'src/job.ts', line: 2, issue: 'could be one line shorter' };
+
+    it('confirms what a majority raised, drops what the others refute with evidence, and never blocks on an opinion', async () => {
+        installFake(bins[0], 'codex');
+        const seen = { ...seenNow(), installed: ['claude', 'cursor-agent', 'codex'] };
+        const reply = (name: string) => {
+            const prompt = seen.prompts.at(-1) ?? '';
+            if (prompt.includes('The other\nreviewer raised')) {
+                const ids = [...prompt.matchAll(/"id": "([0-9a-f]+)"/g)].map(m => m[1]);
+                return JSON.stringify({ answers: ids.map(id => ({ id, call: 'refute', evidence: `src/job.ts:1 ${name}: job is imported by the runner` })) });
+            }
+            if (name === 'codex') return JSON.stringify({ ...EMPTY, findings: [LONE] });
+            return JSON.stringify({ ...EMPTY, findings: name === 'claude' ? [LOCK, OPINION] : [{ ...LOCK, line: 3, issue: 'the lock is taken only after it returns' }] });
+        };
+        const result = await runReviewer(repo, 'main', panelConfig({ judges: 3 }), fakes(reply, seen), () => undefined);
+        expect(result.reviewers).toEqual(['claude', 'cursor', 'codex']);
+        expect(result.mode).toMatchObject({ asked: 'panel', ran: 'panel', source: 'team' });
+        expect(result.items.map(i => [i.issue, i.reviewer])).toEqual([[LOCK.issue, 'claude+cursor']]);
+        expect(result.dropped.map(i => i.issue)).toEqual([LONE.issue]);
+        expect(result.notes.map(i => i.issue)).toEqual([OPINION.issue]);
+        expect(seen.prompts).toHaveLength(5); // three blind reviews, then claude and cursor each cross-examine codex's lone finding once
+        expect(result.panel?.find(d => d.item.issue === LONE.issue)).toMatchObject({ judges: ['codex'], calls: { codex: 'raised', claude: 'refute', cursor: 'refute' }, status: 'dropped' });
+        expect(result.costUsd).toBe(3); // claude's review and claude's cross-examination
+    });
+
+    it('runs one judge and says why when only one vendor is installed, and is unavailable when the team requires the panel', async () => {
+        const seen = seenNow();
+        const reply = () => JSON.stringify({ ...EMPTY, findings: [LOCK] });
+        const fallback = await runReviewer(repo, 'main', panelConfig({ reviewers: ['claude', 'codex'] }), fakes(reply, seen), () => undefined);
+        expect(fallback.mode).toMatchObject({ asked: 'panel', ran: 'single', degraded: expect.stringContaining('not installed: codex') });
+        expect(fallback.items.map(i => i.issue)).toEqual([LOCK.issue]);
+        const required = await runReviewer(repo, 'main', panelConfig({ reviewers: ['claude', 'codex'], panel: 'required' }), fakes(reply, seenNow()), () => undefined);
+        expect(required.outcome).toBe('unavailable');
+        expect(required.reason).toContain('rigour.yml requires two reviewers');
+    });
+
+    it('escalates on risk: one judge for a change with no risky function and no human review', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', panelConfig({ escalate: 'risk' }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined);
+        expect(result.mode).toMatchObject({ asked: 'panel', ran: 'single', escalation: expect.stringContaining('no risky changed function') });
+        expect(seen.prompts).toHaveLength(1);
+        const full = await runReviewer(repo, 'main', panelConfig({ escalate: 'risk' }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { full: true, force: true });
+        expect(full.mode?.ran).toBe('panel'); // the --full hard stop always gets every judge
+    });
+});
+
+describe('what the team already knows', () => {
+    it('a dismissed finding reaches the next judge as settled, and a re-worded repeat never blocks', async () => {
+        fs.mkdirSync(path.join(repo, 'docs'));
+        fs.writeFileSync(path.join(repo, 'docs/jobs.md'), 'The job runner (src/job.ts) takes the lock first.\n');
+        git('add', '-A');
+        git('commit', '-qm', 'docs');
+        const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' };
+        const first = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [finding] }), seenNow()), () => undefined);
+        expect(first.outcome).toBe('findings');
+        expect(await dismissReviewerFinding(repo, 'abcdef0123', 'not one of ours')).toEqual({ error: 'no open reviewer finding abcdef0123 on feature: run `rigour review --reviewer` and copy the id it shows' });
+        expect((await dismissReviewerFinding(repo, first.items[0].id, 'the runner holds a lock one level up')).item?.issue).toBe('returns before the lock is taken');
+
+        const seen = seenNow();
+        const again = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ ...finding, issue: 'the lock is taken only after it returns' }] }), seen), () => undefined);
+        expect(again.cached).toBe(false); // the dismissal changed what the judge is told
+        expect(again.outcome).toBe('passed');
+        expect(again.dismissed.map(i => i.issue)).toEqual(['the lock is taken only after it returns']);
+        expect(seen.files['team-knowledge.md']).toContain('dismissed as not a bug: src/job.ts:2 [correctness] returns before the lock is taken (reason: the runner holds a lock one level up)');
+        expect(seen.files['team-knowledge.md']).toContain('docs/jobs.md (names src/job.ts');
+    });
+});
+

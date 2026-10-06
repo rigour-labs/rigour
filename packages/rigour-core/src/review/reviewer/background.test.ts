@@ -15,7 +15,7 @@ const config = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: t
 const originalPath = process.env.PATH;
 
 const PR = { number: 7, state: 'OPEN', isDraft: false, author: { login: 'author' }, body: 'desc' };
-const VERDICT = JSON.stringify({ prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [{ class: 'correctness', file: 'src/job.ts', line: 1, issue: 'never locks' }], carried: [], resolved_previous: [] });
+const VERDICT = JSON.stringify({ prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [{ class: 'correctness', file: 'src/job.ts', line: 1, issue: 'never locks', consequence: 'a second run reads stale rows' }], carried: [], resolved_previous: [] });
 
 /** Real git; a pull request on the branch; a claude that answers one finding. */
 const exec: Exec = async (command, args, options) => {

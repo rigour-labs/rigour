@@ -12,10 +12,10 @@ import fs from 'fs';
 import path from 'path';
 import type { Config } from '../../types/index.js';
 import { reviewChange } from '../review.js';
-import { runReviewer, type ReviewerResult } from '../reviewer.js';
+import { runReviewer, type ModeRecord, type ReviewerResult } from '../reviewer.js';
 import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
 import { VerdictStore } from './store.js';
-import { itemLine, type OpenItem } from './verdict.js';
+import { itemLine, type OpenItem, type Verdict } from './verdict.js';
 
 export interface BackgroundJob { head: string; branch: string; base: string }
 
@@ -64,7 +64,7 @@ export interface ReviewStatus {
     /** A review still running, and for which commit. */
     running?: { pid: number; head: string };
     /** The last verdict recorded for the branch. */
-    last?: { head: string; mode: 'full' | 'delta'; at: string; open: OpenItem[] };
+    last?: { head: string; mode: 'full' | 'delta'; at: string; open: OpenItem[]; ran?: ModeRecord; disputed: OpenItem[] };
     log?: string;
 }
 
@@ -76,7 +76,15 @@ export async function reviewStatus(cwd: string, branch: string, exec: Exec = def
     const running = runningJob(store, branch);
     if (running) status.running = running;
     const state = store.branchState(branch);
-    if (state) status.last = { head: state.head, mode: state.mode, at: state.at, open: store.readJson<OpenItem[]>(store.openPath(state.verdict)) ?? [] };
+    if (state) {
+        const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord } }>(state.verdict);
+        status.last = {
+            head: state.head, mode: state.mode, at: state.at,
+            open: store.readJson<OpenItem[]>(store.openPath(state.verdict)) ?? [],
+            ...(verdict?.inputs?.mode ? { ran: verdict.inputs.mode } : {}),
+            disputed: (verdict?.panel?.items ?? []).filter(d => d.status === 'disputed').map(d => d.item),
+        };
+    }
     const log = store.branchFile(branch, 'log');
     if (fs.existsSync(log)) status.log = log;
     return status;

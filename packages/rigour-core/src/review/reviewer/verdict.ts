@@ -8,13 +8,14 @@
  * its end, is a reviewer's slip, reported apart and never a block.
  */
 import { createHash } from 'crypto';
+import type { PanelItem } from './panel.js';
 
 export interface PriorPoint { point: string; review?: string; severity?: 'blocking' | 'should-fix' | 'non-blocking'; resolved: boolean; evidence?: string; checked_siblings?: string[]; reviewer?: string }
 interface Redundant { file: string; line?: number; what: string; made_redundant_by?: string; removed: boolean; reviewer?: string }
 interface Read { file: string; line?: number; read: string; rules?: Array<{ rule: string; known_before_read: boolean; applied_before_read: boolean }>; narrower_source?: string | null; keys?: Array<{ name: string; inputs: string; stable_under_edit: boolean }>; window_bounded?: boolean | null; keyset?: boolean | null; reviewer?: string }
 interface Scan { file: string; line?: number; function: string; outer: string; inner: string; fix: string; reviewer?: string }
 interface MergeImpactItem { symbol: string; main_file: string; call_site: string; holds: boolean; why: string; reviewer?: string }
-export interface Finding { class: string; file: string; line?: number; issue: string; why?: string; reviewer?: string }
+export interface Finding { class: string; file: string; line?: number; issue: string; why?: string; consequence?: string; reviewer?: string }
 
 export interface Verdict {
     prior_points: PriorPoint[];
@@ -28,6 +29,8 @@ export interface Verdict {
     reviewer?: string;
     cost_usd?: number;
     reviewers?: Array<{ reviewer: string; cost_usd?: number }>;
+    /** With a panel: every judge's own item ids, and the panel's decision on each finding (reviewer/panel.ts). */
+    panel?: { judgeItemIds: string[]; items: PanelItem[] };
 }
 
 export interface OpenItem {
@@ -38,6 +41,8 @@ export interface OpenItem {
     line?: number;
     issue: string;
     evidence?: string;
+    /** For a finding: the wrong outcome or the cost. A finding without one is a note, never a block. */
+    consequence?: string;
     reviewer?: string;
     /** In delta mode, how the item reached this verdict. */
     status?: 'carried' | 'not accounted for';
@@ -131,6 +136,8 @@ export interface Accounting {
     resolved: Array<{ item: OpenItem; evidence: string }>;
     /** Prior points the human marked non-blocking and the code still leaves open: for the reply. */
     answerInReply: PriorPoint[];
+    /** Findings with no wrong outcome and no cost (an opinion): shown, never a block, however many judges agree. */
+    notes: OpenItem[];
 }
 
 const id = (...parts: Array<string | number | undefined>) => createHash('sha1').update(parts.map(p => String(p ?? '')).join('|').toLowerCase().replace(/\s+/g, ' ')).digest('hex').slice(0, 10);
@@ -170,7 +177,12 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     for (const m of verdict.merge_impact) {
         if (m.holds === false) add({ id: id('correctness', m.call_site, m.symbol), kind: 'merge', class: 'correctness', file: m.call_site.split(':')[0], line: Number(m.call_site.split(':')[1]) || undefined, issue: `${m.symbol} from ${m.main_file} changed in main: ${m.why}`, reviewer: m.reviewer });
     }
-    for (const f of verdict.findings) add({ id: id(f.class, f.file, f.issue), kind: 'finding', class: f.class, file: f.file, line: f.line, issue: f.issue, evidence: f.why, reviewer: f.reviewer });
+    const notes: OpenItem[] = [];
+    for (const f of verdict.findings) {
+        const item: OpenItem = { id: id(f.class, f.file, f.issue), kind: 'finding', class: f.class, file: f.file, line: f.line, issue: f.issue, evidence: f.why, ...(f.consequence?.trim() ? { consequence: f.consequence.trim() } : {}), reviewer: f.reviewer };
+        if (item.consequence) add(item);
+        else if (!notes.some(n => n.id === item.id)) notes.push(item);
+    }
     const resolved: Accounting['resolved'] = [];
     if (previousOpen) {
         const evidence = new Map(verdict.resolved_previous.filter(r => r?.id && r.evidence).map(r => [r.id, r.evidence]));
@@ -182,12 +194,12 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
             }
         }
     }
-    return { open, unverified, resolved, answerInReply };
+    return { open, unverified, resolved, answerInReply, notes };
 }
 
 export function itemLine(item: OpenItem): string {
     const where = item.file ? ` ${item.file}${item.line ? `:${item.line}` : ''}` : '';
     const by = item.reviewer ? ` (${item.reviewer})` : '';
     const status = item.status ? `, ${item.status}` : '';
-    return `[${item.class}${status}]${by}${where} ${item.issue}${item.evidence ? `\n      ${item.evidence}` : ''}`;
+    return `[${item.class}${status}]${by}${where} ${item.issue}${item.consequence ? `\n      consequence: ${item.consequence}` : ''}${item.evidence ? `\n      ${item.evidence}` : ''}`;
 }

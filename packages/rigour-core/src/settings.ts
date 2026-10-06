@@ -46,10 +46,24 @@ export interface RigourSettings {
     verboseOutput?: boolean; // Enable verbose logging
   };
 
+  // The reviewer for this person's own runs; rigour.yml is the team's (review/reviewer/settings.ts).
+  reviewer?: UserReviewerSettings;
+
   // Cursor Admin API credentials
   cursor?: {
     apiKey?: string;
   };
+}
+
+/** What a person may set for their own reviewer runs. They cannot set a team floor (`required`). */
+export interface UserReviewerSettings {
+  enabled?: boolean;
+  mode?: 'single' | 'cross' | 'full';
+  panel?: boolean;
+  judges?: 2 | 3;
+  escalate?: 'always' | 'risk';
+  reviewers?: string[];
+  models?: Record<string, string>;
 }
 
 /**

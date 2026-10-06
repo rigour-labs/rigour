@@ -1,0 +1,142 @@
+/**
+ * The reviewer settings a run uses, and where each came from. Four layers, the nearest wins:
+ * a flag on this run, an environment variable (hooks and CI take no flags), the person's own
+ * settings (`reviewer` in the profile's settings.json, edited by hand or in Studio), and the team's
+ * rigour.yml (its defaults when there is none). The team can set a floor no nearer layer goes
+ * below: `panel: required` and `mode_required`. A nearer layer that asks for less is refused, and
+ * the refusal is reported, never silent. A panel needs two vendors, so `panel` implies mode full.
+ */
+import { loadSettings, saveSettings, type UserReviewerSettings } from '../../settings.js';
+import type { Config } from '../../types/index.js';
+
+type Mode = 'single' | 'cross' | 'full';
+export type Source = 'flag' | 'env' | 'user' | 'team';
+
+/** What a single run asks for: `rigour review --reviewer --full | --single | --panel | --no-panel`. */
+export interface RunChoice {
+    mode?: Mode;
+    panel?: boolean;
+}
+
+export interface ResolvedReviewer {
+    enabled: boolean;
+    on_push: 'background' | 'wait' | 'off';
+    reviewers: string[];
+    models: Record<string, string>;
+    model?: string;
+    timeout_ms: number;
+    mode: Mode;
+    panel: boolean;
+    panel_max_items: number;
+    judges: 2 | 3;
+    escalate: 'always' | 'risk';
+    cross_models: Record<string, string>;
+    /** Where the mode and the panel choice came from. */
+    source: { mode: Source; panel: Source };
+    /** The team's floor: a run that cannot meet it is unavailable, never a quieter review. */
+    required: { mode: boolean; panel: boolean };
+    /** Nearer choices that were not applied (the team's floor, an unknown value), one line each, for the report. */
+    refused: string[];
+}
+
+const RANK: Record<Mode, number> = { single: 0, cross: 1, full: 2 };
+
+export function resolveReviewer(config: Config, choice: RunChoice = {}, user: UserReviewerSettings | undefined = loadSettings().reviewer, env: NodeJS.ProcessEnv = process.env): ResolvedReviewer {
+    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, judges: 2 as const, escalate: 'always' as const, cross_models: {} };
+    const refused: string[] = [];
+    const envMode = parseMode(env.RIGOUR_REVIEWER_MODE);
+    const envPanel = parseSwitch(env.RIGOUR_REVIEWER_PANEL);
+    if (env.RIGOUR_REVIEWER_MODE && !envMode) refused.push(`RIGOUR_REVIEWER_MODE=${env.RIGOUR_REVIEWER_MODE} ignored: use single, cross or full`);
+    if (env.RIGOUR_REVIEWER_PANEL && envPanel === undefined) refused.push(`RIGOUR_REVIEWER_PANEL=${env.RIGOUR_REVIEWER_PANEL} ignored: use on or off`);
+    const layers: Array<{ source: Source; mode?: Mode; panel?: boolean }> = [
+        { source: 'flag', mode: choice.mode, panel: choice.panel },
+        { source: 'env', mode: envMode, panel: envPanel },
+        { source: 'user', mode: user?.mode, panel: user?.panel },
+    ];
+    const pick = <K extends 'mode' | 'panel'>(key: K) => layers.find(layer => layer[key] !== undefined);
+
+    const requirePanel = team.panel === 'required';
+    let panel = team.panel !== 'off';
+    let panelSource: Source = 'team';
+    const nearPanel = pick('panel');
+    if (nearPanel) {
+        if (requirePanel && nearPanel.panel === false) refused.push(`panel off (${nearPanel.source}) refused: rigour.yml sets review.reviewer.panel: required`);
+        else [panel, panelSource] = [nearPanel.panel!, nearPanel.source];
+    }
+
+    let mode: Mode = team.mode;
+    let modeSource: Source = 'team';
+    const nearMode = pick('mode');
+    if (nearMode) {
+        if (team.mode_required && RANK[nearMode.mode!] < RANK[team.mode]) refused.push(`mode ${nearMode.mode} (${nearMode.source}) refused: rigour.yml sets review.reviewer.mode_required with mode ${team.mode}`);
+        else [mode, modeSource] = [nearMode.mode!, nearMode.source];
+    }
+    if (panel && mode !== 'full') [mode, modeSource] = ['full', panelSource];
+
+    return {
+        enabled: user?.enabled ?? team.enabled,
+        on_push: team.on_push,
+        reviewers: user?.reviewers?.length ? user.reviewers : team.reviewers,
+        models: { ...team.models, ...(user?.models ?? {}) },
+        ...(team.model ? { model: team.model } : {}),
+        timeout_ms: team.timeout_ms,
+        mode,
+        panel,
+        panel_max_items: team.panel_max_items,
+        judges: user?.judges ?? team.judges,
+        escalate: requiredEscalation(team, user, refused),
+        cross_models: team.cross_models,
+        source: { mode: modeSource, panel: panelSource },
+        required: { mode: team.mode_required, panel: requirePanel },
+        refused,
+    };
+}
+
+/** A team that requires full or panel review wants it on every review: no user may escalate on risk only. */
+function requiredEscalation(team: { escalate: 'always' | 'risk'; panel: string; mode_required: boolean }, user: UserReviewerSettings | undefined, refused: string[]): 'always' | 'risk' {
+    const required = team.panel === 'required' || team.mode_required;
+    if (required && user?.escalate === 'risk') refused.push('escalate risk (user) refused: rigour.yml requires every review to be full');
+    return required ? 'always' : user?.escalate ?? team.escalate;
+}
+
+function parseMode(value: string | undefined): Mode | undefined {
+    return value === 'single' || value === 'cross' || value === 'full' ? value : undefined;
+}
+
+function parseSwitch(value: string | undefined): boolean | undefined {
+    if (/^(1|on|true|yes)$/i.test(value ?? '')) return true;
+    if (/^(0|off|false|no)$/i.test(value ?? '')) return false;
+    return undefined;
+}
+
+/** A change to the person's own reviewer settings: a value sets it, `null` goes back to the team's. */
+export type UserReviewerPatch = { [K in keyof UserReviewerSettings]?: UserReviewerSettings[K] | null };
+
+/** Applies a validated patch to the person's settings (settings.json in the profile's home) and returns what is stored. */
+export function saveUserReviewer(patch: UserReviewerPatch): UserReviewerSettings {
+    const problem = patchProblem(patch);
+    if (problem) throw new Error(problem);
+    const settings = loadSettings();
+    const next: Record<string, unknown> = { ...(settings.reviewer ?? {}) };
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === null) delete next[key];
+        else if (value !== undefined) next[key] = value;
+    }
+    saveSettings({ ...settings, reviewer: next as UserReviewerSettings });
+    return next as UserReviewerSettings;
+}
+
+function patchProblem(patch: UserReviewerPatch): string | undefined {
+    const known = new Set(['enabled', 'mode', 'panel', 'judges', 'escalate', 'reviewers', 'models']);
+    const unknown = Object.keys(patch).find(key => !known.has(key));
+    if (unknown) return `not a reviewer setting a person can change: ${unknown}`;
+    const ok = (value: unknown, test: (v: unknown) => boolean) => value === null || value === undefined || test(value);
+    if (!ok(patch.enabled, v => typeof v === 'boolean')) return 'enabled is true or false';
+    if (!ok(patch.mode, v => v === 'single' || v === 'cross' || v === 'full')) return 'mode is single, cross or full';
+    if (!ok(patch.panel, v => typeof v === 'boolean')) return 'panel is true or false';
+    if (!ok(patch.judges, v => v === 2 || v === 3)) return 'judges is 2 or 3';
+    if (!ok(patch.escalate, v => v === 'always' || v === 'risk')) return 'escalate is always or risk';
+    if (!ok(patch.reviewers, v => Array.isArray(v) && v.every(x => x === 'claude' || x === 'cursor' || x === 'codex'))) return 'reviewers lists claude, cursor or codex';
+    if (!ok(patch.models, v => !!v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string'))) return 'models maps a reviewer to a model name';
+    return undefined;
+}

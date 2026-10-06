@@ -48,6 +48,8 @@ export interface ReviewOptions {
     modelName?: string;
     reviewer?: boolean;  // run the reviewer (every human review, diff, repo rules) after the rules
     full?: boolean;      // with --reviewer: two vendors, verdicts merged (the step before asking a person to look)
+    single?: boolean;    // with --reviewer: one judge for this run
+    panel?: boolean;     // with --reviewer: --panel / --no-panel for this run
     status?: boolean;    // what the background reviewer has done for this branch
     all?: boolean;       // every finding, not the first five
     notes?: boolean;     // list the notes that never block
@@ -83,7 +85,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         });
         if (options.base) recordPrCatches(cwd, result.findings);
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
-        const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full) : undefined;
+        const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full, { ...(options.single ? { mode: 'single' as const } : {}), ...(options.panel !== undefined ? { panel: options.panel } : {}) }) : undefined;
         await print(result, options, receipt, reviewer, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started });
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
