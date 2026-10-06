@@ -47,7 +47,7 @@ type LedgerMatch = z.infer<typeof Match>;
 export const LEDGER_PATH = '.rigour/backtest.json';
 
 /** A finding as the score sees it, from a gate or the reviewer. */
-export interface BacktestItem { gate: string; file: string; line?: number; text: string; blocking: boolean }
+export interface BacktestItem { gate: string; file: string; line: number | undefined; text: string; blocking: boolean }
 
 export interface PointOutcome extends Pick<LedgerPoint, 'id' | 'point'> {
     caught: boolean;
@@ -146,7 +146,7 @@ export function score(round: LedgerRound, head: string, items: BacktestItem[], d
 }
 
 /** The file pattern must match, then either the line window holds the finding's line or the text pattern matches its text. */
-export function matches(row: LedgerMatch, item: BacktestItem): boolean {
+function matches(row: LedgerMatch, item: BacktestItem): boolean {
     if (!new RegExp(row.file, 'i').test(item.file)) return false;
     const inWindow = !!row.lines && item.line !== undefined && item.line >= row.lines[0] && item.line <= row.lines[1];
     const inText = row.text !== undefined && new RegExp(row.text, 'i').test(item.text);
@@ -162,21 +162,29 @@ async function worktreeFor(cwd: string, commit: string, exec: Exec): Promise<str
     const resolved = await exec('git', ['rev-parse', '--verify', `${commit}^{commit}`], { cwd, timeoutMs: GIT_TIMEOUT_MS });
     if (resolved.exitCode !== 0) throw new Error(`commit ${commit} is not in this repository (fetch the branch it was reviewed on)`);
     const dir = path.join(common, 'rigour-backtest', resolved.stdout.trim().slice(0, 12));
-    if (fs.existsSync(path.join(dir, '.git'))) return dir;
-    fs.mkdirSync(path.dirname(dir), { recursive: true });
-    const added = await exec('git', ['worktree', 'add', '--detach', dir, resolved.stdout.trim()], { cwd, timeoutMs: 5 * GIT_TIMEOUT_MS });
-    if (added.exitCode !== 0) throw new Error(`could not check out ${commit} for the backtest: ${added.stderr.trim()}`);
+    if (!fs.existsSync(path.join(dir, '.git'))) {
+        fs.mkdirSync(path.dirname(dir), { recursive: true });
+        const added = await exec('git', ['worktree', 'add', '--detach', dir, resolved.stdout.trim()], { cwd, timeoutMs: 5 * GIT_TIMEOUT_MS });
+        if (added.exitCode !== 0) throw new Error(`could not check out ${commit} for the backtest: ${added.stderr.trim()}`);
+    }
+    shareDependencies(cwd, dir);
     return dir;
 }
 
+/** The checkout's installed dependencies serve the worktree too (the typed checks need the project's compiler), never a download. */
+function shareDependencies(cwd: string, worktree: string): void {
+    const root = path.join(cwd, 'node_modules');
+    if (fs.existsSync(root) && !fs.existsSync(path.join(worktree, 'node_modules'))) fs.symlinkSync(root, path.join(worktree, 'node_modules'), 'junction');
+}
+
 async function collectItems(worktree: string, round: LedgerRound, config: Config, reviewer: boolean, exec: Exec, progress: Progress): Promise<{ items: BacktestItem[]; reviewerError?: string }> {
-    const review = await reviewChange({ cwd: worktree, config, source: { mode: 'base', base: round.base } });
+    const review = await reviewChange({ cwd: worktree, config, source: { mode: 'base', base: round.base }, typed: true });
     const items = [
         ...review.findings.map(f => asItem(f, true)),
         ...[...review.advisory, ...review.contextFindings].map(f => asItem(f, false)),
     ];
     if (!reviewer) return { items };
-    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: round.reviewed_at, trigger: 'backtest', force: true });
+    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: round.reviewed_at, trigger: 'backtest', force: true, hints: review.hints.join('\n') });
     if (result.outcome === 'unavailable' || result.outcome === 'skipped') return { items, reviewerError: result.reason ?? result.outcome };
     // The reviewer behind each catch is part of the score, so the gate is `reviewer:<name>`.
     const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.evidence].filter(Boolean).join(' '), blocking });

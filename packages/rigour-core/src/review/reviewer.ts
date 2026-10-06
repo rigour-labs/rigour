@@ -31,7 +31,7 @@ import { VerdictStore } from './reviewer/store.js';
 import { account, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 
 export { defaultExec, githubEnv, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
-export { itemLine, type OpenItem, type Verdict } from './reviewer/verdict.js';
+export { itemLine, type OpenItem } from './reviewer/verdict.js';
 
 export type ReviewerOutcome = 'passed' | 'findings' | 'unavailable' | 'skipped';
 

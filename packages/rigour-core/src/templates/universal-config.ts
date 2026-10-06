@@ -260,6 +260,10 @@ export const UNIVERSAL_CONFIG: Config = {
         change_sweep: {
             enabled: true,
         },
+        redundancy: {
+            enabled: true,
+            wire_contracts: [],
+        },
         duplicate_functions: {
             enabled: true,
         },

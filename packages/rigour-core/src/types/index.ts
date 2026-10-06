@@ -291,6 +291,16 @@ export const GatesSchema = z.object({
     query_patterns: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** What a fix leaves half done: the narrower condition still used elsewhere, a prop wired into some sibling mounts only, an accumulator copied every step (review/partial-fixes.ts, partial-wiring.ts, loop-copies.ts). */
     change_sweep: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    /**
+     * What a change made redundant, from the project's own TypeScript (review/typed/redundancy.ts): a null filter beside a
+     * range on the same column, a nullable row type the query filters non-null, an optional member every host supplies, a
+     * property written and never read. Runs at push, in `rigour review` and in a backtest (the program takes seconds to build).
+     * `wire_contracts`: files whose types another service reads, so their members are never write-only here.
+     */
+    redundancy: z.object({
+        enabled: z.boolean().optional().default(true),
+        wire_contracts: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
     /** A parameter the change adds as optional that only tests omit (review/optional-params.ts). */
     optional_params: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** A changed function whose body duplicates another in the files the change touched (review/duplicate-functions.ts). */

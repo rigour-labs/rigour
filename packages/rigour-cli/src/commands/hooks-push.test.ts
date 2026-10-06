@@ -56,6 +56,17 @@ describe('rigour hooks push', () => {
         expect(await push()).toEqual({ exitCode: 0, message: '' });
     });
 
+    it('blocks a push when a check could not run: a TypeScript project whose program cannot be built', async () => {
+        write('tsconfig.json', '{"extends":"./.generated/tsconfig.json"}\n');
+        write('src/util.ts', 'export const used = 2;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'typed change, broken config');
+        const result = await push();
+        expect(result.exitCode).toBe(2);
+        expect(result.message).toContain('- typed-checks-unavailable could not run: ');
+        expect(result.message).toContain('.generated/tsconfig.json');
+    });
+
     it('blocks a push that adds an export nothing uses, saying where', async () => {
         write('src/util.ts', 'export const used = 1;\nexport const forgotten = 2;\n');
         git('commit', '-qam', 'add forgotten');

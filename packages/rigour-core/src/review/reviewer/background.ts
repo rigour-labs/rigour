@@ -11,6 +11,7 @@ import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import type { Config } from '../../types/index.js';
+import { reviewChange } from '../review.js';
 import { runReviewer, type ReviewerResult } from '../reviewer.js';
 import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
 import { VerdictStore } from './store.js';
@@ -43,7 +44,10 @@ export async function backgroundReview(cwd: string, job: BackgroundJob, config: 
     const added = await exec('git', ['worktree', 'add', '--detach', worktree, job.head], { cwd, timeoutMs: 5 * GH_TIMEOUT_MS });
     if (added.exitCode !== 0 && !fs.existsSync(path.join(worktree, '.git'))) throw new Error(`could not check out ${job.head.slice(0, 9)} for the review: ${added.stderr.trim()}`);
     try {
-        const result = await runReviewer(worktree, job.base, config, exec, log, { trigger: 'push', branch: job.branch });
+        shareDependencies(cwd, worktree);
+        // The typed checks' hints (a nested scan, a value that only leaves through serialisation) are the reviewer's candidates to confirm.
+        const hints = (await reviewChange({ cwd: worktree, config, source: { mode: 'base', base: job.base }, typed: true })).hints.join('\n');
+        const result = await runReviewer(worktree, job.base, config, exec, log, { trigger: 'push', branch: job.branch, hints });
         log(`review of ${job.head.slice(0, 9)}: ${result.outcome}${result.reason ? ` (${result.reason})` : ''}${result.items.length ? `, ${result.items.length} open item(s)` : ''}`);
         for (const item of result.items) log(`  ${itemLine(item)}`);
         notify(`Rigour review of ${job.branch} @ ${job.head.slice(0, 9)}: ${result.outcome}${result.items.length ? `, ${result.items.length} open item(s)` : ''}`);
@@ -99,6 +103,12 @@ function endRunning(store: VerdictStore, branch: string): void {
         // already gone
     }
     fs.unlinkSync(store.branchFile(branch, 'pid'));
+}
+
+/** The checkout's installed dependencies serve the worktree too (the typed checks need the project's compiler), never a download. */
+function shareDependencies(cwd: string, worktree: string): void {
+    const root = path.join(cwd, 'node_modules');
+    if (fs.existsSync(root) && !fs.existsSync(path.join(worktree, 'node_modules'))) fs.symlinkSync(root, path.join(worktree, 'node_modules'), 'junction');
 }
 
 function alive(pid: number): boolean {

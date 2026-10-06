@@ -53,7 +53,11 @@ export async function stopReview(cwd: string, config: Config, attempt: number, s
     const result = await reviewChange({ cwd, config, diff, source });
     const branch = branchBase(cwd);
     const whole = branch && !branch.onMain ? branchFailures(cwd, branch.base, branch.mainRef, config) : [];
-    const blocking = [...result.findings, ...whole];
+    // A check that could not run is never a pass; the attempt cap keeps a broken environment from looping forever.
+    const crashed: Failure[] = result.status === 'ERROR'
+        ? result.gateErrors.map(id => ({ id, title: 'A check could not run', details: id === 'typed-checks-unavailable' && result.typedError ? result.typedError : `${id} crashed instead of running`, severity: 'high', files: [], hint: 'Fix the environment (dependencies, generated config), then try again.' }))
+        : [];
+    const blocking = [...result.findings, ...whole, ...crashed];
     const unreviewed = config.hooks?.require_review_ack ? buildReviewTask(cwd, diff, config.gates.deep?.router).items : [];
     const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines), against };
     if (blocking.length === 0 && unreviewed.length === 0) return { block: false, message: '', blocking: 0, ...reviewed };

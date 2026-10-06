@@ -55,10 +55,12 @@ async function gates(repo: string, base: string, mainRef: string, config: Config
     const log: string[] = [];
     const source = { mode: 'since' as const, commit: base };
     const diff = diffFromGit(repo, source);
-    const review = await reviewChange({ cwd: repo, config, diff, source });
+    const review = await reviewChange({ cwd: repo, config, diff, source, typed: true });
     // What the review reports is what must be fixed (quiet.ts `mustFix`); the stop hook uses the same set.
     const mustFix = [...review.findings, ...branchFailures(repo, base, mainRef, config)];
     for (const f of mustFix) lines.push(`- ${finding(f)}`);
+    // A check that could not run is never a pass: a checkout that cannot prove the change blocks it.
+    if (review.status === 'ERROR') for (const id of review.gateErrors) lines.push(`- ${id} could not run${id === 'typed-checks-unavailable' && review.typedError ? `: ${review.typedError}` : ''}`);
     for (const tool of await runToolchain(repo, Object.keys(review.changedLines), config)) {
         if (tool.status === 'fail') {
             lines.push(`- ${tool.tool} failed: ${tool.command}`);
@@ -66,7 +68,7 @@ async function gates(repo: string, base: string, mainRef: string, config: Config
         }
     }
     if (config.review?.reviewer?.enabled && config.review.reviewer.on_push === 'wait') {
-        const reviewer = await runReviewer(repo, baseName, config, undefined, undefined, { trigger: 'push' });
+        const reviewer = await runReviewer(repo, baseName, config, undefined, undefined, { trigger: 'push', hints: review.hints.join('\n') });
         if (reviewerBlocks(reviewer)) lines.push(...reviewerLines(reviewer));
     }
     return { lines, log };

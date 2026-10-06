@@ -4,18 +4,21 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
-import { backtestPassed, formatBacktest, ledgerProblems, loadLedger, matches, runBacktest, score, LEDGER_PATH, type BacktestItem, type Ledger, type LedgerRound } from './backtest.js';
+import { backtestPassed, formatBacktest, ledgerProblems, loadLedger, runBacktest, score, LEDGER_PATH, type BacktestItem, type Ledger, type LedgerPoint, type LedgerRound } from './backtest.js';
 
 const item = (over: Partial<BacktestItem> = {}): BacktestItem => ({ gate: 'unused-export', file: 'src/lib/server/billing/invoices.ts', line: 40, text: 'Unused export `isRefund` is not imported anywhere', blocking: true, ...over });
 
 describe('a ledger point matches a finding', () => {
+    const caught = (row: Omit<LedgerPoint, 'id' | 'point'>, finding: BacktestItem) =>
+        score({ id: 'r', commit: 'abcdef0', base: 'main', points: [{ id: 'P', point: 'p', ...row }], must_not_flag: [] }, 'h', [finding], 0, undefined).points[0].caught;
+
     it('by file, then by line window or text pattern, case-insensitively', () => {
-        expect(matches({ file: 'invoices', lines: [30, 50] }, item())).toBe(true);
-        expect(matches({ file: 'invoices', lines: [41, 50] }, item())).toBe(false);
-        expect(matches({ file: 'invoices', text: 'isrefund|twice' }, item())).toBe(true);
-        expect(matches({ file: 'invoices', lines: [41, 50], text: 'isRefund' }, item())).toBe(true); // either is enough
-        expect(matches({ file: 'receipts', text: 'isRefund' }, item())).toBe(false); // the file must match
-        expect(matches({ file: 'invoices', lines: [30, 50] }, item({ line: undefined }))).toBe(false); // a lineless finding cannot be placed in a window
+        expect(caught({ file: 'invoices', lines: [30, 50] }, item())).toBe(true);
+        expect(caught({ file: 'invoices', lines: [41, 50] }, item())).toBe(false);
+        expect(caught({ file: 'invoices', text: 'isrefund|twice' }, item())).toBe(true);
+        expect(caught({ file: 'invoices', lines: [41, 50], text: 'isRefund' }, item())).toBe(true); // either is enough
+        expect(caught({ file: 'receipts', text: 'isRefund' }, item())).toBe(false); // the file must match
+        expect(caught({ file: 'invoices', lines: [30, 50] }, item({ line: undefined }))).toBe(false); // a lineless finding cannot be placed in a window
     });
 
     it('rejects rows that can match nothing before any round runs', () => {

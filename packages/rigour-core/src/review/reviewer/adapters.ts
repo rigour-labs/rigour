@@ -16,7 +16,6 @@ export type Vendor = 'anthropic' | 'cursor' | 'openai';
 export type ReviewMode = 'single' | 'cross' | 'full';
 
 export interface Adapter {
-    name: ReviewerName;
     vendor: Vendor;
     binary: string;
     /** The command line for one review: the prompt is passed as text, never through a shell. */
@@ -29,7 +28,6 @@ const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git s
 
 export const ADAPTERS: Record<ReviewerName, Adapter> = {
     claude: {
-        name: 'claude',
         vendor: 'anthropic',
         binary: 'claude',
         // Isolated: no MCP servers, no hooks, no user-level settings (an output style or permission
@@ -54,7 +52,6 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         },
     },
     cursor: {
-        name: 'cursor',
         vendor: 'cursor',
         binary: 'cursor-agent',
         // Ask mode is read-only and cannot run git: every input the prompt names is a file.
@@ -69,7 +66,6 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         },
     },
     codex: {
-        name: 'codex',
         vendor: 'openai',
         binary: 'codex',
         args: (prompt, model) => ['exec', '--sandbox', 'read-only', '--json', ...(model ? ['--model', model] : []), '-c', 'model_reasoning_effort=high', prompt],
@@ -134,7 +130,7 @@ function executable(file: string): boolean {
 }
 
 /** `a` carries a higher dotted version than `b` (the first such run of digits in each line). */
-export function newer(a: string, b: string): boolean {
+function newer(a: string, b: string): boolean {
     const parse = (line: string) => (line.match(/\d+(?:\.\d+)+/)?.[0] ?? '0').split('.').map(Number);
     const [x, y] = [parse(a), parse(b)];
     for (let i = 0; i < Math.max(x.length, y.length); i++) {

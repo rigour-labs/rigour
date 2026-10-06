@@ -68,6 +68,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
             diffTests: !!options.diffTests,
             deep: isDeep ? deepOptions(cwd, options) : undefined,
             trustedRef,
+            typed: true,
         });
         if (options.base) recordPrCatches(cwd, result.findings);
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
