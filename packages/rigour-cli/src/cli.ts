@@ -16,7 +16,7 @@ import { hooksStopCommand } from './commands/hooks-stop.js';
 import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
-import { gitPushGateCommand, selfTestGitPushHook } from './commands/hooks-git.js';
+import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -566,7 +566,7 @@ hooksCmd
     .command('selftest')
     .description('Prove the git pre-push hook: in a scratch clone of a scratch remote, a push the gate must refuse is refused and the fixed push lands, read from the remote\'s refs')
     .action(async () => {
-        const result = await selfTestGitPushHook(`${process.execPath} ${process.argv[1]}`);
+        const result = await selfTestGitPushHook(selfTestCommand());
         for (const step of result.steps) console.log(`  ${step}`);
         console.log(result.ok ? chalk.green('  The push gate holds.') : chalk.red('  The push gate does not hold.'));
         process.exit(result.ok ? 0 : 1);

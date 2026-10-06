@@ -4,7 +4,7 @@ import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
-import { selfTestGitPushHook } from './hooks-git.js';
+import { selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 
 function runText(command: string, args: string[]): string {
     try {
@@ -169,7 +169,7 @@ async function printPushGate(cwd: string): Promise<void> {
         console.log(chalk.yellow('  ⚠ No git pre-push hook: only agents with Rigour hooks are gated. Run: rigour hooks init\n'));
         return;
     }
-    const test = await selfTestGitPushHook(`${process.execPath} ${process.argv[1]}`);
+    const test = await selfTestGitPushHook(selfTestCommand());
     for (const step of test.steps) console.log(chalk.dim(`  - ${step}`));
     console.log(test.ok ? chalk.green('  ✓ The push gate holds under a real git push.\n') : chalk.red('  ✘ The push gate does not hold.\n'));
 }

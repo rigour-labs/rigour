@@ -65,6 +65,12 @@ export async function gitPushGateCommand(stdin: string, cwd: string): Promise<{ 
 
 export interface SelfTest { ok: boolean; steps: string[] }
 
+/** This very CLI as a hook can run it: quoted, with forward slashes, since git runs hooks under sh where a backslash escapes. */
+export function selfTestCommand(bin = process.argv[1]): string {
+    const quote = (p: string) => `"${p.replace(/\\/g, '/')}"`;
+    return `${quote(process.execPath)} ${quote(bin)}`;
+}
+
 /**
  * Installs the hook in a scratch clone of a scratch bare remote, pushes a change the gate must
  * refuse (an export nothing uses), then the fix, and reads the remote's refs: the exit code git

@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { gitPushGateCommand, installGitPushHook, selfTestGitPushHook } from './hooks-git.js';
+import { gitPushGateCommand, installGitPushHook, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
@@ -29,7 +29,7 @@ describe('the git pre-push hook', () => {
         expect(first.action).toBe('installed');
         const text = fs.readFileSync(first.path, 'utf8');
         expect(text).toContain('exec npx --yes @rigour-labs/cli@9.9.9 hooks push --git "$@"');
-        expect(fs.statSync(first.path).mode & 0o111).toBeTruthy();
+        if (process.platform !== 'win32') expect(fs.statSync(first.path).mode & 0o111).toBeTruthy(); // no execute bit on Windows
         expect(installGitPushHook(repo, 'npx --yes @rigour-labs/cli@9.9.9').action).toBe('present');
 
         git('config', 'core.hooksPath', '.husky');
@@ -62,7 +62,7 @@ describe('the git pre-push hook', () => {
     });
 
     it('holds under a real git push: a change the gate must refuse is refused, the fix lands, read from the remote', async () => {
-        const result = await selfTestGitPushHook(`${process.execPath} ${bin}`);
+        const result = await selfTestGitPushHook(selfTestCommand(bin));
         expect(result.steps.join('\n')).toContain('was refused');
         expect(result).toMatchObject({ ok: true });
     }, 120_000);
