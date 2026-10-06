@@ -13,6 +13,7 @@ import { resolveStudioVersion } from './studio-contracts.js';
 import { loadStudioLearnedRules } from './studio-learned-rules.js';
 import { loadPrePrReview } from './studio-pre-pr.js';
 import { createStudioGuard, refuseStudioRequest, STUDIO_KEY_HEADER, studioLaunchUrl, type StudioGuard } from './studio-guard.js';
+import { enabledHere } from './personal.js';
 import { rigourUserDir } from '@rigour-labs/core';
 
 type StudioContext = {
@@ -285,6 +286,28 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/reviewer' && req.method === 'GET') {
+        try {
+            const { loadStudioReviewer } = await import('./studio-reviewer.js');
+            sendJson(res, 200, await loadStudioReviewer(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (['/api/reviewer/settings', '/api/reviewer/team', '/api/reviewer/dismiss'].includes(url.pathname) && req.method === 'POST') {
+        try {
+            const body = JSON.parse((await readBody(req)) || '{}');
+            const { saveStudioReviewer, saveTeamReviewer, dismissFromStudio } = await import('./studio-reviewer.js');
+            const write = { '/api/reviewer/settings': saveStudioReviewer, '/api/reviewer/team': saveTeamReviewer, '/api/reviewer/dismiss': dismissFromStudio }[url.pathname]!;
+            sendJson(res, 200, await write(cwd, body));
+        } catch (e: any) {
+            sendJson(res, 400, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/learning') {
         try {
             const { loadLearning } = await import('./studio-learning.js');
@@ -386,6 +409,24 @@ async function handleApiRequest(
     return true;
 }
 
+const MAX_BODY = 64 * 1024;
+
+/** A request body, whole, and never more than a settings change needs. */
+function readBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk;
+            if (body.length > MAX_BODY) {
+                req.destroy();
+                reject(new Error('request body too large'));
+            }
+        });
+        req.on('end', () => resolve(body));
+        req.on('error', reject);
+    });
+}
+
 async function serveStaticFile(studioDist: string, pathname: string, res: ServerResponse): Promise<void> {
     let filePath = path.join(studioDist, pathname === '/' ? 'index.html' : pathname);
     if (!(await fs.pathExists(filePath)) || (await fs.stat(filePath)).isDirectory()) {
@@ -454,11 +495,10 @@ export const studioCommand = new Command('studio')
         console.log(chalk.bold.cyan('\n🛡️ Launching Rigour Studio...'));
         console.log(chalk.gray(`Project Root: ${cwd}`));
 
-        const configPath = path.join(cwd, 'rigour.yml');
-        if (!(await fs.pathExists(configPath))) {
-            console.log(chalk.yellow('\n⚠️ Warning: rigour.yml not found.'));
-            console.log(chalk.dim('The Studio will be empty until you initialize the project.'));
-            console.log(chalk.cyan('Suggest: ') + chalk.bold('npx @rigour-labs/cli init') + '\n');
+        // A personal install has no rigour.yml; only a repository Rigour does not run in at all is empty here.
+        if (!(await fs.pathExists(path.join(cwd, 'rigour.yml'))) && !enabledHere(cwd)) {
+            console.log(chalk.yellow('\nRigour is not set up in this repository, so Studio has little to show yet.'));
+            console.log(chalk.cyan('Set it up: ') + chalk.bold('rigour setup') + chalk.dim(' (nothing goes in your repository)') + '\n');
         }
 
         console.log(chalk.gray(`Shadowing interactions in ${eventsPath}\n`));

@@ -178,9 +178,13 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         if (m.holds === false) add({ id: id('correctness', m.call_site, m.symbol), kind: 'merge', class: 'correctness', file: m.call_site.split(':')[0], line: Number(m.call_site.split(':')[1]) || undefined, issue: `${m.symbol} from ${m.main_file} changed in main: ${m.why}`, reviewer: m.reviewer });
     }
     const notes: OpenItem[] = [];
+    const stillOpen = new Set((previousOpen ?? []).map(item => item.id));
     for (const f of verdict.findings) {
         const item: OpenItem = { id: id(f.class, f.file, f.issue), kind: 'finding', class: f.class, file: f.file, line: f.line, issue: f.issue, evidence: f.why, ...(f.consequence?.trim() ? { consequence: f.consequence.trim() } : {}), reviewer: f.reviewer };
-        if (item.consequence) add(item);
+        // An opinion is a finding the judge said has no consequence: an empty one. A missing field fails closed, and an
+        // item already open from the last round stays open until it is resolved with evidence.
+        const opinion = typeof f.consequence === 'string' && !f.consequence.trim() && !stillOpen.has(item.id);
+        if (!opinion) add(item);
         else if (!notes.some(n => n.id === item.id)) notes.push(item);
     }
     const resolved: Accounting['resolved'] = [];

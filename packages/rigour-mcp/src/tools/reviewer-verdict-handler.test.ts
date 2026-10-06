@@ -44,4 +44,12 @@ describe('rigour_reviewer_verdict', () => {
         expect(result.verdict.current).toBe(false);
         expect(result.next).toContain('for an earlier commit');
     });
+
+    it('says why there is no verdict when the last review could not run', async () => {
+        reviewStatus.mockResolvedValue({ branch: 'feature', attempt: { head, outcome: 'unavailable', reason: 'rigour.yml requires two reviewers from different vendors', at: 'now' } });
+        const result = await answer();
+        expect(result.last_attempt).toMatchObject({ outcome: 'unavailable' });
+        expect(result.next).toContain('could not run: rigour.yml requires two reviewers');
+    });
 });
+

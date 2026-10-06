@@ -37,4 +37,22 @@ describe('the reviewer settings a run uses', () => {
             'RIGOUR_REVIEWER_PANEL=maybe ignored: use on or off',
         ]);
     });
+
+    it('lets a nearer choice of one judge turn a panel off, unless the team requires it, and says when it refuses', () => {
+        expect(resolveReviewer(team({ mode: 'full', panel: 'on' }), { mode: 'single' }, undefined, {})).toMatchObject({ mode: 'single', panel: false, refused: [] });
+        expect(resolveReviewer(team(), { mode: 'single' }, { panel: true }, {})).toMatchObject({ mode: 'single', panel: false }); // the flag is nearer than your setting
+        const user = resolveReviewer(team(), {}, { mode: 'single', panel: true }, {});
+        expect(user).toMatchObject({ mode: 'full', panel: true });
+        expect(user.refused).toEqual(['mode single (user) refused: the panel (user) needs judges from two vendors']);
+        expect(resolveReviewer(team({ mode: 'full', panel: 'required' }), { mode: 'single' }, undefined, {}).refused).toEqual(['mode single (flag) refused: rigour.yml sets review.reviewer.panel: required']);
+    });
+
+    it('under a team floor a person cannot turn reviews off or lower the judges', () => {
+        const floor = team({ enabled: true, mode: 'full', judges: 3, mode_required: true });
+        const resolved = resolveReviewer(floor, {}, { enabled: false, judges: 2 }, {});
+        expect(resolved).toMatchObject({ enabled: true, judges: 3 });
+        expect(resolved.refused).toEqual(['reviews off (user) refused: rigour.yml requires the reviewer', 'judges 2 (user) refused: rigour.yml requires 3']);
+        expect(resolveReviewer(team({ enabled: true }), {}, { enabled: false, judges: 3 }, {})).toMatchObject({ enabled: false, judges: 3 }); // no floor: your choice
+    });
 });
+

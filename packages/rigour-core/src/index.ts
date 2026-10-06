@@ -28,7 +28,7 @@ export { runToolchain, type ToolResult, type ToolStatus } from './review/toolcha
 export { branchFailures, mergeConflicts, staleReferences } from './review/branch-checks.js';
 export { runReviewer, reviewerBlocks, itemLine, type ReviewerOptions, type ReviewerResult, type ReviewerOutcome, type OpenItem } from './review/reviewer.js';
 export { startBackgroundReview, backgroundReview, reviewStatus, type ReviewStatus } from './review/reviewer/background.js';
-export { dismissReviewerFinding, REVIEW_DISMISSALS } from './review/reviewer/context.js';
+export { dismissReviewerFinding, REVIEW_DISMISSALS, reviewerInputs } from './review/reviewer/context.js';
 export { resolveReviewer, saveUserReviewer, type ResolvedReviewer, type RunChoice, type UserReviewerPatch } from './review/reviewer/settings.js';
 export { reviewerAvailability } from './review/reviewer/adapters.js';
 export { branchBase, type BranchBase } from './gates/logic-drift-git-base.js';

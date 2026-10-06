@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './reviewer.js';
 import { dismissReviewerFinding } from './reviewer/context.js';
+import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
 import { account, carryResolved, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
 
@@ -23,7 +24,7 @@ const INLINE = [{ id: 7, user: { login: 'senior', type: 'User' }, path: 'src/job
 
 const EMPTY = { prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: true, evidence: 'a.ts:1' }], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [] };
 
-interface Seen { prompts: string[]; files: Record<string, string>; ghArgs: string[][]; ran: string[]; ghToken?: string; installed?: string[]; versions?: Record<string, string> }
+interface Seen { prompts: string[]; files: Record<string, string>; ghArgs: string[][]; ran: string[]; args?: string[][]; ghToken?: string; installed?: string[]; versions?: Record<string, string> }
 
 /** Real git; scripted gh; agent CLIs that record what they were shown and answer `answer` (a function of the reviewer's name). */
 function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout: string; stderr: string }, seen: Seen, pr: typeof PR | null = PR): Exec {
@@ -47,6 +48,7 @@ function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout
         const binary = path.basename(command).replace(/\.(cmd|exe)$/, '');
         if (args[0] === '--version') return (seen.installed ?? ['claude', 'cursor-agent']).includes(binary) ? { exitCode: 0, stdout: `${seen.versions?.[command] ?? '1.0.0'}\n`, stderr: '' } : { exitCode: 127, stdout: '', stderr: 'not found' };
         seen.ran.push(command);
+        (seen.args ??= []).push(args);
         const name = binary === 'claude' ? 'claude' : binary === 'cursor-agent' ? 'cursor' : 'codex';
         const prompt = binary === 'claude' ? args[args.indexOf('-p') + 1] : args[args.length - 1];
         seen.prompts.push(prompt);
@@ -116,16 +118,17 @@ describe('the reviewer', () => {
     it('caches the verdict per commit and inputs, so the same push is free, and the next commit gets a delta review that carries what is not accounted for', async () => {
         const seen = seenNow();
         const open = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', consequence: 'a second run reads stale rows', why: 'x' }] });
-        const first = await runReviewer(repo, 'main', config, fakes(() => open, seen), () => undefined);
+        const first = await runReviewer(repo, 'main', config, fakes(() => open, seen), () => undefined, { checks: ['src/job.ts:1 Unused export `job`'] });
         expect(first.items).toHaveLength(1);
-        const again = await runReviewer(repo, 'main', config, fakes(() => open, seen), () => undefined);
+        const again = await runReviewer(repo, 'main', config, fakes(() => open, seen), () => undefined, { checks: ['src/job.ts:1 Unused export `job`'] });
         expect(again.cached).toBe(true);
         expect(seen.prompts).toHaveLength(1);
         expect(fs.readdirSync(repo).sort()).toEqual(['.git', 'a.ts', 'src']); // nothing written to the working tree
 
         fs.writeFileSync(path.join(repo, 'src/job.ts'), 'export function job() {\n    return 2;\n}\n');
         git('commit', '-qam', 'tweak');
-        const delta = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [], carried: [], resolved_previous: [] }), seen), () => undefined);
+        // What the checks found changed with the commit: the context changes, the instructions do not, so it is still a delta.
+        const delta = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [], carried: [], resolved_previous: [] }), seen), () => undefined, { checks: ['src/job.ts:2 Unused export `other`'] });
         expect(delta.scope).toBe('delta');
         expect(seen.prompts[1]).toContain('DELTA MODE');
         expect(seen.files['delta.diff']).toContain('-    return 1;');
@@ -268,7 +271,7 @@ describe('a panel of judges', () => {
     const panelConfig = (reviewer: Record<string, unknown>) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor', 'codex'], mode: 'full', panel: 'on', ...reviewer } } });
     const LOCK = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' };
     const LONE = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', consequence: 'a reader treats it as the contract' };
-    const OPINION = { class: 'duplication', file: 'src/job.ts', line: 2, issue: 'could be one line shorter' };
+    const OPINION = { class: 'duplication', file: 'src/job.ts', line: 2, issue: 'could be one line shorter', consequence: '' };
 
     it('confirms what a majority raised, drops what the others refute with evidence, and never blocks on an opinion', async () => {
         installFake(bins[0], 'codex');
@@ -282,7 +285,7 @@ describe('a panel of judges', () => {
             if (name === 'codex') return JSON.stringify({ ...EMPTY, findings: [LONE] });
             return JSON.stringify({ ...EMPTY, findings: name === 'claude' ? [LOCK, OPINION] : [{ ...LOCK, line: 3, issue: 'the lock is taken only after it returns' }] });
         };
-        const result = await runReviewer(repo, 'main', panelConfig({ judges: 3 }), fakes(reply, seen), () => undefined);
+        const result = await runReviewer(repo, 'main', panelConfig({ judges: 3, cross_models: { claude: 'claude-haiku-4-5' } }), fakes(reply, seen), () => undefined);
         expect(result.reviewers).toEqual(['claude', 'cursor', 'codex']);
         expect(result.mode).toMatchObject({ asked: 'panel', ran: 'panel', source: 'team' });
         expect(result.items.map(i => [i.issue, i.reviewer])).toEqual([[LOCK.issue, 'claude+cursor']]);
@@ -291,6 +294,8 @@ describe('a panel of judges', () => {
         expect(seen.prompts).toHaveLength(5); // three blind reviews, then claude and cursor each cross-examine codex's lone finding once
         expect(result.panel?.find(d => d.item.issue === LONE.issue)).toMatchObject({ judges: ['codex'], calls: { codex: 'raised', claude: 'refute', cursor: 'refute' }, status: 'dropped' });
         expect(result.costUsd).toBe(3); // claude's review and claude's cross-examination
+        const claudeCalls = (seen.args ?? []).filter((_, i) => path.basename(seen.ran[i]).startsWith('claude'));
+        expect(claudeCalls.map(a => a.includes('claude-haiku-4-5'))).toEqual([false, true]); // the cheaper model for the cross-examination only
     });
 
     it('runs one judge and says why when only one vendor is installed, and is unavailable when the team requires the panel', async () => {
@@ -325,14 +330,29 @@ describe('what the team already knows', () => {
         expect(first.outcome).toBe('findings');
         expect(await dismissReviewerFinding(repo, 'abcdef0123', 'not one of ours')).toEqual({ error: 'no open reviewer finding abcdef0123 on feature: run `rigour review --reviewer` and copy the id it shows' });
         expect((await dismissReviewerFinding(repo, first.items[0].id, 'the runner holds a lock one level up')).item?.issue).toBe('returns before the lock is taken');
+        expect((await reviewStatus(repo, 'feature'))?.last?.open).toEqual([]); // not work any more, right away
 
         const seen = seenNow();
-        const again = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ ...finding, issue: 'the lock is taken only after it returns' }] }), seen), () => undefined);
-        expect(again.cached).toBe(false); // the dismissal changed what the judge is told
+        // The same commit again: no new run; the stored decision is reused, with the dismissal applied.
+        const reused = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify(EMPTY), seenNow()), () => undefined);
+        expect(reused).toMatchObject({ cached: true, outcome: 'passed' });
+        expect(reused.dismissed.map(i => i.issue)).toEqual(['returns before the lock is taken']);
+        // A fresh review: the judge is told it is settled, and a re-worded repeat does not block either.
+        const again = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ ...finding, issue: 'returns before the lock is taken, so it races' }] }), seen), () => undefined, { force: true });
+        expect(again.cached).toBe(false);
         expect(again.outcome).toBe('passed');
-        expect(again.dismissed.map(i => i.issue)).toEqual(['the lock is taken only after it returns']);
+        expect(again.dismissed.map(i => i.issue)).toEqual(['returns before the lock is taken, so it races']);
         expect(seen.files['team-knowledge.md']).toContain('dismissed as not a bug: src/job.ts:2 [correctness] returns before the lock is taken (reason: the runner holds a lock one level up)');
         expect(seen.files['team-knowledge.md']).toContain('docs/jobs.md (names src/job.ts');
+        const told = seenNow();
+        await runReviewer(repo, 'main', config, fakes(() => JSON.stringify(EMPTY), told), () => undefined, { force: true, checks: ['src/job.ts:1 Unused export `job`'] });
+        expect(told.files['team-knowledge.md']).toContain("## Already found by Rigour's checks: they block on their own, so do not report them again\n- src/job.ts:1 Unused export `job`");
+    });
+
+    it('fails closed: a finding whose judge left out the consequence still blocks', async () => {
+        const result = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock' }] }), seenNow()), () => undefined);
+        expect(result.items.map(i => i.issue)).toEqual(['returns before the lock']);
+        expect(result.notes).toEqual([]);
     });
 });
 

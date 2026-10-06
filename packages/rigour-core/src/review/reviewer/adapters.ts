@@ -9,7 +9,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import type { Exec } from './exec.js';
+import { defaultExec, type Exec } from './exec.js';
 
 export type ReviewerName = 'claude' | 'cursor' | 'codex';
 export type Vendor = 'anthropic' | 'cursor' | 'openai';
@@ -170,7 +170,7 @@ export function selectReviewers(candidates: ReviewerName[], mode: ReviewMode, au
 }
 
 /** Every reviewer Rigour can run, and whether this machine has it: what bounds the judges of a panel. */
-export async function reviewerAvailability(cwd: string, exec: Exec): Promise<Array<{ name: ReviewerName; vendor: Vendor; binary: string; installed: boolean; version?: string }>> {
+export async function reviewerAvailability(cwd: string, exec: Exec = defaultExec): Promise<Array<{ name: ReviewerName; vendor: Vendor; binary: string; installed: boolean; version?: string }>> {
     return Promise.all((Object.keys(ADAPTERS) as ReviewerName[]).map(async name => {
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
         return { name, vendor: ADAPTERS[name].vendor, binary: ADAPTERS[name].binary, installed: !!found, ...(found ? { version: found.version } : {}) };

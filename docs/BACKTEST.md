@@ -72,6 +72,21 @@ is shown as **noted** and still counted as missed, because nothing advisory stop
 command exits 1 until every point is caught with no false block, and when the reviewer ran and
 gave no verdict.
 
+With two or three judges (`mode: full`, or a panel), the report adds what each judge did on its own. An example of its shape (illustrative numbers):
+
+```
+Judges (4 round(s), 11 human point(s))
+  claude: raised 6/11; 2 that no other judge raised
+  codex: raised 5/11; 1 that no other judge raised
+  claude and codex: kappa 0.46 over 11 point(s)
+  16 agent run(s), $9.80 recorded, $1.40 per caught point
+```
+
+Kappa is agreement beyond chance on the ledger's own points. Near 1, the judges share blind spots
+and another one adds little; a judge whose catches the others always make too is not earning its
+runs. Run the same rounds with `escalate: risk` and compare: it is safe to switch only if no point
+the always-on panel caught goes missing. See [The reviewer](./REVIEWER.md).
+
 ## What the number means
 
 The score is on your own history, not a benchmark: the reviewer's points are the standard, so the

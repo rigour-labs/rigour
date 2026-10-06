@@ -12,9 +12,10 @@ import fs from 'fs';
 import path from 'path';
 import type { Config } from '../../types/index.js';
 import { reviewChange } from '../review.js';
-import { runReviewer, type ModeRecord, type ReviewerResult } from '../reviewer.js';
+import { pushReviewSkip, runReviewer, type ModeRecord, type ReviewerResult } from '../reviewer.js';
 import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
-import { VerdictStore } from './store.js';
+import { dismissedAs, readReviewDismissals, reviewerInputs } from './context.js';
+import { VerdictStore, type ReviewAttempt } from './store.js';
 import { itemLine, type OpenItem, type Verdict } from './verdict.js';
 
 export interface BackgroundJob { head: string; branch: string; base: string }
@@ -40,22 +41,29 @@ export async function startBackgroundReview(cwd: string, job: BackgroundJob, com
 export async function backgroundReview(cwd: string, job: BackgroundJob, config: Config, exec: Exec = defaultExec, log: (line: string) => void = line => process.stdout.write(`${line}\n`)): Promise<ReviewerResult> {
     const store = await VerdictStore.open(cwd, exec);
     if (!store) throw new Error(`${cwd} is not a repository`);
+    const skip = await pushReviewSkip(cwd, job.branch, job.head, config, exec);
+    if (skip) {
+        store.recordAttempt(job.branch, { head: job.head, outcome: 'skipped', reason: skip, at: new Date().toISOString() });
+        log(`review of ${job.head.slice(0, 9)}: skipped (${skip})`);
+        clearPid(store, job.branch);
+        return { outcome: 'skipped', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason: skip, reviewers: [], cached: false };
+    }
     const worktree = store.worktreeDir(job.head);
     const added = await exec('git', ['worktree', 'add', '--detach', worktree, job.head], { cwd, timeoutMs: 5 * GH_TIMEOUT_MS });
     if (added.exitCode !== 0 && !fs.existsSync(path.join(worktree, '.git'))) throw new Error(`could not check out ${job.head.slice(0, 9)} for the review: ${added.stderr.trim()}`);
     try {
         shareDependencies(cwd, worktree);
         // The typed checks' hints (a nested scan, a value that only leaves through serialisation) are the reviewer's candidates to confirm.
-        const hints = (await reviewChange({ cwd: worktree, config, source: { mode: 'base', base: job.base }, typed: true })).hints.join('\n');
-        const result = await runReviewer(worktree, job.base, config, exec, log, { trigger: 'push', branch: job.branch, hints });
+        const review = await reviewChange({ cwd: worktree, config, source: { mode: 'base', base: job.base }, typed: true });
+        // The worktree has the commit, not the team's untracked state: dismissals and reviewed functions come from the checkout.
+        const result = await runReviewer(worktree, job.base, config, exec, log, { trigger: 'push', branch: job.branch, stateRoot: cwd, ...reviewerInputs(review) });
         log(`review of ${job.head.slice(0, 9)}: ${result.outcome}${result.reason ? ` (${result.reason})` : ''}${result.items.length ? `, ${result.items.length} open item(s)` : ''}`);
         for (const item of result.items) log(`  ${itemLine(item)}`);
         notify(`Rigour review of ${job.branch} @ ${job.head.slice(0, 9)}: ${result.outcome}${result.items.length ? `, ${result.items.length} open item(s)` : ''}`);
         return result;
     } finally {
         await exec('git', ['worktree', 'remove', '--force', worktree], { cwd, timeoutMs: 5 * GH_TIMEOUT_MS });
-        const pidFile = store.branchFile(job.branch, 'pid');
-        if (fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').startsWith(`${process.pid} `)) fs.unlinkSync(pidFile);
+        clearPid(store, job.branch);
     }
 }
 
@@ -63,6 +71,8 @@ export interface ReviewStatus {
     branch: string;
     /** A review still running, and for which commit. */
     running?: { pid: number; head: string };
+    /** The last review that ended without a verdict, when it is newer than the last verdict. */
+    attempt?: ReviewAttempt;
     /** The last verdict recorded for the branch. */
     last?: { head: string; mode: 'full' | 'delta'; at: string; open: OpenItem[]; ran?: ModeRecord; disputed: OpenItem[] };
     log?: string;
@@ -76,13 +86,17 @@ export async function reviewStatus(cwd: string, branch: string, exec: Exec = def
     const running = runningJob(store, branch);
     if (running) status.running = running;
     const state = store.branchState(branch);
+    const attempt = store.attempt(branch);
+    if (attempt && (!state || attempt.at > state.at)) status.attempt = attempt;
     if (state) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord } }>(state.verdict);
+        const dismissals = readReviewDismissals(cwd);
         status.last = {
             head: state.head, mode: state.mode, at: state.at,
-            open: store.readJson<OpenItem[]>(store.openPath(state.verdict)) ?? [],
+            // A finding dismissed since this verdict is not work any more: it leaves the list now, not at the next review.
+            open: (store.readJson<OpenItem[]>(store.openPath(state.verdict)) ?? []).filter(item => !dismissedAs(item, dismissals)),
             ...(verdict?.inputs?.mode ? { ran: verdict.inputs.mode } : {}),
-            disputed: (verdict?.panel?.items ?? []).filter(d => d.status === 'disputed').map(d => d.item),
+            disputed: (verdict?.panel?.items ?? []).filter(d => d.status === 'disputed').map(d => ({ ...d.item, reviewer: d.judges.join('+') })),
         };
     }
     const log = store.branchFile(branch, 'log');
@@ -134,4 +148,10 @@ function notify(message: string): void {
     const safe = message.replace(/["\\]/g, '');
     if (process.platform === 'darwin') spawnSync('osascript', ['-e', `display notification "${safe}" with title "Rigour"`], { stdio: 'ignore', timeout: 5000 });
     else if (process.platform === 'linux') spawnSync('notify-send', ['Rigour', safe], { stdio: 'ignore', timeout: 5000 });
+}
+
+/** This process's pid record for the branch, removed when it ends (a newer job's record is left alone). */
+function clearPid(store: VerdictStore, branch: string): void {
+    const pidFile = store.branchFile(branch, 'pid');
+    if (fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').startsWith(`${process.pid} `)) fs.unlinkSync(pidFile);
 }

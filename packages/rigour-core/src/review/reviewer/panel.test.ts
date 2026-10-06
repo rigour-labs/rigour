@@ -5,6 +5,8 @@ import type { OpenItem } from './verdict.js';
 
 let n = 0;
 const item = (file: string, line: number, cls: string, issue: string, consequence = 'wrong rows'): OpenItem => ({ id: `i${++n}`, kind: 'finding', class: cls, file, line, issue, consequence });
+/** Evidence counts only as a real file:line: here, any src/q.ts line. */
+const evidenced = (text: string) => /src\/q\.ts:\d+/.test(text);
 const members = (judges: string[], items: OpenItem[][]) => clusterItems(judges, items).map(c => c.members.map(m => `${m.judge}:${m.item.issue}`));
 
 describe('matching findings across judges', () => {
@@ -34,6 +36,11 @@ describe('matching findings across judges', () => {
         const judgeA = [item('src/q.ts', 10, 'production-cost', 'both reads, rows and cards, are unbounded')];
         const judgeB = [item('src/q.ts', 10, 'production-cost', 'rows read is unbounded'), item('src/q.ts', 14, 'production-cost', 'cards read is unbounded')];
         expect(members(['a', 'b'], [judgeA, judgeB])).toEqual([['a:both reads, rows and cards, are unbounded', 'b:rows read is unbounded', 'b:cards read is unbounded']]);
+    });
+
+    it('never merges one judge\'s own two findings, however close', () => {
+        const judgeA = [item('src/x.ts', 10, 'correctness', 'session.user may be null when the token expired'), item('src/x.ts', 12, 'correctness', 'session.expires compared as a string, not a date')];
+        expect(members(['a', 'b'], [judgeA, []])).toEqual([['a:session.user may be null when the token expired'], ['a:session.expires compared as a string, not a date']]);
     });
 
     it('groups three judges, and is the same every run', () => {
@@ -68,7 +75,7 @@ describe('deciding a finding', () => {
         const overCap = item('src/z.ts', 1, 'correctness', 'retries forever on 429');
         const answers: Record<string, Answer[]> = { b: [{ id: lone.id, call: 'confirm', evidence: 'src/q.ts:12 reads before lock()' }, { id: refuted.id, call: 'refute', evidence: 'src/q.ts:33 the loop runs once more' }, { id: bare.id, call: 'confirm' }] };
         const decided = await runPanel({
-            judges: ['a', 'b'], items: [[lone, refuted, bare, overCap], []], previousDisputed: [], touched: new Set(), maxItems: 3,
+            judges: ['a', 'b'], items: [[lone, refuted, bare, overCap], []], previousDisputed: [], touched: new Set(), maxItems: 3, evidenced,
             ask: async (judge, items) => { asked[judge] = items.map(i => i.issue); return answers[judge] ?? []; },
         });
         expect(asked).toEqual({ b: ['lock checked after the read', 'the cursor skips the last page', 'an index is missing on created_at'] });
@@ -82,16 +89,16 @@ describe('deciding a finding', () => {
         const again = item('src/q.ts', 10, 'correctness', 'lock checked after the read');
         const asked: string[] = [];
         const ask = async (_judge: string, items: OpenItem[]) => { asked.push(...items.map(i => i.id)); return []; };
-        const untouched = await runPanel({ judges: ['a', 'b'], items: [[again], []], previousDisputed: [{ ...again, id: 'old' }], touched: new Set(), maxItems: 20, ask });
+        const untouched = await runPanel({ judges: ['a', 'b'], items: [[again], []], previousDisputed: [{ ...again, id: 'old' }], touched: new Set(), maxItems: 20, evidenced, ask });
         expect(untouched[0]).toMatchObject({ status: 'disputed', note: 'disputed before; its file is unchanged since' });
         expect(asked).toEqual([]);
-        await runPanel({ judges: ['a', 'b'], items: [[again], []], previousDisputed: [{ ...again, id: 'old' }], touched: new Set(['src/q.ts']), maxItems: 20, ask });
+        await runPanel({ judges: ['a', 'b'], items: [[again], []], previousDisputed: [{ ...again, id: 'old' }], touched: new Set(['src/q.ts']), maxItems: 20, evidenced, ask });
         expect(asked).toEqual([again.id]);
     });
 
     it('a judge that fails to answer leaves the findings disputed, never confirmed', async () => {
         const lone = item('src/q.ts', 10, 'correctness', 'lock checked after the read');
-        const decided = await runPanel({ judges: ['a', 'b'], items: [[lone], []], previousDisputed: [], touched: new Set(), maxItems: 20, ask: async () => { throw new Error('timed out'); } });
+        const decided = await runPanel({ judges: ['a', 'b'], items: [[lone], []], previousDisputed: [], touched: new Set(), maxItems: 20, evidenced, ask: async () => { throw new Error('timed out'); } });
         expect(decided[0]).toMatchObject({ status: 'disputed', calls: { a: 'raised', b: 'unsure' } });
     });
 });

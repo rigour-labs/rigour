@@ -1,5 +1,6 @@
 import React from 'react';
 import { useStudioJson } from './storyData';
+import { ReviewerSetup } from './Reviewer';
 import './story.css';
 
 interface SetupCheck { id: string; name: string; state: 'working' | 'set up' | 'broken' | 'missing'; detail: string; fix?: string }
@@ -27,6 +28,7 @@ export const SetupView: React.FC = () => {
                     </div>
                 ))}
             </div>
+            <ReviewerSetup />
             <h2 style={{ margin: '32px 0 6px', fontSize: 18, fontWeight: 600 }}>Who double-checks risky code</h2>
             <div className="st-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', marginTop: 12 }}>
                 <div className="st-card">

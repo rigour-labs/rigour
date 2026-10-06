@@ -15,6 +15,8 @@ Works with Claude Code, Cursor, Codex, Cline and Windsurf. Free, open source, an
 
 - **It works at the three moments that matter, not only at the pull request.** On every edit, before your agent says "done", and before it pushes. Most problems are fixed before a pull request exists.
 - **It remembers what your reviewer said last time.** Before a push, a fresh reviewer checks every point from the last human review against the code, so a fix that only covered half of a comment is caught, not shipped. It uses your agent's own login: no API key.
+- **A second opinion that agrees by evidence, not by volume.** Run one judge, or a panel of two or three from different vendors. The panel matches their findings, cross-examines only what they disagree on, and blocks only on what most of them raise, or confirm with a `file:line` from your code. An opinion ("this could be cleaner") never blocks. See [The reviewer](docs/REVIEWER.md).
+- **It learns from every "not a bug".** Dismiss a finding once and it never blocks again, even re-worded, and every later judge is told what your team already settled, which lessons apply and which docs describe the code.
 - **It reports what you changed, not what was already there.** Old problems in code you touched stay out of your review, so every finding is yours to fix.
 - **It runs your team's own tools.** Your formatter, linter, type check and the tests that touch the change run before every push, without anyone remembering to.
 - **It only blocks on what it can prove.** Dead code, offset paging, unbounded time windows, copied functions, merge conflicts, stale references: each check was run over real merged pull requests before it was allowed to block. Anything less certain is a note, never a gate.
@@ -56,15 +58,19 @@ Using Claude Code? The plugin does all of it:
 /plugin install rigour@rigour-labs
 ```
 
-Want the reviewer too? Add this to `rigour.yml`:
+Want the reviewer too? It is off until someone turns it on, and you choose how far to take it: for yourself in Studio's **Setup** page, or for the whole team in `rigour.yml`:
 
 ```yaml
 review:
   reviewer:
     enabled: true
+    mode: full          # one judge per vendor, up to `judges`; single (the default) is one judge
+    panel: on           # only what most judges confirm blocks; required: no one may turn it off
+    judges: 3           # 2 or 3, one per vendor installed
+    escalate: risk      # add judges only for risky changes; measure it with rigour backtest first
 ```
 
-The push goes through as soon as the checks pass; the reviewer then reads the pushed commit in the background (only when it has an open, non-draft pull request, so you pay for a model only when someone will read the push). `rigour review --status` shows its verdict; `rigour review --reviewer --full` runs two vendors and is the hard stop before you ask a person to review.
+The push goes through as soon as the checks pass; the reviewer then reads the pushed commit in the background (only when it has an open, non-draft pull request, so you pay for a model only when someone will read the push). `rigour review --status` shows its verdict and what ran; `rigour review --reviewer --full` is the hard stop before you ask a person to review. Your own choice wins for your runs, except where the team set a floor, and Rigour always says which judges actually ran and why.
 
 Then open Studio to watch it work:
 
@@ -114,6 +120,7 @@ Rigour is free. With an agent you need nothing else: the checks run locally, and
 | Install and run Rigour step by step | [Quick Start](docs/QUICK_START.md) |
 | Connect a coding agent | [Agent Integration](docs/AGENT_INTEGRATION.md) · [MCP Integration](docs/MCP_INTEGRATION.md) |
 | Set up the pull request bot | [PR Bot](docs/PR_BOT.md) |
+| Run the reviewer, from one judge to a panel | [The reviewer](docs/REVIEWER.md) |
 | Use your own model key | [Deep Analysis](docs/DEEP_ANALYSIS.md) |
 | Tune what Rigour checks | [Configuration](docs/CONFIGURATION.md) |
 | Work across several companies on one machine | [Profiles](docs/PROFILES.md) |

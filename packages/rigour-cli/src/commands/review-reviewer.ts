@@ -6,16 +6,16 @@
  * `--status` shows what the background reviewer has done for the branch.
  */
 import chalk from 'chalk';
-import { branchBase, itemLine, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
+import { branchBase, itemLine, reviewerInputs, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
 
 /** The base a branch review runs against: the one named, else where the branch left main. */
 export function reviewerBase(cwd: string, named: string | undefined): string | undefined {
     return named ?? branchBase(cwd)?.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '');
 }
 
-export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice): Promise<ReviewerResult> {
+export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult): Promise<ReviewerResult> {
     if (!base) return { outcome: 'unavailable', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason: 'no base to review against: pass --base, or fetch the main branch', reviewers: [], cached: false };
-    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice });
+    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...reviewerInputs(review) });
 }
 
 export function printReviewer(result: ReviewerResult): void {
@@ -92,13 +92,14 @@ export async function printStatus(cwd: string, json: boolean): Promise<number> {
     }
     console.log(chalk.bold(`  Reviewer on ${status.branch}`));
     if (status.running) console.log(chalk.yellow(`  running for ${status.running.head.slice(0, 9)} (pid ${status.running.pid})${status.log ? chalk.dim(`, log: ${status.log}`) : ''}`));
+    if (status.attempt) console.log(chalk.yellow(`  last attempt on ${status.attempt.head.slice(0, 9)}, ${status.attempt.at}: ${status.attempt.outcome === 'skipped' ? 'skipped' : 'could not run'}: ${status.attempt.reason}`));
     if (status.last) {
-        console.log(`  last verdict: ${status.last.head.slice(0, 9)}, ${status.last.mode}, ${status.last.at}: ${status.last.open.length ? chalk.red(`${status.last.open.length} open item(s)`) : chalk.green('passed')}`);
+        console.log(`  last verdict: ${status.last.head.slice(0, 9)}, ${status.last.mode === 'delta' ? 'new commits only' : 'whole branch'}, ${status.last.at}: ${status.last.open.length ? chalk.red(`${status.last.open.length} open item(s)`) : chalk.green('passed')}`);
         const ran = status.last.ran;
-        if (ran) console.log(chalk.dim(`  ${ran.ran} ran (${ran.asked} asked, ${ran.source})${ran.degraded ? `: ${ran.degraded}` : ''}${ran.escalation ? `; ${ran.escalation}` : ''}`));
+        if (ran) console.log(chalk.dim(`  judges: ${ran.ran} ran (${ran.asked} asked, ${ran.source})${ran.degraded ? `: ${ran.degraded}` : ''}${ran.escalation ? `; ${ran.escalation}` : ''}`));
         for (const item of status.last.open) console.log(`  ${chalk.red('OPEN')}  ${itemLine(item)}`);
         for (const item of status.last.disputed) console.log(chalk.yellow(`  disputed, never blocks  ${itemLine(item)}`));
-    } else if (!status.running) console.log(chalk.dim('  no verdict yet: push with review.reviewer.enabled, or run `rigour review --reviewer`'));
+    } else if (!status.running && !status.attempt) console.log(chalk.dim('  no verdict yet: push with review.reviewer.enabled, or run `rigour review --reviewer`'));
     return status.last?.open.length ? 1 : 0;
 }
 

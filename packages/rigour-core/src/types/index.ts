@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+/** A model name handed to an agent CLI as an argument: one that starts with "-" would be read as a flag. */
+const ModelName = z.string().regex(/^[\w.:/@][\w.:/@-]*$/, 'a model name (letters, digits and . : / @ -), not starting with -');
+
 export const GatesSchema = z.object({
     max_file_lines: z.number().optional().default(500),
     forbid_todos: z.boolean().optional().default(true),
@@ -446,9 +449,9 @@ export const ConfigSchema = z.object({
             /** single: the first installed reviewer. cross: prefer a vendor not on the commits' trailers. full: two vendors, verdicts merged. */
             mode: z.enum(['single', 'cross', 'full']).optional().default('single'),
             /** The model for the claude reviewer. */
-            model: z.string().optional(),
+            model: ModelName.optional(),
             /** A model per reviewer name, e.g. { cursor: "auto" }. */
-            models: z.record(z.string()).optional().default({}),
+            models: z.record(ModelName).optional().default({}),
             timeout_ms: z.number().optional().default(15 * 60_000),
             /**
              * With two vendors: match their findings, cross-examine only what one raised, and block only on what is
@@ -469,7 +472,7 @@ export const ConfigSchema = z.object({
              */
             escalate: z.enum(['always', 'risk']).optional().default('always'),
             /** A model per reviewer name for cross-examination (a narrow verification task), e.g. { claude: "haiku" }. */
-            cross_models: z.record(z.string()).optional().default({}),
+            cross_models: z.record(ModelName).optional().default({}),
         }).optional().default({}),
     }).optional().default({}),
     planned: z.array(z.string()).optional().default([]),

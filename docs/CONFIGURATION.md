@@ -109,10 +109,25 @@ review:
                                # when the branch has an open, non-draft pull request.
     reviewers: [claude]        # your coding agents' CLIs, run headless and read-only: claude, cursor, codex
     mode: single               # single: the first installed; cross: a vendor not on the commits' trailers;
-                               # full: two vendors, verdicts merged (rigour review --reviewer --full, before asking a person)
+                               # full: one judge per vendor, up to `judges`, findings merged (rigour review --reviewer --full,
+                               # before asking a person)
+    panel: off                 # off | on | required. on: judges cross-examine what only some of them found, and only what a
+                               # majority confirms blocks (implies mode: full). required: no person or run may turn it off.
+    mode_required: false       # true: no person or run may review with fewer judges than this mode
+    judges: 2                  # 2 or 3 in a full or panel review, one per vendor installed
+    escalate: always           # risk: add judges only for a risky change or one a person reviewed; one judge otherwise
+    panel_max_items: 20        # findings cross-examined per review at most; the rest are shown as disputed
+    cross_models: {}           # a model per reviewer for cross-examination, e.g. { claude: claude-haiku-4-5 }
     model: claude-opus-5-5     # optional, for claude; models: { cursor: auto } for the others
     timeout_ms: 900000
 ```
+
+A finding the reviewer reports blocks only when it names its consequence (a wrong outcome or a cost); one that only
+suggests faster or cleaner code is a note. Each person can choose for their own runs (in every repository on that machine), in Studio's Setup
+page or the `reviewer` block of their Rigour settings; a flag or `RIGOUR_REVIEWER_MODE` / `RIGOUR_REVIEWER_PANEL` chooses for
+one run. The team's `required` and `mode_required` are floors no one goes below: under them a person also cannot turn the
+reviewer off, lower `judges` or set `escalate: risk`. How the panel agrees, what it costs and
+how it learns: [The reviewer](./REVIEWER.md).
 
 ---
 

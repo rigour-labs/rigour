@@ -49,7 +49,7 @@ Every advertised tool costs each agent session its definition in context, so by 
 
 | Group | Tools | When |
 |:---|:---|:---|
-| **core** (default) | `rigour_recall`, `rigour_index`, `rigour_context_scope`, `rigour_check_pattern`, `rigour_check`, `rigour_review`, `rigour_get_fix_packet`, `rigour_remember` | Every session |
+| **core** (default) | `rigour_recall`, `rigour_index`, `rigour_context_scope`, `rigour_check_pattern`, `rigour_check`, `rigour_review`, `rigour_review_ack`, `rigour_reviewer_verdict`, `rigour_get_fix_packet`, `rigour_remember` | Every session |
 | governance | `rigour_agent_register`, `rigour_agent_deregister`, `rigour_checkpoint`, `rigour_handoff`, `rigour_handoff_accept`, `rigour_hooks_check`, `rigour_hooks_init`, `rigour_run`, `rigour_run_supervised` | Multi-agent teams, hooks, supervised loops |
 | context | `rigour_explain`, `rigour_forget`, `rigour_context_explain`, `rigour_security_audit` | Occasionally |
 | telemetry | `rigour_context_stats`, `rigour_task_cost`, `rigour_cache_stats` | Dashboards |
@@ -69,6 +69,7 @@ Add groups with `RIGOUR_MCP_TOOLS` in the server's environment (`"governance,tel
 ```
 
 Key tools:
+- **`rigour_reviewer_verdict`**: what the model reviewer last decided on this branch: the confirmed findings to fix, each with its id, file:line, consequence and evidence, the disputed ones that are not work, which mode ran, and whether the verdict is for the current commit. Read-only: it never runs a model and never dismisses a finding, which is a person's decision. See [The reviewer](./REVIEWER.md).
 - **`rigour_review`**: reviews the change the agent just made. With no arguments it reads uncommitted work from git, new files included; `base: "main"` reviews the whole branch. It returns findings on changed lines only, each with file, line and a suggested fix. This is the same engine and verdict as `rigour review` in CI.
 - **`rigour_check`**: runs the quality gates on the repository (same as `rigour check`).
 - **`rigour_get_fix_packet`**: a bounded, severity-ordered view of Fix Packet v3. Start with `offset=0` and follow the returned offset.

@@ -41,6 +41,8 @@ export interface PanelInput {
     maxItems: number;
     /** Asks `judge` about items other judges raised; resolves to its answers (a missing one counts as unsure). */
     ask: (judge: string, items: OpenItem[]) => Promise<Answer[]>;
+    /** Whether an answer's evidence quotes real code: a `file:line` the checkout has. */
+    evidenced: (evidence: string) => boolean;
 }
 
 /** The panel's decision on every finding any judge raised. */
@@ -79,7 +81,7 @@ export async function runPanel(input: PanelInput): Promise<PanelItem[]> {
         }
         for (const d of mine) {
             const answer = answers.find(x => x.id === d.item.id);
-            const evidenced = !!answer?.evidence && /[\w./-]+\.[A-Za-z]+(:\d+)?/.test(answer.evidence);
+            const evidenced = !!answer?.evidence && input.evidenced(answer.evidence);
             d.calls[judge] = answer && evidenced ? answer.call : 'unsure';
             d.cross = [...(d.cross ?? []), { by: judge, call: d.calls[judge], ...(answer?.evidence ? { evidence: answer.evidence } : {}) }];
         }

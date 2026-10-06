@@ -28,6 +28,9 @@ async function logStudioEvent(cwd: string, event: any) {
     }
 }
 
+/** What setup adds to .gitignore: Rigour's state stays local except what a team shares (dismissals, the backtest ledger). Uninstall removes exactly these. */
+export const GITIGNORE_PATTERNS = ['rigour-report.json', 'rigour-fix-packet.json', '.rigour/*', '!.rigour/dismissed.json', '!.rigour/dismissed-review-items.json', '!.rigour/backtest.json'];
+
 export interface InitOptions {
     preset?: string;
     paradigm?: string;
@@ -238,7 +241,7 @@ ${COLLABORATION_RULES}
     //    dismissals and the backtest ledger). A whole-directory `.rigour/` would hide those too,
     //    since git cannot re-include a file under an excluded directory, so it becomes `.rigour/*`.
     const gitignorePath = path.join(cwd, '.gitignore');
-    const ignorePatterns = ['rigour-report.json', 'rigour-fix-packet.json', '.rigour/*', '!.rigour/dismissed.json', '!.rigour/backtest.json'];
+    const ignorePatterns = GITIGNORE_PATTERNS;
     try {
         let content = '';
         if (await fs.pathExists(gitignorePath)) {

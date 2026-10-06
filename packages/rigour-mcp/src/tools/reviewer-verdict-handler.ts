@@ -27,6 +27,7 @@ export async function handleReviewerVerdict(cwd: string): Promise<ToolResult> {
     const answer = {
         branch,
         running: status.running ? { head: status.running.head } : null,
+        last_attempt: status.attempt ? { head: status.attempt.head, outcome: status.attempt.outcome, reason: status.attempt.reason } : null,
         verdict: last ? {
             head: last.head,
             current: last.head === head,
@@ -35,7 +36,9 @@ export async function handleReviewerVerdict(cwd: string): Promise<ToolResult> {
             fix: last.open.map(brief),
             disputed_not_work: last.disputed.map(brief),
         } : null,
-        next: !last
+        next: !last && status.attempt
+            ? `The last review ${status.attempt.outcome === 'skipped' ? 'was skipped' : 'could not run'}: ${status.attempt.reason}. Tell the person; there is nothing from the reviewer to fix yet.`
+            : !last
             ? 'No reviewer verdict on this branch yet. A person runs `rigour review --reviewer`, or pushes with the reviewer on.'
             : last.open.length
                 ? `Fix each item in "fix", then push; the next review checks each by id.${last.head === head ? '' : ' This verdict is for an earlier commit: some items may already be fixed.'} If one is not a bug, say why to the person: only they can dismiss it.`

@@ -10,6 +10,8 @@ import path from 'path';
 import type { Exec } from './exec.js';
 import { GH_TIMEOUT_MS } from './exec.js';
 
+export interface ReviewAttempt { head: string; outcome: 'unavailable' | 'skipped'; reason: string; at: string }
+
 export interface BranchState {
     head: string;
     verdict: string;
@@ -17,6 +19,8 @@ export interface BranchState {
     chain: number;
     rulesHash: string;
     reviewsKey: string;
+    /** Everything but the commit that decides a verdict: the same commit with the same key reuses it. */
+    inputsKey?: string;
     at: string;
 }
 
@@ -61,8 +65,22 @@ export class VerdictStore {
         this.writeJson(this.branchFile(branch), { ...state, chain: state.mode === 'delta' ? (previous?.chain ?? 0) + 1 : 0, at: new Date().toISOString() });
     }
 
-    /** The branch's record (`json`), the background reviewer's `pid` and `log`. */
-    branchFile(branch: string, kind: 'json' | 'pid' | 'log' = 'json'): string {
+    /** The decision a verdict led to (what blocks, what is disputed or a note), kept so the same commit is not decided again. */
+    decidedPath(verdictPath: string): string {
+        return verdictPath.replace(/\.json$/, '.decided.json');
+    }
+
+    /** A review on the branch that ended without a verdict, and why: what the status shows instead of "no verdict yet". */
+    recordAttempt(branch: string, attempt: ReviewAttempt): void {
+        this.writeJson(this.branchFile(branch, 'attempt'), attempt);
+    }
+
+    attempt(branch: string): ReviewAttempt | undefined {
+        return this.readJson<ReviewAttempt>(this.branchFile(branch, 'attempt'));
+    }
+
+    /** The branch's record (`json`), its last attempt without a verdict (`attempt`), the background reviewer's `pid` and `log`. */
+    branchFile(branch: string, kind: 'json' | 'attempt' | 'pid' | 'log' = 'json'): string {
         return path.join(this.dir, 'branches', `${branch.replace(/[^A-Za-z0-9._-]/g, '_')}.${kind}`);
     }
 

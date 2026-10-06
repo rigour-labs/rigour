@@ -347,7 +347,7 @@ program
 
 program
     .command('dismiss <key>')
-    .description('Mark a finding as not a bug: it is never reported again here (commit .rigour/dismissed.json to share)')
+    .description('Mark a finding as not a bug, a check\'s or the reviewer\'s: it never blocks again here (commit .rigour/dismissed.json and .rigour/dismissed-review-items.json to share)')
     .requiredOption('--reason <reason>', 'Why it is not a bug')
     .action(async (key: string, options: any) => {
         await dismissCommand(process.cwd(), key, options);

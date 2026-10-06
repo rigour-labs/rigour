@@ -18,6 +18,14 @@ const STOP = new Set(['the', 'and', 'for', 'that', 'this', 'with', 'from', 'when
 
 export const order = (a: OpenItem, b: OpenItem) => (a.file ?? '').localeCompare(b.file ?? '') || (a.line ?? 0) - (b.line ?? 0) || a.id.localeCompare(b.id);
 
+/** Shared words over all words (Jaccard) of two items' issue and consequence. */
+export function textSimilarity(a: OpenItem, b: OpenItem): number {
+    const wa = words(a);
+    const wb = words(b);
+    const shared = [...wa].filter(w => wb.has(w)).length;
+    return wa.size + wb.size - shared ? shared / (wa.size + wb.size - shared) : 0;
+}
+
 function words(item: OpenItem): Set<string> {
     const text = `${item.issue} ${item.consequence ?? ''}`.toLowerCase();
     return new Set((text.match(/[a-z_][a-z0-9_]{2,}/g) ?? []).filter(w => !STOP.has(w)));
@@ -26,10 +34,7 @@ function words(item: OpenItem): Set<string> {
 /** 0 for different files; otherwise wording, line distance and class, weighted. A far-apart pair needs close wording. */
 export function similarity(a: OpenItem, b: OpenItem): number {
     if (!a.file || a.file !== b.file) return 0;
-    const wa = words(a);
-    const wb = words(b);
-    const shared = [...wa].filter(w => wb.has(w)).length;
-    const text = wa.size + wb.size - shared ? shared / (wa.size + wb.size - shared) : 0;
+    const text = textSimilarity(a, b);
     const distance = a.line !== undefined && b.line !== undefined ? Math.abs(a.line - b.line) : undefined;
     const line = distance === undefined ? 0.5 : distance <= LINE_WINDOW ? 1 - distance / (LINE_WINDOW + 1) : 0;
     if (line === 0 && text < 0.5) return 0;
@@ -123,7 +128,8 @@ export function clusterItems(judges: string[], items: OpenItem[][]): Cluster[] {
         }
         mine.forEach((item, i) => {
             if (placed.has(i)) return;
-            const home = clusters.filter(c => c.members.some(m => m.judge === judge)).map(c => ({ c, s: clusterSimilarity(c, item) }))
+            // Only a finding another judge also holds: a judge's own two findings are never merged into one.
+            const home = clusters.filter(c => c.members.some(m => m.judge === judge) && c.members.some(m => m.judge !== judge)).map(c => ({ c, s: clusterSimilarity(c, item) }))
                 .filter(x => x.s >= MATCH_THRESHOLD).sort((a, b) => b.s - a.s || order(a.c.members[0].item, b.c.members[0].item))[0];
             if (home) home.c.members.push({ judge, item });
             else clusters.push({ members: [{ judge, item }] });

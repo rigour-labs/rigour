@@ -17,7 +17,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    branchBase, branchFailures, diffFromGit, itemLine, mergeBaseOf, resolveReviewer, reviewChange, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
+    branchBase, branchFailures, diffFromGit, itemLine, mergeBaseOf, resolveReviewer, reviewChange, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
@@ -77,7 +77,7 @@ async function gates(repo: string, base: string, mainRef: string, config: Config
     }
     const settings = resolveReviewer(config);
     if (settings.enabled && settings.on_push === 'wait') {
-        const reviewer = await runReviewer(repo, baseName, config, undefined, undefined, { trigger: 'push', hints: review.hints.join('\n') });
+        const reviewer = await runReviewer(repo, baseName, config, undefined, undefined, { trigger: 'push', ...reviewerInputs(review) });
         if (reviewerBlocks(reviewer)) lines.push(...reviewerLines(reviewer));
     }
     return { lines, log };

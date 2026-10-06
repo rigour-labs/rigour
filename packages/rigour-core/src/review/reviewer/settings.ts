@@ -4,7 +4,9 @@
  * settings (`reviewer` in the profile's settings.json, edited by hand or in Studio), and the team's
  * rigour.yml (its defaults when there is none). The team can set a floor no nearer layer goes
  * below: `panel: required` and `mode_required`. A nearer layer that asks for less is refused, and
- * the refusal is reported, never silent. A panel needs two vendors, so `panel` implies mode full.
+ * the refusal is reported, never silent. Under a floor, a person also cannot turn reviews off, lower
+ * the judges or escalate on risk only. A panel needs two vendors, so `panel` implies mode full,
+ * except that a nearer choice of one judge turns off a panel the team only turned on.
  */
 import { loadSettings, saveSettings, type UserReviewerSettings } from '../../settings.js';
 import type { Config } from '../../types/index.js';
@@ -40,6 +42,8 @@ export interface ResolvedReviewer {
 }
 
 const RANK: Record<Mode, number> = { single: 0, cross: 1, full: 2 };
+/** How near a layer is to this run: the nearer wins. */
+const NEAR: Record<Source, number> = { flag: 0, env: 1, user: 2, team: 3 };
 
 export function resolveReviewer(config: Config, choice: RunChoice = {}, user: UserReviewerSettings | undefined = loadSettings().reviewer, env: NodeJS.ProcessEnv = process.env): ResolvedReviewer {
     const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, judges: 2 as const, escalate: 'always' as const, cross_models: {} };
@@ -71,10 +75,21 @@ export function resolveReviewer(config: Config, choice: RunChoice = {}, user: Us
         if (team.mode_required && RANK[nearMode.mode!] < RANK[team.mode]) refused.push(`mode ${nearMode.mode} (${nearMode.source}) refused: rigour.yml sets review.reviewer.mode_required with mode ${team.mode}`);
         else [mode, modeSource] = [nearMode.mode!, nearMode.source];
     }
-    if (panel && mode !== 'full') [mode, modeSource] = ['full', panelSource];
+    if (panel && mode !== 'full') {
+        // A panel needs two vendors. Asking for fewer judges at a nearer layer than the panel's turns the panel off, unless the team requires it.
+        const fewer = nearMode && RANK[nearMode.mode!] < RANK.full;
+        if (fewer && NEAR[nearMode.source] < NEAR[panelSource] && !requirePanel) panel = false;
+        else {
+            if (fewer) refused.push(`mode ${nearMode.mode} (${nearMode.source}) refused: ${requirePanel ? 'rigour.yml sets review.reviewer.panel: required' : `the panel (${panelSource}) needs judges from two vendors`}`);
+            [mode, modeSource] = ['full', panelSource];
+        }
+    }
+    const floor = requirePanel || team.mode_required;
+    if (floor && team.enabled && user?.enabled === false) refused.push('reviews off (user) refused: rigour.yml requires the reviewer');
+    if (floor && user?.judges !== undefined && user.judges < team.judges) refused.push(`judges ${user.judges} (user) refused: rigour.yml requires ${team.judges}`);
 
     return {
-        enabled: user?.enabled ?? team.enabled,
+        enabled: floor && team.enabled ? true : user?.enabled ?? team.enabled,
         on_push: team.on_push,
         reviewers: user?.reviewers?.length ? user.reviewers : team.reviewers,
         models: { ...team.models, ...(user?.models ?? {}) },
@@ -83,7 +98,7 @@ export function resolveReviewer(config: Config, choice: RunChoice = {}, user: Us
         mode,
         panel,
         panel_max_items: team.panel_max_items,
-        judges: user?.judges ?? team.judges,
+        judges: floor ? Math.max(team.judges, user?.judges ?? team.judges) as 2 | 3 : user?.judges ?? team.judges,
         escalate: requiredEscalation(team, user, refused),
         cross_models: team.cross_models,
         source: { mode: modeSource, panel: panelSource },
@@ -137,6 +152,7 @@ function patchProblem(patch: UserReviewerPatch): string | undefined {
     if (!ok(patch.judges, v => v === 2 || v === 3)) return 'judges is 2 or 3';
     if (!ok(patch.escalate, v => v === 'always' || v === 'risk')) return 'escalate is always or risk';
     if (!ok(patch.reviewers, v => Array.isArray(v) && v.every(x => x === 'claude' || x === 'cursor' || x === 'codex'))) return 'reviewers lists claude, cursor or codex';
-    if (!ok(patch.models, v => !!v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string'))) return 'models maps a reviewer to a model name';
+    // A model name is handed to an agent CLI as an argument: one that starts with "-" would be read as a flag.
+    if (!ok(patch.models, v => !!v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string' && /^[\w.:/@-]+$/.test(x) && !x.startsWith('-')))) return 'models maps a reviewer to a model name (letters, digits and . : / @ -, not starting with -)';
     return undefined;
 }

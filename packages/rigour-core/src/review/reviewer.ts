@@ -30,7 +30,7 @@ import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/p
 import { crossExamPrompt, deltaBlock, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
 import { VerdictStore } from './reviewer/store.js';
-import { buildContext, dismissedAs, readReviewDismissals, type ReviewDismissal } from './reviewer/context.js';
+import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { account, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 
 export { defaultExec, githubEnv, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
@@ -53,6 +53,10 @@ export interface ReviewerOptions {
     force?: boolean;
     /** Deterministic hints (a nested scan, a property that only leaves through serialisation): candidates for the reviewer to confirm. */
     hints?: string;
+    /** What Rigour's checks already found on this change: settled, so no judge spends a turn finding it again. */
+    checks?: string[];
+    /** Where the team's state lives (.rigour: dismissals, reviewed functions) when cwd is a worktree that lacks it. */
+    stateRoot?: string;
     /** The branch the commit was pushed from, when reviewing it in a detached worktree (background.ts). */
     branch?: string;
 }
@@ -122,11 +126,16 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     const baseSha = await git(['rev-parse', `${base}^{commit}`]);
     const branch = options.branch ?? await git(['rev-parse', '--abbrev-ref', 'HEAD']);
     const repoRoot = (await git(['rev-parse', '--show-toplevel'])) || cwd;
-    const none = (outcome: 'unavailable' | 'skipped', reason: string, extra: Partial<ReviewerResult> = {}): ReviewerResult =>
-        ({ outcome, items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason, reviewers: [], cached: false, ...extra });
+    let attempts: VerdictStore | undefined;
+    // A review that ends without a verdict says why where the person looks (status, Studio, MCP), not only in a log.
+    const none = (outcome: 'unavailable' | 'skipped', reason: string, extra: Partial<ReviewerResult> = {}): ReviewerResult => {
+        if (attempts && branch !== 'HEAD') attempts.recordAttempt(branch, { head, outcome, reason, at: new Date().toISOString() });
+        return { outcome, items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason, reviewers: [], cached: false, ...extra };
+    };
     if (!head || !baseSha) return none('unavailable', `not a repository, or ${base} is unknown`);
     const store = await VerdictStore.open(cwd, exec);
     if (!store) return none('unavailable', 'no git directory to keep verdicts in');
+    attempts = store;
 
     const candidates = settings.reviewers.filter(isReviewerName);
     const installed = new Map<ReviewerName, Installed>();
@@ -157,16 +166,26 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
         if (read.error) return none('unavailable', read.error, { reviewers, pr: pr.number });
         reviews = read.reviews!;
     }
+    const stateRoot = options.stateRoot ?? cwd;
+    const body = pr?.body || '(no pull request description)\n';
+    const rules = rulesText(cwd);
+    const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
+    // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
+    const inputsKey = sha([PROMPT_VERSION, rules, body, reviews.key, JSON.stringify([settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates]), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
+    if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
+        const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
+        const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
+        if (verdict && decided) return result(redismiss(decided, readReviewDismissals(stateRoot)), verdict, verdict.inputs?.reviewers ?? reviewers, previous.mode, 'same commit and inputs as the last verdict', true, reviews, pr, verdict.inputs?.mode ?? modeRecord);
+    }
     // What the team already knows, for every judge; built once, and its risk count decides escalation.
     const fullDiff = (await exec('git', ['diff', `${baseSha}...HEAD`], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout;
-    const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
-    const previousIsAncestor = !!previous && fs.existsSync(previous.verdict) && (await exec('git', ['merge-base', '--is-ancestor', previous.head, 'HEAD'], { cwd, timeoutMs: GH_TIMEOUT_MS })).exitCode === 0;
+    const previousIsAncestor = !!previous && previous.head !== head && fs.existsSync(previous.verdict) && (await exec('git', ['merge-base', '--is-ancestor', previous.head, 'HEAD'], { cwd, timeoutMs: GH_TIMEOUT_MS })).exitCode === 0;
     const sincePrevious = previousIsAncestor ? new Set((await git(['diff', '--name-only', `${previous!.head}..HEAD`])).split('\n').filter(Boolean)) : new Set<string>();
+    const changedFiles = [...fullDiff.matchAll(/^diff --git a\/.* b\/(.*)$/gm)].map(m => m[1]);
     const context = buildContext({
-        cwd, diff: fullDiff, router: config.gates.deep?.router, touched: sincePrevious,
-        changedFiles: (await git(['diff', '--name-only', `${baseSha}...HEAD`])).split('\n').filter(Boolean),
+        cwd, stateRoot, diff: fullDiff, router: config.gates.deep?.router, touched: sincePrevious, checks: options.checks ?? [],
         previousPanel: previousIsAncestor ? store.readJson<Verdict>(previous!.verdict)?.panel?.items : undefined,
-        trackedDocs: (await git(['ls-files', '*.md'])).split('\n').filter(Boolean),
+        docs: await relatedDocs(cwd, changedFiles, exec),
     });
     // escalate: risk. More judges only where a second opinion can change the outcome; the --full hard stop always gets them.
     if (settings.escalate === 'risk' && reviewers.length > 1 && !options.full) {
@@ -175,9 +194,8 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
         modeRecord = { ...modeRecord, ...(escalation.escalate ? {} : { ran: 'single' as const }), escalation: escalation.why };
     }
     const reviewerVersions = reviewers.map(name => `${name} ${installed.get(name)!.version}`).join(';');
-    const body = pr?.body || '(no pull request description)\n';
-    const rules = rulesText(cwd);
-    const rulesHash = sha([reviewerVersions, PROMPT_VERSION, rules, body, reviews.key, context.key]);
+    // What changes the instructions themselves; the context pack changes with every commit, so it is in the fingerprint, not here.
+    const rulesHash = sha([reviewerVersions, PROMPT_VERSION, rules, body, reviews.key]);
 
     // Full or delta.
     const mergedBase = await mergesBaseIn(cwd, baseSha, exec);
@@ -185,7 +203,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     let why: string;
     if (options.full) why = 'full review requested';
     else if (!previous || !fs.existsSync(previous.verdict)) why = `no earlier verdict on ${branch}`;
-    else if (!previousIsAncestor) why = `last reviewed commit ${previous.head.slice(0, 9)} is not an ancestor (rebase or amend)`;
+    else if (previous.head !== head && !previousIsAncestor) why = `last reviewed commit ${previous.head.slice(0, 9)} is not an ancestor (rebase or amend)`;
     else if (mergedBase) why = `HEAD merges ${base}`;
     else if (previous.reviewsKey !== reviews.key) why = 'a human review changed';
     else if (previous.rulesHash !== rulesHash) why = 'prompt, rules or reviewers changed';
@@ -197,7 +215,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
         why = `since ${previous.head.slice(0, 9)}`;
     }
     const previousVerdictText = scope === 'delta' ? fs.readFileSync(previous!.verdict, 'utf8') : '';
-    const fingerprint = sha([head, baseSha, scope, modeRecord.ran, context.key, reviewerVersions, PROMPT_VERSION, rules, body, reviews.key, previousVerdictText]);
+    const fingerprint = sha([head, baseSha, scope, modeRecord.ran, context.key, inputsKey, reviewerVersions, previousVerdictText]);
     const verdictFile = store.verdictPath(head, fingerprint);
     const openFile = store.openPath(verdictFile);
     const previousOpen = scope === 'delta' ? store.readJson<OpenItem[]>(store.openPath(previous!.verdict)) ?? [] : undefined;
@@ -205,7 +223,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     const verify = verifier(cwd);
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
-        return result(decide(verdict, previousOpen, verify, readReviewDismissals(cwd)), verdict, reviewers, scope, why, true, reviews, pr, modeRecord);
+        return result(decide(verdict, previousOpen, verify, readReviewDismissals(stateRoot)), verdict, reviewers, scope, why, true, reviews, pr, modeRecord);
     }
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
@@ -229,8 +247,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
             const commitsFile = file('delta-commits.txt', await git(['log', '--format=%h %s', `${previous!.head}..HEAD`]));
             const deltaDiffFile = file('delta.diff', (await exec('git', ['diff', `${previous!.head}..HEAD`], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout);
             // Human points the previous verdict resolved, whose files the new commits leave alone, are not judged again.
-            const touchedFiles = new Set((await git(['diff', '--name-only', `${previous!.head}..HEAD`])).split('\n').filter(Boolean));
-            const settled = (store.readJson<Verdict>(previous!.verdict)?.prior_points ?? []).filter(p => p.resolved && !evidenceTouched(p.evidence, touchedFiles));
+            const settled = (store.readJson<Verdict>(previous!.verdict)?.prior_points ?? []).filter(p => p.resolved && !evidenceTouched(p.evidence, sincePrevious));
             const settledFile = file('previous-resolved.json', JSON.stringify(settled, null, 2));
             delta = deltaBlock(previous!.head, previous!.verdict, previousOpenFile, commitsFile, deltaDiffFile, settledFile);
             if (settled.length) needsPriorPoints = false;
@@ -263,7 +280,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
             clearInterval(ticker);
         }
         const merged = mergeVerdicts(parts); // one part too: every item is tagged with who found it
-        const touched = scope === 'delta' ? new Set((await git(['diff', '--name-only', `${previous!.head}..HEAD`])).split('\n').filter(Boolean)) : new Set<string>();
+        const touched = scope === 'delta' ? sincePrevious : new Set<string>();
         let verdict = scope === 'delta' ? carryResolved(merged, store.readJson<Verdict>(previous!.verdict), touched) : merged;
         if (modeRecord.ran === 'panel' && parts.length > 1) {
             // Each judge's own blocking items, unmerged: the panel groups them into findings and decides each one.
@@ -273,7 +290,9 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
             const items = await runPanel({
                 judges: parts.map(part => part.reviewer!),
                 items: judgeItems,
-                previousDisputed: (previousPanel?.items ?? []).filter(d => d.status === 'disputed').map(d => d.item),
+                // Only what judges actually disagreed on: a finding parked by the item cap was never asked.
+                previousDisputed: (previousPanel?.items ?? []).filter(d => d.status === 'disputed' && d.cross?.length).map(d => d.item),
+                evidenced: text => evidenceNames(text).some(([file, line]) => verify(file, line)),
                 touched,
                 maxItems: settings.panel_max_items,
                 ask: async (judge, asked) => {
@@ -287,10 +306,11 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
             });
             verdict = { ...verdict, panel: { judgeItemIds: judgeItems.flat().map(item => item.id), items }, reviewers: [...(verdict.reviewers ?? []), ...cross] };
         }
-        const accounted = decide(verdict, previousOpen, verify, readReviewDismissals(cwd));
+        const accounted = decide(verdict, previousOpen, verify, readReviewDismissals(stateRoot));
         store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString() } });
         store.writeJson(openFile, accounted.open);
-        if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key });
+        store.writeJson(store.decidedPath(verdictFile), accounted);
+        if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key, inputsKey });
         return result(accounted, verdict, reviewers, scope, why, false, reviews, pr, modeRecord);
     } finally {
         fs.rmSync(work, { recursive: true, force: true });
@@ -305,8 +325,18 @@ function decide(verdict: Verdict, previousOpen: OpenItem[] | undefined, verify: 
     const decided = verdict.panel
         ? applyPanel(accounted, new Set(verdict.panel.judgeItemIds.filter(id => !earlier.has(id))), verdict.panel.items.filter(d => !earlier.has(d.item.id)))
         : { ...accounted, disputed: [], dropped: [] };
+    return redismiss({ ...decided, dismissed: [] }, dismissals);
+}
+
+/** A finding the team dismissed leaves what blocks, now: at decision time and when a stored decision is read again. */
+function redismiss(decided: Decided, dismissals: ReviewDismissal[]): Decided {
     const dismissed = decided.open.filter(item => dismissedAs(item, dismissals));
-    return { ...decided, open: decided.open.filter(item => !dismissed.includes(item)), dismissed };
+    return dismissed.length ? { ...decided, open: decided.open.filter(item => !dismissed.includes(item)), dismissed: [...decided.dismissed, ...dismissed] } : decided;
+}
+
+/** Every `file:line` an answer quotes. */
+function evidenceNames(text: string): Array<[string, number]> {
+    return [...text.matchAll(/([\w./-]+\.[A-Za-z0-9]+):(\d+)/g)].map(m => [m[1], Number(m[2])]);
 }
 
 type Decided = Accounting & { disputed: OpenItem[]; dropped: OpenItem[]; dismissed: OpenItem[] };
@@ -329,6 +359,18 @@ function modeRan(settings: ResolvedReviewer, reviewers: ReviewerName[], candidat
     const missing = candidates.filter(name => !installed.has(name)).map(name => ADAPTERS[name].binary);
     const degraded = `${settings.judges} judges asked, ${reviewers.join(' and ')} could run (${missing.length ? `not installed: ${missing.join(', ')}` : 'no other vendor in review.reviewer.reviewers'})`;
     return { asked, ran: reviewers.length > 1 ? asked : 'single', source, degraded, ...refused };
+}
+
+/**
+ * Before any checkout or typed review: whether this push gets a model review at all (an open, ready
+ * pull request, `on_push`). The background job asks first, so a push nobody will read costs one lookup.
+ */
+export async function pushReviewSkip(cwd: string, branch: string, head: string, config: Config, exec: Exec = defaultExec): Promise<string | undefined> {
+    const settings = resolveReviewer(config);
+    const gh = ghFor(cwd, exec, await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec));
+    const found = await findPullRequest(gh, branch, head, undefined);
+    if (found.error) return undefined; // the review itself reports a lookup that failed, as unavailable
+    return skipReason(settings.on_push, branch, found.pr);
 }
 
 /** Why no model is asked at this push: `review.reviewer.on_push` and whether someone will read the push (an open, non-draft pull request). */

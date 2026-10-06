@@ -126,7 +126,7 @@ describe('rigour backtest on a repository', () => {
         // The worktree is reused on the next run.
         const again = await runBacktest(repo, config, loadLedger(repo), { round: 'r1', progress: () => undefined });
         expect(again[0].points[0].caught).toBe(true);
-    });
+    }, 60_000); // a real worktree and a typed review: over 10s on a Windows runner
 
     it('names a round or a commit it cannot find', async () => {
         const config = ConfigSchema.parse({ version: 1 });
@@ -134,5 +134,5 @@ describe('rigour backtest on a repository', () => {
         await expect(runBacktest(repo, config, ledger, { round: 'r9' })).rejects.toThrow('no round "r9"');
         await expect(runBacktest(repo, config, ledger, { progress: () => undefined })).rejects.toThrow('is not in this repository');
         expect(() => loadLedger(repo)).toThrow('no ledger');
-    });
+    }, 60_000); // a real worktree and a typed review: over 10s on a Windows runner
 });
