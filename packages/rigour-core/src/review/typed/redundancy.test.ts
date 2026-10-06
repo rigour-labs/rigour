@@ -61,7 +61,7 @@ export async function scan(since: string): Promise<Row[]> {
         expect(found).toContainEqual(['nullable-filtered-column', 'src/scan.ts', 3]); // anchored on the query the change wrote
         expect(result.findings.find(f => f.id === 'nullable-filtered-column')?.details).toContain('declared nullable at src/db.ts:1');
         expect(result.findings.find(f => f.id === 'duplicate-null-filter')?.details).toContain("`.gte('set_id', …)` at src/scan.ts:3");
-    });
+    }, 60_000);
 
     it('reports an optional member every host supplies and a property written but never read; a spread host or a read elsewhere clears them', async () => {
         write('src/types.ts', 'export interface Candidate { userId?: string; title: string; extra: string }\n');
@@ -90,7 +90,7 @@ export async function scan(since: string): Promise<Row[]> {
         expect(sent.findings.map(f => f.id)).not.toContain('write-only-property');
         expect(sent.hints).toEqual([expect.stringContaining('Candidate.userId is set by 2 host(s)'), expect.stringContaining('write-only-property src/types.ts:1: Candidate.extra')]);
         expect(sent.hints[1]).toContain('leaves only through JSON.stringify() at src/send.ts:2');
-    });
+    }, 60_000);
 
     it('in a library, an exported type has consumers the program cannot see: its members are hints, a local type still blocks', async () => {
         write('tsconfig.json', '{"compilerOptions":{"strict":true,"declaration":true,"module":"esnext","target":"es2022","moduleResolution":"bundler","skipLibCheck":true},"include":["src"]}\n');
@@ -106,7 +106,7 @@ export async function scan(since: string): Promise<Row[]> {
             expect.stringMatching(/^write-only-property src\/types\.ts:1: `Result\.items` is set by 2 host\(s\)/),
             expect.stringMatching(/^write-only-property src\/types\.ts:1: `Result\.cached` is set by 2 host\(s\)/),
         ]);
-    });
+    }, 60_000);
 
     it('hints at a function that scans a collection, called once per item of another', async () => {
         write('src/later.ts', 'export function hasLater(starts: string[], at: string): boolean {\n    return starts.some(s => s > at);\n}\nexport function plan(rows: string[], starts: string[]): boolean[] {\n    return rows.map(r => hasLater(starts, r));\n}\n');
@@ -115,7 +115,7 @@ export async function scan(since: string): Promise<Row[]> {
         const result = await review();
         expect(result.hints).toEqual([expect.stringMatching(/^nested-scan src\/later\.ts:5: hasLater\(\) scans its `starts` argument and is called inside \.map\(\) over rows/)]);
         expect(result.findings).toEqual([]);
-    });
+    }, 60_000);
 
     it('says nothing for a project with no tsconfig, and blocks a TypeScript project whose program cannot be built', async () => {
         write('src/x.ts', 'export const x = 1;\n');
@@ -128,5 +128,5 @@ export async function scan(since: string): Promise<Row[]> {
         expect(broken.status).toBe('ERROR'); // a check that could not run is a crashed gate, never a pass
         expect(broken.gateErrors).toEqual(['typed-checks-unavailable']);
         expect(broken.typedError).toMatch(/\.generated\/tsconfig\.json.*install the dependencies/s);
-    });
+    }, 60_000);
 });

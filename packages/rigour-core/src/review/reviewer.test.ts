@@ -49,7 +49,8 @@ function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout
         const name = binary === 'claude' ? 'claude' : binary === 'cursor-agent' ? 'cursor' : 'codex';
         const prompt = binary === 'cursor-agent' ? args[args.length - 1] : args[args.indexOf('-p') + 1];
         seen.prompts.push(prompt);
-        for (const match of prompt.matchAll(/(\/\S+\/(?:previous-reviews\.md|pr-description\.md|full\.diff|hints\.txt|previous-open\.json|delta\.diff|previous-resolved\.json))/g)) {
+        // Paths as the prompt names them, on either separator (Windows writes `D:\...`).
+        for (const match of prompt.matchAll(/(\S+(?:previous-reviews\.md|pr-description\.md|full\.diff|hints\.txt|previous-open\.json|delta\.diff|previous-resolved\.json))/g)) {
             seen.files[path.basename(match[1])] = fs.readFileSync(match[1], 'utf8');
         }
         const reply = answer(name);
