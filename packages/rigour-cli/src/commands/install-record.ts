@@ -46,7 +46,7 @@ export function isRigourScript(text: string): boolean {
 }
 
 /** A hook command Rigour installed: it names Rigour and one of its hook subcommands. */
-export function isRigourCommand(command: string): boolean {
+function isRigourCommand(command: string): boolean {
     return /rigour/i.test(command) && /\bhooks\s+(check|stop|push|review-background)\b/.test(command);
 }
 

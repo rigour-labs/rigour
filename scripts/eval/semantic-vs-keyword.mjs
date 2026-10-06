@@ -5,7 +5,7 @@
  * (memory-recall.json, pattern-intent.json). Recall: queries with a right answer that got one.
  * Noise: unrelated queries that got anything.
  *
- *   pnpm build && node scripts/eval/semantic-vs-keyword.mjs
+ *   pnpm eval:semantic
  */
 import fs from 'fs';
 import path from 'path';

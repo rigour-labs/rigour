@@ -14,9 +14,9 @@ import { locateTransformers, semanticRuntimeDir, TRANSFORMERS_SPEC } from '@rigo
 const NEEDED_BYTES = 1024 ** 3;
 const INSTALL_TIMEOUT_MS = 10 * 60_000;
 
-export type SemanticInstall = { state: 'present'; where: string } | { state: 'installed'; where: string } | { state: 'skipped' | 'failed'; reason: string };
+type SemanticInstall = { state: 'present'; where: string } | { state: 'installed'; where: string } | { state: 'skipped' | 'failed'; reason: string };
 
-export async function ensureSemanticRuntime(cwd: string): Promise<SemanticInstall> {
+async function ensureSemanticRuntime(cwd: string): Promise<SemanticInstall> {
     const found = locateTransformers(cwd);
     if (found) return { state: 'present', where: found };
     const dir = semanticRuntimeDir();
