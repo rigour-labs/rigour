@@ -70,6 +70,7 @@ function printQuietLines(result: ReviewResult, notes: boolean): void {
     if (seen) lines.push(`Also seen, never blocking: ${seen} note${seen === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
     const before = result.preexisting + result.excludedOutsideChangedLines;
     if (before) lines.push(`Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change (review.show_preexisting: true lists them).`);
+    if (result.hints.length) lines.push(`To confirm by hand: ${result.hints.length} hint${result.hints.length === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
     if (result.dismissed) lines.push(`Dismissed earlier as not a bug: ${result.dismissed}.`);
     if (result.muted) lines.push(`Muted: ${result.muted} from checks this repository usually dismisses (rigour precision).`);
     for (const line of lines) console.log(chalk.dim(line));
@@ -77,6 +78,7 @@ function printQuietLines(result: ReviewResult, notes: boolean): void {
     for (const f of result.contextFindings) console.log(chalk.yellow(`Nearby, not in your change: ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));
     if (notes) {
         for (const f of [...result.advisory, ...result.fileFindings]) console.log(chalk.dim(`  ${f.files?.[0] || '?'}:${f.line ?? '?'}  ${f.title}`));
+        for (const hint of result.hints) console.log(chalk.dim(`  ${hint}`));
     }
     if (lines.length || result.controlFilesChanged.length || result.contextFindings.length) console.log('');
 }

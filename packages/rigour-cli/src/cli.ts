@@ -284,6 +284,8 @@ program
     .option('--all', 'Show every finding, not the first five')
     .option('--notes', 'List the notes that never block')
     .option('--receipt', 'Show the receipt of agent reviews even before agents have reviewed anything here')
+    .option('--scope [pr]', "In a fix round: the files changed since the latest human review that no point of it cited (the branch's pull request unless one is named)")
+    .option('--scope-review <id>', 'With --scope: measure from this review instead of the latest')
     .addHelpText('after', `
 Examples:
   $ rigour review                                      # Uncommitted changes, taken from git

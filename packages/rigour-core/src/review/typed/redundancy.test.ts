@@ -130,3 +130,64 @@ export async function scan(since: string): Promise<Row[]> {
         expect(broken.typedError).toMatch(/\.generated\/tsconfig\.json.*install the dependencies/s);
     }, 60_000);
 });
+
+describe('a nullable row type for a NOT NULL column, from migrations in another repository', () => {
+    const SUPABASE = `export class Query<T> {
+    select(_columns: string): Query<T> { return this; }
+    returns<R>(): Promise<R> { return Promise.resolve([] as unknown as R); }
+}
+export const db = {
+    schema(_name: string) { return db; },
+    from(_table: string): Query<unknown> { return new Query(); },
+};
+`;
+    let migrations: string;
+    beforeEach(() => {
+        migrations = fs.mkdtempSync(path.join(os.tmpdir(), 'other-repo-migrations-'));
+        fs.writeFileSync(path.join(migrations, '20240101_sets.sql'), 'create table study_set (id uuid primary key, owner_id uuid not null, title text, archived_at timestamptz not null);');
+        write('src/sb.ts', SUPABASE);
+        git('add', '-A');
+        git('commit', '-qm', 'client');
+    });
+    afterEach(() => { fs.rmSync(migrations, { recursive: true, force: true }); });
+
+    it('notes the nullable member the change declared, never blocking, and skips nullable columns and aliases', async () => {
+        write('src/sets.ts', `import { db } from './sb';
+export interface SetRow { id: string; owner_id: string | null; title: string | null; done: string | null }
+export async function sets(): Promise<SetRow[]> {
+    return db.from('study_set').select('id, owner_id, title, done:archived_at').returns<SetRow[]>();
+}
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'sets');
+        const result = await review(config({ schema_migrations: [migrations] }));
+        expect(result.findings.filter(f => f.id === 'nullable-not-null-column')).toEqual([]);
+        const notes = result.advisory.filter(f => f.id === 'nullable-not-null-column');
+        expect(notes.map(f => [f.files?.[0], f.line])).toEqual([['src/sets.ts', 2]]);
+        expect(notes[0].details).toContain('`owner_id` is declared nullable at src/sets.ts:2 but `study_set.owner_id` is NOT NULL');
+    });
+
+    it('anchors on the new query when the row type is older, and reads the schema the query names', async () => {
+        fs.writeFileSync(path.join(migrations, '20240202_app.sql'), 'create table app.study_set (id uuid, owner_id uuid);');
+        git('checkout', '-q', 'main'); // the row type is older than the branch
+        write('src/rows.ts', 'export interface SetRow { id: string; owner_id: string | null }\n');
+        git('add', '-A');
+        git('commit', '-qm', 'rows');
+        git('checkout', '-q', 'feature');
+        git('merge', '-q', '--no-edit', 'main');
+        write('src/sets.ts', `import { db } from './sb';
+import type { SetRow } from './rows';
+export async function publicSets(): Promise<SetRow[]> {
+    return db
+        .from('study_set').select('*').returns<SetRow[]>();
+}
+export async function appSets(): Promise<SetRow[]> {
+    return db.schema('app').from('study_set').select('*').returns<SetRow[]>();
+}
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'sets');
+        const result = await review(config({ schema_migrations: [migrations] }));
+        expect(result.advisory.filter(f => f.id === 'nullable-not-null-column').map(f => [f.files?.[0], f.line])).toEqual([['src/sets.ts', 5]]);
+    });
+});

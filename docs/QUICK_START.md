@@ -78,6 +78,7 @@ Either way, `.rigour/` (your dismissals and backtest ledger) and any `rigour.yml
 ## When you want more
 
 - **The reviewer.** A read-only review by your coding agent's own CLI that checks every point of every human review against the code. See `review.reviewer` in the [configuration](./CONFIGURATION.md).
+- **Keep a fix round to what the review asked.** `rigour review --scope` lists the files the branch changed since the latest human review on its pull request that no point of that review cited, by an inline comment or by naming the file. Merges from main are not counted, and a test beside a cited file is in scope. It exits 1 when there are such files. `--scope-review <id>` measures from an earlier review.
 - **Measure it on your history.** `rigour backtest` replays the review on commits your team reviewed and scores it against what they found. See [Backtest](./BACKTEST.md).
 - **Watch it work.** `rigour studio`.
 - [Configuration](./CONFIGURATION.md), [Agent integration](./AGENT_INTEGRATION.md), [Profiles](./PROFILES.md).

@@ -21,6 +21,7 @@ import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewRes
 import { receiptFor } from './review-receipt.js';
 import { printReviewer, printStatus, reviewerBase, reviewerFor, reviewerJson } from './review-reviewer.js';
 import { printHuman, type HumanContext } from './review-human.js';
+import { printScope } from './review-scope.js';
 import { loadConfig, UsageError } from './review-config.js';
 import { deepProvider } from './deep-provider.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
@@ -51,6 +52,8 @@ export interface ReviewOptions {
     all?: boolean;       // every finding, not the first five
     notes?: boolean;     // list the notes that never block
     receipt?: boolean;   // the receipt of agent reviews, even before agents have reviewed anything here
+    scope?: string | boolean;  // a fix round's files no point of the review cited (review-scope.ts)
+    scopeReview?: string;
 }
 
 export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
@@ -59,6 +62,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
     // A person reads the verdict, not each gate's progress; warnings and errors still show.
     if (!options.ci && !options.json && !options.githubSummary) Logger.setLevel(LogLevel.WARN);
     try {
+        if (options.scope !== undefined) process.exit(await printScope(cwd, options));
         // An independent PR review trusts Rigour's settings as of the base, not as the PR left them.
         const trustedRef = options.independent && options.base ? mergeBaseOf(cwd, options.base) : undefined;
         const config = await loadConfig(cwd, options, trustedRef);
@@ -226,6 +230,7 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
         dismissed: result.dismissed,
         preexisting: result.preexisting,
         control_files_changed: result.controlFilesChanged,
+        hints: result.hints,
         gate_errors: result.gateErrors,
         ...(result.typedError ? { typed_error: result.typedError } : {}),
         ...(receipt ? { receipt: receiptReport(receipt) } : {}),

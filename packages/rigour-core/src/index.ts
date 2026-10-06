@@ -19,6 +19,7 @@ export { isControlFile, mergeBaseOf, readStateFile } from './review/trusted-stat
 export { dismissFinding, dismissedKeys, findingKey, isProven, mustFix, quietSplit, DISMISSED_FILE } from './review/quiet.js';
 export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest, LEDGER_PATH, type Ledger, type RoundResult } from './review/backtest.js';
 export { scaffoldLedger } from './review/backtest-init.js';
+export { fixScope, type FixScope } from './review/fix-scope.js';
 export { isGeneratedFile } from './review/generated-files.js';
 export { countUsage, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';
 export { buildReviewTask, type ReviewTask, type ReviewTaskItem } from './review/review-task.js';

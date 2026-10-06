@@ -5,8 +5,12 @@ export type Exec = (command: string, args: string[], options: { cwd: string; tim
     Promise<{ exitCode: number; stdout: string; stderr: string }>;
 
 export const defaultExec: Exec = async (command, args, options) => {
-    const result = await execa(command, args, { cwd: options.cwd, reject: false, timeout: options.timeoutMs, input: '', env: options.env ? { ...process.env, ...options.env } : undefined, maxBuffer: 64 * 1024 * 1024 });
-    return { exitCode: result.exitCode ?? 1, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
+    // stdin is /dev/null, not an empty pipe: an agent CLI that reads stdin sees its end at once, and a command that exits
+    // before an empty write lands (git rev-parse) cannot fail the run with EPIPE, as it did on Linux.
+    const result = await execa(command, args, { cwd: options.cwd, reject: false, timeout: options.timeoutMs, stdin: 'ignore', env: options.env ? { ...process.env, ...options.env } : undefined, maxBuffer: 64 * 1024 * 1024 });
+    const stderr = String(result.stderr ?? '');
+    // A command that could not start, timed out or was killed writes nothing itself: say which, never an empty failure.
+    return { exitCode: result.exitCode ?? 1, stdout: String(result.stdout ?? ''), stderr: stderr || (result.failed && 'shortMessage' in result ? String(result.shortMessage) : '') };
 };
 
 /** Called while the reviewer works, so a slow run and a stuck one look different. */

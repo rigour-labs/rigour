@@ -77,7 +77,7 @@ rigour studio
 | Command | What it does |
 | --- | --- |
 | `rigour setup` | Gets your repository ready and checks it works |
-| `rigour review` | Reviews your current change, or a branch before you open a PR (`--reviewer` adds the reviewer that remembers) |
+| `rigour review` | Reviews your current change, or a branch before you open a PR (`--reviewer` adds the reviewer that remembers; `--scope` lists what a fix round changed that the review never asked for) |
 | `rigour studio` | Shows what Rigour stopped, learned and gave your agents |
 | `rigour doctor` | Tells you what's working, what isn't, and how to fix it |
 | `rigour uninstall` | Takes out exactly what Rigour put in; your own settings and edited files stay |
