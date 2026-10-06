@@ -95,6 +95,8 @@ export class HallucinatedImportsGate extends Gate {
         const allProjectFiles = projectFiles;
         const packageJson = await loadPackageJson(context.cwd);
         const rootDeps = new Set([
+            // A package importing itself by its own name (type tests, examples) is Node's self-reference.
+            ...(typeof packageJson?.name === 'string' ? [packageJson.name] : []),
             ...Object.keys(packageJson?.dependencies || {}),
             ...Object.keys(packageJson?.devDependencies || {}),
             ...Object.keys(packageJson?.peerDependencies || {}),

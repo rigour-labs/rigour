@@ -45,13 +45,21 @@ export function installGitPushHook(cwd: string, rigourCommand: string): GitHookI
     if (fs.existsSync(file)) {
         const text = fs.readFileSync(file, 'utf8');
         if (text.includes(MARK.replace('rigour ', ''))) return { path: file, action: 'present' };
-        fs.appendFileSync(file, `${text.endsWith('\n') ? '' : '\n'}\n# Rigour push gate (rigour hooks init): the same gate for every tool and the terminal.\n${line} || exit $?\n`);
+        fs.appendFileSync(file, `${text.endsWith('\n') ? '' : '\n'}\n${APPENDED_COMMENT}\n${line} || exit $?\n`);
         return { path: file, action: 'appended' };
     }
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, `#!/bin/sh\n# Rigour push gate (rigour hooks init): the same gate for every tool and the terminal.\n# \`git push --no-verify\` is not for agents.\nexec ${line}\n`, { mode: 0o755 });
+    fs.writeFileSync(file, gitHookScript(line), { mode: 0o755 });
     return { path: file, action: 'installed' };
 }
+
+/** The whole pre-push hook Rigour writes when the repository has none. */
+function gitHookScript(line: string): string {
+    return `#!/bin/sh\n# Rigour push gate (rigour hooks init): the same gate for every tool and the terminal.\n# \`git push --no-verify\` is not for agents.\nexec ${line}\n`;
+}
+
+/** The two lines Rigour appends to a pre-push hook another tool owns. */
+export const APPENDED_COMMENT = '# Rigour push gate (rigour hooks init): the same gate for every tool and the terminal.';
 
 /** `rigour hooks push --git`: git's pre-push, on the commit git is about to send. Exit 1 refuses the push. */
 export async function gitPushGateCommand(stdin: string, cwd: string): Promise<{ exitCode: 0 | 1; message: string }> {

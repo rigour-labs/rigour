@@ -296,7 +296,7 @@ With a key, `rigour review` reviews the change as one pull request, the way a se
 
 **Team lessons.** A verified lesson in `.rigour/review-lessons.json` (`rigour learn-reviews` verifies a lesson once it recurs in two PRs; `rigour learn-reviews --promote <id>` verifies one by hand) counts as a risk signal: a changed function in the lesson's file that uses one of its symbols is sent to review even when nothing else about it looks risky, and the reviewer is asked whether the change repeats it. `review_lessons: verified` is the default; `all` adds unpromoted candidates, `off` ignores lessons.
 
-**Quality receipt.** Every `rigour review` ends with what is known about each changed function before any model looks at it:
+**Quality receipt.** Once agents have recorded reviews in a repository, `rigour review` ends with what is known about each changed function before any model looks at it (`--receipt` shows it before then too; on a first run it would be all zeros):
 
 ```
 Quality receipt

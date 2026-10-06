@@ -18,6 +18,7 @@ import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
 import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
+import { uninstallCommand } from './commands/uninstall.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
 import { brainCommand } from './commands/brain.js';
@@ -240,9 +241,12 @@ program
 
 program
     .command('setup')
-    .description('Set up Rigour in this repository: settings, agent hooks and instructions, then check it all works')
-    .action(async () => {
-        await setupCommand();
+    .description('Set up Rigour here and check it works. Personal by default: agent hooks once per machine, this repository switched on inside .git, nothing in your working tree. --team commits it to the repository. rigour uninstall takes it out')
+    .option('--team', 'Commit Rigour to this repository (rigour.yml, project hooks, .mcp.json) so everyone who clones gets it. Default: personal, nothing in your working tree')
+    .option('--instructions', 'With --team: also write agent instruction files (CLAUDE.md, AGENTS.md, ...) where the project has none')
+    .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
+    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean }) => {
+        await setupCommand(process.cwd(), options);
     });
 
 program
@@ -277,6 +281,9 @@ program
     .option('--reviewer', 'Then run the reviewer (your coding agent CLI, read-only, no key): every point of every human review checked against the code, what a fix left behind, every read traced, then new findings')
     .option('--full', 'With --reviewer: two vendors, verdicts merged. Run it before asking a person to review')
     .option('--status', 'What the background reviewer has done for this branch: running, last verdict, open items')
+    .option('--all', 'Show every finding, not the first five')
+    .option('--notes', 'List the notes that never block')
+    .option('--receipt', 'Show the receipt of agent reviews even before agents have reviewed anything here')
     .addHelpText('after', `
 Examples:
   $ rigour review                                      # Uncommitted changes, taken from git
@@ -528,6 +535,14 @@ backtestCmd
             process.exit(2);
         }
     });
+
+program
+    .command('uninstall')
+    .description('Take Rigour back out of this repository: switched off (personal), or its hook entries and MCP server out of the committed configs (team; your other settings stay), the files it created that you have not edited, and its git pre-push hook. Keeps rigour.yml and .rigour/ unless --all; --machine also removes it from this machine')
+    .option('--all', 'Also remove rigour.yml, .rigour/ (dismissals, ledger) and Rigour\'s .gitignore lines')
+    .option('--machine', 'Also remove Rigour from this machine: the user-level agent hooks and MCP server, and the shared semantic search runtime')
+    .option('--dry-run', 'Say what would be removed, change nothing')
+    .action((options: { all?: boolean; dryRun?: boolean; machine?: boolean }) => process.exit(uninstallCommand(process.cwd(), options)));
 
 const profileCmd = program
     .command('profile')

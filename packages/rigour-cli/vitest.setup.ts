@@ -7,6 +7,11 @@ import { vi } from 'vitest';
 process.env.RIGOUR_HOME ??= fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-home-'));
 // And the person's own profiles (~/.rigour/profiles.json) never steer a test.
 process.env.RIGOUR_PROFILES ??= path.join(process.env.RIGOUR_HOME, 'no-profiles.json');
+// Agents' user-level configs (~/.claude, ~/.cursor, ...) go to a throwaway home too: os.homedir() ignores a
+// HOME a test sets inside a worker thread, so nothing reaches the real one unless a test points here itself.
+process.env.RIGOUR_AGENT_HOME ??= fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-agent-home-'));
+// And no test ever runs the person's real Claude Code CLI.
+process.env.RIGOUR_CLAUDE_CLI ??= path.join(process.env.RIGOUR_AGENT_HOME, 'no-claude-cli');
 
 // Mock Transformers.js to avoid native binary dependency issues and speed up tests
 vi.mock('@xenova/transformers', () => ({

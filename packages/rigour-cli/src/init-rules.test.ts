@@ -24,7 +24,7 @@ describe('Init Command Rules Verification', () => {
     it('should create instructions with agnostic rules and cursor rules on init', async () => {
         const initCommand = await getInitCommand();
         // Run init in test directory with all IDEs to verify rules in both locations
-        await initCommand(testDir, { ide: 'all' });
+        await initCommand(testDir, { ide: 'all', instructions: true });
 
         const instructionsPath = path.join(testDir, 'docs', 'AGENT_INSTRUCTIONS.md');
         const mdcPath = path.join(testDir, '.cursor', 'rules', 'rigour.mdc');
@@ -50,7 +50,7 @@ describe('Init Command Rules Verification', () => {
     it('writes Cline rules into the .clinerules folder next to its hooks', async () => {
         const initCommand = await getInitCommand();
         const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-        await initCommand(testDir, { ide: 'all' });
+        await initCommand(testDir, { ide: 'all', instructions: true });
         const output = log.mock.calls.flat().join('\n');
         log.mockRestore();
 
@@ -63,7 +63,7 @@ describe('Init Command Rules Verification', () => {
     it('keeps a legacy .clinerules file', async () => {
         await fs.writeFile(path.join(testDir, '.clinerules'), 'team rules');
         const initCommand = await getInitCommand();
-        await initCommand(testDir, { ide: 'cline' });
+        await initCommand(testDir, { ide: 'cline', instructions: true });
         expect(await fs.readFile(path.join(testDir, '.clinerules'), 'utf-8')).toBe('team rules');
     });
 
@@ -72,7 +72,7 @@ describe('Init Command Rules Verification', () => {
         await fs.writeFile(path.join(testDir, 'CLAUDE.md'), '# Ours too');
         const initCommand = await getInitCommand();
         const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-        await initCommand(testDir, { ide: 'all' });
+        await initCommand(testDir, { ide: 'all', instructions: true });
         const output = log.mock.calls.flat().join('\n');
         log.mockRestore();
 
@@ -81,7 +81,7 @@ describe('Init Command Rules Verification', () => {
         expect(output).toContain('Kept existing AGENTS.md');
         expect(output).toContain('Kept existing CLAUDE.md');
 
-        await initCommand(testDir, { ide: 'all', force: true });
+        await initCommand(testDir, { ide: 'all', force: true, instructions: true });
         expect(await fs.readFile(path.join(testDir, 'AGENTS.md'), 'utf-8')).toContain('# AGENTS.md');
     });
 

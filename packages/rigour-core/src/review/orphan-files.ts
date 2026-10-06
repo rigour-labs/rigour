@@ -17,10 +17,11 @@ import type { Config, Failure } from '../types/index.js';
 import { addedFiles } from './migration-order.js';
 import { sourceStem } from './package-layout.js';
 import { ownOutputs } from './unused-exports.js';
+import { isTestFile } from './test-files.js';
 
 const GIT_TIMEOUT_MS = 10_000;
 const CODE = /\.(ts|tsx|js|jsx|mjs|cjs|svelte)$/;
-const FOUND_BY_RUNNER = /(^|\/)\+[^/]+$|(^|\/)hooks(\.server|\.client)?\.(ts|js)$|^netlify\/functions\/|^src\/params\/|\.(test|spec|e2e)\.[a-z]+$|\.d\.ts$|^(tests?|e2e|__tests__|migrations|supabase)\/|\.config\.[a-z]+$|^\./;
+const FOUND_BY_RUNNER = /(^|\/)\+[^/]+$|(^|\/)hooks(\.server|\.client)?\.(ts|js)$|^netlify\/functions\/|^src\/params\/|\.d\.ts$|^(migrations|supabase)\/|\.config\.[a-z]+$|^\./;
 /** Files that can run or import another: code, package.json, CI and config. */
 const REFERRER = /\.(ts|tsx|js|jsx|mjs|cjs|svelte|json|ya?ml|toml|sh)$/;
 /** Lockfiles and generated bundles name no source file and can be megabytes. */
@@ -35,7 +36,7 @@ const BUILD_OUTPUT = /(^|\/)(dist|build|out|coverage|\.next|[\w-]+-dist)\//;
 export function orphanFileFailures(cwd: string, diff: string, config: Config): Failure[] {
     const settings = config.gates.orphan_files;
     if (!settings?.enabled) return [];
-    const added = addedFiles(diff).filter(file => CODE.test(file) && !FOUND_BY_RUNNER.test(file) && !BUILD_OUTPUT.test(file) && !micromatch.isMatch(file, settings.allow));
+    const added = addedFiles(diff).filter(file => CODE.test(file) && !FOUND_BY_RUNNER.test(file) && !isTestFile(file) && !BUILD_OUTPUT.test(file) && !micromatch.isMatch(file, settings.allow));
     if (added.length === 0) return [];
     const excluded = ownOutputs(config);
     const files = repositoryFiles(cwd)?.filter(file => !excluded.some(own => file === own || file.startsWith(`${own}/`)));

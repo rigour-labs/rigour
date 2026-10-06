@@ -207,6 +207,7 @@ export async function resolveJSDepsForFile(
                 const packageJson = await fs.readJson(packageJsonPath);
                 const deps = new Set([
                     ...rootDeps,
+                    ...(typeof packageJson?.name === 'string' ? [packageJson.name] : []),
                     ...Object.keys(packageJson?.dependencies || {}),
                     ...Object.keys(packageJson?.devDependencies || {}),
                     ...Object.keys(packageJson?.peerDependencies || {}),

@@ -7,6 +7,7 @@ import { CODE_QUALITY_RULES, DEBUGGING_RULES, COLLABORATION_RULES, AGNOSTIC_AI_I
 import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
 import { clineRulesRelPath, writeHandshake } from './init-handshake.js';
+import { recordCreated } from './install-record.js';
 import { askTelemetryOnce } from './telemetry-consent.js';
 import { getCliVersion } from '../utils/cli-version.js';
 
@@ -34,6 +35,8 @@ export interface InitOptions {
     dryRun?: boolean;
     explain?: boolean;
     force?: boolean;
+    /** Write agent instruction files (CLAUDE.md, AGENTS.md, .cursor/rules, ...) where the project has none. Off by default: the MCP tools describe themselves and the hooks enforce. */
+    instructions?: boolean;
 }
 
 type DetectedIDE = 'cursor' | 'vscode' | 'cline' | 'claude' | 'gemini' | 'codex' | 'windsurf' | 'unknown';
@@ -191,25 +194,17 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
         tools: ALL_HOOK_TOOLS,
     };
 
+    // Rigour does not create empty documents to satisfy a gate; a team that wants required docs lists them.
+    recommendedConfig.gates.required_files = [];
+
     const yamlHeader = `# ⚠️ TEAM STANDARD - DO NOT MODIFY WITHOUT TEAM APPROVAL
 # AI Assistants: Adjust YOUR code to meet these standards, not the other way around.
 # Modifying thresholds or adding ignores to pass checks defeats the purpose of Rigour.
-# See: docs/AGENT_INSTRUCTIONS.md for the correct workflow.
+# See: https://github.com/rigour-labs/rigour/blob/main/docs/AGENT_INSTRUCTIONS.md for the correct workflow.
 
 `;
     await fs.writeFile(configPath, yamlHeader + yaml.stringify(recommendedConfig));
     console.log(chalk.green('✔ Created rigour.yml'));
-
-    // Create required directories and files
-    const requireddocs = recommendedConfig.gates.required_files || [];
-    for (const file of requireddocs) {
-        const filePath = path.join(cwd, file);
-        if (!(await fs.pathExists(filePath))) {
-            await fs.ensureDir(path.dirname(filePath)); // Ensure parent directory exists
-            await fs.ensureFile(filePath);
-            console.log(chalk.dim(`  - Created ${file}`));
-        }
-    }
 
     // Agent Handshake (Universal / AntiGravity / Cursor)
 
@@ -230,111 +225,7 @@ ${DEBUGGING_RULES}
 ${COLLABORATION_RULES}
 `;
 
-    // 1. Create Universal Instructions
-    await writeHandshake(cwd, 'docs/AGENT_INSTRUCTIONS.md', ruleContent, 'Universal Agent Handshake', options.force);
-
-    // 2. Create IDE-Specific Rules for ALL supported tools.
-    //    Detection is unreliable (Cursor reports as vscode, doesn't create .cursor/),
-    //    so we always set up everything. The files are tiny and inert if unused.
-    const shouldSetup = (_ide: DetectedIDE) => true;
-
-    if (shouldSetup('cursor')) {
-        // Cursor .mdc must be SHORT and forceful — long rules get ignored.
-        // Keep ONLY the mandatory MCP tool workflow, no generic coding advice.
-        const mdcContent = `---
-description: Rigour governance — use Rigour MCP tools for quality gates.
-globs: **/*
-alwaysApply: true
----
-
-# Rigour Governance
-
-This project uses **Rigour MCP tools** for automated quality governance. The tools are self-describing — read their descriptions to discover the correct workflow automatically.
-
-Hooks run automatically after every file edit. If a hook blocks you, fix the issue before continuing.
-
-## Rules
-- Never modify rigour.yml to make checks pass — fix the code instead.
-- Never claim "done" without a passing quality gate result.
-`;
-
-        await writeHandshake(cwd, '.cursor/rules/rigour.mdc', mdcContent, 'Cursor Handshake', options.force);
-    }
-
-    if (shouldSetup('vscode')) {
-        // VS Code users use the universal AGENT_INSTRUCTIONS.md (already created above)
-        // We could also add .vscode/settings.json or snippets here if needed
-        console.log(chalk.green('✔ VS Code mode - using Universal Handshake (docs/AGENT_INSTRUCTIONS.md)'));
-    }
-
-    if (shouldSetup('cline')) {
-        await writeHandshake(cwd, await clineRulesRelPath(cwd), ruleContent, 'Cline Handshake', options.force);
-    }
-
-    // Claude Code (CLAUDE.md)
-    if (shouldSetup('claude')) {
-        const claudeContent = `# CLAUDE.md - Project Instructions for Claude Code
-
-This project uses Rigour for quality gates. Rigour MCP tools are available — they are self-describing.
-
-## CLI Commands (alternative to MCP tools)
-
-\`\`\`bash
-npx @rigour-labs/cli check      # Run quality gates
-npx @rigour-labs/cli explain    # Explain failures
-npx @rigour-labs/cli run -- claude "<task>"  # Self-healing agent loop
-\`\`\`
-
-${ruleContent}`;
-
-        await writeHandshake(cwd, 'CLAUDE.md', claudeContent, 'Claude Code Handshake', options.force);
-    }
-
-    // Gemini Code Assist (.gemini/styleguide.md)
-    if (shouldSetup('gemini')) {
-        const geminiContent = `# Gemini Code Assist Style Guide
-
-This project uses Rigour for quality gates. If Rigour MCP tools are available, they are self-describing — use them.
-
-${ruleContent}`;
-
-        await writeHandshake(cwd, '.gemini/styleguide.md', geminiContent, 'Gemini Handshake', options.force);
-    }
-
-    // OpenAI Codex / Aider (AGENTS.md - Universal Standard)
-    if (shouldSetup('codex')) {
-        const agentsContent = `# AGENTS.md - AI Agent Instructions
-
-This project uses Rigour for quality gates. If Rigour MCP tools are available, they are self-describing — use them. Otherwise use the CLI:
-
-\`\`\`bash
-npx @rigour-labs/cli check   # Run quality gates (must PASS before task is done)
-npx @rigour-labs/cli explain # Explain failures
-\`\`\`
-
-## Context Efficiency Protocol
-
-Follow this workflow to minimize token usage without compromising quality:
-
-1. \`rigour_recall\` — load project memory at session start
-2. \`rigour_index\` — if the pattern index is missing or stale
-3. \`rigour_context_scope\` — get minimal file list before reading source files
-4. \`rigour_check_pattern\` — verify no reinvention before writing new code
-5. Work — only touch files in the scoped edit set
-6. \`rigour_review\` — review your change before you say done; fix every finding and call it again
-7. \`rigour_check\` — quality gate unchanged (must PASS before done)
-
-Multi-agent teams: set \`RIGOUR_MCP_TOOLS=governance\` in the MCP server's environment to add \`rigour_agent_register\` (claim a scope), \`rigour_checkpoint\` and the handoff tools.
-
-${ruleContent}`;
-
-        await writeHandshake(cwd, 'AGENTS.md', agentsContent, 'Universal Agent Handshake', options.force);
-    }
-
-    // Windsurf (.windsurfrules)
-    if (shouldSetup('windsurf')) {
-        await writeHandshake(cwd, '.windsurfrules', ruleContent, 'Windsurf Handshake', options.force);
-    }
+    if (options.instructions) await writeInstructions(cwd, ruleContent, options.force);
 
     // 3. Auto-initialize hooks for ALL supported AI coding tools
     const allSupportedIDEs: DetectedIDE[] = ['claude', 'cursor', 'cline', 'windsurf'];
@@ -480,27 +371,19 @@ async function initHooksForAllDetectedTools(
     cwd: string,
     detectedIDEs: DetectedIDE[]
 ): Promise<string[]> {
+    // No hook support for vscode, gemini, codex. One run for every agent: one summary, one DLP note, one git hook line.
+    const hookTools = detectedIDEs.map(ide => IDE_TO_HOOK_TOOL[ide]).filter((tool): tool is string => !!tool);
+    if (hookTools.length === 0) return [];
+    try {
+        console.log(chalk.dim(`\n   Setting up real-time hooks for ${hookTools.join(', ')}...`));
+        await hooksInitCommand(cwd, { tool: hookTools.join(','), dlp: true, force: true, block: true });
+    } catch (err: any) {
+        console.log(chalk.dim(`   (Hooks setup failed: ${err?.message || err})`));
+    }
     const enabledTools: string[] = [];
-
-    for (const ide of detectedIDEs) {
-        const hookTool = IDE_TO_HOOK_TOOL[ide];
-        if (!hookTool) continue; // No hook support (vscode, gemini, codex)
-
-        try {
-            console.log(chalk.dim(`\n   Setting up real-time hooks for ${ide}...`));
-            await hooksInitCommand(cwd, { tool: hookTool, dlp: true, force: true, block: true });
-            if (await fs.pathExists(path.join(cwd, PRIMARY_HOOK_PATH[hookTool]))) {
-                enabledTools.push(hookTool);
-            }
-        } catch (err: any) {
-            console.log(chalk.dim(`   (Hooks setup for ${ide} failed: ${err?.message || err})`));
-        }
+    for (const tool of hookTools) {
+        if (await fs.pathExists(path.join(cwd, PRIMARY_HOOK_PATH[tool]))) enabledTools.push(tool);
     }
-
-    if (enabledTools.length > 0) {
-        console.log(chalk.dim(`   ⚠ DLP warnings active for: ${enabledTools.join(', ')}`));
-    }
-
     return enabledTools;
 }
 
@@ -515,7 +398,7 @@ async function initHooksForAllDetectedTools(
  * checkout (not npx/global), point MCP at the sibling rigour-mcp dist
  * so it works without publishing. Otherwise use npx.
  */
-function resolveMCPServerConfig(): { command: string; args: string[] } {
+export function resolveMCPServerConfig(): { command: string; args: string[] } {
     // ESM has no __dirname — derive from import.meta.url
     const thisDir = path.dirname(new URL(import.meta.url).pathname);
     // thisDir is packages/rigour-cli/dist/commands/
@@ -580,38 +463,163 @@ async function setupCursorMCP(
         }
     }
 
+    const created = !(await fs.pathExists(mcpPath));
     if (!existing.mcpServers) existing.mcpServers = {};
     existing.mcpServers.rigour = serverConfig;
 
     await fs.writeJson(mcpPath, existing, { spaces: 4 });
+    if (created) recordCreated(cwd, path.join('.cursor', 'mcp.json'), await fs.readFile(mcpPath, 'utf-8'));
     console.log(chalk.green('✔ Registered Rigour MCP server (.cursor/mcp.json)'));
 }
 
+/**
+ * Claude Code reads a project's MCP servers from `.mcp.json` at the repository root, not from
+ * `.claude/settings.json` (which holds hooks and permissions). The server is merged into an
+ * existing `.mcp.json`; an entry an older Rigour put in `.claude/settings.json` is taken out.
+ */
 async function setupClaudeMCP(
     cwd: string,
     serverConfig: { command: string; args: string[] },
     force?: boolean,
 ): Promise<void> {
-    const settingsPath = path.join(cwd, '.claude', 'settings.json');
-    await fs.ensureDir(path.dirname(settingsPath));
-
-    // Always read existing settings (hooks may have written this file already)
+    const mcpPath = path.join(cwd, '.mcp.json');
+    const created = !(await fs.pathExists(mcpPath));
     let existing: any = {};
-    if (await fs.pathExists(settingsPath)) {
+    if (!created) {
         try {
-            existing = await fs.readJson(settingsPath);
+            existing = await fs.readJson(mcpPath);
         } catch {
-            existing = {};
-        }
-        if (existing?.mcpServers?.rigour && !force) {
+            console.log(chalk.yellow('  Kept .mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
             return;
         }
+        if (existing?.mcpServers?.rigour && !force) return;
     }
-
-    // Merge — preserve existing hooks config, just add/update mcpServers.rigour
     if (!existing.mcpServers) existing.mcpServers = {};
     existing.mcpServers.rigour = serverConfig;
+    await fs.writeJson(mcpPath, existing, { spaces: 4 });
+    if (created) recordCreated(cwd, '.mcp.json', await fs.readFile(mcpPath, 'utf-8'));
 
-    await fs.writeJson(settingsPath, existing, { spaces: 4 });
-    console.log(chalk.green('✔ Registered Rigour MCP server (.claude/settings.json)'));
+    // The old, unread location.
+    const settingsPath = path.join(cwd, '.claude', 'settings.json');
+    try {
+        const settings = await fs.readJson(settingsPath);
+        if (settings?.mcpServers?.rigour) {
+            delete settings.mcpServers.rigour;
+            if (Object.keys(settings.mcpServers).length === 0) delete settings.mcpServers;
+            await fs.writeJson(settingsPath, settings, { spaces: 4 });
+        }
+    } catch {
+        // no settings file, or not ours to repair
+    }
+    console.log(chalk.green('✔ Registered Rigour MCP server (.mcp.json)'));
+}
+
+/** Agent instruction files, where the project has none (`--instructions`). */
+async function writeInstructions(cwd: string, ruleContent: string, force?: boolean): Promise<void> {
+    // 1. Create Universal Instructions
+    await writeHandshake(cwd, 'docs/AGENT_INSTRUCTIONS.md', ruleContent, 'Universal Agent Handshake', force);
+
+    // 2. Create IDE-Specific Rules for ALL supported tools.
+    //    Detection is unreliable (Cursor reports as vscode, doesn't create .cursor/),
+    //    so we always set up everything. The files are tiny and inert if unused.
+    const shouldSetup = (_ide: DetectedIDE) => true;
+
+    if (shouldSetup('cursor')) {
+        // Cursor .mdc must be SHORT and forceful — long rules get ignored.
+        // Keep ONLY the mandatory MCP tool workflow, no generic coding advice.
+        const mdcContent = `---
+description: Rigour governance — use Rigour MCP tools for quality gates.
+globs: **/*
+alwaysApply: true
+---
+
+# Rigour Governance
+
+This project uses **Rigour MCP tools** for automated quality governance. The tools are self-describing — read their descriptions to discover the correct workflow automatically.
+
+Hooks run automatically after every file edit. If a hook blocks you, fix the issue before continuing.
+
+## Rules
+- Never modify rigour.yml to make checks pass — fix the code instead.
+- Never claim "done" without a passing quality gate result.
+`;
+
+        await writeHandshake(cwd, '.cursor/rules/rigour.mdc', mdcContent, 'Cursor Handshake', force);
+    }
+
+    if (shouldSetup('vscode')) {
+        // VS Code users use the universal AGENT_INSTRUCTIONS.md (already created above)
+        // We could also add .vscode/settings.json or snippets here if needed
+        console.log(chalk.green('✔ VS Code mode - using Universal Handshake (docs/AGENT_INSTRUCTIONS.md)'));
+    }
+
+    if (shouldSetup('cline')) {
+        await writeHandshake(cwd, await clineRulesRelPath(cwd), ruleContent, 'Cline Handshake', force);
+    }
+
+    // Claude Code (CLAUDE.md)
+    if (shouldSetup('claude')) {
+        const claudeContent = `# CLAUDE.md - Project Instructions for Claude Code
+
+This project uses Rigour for quality gates. Rigour MCP tools are available — they are self-describing.
+
+## CLI Commands (alternative to MCP tools)
+
+\`\`\`bash
+npx @rigour-labs/cli check      # Run quality gates
+npx @rigour-labs/cli explain    # Explain failures
+npx @rigour-labs/cli run -- claude "<task>"  # Self-healing agent loop
+\`\`\`
+
+${ruleContent}`;
+
+        await writeHandshake(cwd, 'CLAUDE.md', claudeContent, 'Claude Code Handshake', force);
+    }
+
+    // Gemini Code Assist (.gemini/styleguide.md)
+    if (shouldSetup('gemini')) {
+        const geminiContent = `# Gemini Code Assist Style Guide
+
+This project uses Rigour for quality gates. If Rigour MCP tools are available, they are self-describing — use them.
+
+${ruleContent}`;
+
+        await writeHandshake(cwd, '.gemini/styleguide.md', geminiContent, 'Gemini Handshake', force);
+    }
+
+    // OpenAI Codex / Aider (AGENTS.md - Universal Standard)
+    if (shouldSetup('codex')) {
+        const agentsContent = `# AGENTS.md - AI Agent Instructions
+
+This project uses Rigour for quality gates. If Rigour MCP tools are available, they are self-describing — use them. Otherwise use the CLI:
+
+\`\`\`bash
+npx @rigour-labs/cli check   # Run quality gates (must PASS before task is done)
+npx @rigour-labs/cli explain # Explain failures
+\`\`\`
+
+## Context Efficiency Protocol
+
+Follow this workflow to minimize token usage without compromising quality:
+
+1. \`rigour_recall\` — load project memory at session start
+2. \`rigour_index\` — if the pattern index is missing or stale
+3. \`rigour_context_scope\` — get minimal file list before reading source files
+4. \`rigour_check_pattern\` — verify no reinvention before writing new code
+5. Work — only touch files in the scoped edit set
+6. \`rigour_review\` — review your change before you say done; fix every finding and call it again
+7. \`rigour_check\` — quality gate unchanged (must PASS before done)
+
+Multi-agent teams: set \`RIGOUR_MCP_TOOLS=governance\` in the MCP server's environment to add \`rigour_agent_register\` (claim a scope), \`rigour_checkpoint\` and the handoff tools.
+
+${ruleContent}`;
+
+        await writeHandshake(cwd, 'AGENTS.md', agentsContent, 'Universal Agent Handshake', force);
+    }
+
+    // Windsurf (.windsurfrules)
+    if (shouldSetup('windsurf')) {
+        await writeHandshake(cwd, '.windsurfrules', ruleContent, 'Windsurf Handshake', force);
+    }
+
 }

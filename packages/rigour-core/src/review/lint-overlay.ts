@@ -62,7 +62,7 @@ export default [
     },
     { files: ['**/*.svelte'], rules: typed },
     // A test fake deliberately covers cases the types call impossible.
-    { files: ['**/*.test.ts', '**/*.spec.ts', '**/*.svelte.test.ts', 'tests/**', 'test/**', '**/__tests__/**'], rules: { '@typescript-eslint/no-unnecessary-condition': 'off', '@typescript-eslint/no-floating-promises': 'off' } },
+    { files: ['**/*.test.ts', '**/*.spec.ts', '**/*.test-d.ts', '**/*.svelte.test.ts', 'tests/**', 'test/**', 'test-d/**', '**/__tests__/**', '**/__mocks__/**'], rules: { '@typescript-eslint/no-unnecessary-condition': 'off', '@typescript-eslint/no-floating-promises': 'off' } },
 ];
 `);
     return file;

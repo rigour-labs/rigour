@@ -81,7 +81,7 @@ Agent Teams separates the live team from retained run history and the event time
 
 The relational lesson ledger is authoritative. pgvector is a retrieval accelerator that ranks validated personal and approved team knowledge by semantic proximity, including knowledge learned in other repositories. Every returned candidate retains its repository, owner, state, confidence, and source. Similarity cannot change state, publish knowledge, or create an enforcement rule.
 
-Rigour uses a 384-dimension local MiniLM embedding by default, stores its model identifier with each vector, and builds an HNSW cosine index. If vector generation or PostgreSQL is unavailable, semantic team recall becomes degraded while the structural graph, SQLite cache, enforcement, and offline outbox continue.
+Rigour uses a 384-dimension local MiniLM embedding by default, stores its model identifier with each vector, and builds an HNSW cosine index. The embedding library is installed once per machine by `rigour setup` (not with every Rigour version); `rigour doctor` says whether it is on. If vector generation or PostgreSQL is unavailable, semantic team recall becomes degraded while the structural graph, SQLite cache, enforcement, and offline outbox continue.
 
 ### Local pgvector smoke test
 

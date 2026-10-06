@@ -30,6 +30,8 @@ It is critical to understand how Rigour integrates with your workflow:
 
 ### Configuration
 
+`rigour setup` registers the server for you: in `.mcp.json` at the repository root for Claude Code (where Claude Code reads a project's MCP servers; `.claude/settings.json` holds hooks and permissions, not servers), and in `.cursor/mcp.json` for Cursor. It merges into a file you already have. By hand, the entry is:
+
 ```json
 {
   "mcpServers": {
