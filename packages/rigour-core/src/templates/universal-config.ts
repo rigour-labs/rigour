@@ -263,6 +263,7 @@ export const UNIVERSAL_CONFIG: Config = {
         redundancy: {
             enabled: true,
             wire_contracts: [],
+            schema_migrations: ['supabase/migrations'],
         },
         duplicate_functions: {
             enabled: true,

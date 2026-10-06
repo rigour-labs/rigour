@@ -296,10 +296,13 @@ export const GatesSchema = z.object({
      * range on the same column, a nullable row type the query filters non-null, an optional member every host supplies, a
      * property written and never read. Runs at push, in `rigour review` and in a backtest (the program takes seconds to build).
      * `wire_contracts`: files whose types another service reads, so their members are never write-only here.
+     * `schema_migrations`: folders of SQL migrations (relative, absolute, or `~/`; another repository's is fine, read only)
+     * replayed to learn which columns are NOT NULL, for the nullable-not-null-column note. Missing folders are skipped.
      */
     redundancy: z.object({
         enabled: z.boolean().optional().default(true),
         wire_contracts: z.array(z.string()).optional().default([]),
+        schema_migrations: z.array(z.string()).optional().default(['supabase/migrations']),
     }).optional().default({}),
     /** A parameter the change adds as optional that only tests omit (review/optional-params.ts). */
     optional_params: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),

@@ -9,6 +9,9 @@
  *   write-only-property       a property the hosts set and nothing reads. When the value only
  *                             leaves through serialisation to a callee the program does not declare
  *                             (a wire payload), that is a hint for the reviewer, not a block.
+ * Plus a note, not yet proven on merged pull requests so it never blocks:
+ *   nullable-not-null-column  the row type of `.from('t')` says `| null` for a column the
+ *                             migrations make NOT NULL (`schema_migrations`, schema-nullability.ts).
  * Plus a hint: a function that scans a collection, called once per item of another (nested-scan).
  * Scoped to lines the change touched and members it declared, or whose every host it wrote; a
  * pre-existing member with one touched writer is the team's backlog, not this change's.
@@ -19,6 +22,7 @@ import type { Config, Failure } from '../../types/index.js';
 import { emitsDeclarations } from '../package-layout.js';
 import { isTestFile } from '../test-files.js';
 import { loadProgram, type TextFile, type TypedProgram } from './program.js';
+import { loadSchemaNullability, tableKey, type SchemaNullability } from './schema-nullability.js';
 
 export interface Redundancy {
     failures: Failure[];
@@ -91,12 +95,44 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
     };
     const isNullable = (t: TS.Type) => t.isUnion() && t.types.some(m => !!(m.flags & ts.TypeFlags.Null));
 
-    // duplicate-null-filter and nullable-filtered-column
+    // nullable-not-null-column: read once, and only when a changed file queries a table.
+    let schema: SchemaNullability | undefined;
+    const reportedDecls = new Set<TS.Node>();
+    const notNullColumns = (chain: ReturnType<typeof chainOf>, outer: TS.Node, filtered: Set<string>) => {
+        const from = chain.find(c => c.name === 'from' && strArg(c.call, 0));
+        if (!from) return;
+        const schemaCall = chain.find(c => c.name === 'schema' && strArg(c.call, 0));
+        const table = `${schemaCall ? `${strArg(schemaCall.call, 0)}.` : ''}${strArg(from.call, 0)}`;
+        schema ??= loadSchemaNullability(typed.root, settings.schema_migrations);
+        const columns = schema.get(tableKey(table));
+        const row = columns && rowTypeOf(chain, outer);
+        if (!columns || !row) return;
+        const select = chain.find(c => c.name === 'select');
+        const selected = select ? strArg(select.call, 0) ?? '' : '';
+        // The query's own line the change touched: a call's start is the start of the whole chain, so its method name.
+        const queryLine = chain.map(c => (c.call.expression as TS.PropertyAccessExpression).name).find(touched);
+        for (const prop of checker.getPropertiesOfType(row)) {
+            const decl = prop.declarations?.[0];
+            const name = prop.name;
+            if (!decl || !ts.isPropertySignature(decl) || !decl.type || reportedDecls.has(decl) || filtered.has(name)) continue;
+            // An alias (`name:other_column`) maps another column onto this property.
+            if (columns.get(name) !== true || new RegExp(`(^|[\\s,(])${name.replace(/[$]/g, '\\$')}\\s*:`).test(selected) || !isNullable(checker.getTypeFromTypeNode(decl.type))) continue;
+            const anchor = touched(decl) ? decl : queryLine;
+            if (!anchor) continue;
+            reportedDecls.add(decl);
+            report('nullable-not-null-column', 'Nullable type for a NOT NULL column', anchor,
+                `\`${name}\` is declared nullable at ${at(decl)} but \`${table}.${name}\` is NOT NULL in the migrations, so every guard on it is dead.`,
+                'Narrow the row type and delete the guards on it. If the migrations Rigour read are not the ones this code runs against, point gates.redundancy.schema_migrations at them.');
+        }
+    };
+
+    // duplicate-null-filter, nullable-filtered-column and nullable-not-null-column
     for (const sf of changedSources) {
         walk(sf, node => {
             if (!ts.isCallExpression(node) || !outermost(node)) return;
             const chain = chainOf(node);
             const nots = chain.filter(c => c.name === 'not' && strArg(c.call, 1) === 'is' && isNullLiteral(c.call.arguments[2]) && strArg(c.call, 0));
+            notNullColumns(chain, node, new Set(nots.map(n => strArg(n.call, 0)!)));
             if (nots.length === 0 || !spanTouched(node)) return;
             for (const n of nots) {
                 const col = strArg(n.call, 0)!;

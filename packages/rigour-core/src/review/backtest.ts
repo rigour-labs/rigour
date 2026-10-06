@@ -160,7 +160,10 @@ async function worktreeFor(cwd: string, commit: string, exec: Exec): Promise<str
     const common = (await exec('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, timeoutMs: GIT_TIMEOUT_MS })).stdout.trim();
     if (!common) throw new Error(`${cwd} is not a git repository`);
     const resolved = await exec('git', ['rev-parse', '--verify', `${commit}^{commit}`], { cwd, timeoutMs: GIT_TIMEOUT_MS });
-    if (resolved.exitCode !== 0) throw new Error(`commit ${commit} is not in this repository (fetch the branch it was reviewed on)`);
+    if (resolved.exitCode !== 0) {
+        const reason = resolved.stderr.trim().split('\n').at(-1);
+        throw new Error(`commit ${commit} is not in this repository (fetch the branch it was reviewed on)${reason ? `: git said "${reason}"` : ''}`);
+    }
     const dir = path.join(common, 'rigour-backtest', resolved.stdout.trim().slice(0, 12));
     if (!fs.existsSync(path.join(dir, '.git'))) {
         fs.mkdirSync(path.dirname(dir), { recursive: true });

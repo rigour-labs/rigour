@@ -66,13 +66,18 @@ async function viewPullRequest(gh: Gh, selector: string): Promise<{ pr?: PullReq
     }
 }
 
+/** Written by a person: not a bot, and not the pull request's author answering their own review. */
+export function isHuman(item: any, author: string): boolean {
+    return !!item?.user && item.user.type !== 'Bot' && !/\[bot\]$/.test(item.user.login) && item.user.login !== author;
+}
+
 /** Every review by a person and every inline comment by a person, hidden from `reviewsBefore` on. */
 export async function humanReviews(gh: Gh, pr: PullRequest, reviewsBefore: string | undefined): Promise<{ reviews?: HumanReviews; error?: string }> {
     const reviews = await gh(['api', `repos/{owner}/{repo}/pulls/${pr.number}/reviews`, '--paginate']);
     if (reviews.exitCode !== 0) return { error: `could not read the reviews of pull request ${pr.number}: ${reviews.stderr.trim().slice(0, 200)}` };
     const comments = await gh(['api', `repos/{owner}/{repo}/pulls/${pr.number}/comments`, '--paginate']);
     if (comments.exitCode !== 0) return { error: `could not read the comments of pull request ${pr.number}: ${comments.stderr.trim().slice(0, 200)}` };
-    const human = (x: any) => x?.user && x.user.type !== 'Bot' && !/\[bot\]$/.test(x.user.login) && x.user.login !== pr.author;
+    const human = (x: any) => isHuman(x, pr.author);
     const before = (at: unknown) => !reviewsBefore || (typeof at === 'string' && at < reviewsBefore);
     const rounds = parseJsonArrays(reviews.stdout).filter((r: any) => human(r) && String(r.body ?? '').trim() && before(r.submitted_at));
     const inline = parseJsonArrays(comments.stdout).filter((c: any) => human(c) && before(c.created_at));

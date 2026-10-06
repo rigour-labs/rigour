@@ -83,6 +83,13 @@ describe('rigour review, as a person reads it', () => {
         expect(show(result({ advisory: [finding(1)] }), { notes: true })).toContain('src/a.ts:1  export f1 is used nowhere');
     });
 
+    it('counts the hints a person should confirm, and lists them with --notes', () => {
+        const hint = 'nested-scan src/a.ts:9: match() scans its `rows` argument and is called inside a loop; confirm the sizes or index the inner collection once';
+        expect(show(result({ hints: [hint] }))).toContain('To confirm by hand: 1 hint (rigour review --notes)');
+        out = [];
+        expect(show(result({ hints: [hint] }), { notes: true })).toContain(`  ${hint}`);
+    });
+
     it('hides the receipt until agents have reviewed something, unless asked', () => {
         expect(show(result(), { receipt: receipt() })).not.toContain('Quality receipt');
         out = [];
