@@ -136,9 +136,9 @@ describe('the reviewer', () => {
 
     it('resolves a previous item only with evidence, and never blocks on an item that names code the checkout does not have', async () => {
         const seen = seenNow();
-        const first = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock' }, { class: 'dead-code', file: 'src/ghost.ts', line: 1, issue: 'unused' }] }), seen), () => undefined);
+        const first = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock' }, { class: 'dead-code', file: 'src/ghost.ts', line: 1, issue: 'unused' }, { class: 'dead-code', file: '', issue: 'somewhere, no file named' }] }), seen), () => undefined);
         expect(first.items.map(i => i.file)).toEqual(['src/job.ts']);
-        expect(first.unverified.map(i => i.file)).toEqual(['src/ghost.ts']);
+        expect(first.unverified.map(i => i.file)).toEqual(['src/ghost.ts', '']); // a slip and a finding with no place to check: shown, never a block
         const id = first.items[0].id;
         fs.writeFileSync(path.join(repo, 'src/job.ts'), 'export function job() {\n    return 2;\n}\n');
         git('commit', '-qam', 'fix');

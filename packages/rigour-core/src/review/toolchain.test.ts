@@ -32,6 +32,13 @@ describe('runToolchain', () => {
         expect(results.map(r => [r.tool, r.status])).toEqual([['format', 'skipped'], ['lint', 'skipped'], ['typecheck', 'skipped'], ['test', 'skipped']]);
     });
 
+    it('fails, not skips, a tool the project declares but has not installed: a checkout without its dependencies proves nothing', async () => {
+        fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ devDependencies: { eslint: '^9', typescript: '^5' } }));
+        const results = await runToolchain(dir, ['src/a.ts'], config());
+        expect(results.map(r => [r.tool, r.status])).toEqual([['format', 'skipped'], ['lint', 'fail'], ['typecheck', 'fail'], ['test', 'skipped']]);
+        expect(results.find(r => r.tool === 'lint')).toMatchObject({ command: 'eslint is in package.json but not installed', output: expect.stringContaining('install the dependencies') });
+    });
+
     it('runs the formatter on changed files only and reports what it said', async () => {
         tool('prettier', "const bad = args.filter(a => a.endsWith('.ts') && fs.readFileSync(a, 'utf8').includes('BAD'));\nif (bad.length) { console.log('[warn] ' + bad.join(' ')); process.exit(1); }");
         const [format] = await runToolchain(dir, ['src/a.ts', 'src/bad.ts', 'src/gone.ts'], config());

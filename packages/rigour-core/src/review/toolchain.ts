@@ -2,8 +2,10 @@
  * The repository's own tools, run on what a change touched: the formatter, the linter, the type
  * checker and the tests that import changed files. Teams already trust these; Rigour runs them at
  * the moment that matters (before a push) so nobody has to remember. Only tools the project
- * installed are run (node_modules/.bin, never a download); a missing one is reported as skipped.
- * A tool configured under `commands:` is left to that command, which every review already runs.
+ * installed are run (node_modules/.bin, never a download). A tool the project never declared is
+ * skipped and said so; one declared in package.json but not installed FAILS, since a checkout
+ * without its dependencies cannot prove anything about the change. A tool configured under
+ * `commands:` is left to that command, which every review already runs.
  */
 import { execa } from 'execa';
 import fs from 'fs';
@@ -48,14 +50,14 @@ export async function runToolchain(cwd: string, changedFiles: string[], config: 
 
 async function formatCheck(cwd: string, files: string[]): Promise<ToolResult> {
     const bin = installedBin(cwd, cwd, 'prettier');
-    if (!bin) return skipped('format', 'prettier is not installed');
+    if (!bin) return notInstalled('format', cwd, 'prettier');
     if (files.length === 0) return { tool: 'format', status: 'pass', command: 'no files to format' };
     return batched('format', cwd, bin, ['--check', '--ignore-unknown'], files);
 }
 
 async function lint(cwd: string, files: string[]): Promise<ToolResult> {
     const bin = installedBin(cwd, cwd, 'eslint');
-    if (!bin) return skipped('lint', 'eslint is not installed');
+    if (!bin) return notInstalled('lint', cwd, 'eslint');
     if (files.length === 0) return { tool: 'lint', status: 'pass', command: 'no code files' };
     // ESLint 9 warns about an explicitly named ignored file, which --max-warnings=0 would count.
     const quietIgnored = (await majorVersion(cwd, bin)) >= 9 ? ['--no-warn-ignored'] : [];
@@ -81,7 +83,20 @@ async function typecheck(cwd: string): Promise<ToolResult> {
     }
     const tsc = fs.existsSync(path.join(cwd, 'tsconfig.json')) && installedBin(cwd, cwd, 'tsc');
     if (tsc) return once('typecheck', cwd, tsc, ['--noEmit']);
+    for (const pkg of ['svelte-check', 'typescript']) if (declared(cwd, pkg)) return notInstalled('typecheck', cwd, pkg);
     return skipped('typecheck', 'no typecheck/check script, svelte-check or tsc with a tsconfig.json');
+}
+
+function declared(cwd: string, pkg: string): boolean {
+    const manifest = readPackage(cwd);
+    return !!(manifest.dependencies?.[pkg] ?? manifest.devDependencies?.[pkg]);
+}
+
+/** Declared in package.json but absent from node_modules: a checkout that cannot prove anything fails; a tool never declared is skipped. */
+function notInstalled(tool: ToolResult['tool'], cwd: string, pkg: string): ToolResult {
+    return declared(cwd, pkg)
+        ? { tool, status: 'fail', command: `${pkg} is in package.json but not installed`, output: `node_modules has no ${pkg}: install the dependencies (npm install, pnpm install, …) and run again` }
+        : skipped(tool, `${pkg} is not installed`);
 }
 
 function readPackage(cwd: string): { scripts?: Record<string, unknown>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> } {
@@ -95,7 +110,7 @@ function readPackage(cwd: string): { scripts?: Record<string, unknown>; dependen
 /** Tests that import a changed file; a file that fails in the parallel run is run again alone, so a timing flake passes. */
 async function relatedTests(cwd: string, files: string[]): Promise<ToolResult> {
     const bin = installedBin(cwd, cwd, 'vitest');
-    if (!bin) return skipped('test', 'vitest is not installed');
+    if (!bin) return notInstalled('test', cwd, 'vitest');
     if (files.length === 0) return { tool: 'test', status: 'pass', command: 'no code files' };
     const first = await once('test', cwd, bin, ['related', '--run', '--passWithNoTests', ...files]);
     if (first.status === 'pass') return first;

@@ -39,6 +39,15 @@ describe('unused exports', () => {
         expect(failures[0].details).toContain('`lonely`');
     });
 
+    it('does not count a test as a consumer: an export only its tests import is dead in production', () => {
+        write('src/app.ts', 'export function start() {}\n\nexport function onlyTested() { return 1; }\nexport function used() { return 2; }\n');
+        write('src/app.test.ts', "import { onlyTested, used } from './app';\nonlyTested();\nused();\n");
+        write('tests/helpers.ts', "import { onlyTested } from '../src/app';\nonlyTested();\n");
+        write('src/use.ts', "import { used } from './app';\nused();\n");
+        const names = unusedExportFailures(repo, diffFromGit(repo), config()).map(f => f.details.match(/`([^`]+)`/)![1]);
+        expect(names).toEqual(['onlyTested']);
+    });
+
     it('reports a re-export nothing imports, without counting the module it comes from as a use', () => {
         write('src/types.ts', 'export type Row = { id: string };\nexport type Used = { n: number };\n');
         write('src/index.ts', "import { start } from './app';\nstart();\nexport type { Row, Used } from './types';\n");

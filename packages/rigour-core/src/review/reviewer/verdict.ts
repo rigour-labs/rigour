@@ -140,10 +140,12 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     const open: OpenItem[] = [];
     const unverified: OpenItem[] = [];
     const seen = new Set<string>();
+    // A prior point is the human's and needs no file; anything else must name code the checkout has.
     const add = (item: OpenItem) => {
         if (seen.has(item.id)) return;
         seen.add(item.id);
-        (item.file && !verify(item.file, item.line) ? unverified : open).push(item);
+        const placed = item.kind === 'prior' || (!!item.file && verify(item.file, item.line));
+        (placed ? open : unverified).push(item);
     };
     const answerInReply: PriorPoint[] = [];
     for (const p of verdict.prior_points) {
