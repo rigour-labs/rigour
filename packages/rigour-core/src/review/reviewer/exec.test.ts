@@ -8,6 +8,13 @@ describe('running a command', () => {
         expect(result).toEqual({ exitCode: 3, stdout: 'out', stderr: 'err' });
     });
 
+    it('gives the command an ended stdin, so one that reads it never waits and one that exits at once never fails', async () => {
+        const reader = await defaultExec(process.execPath, ['-e', 'let n = 0; process.stdin.on("data", d => n += d.length).on("end", () => process.stdout.write(`read ${n}`))'], { cwd: os.tmpdir(), timeoutMs: 30_000 });
+        expect(reader).toEqual({ exitCode: 0, stdout: 'read 0', stderr: '' });
+        const runs = await Promise.all(Array.from({ length: 50 }, () => defaultExec(process.execPath, ['-e', 'process.stdout.write("ok")'], { cwd: os.tmpdir(), timeoutMs: 30_000 })));
+        expect(runs.every(r => r.exitCode === 0 && r.stdout === 'ok')).toBe(true);
+    });
+
     it('says why a command that never answered failed: not started, or timed out', async () => {
         const missing = await defaultExec('rigour-no-such-command', [], { cwd: os.tmpdir(), timeoutMs: 30_000 });
         expect(missing.exitCode).not.toBe(0);
