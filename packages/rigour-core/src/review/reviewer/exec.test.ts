@@ -18,7 +18,7 @@ describe('running a command', () => {
     it('says why a command that never answered failed: not started, or timed out', async () => {
         const missing = await defaultExec('rigour-no-such-command', [], { cwd: os.tmpdir(), timeoutMs: 30_000 });
         expect(missing.exitCode).not.toBe(0);
-        expect(missing.stderr).toMatch(/ENOENT/);
+        expect(missing.stderr).toContain('rigour-no-such-command'); // ENOENT on Unix, "is not recognized" on Windows
         const slow = await defaultExec(process.execPath, ['-e', 'setTimeout(() => {}, 10_000)'], { cwd: os.tmpdir(), timeoutMs: 200 });
         expect(slow.exitCode).not.toBe(0);
         expect(slow.stderr).toMatch(/timed out/i);
