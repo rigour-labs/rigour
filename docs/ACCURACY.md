@@ -16,6 +16,13 @@ Rigour findings are evaluated on two dimensions:
 
 For user trust, precision is the primary KPI for default gate behavior.
 
+## Measured on your own reviews
+
+`rigour backtest` scores the review against the points people made on a repository's own pull
+requests, with each review hidden while the round runs, and counts a blocking finding on code the
+reviewer called good as a false block. It is the acceptance test for a rule change on real
+history: see [BACKTEST.md](BACKTEST.md).
+
 ## Baseline Requirements
 
 Before a release, run gate test suites and curated fixture sets for supported languages.

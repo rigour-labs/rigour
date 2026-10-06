@@ -18,7 +18,7 @@ import chalk from 'chalk';
 import { buildReviewTask, diffFromGit, durationBucket, findingKey, flushDailyUsage, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
 import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { printReceipt, receiptFor } from './review-receipt.js';
-import { printReviewer, reviewerBase, reviewerFor, reviewerJson } from './review-reviewer.js';
+import { printReviewer, printStatus, reviewerBase, reviewerFor, reviewerJson } from './review-reviewer.js';
 import { loadConfig, UsageError } from './review-config.js';
 import { deepProvider } from './deep-provider.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
@@ -43,11 +43,14 @@ export interface ReviewOptions {
     provider?: string;
     apiBaseUrl?: string;
     modelName?: string;
-    reviewer?: boolean;  // run the fresh reviewer (previous human review, diff, repo rules) after the rules
+    reviewer?: boolean;  // run the reviewer (every human review, diff, repo rules) after the rules
+    full?: boolean;      // with --reviewer: two vendors, verdicts merged (the step before asking a person to look)
+    status?: boolean;    // what the background reviewer has done for this branch
 }
 
 export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
     const started = Date.now();
+    if (options.status) process.exit(await printStatus(cwd, !!options.json));
     try {
         // An independent PR review trusts Rigour's settings as of the base, not as the PR left them.
         const trustedRef = options.independent && options.base ? mergeBaseOf(cwd, options.base) : undefined;
@@ -65,10 +68,11 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
             diffTests: !!options.diffTests,
             deep: isDeep ? deepOptions(cwd, options) : undefined,
             trustedRef,
+            typed: true,
         });
         if (options.base) recordPrCatches(cwd, result.findings);
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
-        const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config) : undefined;
+        const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full) : undefined;
         await print(result, options, receipt, reviewer);
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);

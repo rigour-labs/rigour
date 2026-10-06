@@ -13,7 +13,10 @@ import { exportAuditCommand } from './commands/export-audit.js';
 import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
+import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
+import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
+import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
 import { settingsShowCommand, settingsSetKeyCommand, settingsRemoveKeyCommand, settingsSetCommand, settingsGetCommand, settingsResetCommand, settingsPathCommand } from './commands/settings.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -271,7 +274,9 @@ program
     .option('--provider <name>', 'Cloud provider for deep analysis')
     .option('--api-base-url <url>', 'Custom API base URL')
     .option('--model-name <name>', 'Override cloud model name')
-    .option('--reviewer', 'Then run a fresh read-only reviewer (your coding agent CLI, no key): every point of the PR\'s previous human review checked against the code, then new blocking issues')
+    .option('--reviewer', 'Then run the reviewer (your coding agent CLI, read-only, no key): every point of every human review checked against the code, what a fix left behind, every read traced, then new findings')
+    .option('--full', 'With --reviewer: two vendors, verdicts merged. Run it before asking a person to review')
+    .option('--status', 'What the background reviewer has done for this branch: running, last verdict, open items')
     .addHelpText('after', `
 Examples:
   $ rigour review                                      # Uncommitted changes, taken from git
@@ -495,6 +500,35 @@ hooksCmd
         if (reply) process.stdout.write(reply + '\n');
     });
 
+const backtestCmd = program
+    .command('backtest')
+    .description('Score the review against the points people made reviewing this repository (.rigour/backtest.json); exit 1 until every point is caught with no false block')
+    .option('--round <id>', 'Run one round only')
+    .option('--reviewer', 'Run the reviewer too, with each round\'s human review hidden')
+    .option('--json', 'Output the score in JSON format')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .action(async (options: any) => {
+        try {
+            process.exit(await backtestCommand(process.cwd(), options));
+        } catch (error: any) {
+            console.error(chalk.red(error.message));
+            process.exit(2);
+        }
+    });
+backtestCmd
+    .command('init')
+    .description('Write ledger rounds from a pull request\'s human reviews (inline comments give file and line; body points need a pattern)')
+    .requiredOption('--pr <number>', 'The pull request')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .action(async (options: any) => {
+        try {
+            process.exit(await backtestInitCommand(process.cwd(), options));
+        } catch (error: any) {
+            console.error(chalk.red(error.message));
+            process.exit(2);
+        }
+    });
+
 const profileCmd = program
     .command('profile')
     .description('One machine, many organizations: which home and team Rigour uses, chosen by repository');
@@ -516,14 +550,42 @@ profileCmd
 
 hooksCmd
     .command('push')
-    .description('Push gate: before an agent runs git push, run the review, the repository\'s own tools and (if enabled) the reviewer on the branch; exit 2 blocks the push. Reads the PreToolUse payload on stdin')
+    .description('Push gate: before a push, run the review, the repository\'s own tools and the typed checks on the branch; a failure refuses the push. From an agent hook (PreToolUse payload on stdin, exit 2) or from git\'s pre-push (--git, exit 1)')
     .option('--stdin', 'Read the hook payload from stdin (the default)')
-    .action(async () => {
+    .option('--git', 'Run as git\'s pre-push hook: the refs on stdin, the commit git is about to send')
+    .action(async (options: { git?: boolean }) => {
         const chunks: Buffer[] = [];
         if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
-        const result = await hooksPushCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
+        const stdin = Buffer.concat(chunks).toString('utf8');
+        const result = options.git ? await gitPushGateCommand(stdin, process.cwd()) : await hooksPushCommand(stdin, process.cwd());
         if (result.message) process.stderr.write(result.message + '\n');
         process.exit(result.exitCode);
+    });
+
+hooksCmd
+    .command('selftest')
+    .description('Prove the git pre-push hook: in a scratch clone of a scratch remote, a push the gate must refuse is refused and the fixed push lands, read from the remote\'s refs')
+    .action(async () => {
+        const result = await selfTestGitPushHook(selfTestCommand());
+        for (const step of result.steps) console.log(`  ${step}`);
+        console.log(result.ok ? chalk.green('  The push gate holds.') : chalk.red('  The push gate does not hold.'));
+        process.exit(result.ok ? 0 : 1);
+    });
+
+hooksCmd
+    .command('review-background', { hidden: true })
+    .description('The detached model review the push gate starts once its checks pass: reviews the pushed commit in a worktree of its own and records the verdict')
+    .requiredOption('--commit <sha>', 'The pushed commit')
+    .requiredOption('--branch <name>', 'The branch it was pushed from')
+    .requiredOption('--base <ref>', 'The main branch to review against')
+    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .action(async (options: any) => {
+        try {
+            process.exit(await hooksReviewBackgroundCommand(process.cwd(), options));
+        } catch (error: any) {
+            console.error(error.message);
+            process.exit(2);
+        }
     });
 
 hooksCmd

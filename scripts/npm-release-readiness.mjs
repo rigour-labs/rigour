@@ -42,7 +42,13 @@ export async function findUnavailablePackages({
       if (!response.ok) return packageName;
 
       const manifest = await response.json();
-      return manifest.version === version ? null : packageName;
+      if (manifest.version !== version) return packageName;
+      // The registry serves a version's manifest before its tarball is fetchable; an install
+      // that starts then gets 404 for the tarball. Published means the tarball answers too.
+      const tarball = manifest.dist?.tarball;
+      if (!tarball) return packageName;
+      const archive = await fetchImpl(tarball, { method: 'HEAD', cache: 'no-store', redirect: 'follow', signal: AbortSignal.timeout(10_000) });
+      return archive.ok ? null : packageName;
     } catch {
       return packageName;
     }

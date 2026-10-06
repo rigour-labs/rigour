@@ -6,15 +6,14 @@
  * letting it finish. A review with nothing to look at says so; it is never
  * reported as a clean pass.
  *
- * Only findings that deserve it block: critical ones, high ones that are proven
- * (the semantic engine traced them) or security findings, findings the change added that are
- * certain from the code alone (MUST_FIX: dead code, offset paging, an unbounded window, a
- * duplicate function), and on a branch a merge conflict with main or a mention of a file the
- * branch deleted (review/branch-checks.ts).
- * A high heuristic (a regex that sees `fetch` without `.catch`) is not enough to
- * hold an agent back; callers also cap the number of attempts.
+ * What blocks is what the review itself reports (review/quiet.ts `mustFix`: proven, critical, or
+ * high and verified or from a security gate), plus on a branch a merge conflict with main or a
+ * mention of a file the branch deleted (review/branch-checks.ts). The same rule decides the push
+ * gate, so a stop, a review and a push never disagree about a finding. A high heuristic (a regex
+ * that sees `fetch` without `.catch`) is not enough to hold an agent back; callers also cap the
+ * number of attempts.
  */
-import type { Config, Failure, Severity } from '../types/index.js';
+import type { Config, Failure } from '../types/index.js';
 import { reviewChange } from '../review/review.js';
 import { buildReviewTask, type ReviewTaskItem } from '../review/review-task.js';
 import { diffFromGit, type DiffSource } from '../review/git-diff.js';
@@ -54,7 +53,11 @@ export async function stopReview(cwd: string, config: Config, attempt: number, s
     const result = await reviewChange({ cwd, config, diff, source });
     const branch = branchBase(cwd);
     const whole = branch && !branch.onMain ? branchFailures(cwd, branch.base, branch.mainRef, config) : [];
-    const blocking = [...result.findings.filter(blocksStop), ...whole];
+    // A check that could not run is never a pass; the attempt cap keeps a broken environment from looping forever.
+    const crashed: Failure[] = result.status === 'ERROR'
+        ? result.gateErrors.map(id => ({ id, title: 'A check could not run', details: id === 'typed-checks-unavailable' && result.typedError ? result.typedError : `${id} crashed instead of running`, severity: 'high', files: [], hint: 'Fix the environment (dependencies, generated config), then try again.' }))
+        : [];
+    const blocking = [...result.findings, ...whole, ...crashed];
     const unreviewed = config.hooks?.require_review_ack ? buildReviewTask(cwd, diff, config.gates.deep?.router).items : [];
     const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines), against };
     if (blocking.length === 0 && unreviewed.length === 0) return { block: false, message: '', blocking: 0, ...reviewed };
@@ -72,16 +75,6 @@ export function reviewAckMessage(items: ReviewTaskItem[], attempt: number): stri
         'Call rigour_review with mode "agent" for the questions, check each function, then rigour_review_ack it:',
         ...listed,
     ].join('\n');
-}
-
-/** Certain from the code alone, and quick to fix (each measured with no false alarms before it blocks). */
-const MUST_FIX = new Set(['unused-export', 'orphan-file', 'offset-paging', 'unbounded-window', 'duplicate-function', 'partial-fix', 'partial-wiring']);
-
-/** Critical; high and either proven by the semantic engine or a security finding; or a certain, local finding the change added (MUST_FIX). */
-export function blocksStop(finding: Failure): boolean {
-    const severity = (finding.severity || 'medium') as Severity;
-    if (severity === 'critical' || MUST_FIX.has(finding.id)) return true;
-    return severity === 'high' && (finding.verified === true || finding.provenance === 'security');
 }
 
 export function stopMessage(findings: Failure[], attempt: number): string {

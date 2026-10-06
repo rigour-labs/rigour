@@ -291,6 +291,16 @@ export const GatesSchema = z.object({
     query_patterns: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** What a fix leaves half done: the narrower condition still used elsewhere, a prop wired into some sibling mounts only, an accumulator copied every step (review/partial-fixes.ts, partial-wiring.ts, loop-copies.ts). */
     change_sweep: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    /**
+     * What a change made redundant, from the project's own TypeScript (review/typed/redundancy.ts): a null filter beside a
+     * range on the same column, a nullable row type the query filters non-null, an optional member every host supplies, a
+     * property written and never read. Runs at push, in `rigour review` and in a backtest (the program takes seconds to build).
+     * `wire_contracts`: files whose types another service reads, so their members are never write-only here.
+     */
+    redundancy: z.object({
+        enabled: z.boolean().optional().default(true),
+        wire_contracts: z.array(z.string()).optional().default([]),
+    }).optional().default({}),
     /** A parameter the change adds as optional that only tests omit (review/optional-params.ts). */
     optional_params: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** A changed function whose body duplicates another in the files the change touched (review/duplicate-functions.ts). */
@@ -419,11 +429,23 @@ export const ConfigSchema = z.object({
         show_preexisting: z.boolean().optional().default(false),
         /** The GitHub account whose token fetches the pull request's previous review (`gh auth token --user`). */
         github_account: z.string().optional(),
-        /** The fresh reviewer (review/reviewer.ts): the person's own coding agent CLI, headless. `enabled` runs it at every push; `rigour review --reviewer` runs it on request. */
+        /** The reviewer (review/reviewer.ts): the person's own coding-agent CLIs, headless and read-only. `enabled` runs it at push; `rigour review --reviewer` runs it on request. */
         reviewer: z.object({
             enabled: z.boolean().optional().default(false),
-            command: z.string().optional().default('claude'),
+            /**
+             * At push, once the deterministic gates pass: `background` (default) starts the model review of the pushed
+             * commit without holding the push; `wait` holds the push for it; `off` reviews only on request. Either way
+             * a model is asked only when the branch has an open, non-draft pull request (someone will read the push).
+             */
+            on_push: z.enum(['background', 'wait', 'off']).optional().default('background'),
+            /** The adapters, in order: claude, cursor, codex. */
+            reviewers: z.array(z.string()).optional().default(['claude']),
+            /** single: the first installed reviewer. cross: prefer a vendor not on the commits' trailers. full: two vendors, verdicts merged. */
+            mode: z.enum(['single', 'cross', 'full']).optional().default('single'),
+            /** The model for the claude reviewer. */
             model: z.string().optional(),
+            /** A model per reviewer name, e.g. { cursor: "auto" }. */
+            models: z.record(z.string()).optional().default({}),
             timeout_ms: z.number().optional().default(15 * 60_000),
         }).optional().default({}),
     }).optional().default({}),

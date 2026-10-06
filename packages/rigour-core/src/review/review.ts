@@ -25,6 +25,7 @@ import { unusedExportFailures } from './unused-exports.js';
 import { queryPatternFailures } from './query-patterns.js';
 import { optionalParamFailures } from './optional-params.js';
 import { duplicateFunctionFailures } from './duplicate-functions.js';
+import { typedChecks, TYPED_CHECKS, type Redundancy } from './typed/redundancy.js';
 import { loopCopyFailures } from './loop-copies.js';
 import { partialFixFailures } from './partial-fixes.js';
 import { partialWiringFailures } from './partial-wiring.js';
@@ -45,6 +46,8 @@ export interface ReviewInput {
     deep?: Omit<DeepOptions, 'focusLines' | 'removedLines' | 'diff'>;
     /** Read dismissals and check outcomes at this commit (the base), not as the change left them. */
     trustedRef?: string;
+    /** Run the typed checks (review/typed): the project's TypeScript program takes seconds, so at push, in `rigour review` and in a backtest, not at every stop. */
+    typed?: boolean;
 }
 
 export interface ReviewResult {
@@ -71,6 +74,10 @@ export interface ReviewResult {
     gateErrors: string[];
     /** rigour.yml or .rigour/ files this change edits: they steer the review, so they are called out. */
     controlFilesChanged: string[];
+    /** Candidates for the reviewer to confirm (a nested scan, a property that only leaves through serialisation), from the typed checks. */
+    hints: string[];
+    /** Why the typed checks could not run on a TypeScript project (`gateErrors` then names `typed-checks-unavailable`). */
+    typedError?: string;
 }
 
 export interface ReviewFinding {
@@ -93,7 +100,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff) };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [] };
     }
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
     const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
@@ -109,6 +116,9 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         ...partialFixFailures(input.cwd, changedLines, input.config),
         ...partialWiringFailures(input.cwd, changedLines, input.config),
     );
+    const typed: Redundancy = input.typed ? typedChecks(input.cwd, changedLines, input.config) : { failures: [], hints: [] };
+    report.failures.push(...typed.failures);
+    if (typed.error) report.summary[TYPED_CHECKS] = 'ERROR'; // a check that could not run is a crashed gate, never a pass
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);
     const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics, input.trustedRef);
@@ -131,7 +141,9 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         report,
         gateErrors,
         controlFilesChanged: controlFiles(diff),
+        hints: typed.hints,
         ...(deepError ? { deepError } : {}),
+        ...(typed.error ? { typedError: typed.error } : {}),
     };
 }
 

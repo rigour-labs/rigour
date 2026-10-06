@@ -5,8 +5,10 @@
  * dead exports pile up in agent-written code. Only exports on added lines are checked. Another
  * file uses an export when it names the symbol as a whole word AND points at the module: an import,
  * re-export, dynamic import or mock whose specifier ends in the module's name (its folder's, for an
- * index file). A same-named word elsewhere, such as an unrelated route parameter, is not a use. What a framework calls by convention
- * (SvelteKit and Next.js route modules, hooks, serverless functions) is never reported.
+ * index file). A same-named word elsewhere, such as an unrelated route parameter, is not a use, and
+ * neither is a test: an export only its tests import is dead in production, and exporting a thing
+ * for its test is the habit that keeps it so. What a framework calls by convention (SvelteKit and
+ * Next.js route modules, hooks, serverless functions) is never reported.
  */
 import { spawnSync } from 'child_process';
 import fs from 'fs';
@@ -17,6 +19,8 @@ import { emitsDeclarations, isPackageEntry } from './package-layout.js';
 const GIT_TIMEOUT_MS = 10_000;
 const CODE = /\.(ts|tsx|js|jsx|mjs|svelte)$/;
 const SKIPPED = /\.(test|spec)\.|\.d\.ts$|(^|\/)(dist|build|out|coverage|\.next|[\w-]+-dist)\//;
+/** A test is not a consumer: production code must use the export. */
+const TEST = /\.(test|spec|e2e)\.[cm]?[jt]sx?$|(^|\/)(tests?|e2e|__tests__|__mocks__)\//;
 
 /** What a route or hook module exports for its framework, not for an importer. */
 const FRAMEWORK_EXPORTS = new Set([
@@ -122,7 +126,7 @@ export function unusedExportFailures(cwd: string, diff: string, config: Config):
     if (!users) return []; // git could not answer: say nothing rather than guess
     const points = pointsAtCache(cwd);
     return candidates
-        .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && points(user, exp.file)))
+        .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && !TEST.test(user) && points(user, exp.file)))
         .map(unused);
 }
 
@@ -192,7 +196,7 @@ function unused(exp: AddedExport): Failure {
     return {
         id: 'unused-export',
         title: 'Unused export',
-        details: `\`${exp.name}\` is exported but no other file uses it. An export nothing imports is dead code that readers and agents treat as part of the module's contract.`,
+        details: `\`${exp.name}\` is exported but no other file uses it (a test is not a consumer). An export nothing imports is dead code that readers and agents treat as part of the module's contract.`,
         severity: 'medium',
         provenance: 'traditional',
         files: [exp.file],

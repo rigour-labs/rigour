@@ -260,6 +260,10 @@ export const UNIVERSAL_CONFIG: Config = {
         change_sweep: {
             enabled: true,
         },
+        redundancy: {
+            enabled: true,
+            wire_contracts: [],
+        },
         duplicate_functions: {
             enabled: true,
         },
@@ -319,7 +323,10 @@ export const UNIVERSAL_CONFIG: Config = {
         show_preexisting: false,
         reviewer: {
             enabled: false,
-            command: 'claude',
+            on_push: 'background',
+            reviewers: ['claude'],
+            mode: 'single',
+            models: {},
             timeout_ms: 900000,
         },
     },

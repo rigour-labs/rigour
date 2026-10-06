@@ -4,6 +4,7 @@ import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
+import { selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 
 function runText(command: string, args: string[]): string {
     try {
@@ -67,6 +68,7 @@ export async function doctorCommand(options: { cleanCache?: boolean } = {}, cwd 
     console.log(chalk.bold.cyan('\nRigour Doctor\n'));
     if (options.cleanCache) return cleanCache();
     await printRepoSetup(cwd);
+    await printPushGate(cwd);
     await printDatabaseHealth();
 
     const paths = Array.from(new Set(listRigourPaths()));
@@ -157,6 +159,21 @@ const GB = 1024 ** 3;
 const size = (bytes: number) => (bytes >= GB ? `${(bytes / GB).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`);
 
 /** The database's size, and the cache rows nothing reads any more, with the command that removes them. */
+/** When this repository has the git pre-push hook: prove it with a real push to a scratch remote, since "it printed blocked" is not evidence. */
+async function printPushGate(cwd: string): Promise<void> {
+    const hooksDir = runText('git', ['-C', cwd, 'rev-parse', '--git-path', 'hooks']);
+    if (!hooksDir) return;
+    const hook = path.resolve(cwd, hooksDir, 'pre-push');
+    console.log(chalk.bold('Push Gate'));
+    if (!fs.existsSync(hook) || !fs.readFileSync(hook, 'utf8').includes('hooks push --git')) {
+        console.log(chalk.yellow('  ⚠ No git pre-push hook: only agents with Rigour hooks are gated. Run: rigour hooks init\n'));
+        return;
+    }
+    const test = await selfTestGitPushHook(selfTestCommand());
+    for (const step of test.steps) console.log(chalk.dim(`  - ${step}`));
+    console.log(test.ok ? chalk.green('  ✓ The push gate holds under a real git push.\n') : chalk.red('  ✘ The push gate does not hold.\n'));
+}
+
 async function printDatabaseHealth(): Promise<void> {
     const dead = await deadCacheRows().catch(() => null);
     if (!dead) return;

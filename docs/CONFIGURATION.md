@@ -59,10 +59,20 @@ Uses AST traversal to calculate **Cyclomatic Complexity**. It counts branches (i
 Ensures classes stay focused. If a class has more than 10-12 methods, it should likely be split into multiple smaller services.
 
 ### `commands`
-Any shell command that returns a non-zero exit code will cause the Rigour check to fail. This is where you integrate your existing CI tools. Without them, the push gate runs the project's own installed tools on the changed files (prettier, eslint, the tests vitest relates to them) and its type check: the `typecheck` or `check` script in package.json when there is one, else `svelte-kit sync` and svelte-check for a SvelteKit project, else tsc. A tool set here is left to this command instead. Nothing is ever downloaded; a tool the project did not install is reported as skipped.
+Any shell command that returns a non-zero exit code will cause the Rigour check to fail. This is where you integrate your existing CI tools. Without them, the push gate runs the project's own installed tools on the changed files (prettier, eslint, the tests vitest relates to them) and its type check: the `typecheck` or `check` script in package.json when there is one, else `svelte-kit sync` and svelte-check for a SvelteKit project, else tsc. Two more run when the project has what they need: a type-checked lint overlay (`no-unnecessary-condition`, `no-floating-promises` and the other `typescript-eslint` rules that find dead guards and un-awaited promises), layered on the project's own `eslint.config.*` with its own `typescript-eslint`, blocking on changed lines only and counting the rest; and knip, when the project installs it, on the changed files. A tool set here is left to this command instead. Nothing is ever downloaded; a tool the project never declared is skipped and said so, and one declared in package.json but not installed fails, since a checkout without its dependencies cannot prove anything.
 
 ### `unused_exports` and `orphan_files` (on by default)
-Dead code a change adds. `unused_exports`: an export or re-export on an added line that no other file imports from its module (framework route exports, such as SvelteKit `load` or Next.js `metadata`, are skipped). `orphan_files`: a new code file nothing outside the change's new files imports or runs (routes, hooks, tests, migrations and config files are found by their runner and skipped). Both block a review, the stop hook and the push gate.
+Dead code a change adds. `unused_exports`: an export or re-export on an added line that no other file imports from its module (framework route exports, such as SvelteKit `load` or Next.js `metadata`, are skipped; a test is not a consumer). `orphan_files`: a new code file nothing outside the change's new files imports or runs (routes, hooks, tests, migrations and config files are found by their runner and skipped). Both block a review, the stop hook and the push gate.
+
+### `redundancy` (on by default)
+What a change made redundant, found with the project's own TypeScript program (built once per run from its `tsconfig.json` and its installed `typescript`, so it runs at push, in `rigour review` and in a backtest, not at every stop). Four findings block, each anchored on a line the change wrote: a null filter beside a range or equality on the same column (`.not(col, 'is', null)` next to `.gte(col, …)`; SQL already excludes NULL there), a row type still `| null` for a column the query filters non-null (every guard on it is dead), an optional member every host object supplies, and a property the hosts set that nothing reads. A value that only leaves through serialisation (a payload another service reads) is a hint for the reviewer rather than a block, and `wire_contracts` lists the files whose types another service reads so their members are never write-only here. A function that scans a collection and is called once per item of another collection is also a hint. A TypeScript project whose program cannot be built (dependencies not installed, a generated config missing) blocks: a checkout that cannot prove the change is never a pass.
+
+```yaml
+gates:
+  redundancy:
+    enabled: true
+    wire_contracts: ["src/lib/contracts/**"]
+```
 
 ```yaml
 gates:
@@ -85,11 +95,19 @@ review:
   show_preexisting: false      # true lists findings the code already had before the change
   github_account: my-login     # the account whose token fetches the PR's previous review (or set it in a profile)
   reviewer:
-    enabled: false             # true runs the fresh reviewer at every push (rigour review --reviewer runs it on request).
-                               # It reads every human review on the PR (with inline comments) and the PR description;
-                               # an open point the human marked non-blocking is listed, not held against the push.
-    command: claude            # your coding agent's CLI, run headless and read-only
-    model: claude-opus-5-5     # optional
+    enabled: false             # true runs the reviewer at push (rigour review --reviewer runs it on request).
+                               # It reads every human review on the PR (with inline comments) and the PR description,
+                               # checks every point against the code, traces every read the change adds, and reports
+                               # what a fix left behind; an open point the human marked non-blocking is listed for the
+                               # reply, not held against the push.
+    on_push: background        # background (default): the push goes through once the checks pass and the pushed commit
+                               # is reviewed in a worktree of its own (rigour review --status shows the verdict);
+                               # wait: the push waits for the verdict; off: only on request. A model is asked only
+                               # when the branch has an open, non-draft pull request.
+    reviewers: [claude]        # your coding agents' CLIs, run headless and read-only: claude, cursor, codex
+    mode: single               # single: the first installed; cross: a vendor not on the commits' trailers;
+                               # full: two vendors, verdicts merged (rigour review --reviewer --full, before asking a person)
+    model: claude-opus-5-5     # optional, for claude; models: { cursor: auto } for the others
     timeout_ms: 900000
 ```
 
