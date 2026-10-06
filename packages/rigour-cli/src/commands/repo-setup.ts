@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getContextEvents, type AgentEvent, type ContextEvent } from '@rigour-labs/core';
+import { agentHome, enabledHere } from './personal.js';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 
 export type SetupState = 'working' | 'set up' | 'broken' | 'missing';
@@ -25,24 +26,29 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
     const events = eventsAcross(checkoutRoots(cwd));
     // Only the MCP server writes context records, one per tool call: the CLI's own events would count otherwise.
     const calls = toolCalls ?? await getContextEvents(undefined, cwd).catch(() => []);
-    const read = (rel: string) => { try { return fs.readFileSync(path.join(cwd, rel), 'utf8'); } catch { return ''; } };
+    const readFrom = (base: string) => (rel: string) => { try { return fs.readFileSync(path.join(base, rel), 'utf8'); } catch { return ''; } };
+    const read = readFrom(cwd);
+    // A personal install keeps its hooks and MCP server at user level, switched on per repository (personal.ts).
+    const personal = enabledHere(cwd);
+    const home = personal ? readFrom(agentHome()) : () => '';
     const agents = [
-        { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') },
-        { name: 'Cursor', config: read('.cursor/hooks.json') },
-        { name: 'Windsurf', config: read('.windsurf/hooks.json') },
+        { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') + home('.claude/settings.json') },
+        { name: 'Cursor', config: read('.cursor/hooks.json') + home('.cursor/hooks.json') },
+        { name: 'Windsurf', config: read('.windsurf/hooks.json') + home('.codeium/windsurf/hooks.json') },
     ].filter(a => a.config);
     return [
-        configCheck(cwd),
+        configCheck(cwd, personal),
         editCheck(agents, now, events),
         stopCheck(agents.map(a => a.config).join('\n'), now, events),
-        mcpCheck(read('.mcp.json'), now, calls),
+        mcpCheck(read('.mcp.json') + home('.claude.json') + home('.cursor/mcp.json'), now, calls),
         prCheck(cwd),
     ];
 }
 
-function configCheck(cwd: string): SetupCheck {
-    return fs.existsSync(path.join(cwd, 'rigour.yml'))
-        ? { id: 'config', name: 'Project settings', state: 'working', detail: 'rigour.yml' }
+function configCheck(cwd: string, personal: boolean): SetupCheck {
+    if (fs.existsSync(path.join(cwd, 'rigour.yml'))) return { id: 'config', name: 'Project settings', state: 'working', detail: 'rigour.yml' };
+    return personal
+        ? { id: 'config', name: 'Project settings', state: 'working', detail: 'Personal install: Rigour\'s defaults, switched on for this repository (nothing committed)' }
         : { id: 'config', name: 'Project settings', state: 'missing', detail: 'No rigour.yml: Rigour uses its defaults', fix: 'rigour setup' };
 }
 

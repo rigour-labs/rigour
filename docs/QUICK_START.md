@@ -19,15 +19,17 @@ npm install -g @rigour-labs/cli     # or: brew install rigour-labs/tap/rigour
 rigour setup
 ```
 
-`rigour setup` writes, and lists as it goes:
+`rigour setup` is **personal** by default: nothing in your working tree, nothing to commit. It:
 
-- `rigour.yml`, the settings (kept by `rigour uninstall` unless you pass `--all`);
-- Rigour's hook entries in your agents' configs (`.claude/settings.json`, `.cursor/hooks.json`, `.windsurf/hooks.json`) and its MCP server in `.mcp.json`. A config you already have is merged into, never replaced: your permissions, settings and own hooks stay;
-- agent instructions (`CLAUDE.md`, `AGENTS.md` and the like) only where you have none. Your own are never touched;
-- git's `pre-push` hook, so every tool and your terminal go through the same gate;
-- semantic search, installed once per machine (about 230 MB, shared by every Rigour version). It lets "have we learned this before?" and "is there already a helper for this?" work by meaning. Skip it with `rigour setup --no-semantic`.
+- switches Rigour on for this repository with a marker inside `.git/`, and adds `.rigour/` to `.git/info/exclude` (not your `.gitignore`);
+- installs the agent hooks **once per machine**, in each agent's user-level config: `~/.claude/settings.json`, `~/.cursor/hooks.json`, `~/.codeium/windsurf/hooks.json`, `~/Documents/Cline/Hooks/`. They are merged into what you have (your settings and own hooks stay), and each starts with a guard that stays silent in any repository you have not switched on;
+- installs git's `pre-push` hook in `.git/hooks`, so every tool and your terminal go through the same gate;
+- registers Rigour's MCP server at user level (`claude mcp add --scope user`, `~/.cursor/mcp.json`);
+- installs semantic search, once per machine (about 230 MB, shared by every Rigour version). It lets "have we learned this before?" and "is there already a helper for this?" work by meaning. Skip it with `--no-semantic`.
 
-It ends by checking that each piece works.
+Settings are Rigour's defaults until you want them shared. It ends by checking that each piece works.
+
+**For a team:** `rigour setup --team` commits Rigour to the repository instead: `rigour.yml`, the project's agent hooks and its MCP server in `.mcp.json`, so everyone who clones gets the same gate. Configs you already have are merged into, never replaced. Agent instruction files (`CLAUDE.md`, `AGENTS.md` and the like, only where you have none) come with `--instructions`. A repository that already commits a `rigour.yml` gets the team setup automatically.
 
 ## 3. Work as usual
 
@@ -50,7 +52,11 @@ rigour uninstall --dry-run    # what would be removed
 rigour uninstall              # remove it
 ```
 
-This removes Rigour's hook entries and MCP server from your configs (everything else in them stays), the files it created that you have not edited since, and its git hook. A file it created that you have edited is kept and named. `rigour.yml` and `.rigour/` (your dismissals and backtest ledger) stay unless you add `--all`.
+In a personal install this switches Rigour off for the repository and removes its git hook; the machine-level hooks stay, silent everywhere you have not switched Rigour on. `rigour uninstall --machine` removes those too, with the user-level MCP server and the shared semantic search, leaving your agents' configs as they were before.
+
+In a team install it removes Rigour's hook entries and MCP server from the committed configs (everything else in them stays), the files it created that you have not edited since, and its git hook. A file it created that you have edited is kept and named.
+
+Either way, `.rigour/` (your dismissals and backtest ledger) and any `rigour.yml` stay unless you add `--all`.
 
 ---
 

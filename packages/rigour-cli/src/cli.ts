@@ -241,9 +241,11 @@ program
 
 program
     .command('setup')
-    .description('Set up Rigour in this repository: settings, agent hooks and instructions, semantic search, then check it all works (rigour uninstall takes it out)')
+    .description('Set up Rigour here and check it works. Personal by default: agent hooks once per machine, this repository switched on inside .git, nothing in your working tree. --team commits it to the repository. rigour uninstall takes it out')
+    .option('--team', 'Commit Rigour to this repository (rigour.yml, project hooks, .mcp.json) so everyone who clones gets it. Default: personal, nothing in your working tree')
+    .option('--instructions', 'With --team: also write agent instruction files (CLAUDE.md, AGENTS.md, ...) where the project has none')
     .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
-    .action(async (options: { semantic?: boolean }) => {
+    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean }) => {
         await setupCommand(process.cwd(), options);
     });
 
@@ -533,10 +535,11 @@ backtestCmd
 
 program
     .command('uninstall')
-    .description('Take Rigour back out of this repository: its hook entries and MCP server from agent configs (your other settings stay), the files it created and you have not edited, and its git pre-push hook. Keeps rigour.yml and .rigour/ unless --all')
+    .description('Take Rigour back out of this repository: switched off (personal), or its hook entries and MCP server out of the committed configs (team; your other settings stay), the files it created that you have not edited, and its git pre-push hook. Keeps rigour.yml and .rigour/ unless --all; --machine also removes it from this machine')
     .option('--all', 'Also remove rigour.yml, .rigour/ (dismissals, ledger) and Rigour\'s .gitignore lines')
+    .option('--machine', 'Also remove Rigour from this machine: the user-level agent hooks and MCP server, and the shared semantic search runtime')
     .option('--dry-run', 'Say what would be removed, change nothing')
-    .action((options: { all?: boolean; dryRun?: boolean }) => process.exit(uninstallCommand(process.cwd(), options)));
+    .action((options: { all?: boolean; dryRun?: boolean; machine?: boolean }) => process.exit(uninstallCommand(process.cwd(), options)));
 
 const profileCmd = program
     .command('profile')

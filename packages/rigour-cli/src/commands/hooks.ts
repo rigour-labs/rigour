@@ -35,10 +35,11 @@ import {
     recordSessionBaseline,
 } from '@rigour-labs/core';
 import type { HookCheckerResult } from '@rigour-labs/core';
-import { pushGateShell } from '@rigour-labs/core';
+import { pushGateShell, rigourUserDir } from '@rigour-labs/core';
 import { groupFilesByRepo, recordEditCatches } from './hooks-check-repos.js';
 import { installGitPushHook } from './hooks-git.js';
 import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.js';
+import { agentHome, asUserLevel } from './personal.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -154,6 +155,12 @@ function resolveCheckerCommand(): CheckerCommandSpec {
         command: 'npx',
         args: ['--yes', `@rigour-labs/cli@${getHookCliVersion()}`, 'hooks', 'check'],
     };
+}
+
+/** This CLI, pinned to its version, as a hook runs it (`npx --yes @rigour-labs/cli@6.6.6`). */
+export function pinnedCliCommand(): string {
+    const checker = resolveCheckerCommand();
+    return checkerToShellCommand({ command: checker.command, args: checker.args.slice(0, -2) });
 }
 
 /** The stop hook: same pinned CLI, `hooks stop` instead of `hooks check`. */
@@ -463,8 +470,9 @@ function printDryRun(files: GeneratedFile[]): void {
     console.log('');
 }
 
+/** `recordRoot`: where the install record lives (the repository, or Rigour's home for a machine install). */
 async function writeHookFiles(
-    cwd: string, files: GeneratedFile[], force: boolean
+    cwd: string, files: GeneratedFile[], force: boolean, recordRoot = cwd
 ): Promise<{ written: number; skipped: number; failedPaths: Set<string> }> {
     let written = 0;
     let skipped = 0;
@@ -500,7 +508,7 @@ async function writeHookFiles(
         try {
             await fs.ensureDir(path.dirname(fullPath));
             await fs.writeFile(fullPath, file.content, 'utf-8');
-            recordCreated(cwd, file.path, file.content);
+            recordCreated(recordRoot, file.path, file.content);
 
             if (file.executable) {
                 await fs.chmod(fullPath, 0o755);
@@ -546,6 +554,18 @@ function printNextSteps(tools: HookTool[], unavailableTools: Set<HookTool>): voi
 }
 
 // ── Main command entry point ─────────────────────────────────────────
+
+/**
+ * The personal install's agent hooks, once per machine (personal.ts): every agent's user-level
+ * config, each command guarded so it runs only in a repository switched on with `rigour setup`.
+ * Merged into the person's existing configs like a project install; recorded in Rigour's home.
+ */
+export async function installMachineHooks(options: { block?: boolean; dlp?: boolean } = {}): Promise<{ written: number; failed: string[] }> {
+    const checker = resolveCheckerCommand();
+    const files = ALL_TOOLS.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false)).map(file => asUserLevel(file));
+    const { written, failedPaths } = await writeHookFiles(agentHome(), files, true, path.dirname(rigourUserDir()));
+    return { written, failed: [...failedPaths] };
+}
 
 export async function hooksInitCommand(cwd: string, options: HooksOptions = {}): Promise<void> {
     console.log(chalk.blue('\nRigour Hooks Setup\n'));
@@ -601,10 +621,10 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     }
 
     // Git's own pre-push hook: the same push gate for every tool and for a terminal, not only the agents above.
-    const gitHook = installGitPushHook(cwd, checkerToShellCommand({ command: checker.command, args: checker.args.slice(0, -2) }));
+    const gitHook = installGitPushHook(cwd, pinnedCliCommand());
     if (gitHook.action === 'managed elsewhere') {
         console.log(chalk.yellow(`Git pre-push hooks are managed outside this repository (${gitHook.path}); Rigour leaves that file alone.`));
-        console.log(chalk.dim(`  To gate every push there, add: ${checkerToShellCommand({ command: checker.command, args: checker.args.slice(0, -2) })} hooks push --git "$@" || exit $?\n`));
+        console.log(chalk.dim(`  To gate every push there, add: ${pinnedCliCommand()} hooks push --git "$@" || exit $?\n`));
     } else if (gitHook.action !== 'no repository') {
         console.log(chalk.green(`Git pre-push hook ${gitHook.action}: ${gitHook.path}`));
         console.log(chalk.dim('  Every push from any tool or terminal goes through the gate; `rigour hooks selftest` proves it with a real push.\n'));

@@ -56,7 +56,7 @@ afterEach(() => {
 describe('rigour uninstall', () => {
     it('after init, takes out exactly what Rigour put in: the repository is as it was, rigour.yml and .rigour/ aside', async () => {
         const before = snapshot();
-        await initCommand(repo);
+        await initCommand(repo, { instructions: true });
 
         // What init did to the person's own files: merged, never replaced.
         const settings = JSON.parse(read('.claude/settings.json'));
@@ -91,7 +91,7 @@ describe('rigour uninstall', () => {
     });
 
     it('keeps a file Rigour created that the person has since edited, and says so', async () => {
-        await initCommand(repo);
+        await initCommand(repo, { instructions: true });
         fs.appendFileSync(path.join(repo, 'CLAUDE.md'), '\n## Our addition\n');
         const report = uninstall(repo);
         expect(fs.existsSync(path.join(repo, 'CLAUDE.md'))).toBe(true);

@@ -9,8 +9,11 @@
  *   holds the hash of what was written); an edited one is kept and named.
  * - Git's pre-push hook: Rigour's own hook is deleted; the lines it appended to another tool's
  *   hook are removed. A hooks directory outside the repository is named, never written.
+ * - A personal install's switch inside the git directory (personal.ts).
  * - `rigour.yml` and `.rigour/` hold the team's settings, dismissals and backtest ledger: they are
  *   kept unless `--all`, which also removes Rigour's .gitignore lines.
+ * - `--machine`: also the user-level hooks and MCP server every agent has, and the shared semantic
+ *   search runtime. Without it they stay, silent in every repository not switched on.
  * `--dry-run` says what would happen and changes nothing.
  */
 import chalk from 'chalk';
@@ -18,6 +21,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { APPENDED_COMMENT } from './hooks-git.js';
+import { disableHere, enabledHere, uninstallMachine } from './personal.js';
 import { isEmptyConfig, isRigourScript, readInstallRecord, unchangedSinceInstall, withoutRigour } from './install-record.js';
 
 const CONFIGS = ['.claude/settings.json', '.cursor/hooks.json', '.windsurf/hooks.json', '.cursor/mcp.json', '.mcp.json'];
@@ -25,7 +29,7 @@ const CONFIGS = ['.claude/settings.json', '.cursor/hooks.json', '.windsurf/hooks
 const KNOWN_SCRIPTS = ['.clinerules/hooks/PostToolUse', '.clinerules/hooks/PreToolUse'];
 const GITIGNORE_LINES = new Set(['rigour-report.json', 'rigour-fix-packet.json', '.rigour/', '.rigour/*', '!.rigour/dismissed.json', '!.rigour/backtest.json']);
 
-export interface UninstallOptions { all?: boolean; dryRun?: boolean }
+export interface UninstallOptions { all?: boolean; dryRun?: boolean; machine?: boolean }
 
 export interface UninstallReport {
     /** Each change, as `<action> <path>`. */
@@ -72,6 +76,10 @@ export function uninstall(cwd: string, options: UninstallOptions = {}): Uninstal
     }
 
     gitHook(cwd, act, report);
+    // A personal install: the switch inside the git directory (and its exclude line, with .rigour/ itself).
+    if (enabledHere(cwd)) act('switch Rigour off for this repository (personal install)', () => disableHere(cwd, !!options.all));
+    else if (options.all && !options.dryRun) disableHere(cwd, true);
+    if (options.machine) for (const change of uninstallMachine(!!options.dryRun)) report.changes.push(change);
 
     if (options.all) {
         if (fs.existsSync(path.join(cwd, 'rigour.yml'))) act('delete rigour.yml', () => fs.unlinkSync(path.join(cwd, 'rigour.yml')));
@@ -79,7 +87,7 @@ export function uninstall(cwd: string, options: UninstallOptions = {}): Uninstal
         gitignore(cwd, act);
     } else {
         for (const rel of ['rigour.yml', '.rigour']) {
-            if (fs.existsSync(path.join(cwd, rel))) report.kept.push(`${rel}: the team's settings, dismissals and ledger (--all removes it)`);
+            if (fs.existsSync(path.join(cwd, rel))) report.kept.push(`${rel}: settings, dismissals and backtest ledger (--all removes it)`);
         }
     }
 
