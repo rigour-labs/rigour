@@ -424,6 +424,11 @@ export const ConfigSchema = z.object({
             escalate: z.enum(['always', 'risk']).optional().default('always'),
             /** A model per reviewer name for cross-examination (a narrow verification task), e.g. { claude: "haiku" }. */
             cross_models: z.record(ModelName).optional().default({}),
+            /**
+             * Environment variables a judge's CLI must not see, per reviewer name, e.g. { codex: { unset: [OPENAI_API_KEY] } }
+             * when that variable holds a key meant for another service. RIGOUR_API_KEY is never passed to a judge.
+             */
+            judge_env: z.record(z.object({ unset: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'an environment variable name')).optional().default([]) })).optional().default({}),
         }).optional().default({}),
     }).optional().default({}),
     ignore: z.array(z.string()).optional().default([]),

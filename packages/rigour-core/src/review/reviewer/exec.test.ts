@@ -15,6 +15,21 @@ describe('running a command', () => {
         expect(runs.every(r => r.exitCode === 0 && r.stdout === 'ok')).toBe(true);
     });
 
+    it('keeps a variable the command must not see out of its environment, and passes the rest through', async () => {
+        process.env.RIGOUR_TEST_SECRET = 'gateway-key';
+        process.env.RIGOUR_TEST_KEPT = 'kept';
+        try {
+            const print = ['-e', 'process.stdout.write(JSON.stringify({ secret: process.env.RIGOUR_TEST_SECRET ?? null, kept: process.env.RIGOUR_TEST_KEPT ?? null, added: process.env.RIGOUR_TEST_ADDED ?? null }))'];
+            const hidden = await defaultExec(process.execPath, print, { cwd: os.tmpdir(), timeoutMs: 30_000, env: { RIGOUR_TEST_ADDED: 'added' }, unset: ['RIGOUR_TEST_SECRET'] });
+            expect(JSON.parse(hidden.stdout)).toEqual({ secret: null, kept: 'kept', added: 'added' });
+            const inherited = await defaultExec(process.execPath, print, { cwd: os.tmpdir(), timeoutMs: 30_000 });
+            expect(JSON.parse(inherited.stdout)).toEqual({ secret: 'gateway-key', kept: 'kept', added: null });
+        } finally {
+            delete process.env.RIGOUR_TEST_SECRET;
+            delete process.env.RIGOUR_TEST_KEPT;
+        }
+    });
+
     it('says why a command that never answered failed: not started, or timed out', async () => {
         const missing = await defaultExec('rigour-no-such-command', [], { cwd: os.tmpdir(), timeoutMs: 30_000 });
         expect(missing.exitCode).not.toBe(0);

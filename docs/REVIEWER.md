@@ -76,7 +76,7 @@ The nearest choice wins:
 | Setting | Who may set it |
 | --- | --- |
 | `enabled`, `mode`, `panel` (on or off), `judges`, `escalate`, `reviewers`, `models`, `max_runs_per_day`, `max_usd_per_day` | The team in `rigour.yml`, and each person for their own runs |
-| `panel: required`, `mode_required`, `dismissals`, `on_push`, `timeout_ms`, `panel_max_items`, `cross_models`, `model` | The team only |
+| `panel: required`, `mode_required`, `dismissals`, `on_push`, `timeout_ms`, `panel_max_items`, `cross_models`, `model`, `judge_env` | The team only |
 
 Your own settings apply to your runs in every repository on your machine. The team can set a
 **floor** that no nearer choice goes below: `panel: required` and `mode_required: true`. Under a

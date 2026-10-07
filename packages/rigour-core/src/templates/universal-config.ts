@@ -292,6 +292,7 @@ export const UNIVERSAL_CONFIG: Config = {
             judges: 2,
             escalate: 'always',
             cross_models: {},
+            judge_env: {},
         },
     },
     ignore: [],

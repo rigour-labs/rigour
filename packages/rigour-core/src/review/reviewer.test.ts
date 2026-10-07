@@ -24,7 +24,7 @@ const INLINE = [{ id: 7, user: { login: 'senior', type: 'User' }, path: 'src/job
 
 const EMPTY = { prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: true, evidence: 'a.ts:1' }], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [] };
 
-interface Seen { prompts: string[]; files: Record<string, string>; ghArgs: string[][]; ran: string[]; args?: string[][]; ghToken?: string; installed?: string[]; versions?: Record<string, string> }
+interface Seen { prompts: string[]; files: Record<string, string>; ghArgs: string[][]; ran: string[]; args?: string[][]; unset?: Array<string[] | undefined>; ghToken?: string; installed?: string[]; versions?: Record<string, string> }
 
 /** Real git; scripted gh; agent CLIs that record what they were shown and answer `answer` (a function of the reviewer's name). */
 function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout: string; stderr: string }, seen: Seen, pr: typeof PR | null = PR): Exec {
@@ -49,6 +49,7 @@ function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout
         if (args[0] === '--version') return (seen.installed ?? ['claude', 'cursor-agent']).includes(binary) ? { exitCode: 0, stdout: `${seen.versions?.[command] ?? '1.0.0'}\n`, stderr: '' } : { exitCode: 127, stdout: '', stderr: 'not found' };
         seen.ran.push(command);
         (seen.args ??= []).push(args);
+        (seen.unset ??= []).push(options.unset);
         const name = binary === 'claude' ? 'claude' : binary === 'cursor-agent' ? 'cursor' : 'codex';
         const prompt = binary === 'claude' ? args[args.indexOf('-p') + 1] : args[args.length - 1];
         seen.prompts.push(prompt);
@@ -272,6 +273,24 @@ describe('a panel of judges', () => {
     const LOCK = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' };
     const LONE = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', consequence: 'a reader treats it as the contract' };
     const OPINION = { class: 'duplication', file: 'src/job.ts', line: 2, issue: 'could be one line shorter', consequence: '' };
+
+    it("keeps Rigour's own key from every judge, and a key the team names from that judge, in reviews and cross-examinations alike", async () => {
+        installFake(bins[0], 'codex');
+        const seen = { ...seenNow(), installed: ['claude', 'cursor-agent', 'codex'] };
+        const reply = (name: string) => {
+            const prompt = seen.prompts.at(-1) ?? '';
+            if (prompt.includes('The other\nreviewer raised')) {
+                const ids = [...prompt.matchAll(/"id": "([0-9a-f]+)"/g)].map(m => m[1]);
+                return JSON.stringify({ answers: ids.map(id => ({ id, call: 'refute', evidence: `src/job.ts:1 ${name}: job is imported by the runner` })) });
+            }
+            return JSON.stringify({ ...EMPTY, findings: name === 'codex' ? [LONE] : [] });
+        };
+        await runReviewer(repo, 'main', panelConfig({ judges: 3, judge_env: { codex: { unset: ['OPENAI_API_KEY'] } } }), fakes(reply, seen), () => undefined);
+        const runs = seen.ran.map((command, i) => ({ judge: path.basename(command).replace(/\.(cmd|exe)$/, ''), unset: seen.unset?.[i] ?? [] }));
+        expect(runs.length).toBe(5); // three reviews and two cross-examinations
+        for (const run of runs) expect(run.unset).toContain('RIGOUR_API_KEY');
+        expect(runs.filter(r => r.unset.includes('OPENAI_API_KEY')).map(r => r.judge)).toEqual(['codex']);
+    });
 
     it('confirms what a majority raised, drops what the others refute with evidence, and never blocks on an opinion', async () => {
         installFake(bins[0], 'codex');

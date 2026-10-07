@@ -34,6 +34,7 @@ import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { account, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
+import { judgeUnset } from './reviewer/judge-env.js';
 
 export { defaultExec, githubEnv, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
 export { itemLine, type OpenItem } from './reviewer/verdict.js';
@@ -285,7 +286,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         try {
             const answers = await Promise.all(reviewers.map(async name => {
                 const adapter = ADAPTERS[name];
-                const run = await exec(installed.get(name)!.binary, adapter.args(prompt, modelFor(name)), { cwd, timeoutMs: settings.timeout_ms });
+                const run = await exec(installed.get(name)!.binary, adapter.args(prompt, modelFor(name)), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
                 progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
                 const answer = adapter.answer(run.stdout);
                 store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
@@ -325,7 +326,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 },
                 ask: async (judge, asked) => {
                     const name = judge as ReviewerName;
-                    const run = await exec(installed.get(name)!.binary, ADAPTERS[name].args(crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked), settings.cross_models[name] ?? modelFor(name)), { cwd, timeoutMs: settings.timeout_ms });
+                    const run = await exec(installed.get(name)!.binary, ADAPTERS[name].args(crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked), settings.cross_models[name] ?? modelFor(name)), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
                     const answer = ADAPTERS[name].answer(run.stdout);
                     store.addSpend(1, answer.costUsd);
                     reserved--;

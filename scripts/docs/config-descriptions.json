@@ -410,6 +410,7 @@
     "review.reviewer.judges": "How many judges, each from a different vendor, a full or panel review uses (2 or 3), limited by the vendors installed; under a team floor a person cannot lower it (team or person).",
     "review.reviewer.escalate": "With risk, a full or panel review uses one judge unless the change has a risky function, a human review exists or the run is rigour review --full; always uses every judge on every review; a team floor forces always (team or person).",
     "review.reviewer.cross_models": "A model per reviewer name used only for cross-examining disputed findings, so that narrower step can run on a cheaper model (team only).",
+    "review.reviewer.judge_env": "Environment variables a judge's CLI must not see, per reviewer name, e.g. codex: { unset: [OPENAI_API_KEY] } when that variable holds a key meant for another service; RIGOUR_API_KEY is never passed to a judge (team only).",
     "ignore": "Glob patterns for files every check, review and agent hook skips."
   }
 }
