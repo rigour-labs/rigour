@@ -119,9 +119,9 @@ describe('FrontendSecretExposureGate', () => {
     });
 
     it('ignores shell files even when a broad project scan passes them in', async () => {
-        const shellPath = path.join(testDir, 'scripts/rigour-nmc.sh');
+        const shellPath = path.join(testDir, 'scripts/rigour-team.sh');
         fs.mkdirSync(path.dirname(shellPath), { recursive: true });
-        fs.writeFileSync(shellPath, 'node -e "process.env.RIGOUR_NMC_DATABASE_URL"');
+        fs.writeFileSync(shellPath, 'node -e "process.env.APP_DATABASE_URL"');
 
         const gate = new FrontendSecretExposureGate();
         expect(await gate.run({ cwd: testDir, patterns: ['**/*'] })).toHaveLength(0);
