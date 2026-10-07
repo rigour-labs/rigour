@@ -365,12 +365,6 @@ async function initHooksForAllDetectedTools(
 }
 
 /**
- * Auto-register the Rigour MCP server for detected AI coding tools.
- *
- * Cursor: .cursor/mcp.json  → { mcpServers: { rigour: { command, args } } }
- * Claude: .claude/settings.json → merge mcpServers into existing settings
- */
-/**
  * Resolve the MCP server config. If the CLI is running from a local dev
  * checkout (not npx/global), point MCP at the sibling rigour-mcp dist
  * so it works without publishing. Otherwise use npx.
@@ -398,6 +392,7 @@ export function mcpPackageSpec(cliVersion: string): string {
     return major && major !== '0' ? `@rigour-labs/mcp@${major}` : '@rigour-labs/mcp@latest';
 }
 
+/** The Rigour MCP server for the agents set up: Cursor in .cursor/mcp.json, Claude Code in .mcp.json. */
 async function initMCPForDetectedTools(
     cwd: string,
     detectedIDEs: DetectedIDE[],
@@ -432,7 +427,8 @@ async function setupCursorMCP(
         try {
             existing = await fs.readJson(mcpPath);
         } catch {
-            existing = {};
+            console.log(chalk.yellow('  Kept .cursor/mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
+            return;
         }
         // Don't overwrite if rigour already registered (unless --force)
         if (existing?.mcpServers?.rigour && !force) {

@@ -44,8 +44,6 @@ export function settingsShowCommand() {
         if (settings.deep.defaultProvider) console.log(`    Provider: ${chalk.cyan(settings.deep.defaultProvider)}`);
         if (settings.deep.defaultModel) console.log(`    Model: ${chalk.cyan(settings.deep.defaultModel)}`);
         if (settings.deep.apiBaseUrl) console.log(`    API Base: ${chalk.cyan(settings.deep.apiBaseUrl)}`);
-        if (settings.deep.maxTokens) console.log(`    Max Tokens: ${settings.deep.maxTokens}`);
-        if (settings.deep.temperature !== undefined) console.log(`    Temperature: ${settings.deep.temperature}`);
         console.log('');
     }
 

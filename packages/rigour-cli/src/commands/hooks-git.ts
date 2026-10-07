@@ -22,9 +22,11 @@ export interface GitHookInstall { path: string; action: 'installed' | 'appended'
 /**
  * Writes (or completes) the pre-push hook where this repository's git looks for it. A hooks
  * directory outside the repository (a machine-wide `core.hooksPath`) belongs to whoever set it:
- * Rigour names it and leaves it alone.
+ * Rigour names it and leaves it alone. So does a personal install (`workingTree: false`) whose hooks
+ * live in the working tree (Husky's `.husky/`): those files are committed, and personal means
+ * nothing in the working tree.
  */
-export function installGitPushHook(cwd: string, rigourCommand: string): GitHookInstall {
+export function installGitPushHook(cwd: string, rigourCommand: string, options: { workingTree?: boolean } = {}): GitHookInstall {
     const hooksDir = gitOutput(cwd, ['rev-parse', '--git-path', 'hooks']);
     const top = gitOutput(cwd, ['rev-parse', '--show-toplevel']);
     const gitDir = gitOutput(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
@@ -40,7 +42,7 @@ export function installGitPushHook(cwd: string, rigourCommand: string): GitHookI
     };
     const home = real(path.dirname(file));
     const inside = (dir: string) => home === real(dir) || home.startsWith(`${real(dir)}${path.sep}`);
-    if (!inside(top) && !inside(gitDir)) return { path: file, action: 'managed elsewhere' };
+    if (!inside(gitDir) && (!inside(top) || options.workingTree === false)) return { path: file, action: 'managed elsewhere' };
     const line = `${rigourCommand} ${MARK.replace('rigour ', '')} "$@"`;
     if (fs.existsSync(file)) {
         const text = fs.readFileSync(file, 'utf8');

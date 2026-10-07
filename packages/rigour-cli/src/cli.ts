@@ -243,7 +243,7 @@ program
     .command('setup')
     .description('Set up Rigour here and check it works. Personal by default: agent hooks once per machine, this repository switched on inside .git, nothing in your working tree. --team commits it to the repository. rigour uninstall takes it out')
     .option('--team', 'Commit Rigour to this repository (rigour.yml, project hooks, .mcp.json) so everyone who clones gets it. Default: personal, nothing in your working tree')
-    .option('--instructions', 'With --team: also write agent instruction files (CLAUDE.md, AGENTS.md, ...) where the project has none')
+    .option('--instructions', 'With --team: also write AGENTS.md, and a one-line CLAUDE.md that imports it, where the project has none')
     .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
     .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean }) => {
         await setupCommand(process.cwd(), options);

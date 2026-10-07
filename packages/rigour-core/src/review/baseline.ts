@@ -45,7 +45,8 @@ export async function baseFindings(cwd: string, config: Config, commit: string, 
         if (added.size === files.length) return { failures: [], added };
         const modules = path.join(cwd, 'node_modules');
         if (fs.existsSync(modules)) fs.symlinkSync(modules, path.join(dir, 'node_modules'), 'junction');
-        const report = await new GateRunner(config).run(dir, await normalizeScopePatterns(dir, files), undefined, { record: false });
+        // The team's commands find nothing to compare per finding (they report no file), so the base copy never runs them.
+        const report = await new GateRunner({ ...config, commands: {} }).run(dir, await normalizeScopePatterns(dir, files), undefined, { record: false });
         return { failures: report.failures, added };
     } finally {
         fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });

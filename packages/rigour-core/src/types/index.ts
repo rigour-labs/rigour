@@ -319,7 +319,7 @@ export const GatesSchema = z.object({
     deep: z.object({
         max_tokens: z.number().optional(), // default per provider: local 1024, cloud 4096
         temperature: z.number().optional().default(0.1),
-        timeout_ms: z.number().optional(), // per inference call; default per provider: local 60s, cloud 120s
+        timeout_ms: z.number().optional(), // per model call; default: cloud 120s, local 60s, local --max 240s
         budget_ms: z.number().optional(), // whole deep run; files not started in time are reported as skipped
         agentic: z.boolean().optional(), // cloud tier: the model may read the repository while it reviews (default true)
         repo_rules: z.boolean().optional(), // show the reviewer the rules in AGENTS.md / CLAUDE.md / Cursor rules that name what the change touches (default false)

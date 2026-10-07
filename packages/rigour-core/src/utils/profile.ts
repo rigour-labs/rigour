@@ -36,7 +36,7 @@ export interface RigourProfile {
     githubAccount?: string;
 }
 
-const TEAM_ENV = ['RIGOUR_ORGANIZATION_ID', 'RIGOUR_TEAM_ID', 'RIGOUR_ACTOR_ID', 'RIGOUR_TEAM_REPOSITORIES', 'RIGOUR_TEAM_DATABASE_URL', 'RIGOUR_TEAM_DATABASE_URL_COMMAND', 'RIGOUR_TEAM_SEMANTIC'];
+const TEAM_ENV = ['RIGOUR_ORGANIZATION_ID', 'RIGOUR_TEAM_ID', 'RIGOUR_ACTOR_ID', 'RIGOUR_TEAM_REPOSITORIES', 'RIGOUR_TEAM_DATABASE_URL', 'RIGOUR_TEAM_DATABASE_URL_COMMAND', 'RIGOUR_TEAM_SEMANTIC', 'RIGOUR_TEAM_SYNC_PERSONAL'];
 
 /** Where profiles are listed: always the person's real home, never a profile's. */
 export function profilesPath(): string {

@@ -272,6 +272,15 @@ async function splitOutbox(db: { get(sql: string, ...params: unknown[]): Promise
     return { sendable, held };
 }
 
+/** How far before the last pull a sync reads again, for members whose clocks run behind. */
+const PULL_OVERLAP_MS = 15 * 60_000;
+
+/** Postgres refused the row itself: insufficient privilege (row-level security) or an integrity constraint (class 23). */
+function refusedRow(error: unknown): boolean {
+    const code = (error as { code?: unknown })?.code;
+    return typeof code === 'string' && (code === '42501' || code.startsWith('23'));
+}
+
 export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promise<{ pending: number; withheld: number; synced: number; pulled: number }> {
     const config = await loadTeamConfiguration();
     if (!config?.databaseUrl) throw new Error('Team mode is not configured.');
@@ -330,19 +339,29 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
                     await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = NULL WHERE id = ?', Date.now(), item.id);
                     synced++;
                 } catch (error) {
-                    await db.run(
-                        'UPDATE sync_outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?',
-                        String(error instanceof Error ? error.message : error).slice(0, 1_000), item.id,
-                    );
+                    const message = String(error instanceof Error ? error.message : error).slice(0, 1_000);
+                    // The database refused this one row (row-level security, a constraint): it will refuse it every time,
+                    // so it is set aside with the reason and the rest of the queue goes on. Anything else (the
+                    // connection, the server) stops the sync and the item is tried again next time.
+                    if (refusedRow(error)) {
+                        await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = ? WHERE id = ?', Date.now(), `refused by the team database: ${message}`, item.id);
+                        continue;
+                    }
+                    await db.run('UPDATE sync_outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?', message, item.id);
                     throw error;
                 }
             }
+            // Only what changed since the last pull, less a margin: updated_at comes from each member's clock, and
+            // re-reading a few minutes is harmless (the local write is an upsert) where a skewed clock would lose a lesson.
+            const mark = `team_pulled:${config.organizationId}/${config.teamId}/${config.actorId}`;
+            const last = Number((await db.get('SELECT value FROM meta WHERE key = ?', mark))?.value ?? 0);
             const remote = await pool.query(
                 `SELECT * FROM rigour.lessons
                  WHERE team_id = $1 AND organization_id = $3
                    AND ((actor_id = $2) OR (visibility = 'team' AND state = 'promoted'))
+                   AND updated_at > $4
                  ORDER BY updated_at ASC`,
-                [config.teamId, config.actorId, config.organizationId],
+                [config.teamId, config.actorId, config.organizationId, Math.max(0, last - PULL_OVERLAP_MS)],
             );
             for (const row of remote.rows) {
                 const evidence = typeof row.evidence_json === 'string' ? JSON.parse(row.evidence_json) : row.evidence_json;
@@ -361,7 +380,11 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
                 );
                 pulled++;
             }
-            if (pulled > 0) await db.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");
+            if (pulled > 0) {
+                const newest = Math.max(last, ...remote.rows.map((row: { updated_at: unknown }) => Number(row.updated_at)));
+                await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', mark, String(newest));
+                await db.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");
+            }
         } finally {
             await pool.end();
         }

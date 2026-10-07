@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS rigour.lessons (
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL
 );
+-- Every sync reads a team's lessons changed since its last read.
+CREATE INDEX IF NOT EXISTS lessons_team_updated ON rigour.lessons (organization_id, team_id, updated_at);
 ALTER TABLE rigour.lessons ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS lessons_read ON rigour.lessons;
 CREATE POLICY lessons_read ON rigour.lessons FOR SELECT USING (

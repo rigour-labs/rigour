@@ -26,8 +26,6 @@ export interface RigourSettings {
     defaultProvider?: string;  // Which provider to use by default
     defaultModel?: string;     // Model name override
     apiBaseUrl?: string;       // Custom API base URL
-    maxTokens?: number;        // Override max tokens
-    temperature?: number;      // Override temperature
   };
 
   // Multi-agent configuration
@@ -77,8 +75,6 @@ export interface ResolvedDeepOptions {
   provider?: string;
   apiBaseUrl?: string;
   modelName?: string;
-  maxTokens?: number;
-  temperature?: number;
 }
 
 /**
@@ -89,8 +85,6 @@ export interface CLIDeepOptions {
   provider?: string;
   apiBaseUrl?: string;
   modelName?: string;
-  maxTokens?: number;
-  temperature?: number;
 }
 
 /**
@@ -197,12 +191,6 @@ export function resolveDeepOptions(cliOptions: CLIDeepOptions): ResolvedDeepOpti
   if (settings.deep?.apiBaseUrl) {
     result.apiBaseUrl = settings.deep.apiBaseUrl;
   }
-  if (settings.deep?.maxTokens) {
-    result.maxTokens = settings.deep.maxTokens;
-  }
-  if (settings.deep?.temperature) {
-    result.temperature = settings.deep.temperature;
-  }
 
   // 2. Apply provider selection (settings or default)
   let selectedProvider = settings.deep?.defaultProvider || 'anthropic';
@@ -237,12 +225,6 @@ export function resolveDeepOptions(cliOptions: CLIDeepOptions): ResolvedDeepOpti
   // 5. Override with CLI flags (highest priority)
   if (cliOptions.apiBaseUrl) {
     result.apiBaseUrl = cliOptions.apiBaseUrl;
-  }
-  if (cliOptions.maxTokens) {
-    result.maxTokens = cliOptions.maxTokens;
-  }
-  if (cliOptions.temperature) {
-    result.temperature = cliOptions.temperature;
   }
 
   return result;

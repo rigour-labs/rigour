@@ -17,8 +17,8 @@ import { priceTokens } from './pricing.js';
 
 /** Default models per provider (user can override via model_name) */
 const DEFAULT_MODELS: Record<string, string> = {
-    claude: 'claude-opus-4-6',
-    anthropic: 'claude-sonnet-4-6',
+    claude: 'claude-sonnet-5-5',
+    anthropic: 'claude-sonnet-5-5',
     openai: 'gpt-5-mini',
     gemini: 'gemini-2.5-flash',
     groq: 'llama-3.3-70b-versatile',
@@ -41,6 +41,7 @@ const DEFAULT_BASE_URLS: Record<string, string> = {
     fireworks: 'https://api.fireworks.ai/inference/v1',
     deepseek: 'https://api.deepseek.com/v1',
     perplexity: 'https://api.perplexity.ai',
+    openrouter: 'https://openrouter.ai/api/v1',
     ollama: 'http://localhost:11434/v1',
     lmstudio: 'http://localhost:1234/v1',
 };
@@ -62,7 +63,10 @@ export class CloudProvider implements InferenceProvider {
         this.providerName = providerName.toLowerCase();
         this.apiKey = apiKey.trim();
         this.baseUrl = options?.baseUrl;
-        this.modelName = options?.modelName || DEFAULT_MODELS[this.providerName] || 'gpt-4o-mini';
+        const model = options?.modelName || DEFAULT_MODELS[this.providerName];
+        // No guessed model: a default that does not exist on this provider fails every call, or bills the wrong one.
+        if (!model) throw new Error(`No default model for provider "${this.providerName}": pass --model-name (for example rigour settings set deep.defaultModel <name>).`);
+        this.modelName = model;
         this.isClaude = this.providerName === 'claude' || this.providerName === 'anthropic';
         this.name = `cloud-${this.providerName}`;
     }
@@ -89,7 +93,7 @@ export class CloudProvider implements InferenceProvider {
             // No limitations. User's key, user's choice.
             try {
                 const { default: OpenAI } = await import('openai');
-                const baseURL = this.baseUrl || DEFAULT_BASE_URLS[this.providerName] || undefined;
+                const baseURL = this.endpoint() || undefined;
                 this.client = new OpenAI({
                     apiKey: this.apiKey,
                     ...(baseURL ? { baseURL } : {}),
@@ -219,7 +223,12 @@ export class CloudProvider implements InferenceProvider {
     }
 
     private isOpenRouter(): boolean {
-        return /(^|\.)openrouter\.ai(\/|$)/.test((this.baseUrl || '').replace(/^https?:\/\//, ''));
+        return /(^|\.)openrouter\.ai(\/|$)/.test(this.endpoint().replace(/^https?:\/\//, ''));
+    }
+
+    /** The API base URL: the one given, else the provider's own. */
+    private endpoint(): string {
+        return this.baseUrl || DEFAULT_BASE_URLS[this.providerName] || '';
     }
 
     dispose(): void {

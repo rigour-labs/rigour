@@ -81,7 +81,7 @@ export class GateRunner {
             this.gates.push(new CheckpointGate(this.config.gates.checkpoint));
         }
 
-        // Semantic Bugs Gate (type-aware, proven findings) — opt-in until field-validated
+        // Semantic Bugs Gate (type-aware, proven findings); on by default, `enabled: false` turns it off
         if (this.config.gates.semantic_bugs?.enabled) {
             this.gates.push(new SemanticBugsGate(this.config.gates.semantic_bugs));
         }

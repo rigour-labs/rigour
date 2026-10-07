@@ -1,17 +1,11 @@
 /**
- * `rigour hooks init` — Generate tool-specific hook configurations.
+ * `rigour hooks init`: each agent's hook configuration, for the agents the repository shows signs of
+ * (or --tool), and git's pre-push hook.
  *
- * Detects which AI coding tools are present (or accepts --tool flag)
- * and generates the appropriate hook files so that Rigour runs
- * quality checks after every file write/edit.
- *
- * Supported tools:
- *   - Claude Code (.claude/settings.json PostToolUse)
- *   - Cursor (.cursor/hooks.json afterFileEdit)
- *   - Cline (.clinerules/hooks/PostToolUse)
- *   - Windsurf (.windsurf/hooks.json post_write_code)
- *
- * @since v3.0.0
+ *   - Claude Code: .claude/settings.json (after an edit, before "done", before a push, DLP)
+ *   - Cursor: .cursor/hooks.json (after an edit, before "done", DLP)
+ *   - Cline: .clinerules/hooks/ (after an edit, DLP)
+ *   - Windsurf: .windsurf/hooks.json (after a write, DLP)
  */
 
 import fs from 'fs-extra';
@@ -487,8 +481,10 @@ async function writeHookFiles(
         // never replaced: Rigour's earlier entries are swapped for the new ones, the rest is kept.
         if (exists && isConfig) {
             try {
-                const merged = mergeHooksInto(JSON.parse(await fs.readFile(fullPath, 'utf-8')), JSON.parse(file.content));
-                await fs.writeFile(fullPath, JSON.stringify(merged, null, 4) + '\n', 'utf-8');
+                const current = await fs.readFile(fullPath, 'utf-8');
+                const next = JSON.stringify(mergeHooksInto(JSON.parse(current), JSON.parse(file.content)), null, 4) + '\n';
+                if (next.trimEnd() === current.trimEnd()) continue; // already as it should be: a committed file stays untouched
+                await fs.writeFile(fullPath, next, 'utf-8');
                 console.log(chalk.green(`  MERGE ${file.path}`));
                 console.log(chalk.dim(`         ${file.description} (your other settings kept)`));
                 written++;
@@ -507,8 +503,10 @@ async function writeHookFiles(
 
         try {
             await fs.ensureDir(path.dirname(fullPath));
-            await fs.writeFile(fullPath, file.content, 'utf-8');
-            recordCreated(recordRoot, file.path, file.content);
+            // JSON ends with a newline, as the merge above writes it, so a later setup changes nothing.
+            const content = isConfig && !file.content.endsWith('\n') ? `${file.content}\n` : file.content;
+            await fs.writeFile(fullPath, content, 'utf-8');
+            recordCreated(recordRoot, file.path, content);
 
             if (file.executable) {
                 await fs.chmod(fullPath, 0o755);
