@@ -39,7 +39,7 @@ import { pushGateShell, rigourUserDir } from '@rigour-labs/core';
 import { groupFilesByRepo, recordEditCatches } from './hooks-check-repos.js';
 import { installGitPushHook } from './hooks-git.js';
 import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.js';
-import { agentHome, asUserLevel } from './personal.js';
+import { agentHome, asUserLevel, installedAgents } from './personal.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -560,11 +560,12 @@ function printNextSteps(tools: HookTool[], unavailableTools: Set<HookTool>): voi
  * config, each command guarded so it runs only in a repository switched on with `rigour setup`.
  * Merged into the person's existing configs like a project install; recorded in Rigour's home.
  */
-export async function installMachineHooks(options: { block?: boolean; dlp?: boolean } = {}): Promise<{ written: number; failed: string[] }> {
+export async function installMachineHooks(options: { block?: boolean; dlp?: boolean } = {}): Promise<{ agents: HookTool[]; written: number; failed: string[] }> {
     const checker = resolveCheckerCommand();
-    const files = ALL_TOOLS.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false)).map(file => asUserLevel(file));
+    const agents = installedAgents();
+    const files = agents.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false)).map(file => asUserLevel(file));
     const { written, failedPaths } = await writeHookFiles(agentHome(), files, true, path.dirname(rigourUserDir()));
-    return { written, failed: [...failedPaths] };
+    return { agents, written, failed: [...failedPaths] };
 }
 
 export async function hooksInitCommand(cwd: string, options: HooksOptions = {}): Promise<void> {

@@ -79,7 +79,7 @@ program
     .description('Initialize Rigour in the current directory')
     .option('-p, --preset <name>', 'Project preset (ui, api, infra, data, healthcare, fintech, government)')
     .option('--paradigm <name>', 'Coding paradigm (oop, functional, minimal)')
-    .option('--ide <name>', 'Target IDE (cursor, vscode, all). Auto-detects if not specified.')
+    .option('--ide <names>', 'Agents to set up: claude, cursor, cline, windsurf or all, comma-separated. Default: the ones this repository shows signs of')
     .option('--dry-run', 'Show detected configuration without writing files')
     .option('--explain', 'Show detection markers for roles and paradigms')
     .option('-f, --force', 'Force re-initialization, overwriting existing rigour.yml')
@@ -90,7 +90,7 @@ Examples:
   $ rigour init --preset healthcare        # HIPAA-compliant quality gates
   $ rigour init --preset fintech           # SOC2/PCI-DSS quality gates
   $ rigour init --preset government        # FedRAMP/NIST quality gates
-  $ rigour init --ide all                  # Create files for all IDEs
+  $ rigour init --ide claude,cursor        # Hooks and MCP for these agents only
     `)
     .action(async (options: any) => {
         await initCommand(process.cwd(), options);

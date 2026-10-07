@@ -116,6 +116,7 @@ describe.skipIf(!unix)('rigour setup, personal', () => {
         const ownSettings = { permissions: { allow: ['Bash(ls)'] }, hooks: { PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'npm run format' }] }] } };
         fs.mkdirSync(atHome('.claude'), { recursive: true });
         fs.writeFileSync(atHome('.claude/settings.json'), JSON.stringify(ownSettings));
+        fs.mkdirSync(atHome('.cursor')); // Cursor is installed here; Windsurf and Cline are not
 
         await setupCommand(repo, { semantic: false });
 
@@ -127,9 +128,8 @@ describe.skipIf(!unix)('rigour setup, personal', () => {
         const commands = JSON.stringify(settings.hooks);
         expect(commands).toContain('npm run format');
         expect(commands).toContain('rigour-enabled'); // every Rigour hook is guarded
-        for (const rel of ['.cursor/hooks.json', '.codeium/windsurf/hooks.json', 'Documents/Cline/Hooks/PostToolUse', 'Documents/Cline/Hooks/PreToolUse', '.cursor/mcp.json']) {
-            expect(fs.existsSync(atHome(rel))).toBe(true);
-        }
+        for (const rel of ['.cursor/hooks.json', '.cursor/mcp.json']) expect(fs.existsSync(atHome(rel)), rel).toBe(true);
+        for (const rel of ['.codeium', 'Documents']) expect(fs.existsSync(atHome(rel)), rel).toBe(false); // nothing for an agent that is not installed
         expect(fs.readFileSync(calls, 'utf8')).toMatch(/^mcp add --scope user rigour -- /m);
 
         // Setting up a second repository reuses the machine install: one Rigour entry per event, not two.

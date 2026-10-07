@@ -23,6 +23,8 @@ import { initCommand, resolveMCPServerConfig } from './init.js';
 import { disableHere, enableHere, registerUserMcp } from './personal.js';
 import { setupSemantic } from './semantic.js';
 
+const AGENT_NAME = { claude: 'Claude Code', cursor: 'Cursor', cline: 'Cline', windsurf: 'Windsurf' } as const;
+
 export interface SetupOptions {
     semantic?: boolean;
     team?: boolean;
@@ -50,7 +52,7 @@ async function personalSetup(cwd: string): Promise<void> {
     const mcp = registerUserMcp(resolveMCPServerConfig());
     console.log('');
     console.log(chalk.green('✔ Switched on for this repository (a marker and .rigour/ in .git/info/exclude; nothing to commit)'));
-    console.log(chalk.green(`✔ Agent hooks for Claude Code, Cursor, Windsurf and Cline, once per machine (${hooks.written} config(s) merged or written; they stay silent in repositories you have not switched on)`));
+    console.log(chalk.green(`✔ Agent hooks for ${hooks.agents.map(agent => AGENT_NAME[agent]).join(', ')}, the agents installed here, once per machine (${hooks.written} config(s) merged or written; they stay silent in repositories you have not switched on)`));
     for (const failed of hooks.failed) console.log(chalk.yellow(`  Left alone: ~/${failed} is not valid JSON`));
     if (push.action === 'managed elsewhere') console.log(chalk.yellow(`Git pre-push hooks are managed outside this repository (${push.path}); add: ${pinnedCliCommand()} hooks push --git "$@" || exit $?`));
     else if (push.action !== 'no repository') console.log(chalk.green(`✔ Push gate: git's pre-push hook (${push.action})`));

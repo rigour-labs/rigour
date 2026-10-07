@@ -71,7 +71,7 @@ describe('rigour uninstall', () => {
         expect(read('.git/hooks/pre-push')).toContain('hooks push --git');
 
         const dry = uninstall(repo, { dryRun: true });
-        expect(dry.changes.length).toBeGreaterThan(5);
+        expect(dry.changes.length).toBeGreaterThan(3); // Claude Code's hooks, .mcp.json, CLAUDE.md, the git hook
         expect(snapshot()['.claude/settings.json']).toBe(read('.claude/settings.json')); // a dry run changes nothing
 
         uninstall(repo);

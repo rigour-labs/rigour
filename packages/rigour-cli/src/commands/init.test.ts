@@ -44,16 +44,6 @@ describe('initCommand', () => {
         }
     });
 
-    it('should create docs/AGENT_INSTRUCTIONS.md when asked for instructions', async () => {
-        await initCommand(testDir, { instructions: true });
-
-        const docsPath = path.join(testDir, 'docs', 'AGENT_INSTRUCTIONS.md');
-        expect(fs.existsSync(docsPath)).toBe(true);
-
-        const content = fs.readFileSync(docsPath, 'utf-8');
-        expect(content).toContain('Rigour');
-    });
-
     it('should support dry-run mode', async () => {
         await initCommand(testDir, { dryRun: true });
 
@@ -140,9 +130,9 @@ describe('initCommand', () => {
     });
 
     it('should support --ide flag to target specific IDE', async () => {
-        await initCommand(testDir, { ide: 'windsurf', instructions: true });
+        await initCommand(testDir, { ide: 'windsurf' });
 
-        // Should create windsurf rules
-        expect(fs.existsSync(path.join(testDir, '.windsurfrules'))).toBe(true);
+        expect(fs.existsSync(path.join(testDir, '.windsurf', 'hooks.json'))).toBe(true);
+        expect(fs.existsSync(path.join(testDir, '.claude', 'settings.json'))).toBe(false);
     });
 });

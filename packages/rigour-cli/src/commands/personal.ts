@@ -114,6 +114,15 @@ const USER_LEVEL_PATH: Record<string, string> = {
     '.clinerules/hooks/PreToolUse': 'Documents/Cline/Hooks/PreToolUse',
 };
 
+/** Where each agent keeps its settings at user level: an agent with no such folder is not installed here. */
+const AGENT_HOME_DIR = { claude: '.claude', cursor: '.cursor', windsurf: '.codeium/windsurf', cline: 'Documents/Cline' } as const;
+
+/** The agents installed on this machine, Claude Code when none is: the only ones whose user-level config Rigour writes. */
+export function installedAgents(): Array<keyof typeof AGENT_HOME_DIR> {
+    const found = (Object.keys(AGENT_HOME_DIR) as Array<keyof typeof AGENT_HOME_DIR>).filter(agent => fs.existsSync(path.join(agentHome(), AGENT_HOME_DIR[agent])));
+    return found.length ? found : ['claude'];
+}
+
 /** A project hook file as its user-level twin: the agent's home path, every command guarded. */
 export function asUserLevel<T extends { path: string; content: string }>(file: T): T {
     const target = USER_LEVEL_PATH[file.path];
@@ -139,6 +148,7 @@ export function registerUserMcp(server: { command: string; args: string[] }): { 
         if (spawnSync(claudeCli(), ['mcp', 'get', 'rigour'], { encoding: 'utf8' }).status === 0) claude = 'present';
         else claude = spawnSync(claudeCli(), ['mcp', 'add', '--scope', 'user', 'rigour', '--', server.command, ...server.args], { encoding: 'utf8' }).status === 0 ? 'added' : 'no CLI';
     }
+    if (!installedAgents().includes('cursor')) return { claude, cursor: 'absent' };
     const cursorFile = path.join(agentHome(), '.cursor', 'mcp.json');
     let config: any = {};
     const existed = fs.existsSync(cursorFile);
