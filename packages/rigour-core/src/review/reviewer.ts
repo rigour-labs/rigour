@@ -22,7 +22,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { Config } from '../types/index.js';
-import { ADAPTERS, isReviewerName, resolveAdapter, selectReviewers, vendorsOf, type Installed, type ReviewMode, type ReviewerName, type Tokens } from './reviewer/adapters.js';
+import { ADAPTERS, isReviewerName, resolveAdapter, selectReviewers, vendorsOf, type Installed, type ReviewMode, type ReviewerName, type RunTrace, type Tokens } from './reviewer/adapters.js';
 import { defaultExec, GH_TIMEOUT_MS, githubEnv, type Exec, type Progress } from './reviewer/exec.js';
 import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBaseIn, rulesText, sha, type HumanReviews, type PullRequest } from './reviewer/inputs.js';
 import { mergeImpact } from './reviewer/merge-impact.js';
@@ -312,6 +312,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             const failed = answers.find(a => 'error' in a);
             if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
             parts = answers.map(a => (a as { verdict: Verdict }).verdict);
+            for (const part of parts) if (part.trace) labelReads(part.trace, work, changedFiles);
         } finally {
             clearInterval(ticker);
         }
@@ -432,6 +433,19 @@ export async function pushReviewSkip(cwd: string, branch: string, head: string, 
 }
 
 /** Why no model is asked at this push: `review.reviewer.on_push` and whether someone will read the push (an open, non-draft pull request). */
+/** What each tool call of a run read: one of Rigour's own input files, a file the change touched, another file, git, or a search. */
+function labelReads(trace: RunTrace, work: string, changed: string[]): void {
+    const touched = new Set(changed);
+    for (const call of trace.calls) {
+        const target = call.target.replace(/\\/g, '/');
+        call.category = target.startsWith(work.replace(/\\/g, '/')) ? 'rigour-input'
+            : call.tool === 'Bash' && /^git\b/.test(target) ? 'git'
+                : call.tool === 'Grep' || call.tool === 'Glob' ? 'search'
+                    : call.tool === 'Read' ? ([...touched].some(f => target.endsWith(`/${f}`) || target === f) ? 'changed-file' : 'other-file')
+                        : 'other';
+    }
+}
+
 function skipReason(onPush: 'background' | 'wait' | 'off', branch: string, pr: PullRequest | undefined): string | undefined {
     if (onPush === 'off') return 'review.reviewer.on_push is off: run `rigour review --reviewer`';
     if (!pr) return `no pull request for ${branch} yet; the review runs once one is open and ready, or now with \`rigour review --reviewer\``;

@@ -10,7 +10,7 @@
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import type { Spend, Tokens } from './adapters.js';
+import type { RunTrace, Spend, Tokens } from './adapters.js';
 import type { PanelItem } from './panel.js';
 import { textSimilarity } from './consensus.js';
 
@@ -44,7 +44,9 @@ export interface Verdict {
     reviewer?: string;
     cost_usd?: number;
     tokens?: Tokens;
-    reviewers?: Array<{ reviewer: string; cost_usd?: number; tokens?: Tokens }>;
+    /** Where the run's tokens went and what it read (measurement only). */
+    trace?: RunTrace;
+    reviewers?: Array<{ reviewer: string; cost_usd?: number; tokens?: Tokens; trace?: RunTrace }>;
     /** With a panel: every judge's own item ids, and the panel's decision on each finding (reviewer/panel.ts). */
     panel?: { judgeItemIds: string[]; items: PanelItem[] };
 }
@@ -116,7 +118,7 @@ export function parseVerdict(text: string, needsPriorPoints: boolean, reviewer: 
     if (!parsed || !SHAPE.every(key => Array.isArray(parsed[key]))) return { error: `${reviewer}: no valid verdict (${text.slice(0, 200).replace(/\s+/g, ' ')})` };
     if (needsPriorPoints && parsed.prior_points.length === 0) return { error: `${reviewer} did not report on the human reviews` };
     for (const key of LISTS) if (!Array.isArray(parsed[key])) parsed[key] = [];
-    return { verdict: { ...parsed, reviewer, ...(spend.costUsd !== undefined ? { cost_usd: spend.costUsd } : {}), ...(spend.tokens ? { tokens: spend.tokens } : {}) } };
+    return { verdict: { ...parsed, reviewer, ...(spend.costUsd !== undefined ? { cost_usd: spend.costUsd } : {}), ...(spend.tokens ? { tokens: spend.tokens } : {}), ...(spend.trace ? { trace: spend.trace } : {}) } };
 }
 
 /** The whole answer, a fenced block, or the last object that starts with "prior_points" (a model sometimes writes a summary around it). */
@@ -164,7 +166,7 @@ export function mergeVerdicts(parts: Verdict[]): Verdict {
         findings: tagged(part => part.findings),
         carried: parts.flatMap(part => part.carried),
         resolved_previous: parts.length === 1 ? parts[0].resolved_previous : parts[0].resolved_previous.filter(x => parts.every(part => part.resolved_previous.some(y => y.id === x.id))),
-        reviewers: parts.map(part => ({ reviewer: part.reviewer ?? '?', ...(part.cost_usd !== undefined ? { cost_usd: part.cost_usd } : {}), ...(part.tokens ? { tokens: part.tokens } : {}) })),
+        reviewers: parts.map(part => ({ reviewer: part.reviewer ?? '?', ...(part.cost_usd !== undefined ? { cost_usd: part.cost_usd } : {}), ...(part.tokens ? { tokens: part.tokens } : {}), ...(part.trace ? { trace: part.trace } : {}) })),
     };
 }
 

@@ -25,7 +25,17 @@ export interface Adapter {
 }
 
 /** What a run used: dollars when the CLI reports them (Claude Code), tokens otherwise (Codex reports only tokens). */
-export interface Spend { costUsd?: number; tokens?: Tokens }
+export interface Spend { costUsd?: number; tokens?: Tokens; trace?: RunTrace }
+
+/**
+ * Where a run's tokens went, turn by turn, and what each tool call read: measurement only, never a
+ * decision. `category` is filled in by the reviewer, which knows its own input files and the change.
+ */
+export interface RunTrace {
+    turns: number;
+    usage: { input: number; cacheRead: number; cacheWrite: number; output: number };
+    calls: Array<{ turn: number; tool: string; target: string; resultChars: number; category?: 'rigour-input' | 'changed-file' | 'other-file' | 'git' | 'search' | 'other' }>;
+}
 export interface Tokens { input: number; output: number }
 
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -41,26 +51,14 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         args: (prompt, model) => [
             '-p', prompt,
             ...(model ? ['--model', model] : []),
-            '--output-format', 'json',
+            '--output-format', 'stream-json', '--verbose', // every turn's usage and tool calls, for the run's trace
             '--max-turns', '80',
             '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
             '--setting-sources', 'project', '--settings', '{"hooks":{},"outputStyle":"default"}',
             '--allowedTools', ...READ_ONLY_TOOLS,
             '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'Bash(git push:*)', 'Bash(git commit:*)',
         ],
-        answer: stdout => {
-            try {
-                const parsed = JSON.parse(stdout);
-                const usage = parsed.usage;
-                return {
-                    text: String(parsed.result ?? ''),
-                    ...(typeof parsed.total_cost_usd === 'number' ? { costUsd: parsed.total_cost_usd } : {}),
-                    ...(usage ? { tokens: { input: n(usage.input_tokens) + n(usage.cache_read_input_tokens) + n(usage.cache_creation_input_tokens), output: n(usage.output_tokens) } } : {}),
-                };
-            } catch {
-                return { text: stdout };
-            }
-        },
+        answer: stdout => claudeAnswer(stdout),
     },
     cursor: {
         vendor: 'cursor',
@@ -190,4 +188,67 @@ export async function reviewerAvailability(cwd: string, exec: Exec = defaultExec
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
         return { name, vendor: ADAPTERS[name].vendor, binary: ADAPTERS[name].binary, installed: !!found, ...(found ? { version: found.version } : {}) };
     }));
+}
+
+/** Claude Code's answer: a stream of JSON events (the final `result` one carries the text and cost), or one JSON object from older runs. */
+function claudeAnswer(stdout: string): { text: string } & Spend {
+    const events = stdout.split('\n').map(line => line.trim()).filter(line => line.startsWith('{')).flatMap(line => {
+        try {
+            return [JSON.parse(line)];
+        } catch {
+            return [];
+        }
+    });
+    const result = events.filter(e => e?.type === 'result').at(-1) ?? (events.length === 1 ? events[0] : undefined);
+    if (!result) return { text: stdout };
+    const usage = result.usage;
+    const trace = traceOf(events);
+    return {
+        text: String(result.result ?? ''),
+        ...(typeof result.total_cost_usd === 'number' ? { costUsd: result.total_cost_usd } : {}),
+        ...(usage ? { tokens: { input: n(usage.input_tokens) + n(usage.cache_read_input_tokens) + n(usage.cache_creation_input_tokens), output: n(usage.output_tokens) } } : {}),
+        ...(trace ? { trace } : {}),
+    };
+}
+
+/** The turns, their usage and the tool calls of a stream, or undefined for a single-object answer. */
+function traceOf(events: any[]): RunTrace | undefined {
+    const assistant = events.filter(e => e?.type === 'assistant' && e.message);
+    if (assistant.length === 0) return undefined;
+    const usage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+    const calls: RunTrace['calls'] = [];
+    const byId = new Map<string, RunTrace['calls'][number]>();
+    let turn = 0;
+    const seen = new Set<string>();
+    for (const e of events) {
+        if (e?.type === 'assistant' && e.message) {
+            // One model call can arrive as several events (one per content block) sharing its id: count its usage once.
+            const id = String(e.message.id ?? `turn-${turn}`);
+            if (!seen.has(id)) {
+                seen.add(id);
+                turn++;
+                const u = e.message.usage ?? {};
+                usage.input += n(u.input_tokens);
+                usage.cacheRead += n(u.cache_read_input_tokens);
+                usage.cacheWrite += n(u.cache_creation_input_tokens);
+                usage.output += n(u.output_tokens);
+            }
+            for (const block of e.message.content ?? []) {
+                if (block?.type !== 'tool_use') continue;
+                const input = block.input ?? {};
+                const call = { turn, tool: String(block.name ?? ''), target: String(input.file_path ?? input.path ?? input.pattern ?? input.command ?? '').slice(0, 300), resultChars: 0 };
+                calls.push(call);
+                byId.set(String(block.id), call);
+            }
+        } else if (e?.type === 'user' && e.message) {
+            for (const block of e.message.content ?? []) {
+                if (block?.type !== 'tool_result') continue;
+                const call = byId.get(String(block.tool_use_id));
+                if (!call) continue;
+                const content = block.content;
+                call.resultChars = typeof content === 'string' ? content.length : Array.isArray(content) ? content.reduce((sum: number, c: any) => sum + String(c?.text ?? '').length, 0) : 0;
+            }
+        }
+    }
+    return { turns: turn, usage, calls };
 }

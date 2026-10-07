@@ -127,7 +127,7 @@ A personal `rigour setup` writes nothing to the working tree: it adds `.rigour/`
 
 ### In the git directory
 
-The reviewer keeps its verdicts in `<git common dir>/rigour-reviewer/`, never in the working tree and never through team sync, because a verdict quotes code and review text. The backtest checks out rounds in `<git common dir>/rigour-backtest/`.
+The reviewer keeps its verdicts in `<git common dir>/rigour-reviewer/`, never in the working tree and never through team sync, because a verdict quotes code and review text. A verdict also keeps each judge run's trace, for measuring cost: the tokens of each turn and the paths and commands the judge's tools read (not their contents). The backtest checks out rounds in `<git common dir>/rigour-backtest/`.
 
 ## The DLP hooks
 

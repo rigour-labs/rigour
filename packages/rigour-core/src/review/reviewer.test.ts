@@ -218,6 +218,28 @@ describe('the reviewer', () => {
         for (const result of [crashed, prose]) expect(reviewerBlocks(result as ReviewerResult)).toBe(true);
     });
 
+    it('keeps where each judge run spent its tokens and what it read, labelled, in the local verdict', async () => {
+        const seen = seenNow();
+        const base = fakes(() => JSON.stringify(EMPTY), seen);
+        const streaming: Exec = async (command, args, options) => {
+            if (!command.endsWith('claude') || args[0] === '--version') return base(command, args, options);
+            const prompt = args[args.indexOf('-p') + 1];
+            const diff = /(\S+full\.diff)/.exec(prompt)![1];
+            const call = (id: string, name: string, input: object) => ({ type: 'assistant', message: { id: `m-${id}`, usage: { input_tokens: 1, cache_read_input_tokens: 100, cache_creation_input_tokens: 10, output_tokens: 5 }, content: [{ type: 'tool_use', id, name, input }] } });
+            const events = [
+                call('1', 'Read', { file_path: diff }), call('2', 'Read', { file_path: path.join(repo, 'src/job.ts') }), call('3', 'Read', { file_path: path.join(repo, 'a.ts') }),
+                call('4', 'Bash', { command: 'git log -3' }), call('5', 'Grep', { pattern: 'job' }),
+                { type: 'result', result: JSON.stringify(EMPTY), total_cost_usd: 0.2, usage: { input_tokens: 5, output_tokens: 25 } },
+            ];
+            return { exitCode: 0, stdout: events.map(e => JSON.stringify(e)).join('\n'), stderr: '' };
+        };
+        await runReviewer(repo, 'main', config, streaming, () => undefined, { force: true });
+        const store = path.join(repo, '.git', 'rigour-reviewer');
+        const verdict = fs.readdirSync(store).filter(f => /^[0-9a-f]{40}\.[0-9a-f]{8}\.json$/.test(f)).map(f => JSON.parse(fs.readFileSync(path.join(store, f), 'utf8')))[0];
+        expect(verdict.reviewers[0].trace).toMatchObject({ turns: 5, usage: { input: 5, cacheRead: 500, cacheWrite: 50, output: 25 } });
+        expect(verdict.reviewers[0].trace.calls.map((c: any) => c.category)).toEqual(['rigour-input', 'changed-file', 'other-file', 'git', 'search']);
+    });
+
     it('asks a judge once more after an answer that is not a verdict, and is unavailable only when the second is not one either', async () => {
         const seen = seenNow();
         let calls = 0;

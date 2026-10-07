@@ -24,4 +24,27 @@ describe('reading an agent CLI\'s answer', () => {
         expect(ADAPTERS.claude.answer('not json')).toEqual({ text: 'not json' });
         expect(ADAPTERS.codex.answer('plain text')).toEqual({ text: 'plain text' });
     });
+
+    it("reads Claude Code's event stream: the answer and cost from its result, each turn's usage once, and what every tool call read", () => {
+        const events = [
+            { type: 'system', subtype: 'init' },
+            { type: 'assistant', message: { id: 'm1', usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 4000, output_tokens: 50 }, content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/work/full.diff' } }] } },
+            { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x'.repeat(1200) }] } },
+            { type: 'assistant', message: { id: 'm2', usage: { input_tokens: 5, cache_read_input_tokens: 4000, cache_creation_input_tokens: 300, output_tokens: 20 }, content: [{ type: 'text', text: 'checking' }] } },
+            { type: 'assistant', message: { id: 'm2', usage: { input_tokens: 5, cache_read_input_tokens: 4000, cache_creation_input_tokens: 300, output_tokens: 20 }, content: [{ type: 'tool_use', id: 't2', name: 'Grep', input: { pattern: 'preloadAll' } }] } },
+            { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: [{ type: 'text', text: 'src/a.ts:3' }] }] } },
+            { type: 'result', result: '{"prior_points":[]}', total_cost_usd: 0.31, usage: { input_tokens: 15, cache_read_input_tokens: 4000, cache_creation_input_tokens: 4300, output_tokens: 70 } },
+        ];
+        const answer = ADAPTERS.claude.answer(events.map(e => JSON.stringify(e)).join('\n'));
+        expect(answer).toMatchObject({ text: '{"prior_points":[]}', costUsd: 0.31, tokens: { input: 8315, output: 70 } });
+        expect(answer.trace).toEqual({
+            turns: 2, // m2 arrived as two events: one turn, counted once
+            usage: { input: 15, cacheRead: 4000, cacheWrite: 4300, output: 70 },
+            calls: [
+                { turn: 1, tool: 'Read', target: '/work/full.diff', resultChars: 1200 },
+                { turn: 2, tool: 'Grep', target: 'preloadAll', resultChars: 10 },
+            ],
+        });
+        expect(ADAPTERS.claude.args('p', undefined)).toEqual(expect.arrayContaining(['--output-format', 'stream-json', '--verbose']));
+    });
 });
