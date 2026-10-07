@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
-const DEFAULT_MAX_ATTEMPTS = 36;
+// 30 minutes: npm has taken over 6 to serve a new version of every package.
+const DEFAULT_MAX_ATTEMPTS = 180;
 const DEFAULT_INTERVAL_MS = 10_000;
 
 export function discoverPublishedWorkspacePackages(root = process.cwd()) {
