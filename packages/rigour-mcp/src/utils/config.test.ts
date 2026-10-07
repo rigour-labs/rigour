@@ -12,7 +12,7 @@ describe('loadConfig', () => {
         dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-config-'));
         vi.spyOn(console, 'error').mockImplementation(() => {});
         const config = await loadConfig(dir);
-        expect(config.version).toBe(1);
+        expect(config.gates.max_file_lines).toBe(500);
         expect(fs.readdirSync(dir)).toEqual([]);
     });
 

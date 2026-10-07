@@ -1,7 +1,7 @@
 {
     "name": "@rigour-labs/mcp",
     "version": "5.4.0",
-    "description": "MCP server + live dashboard for AI code governance — OWASP LLM Top 10 (10/10), real-time MCP App UI, 25+ security patterns, memory and lessons recalled by meaning, hallucinated import detection, multi-agent governance. Works with Claude, Cursor, VS Code, ChatGPT, Goose, Windsurf. Industry presets for HIPAA, SOC2, FedRAMP.",
+    "description": "Rigour's MCP server: lets coding agents review their change, check for an existing helper before writing a new one, and recall the team's lessons. Works with Claude Code, Cursor and other MCP clients.",
     "engines": {
         "node": ">=22"
     },

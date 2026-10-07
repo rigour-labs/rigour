@@ -79,7 +79,7 @@ program
     .description('Initialize Rigour in the current directory')
     .option('-p, --preset <name>', 'Project preset (ui, api, infra, data, healthcare, fintech, government)')
     .option('--paradigm <name>', 'Coding paradigm (oop, functional, minimal)')
-    .option('--ide <name>', 'Target IDE (cursor, vscode, all). Auto-detects if not specified.')
+    .option('--ide <names>', 'Agents to set up: claude, cursor, cline, windsurf or all, comma-separated. Default: the ones this repository shows signs of')
     .option('--dry-run', 'Show detected configuration without writing files')
     .option('--explain', 'Show detection markers for roles and paradigms')
     .option('-f, --force', 'Force re-initialization, overwriting existing rigour.yml')
@@ -90,7 +90,7 @@ Examples:
   $ rigour init --preset healthcare        # HIPAA-compliant quality gates
   $ rigour init --preset fintech           # SOC2/PCI-DSS quality gates
   $ rigour init --preset government        # FedRAMP/NIST quality gates
-  $ rigour init --ide all                  # Create files for all IDEs
+  $ rigour init --ide claude,cursor        # Hooks and MCP for these agents only
     `)
     .action(async (options: any) => {
         await initCommand(process.cwd(), options);
@@ -243,7 +243,7 @@ program
     .command('setup')
     .description('Set up Rigour here and check it works. Personal by default: agent hooks once per machine, this repository switched on inside .git, nothing in your working tree. --team commits it to the repository. rigour uninstall takes it out')
     .option('--team', 'Commit Rigour to this repository (rigour.yml, project hooks, .mcp.json) so everyone who clones gets it. Default: personal, nothing in your working tree')
-    .option('--instructions', 'With --team: also write agent instruction files (CLAUDE.md, AGENTS.md, ...) where the project has none')
+    .option('--instructions', 'With --team: also write AGENTS.md, and a one-line CLAUDE.md that imports it, where the project has none')
     .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
     .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean }) => {
         await setupCommand(process.cwd(), options);
@@ -280,6 +280,9 @@ program
     .option('--model-name <name>', 'Override cloud model name')
     .option('--reviewer', 'Then run the reviewer (your coding agent CLI, read-only, no key): every point of every human review checked against the code, what a fix left behind, every read traced, then new findings')
     .option('--full', 'With --reviewer: two vendors, verdicts merged. Run it before asking a person to review')
+    .option('--single', 'With --reviewer: one judge for this run, whatever your settings say (a team floor still applies)')
+    .option('--panel', 'With --reviewer: a panel of judges for this run; only what a majority confirms blocks')
+    .option('--no-panel', 'With --reviewer: no panel for this run (a team that requires one refuses this)')
     .option('--status', 'What the background reviewer has done for this branch: running, last verdict, open items')
     .option('--all', 'Show every finding, not the first five')
     .option('--notes', 'List the notes that never block')
@@ -344,10 +347,10 @@ program
 
 program
     .command('dismiss <key>')
-    .description('Mark a finding as not a bug: it is never reported again here (commit .rigour/dismissed.json to share)')
+    .description('Mark a finding as not a bug, a check\'s or the reviewer\'s: it never blocks again here (commit .rigour/dismissed.json and .rigour/dismissed-review-items.json to share)')
     .requiredOption('--reason <reason>', 'Why it is not a bug')
-    .action((key: string, options: any) => {
-        dismissCommand(process.cwd(), key, options);
+    .action(async (key: string, options: any) => {
+        await dismissCommand(process.cwd(), key, options);
     });
 
 program
@@ -693,7 +696,7 @@ settingsCmd
         if (updateInfo?.hasUpdate && !isSilent && !isDevBuild) {
             // Use stderr so stdout stays clean for programmatic consumers
             console.error(chalk.yellow(`\n⚡ Update available: ${updateInfo.currentVersion} → ${updateInfo.latestVersion}`));
-            console.error(chalk.dim(`   Run: npx @rigour-labs/cli@latest init --force\n`));
+            console.error(chalk.dim(`   Upgrade: npm install -g @rigour-labs/cli@latest (or brew upgrade rigour), then rigour setup to point your hooks at it.\n`));
         }
     } catch {
         // Ignore version check errors

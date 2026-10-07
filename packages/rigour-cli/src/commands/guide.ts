@@ -22,9 +22,9 @@ export function guideCommand() {
     console.log(chalk.dim('  3. Real provider keys (OpenAI, AWS, etc.) cannot be learned away.\n'));
 
     console.log(chalk.bold('Workflow Integration:'));
-    console.log(chalk.green('  • Cursor') + chalk.dim(': Add the MCP server or use the ') + chalk.cyan('.cursor/rules/rigour.mdc') + chalk.dim(' handshake.'));
-    console.log(chalk.green('  • CI/CD') + chalk.dim(': Use ') + chalk.cyan('rigour check --ci') + chalk.dim(' to fail PRs that violate quality gates.'));
+    console.log(chalk.green('  • Agents') + chalk.dim(': ') + chalk.cyan('rigour setup') + chalk.dim(' wires hooks and the MCP server; ') + chalk.cyan('--team --instructions') + chalk.dim(' adds an AGENTS.md.'));
+    console.log(chalk.green('  • CI/CD') + chalk.dim(': the pull request check, in ') + chalk.cyan('docs/CI.md') + chalk.dim('.'));
     console.log(chalk.green('  • PR Review') + chalk.dim(': Pipe diffs through ') + chalk.cyan('rigour review') + chalk.dim(' to gate only changed lines.\n'));
 
-    console.log(chalk.dim('For more detailed docs, visit: ') + chalk.underline('https://github.com/erashu212/rigour/docs\n'));
+    console.log(chalk.dim('For more detailed docs, visit: ') + chalk.underline('https://github.com/rigour-labs/rigour/tree/main/docs\n'));
 }

@@ -97,5 +97,5 @@ function parsePayload(stdin: string): StopPayload {
 /** The repository's rigour.yml, or the defaults; shared by the stop and push hooks. */
 export async function loadHookConfig(cwd: string): Promise<Config> {
     const file = path.join(cwd, 'rigour.yml');
-    return ConfigSchema.parse(await fs.pathExists(file) ? yaml.parse(await fs.readFile(file, 'utf8')) : { version: 1 });
+    return ConfigSchema.parse(await fs.pathExists(file) ? yaml.parse(await fs.readFile(file, 'utf8')) : {});
 }

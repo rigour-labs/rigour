@@ -43,6 +43,7 @@ import { handleCheckPattern, handleSecurityAudit } from './tools/pattern-handler
 import { handleRun, handleRunSupervised } from './tools/execution-handlers.js';
 import { handleAgentRegister, handleCheckpoint, handleHandoff, handleAgentDeregister, handleHandoffAccept } from './tools/agent-handlers.js';
 import { handleReview, handleReviewAck } from './tools/review-handler.js';
+import { handleReviewerVerdict } from './tools/reviewer-verdict-handler.js';
 import { handleHooksCheck, handleHooksInit } from './tools/hooks-handler.js';
 import { handleCheckDeep, handleDeepStats } from './tools/deep-handlers.js';
 import { handleMcpGetSettings, handleMcpSetSettings } from './tools/mcp-settings-handler.js';
@@ -218,6 +219,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             // Code review
             case "rigour_review": result = await handleReview(config, cwd, args as any); break;
             case "rigour_review_ack": result = handleReviewAck(cwd, args as any); break;
+            case "rigour_reviewer_verdict": result = await handleReviewerVerdict(cwd); break;
 
             // Context Telemetry & Cost Tools
             case "rigour_context_stats":   result = await handleContextStats(cwd, (args as any).taskId); break;

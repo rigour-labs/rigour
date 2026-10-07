@@ -28,5 +28,5 @@ Profiles live in `~/.rigour/profiles.json` in your real home (or `RIGOUR_PROFILE
 
 - **The CLI and the hooks** apply the profile of the repository they run in before anything else loads.
 - **The MCP server** applies the profile of the repository it serves (`RIGOUR_CWD`, else where it started), and refuses a tool call for a repository of another profile. A single server registered globally answers only for its own profile, never with the wrong memory or team.
-- **Team sync** sends only lessons from the team's own repositories (`--repositories`); everything else stays on the machine. See [Enterprise & Teams](ENTERPRISE.md).
+- **Team sync** sends only lessons from the team's own repositories (`--repositories`); everything else stays on the machine. See [Team database](./TEAM_DATABASE.md).
 - `RIGOUR_USER_MEMORY=off` keeps a server out of the memories you keep for all your repositories.

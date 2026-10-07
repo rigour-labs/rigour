@@ -20,8 +20,11 @@ import { printRepoSetup } from './doctor.js';
 import { installGitPushHook } from './hooks-git.js';
 import { hooksInitCommand, installMachineHooks, pinnedCliCommand } from './hooks.js';
 import { initCommand, resolveMCPServerConfig } from './init.js';
+import { writeAgentInstructions } from './init-handshake.js';
 import { disableHere, enableHere, registerUserMcp } from './personal.js';
 import { setupSemantic } from './semantic.js';
+
+const AGENT_NAME = { claude: 'Claude Code', cursor: 'Cursor', cline: 'Cline', windsurf: 'Windsurf' } as const;
 
 export interface SetupOptions {
     semantic?: boolean;
@@ -46,11 +49,11 @@ async function personalSetup(cwd: string): Promise<void> {
         return;
     }
     const hooks = await installMachineHooks({ block: true, dlp: true });
-    const push = installGitPushHook(cwd, pinnedCliCommand());
+    const push = installGitPushHook(cwd, pinnedCliCommand(), { workingTree: false });
     const mcp = registerUserMcp(resolveMCPServerConfig());
     console.log('');
     console.log(chalk.green('✔ Switched on for this repository (a marker and .rigour/ in .git/info/exclude; nothing to commit)'));
-    console.log(chalk.green(`✔ Agent hooks for Claude Code, Cursor, Windsurf and Cline, once per machine (${hooks.written} config(s) merged or written; they stay silent in repositories you have not switched on)`));
+    console.log(chalk.green(`✔ Agent hooks for ${hooks.agents.map(agent => AGENT_NAME[agent]).join(', ')}, the agents installed here, once per machine (${hooks.written} config(s) merged or written; they stay silent in repositories you have not switched on)`));
     for (const failed of hooks.failed) console.log(chalk.yellow(`  Left alone: ~/${failed} is not valid JSON`));
     if (push.action === 'managed elsewhere') console.log(chalk.yellow(`Git pre-push hooks are managed outside this repository (${push.path}); add: ${pinnedCliCommand()} hooks push --git "$@" || exit $?`));
     else if (push.action !== 'no repository') console.log(chalk.green(`✔ Push gate: git's pre-push hook (${push.action})`));
@@ -61,8 +64,11 @@ async function personalSetup(cwd: string): Promise<void> {
 async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {
     // A personal switch here would run the machine hooks beside the committed ones.
     disableHere(cwd, false);
-    if (fs.existsSync(path.join(cwd, 'rigour.yml'))) await hooksInitCommand(cwd, {});
-    else await initCommand(cwd, { instructions: options.instructions });
+    if (fs.existsSync(path.join(cwd, 'rigour.yml'))) {
+        // The same options the team's install was written with, so a teammate's setup changes no committed file.
+        await hooksInitCommand(cwd, { block: true, dlp: true });
+        if (options.instructions) await writeAgentInstructions(cwd);
+    } else await initCommand(cwd, { instructions: options.instructions });
 }
 
 /** A rigour.yml the repository tracks: the team has adopted Rigour, so setup completes their install. */

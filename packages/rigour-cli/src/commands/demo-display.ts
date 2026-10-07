@@ -305,7 +305,7 @@ export function printClosing(cinematic: boolean): void {
     console.log(chalk.dim('  Planning → Coding → Review → QA → Security → DevOps pipeline'));
     console.log(chalk.white('  https://github.com/rigovo/rigovo-virtual-team\n'));
 
-    console.log(chalk.dim('Docs:   https://docs.rigour.run'));
+    console.log(chalk.dim('Docs:   https://github.com/rigour-labs/rigour/tree/main/docs'));
     console.log(chalk.dim('Paper:  https://zenodo.org/records/18673564\n'));
 
     console.log(chalk.dim.italic(

@@ -1,88 +1,61 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-
-
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
+import { initCommand } from './commands/init.js';
 
-async function getInitCommand() {
-    const { initCommand } = await import('./commands/init.js');
-    return initCommand;
-}
-
-describe('Init Command Rules Verification', () => {
-    const testDir = path.join(os.tmpdir(), 'rigour-temp-init-rules-test-' + process.pid);
-
-    beforeEach(async () => {
-        await fs.ensureDir(testDir);
+describe('rigour init: agents and instruction files', () => {
+    let testDir: string;
+    beforeEach(() => {
+        testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-init-rules-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
     });
-
     afterEach(async () => {
+        vi.restoreAllMocks();
         await fs.remove(testDir);
     });
 
-    it('should create instructions with agnostic rules and cursor rules on init', async () => {
-        const initCommand = await getInitCommand();
-        // Run init in test directory with all IDEs to verify rules in both locations
-        await initCommand(testDir, { ide: 'all', instructions: true });
+    it('writes one AGENTS.md and a CLAUDE.md that imports it, and nothing per agent', async () => {
+        await initCommand(testDir, { instructions: true });
 
-        const instructionsPath = path.join(testDir, 'docs', 'AGENT_INSTRUCTIONS.md');
-        const mdcPath = path.join(testDir, '.cursor', 'rules', 'rigour.mdc');
-
-        expect(await fs.pathExists(instructionsPath)).toBe(true);
-        expect(await fs.pathExists(mdcPath)).toBe(true);
-
-        const instructionsContent = await fs.readFile(instructionsPath, 'utf-8');
-        const mdcContent = await fs.readFile(mdcPath, 'utf-8');
-
-        // Check for agnostic instructions
-        expect(instructionsContent).toContain('# Rigour Quality Gates');
-        expect(instructionsContent).toContain('Verification');
-
-        // Check for key sections in universal instructions
-        expect(instructionsContent).toContain('# Rigour: Engineering Governance');
-        expect(instructionsContent).toContain('# Code Quality Standards');
-
-        // Check that MDC includes governance rules
-        expect(mdcContent).toContain('# Rigour Governance');
+        expect(await fs.readFile(path.join(testDir, 'AGENTS.md'), 'utf-8')).toContain('rigour review --base origin/main');
+        expect(await fs.readFile(path.join(testDir, 'CLAUDE.md'), 'utf-8')).toBe('@AGENTS.md\n');
+        for (const rel of ['docs/AGENT_INSTRUCTIONS.md', '.cursor/rules/rigour.mdc', '.clinerules/rigour.md', '.windsurfrules', '.gemini/styleguide.md']) {
+            expect(await fs.pathExists(path.join(testDir, rel)), rel).toBe(false);
+        }
     });
 
-    it('writes Cline rules into the .clinerules folder next to its hooks', async () => {
-        const initCommand = await getInitCommand();
-        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-        await initCommand(testDir, { ide: 'all', instructions: true });
-        const output = log.mock.calls.flat().join('\n');
-        log.mockRestore();
+    it("keeps the team's own instruction files and says what to add", async () => {
+        await fs.writeFile(path.join(testDir, 'AGENTS.md'), '# Ours\n');
+        await fs.writeFile(path.join(testDir, 'CLAUDE.md'), '# Ours too\n');
+        await initCommand(testDir, { instructions: true });
 
-        const content = await fs.readFile(path.join(testDir, '.clinerules', 'rigour.md'), 'utf-8');
-        expect(content).toContain('# Rigour: Engineering Governance');
-        expect(await fs.pathExists(path.join(testDir, '.clinerules', 'hooks', 'PostToolUse'))).toBe(true);
-        expect(output).not.toContain('SKIP .clinerules');
+        expect(await fs.readFile(path.join(testDir, 'AGENTS.md'), 'utf-8')).toBe('# Ours\n');
+        expect(await fs.readFile(path.join(testDir, 'CLAUDE.md'), 'utf-8')).toBe('# Ours too\n');
+        const said = vi.mocked(console.log).mock.calls.flat().join('\n');
+        expect(said).toContain("Kept your AGENTS.md: add Rigour's section");
+        expect(said).toContain('add a line "@AGENTS.md"');
     });
 
-    it('keeps a legacy .clinerules file', async () => {
-        await fs.writeFile(path.join(testDir, '.clinerules'), 'team rules');
-        const initCommand = await getInitCommand();
-        await initCommand(testDir, { ide: 'cline', instructions: true });
-        expect(await fs.readFile(path.join(testDir, '.clinerules'), 'utf-8')).toBe('team rules');
+    it('sets up only the agents the repository uses: Claude Code when it shows none', async () => {
+        await initCommand(testDir);
+        expect(await fs.pathExists(path.join(testDir, '.claude', 'settings.json'))).toBe(true);
+        for (const rel of ['.cursor', '.clinerules', '.windsurf']) expect(await fs.pathExists(path.join(testDir, rel)), rel).toBe(false);
     });
 
-    it('keeps existing agent files and says so, unless --force', async () => {
-        await fs.writeFile(path.join(testDir, 'AGENTS.md'), '# Ours');
-        await fs.writeFile(path.join(testDir, 'CLAUDE.md'), '# Ours too');
-        const initCommand = await getInitCommand();
-        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-        await initCommand(testDir, { ide: 'all', instructions: true });
-        const output = log.mock.calls.flat().join('\n');
-        log.mockRestore();
+    it('sets up an agent the repository shows signs of, or the ones asked for', async () => {
+        await fs.ensureDir(path.join(testDir, '.cursor'));
+        await initCommand(testDir);
+        expect(await fs.pathExists(path.join(testDir, '.cursor', 'hooks.json'))).toBe(true);
+        expect(await fs.pathExists(path.join(testDir, '.windsurf'))).toBe(false);
 
-        expect(await fs.readFile(path.join(testDir, 'AGENTS.md'), 'utf-8')).toBe('# Ours');
-        expect(await fs.readFile(path.join(testDir, 'CLAUDE.md'), 'utf-8')).toBe('# Ours too');
-        expect(output).toContain('Kept existing AGENTS.md');
-        expect(output).toContain('Kept existing CLAUDE.md');
-
-        await initCommand(testDir, { ide: 'all', force: true, instructions: true });
-        expect(await fs.readFile(path.join(testDir, 'AGENTS.md'), 'utf-8')).toContain('# AGENTS.md');
+        const other = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-init-rules-'));
+        try {
+            await initCommand(other, { ide: 'windsurf' });
+            expect(await fs.pathExists(path.join(other, '.windsurf', 'hooks.json'))).toBe(true);
+            expect(await fs.pathExists(path.join(other, '.claude', 'settings.json'))).toBe(false);
+        } finally {
+            await fs.remove(other);
+        }
     });
-
 });

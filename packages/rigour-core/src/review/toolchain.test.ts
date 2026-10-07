@@ -82,12 +82,15 @@ describe('runToolchain', () => {
         expect(calls()).not.toContain('gone.ts');
     });
 
-    it('quiets ESLint 9 about ignored files, and leaves a tool set under commands: to that command', async () => {
+    it('quiets ESLint 9 about ignored files, and runs a tool set under commands: as that command, whose failure fails the push', async () => {
         tool('eslint', "if (args[0] === '--version') { console.log('v9.1.0'); process.exit(0); }");
-        const results = await runToolchain(dir, ['src/a.ts'], config({ format: 'npm run fmt' }));
+        tool('prettier', 'process.exit(0);');
+        const results = await runToolchain(dir, ['src/a.ts'], config({ format: 'node -e "process.exit(4)"', test: 'node -e "process.exit(0)"' }));
         expect(results.find(r => r.tool === 'lint')).toMatchObject({ status: 'pass' });
         expect(calls()).toContain('eslint --max-warnings=0 --no-warn-ignored src/a.ts');
-        expect(results.find(r => r.tool === 'format')).toMatchObject({ status: 'skipped', command: 'commands.format runs it' });
+        expect(results.find(r => r.tool === 'format')).toMatchObject({ status: 'fail', command: expect.stringContaining('node -e') });
+        expect(calls()).not.toContain('prettier'); // the team's command replaces the detected tool
+        expect(results.find(r => r.tool === 'test')).toMatchObject({ status: 'pass' });
     });
 
     it("uses the project's own check script for types, and never hands a tool Rigour's own files", async () => {

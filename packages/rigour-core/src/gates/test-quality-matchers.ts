@@ -74,14 +74,6 @@ export const JS_TAUTOLOGICAL_PATTERNS = [
 export const JS_VAR_TAUTOLOGY_PATTERN = /expect\s*\(\s*(\w+)\s*\)\s*\.(?:toBe|toEqual|toStrictEqual)\s*\(\s*(\w+)\s*\)/;
 
 /**
- * Snapshot test patterns
- */
-export const SNAPSHOT_PATTERNS = [
-    /\.toMatchSnapshot\s*\(/,
-    /\.toMatchInlineSnapshot\s*\(/,
-];
-
-/**
  * Python tautological patterns
  */
 export const PYTHON_TAUTOLOGICAL_PATTERNS = [

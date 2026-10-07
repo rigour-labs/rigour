@@ -55,7 +55,7 @@ function pendingItems(cwd: string): ReviewTaskItem[] {
 function routerPolicy(cwd: string) {
     try {
         const file = path.join(cwd, 'rigour.yml');
-        const raw = fs.existsSync(file) ? yaml.parse(fs.readFileSync(file, 'utf8')) : { version: 1 };
+        const raw = fs.existsSync(file) ? yaml.parse(fs.readFileSync(file, 'utf8')) : {};
         return ConfigSchema.parse(raw).gates.deep?.router;
     } catch {
         return undefined;

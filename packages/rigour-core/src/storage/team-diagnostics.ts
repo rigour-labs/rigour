@@ -62,5 +62,5 @@ export async function diagnoseMissingMembership(pool: QueryablePool): Promise<st
             + `cannot see its membership. Run \`rigour team init-schema\` with the administrator URL to add the read policies.`;
     }
     return 'This database role has no membership for the configured organization, team and actor. '
-        + 'Ask the administrator to add it (see docs/ENTERPRISE.md).';
+        + 'Ask the administrator to add it (see docs/TEAM_DATABASE.md).';
 }

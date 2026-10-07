@@ -116,6 +116,7 @@ describe.skipIf(!unix)('rigour setup, personal', () => {
         const ownSettings = { permissions: { allow: ['Bash(ls)'] }, hooks: { PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'npm run format' }] }] } };
         fs.mkdirSync(atHome('.claude'), { recursive: true });
         fs.writeFileSync(atHome('.claude/settings.json'), JSON.stringify(ownSettings));
+        fs.mkdirSync(atHome('.cursor')); // Cursor is installed here; Windsurf and Cline are not
 
         await setupCommand(repo, { semantic: false });
 
@@ -127,9 +128,8 @@ describe.skipIf(!unix)('rigour setup, personal', () => {
         const commands = JSON.stringify(settings.hooks);
         expect(commands).toContain('npm run format');
         expect(commands).toContain('rigour-enabled'); // every Rigour hook is guarded
-        for (const rel of ['.cursor/hooks.json', '.codeium/windsurf/hooks.json', 'Documents/Cline/Hooks/PostToolUse', 'Documents/Cline/Hooks/PreToolUse', '.cursor/mcp.json']) {
-            expect(fs.existsSync(atHome(rel))).toBe(true);
-        }
+        for (const rel of ['.cursor/hooks.json', '.cursor/mcp.json']) expect(fs.existsSync(atHome(rel)), rel).toBe(true);
+        for (const rel of ['.codeium', 'Documents']) expect(fs.existsSync(atHome(rel)), rel).toBe(false); // nothing for an agent that is not installed
         expect(fs.readFileSync(calls, 'utf8')).toMatch(/^mcp add --scope user rigour -- /m);
 
         // Setting up a second repository reuses the machine install: one Rigour entry per event, not two.
@@ -166,5 +166,40 @@ describe('rigour setup --team', () => {
     it('writes instruction files where the project has none when asked', async () => {
         await setupCommand(repo, { semantic: false, team: true, instructions: true });
         expect(fs.existsSync(path.join(repo, 'CLAUDE.md'))).toBe(true);
+    });
+
+    it("leaves a teammate's clone exactly as committed, and still writes instructions when asked", async () => {
+        await setupCommand(repo, { semantic: false, team: true });
+        git('add', '-A');
+        git('commit', '-qm', 'adopt rigour');
+
+        await setupCommand(repo, { semantic: false }); // a teammate after cloning: rigour.yml is tracked
+        expect(git('status', '--porcelain')).toBe(''); // no committed file changed
+        expect(fs.readFileSync(path.join(repo, '.git/hooks/pre-push'), 'utf8')).toContain('hooks push --git');
+
+        await setupCommand(repo, { semantic: false, instructions: true });
+        expect(fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8')).toBe('@AGENTS.md\n');
+    });
+
+    it('keeps a .cursor/mcp.json that is not valid JSON', async () => {
+        fs.mkdirSync(path.join(repo, '.cursor'));
+        fs.writeFileSync(path.join(repo, '.cursor/mcp.json'), '{ not json');
+        await setupCommand(repo, { semantic: false, team: true });
+        expect(fs.readFileSync(path.join(repo, '.cursor/mcp.json'), 'utf8')).toBe('{ not json');
+    });
+});
+
+describe('rigour setup, personal, with git hooks kept in the repository', () => {
+    it('leaves a committed hooks folder (Husky) alone and says what to add', async () => {
+        fs.mkdirSync(path.join(repo, '.husky'));
+        fs.writeFileSync(path.join(repo, '.husky/pre-push'), 'npm test\n');
+        git('add', '-A');
+        git('commit', '-qm', 'husky');
+        git('config', 'core.hooksPath', '.husky');
+
+        await setupCommand(repo, { semantic: false });
+        expect(fs.readFileSync(path.join(repo, '.husky/pre-push'), 'utf8')).toBe('npm test\n');
+        expect(git('status', '--porcelain', '--untracked-files=all')).toBe('');
+        expect(vi.mocked(console.log).mock.calls.flat().join('\n')).toContain('hooks push --git "$@" || exit $?');
     });
 });

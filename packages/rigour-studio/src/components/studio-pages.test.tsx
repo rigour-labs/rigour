@@ -7,6 +7,7 @@ import { LessonCard } from './Learning';
 import { Trend } from './Progress';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
+import { Agents, Settings, Verdict } from './ReviewerParts';
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
@@ -62,4 +63,69 @@ describe('Studio pages', () => {
         expect([plural(1, 'problem'), plural(2, 'problem')]).toEqual(['1 problem', '2 problems']);
         expect(html(<p>{inlineCode('use `x` here')}</p>)).toBe('<p>use <code class="st-mono st-inline-code">x</code> here</p>');
     });
+
+    it('shows the reviewer\'s verdict, what ran against what was asked, and only confirmed findings as work', () => {
+        const data = reviewerData({ status: { last: { head: 'abcdef0123456', at: '2026-10-06T10:00:00Z', mode: 'full', ran: { asked: 'panel', ran: 'single', source: 'user', degraded: '3 judges asked, claude could run (not installed: codex, cursor-agent)' },
+            open: [{ id: 'abcdef0123', kind: 'finding', class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', consequence: 'two runs send the same email', reviewer: 'claude+codex' }],
+            disputed: [{ id: 'ffff000011', kind: 'finding', class: 'production-cost', file: 'src/job.ts', line: 9, issue: 'maybe slow' }] } } });
+        const out = html(<Verdict data={{ ...data, effective: { ...data.effective, dismissals: true } }} canWrite onChange={() => undefined} />);
+        expect(html(<Verdict data={data} canWrite onChange={() => undefined} />)).not.toContain('Not a bug'); // the team has not allowed dismissals
+        expect(out).toContain('1 finding to fix');
+        expect(out).toContain('Asked for a panel: only what a majority confirms blocks (user); ran one judge. 3 judges asked, claude could run (not installed: codex, cursor-agent)');
+        expect(out).toContain('one judge, the whole branch at abcdef012');
+        expect(out).toContain('found by claude and codex');
+        expect(out).toContain('What goes wrong: two runs send the same email');
+        expect(out).toContain('No majority, so these never block:');
+        expect(out.match(/Not a bug/g)).toHaveLength(1); // a disputed finding is not work, so there is nothing to dismiss
+        expect(html(<Verdict data={reviewerData({})} canWrite={false} onChange={() => undefined} />)).toContain('No verdict yet.');
+        const stuck = html(<Verdict data={reviewerData({ status: { attempt: { head: 'abcdef0123456', outcome: 'unavailable', reason: 'rigour.yml requires two reviewers from different vendors', at: '2026-10-06T10:00:00Z' } } })} canWrite={false} onChange={() => undefined} />);
+        expect(stuck).toContain('could not run');
+        expect(stuck).toContain('rigour.yml requires two reviewers from different vendors');
+        expect(stuck).not.toContain('No verdict yet');
+    });
+
+    it('shows every setting as what runs, yours and the team\'s, locks a team floor, and is read-only without the launch key', () => {
+        const locked = reviewerData({ effective: { ...reviewerData({}).effective, panel: true, mode: 'full', required: { mode: false, panel: true }, refused: ['panel off (user) refused: rigour.yml sets review.reviewer.panel: required'] }, team: { panel: 'required', mode: 'full' }, teamFile: true, user: { panel: false } });
+        const out = html(<Settings data={locked} canWrite saving={null} onSave={() => undefined} onSaveTeam={() => undefined} />);
+        expect(out).toContain('aria-label="your team requires the panel"');
+        expect(out).toContain('in <span class="st-mono">rigour.yml</span>: a change here edits the file, and you commit it');
+        expect(out).toContain('role="radiogroup" aria-label="Team Panel"');
+        expect(out).toMatch(/aria-label="Team Panel"[^]*?aria-checked="true" class="on"[^>]*>required</);
+        expect(out).toContain('not applied');
+        const readOnly = html(<Settings data={reviewerData({})} canWrite={false} saving={null} onSave={() => undefined} onSaveTeam={() => undefined} />);
+        expect(readOnly).toContain('Open Studio from the link the terminal printed');
+        expect(readOnly).not.toContain('Set team defaults');
+        expect(readOnly).toContain('disabled=""');
+        expect(out).toContain('role="radiogroup" aria-label="Your Panel"');
+        expect(out).toContain('aria-label="Team Judges"');
+        expect(out).toMatch(/role="radio" aria-checked="true" class="on"[^>]*>off</); // the person's own choice, not the team's
+    });
+
+    it('marks the team\'s choice when a person has not chosen', () => {
+        const out = html(<Settings data={reviewerData({})} canWrite saving={null} onSave={() => undefined} onSaveTeam={() => undefined} />);
+        expect(out.match(/aria-checked="true" class="on"[^>]*>Team</g)).toHaveLength(5); // every setting a person can choose
+        expect(out).toContain('aria-label="Team Dismissals"'); // a team decision only
+        expect(out).toContain('Set team defaults'); // no rigour.yml: creating one is an explicit step
+    });
+
+    it('shows today\'s spend against the daily caps', () => {
+        const capped = reviewerData({ status: { today: { runs: 7, usd: 2.1 } }, effective: { ...reviewerData({}).effective, max_runs_per_day: 20, max_usd_per_day: 10 } });
+        expect(html(<Settings data={capped} canWrite saving={null} onSave={() => undefined} onSaveTeam={() => undefined} />)).toContain('7 agent runs of 20 allowed, $2.10 reported of $10.00.');
+        expect(html(<Settings data={reviewerData({})} canWrite saving={null} onSave={() => undefined} onSaveTeam={() => undefined} />)).toContain('No daily cap');
+    });
+
+    it('says how many judges this machine can field', () => {
+        const two = reviewerData({ effective: { ...reviewerData({}).effective, reviewers: ['claude', 'codex', 'cursor'] }, available: [{ name: 'claude', vendor: 'anthropic', binary: 'claude', installed: true, version: '2.1' }, { name: 'codex', vendor: 'openai', binary: 'codex', installed: true }, { name: 'cursor', vendor: 'cursor', binary: 'cursor-agent', installed: false }] });
+        const out = html(<Agents data={two} />);
+        expect(out).toContain('Enough for two judges; a third vendor, listed in the reviewers, allows three.');
+        expect(out).toContain('cursor-agent: not installed');
+    });
 });
+
+function reviewerData(over: Record<string, unknown>): any {
+    return {
+        branch: 'feature', status: null, teamFile: false, user: {}, team: { enabled: false, mode: 'single', panel: 'off', judges: 2, escalate: 'always' }, available: [],
+        effective: { enabled: false, mode: 'single', panel: false, judges: 2, escalate: 'always', dismissals: false, reviewers: ['claude'], source: { mode: 'team', panel: 'team' }, required: { mode: false, panel: false }, refused: [] },
+        ...over,
+    };
+}

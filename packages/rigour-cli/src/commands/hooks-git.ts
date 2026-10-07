@@ -22,9 +22,11 @@ export interface GitHookInstall { path: string; action: 'installed' | 'appended'
 /**
  * Writes (or completes) the pre-push hook where this repository's git looks for it. A hooks
  * directory outside the repository (a machine-wide `core.hooksPath`) belongs to whoever set it:
- * Rigour names it and leaves it alone.
+ * Rigour names it and leaves it alone. So does a personal install (`workingTree: false`) whose hooks
+ * live in the working tree (Husky's `.husky/`): those files are committed, and personal means
+ * nothing in the working tree.
  */
-export function installGitPushHook(cwd: string, rigourCommand: string): GitHookInstall {
+export function installGitPushHook(cwd: string, rigourCommand: string, options: { workingTree?: boolean } = {}): GitHookInstall {
     const hooksDir = gitOutput(cwd, ['rev-parse', '--git-path', 'hooks']);
     const top = gitOutput(cwd, ['rev-parse', '--show-toplevel']);
     const gitDir = gitOutput(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
@@ -40,7 +42,7 @@ export function installGitPushHook(cwd: string, rigourCommand: string): GitHookI
     };
     const home = real(path.dirname(file));
     const inside = (dir: string) => home === real(dir) || home.startsWith(`${real(dir)}${path.sep}`);
-    if (!inside(top) && !inside(gitDir)) return { path: file, action: 'managed elsewhere' };
+    if (!inside(gitDir) && (!inside(top) || options.workingTree === false)) return { path: file, action: 'managed elsewhere' };
     const line = `${rigourCommand} ${MARK.replace('rigour ', '')} "$@"`;
     if (fs.existsSync(file)) {
         const text = fs.readFileSync(file, 'utf8');
@@ -105,13 +107,13 @@ export async function selfTestGitPushHook(rigourCommand: string): Promise<SelfTe
         steps.push(`hook ${installed.action} at ${installed.path}`);
         fs.writeFileSync(path.join(clone, 'src/util.ts'), 'export const used = 1;\nexport const forgotten = 2;\n');
         git(clone, ['commit', '-qam', 'adds an export nothing uses']);
-        const refused = spawnSync('git', ['push', 'origin', 'feature'], { cwd: clone, encoding: 'utf8', env: { ...process.env, RIGOUR_TELEMETRY: 'off' } });
+        const refused = spawnSync('git', ['push', 'origin', 'feature'], { cwd: clone, encoding: 'utf8', env: { ...process.env, RIGOUR_TELEMETRY: '0' } });
         const refusedRef = gitOutput(remote, ['rev-parse', '--verify', '-q', 'refs/heads/feature']);
         if (refused.status === 0 || refusedRef) return { ok: false, steps: [...steps, `FAIL: a push with an unused export went through (git exit ${refused.status}; remote has feature: ${!!refusedRef})\n${(refused.stderr || '').trim().slice(-600)}`] };
         steps.push(`a push with an unused export was refused (git exit ${refused.status}); the remote has no feature branch`);
         fs.writeFileSync(path.join(clone, 'src/util.ts'), 'export const used = 1;\n');
         git(clone, ['commit', '-qam', 'fix']);
-        const accepted = spawnSync('git', ['push', 'origin', 'feature'], { cwd: clone, encoding: 'utf8', env: { ...process.env, RIGOUR_TELEMETRY: 'off' } });
+        const accepted = spawnSync('git', ['push', 'origin', 'feature'], { cwd: clone, encoding: 'utf8', env: { ...process.env, RIGOUR_TELEMETRY: '0' } });
         const acceptedRef = gitOutput(remote, ['rev-parse', '--verify', '-q', 'refs/heads/feature']);
         if (accepted.status !== 0 || acceptedRef !== gitOutput(clone, ['rev-parse', 'HEAD'])) return { ok: false, steps: [...steps, `FAIL: the fixed push did not land (git exit ${accepted.status})\n${(accepted.stderr || '').trim().slice(-600)}`] };
         steps.push('the fixed push landed; the remote has the commit');

@@ -7,8 +7,7 @@ export { runHookChecker } from './checker.js';
 export type { CheckerOptions } from './checker.js';
 export { generateHookFiles, pushGateShell } from './templates.js';
 export type { GeneratedHookFile } from './templates.js';
-export type { HookTool, HookConfig, HookCheckerResult } from './types.js';
-export { DEFAULT_HOOK_CONFIG, FAST_GATE_IDS } from './types.js';
+export type { HookTool, HookCheckerResult } from './types.js';
 
 // DLP (Data Loss Prevention) — v4.2.0
 export { scanInputForCredentials, formatDLPAlert, createDLPAuditEntry } from './input-validator.js';

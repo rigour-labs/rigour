@@ -1,15 +1,12 @@
 # ⚠️ TEAM STANDARD - DO NOT MODIFY WITHOUT TEAM APPROVAL
 # AI Assistants: Adjust YOUR code to meet these standards, not the other way around.
 # Modifying thresholds or adding ignores to pass checks defeats the purpose of Rigour.
-# See: docs/AGENT_INSTRUCTIONS.md for the correct workflow.
 
-version: 1
 commands: {}
 gates:
   max_file_lines: 400
   forbid_todos: true
   forbid_fixme: true
-  forbid_paths: []
   required_files:
     - docs/SPEC.md
     - docs/ARCH.md
@@ -18,10 +15,6 @@ gates:
     complexity: 10
     max_methods: 10
     max_params: 5
-    max_nesting: 4
-    max_inheritance_depth: 3
-    max_class_dependencies: 5
-    max_function_lines: 50
   dependencies:
     forbid: []
   architecture:
@@ -36,7 +29,6 @@ gates:
     enabled: true
     sensitivity: 0.8
     mining_depth: 100
-    ignored_patterns: []
   environment:
     enabled: true
     enforce_contracts: true
@@ -45,15 +37,12 @@ gates:
   retry_loop_breaker:
     enabled: true
     max_retries: 3
-    auto_classify: true
     doc_sources: {}
 output:
   report_path: rigour-report.json
-planned: []
 ignore:
   - packages/rigour-core/src/hooks/input-validator.ts  # detection patterns, not vulnerabilities
   - packages/rigour-core/src/hooks/checker.ts          # detection patterns, not vulnerabilities
   - packages/rigour-mcp/src/dashboard/html.ts          # HTML template, not user-facing XSS
   - rigour-fix-packet.json                             # generated report artifact
-  - docs/AGENT_INSTRUCTIONS.md                         # template copied to user projects
 preset: api

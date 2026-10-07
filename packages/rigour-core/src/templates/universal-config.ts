@@ -1,22 +1,16 @@
 import type { Config } from '../types/index.js';
 
 export const UNIVERSAL_CONFIG: Config = {
-    version: 1,
     commands: {},
     gates: {
         max_file_lines: 500,
         forbid_todos: true,
         forbid_fixme: true,
-        forbid_paths: [],
         required_files: ['docs/SPEC.md', 'docs/ARCH.md', 'docs/DECISIONS.md', 'docs/TASKS.md'],
         ast: {
             complexity: 10,
             max_methods: 10,
             max_params: 5,
-            max_nesting: 4,
-            max_inheritance_depth: 3,
-            max_class_dependencies: 5,
-            max_function_lines: 50,
         },
         dependencies: {
             forbid: [],
@@ -36,11 +30,6 @@ export const UNIVERSAL_CONFIG: Config = {
             enabled: true,
             sensitivity: 0.8,
             mining_depth: 100,
-            ignored_patterns: [],
-            cross_file_patterns: true,
-            naming_consistency: true,
-            import_relationships: true,
-            max_cross_file_depth: 50,
         },
         environment: {
             enabled: true,
@@ -51,14 +40,11 @@ export const UNIVERSAL_CONFIG: Config = {
         retry_loop_breaker: {
             enabled: true,
             max_retries: 3,
-            auto_classify: true,
             doc_sources: {},
         },
         agent_team: {
             enabled: false,
             max_concurrent_agents: 3,
-            cross_agent_pattern_check: true,
-            handoff_verification: true,
             task_ownership: 'strict',
         },
         checkpoint: {
@@ -66,7 +52,6 @@ export const UNIVERSAL_CONFIG: Config = {
             interval_minutes: 15,
             quality_threshold: 80,
             drift_detection: true,
-            auto_save_on_failure: true,
         },
         security: {
             enabled: true,
@@ -108,12 +93,6 @@ export const UNIVERSAL_CONFIG: Config = {
             ],
             allowlist_env_names: [],
         },
-        adaptive: {
-            enabled: false,
-            base_coverage_threshold: 80,
-            base_quality_threshold: 80,
-            auto_detect_tier: true,
-        },
         staleness: {
             enabled: false,
             rules: {
@@ -134,8 +113,6 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         hallucinated_imports: {
             enabled: true,
-            check_relative: true,
-            check_packages: true,
             ignore_patterns: [
                 '\\.css$', '\\.scss$', '\\.less$', '\\.svg$', '\\.png$', '\\.jpg$',
                 '\\.json$', '\\.wasm$', '\\.graphql$', '\\.gql$',
@@ -186,10 +163,8 @@ export const UNIVERSAL_CONFIG: Config = {
             check_empty_tests: true,
             check_tautological: true,
             check_mock_heavy: true,
-            check_snapshot_abuse: true,
             check_assertion_free_async: true,
             max_mocks_per_test: 5,
-            ignore_patterns: [],
         },
         governance: {
             enabled: true,
@@ -214,14 +189,6 @@ export const UNIVERSAL_CONFIG: Config = {
                 '.cursor/hooks.json',
                 '.windsurf/hooks.json',
             ],
-        },
-        input_validation: {
-            enabled: true,
-            block_on_detection: false,
-            min_secret_length: 8,
-            custom_patterns: [],
-            ignore_patterns: [],
-            audit_log: true,
         },
         style_drift: {
             enabled: true,
@@ -288,11 +255,6 @@ export const UNIVERSAL_CONFIG: Config = {
             ignore_patterns: [],
         },
         deep: {
-            enabled: false,
-            pro: false,
-            max: false,
-            provider: 'local',
-            threads: 4,
             temperature: 0.1,
             intent_checks: false,
             checks: {
@@ -308,13 +270,7 @@ export const UNIVERSAL_CONFIG: Config = {
         },
     },
     hooks: {
-        enabled: false,
-        tools: [],
-        fast_gates: ['hallucinated-imports', 'phantom-apis', 'deprecated-apis', 'promise-safety', 'security-patterns', 'file-size'],
-        timeout_ms: 5000,
-        block_on_failure: false,
         require_review_ack: false,
-        dlp: true,
     },
     output: {
         report_path: 'rigour-report.json',
@@ -329,8 +285,14 @@ export const UNIVERSAL_CONFIG: Config = {
             mode: 'single',
             models: {},
             timeout_ms: 900000,
+            panel: 'off',
+            mode_required: false,
+            panel_max_items: 20,
+            dismissals: false,
+            judges: 2,
+            escalate: 'always',
+            cross_models: {},
         },
     },
-    planned: [],
     ignore: [],
 };

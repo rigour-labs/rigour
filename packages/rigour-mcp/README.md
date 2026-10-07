@@ -1,147 +1,42 @@
-# 🛡️ Rigour MCP Server
+# @rigour-labs/mcp
 
-**AI Agent Governance via Model Context Protocol — quality gates, DLP, drift detection, and deep analysis.**
+[![npm version](https://img.shields.io/npm/v/@rigour-labs/mcp?color=4f46e5)](https://www.npmjs.com/package/@rigour-labs/mcp)
 
-Rigour is a local-first MCP server that governs AI agents (Claude, Cursor, Cline, Windsurf) with deterministic quality gates, credential warnings, and memory governance.
+Rigour's MCP server. It gives a coding agent tools to review its own change before it says it is done, to
+check for an existing helper before writing a new one, and to recall what the repository and the team have
+learned. It runs on your machine over stdio and works with Claude Code, Cursor and other MCP clients.
 
-[![Registry](https://img.shields.io/badge/MCP-Registry-brightgreen)](https://github.com/mcp)
-[![npm version](https://img.shields.io/npm/v/@rigour-labs/mcp?color=cyan)](https://www.npmjs.com/package/@rigour-labs/mcp)
+## Set it up
 
----
+`rigour setup` (from [@rigour-labs/cli](https://www.npmjs.com/package/@rigour-labs/cli)) registers it for
+Claude Code and Cursor, together with the hooks that run Rigour's checks whether or not the agent asks. To
+register it by hand:
 
-## 🚀 Overview
-
-Rigour moves code quality enforcement from "Post-Commit" to "In-Progress." By running as an MCP server inside your editor, it provides the AI with a deterministic PASS/FAIL loop, preventing "Vibe Coding" and broken builds.
-
-### Key Features:
-
-- **27+ Quality Gates**: Deterministic checks for file size, complexity, hygiene, security, and AI-native drift detection.
-- **8-Language Hallucination Detection**: JS/TS, Python, Go, Ruby, C#/.NET, Rust, Java, and Kotlin — with stdlib whitelists, dependency manifest parsing, and project-relative import resolution.
-- **AI Agent DLP**: 29 credential patterns intercepted before agents see them (<50ms). Anti-evasion: unicode normalization, entropy detection, bidi stripping.
-- **Memory & Skills Governance**: Blocks agent writes to native memory files (CLAUDE.md, .clinerules, .windsurf/memories/); forces DLP-scanned `rigour_remember` instead.
-- **Real-Time Hooks**: Sub-200ms file-write hooks for Claude Code, Cursor, Cline, and Windsurf — catches issues as the AI writes, not after CI.
-- **Two-Score System**: Separate AI Health Score and Structural Score with provenance tracking (`ai-drift`, `traditional`, `security`, `governance`).
-- **Deep Analysis**: Five-signal LLM pipeline (AST facts, embeddings, style fingerprints, logic baselines, dependency graphs) with deterministic verification.
-- **Multi-Agent Governance**: Agent registration, scope isolation, checkpoint supervision, and verified handoffs.
-- **Industry Presets**: SOC2, HIPAA, FedRAMP-ready gate configurations.
-- **Local-First**: Deterministic gates run locally. Cloud deep analysis is opt-in BYOK.
-
----
-
-## 🛠️ Available Tools (25)
-
-### Core Quality Tools
-
-| Tool | Description |
-|:---|:---|
-| `rigour_check` | Runs all configured quality gates on the current workspace. |
-| `rigour_explain` | Explains why a specific gate failed with actionable fix instructions. |
-| `rigour_status` | Quick PASS/FAIL check with JSON-friendly output for polling. |
-| `rigour_get_fix_packet` | Retrieves prioritized Fix Packet (v2) with severity and provenance. |
-| `rigour_list_gates` | Lists all configured quality gates and their thresholds. |
-| `rigour_get_config` | Returns the current rigour.yml configuration. |
-| `rigour_check_pattern` | Checks if a proposed code pattern already exists in the codebase. |
-| `rigour_security_audit` | Runs a live CVE check on project dependencies. |
-| `rigour_review` | High-fidelity code review on a PR diff against all quality gates. |
-
-### Memory & Context Tools
-
-| Tool | Description |
-|:---|:---|
-| `rigour_remember` | Memory for this repository, all your repositories (`scope: "user"`), or your team (`scope: "team"`, served once promoted). Refuses values containing credentials. |
-| `rigour_recall` | `query`: the memories that match by meaning, plus promoted team knowledge; `key`: one memory. Withholds any memory containing a credential. |
-| `rigour_forget` | Removes a stored memory by key. |
-
-### Real-Time Hooks & DLP
-
-| Tool | Description |
-|:---|:---|
-| `rigour_hooks_check` | Fast hook checker on specific files (<200ms). Also accepts `text` param for DLP mode — scans user input for credentials (AWS keys, API tokens, database URLs, private keys, JWTs) before agent processing. |
-| `rigour_hooks_init` | Generate hook configs for Claude, Cursor, Cline, or Windsurf. Installs quality hooks + DLP pre-input hooks by default. Pass `dlp: false` to skip DLP. |
-
-### Deep Analysis
-
-| Tool | Description |
-|:---|:---|
-| `rigour_check_deep` | LLM-powered code review with five-signal extraction → verification pipeline. Local-first or cloud BYOK. |
-| `rigour_deep_stats` | Score history, trend analysis, and top issues from SQLite storage. |
-
-### Supervisor & Execution
-
-| Tool | Description |
-|:---|:---|
-| `rigour_run` | Executes a command under Rigour supervision with human arbitration. |
-| `rigour_run_supervised` | Full supervisor mode — iterative command + gate check loop. |
-
-### Settings
-
-| Tool | Description |
-|:---|:---|
-| `rigour_mcp_get_settings` | Get MCP runtime settings (.rigour/mcp-settings.json). |
-| `rigour_mcp_set_settings` | Set MCP runtime settings (e.g., deep_default_mode). |
-
-### Multi-Agent Governance
-
-| Tool | Description |
-|:---|:---|
-| `rigour_agent_register` | Register agent in session with scope conflict detection. |
-| `rigour_agent_deregister` | Remove agent from session when work is complete. |
-| `rigour_checkpoint` | Record quality checkpoint with drift detection. |
-| `rigour_handoff` | Initiate task handoff to another agent. |
-| `rigour_handoff_accept` | Accept a pending handoff from another agent. |
-
----
-
-## 🌐 Language Support
-
-Hallucinated import detection with full stdlib whitelists and dependency manifest parsing:
-
-| Language | Stdlib | Dependency Manifest | Import Patterns |
-|:---|:---|:---|:---|
-| **JavaScript/TypeScript** | Node.js 22.x builtins | `package.json` | `import`, `require()`, `export from` |
-| **Python** | 160+ stdlib modules (3.12+) | Local module resolution | `import`, `from ... import` |
-| **Go** | 150+ stdlib packages (1.22+) | `go.mod` module path | `import "..."`, aliased imports |
-| **Ruby** | 80+ stdlib gems (3.3+ MRI) | `Gemfile`, `.gemspec` | `require`, `require_relative` |
-| **C# / .NET** | .NET 8 framework namespaces | `.csproj` (NuGet PackageReference) | `using`, `using static` |
-| **Rust** | `std`/`core`/`alloc`/`proc_macro` | `Cargo.toml` (with `-` → `_`) | `use`, `extern crate`, `pub use` |
-| **Java** | `java.*`/`javax.*`/`jakarta.*` | `build.gradle`, `pom.xml` | `import`, `import static` |
-| **Kotlin** | `kotlin.*`/`kotlinx.*` + Java interop | `build.gradle.kts` | `import` |
-
----
-
-## 📦 Installation
-
-No global install: npx fetches the server when your agent starts it. Keep a version in the package name (`@latest`, or a major such as `@6`); with a bare `@rigour-labs/mcp`, npx runs any older copy installed globally instead. If you once ran `npm install -g @rigour-labs/mcp`, remove it with `npm rm -g @rigour-labs/mcp`.
-
-**Claude Code:** use the plugin (`/plugin marketplace add rigour-labs/rigour-plugin`, then `/plugin install rigour@rigour-labs`).
-
-**Cursor, Claude Desktop and other MCP clients:**
-```json
-{
-  "mcpServers": {
-    "rigour": {
-      "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp@latest"],
-      "env": {
-        "RIGOUR_CWD": "/path/to/your/project"
-      }
-    }
-  }
-}
+```bash
+claude mcp add --scope user rigour -- npx -y @rigour-labs/mcp@6
 ```
 
-Only Rigour's core tools are listed by default; add `"RIGOUR_MCP_TOOLS": "governance,telemetry"` (or `"full"`) to `env` for the rest. Node.js 22 or later is required.
+Or, in any client's MCP configuration:
 
-To keep a server apart from your other work (one per employer or client), add `"RIGOUR_USER_MEMORY": "off"`: it then never reads or writes the memories you keep for all your repositories.
+```json
+{ "mcpServers": { "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp@6"] } } }
+```
 
----
+Node 22 or later. Each call works in the repository given by its `cwd` argument, else `RIGOUR_CWD`, else
+the directory the server started in.
 
-## 📖 Documentation
+## The tools
 
-For full configuration and advanced usage, visit **[docs.rigour.run](https://docs.rigour.run)**.
+| Tool | What it is for |
+| --- | --- |
+| `rigour_review` | Review the change before calling it done: only findings on changed lines, each with a fix |
+| `rigour_review_ack` | Record the agent's verdict on a risky changed function |
+| `rigour_reviewer_verdict` | What the reviewer last decided for the branch (read-only) |
+| `rigour_check`, `rigour_get_fix_packet` | Run the checks, and get the violations a page at a time |
+| `rigour_index`, `rigour_context_scope`, `rigour_check_pattern` | Find the few files a task needs, and whether a helper already exists |
+| `rigour_recall`, `rigour_remember` | Recall and store conventions and lessons |
 
----
-
-## 📜 License
+More groups (agent teams, context, telemetry) are listed with `RIGOUR_MCP_TOOLS`. Every tool:
+[Coding agents and MCP](https://github.com/rigour-labs/rigour/blob/main/docs/AGENTS.md).
 
 MIT © [Rigour Labs](https://github.com/rigour-labs)

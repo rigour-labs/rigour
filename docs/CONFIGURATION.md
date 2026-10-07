@@ -1,403 +1,166 @@
-# ⚙️ Configuration Guide (`rigour.yml`)
+# Configuration
 
-## Automatic context intelligence
+How Rigour is configured, which settings teams actually change, and how a team's settings and a
+person's combine. Every setting, with its default, is in the [Configuration reference](./CONFIG_REFERENCE.md).
 
-Rigour builds the structural pattern index and dependency graph on first context use. Semantic enrichment is enabled by default and runs in the background; use `rigour index --no-semantic` only for an explicitly structural-only rebuild. Deep analysis is independent and is never required for indexing, caching, or evidence collection.
+## Where settings live
 
-After the baseline, IDE hooks and checkpoints update changed files and affected graph dependents. The four context cache layers—file facts, component dossiers, semantic scopes, and checkpoint packets—activate as those workflows are used.
+| Where | Who it is for | How you change it |
+| --- | --- | --- |
+| `rigour.yml` at the repository root | The team. Committed and reviewed like code. | Edit the file. The reviewer's team settings can also be edited in Studio's Setup page, which changes the file in place, keeps its comments and shows the diff to commit. |
+| Your own settings: `settings.json` in your Rigour home (`~/.rigour`, or the home of the [profile](./PROFILES.md) the repository uses) | You, in every repository on this machine: model keys and your reviewer choices. | `rigour settings set-key <provider> <key>`, `rigour settings set <key> <value>`, or your settings in Studio's Setup page. |
+| Flags and environment variables | One run, or a hook or CI job that takes no flags. | See [Environment variables](#environment-variables). |
 
-Rigour is controlled by a `rigour.yml` file in your root directory.
+You do not need a `rigour.yml`. Without one, every check runs with its defaults, which are chosen to report
+only what Rigour can show is wrong. `rigour setup --team` writes one, so the team has a file to change
+when it needs to.
 
-## Schema Overview
+## What teams usually change
+
+Most teams change three or four settings. These are the common ones.
+
+### Commands
 
 ```yaml
-version: 1
-preset: ui        # ui, api, infra, data
-paradigm: oop    # oop, functional, minimal
-
-gates:
-  max_file_lines: 300
-  forbid_todos: true
-  forbid_fixme: true
-  required_files:
-    - docs/SPEC.md
-    - docs/ARCH.md
-  
-  # Structural (AST) Analysis
-  ast:
-    complexity: 10      # Max cyclomatic complexity
-    max_methods: 12     # Max methods per class
-    max_params: 5       # Max parameters per function
-
 commands:
-  lint: "npm run lint"
-  test: "npm test"
-  typecheck: "npx tsc --noEmit"
+  lint: pnpm lint
+  typecheck: pnpm typecheck
+  test: pnpm test:changed
+```
 
-output:
-  report_path: "rigour-report.json"
+Before a push, Rigour runs the project's own formatter, linter, type check and the tests that import
+changed files, finding them in `node_modules`: Prettier, ESLint, the `typecheck` or `check` script (else
+svelte-check or tsc), and `vitest related`. Name a command here when that is not what your team runs. It
+replaces the tool Rigour would have found, runs on the whole project as written, and blocks the push when it
+fails. Commands run without a shell, so `&&` and pipes are not interpreted: point at a package script.
 
-# Ignore specific paths from all gates
+Rigour never downloads a tool. A tool the project never declared is skipped and said so; one declared in
+`package.json` but not installed fails, because a checkout without its dependencies cannot prove anything.
+
+### Paths to skip
+
+```yaml
 ignore:
-  - "**/generated/**"
-  - "**/vendor/**"
+  - "generated/**"
   - "legacy/**"
 ```
 
-## Gate Definitions
+Every check, review and agent hook skips these, on top of the paths always skipped: `node_modules`,
+`dist`, `studio-dist`, `.next`, `coverage`, `out`, `target`, `examples`, `.git`, the npm and pnpm lock
+files and `rigour-report.json`.
 
-### `max_file_lines`
-Enforces the **Single Responsibility Principle** by capping file length. Large files are usually a sign of "God Objects" or "Spaghetti Code".
-
-### `forbid_todos` / `forbid_fixme`
-Zero tolerance for technical debt markers. Engineering is finished when the code is clean, not when a comment is left for later.
-
-### `ast.complexity`
-Uses AST traversal to calculate **Cyclomatic Complexity**. It counts branches (if, for, while, case, etc.). Functions with complexity > 10 are difficult to test and maintain.
-
-### `ast.max_methods`
-Ensures classes stay focused. If a class has more than 10-12 methods, it should likely be split into multiple smaller services.
-
-### `commands`
-Any shell command that returns a non-zero exit code will cause the Rigour check to fail. This is where you integrate your existing CI tools. Without them, the push gate runs the project's own installed tools on the changed files (prettier, eslint, the tests vitest relates to them) and its type check: the `typecheck` or `check` script in package.json when there is one, else `svelte-kit sync` and svelte-check for a SvelteKit project, else tsc. Two more run when the project has what they need: a type-checked lint overlay (`no-unnecessary-condition`, `no-floating-promises` and the other `typescript-eslint` rules that find dead guards and un-awaited promises), layered on the project's own `eslint.config.*` with its own `typescript-eslint`, blocking on changed lines only and counting the rest; and knip, when the project installs it, on the changed files. A tool set here is left to this command instead. Nothing is ever downloaded; a tool the project never declared is skipped and said so, and one declared in package.json but not installed fails, since a checkout without its dependencies cannot prove anything.
-
-### `unused_exports` and `orphan_files` (on by default)
-Dead code a change adds. `unused_exports`: an export or re-export on an added line that no other file imports from its module (framework route exports, such as SvelteKit `load` or Next.js `metadata`, are skipped; a test is not a consumer). `orphan_files`: a new code file nothing outside the change's new files imports or runs (routes, hooks, tests, migrations and config files are found by their runner and skipped). Both block a review, the stop hook and the push gate.
-
-### `redundancy` (on by default)
-What a change made redundant, found with the project's own TypeScript program (built once per run from its `tsconfig.json` and its installed `typescript`, so it runs at push, in `rigour review` and in a backtest, not at every stop). Four findings block, each anchored on a line the change wrote: a null filter beside a range or equality on the same column (`.not(col, 'is', null)` next to `.gte(col, …)`; SQL already excludes NULL there), a row type still `| null` for a column the query filters non-null (every guard on it is dead), an optional member every host object supplies, and a property the hosts set that nothing reads. A value that only leaves through serialisation (a payload another service reads) is a hint for the reviewer rather than a block, and `wire_contracts` lists the files whose types another service reads so their members are never write-only here. A function that scans a collection and is called once per item of another collection is also a hint. Hints are listed by `rigour review --notes` and returned as `hints` in `--json`.
-
-A row type that says `| null` for a column the database makes NOT NULL is a note (never a block, until it has been measured on merged pull requests). Rigour learns which columns are NOT NULL by replaying the SQL migrations in `schema_migrations` in file-name order: column definitions, primary keys, `SET`/`DROP NOT NULL`, added, renamed and dropped columns and tables. The folders may be in another repository, relative to this one, absolute, or under `~/`; they are only read, and a missing folder is skipped. It checks the row type of a `.from('table')` query (`.schema('name')` picks the schema, `public` otherwise), only for a table it could follow, and not for a column the query renames with an alias. A TypeScript project whose program cannot be built (dependencies not installed, a generated config missing) blocks: a checkout that cannot prove the change is never a pass.
-
-```yaml
-gates:
-  redundancy:
-    enabled: true
-    wire_contracts: ["src/lib/contracts/**"]
-    schema_migrations: ["../database/supabase/migrations"]   # default: supabase/migrations
-```
+### Names a framework loads by name
 
 ```yaml
 gates:
   unused_exports:
-    allow: [register]          # export names a tool loads by name
+    allow: [register, handler]     # exports a tool loads by name
   orphan_files:
-    allow: ['scripts/one-off/**'] # files a tool loads by path
+    allow: ["scripts/one-off/**"]  # files a tool loads by path
 ```
 
-### `query_patterns`, `duplicate_functions`, `optional_params` (on by default)
-Production-cost shapes and copies in what a change adds: offset paging in a loop or pager callback, a time window read from its start with no end, a function body copied from another in the touched files, and an optional parameter only tests omit (advisory). Turn any off with `enabled: false`.
+Rigour reports an export nothing imports, and a new file nothing imports or runs. It already knows the
+common conventions (route modules, tests, migrations, config files); list what your tooling loads that it
+cannot see.
 
-### `change_sweep` (on by default)
-What a fix leaves half done: a narrower condition still tested elsewhere after a new one widened it, a callback wired into some same-kind mounts of a component but not all, and (advisory) an accumulator copied whole on every loop step.
-
-### `review`
-
-```yaml
-review:
-  show_preexisting: false      # true lists findings the code already had before the change
-  github_account: my-login     # the account whose token fetches the PR's previous review (or set it in a profile)
-  reviewer:
-    enabled: false             # true runs the reviewer at push (rigour review --reviewer runs it on request).
-                               # It reads every human review on the PR (with inline comments) and the PR description,
-                               # checks every point against the code, traces every read the change adds, and reports
-                               # what a fix left behind; an open point the human marked non-blocking is listed for the
-                               # reply, not held against the push.
-    on_push: background        # background (default): the push goes through once the checks pass and the pushed commit
-                               # is reviewed in a worktree of its own (rigour review --status shows the verdict);
-                               # wait: the push waits for the verdict; off: only on request. A model is asked only
-                               # when the branch has an open, non-draft pull request.
-    reviewers: [claude]        # your coding agents' CLIs, run headless and read-only: claude, cursor, codex
-    mode: single               # single: the first installed; cross: a vendor not on the commits' trailers;
-                               # full: two vendors, verdicts merged (rigour review --reviewer --full, before asking a person)
-    model: claude-opus-5-5     # optional, for claude; models: { cursor: auto } for the others
-    timeout_ms: 900000
-```
-
----
-
-## AI-Native Drift Detection Gates (v2.16+)
-
-These gates detect failure modes unique to AI code generation — patterns that only exist because LLMs lose context, hallucinate, or generate code from scratch each session.
-
-All AI-native gates are **enabled by default** and support **multi-language detection** (TypeScript, JavaScript, Python, Go, Ruby, C#/.NET).
-
-### `duplication_drift`
-Detects when AI generates near-identical functions across files because it doesn't remember what it already wrote. Groups functions by normalized body hash and flags duplicates spanning multiple files. Severity: `high`.
+### Database migrations
 
 ```yaml
 gates:
-  duplication_drift:
-    enabled: true               # Default: true
-    similarity_threshold: 0.8   # 0-1, how similar bodies must be
-    min_body_lines: 5           # Ignore trivial functions
+  redundancy:
+    schema_migrations: ["supabase/migrations"]   # the SQL migrations, to learn which columns are NOT NULL
+  migration_order:
+    enabled: true
+    dirs: ["**/supabase/migrations"]             # a migration added before the newest one blocks
 ```
 
-### `hallucinated_imports`
-Detects imports referencing modules that don't exist — a common AI failure where models confidently generate import statements for fictional packages or file paths. Severity: `critical`. Provenance: `ai-drift`.
-
-**Multi-language support:** Validates imports across JS/TS (`import`/`require`), Python (`import`/`from`), Go (`import`), Ruby (`require`/`require_relative`), and C# (`using`).
-
-```yaml
-gates:
-  hallucinated_imports:
-    enabled: true               # Default: true
-    check_relative: true        # Verify relative imports resolve to real files
-    check_packages: true        # Verify packages exist in manifest
-    ignore_patterns:            # Skip asset imports
-      - '\\.css$'
-      - '\\.svg$'
-```
-
-### `inconsistent_error_handling`
-Detects when the same error type is handled differently across the codebase — typically caused by multiple agent sessions each writing error handling from scratch. Classifies strategies (rethrow, swallow, log, return-null, etc.) and flags types with too many variants. Severity: `high`.
-
-```yaml
-gates:
-  inconsistent_error_handling:
-    enabled: true               # Default: true
-    max_strategies_per_type: 2  # Flag if >2 different handling patterns
-    min_occurrences: 3          # Need 3+ catch blocks to analyze
-    ignore_empty_catches: false # Count empty catches as a strategy
-```
-
-### `context_window_artifacts`
-Detects quality degradation within a single file when AI loses context mid-generation. Compares the top half vs bottom half of each file across six signals: comment density, function length, variable naming, error handling, empty blocks, and TODO density. Severity: `high`. Provenance: `ai-drift`.
+### Turning a check off
 
 ```yaml
 gates:
   context_window_artifacts:
-    enabled: true               # Default: true
-    min_file_lines: 100         # Only analyze files with 100+ lines
-    degradation_threshold: 0.4  # 0-1, flag if degradation exceeds this
-    signals_required: 2         # Need 2+ signals to flag a file
+    enabled: false
 ```
 
-### `promise_safety` (v2.17+)
-Detects unsafe async/error-handling patterns across all supported languages — a pattern where AI generates "happy-path only" code that silently swallows errors. Severity: `high`. Provenance: `ai-drift`.
+Every check has `enabled`. Before turning one off because of a wrong finding, dismiss the finding instead
+(`rigour dismiss <key> --reason "…"`): the dismissal is recorded, and an advisory check whose findings a team
+keeps dismissing goes quiet on its own. `rigour precision` shows which checks those are.
 
-**Multi-language checks:**
-
-| Language | Patterns Detected |
-|:---|:---|
-| JS/TS | `.then()` without `.catch()`, `JSON.parse` without try/catch, `async` without `await`, `fetch` without error handling |
-| Python | `json.loads` without try/except, `async def` without `await`, `requests`/`httpx` without error handling, bare `except: pass` |
-| Go | Ignored error returns (`_`), `json.Unmarshal` without error check, `http.Get` without error check |
-| Ruby | `JSON.parse` without `begin/rescue`, `Net::HTTP`/`HTTParty`/`Faraday` without `begin/rescue` |
-| C#/.NET | `JsonSerializer` without try/catch, `HttpClient` without error handling, `async Task` without `await`, `.Result`/`.Wait()` deadlock risk |
+### What a review shows
 
 ```yaml
-gates:
-  promise_safety:
-    enabled: true                    # Default: true
-    check_unhandled_then: true       # .then() without .catch()
-    check_unsafe_parse: true         # JSON.parse / json.loads without error handling
-    check_async_without_await: true  # async functions that never await
-    check_unsafe_fetch: true         # HTTP calls without error handling
+review:
+  show_preexisting: false     # true also lists problems the code had before the change
+  include_heuristics: false   # true lets size, complexity and similar judgement calls block
 ```
 
-### `deep` (v2.18+)
+The defaults are what most teams want: a review lists only what the change introduced, and blocks only on
+what Rigour can show is wrong ([What blocks](./DEVELOPMENT.md#what-blocks-and-what-does-not)).
 
-Semantic code analysis powered by LLMs. Detects architectural violations, design pattern issues, and language idioms using a three-step pipeline: AST extraction → LLM interpretation → AST verification. Requires API key or local model.
+### The reviewer
 
-```yaml
-gates:
-  deep:
-    enabled: true                             # Default: false
-    provider: anthropic                       # anthropic, openai, local
-    model: claude-sonnet-4-5-20250514         # Model to use
-    agents: 1                                 # Parallel agents (cloud only)
+Whether to run the reviewer, how many judges, the daily caps and whether people may dismiss its findings
+are under `review.reviewer`. See [The reviewer](./REVIEWER.md).
 
-    # LLM settings
-    maxTokens: 4000
-    temperature: 0.3
-    timeoutMs: 30000
+## Team settings and personal settings
 
-    # Categories to check (all enabled if omitted)
-    checks:
-      - solid                  # SRP, OCP, LSP, ISP, DIP violations
-      - dry                    # Duplication, copy-paste code
-      - design_patterns        # God classes, feature envy, etc.
-      - error_handling         # Empty catches, swallowing, missing checks
-      - language_idioms        # Language best practices, naming
-      - test_quality           # Test coverage, assertion quality
-      - architecture           # Circular deps, package cohesion, API design
-      - code_smells            # Long files, magic numbers, dead code
-      - concurrency            # Race conditions, goroutine leaks (Go-specific)
-      - performance            # Inefficiency, resource leaks
-      - naming                 # Naming conventions
-      - resource_management    # Hardcoded config, resource cleanup
-```
+For the checks, `rigour.yml` is the only source: a person cannot change what the team's checks do.
 
-**Settings file** (`~/.rigour/settings.json`):
+The reviewer is the exception, because it runs each person's own agent CLIs on their machine. For it, the
+nearest choice wins: a flag on this run, then an environment variable, then the person's own settings, then
+`rigour.yml`. The team can set floors no nearer choice goes below (`review.reviewer.panel: required`,
+`mode_required`), and some settings only the team can set (`dismissals`, `on_push`, `timeout_ms`,
+`panel_max_items`, `cross_models`). A person can set a lower daily cap, never a higher one. Studio's Setup
+page shows, for each setting, what runs, yours and the team's, and where the running value comes from.
 
-Store API keys and default provider:
+[Model review](./MODEL_REVIEW.md) with an API key is chosen per run, by flags or your own settings. The
+key, provider and model are never read from `rigour.yml`, so a committed file cannot carry a secret or
+switch on paid calls for everyone.
 
-```json
-{
-  "anthropic_api_key": "sk-ant-...",
-  "openai_api_key": "sk-...",
-  "deep_provider": "anthropic",
-  "deep_model": "claude-sonnet-4-5-20250514",
-  "deep_enabled": true,
-  "deep_agents": 1,
-  "deep_timeout_ms": 30000
-}
-```
+## A branch cannot loosen its own review
 
-**CLI Usage**:
+A change can edit `rigour.yml` or `.rigour/dismissed.json` as easily as code. When a review is enforcing,
+as in a required pull request check, run it with `--independent`:
 
 ```bash
-rigour check --deep                          # Enable deep analysis
-rigour check --deep --provider anthropic     # Use Anthropic API
-rigour check --deep --provider openai        # Use OpenAI API
-rigour check --deep --provider local         # Use local model
-rigour check --deep --agents 3              # 3 parallel agents (cloud only)
+rigour review --base origin/main --independent
 ```
 
-[Full deep analysis guide →](./DEEP_ANALYSIS.md)
+It reads `rigour.yml`, the dismissals and the record of past findings as they are on the base, not as the
+branch left them, and counts no review an agent recorded for itself. `rigour review` also names any change
+the branch makes to Rigour's own settings, so a person reviewing it sees that. See
+[Pull requests and CI](./CI.md).
 
-### `semantic_bugs`
+## Templates
 
-Type-aware rules that prove a defect before reporting it: they build a TypeScript program, trace a value from where it enters to where it does harm (across files when needed), and name both ends in the finding. Anything the engine cannot resolve produces no finding. No model, no network.
-
-| Rule | Catches |
-|:---|:---|
-| `credential-redirect` | A custom credential header (`x-*-token`, `*-api-key`, a secret env value) sent by a request that follows redirects. `fetch` drops `Authorization` on a cross-origin redirect but forwards custom headers. |
-| `in-memory-aggregation` | Rows from a paged read collected into memory only to be counted or aggregated, or capped with a throwing length check. |
-| `degraded-response-cached` | A response cached with `max-age` while its body can carry a failure fallback (a `catch` that returns `null`/`[]`/`{}`, or a flag derived from one). |
-
-```yaml
-gates:
-  semantic_bugs:
-    enabled: true                       # Default: true (set false to turn off)
-    rules: [credential-redirect]        # Optional; all rules when omitted
-```
-
-**Learned rules.** `rigour learn <fix-commit>` (or `--before <file> --after <file>`) turns a fix into a rule for the same bug. It generalises two edit shapes: an argument gaining an option (`fetch(url, init)` to `fetch(url, { ...init, redirect: 'manual' })`) and a value gaining a condition (a cache header becoming conditional on the field that can be a fallback). Candidates are tried from most general (every call of that name) to most specific (this call in this function), and one is kept only if it fires on the code before the fix, is silent on the fixed code, and fires on at most `--max-hits` (default 3) other places, which are listed for review. Kept rules are saved to `.rigour/rules/<id>.json`, reviewed and committed like code, and run by this gate as `learned/<id>`. Other edit shapes are reported as unsupported rather than guessed.
-
-**Rules from agent fixes.** When `rigour_review` or the stop hook reports a finding and a later review of the same file no longer does, the file before and after the fix is kept under `.rigour/agent-fixes/`. `rigour learn --agent-fixes` turns those fixes into rules with the same validation. Capture costs milliseconds inside the loop; learning runs when you ask for it.
+`rigour setup --team` and `rigour init` look at the repository and start `rigour.yml` from a template: a
+role (`ui`, `api`, `infra`, `data`, `healthcare`, `fintech`, `government`, `devsecops`) and a coding style
+(`oop`, `functional`). A template only sets starting values, such as tighter structure limits or a stricter
+security threshold. The file it writes is yours to edit. To choose one yourself:
 
 ```bash
-rigour learn a1b2c3d --dry-run                       # See what would be learned
-rigour learn a1b2c3d                                 # Save validated rules to .rigour/rules/
-rigour learn --before old/http.ts --after src/http.ts
+rigour init --preset api --paradigm functional --force
 ```
 
-### `deprecated_dependencies` (advisory, opt-in)
+`--force` replaces an existing `rigour.yml` and keeps a backup of it.
 
-A dependency in package.json whose **installed** version npm marks deprecated (npm deprecates individual versions, so the latest is never what is judged). The installed version comes from package-lock.json, else node_modules; when it cannot be known, nothing is said. The finding sits on the dependency's line, so review reports it when a change adds or moves a dependency onto a deprecated version. It sends package names and versions to the registry, as `npm install` does; answers are cached for a day in `.rigour/`, and a slow or unreachable registry means no findings, never a failed check.
+## Environment variables
 
-```yaml
-gates:
-  deprecated_dependencies:
-    enabled: true
-    registry: https://registry.npmjs.org   # Default; point at a mirror if you use one
-```
+| Variable | What it does |
+| --- | --- |
+| `RIGOUR_HOME` | Rigour's home folder, instead of `~/.rigour` or the profile's. |
+| `RIGOUR_API_KEY` | The key for [model review](./MODEL_REVIEW.md) when no `--api-key` is given. |
+| `RIGOUR_REVIEWER_MODE`, `RIGOUR_REVIEWER_PANEL` | The reviewer's mode (`single`, `cross`, `full`) and panel (`on`, `off`), for runs that take no flags. |
+| `RIGOUR_GITHUB_ACCOUNT` | The `gh` account whose token reads pull requests and their reviews. `GH_TOKEN` wins when set. |
+| `RIGOUR_MCP_TOOLS` | `governance` adds the agent-team tools to the MCP server ([Coding agents and MCP](./AGENTS.md)). |
+| `RIGOUR_CWD` | The repository the MCP server works in when the agent does not say. |
+| `RIGOUR_USER_MEMORY` | `off` keeps the MCP server from writing lessons to your home folder. |
+| `RIGOUR_UPDATE_CHECK` | `0` turns off the daily check for a newer version. `DO_NOT_TRACK=1` does too. |
 
-### `unindexed_reads` and `migration_order` (database, advisory)
+The team database has its own variables; see [Team database](./TEAM_DATABASE.md).
 
-Two checks for Postgres migrations. Both are off by default and advisory: they appear in `--json` and the MCP review, and never decide the verdict.
+## When the file is wrong
 
-- **`unindexed_reads`**: a supabase-js read (`.from('t').select(…)` with filters) whose table, as the repository's own migrations define it, has no index that starts with a column the read compares to a value or sorts by first. Row-level security policies count: `auth.uid() = owner_id` makes every user read filter on `owner_id`. A partial index counts only when the read's filters satisfy its `WHERE`. It stays silent when it cannot prove the claim: a computed table or column, `.or(…)`, a filter on an embedded resource, a table not created in the migrations, a policy it cannot read, or DDL it does not model (renames, `LIKE … INCLUDING`, partitions, index DDL inside a function). A small table read without an index is fine: dismiss the finding.
-- **`migration_order`**: a migration the change adds that sorts before the newest migration already on the base (the `--base` ref, or `HEAD` for uncommitted work). The Supabase CLI applies migrations in filename order and `db push` stops at one older than the last applied. Only directories in `dirs` are checked, because runners such as Rails apply older migrations without complaint.
-
-```yaml
-gates:
-  unindexed_reads:
-    enabled: true
-    migrations: []                      # Globs for migration .sql files; default **/migrations/**/*.sql, each directory one database
-  migration_order:
-    enabled: true
-    dirs: ['**/supabase/migrations']    # Default
-```
-
----
-
-## Two-Score System (v2.17+)
-
-Rigour now provides **two distinct scores** alongside the overall score:
-
-| Score | What It Measures |
-|:---|:---|
-| **AI Health Score** (0–100) | Quality of AI-generated code — drift patterns, hallucinations, promise safety |
-| **Structural Score** (0–100) | Traditional code quality — complexity, file sizes, security |
-| **Overall Score** (0–100) | Combined weighted score across all gates |
-
-Each failure also carries a **provenance tag** indicating its origin:
-
-| Provenance | Meaning |
-|:---|:---|
-| `ai-drift` | Caused by AI losing context, hallucinating, or generating unsafe patterns |
-| `traditional` | Standard code quality issues (complexity, file size, etc.) |
-| `security` | Security vulnerabilities (secrets, injection, XSS) |
-| `governance` | Agent governance violations (scope conflicts, loop detection) |
-
----
-
-## Severity-Weighted Scoring
-
-Rigour scores your codebase 0–100, with deductions weighted by failure severity:
-
-| Severity | Deduction | Examples |
-|:---|:---|:---|
-| `critical` | 20 pts | Hardcoded secrets, SQL injection, hallucinated imports |
-| `high` | 10 pts | Duplication drift, context window artifacts, XSS |
-| `medium` | 5 pts | Cyclomatic complexity, structural violations |
-| `low` | 2 pts | File size limits |
-| `info` | 0 pts | TODO/FIXME comments (tracked but free) |
-
-This ensures the score reflects what actually matters — 5 TODO comments cost 0 points, while a single hardcoded API key costs 20.
-
----
-
-## Ignore Paths
-
-The `ignore` array allows you to exclude specific files or directories from **all gates**.
-
-```yaml
-ignore:
-  - "**/generated/**"
-  - "**/vendor/**"
-  - "legacy/**"
-  - "**/*.generated.ts"
-```
-
-### Pattern Syntax
-
-Rigour uses **glob patterns** to match files:
-
-| Pattern | Matches |
-|---------|---------|
-| `**/folder/**` | `folder` at any depth (e.g., `src/folder/`, `packages/app/folder/`) |
-| `folder/**` | `folder` at **root only** |
-| `**/*.ext` | All files with `.ext` extension |
-| `path/to/file.ts` | Specific file |
-
-> [!IMPORTANT]
-> Use `**/` prefix to match directories at any depth. For example, `**/node_modules/**` matches both `node_modules/` and `frontend/node_modules/`.
-
-### Default Ignores
-
-Rigour automatically ignores these patterns (merged with your custom ignores):
-
-- `**/node_modules/**`
-- `**/dist/**`
-- `**/build/**`
-- `**/*.test.*` / `**/*.spec.*`
-- `**/__pycache__/**`
-- `**/.git/**`
-- `**/package-lock.json`
-- `**/pnpm-lock.yaml`
-
-### Context-Specific Ignores
-
-For the context mining gate, use `ignored_patterns`:
-
-```yaml
-gates:
-  context:
-    ignored_patterns:
-      - "legacy/**"
-      - "*.config.js"
-```
+`rigour.yml` is validated every time it is read. A value of the wrong type stops the run with an error that
+names the setting. A setting Rigour does not know is ignored, so a file written for an older or newer version
+still loads.

@@ -21,13 +21,16 @@ export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest
 export { scaffoldLedger } from './review/backtest-init.js';
 export { fixScope, type FixScope } from './review/fix-scope.js';
 export { isGeneratedFile } from './review/generated-files.js';
-export { countUsage, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';
+export { costBucket, countUsage, doNotTrack, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';
 export { buildReviewTask, type ReviewTask, type ReviewTaskItem } from './review/review-task.js';
 export { buildQualityReceipt, receiptReport, type QualityReceipt, type ReceiptGap, type ReceiptOptions } from './review/receipt.js';
 export { runToolchain, type ToolResult, type ToolStatus } from './review/toolchain.js';
 export { branchFailures, mergeConflicts, staleReferences } from './review/branch-checks.js';
 export { runReviewer, reviewerBlocks, itemLine, type ReviewerOptions, type ReviewerResult, type ReviewerOutcome, type OpenItem } from './review/reviewer.js';
 export { startBackgroundReview, backgroundReview, reviewStatus, type ReviewStatus } from './review/reviewer/background.js';
+export { dismissReviewerFinding, REVIEW_DISMISSALS, reviewerInputs } from './review/reviewer/context.js';
+export { resolveReviewer, saveUserReviewer, type ResolvedReviewer, type RunChoice, type UserReviewerPatch } from './review/reviewer/settings.js';
+export { reviewerAvailability } from './review/reviewer/adapters.js';
 export { branchBase, type BranchBase } from './gates/logic-drift-git-base.js';
 export { acknowledgeReview, type ReviewAck, type AckResult } from './review/review-ack.js';
 export { exportReviewed, readLedger, reviewedKeys, isReviewed, recordReview, REVIEWED_FILE, type LedgerEntry, type ReviewedKey, type ReviewVerdict } from './review/ledger.js';

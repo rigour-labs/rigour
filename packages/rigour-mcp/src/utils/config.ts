@@ -23,7 +23,7 @@ export async function loadConfig(cwd: string) {
     const configPath = path.join(cwd, "rigour.yml");
     if (!(await fs.pathExists(configPath))) {
         noteMissingConfig(cwd);
-        return ConfigSchema.parse({ version: 1 });
+        return ConfigSchema.parse({});
     }
     const configContent = await fs.readFile(configPath, "utf-8");
     return ConfigSchema.parse(yaml.parse(configContent));

@@ -9,7 +9,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import type { Exec } from './exec.js';
+import { defaultExec, type Exec } from './exec.js';
 
 export type ReviewerName = 'claude' | 'cursor' | 'codex';
 export type Vendor = 'anthropic' | 'cursor' | 'openai';
@@ -20,9 +20,15 @@ export interface Adapter {
     binary: string;
     /** The command line for one review: the prompt is passed as text, never through a shell. */
     args(prompt: string, model: string | undefined): string[];
-    /** The reviewer's final message and, when the CLI reports it, what the run cost. */
-    answer(stdout: string): { text: string; costUsd?: number };
+    /** The reviewer's final message and, when the CLI reports them, what the run cost and the tokens it used. */
+    answer(stdout: string): { text: string } & Spend;
 }
+
+/** What a run used: dollars when the CLI reports them (Claude Code), tokens otherwise (Codex reports only tokens). */
+export interface Spend { costUsd?: number; tokens?: Tokens }
+export interface Tokens { input: number; output: number }
+
+const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git log:*)', 'Bash(git grep:*)'];
 
@@ -45,7 +51,12 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         answer: stdout => {
             try {
                 const parsed = JSON.parse(stdout);
-                return { text: String(parsed.result ?? ''), ...(typeof parsed.total_cost_usd === 'number' ? { costUsd: parsed.total_cost_usd } : {}) };
+                const usage = parsed.usage;
+                return {
+                    text: String(parsed.result ?? ''),
+                    ...(typeof parsed.total_cost_usd === 'number' ? { costUsd: parsed.total_cost_usd } : {}),
+                    ...(usage ? { tokens: { input: n(usage.input_tokens) + n(usage.cache_read_input_tokens) + n(usage.cache_creation_input_tokens), output: n(usage.output_tokens) } } : {}),
+                };
             } catch {
                 return { text: stdout };
             }
@@ -70,18 +81,22 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         binary: 'codex',
         args: (prompt, model) => ['exec', '--sandbox', 'read-only', '--json', ...(model ? ['--model', model] : []), '-c', 'model_reasoning_effort=high', prompt],
         // `codex exec --json` streams events; the last text-bearing one carries the answer.
+        // Warnings arrive as `error` items with a `message`, not `text`, so they are never taken for the answer.
+        // `turn.completed` carries the tokens (Codex reports no dollars).
         answer: stdout => {
             let text = '';
+            let tokens: Tokens | undefined;
             for (const line of stdout.split('\n').filter(Boolean)) {
                 try {
                     const event = JSON.parse(line);
                     const candidate = event?.item?.text ?? event?.msg?.message ?? event?.text;
                     if (typeof candidate === 'string') text = candidate;
+                    if (event?.type === 'turn.completed' && event.usage) tokens = { input: n(event.usage.input_tokens), output: n(event.usage.output_tokens) + n(event.usage.reasoning_output_tokens) };
                 } catch {
                     // not an event line
                 }
             }
-            return { text: text || stdout };
+            return { text: text || stdout, ...(tokens ? { tokens } : {}) };
         },
     },
 };
@@ -152,15 +167,27 @@ export function vendorsOf(trailers: string): Set<Vendor> {
 
 /**
  * The reviewers a run uses. single: the first available of the list. cross: the first available
- * whose vendor is not on the trailers, else the first available. full: that one plus the first
- * available of another vendor. Empty when none is installed.
+ * whose vendor is not on the trailers, else the first available. full: that one plus the next
+ * available of each other vendor, up to `judges`. Empty when none is installed.
  */
-export function selectReviewers(candidates: ReviewerName[], mode: ReviewMode, authors: Set<Vendor>, available: Set<ReviewerName>): ReviewerName[] {
+export function selectReviewers(candidates: ReviewerName[], mode: ReviewMode, authors: Set<Vendor>, available: Set<ReviewerName>, judges = 2): ReviewerName[] {
     const installed = candidates.filter(name => available.has(name));
     if (installed.length === 0) return [];
     let first = installed[0];
     if (mode !== 'single') first = installed.find(name => !authors.has(ADAPTERS[name].vendor)) ?? first;
     if (mode !== 'full') return [first];
-    const second = installed.find(name => name !== first && ADAPTERS[name].vendor !== ADAPTERS[first].vendor);
-    return second ? [first, second] : [first];
+    const chosen = [first];
+    for (const name of installed) {
+        if (chosen.length >= judges) break;
+        if (!chosen.some(c => ADAPTERS[c].vendor === ADAPTERS[name].vendor)) chosen.push(name);
+    }
+    return chosen;
+}
+
+/** Every reviewer Rigour can run, and whether this machine has it: what bounds the judges of a panel. */
+export async function reviewerAvailability(cwd: string, exec: Exec = defaultExec): Promise<Array<{ name: ReviewerName; vendor: Vendor; binary: string; installed: boolean; version?: string }>> {
+    return Promise.all((Object.keys(ADAPTERS) as ReviewerName[]).map(async name => {
+        const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
+        return { name, vendor: ADAPTERS[name].vendor, binary: ADAPTERS[name].binary, installed: !!found, ...(found ? { version: found.version } : {}) };
+    }));
 }

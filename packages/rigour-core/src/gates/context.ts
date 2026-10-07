@@ -14,10 +14,6 @@ export interface ExtendedContextConfig {
     enabled?: boolean;
     sensitivity?: number;
     mining_depth?: number;
-    cross_file_patterns?: boolean;  // NEW: Enable cross-file pattern analysis
-    naming_consistency?: boolean;   // NEW: Check naming convention drift
-    import_relationships?: boolean; // NEW: Validate import patterns
-    max_cross_file_depth?: number;  // NEW: How many related files to analyze
 }
 
 export class ContextGate extends Gate {
@@ -29,10 +25,6 @@ export class ContextGate extends Gate {
             enabled: config.context?.enabled ?? false,
             sensitivity: config.context?.sensitivity ?? 0.8,
             mining_depth: config.context?.mining_depth ?? 100,
-            cross_file_patterns: true,  // Default ON for frontier model support
-            naming_consistency: true,
-            import_relationships: true,
-            max_cross_file_depth: 50,
         };
     }
 
@@ -64,24 +56,18 @@ export class ContextGate extends Gate {
                 // 1. Original: Detect Redundant Suffixes (The Golden Example)
                 this.checkEnvDrift(codeContent, file, envAnchors, failures);
 
-                // 2. NEW: Cross-file pattern collection
-                if (this.extendedConfig.cross_file_patterns) {
-                    this.collectNamingPatterns(codeContent, file, namingPatterns);
-                    this.collectImportPatterns(codeContent, file, importPatterns);
-                }
+                // 2. Cross-file pattern collection
+                this.collectNamingPatterns(codeContent, file, namingPatterns);
+                this.collectImportPatterns(codeContent, file, importPatterns);
 
             } catch (e) { }
         }
 
-        // 3. NEW: Analyze naming consistency across files
-        if (this.extendedConfig.naming_consistency) {
-            this.analyzeNamingConsistency(namingPatterns, failures);
-        }
+        // 3. Naming consistency across files
+        this.analyzeNamingConsistency(namingPatterns, failures);
 
-        // 4. NEW: Analyze import relationship patterns
-        if (this.extendedConfig.import_relationships) {
-            this.analyzeImportPatterns(importPatterns, failures);
-        }
+        // 4. Import relationship patterns
+        this.analyzeImportPatterns(importPatterns, failures);
 
         // Cross-file patterns need the whole repo, but a scoped run reports
         // only findings that cite a file in scope.

@@ -103,7 +103,8 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [] };
     }
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
-    const report = await new GateRunner(input.config).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
+    // The team's `commands:` run at push (toolchain.ts), where a failure blocks; here they would only cost time.
+    const report = await new GateRunner({ ...input.config, commands: {} }).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     const preexisting = await dropPreexisting(input, report, targets);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     report.failures.push(...migrationOrderFailures(input.cwd, diff, input.source, input.config));

@@ -1,17 +1,11 @@
 /**
- * `rigour hooks init` — Generate tool-specific hook configurations.
+ * `rigour hooks init`: each agent's hook configuration, for the agents the repository shows signs of
+ * (or --tool), and git's pre-push hook.
  *
- * Detects which AI coding tools are present (or accepts --tool flag)
- * and generates the appropriate hook files so that Rigour runs
- * quality checks after every file write/edit.
- *
- * Supported tools:
- *   - Claude Code (.claude/settings.json PostToolUse)
- *   - Cursor (.cursor/hooks.json afterFileEdit)
- *   - Cline (.clinerules/hooks/PostToolUse)
- *   - Windsurf (.windsurf/hooks.json post_write_code)
- *
- * @since v3.0.0
+ *   - Claude Code: .claude/settings.json (after an edit, before "done", before a push, DLP)
+ *   - Cursor: .cursor/hooks.json (after an edit, before "done", DLP)
+ *   - Cline: .clinerules/hooks/ (after an edit, DLP)
+ *   - Windsurf: .windsurf/hooks.json (after a write, DLP)
  */
 
 import fs from 'fs-extra';
@@ -39,7 +33,7 @@ import { pushGateShell, rigourUserDir } from '@rigour-labs/core';
 import { groupFilesByRepo, recordEditCatches } from './hooks-check-repos.js';
 import { installGitPushHook } from './hooks-git.js';
 import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.js';
-import { agentHome, asUserLevel } from './personal.js';
+import { agentHome, asUserLevel, installedAgents } from './personal.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -487,8 +481,10 @@ async function writeHookFiles(
         // never replaced: Rigour's earlier entries are swapped for the new ones, the rest is kept.
         if (exists && isConfig) {
             try {
-                const merged = mergeHooksInto(JSON.parse(await fs.readFile(fullPath, 'utf-8')), JSON.parse(file.content));
-                await fs.writeFile(fullPath, JSON.stringify(merged, null, 4) + '\n', 'utf-8');
+                const current = await fs.readFile(fullPath, 'utf-8');
+                const next = JSON.stringify(mergeHooksInto(JSON.parse(current), JSON.parse(file.content)), null, 4) + '\n';
+                if (next.trimEnd() === current.trimEnd()) continue; // already as it should be: a committed file stays untouched
+                await fs.writeFile(fullPath, next, 'utf-8');
                 console.log(chalk.green(`  MERGE ${file.path}`));
                 console.log(chalk.dim(`         ${file.description} (your other settings kept)`));
                 written++;
@@ -507,8 +503,10 @@ async function writeHookFiles(
 
         try {
             await fs.ensureDir(path.dirname(fullPath));
-            await fs.writeFile(fullPath, file.content, 'utf-8');
-            recordCreated(recordRoot, file.path, file.content);
+            // JSON ends with a newline, as the merge above writes it, so a later setup changes nothing.
+            const content = isConfig && !file.content.endsWith('\n') ? `${file.content}\n` : file.content;
+            await fs.writeFile(fullPath, content, 'utf-8');
+            recordCreated(recordRoot, file.path, content);
 
             if (file.executable) {
                 await fs.chmod(fullPath, 0o755);
@@ -560,11 +558,12 @@ function printNextSteps(tools: HookTool[], unavailableTools: Set<HookTool>): voi
  * config, each command guarded so it runs only in a repository switched on with `rigour setup`.
  * Merged into the person's existing configs like a project install; recorded in Rigour's home.
  */
-export async function installMachineHooks(options: { block?: boolean; dlp?: boolean } = {}): Promise<{ written: number; failed: string[] }> {
+export async function installMachineHooks(options: { block?: boolean; dlp?: boolean } = {}): Promise<{ agents: HookTool[]; written: number; failed: string[] }> {
     const checker = resolveCheckerCommand();
-    const files = ALL_TOOLS.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false)).map(file => asUserLevel(file));
+    const agents = installedAgents();
+    const files = agents.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false)).map(file => asUserLevel(file));
     const { written, failedPaths } = await writeHookFiles(agentHome(), files, true, path.dirname(rigourUserDir()));
-    return { written, failed: [...failedPaths] };
+    return { agents, written, failed: [...failedPaths] };
 }
 
 export async function hooksInitCommand(cwd: string, options: HooksOptions = {}): Promise<void> {

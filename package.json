@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "test": "pnpm -r test && pnpm test:release",
+    "test": "pnpm -r test && pnpm test:release && pnpm test:docs",
     "test:release": "node --test scripts/npm-release-readiness.test.mjs",
     "lint": "pnpm -r lint",
     "accuracy:check": "pnpm --filter @rigour-labs/core exec vitest run src/gates/hallucinated-imports.test.ts src/gates/phantom-apis.test.ts src/gates/security-patterns.test.ts src/gates/security-patterns-owasp.test.ts src/gates/test-quality.test.ts src/gates/deprecated-apis.test.ts src/gates/hallucinated-imports-sveltekit.test.ts src/gates/side-effect-analysis.test.ts src/gates/frontend-secret-exposure.test.ts src/semantic/benchmark.test.ts src/semantic/learn/learn.test.ts src/semantic/intent/intent.test.ts src/gates/semantic-bugs.test.ts",
@@ -17,9 +17,12 @@
     "benchmark:semantic": "node scripts/benchmark-semantic.mjs",
     "verify:brain-packages": "node scripts/check-brain-package-executable.mjs",
     "verify:release": "node scripts/verify-release-readiness.mjs",
-    "publish:packages": "node scripts/publish-packages.mjs"
+    "publish:packages": "node scripts/publish-packages.mjs",
+    "test:docs": "node --test scripts/docs/config-reference.test.mjs",
+    "docs:config": "node scripts/docs/config-reference.mjs --write"
   },
   "devDependencies": {
+    "@rigour-labs/core": "workspace:*",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",

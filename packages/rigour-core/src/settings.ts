@@ -26,8 +26,6 @@ export interface RigourSettings {
     defaultProvider?: string;  // Which provider to use by default
     defaultModel?: string;     // Model name override
     apiBaseUrl?: string;       // Custom API base URL
-    maxTokens?: number;        // Override max tokens
-    temperature?: number;      // Override temperature
   };
 
   // Multi-agent configuration
@@ -46,10 +44,27 @@ export interface RigourSettings {
     verboseOutput?: boolean; // Enable verbose logging
   };
 
+  // The reviewer for this person's own runs; rigour.yml is the team's (review/reviewer/settings.ts).
+  reviewer?: UserReviewerSettings;
+
   // Cursor Admin API credentials
   cursor?: {
     apiKey?: string;
   };
+}
+
+/** What a person may set for their own reviewer runs. They cannot set a team floor (`required`). */
+export interface UserReviewerSettings {
+  enabled?: boolean;
+  mode?: 'single' | 'cross' | 'full';
+  panel?: boolean;
+  judges?: 2 | 3;
+  escalate?: 'always' | 'risk';
+  /** A lower cap for your own runs; never above the team's. */
+  max_runs_per_day?: number;
+  max_usd_per_day?: number;
+  reviewers?: string[];
+  models?: Record<string, string>;
 }
 
 /**
@@ -60,8 +75,6 @@ export interface ResolvedDeepOptions {
   provider?: string;
   apiBaseUrl?: string;
   modelName?: string;
-  maxTokens?: number;
-  temperature?: number;
 }
 
 /**
@@ -72,8 +85,6 @@ export interface CLIDeepOptions {
   provider?: string;
   apiBaseUrl?: string;
   modelName?: string;
-  maxTokens?: number;
-  temperature?: number;
 }
 
 /**
@@ -180,12 +191,6 @@ export function resolveDeepOptions(cliOptions: CLIDeepOptions): ResolvedDeepOpti
   if (settings.deep?.apiBaseUrl) {
     result.apiBaseUrl = settings.deep.apiBaseUrl;
   }
-  if (settings.deep?.maxTokens) {
-    result.maxTokens = settings.deep.maxTokens;
-  }
-  if (settings.deep?.temperature) {
-    result.temperature = settings.deep.temperature;
-  }
 
   // 2. Apply provider selection (settings or default)
   let selectedProvider = settings.deep?.defaultProvider || 'anthropic';
@@ -220,12 +225,6 @@ export function resolveDeepOptions(cliOptions: CLIDeepOptions): ResolvedDeepOpti
   // 5. Override with CLI flags (highest priority)
   if (cliOptions.apiBaseUrl) {
     result.apiBaseUrl = cliOptions.apiBaseUrl;
-  }
-  if (cliOptions.maxTokens) {
-    result.maxTokens = cliOptions.maxTokens;
-  }
-  if (cliOptions.temperature) {
-    result.temperature = cliOptions.temperature;
   }
 
   return result;

@@ -14,8 +14,8 @@ const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { 
 const config = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true } } });
 const originalPath = process.env.PATH;
 
-const PR = { number: 7, state: 'OPEN', isDraft: false, author: { login: 'author' }, body: 'desc' };
-const VERDICT = JSON.stringify({ prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [{ class: 'correctness', file: 'src/job.ts', line: 1, issue: 'never locks' }], carried: [], resolved_previous: [] });
+let PR = { number: 7, state: 'OPEN', isDraft: false, author: { login: 'author' }, body: 'desc' };
+const VERDICT = JSON.stringify({ prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [{ class: 'correctness', file: 'src/job.ts', line: 1, issue: 'never locks', consequence: 'a second run reads stale rows' }], carried: [], resolved_previous: [] });
 
 /** Real git; a pull request on the branch; a claude that answers one finding. */
 const exec: Exec = async (command, args, options) => {
@@ -74,6 +74,20 @@ describe('the background review', () => {
         const status = await reviewStatus(repo, 'feature', exec);
         expect(status).toMatchObject({ branch: 'feature', last: { head, mode: 'full', open: [expect.objectContaining({ issue: 'never locks' })] } });
         expect(status?.running).toBeUndefined();
+    });
+
+    it('asks whether a review is due before checking anything out, and the status says why it was skipped', async () => {
+        PR = { ...PR, isDraft: true };
+        try {
+            const head = git('rev-parse', 'HEAD');
+            const result = await backgroundReview(repo, { head, branch: 'feature', base: 'main' }, config, exec, () => undefined);
+            expect(result).toMatchObject({ outcome: 'skipped', reason: expect.stringContaining('is a draft') });
+            const store = (await VerdictStore.open(repo, exec))!;
+            expect(fs.existsSync(store.worktreeDir(head))).toBe(false); // never checked out
+            expect((await reviewStatus(repo, 'feature', exec))?.attempt).toMatchObject({ head, outcome: 'skipped', reason: expect.stringContaining('is a draft') });
+        } finally {
+            PR = { ...PR, isDraft: false };
+        }
     });
 
     it('starts detached with a pid the status reports, and a newer start for the branch ends the older one', async () => {

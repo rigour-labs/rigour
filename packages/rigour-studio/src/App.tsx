@@ -31,7 +31,7 @@ const PAGES = [
     { id: 'only', label: 'Only Rigour', icon: Trophy, page: () => <OnlyRigour /> },
     { id: 'learns', label: 'How it learns', icon: GraduationCap, page: () => <Learning /> },
     { id: 'context', label: 'Agent context', icon: Compass, page: () => <AgentContext /> },
-    { id: 'reviews', label: 'Reviews', icon: ListChecks, page: () => <Reviews /> },
+    { id: 'reviews', label: 'Review', icon: ListChecks, page: () => <Reviews /> },
     { id: 'activity', label: 'Activity', icon: ActivityIcon, page: () => <Activity /> },
     { id: 'setup', label: 'Setup', icon: Wrench, page: () => <SetupView /> },
 ] as const;

@@ -1,5 +1,6 @@
 import React from 'react';
 import { ago, plural, useStudioJson } from './storyData';
+import { BranchVerdict } from './Reviewer';
 import './story.css';
 
 interface PrePr {
@@ -12,21 +13,26 @@ interface PrePr {
 
 const WHO = (reviewer: string) => (reviewer === 'agent' ? 'your agent' : reviewer === 'human' ? 'you' : reviewer.replace(/^byok:/, ''));
 
-/** "Reviews": the risky functions reviewed before a PR existed, with what the reviewer wrote, and what is still waiting. */
+/** "Review": everything that decides whether this branch is ready for a person: the reviewer's verdict first, then the risky functions your agent checked. */
 export const Reviews: React.FC = () => {
     const { data, error } = useStudioJson<PrePr>('/api/pre-pr-review');
     if (error) return <div className="st-page"><div className="st-empty">Couldn't load reviews: {error}.</div></div>;
     if (!data) return <div className="st-page"><div className="st-sub">Loading…</div></div>;
     return (
         <div className="st-page">
-            <h1 className="st-h1">Reviews before the PR</h1>
-            <p className="st-lead">
+            <h1 className="st-h1">Review before the PR</h1>
+            <p className="st-lead">What still stands between this branch and a person's review: the reviewer's verdict, then the risky functions your agent checked.</p>
+
+            <BranchVerdict />
+
+            <h2 style={{ margin: '32px 0 6px', fontSize: 18, fontWeight: 600 }}>Risky functions your agent checks</h2>
+            <p className="st-sub" style={{ margin: 0, lineHeight: 1.6 }}>
                 Rigour picks the riskiest changed functions and asks specific questions about them. Your agent answers with its own model, or you do.
                 {data.reviewed.total > 0 && ` So far: ${plural(data.reviewed.total, 'function')} reviewed, ${data.reviewed.fixed} fixed, ${data.reviewed.noIssue} with no issue.`}
             </p>
 
             <section style={{ marginTop: 24 }}>
-                <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 600 }}>Waiting for review</h2>
+                <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>Waiting</h3>
                 {data.pending.length === 0
                     ? <div className="st-empty">No risky function in the current changes is waiting.</div>
                     : <div className="st-stack">{data.pending.map(p => (
@@ -38,7 +44,7 @@ export const Reviews: React.FC = () => {
             </section>
 
             <section style={{ marginTop: 28 }}>
-                <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 600 }}>Reviewed</h2>
+                <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>Checked</h3>
                 {data.recent.length === 0
                     ? <div className="st-empty">Nothing reviewed yet. Agents review through rigour_review; you can run rigour review-task.</div>
                     : <div className="st-stack">{data.recent.map(r => (

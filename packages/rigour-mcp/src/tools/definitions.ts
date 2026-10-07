@@ -547,6 +547,22 @@ export const TOOL_DEFINITIONS = [
     },
 
     {
+        name: "rigour_reviewer_verdict",
+        description: "What the model reviewer last decided for this branch: the confirmed items to fix (with id, file:line, consequence and evidence), the disputed ones that are not work, which mode ran, and whether the verdict is for the current commit. Read-only: never runs a model, never dismisses.",
+        inputSchema: {
+            type: "object",
+            properties: { ...cwdParam() },
+            required: ["cwd"],
+        },
+        annotations: {
+            title: "Reviewer Verdict",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
         name: "rigour_review_ack",
         description: "Record that you reviewed a function from rigour_review's review_task: verdict \"fixed\" (you fixed a defect) or \"no_issue\", with a note saying what you checked. Covers the function's current code only; editing it later puts it back in the task.",
         inputSchema: {
@@ -591,7 +607,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_task_cost",
-        description: "Returns both verified actual model usage/cost (from Cursor Admin API or imported CSV) and Rigour estimated avoided context/cost USD.",
+        description: "Rigour's estimate of the context and cost its scoped reads avoided for a task, beside any model usage recorded for it.",
         inputSchema: {
             type: "object",
             properties: {

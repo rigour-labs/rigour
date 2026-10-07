@@ -47,3 +47,14 @@
     .st-steps, .st-row { flex-direction: column; align-items: flex-start; }
     .st-journey { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.st-seg { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--text-dim); border-radius: 8px; background: var(--bg-card); }
+.st-seg button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; transition: background 0.12s, color 0.12s; }
+.st-seg button:hover:not(:disabled):not(.on) { background: var(--bg-accent); color: var(--text-primary); }
+.st-seg button.on { background: var(--accent-primary); color: #fff; font-weight: 500; }
+.st-seg button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.st-seg button:disabled { cursor: not-allowed; }
+.st-seg button:disabled:not(.on) { opacity: 0.5; }
+.st-setting { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 24px; align-items: start; }
+.st-setting-controls { display: grid; grid-template-columns: auto auto; gap: 8px 12px; align-items: center; justify-items: start; }
+@media (max-width: 760px) { .st-setting { grid-template-columns: 1fr; } }

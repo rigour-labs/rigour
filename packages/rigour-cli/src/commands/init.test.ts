@@ -33,7 +33,8 @@ describe('initCommand', () => {
         expect(fs.existsSync(configPath)).toBe(true);
 
         const content = fs.readFileSync(configPath, 'utf-8');
-        expect(content).toContain('version');
+        expect(content).toContain('gates:');
+        expect(content).not.toMatch(/^version:|fast_gates|^planned:|input_validation|adaptive:/m); // settings nothing reads are not written
     });
 
     it('writes no instruction files or empty documents unless asked', async () => {
@@ -41,16 +42,6 @@ describe('initCommand', () => {
         for (const rel of ['docs/AGENT_INSTRUCTIONS.md', 'CLAUDE.md', 'AGENTS.md', '.windsurfrules', 'docs/SPEC.md', 'docs/ARCH.md']) {
             expect(fs.existsSync(path.join(testDir, rel))).toBe(false);
         }
-    });
-
-    it('should create docs/AGENT_INSTRUCTIONS.md when asked for instructions', async () => {
-        await initCommand(testDir, { instructions: true });
-
-        const docsPath = path.join(testDir, 'docs', 'AGENT_INSTRUCTIONS.md');
-        expect(fs.existsSync(docsPath)).toBe(true);
-
-        const content = fs.readFileSync(docsPath, 'utf-8');
-        expect(content).toContain('Rigour');
     });
 
     it('should support dry-run mode', async () => {
@@ -139,9 +130,9 @@ describe('initCommand', () => {
     });
 
     it('should support --ide flag to target specific IDE', async () => {
-        await initCommand(testDir, { ide: 'windsurf', instructions: true });
+        await initCommand(testDir, { ide: 'windsurf' });
 
-        // Should create windsurf rules
-        expect(fs.existsSync(path.join(testDir, '.windsurfrules'))).toBe(true);
+        expect(fs.existsSync(path.join(testDir, '.windsurf', 'hooks.json'))).toBe(true);
+        expect(fs.existsSync(path.join(testDir, '.claude', 'settings.json'))).toBe(false);
     });
 });

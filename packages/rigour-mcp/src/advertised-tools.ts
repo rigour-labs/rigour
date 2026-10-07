@@ -24,6 +24,7 @@ export const TOOL_GROUPS = {
         'rigour_check',
         'rigour_review',
         'rigour_review_ack',
+        'rigour_reviewer_verdict',
         'rigour_get_fix_packet',
         'rigour_remember',
     ],

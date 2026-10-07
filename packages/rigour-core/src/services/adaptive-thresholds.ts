@@ -1,53 +1,13 @@
 /**
- * Adaptive Thresholds Service (v2)
- *
- * Dynamically adjusts quality gate thresholds based on:
- * - Project maturity (age, commit count, file count)
- * - Historical failure rates with Z-score anomaly detection
- * - Complexity tier (hobby/startup/enterprise)
- * - Per-provenance trend analysis (ai-drift, structural, security separate)
- *
- * v2 upgrades:
- * - Z-score replaces naive delta comparison for trend detection
- * - Per-provenance failure tracking (AI drift vs structural vs security)
- * - Statistical anomaly detection normalizes across project sizes
- *
+ * Quality history: every gate run's failures by provenance, kept in .rigour/adaptive-history.json, and the
+ * trends read from it (Z-score of recent runs against the earlier baseline), overall and per provenance.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '../utils/logger.js';
 
-export type ComplexityTier = 'hobby' | 'startup' | 'enterprise';
 export type QualityTrend = 'improving' | 'stable' | 'degrading';
-
-export interface ProjectMetrics {
-    fileCount: number;
-    commitCount?: number;
-    ageInDays?: number;
-    testCoverage?: number;
-    recentFailureRate?: number;
-}
-
-export interface AdaptiveConfig {
-    enabled?: boolean;
-    base_coverage_threshold?: number;
-    base_quality_threshold?: number;
-    auto_detect_tier?: boolean;
-    forced_tier?: ComplexityTier;
-}
-
-export interface ThresholdAdjustments {
-    tier: ComplexityTier;
-    trend: QualityTrend;
-    coverageThreshold: number;
-    qualityThreshold: number;
-    securityBlockLevel: 'critical' | 'high' | 'medium' | 'low';
-    leniencyFactor: number; // 0.0 = strict, 1.0 = lenient
-    reasoning: string[];
-    /** Per-provenance trend breakdown (new in v5) */
-    provenanceTrends?: ProvenanceTrends;
-}
 
 // ─── Per-Provenance Tracking (v5) ───────────────────────────────────
 
@@ -274,138 +234,6 @@ export function getProvenanceTrends(cwd: string): ProvenanceTrends {
 }
 
 /**
- * Detect project complexity tier based on metrics
- */
-export function detectComplexityTier(metrics: ProjectMetrics): ComplexityTier {
-    // Enterprise: Large teams, many files, mature codebase
-    if (metrics.fileCount > 500 || (metrics.commitCount && metrics.commitCount > 1000)) {
-        return 'enterprise';
-    }
-
-    // Startup: Growing codebase, active development
-    if (metrics.fileCount > 50 || (metrics.commitCount && metrics.commitCount > 100)) {
-        return 'startup';
-    }
-
-    // Hobby: Small projects, early stage
-    return 'hobby';
-}
-
-/**
- * Calculate adaptive thresholds based on project state.
- * v5: Uses Z-score trending and per-provenance analysis.
- */
-export function calculateAdaptiveThresholds(
-    cwd: string,
-    metrics: ProjectMetrics,
-    config: AdaptiveConfig = {}
-): ThresholdAdjustments {
-    const reasoning: string[] = [];
-
-    // Determine tier
-    const tier = config.forced_tier ??
-        (config.auto_detect_tier !== false ? detectComplexityTier(metrics) : 'startup');
-    reasoning.push(`Complexity tier: ${tier} (files: ${metrics.fileCount})`);
-
-    // Get overall trend (Z-score based)
-    const trend = getQualityTrend(cwd);
-    reasoning.push(`Quality trend: ${trend} (Z-score analysis)`);
-
-    // Get per-provenance trends
-    const provenanceTrends = getProvenanceTrends(cwd);
-    if (provenanceTrends.aiDrift !== 'stable') {
-        reasoning.push(`AI drift trend: ${provenanceTrends.aiDrift} (Z=${provenanceTrends.aiDriftZScore})`);
-    }
-    if (provenanceTrends.structural !== 'stable') {
-        reasoning.push(`Structural trend: ${provenanceTrends.structural} (Z=${provenanceTrends.structuralZScore})`);
-    }
-    if (provenanceTrends.security !== 'stable') {
-        reasoning.push(`Security trend: ${provenanceTrends.security} (Z=${provenanceTrends.securityZScore})`);
-    }
-
-    // Base thresholds
-    let coverageThreshold = config.base_coverage_threshold ?? 80;
-    let qualityThreshold = config.base_quality_threshold ?? 80;
-    let securityBlockLevel: 'critical' | 'high' | 'medium' | 'low' = 'high';
-    let leniencyFactor = 0.5;
-
-    // Adjust by tier
-    switch (tier) {
-        case 'hobby':
-            coverageThreshold = Math.max(50, coverageThreshold - 30);
-            qualityThreshold = Math.max(60, qualityThreshold - 20);
-            securityBlockLevel = 'critical';
-            leniencyFactor = 0.8;
-            reasoning.push('Hobby tier: relaxed thresholds, only critical security blocks');
-            break;
-
-        case 'startup':
-            coverageThreshold = Math.max(60, coverageThreshold - 15);
-            qualityThreshold = Math.max(70, qualityThreshold - 10);
-            securityBlockLevel = 'high';
-            leniencyFactor = 0.5;
-            reasoning.push('Startup tier: moderate thresholds, high+ security blocks');
-            break;
-
-        case 'enterprise':
-            coverageThreshold = coverageThreshold;
-            qualityThreshold = qualityThreshold;
-            securityBlockLevel = 'medium';
-            leniencyFactor = 0.2;
-            reasoning.push('Enterprise tier: strict thresholds, medium+ security blocks');
-            break;
-    }
-
-    // Adjust by overall trend
-    if (trend === 'improving') {
-        coverageThreshold = Math.max(50, coverageThreshold - 5);
-        qualityThreshold = Math.max(60, qualityThreshold - 5);
-        leniencyFactor = Math.min(1, leniencyFactor + 0.1);
-        reasoning.push('Improving trend: bonus threshold relaxation (+5%)');
-    } else if (trend === 'degrading') {
-        coverageThreshold = Math.min(95, coverageThreshold + 5);
-        qualityThreshold = Math.min(95, qualityThreshold + 5);
-        leniencyFactor = Math.max(0, leniencyFactor - 0.1);
-        reasoning.push('Degrading trend: tightened thresholds (-5%)');
-    }
-
-    // v5: Per-provenance adjustments
-    // If AI drift is degrading but structural is stable, tighten AI-specific gates
-    if (provenanceTrends.aiDrift === 'degrading' && provenanceTrends.structural !== 'degrading') {
-        leniencyFactor = Math.max(0, leniencyFactor - 0.15);
-        reasoning.push('AI drift degrading while structural stable: AI is the problem, tightening AI gates');
-    }
-    // If security is degrading, escalate security block level
-    if (provenanceTrends.security === 'degrading') {
-        if (securityBlockLevel === 'critical') securityBlockLevel = 'high';
-        else if (securityBlockLevel === 'high') securityBlockLevel = 'medium';
-        reasoning.push(`Security trend degrading: escalated block level to ${securityBlockLevel}+`);
-    }
-
-    // Recent failure rate adjustment
-    if (metrics.recentFailureRate !== undefined) {
-        if (metrics.recentFailureRate > 50) {
-            leniencyFactor = Math.min(1, leniencyFactor + 0.2);
-            reasoning.push(`High failure rate (${metrics.recentFailureRate.toFixed(0)}%): increased leniency`);
-        } else if (metrics.recentFailureRate < 10) {
-            leniencyFactor = Math.max(0, leniencyFactor - 0.1);
-            reasoning.push(`Low failure rate (${metrics.recentFailureRate.toFixed(0)}%): stricter enforcement`);
-        }
-    }
-
-    return {
-        tier,
-        trend,
-        coverageThreshold: Math.round(coverageThreshold),
-        qualityThreshold: Math.round(qualityThreshold),
-        securityBlockLevel,
-        leniencyFactor: Math.round(leniencyFactor * 100) / 100,
-        reasoning,
-        provenanceTrends,
-    };
-}
-
-/**
  * Clear adaptive history (for testing)
  */
 export function clearAdaptiveHistory(cwd: string): void {
@@ -414,24 +242,4 @@ export function clearAdaptiveHistory(cwd: string): void {
     if (fs.existsSync(historyPath)) {
         fs.unlinkSync(historyPath);
     }
-}
-
-/**
- * Get summary of adaptive thresholds for logging
- */
-export function getAdaptiveSummary(adjustments: ThresholdAdjustments): string {
-    let summary = `[${adjustments.tier.toUpperCase()}] ` +
-        `Coverage: ${adjustments.coverageThreshold}%, ` +
-        `Quality: ${adjustments.qualityThreshold}%, ` +
-        `Security: ${adjustments.securityBlockLevel}+, ` +
-        `Trend: ${adjustments.trend}`;
-
-    if (adjustments.provenanceTrends) {
-        const pt = adjustments.provenanceTrends;
-        if (pt.aiDrift !== 'stable' || pt.structural !== 'stable' || pt.security !== 'stable') {
-            summary += ` | AI:${pt.aiDrift}(Z=${pt.aiDriftZScore}) Struct:${pt.structural}(Z=${pt.structuralZScore}) Sec:${pt.security}(Z=${pt.securityZScore})`;
-        }
-    }
-
-    return summary;
 }

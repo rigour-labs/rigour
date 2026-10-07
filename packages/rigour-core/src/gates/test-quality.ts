@@ -29,7 +29,7 @@ import { languageAdapters } from './language-adapters/index.js';
 import { checkGoTestQuality, checkJavaKotlinTestQuality } from './test-quality-lang.js';
 import {
     JS_TEST_START_PATTERN, JS_ASSERTION_PATTERNS, JS_MOCK_PATTERNS,
-    JS_TAUTOLOGICAL_PATTERNS, JS_VAR_TAUTOLOGY_PATTERN, SNAPSHOT_PATTERNS,
+    JS_TAUTOLOGICAL_PATTERNS, JS_VAR_TAUTOLOGY_PATTERN,
     PYTHON_TEST_FUNC_PATTERN, PYTHON_ASSERTION_PATTERNS, PYTHON_MOCK_PATTERNS,
     PYTHON_TAUTOLOGICAL_PATTERNS, PYTHON_FIXTURE_PATTERN, PYTHON_CONFTEST_NAME,
 } from './test-quality-matchers.js';
@@ -48,14 +48,12 @@ export interface TestQualityConfig {
     check_empty_tests?: boolean;
     check_tautological?: boolean;
     check_mock_heavy?: boolean;
-    check_snapshot_abuse?: boolean;
     check_assertion_free_async?: boolean;
     max_mocks_per_test?: number;
-    ignore_patterns?: string[];
 }
 
 export class TestQualityGate extends Gate {
-    private config: Required<Omit<TestQualityConfig, 'ignore_patterns'>> & { ignore_patterns: string[] };
+    private config: Required<TestQualityConfig>;
 
     constructor(config: TestQualityConfig = {}) {
         super('test-quality', 'AI Test Quality Detection');
@@ -64,10 +62,8 @@ export class TestQualityGate extends Gate {
             check_empty_tests: config.check_empty_tests ?? true,
             check_tautological: config.check_tautological ?? true,
             check_mock_heavy: config.check_mock_heavy ?? true,
-            check_snapshot_abuse: config.check_snapshot_abuse ?? true,
             check_assertion_free_async: config.check_assertion_free_async ?? true,
             max_mocks_per_test: config.max_mocks_per_test ?? 5,
-            ignore_patterns: config.ignore_patterns ?? [],
         };
     }
 
@@ -248,14 +244,6 @@ export class TestQualityGate extends Gate {
                             file, line: i + 1, pattern: 'tautological-assertion',
                             reason: `Tautological assertion — expect(${varTautology[1]}).toBe(${varTautology[2]}) compares variable to itself`,
                         });
-                    }
-                }
-
-                // Check for snapshot-only tests
-                if (this.config.check_snapshot_abuse) {
-                    if (SNAPSHOT_PATTERNS.some(p => p.test(line))) {
-                        // This is fine IF there are also semantic assertions
-                        // We'll check when the block ends
                     }
                 }
 

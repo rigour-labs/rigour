@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getContextEvents, type AgentEvent, type ContextEvent } from '@rigour-labs/core';
+import { resolveMCPServerConfig } from './init.js';
 import { agentHome, enabledHere } from './personal.js';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 
@@ -73,7 +74,7 @@ function stopCheck(config: string, now: Date, events: AgentEvent[]): SetupCheck 
 function mcpCheck(mcpJson: string, now: Date, calls: ContextEvent[]): SetupCheck {
     const name = 'Rigour tools for agents (MCP)';
     if (!mcpJson.includes('rigour') && calls.length === 0) {
-        return { id: 'mcp', name, state: 'missing', detail: 'Agents cannot ask Rigour for review tasks or lessons', fix: 'claude mcp add rigour -- npx -y @rigour-labs/mcp@latest' };
+        return { id: 'mcp', name, state: 'missing', detail: 'Agents cannot ask Rigour for review tasks or lessons', fix: `claude mcp add --scope user rigour -- ${[resolveMCPServerConfig().command, ...resolveMCPServerConfig().args].join(' ')}` };
     }
     const asEvents = calls.map(c => ({ type: 'tool_call', timestamp: c.createdAt ? new Date(c.createdAt).toISOString() : undefined }));
     return fired('mcp', name, asEvents, now, 'tool calls');

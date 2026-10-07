@@ -16,7 +16,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
+import { buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
 import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { receiptFor } from './review-receipt.js';
 import { printReviewer, printStatus, reviewerBase, reviewerFor, reviewerJson } from './review-reviewer.js';
@@ -48,6 +48,8 @@ export interface ReviewOptions {
     modelName?: string;
     reviewer?: boolean;  // run the reviewer (every human review, diff, repo rules) after the rules
     full?: boolean;      // with --reviewer: two vendors, verdicts merged (the step before asking a person to look)
+    single?: boolean;    // with --reviewer: one judge for this run
+    panel?: boolean;     // with --reviewer: --panel / --no-panel for this run
     status?: boolean;    // what the background reviewer has done for this branch
     all?: boolean;       // every finding, not the first five
     notes?: boolean;     // list the notes that never block
@@ -83,7 +85,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         });
         if (options.base) recordPrCatches(cwd, result.findings);
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
-        const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full) : undefined;
+        const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full, { ...(options.single ? { mode: 'single' as const } : {}), ...(options.panel !== undefined ? { panel: options.panel } : {}) }, result) : undefined;
         await print(result, options, receipt, reviewer, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started });
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
@@ -162,8 +164,7 @@ function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'fo
         max: !!options.max,
         modelPath: options.modelPath,
         prBody: readPrBody(cwd, options),
-        apiKey: resolved.apiKey,
-        provider: deepProvider(options.provider, resolved.provider, resolved.apiKey),
+        ...deepProvider(options.provider, resolved.provider, resolved.apiKey),
         apiBaseUrl: resolved.apiBaseUrl,
         modelName: resolved.modelName,
         independent: !!options.independent,
@@ -277,7 +278,7 @@ async function reportUsage(result: ReviewResult, isDeep: boolean, options: Revie
         deep_tier: isDeep ? deep?.tier ?? 'unknown' : 'none',
         deep_routed: deep?.router?.routed,
         deep_tool_calls: deep?.tool_calls,
-        deep_cost_bucket: typeof deep?.cost_usd === 'number' ? (deep.cost_usd < 0.1 ? '<$0.10' : deep.cost_usd < 0.5 ? '$0.10-0.50' : deep.cost_usd < 2 ? '$0.50-2' : '>$2') : undefined,
+        deep_cost_bucket: costBucket(deep?.cost_usd),
         duration: durationBucket(ms),
     }, { version: process.env.RIGOUR_CLI_VERSION });
     await flushDailyUsage();

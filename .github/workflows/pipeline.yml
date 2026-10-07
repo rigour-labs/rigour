@@ -16,6 +16,8 @@ jobs:
   test:
     name: Test & Build
     strategy:
+      # One OS failing must not cancel the others: a failure on one alone is a platform bug, on all of them a real one.
+      fail-fast: false
       matrix:
         # The active LTS on every OS, and the maintenance LTS users may still run.
         os: [ubuntu-latest, macos-latest, windows-latest]

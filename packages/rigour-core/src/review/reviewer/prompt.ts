@@ -21,6 +21,8 @@ export interface PromptInputs {
     diffstatFile: string;
     diffFile: string;
     hintsFile: string;
+    /** What the team already knows (reviewer/context.ts). */
+    contextFile: string;
     deltaBlock: string;
     mergeBlock: string;
 }
@@ -40,6 +42,8 @@ Inputs:
 - The pull request description: ${v.prBodyFile}
 - What changed: ${v.diffstatFile}; the full diff is in ${v.diffFile} (the same as
   \`git diff ${v.baseSha}...${v.head}\`). Read the files themselves for context.
+- What this team already knows: verified lessons and rules for these files, findings it settled
+  (never raise one again unless the code now shows something new), docs about this code: ${v.contextFile}
 ${v.deltaBlock}${v.mergeBlock}- Deterministic hints already computed (candidates to confirm, never the full list): ${v.hintsFile}
 - The repository's rules: AGENTS.md (and CLAUDE.md). A violation of a rule there in changed code
   is a finding.
@@ -103,8 +107,11 @@ Do these steps in order. Report only what you verified in the code, with file:li
    in the description still true of the code, and the repository's rules.
 
 Classes: correctness, production-cost, dead-code, duplication, stale-claim, helper-bypass,
-repo-rule. Every finding blocks; do not report style preferences or trade-offs you would not
-request changes for.
+repo-rule. Every finding needs a consequence: the wrong outcome it causes (an input and what
+goes wrong) or the cost it adds (reads, calls or memory per what). A finding with no wrong outcome
+and no cost (faster, simpler or cleaner code) is an opinion: leave consequence empty and it is
+shown, never blocking. Do not report style preferences or trade-offs you would not request
+changes for.
 
 Your final message must be ONLY this JSON, starting with { and ending with }, nothing before or after it:
 {"prior_points":[{"point":"...","review":"<login> <submitted_at>","severity":"blocking"|"should-fix"|"non-blocking","resolved":true|false,"evidence":"file:line ...","checked_siblings":["file:line"]}],
@@ -112,7 +119,7 @@ Your final message must be ONLY this JSON, starting with { and ending with }, no
  "reads":[{"file":"...","line":0,"read":"...","rules":[{"rule":"...","known_before_read":true|false,"applied_before_read":true|false}],"consumer":{"file":"...","line":0,"uses":"ids-only"|"rows"|"aggregate"},"narrower_source":null|"...","keys":[{"name":"...","inputs":"...","stable_under_edit":true|false}],"window_bounded":true|false|null,"keyset":true|false|null,"index":"..."}],
  "scans":[{"file":"...","line":0,"function":"...","outer":"...","inner":"...","fix":"..."}],
  "merge_impact":[{"symbol":"...","main_file":"...","call_site":"file:line","holds":true|false,"why":"..."}],
- "findings":[{"class":"...","file":"...","line":0,"issue":"...","why":"..."}],
+ "findings":[{"class":"...","file":"...","line":0,"issue":"...","why":"...","consequence":"<wrong outcome for an input, or the cost; empty for an opinion>"}],
  "carried":["<delta mode: ids of previous open items that still stand>"],
  "resolved_previous":[{"id":"<delta mode: id of a previous open item now fixed>","evidence":"file:line and the fix"}]}`;
 }
@@ -140,5 +147,23 @@ export function mergeBlock(base: string, impactFile: string | undefined): string
 /** Changes when the instructions change, so a cached verdict from older instructions is not reused. */
 export const PROMPT_VERSION = createHash('sha256').update(renderPrompt({
     repoRoot: '<repo>', branch: '<branch>', head: '<head>', base: '<base>', baseSha: '<sha>', mode: 'full', reviewsFile: '<r>', humanCount: 0,
-    prBodyFile: '<b>', diffstatFile: '<s>', diffFile: '<d>', hintsFile: '<h>', deltaBlock: '', mergeBlock: '',
+    prBodyFile: '<b>', diffstatFile: '<s>', diffFile: '<d>', hintsFile: '<h>', contextFile: '<c>', deltaBlock: '', mergeBlock: '',
 })).digest('hex').slice(0, 12);
+
+/** One judge's single call on the items the other judge raised alone: confirm or refute each, with the code that shows it. */
+export function crossExamPrompt(repoRoot: string, head: string, diffFile: string, items: Array<{ id: string; class: string; file?: string; line?: number; issue: string; consequence?: string }>): string {
+    return `You are one of two independent reviewers of the branch at ${head} in ${repoRoot}. The other
+reviewer raised the items below, and you did not. Judge each one against the code, read-only: open
+the file, follow the callers and callees you need, and use the diff at ${diffFile}.
+
+For each item answer "confirm" when the code shows the problem is real, or "refute" when the code
+shows it is not, and quote the file:line that shows it in "evidence". When you cannot tell from
+the code, answer "unsure". An answer without file:line evidence counts as unsure. Do not raise
+new items.
+
+Items:
+${JSON.stringify(items, null, 2)}
+
+Your final message must be ONLY this JSON, starting with { and ending with }:
+{"answers":[{"id":"...","call":"confirm"|"refute"|"unsure","evidence":"file:line ..."}]}`;
+}

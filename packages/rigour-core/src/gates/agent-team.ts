@@ -33,8 +33,6 @@ export interface AgentTeamSession {
 export interface AgentTeamConfig {
     enabled?: boolean;
     max_concurrent_agents?: number;
-    cross_agent_pattern_check?: boolean;
-    handoff_verification?: boolean;
     task_ownership?: 'strict' | 'collaborative';
 }
 
@@ -146,8 +144,6 @@ export class AgentTeamGate extends Gate {
         this.config = {
             enabled: config.enabled ?? false,
             max_concurrent_agents: config.max_concurrent_agents ?? 3,
-            cross_agent_pattern_check: config.cross_agent_pattern_check ?? true,
-            handoff_verification: config.handoff_verification ?? true,
             task_ownership: config.task_ownership ?? 'strict',
         };
     }
@@ -197,13 +193,6 @@ export class AgentTeamGate extends Gate {
                     }
                 }
             }
-        }
-
-        // Check 3: Cross-agent pattern detection (if enabled)
-        if (this.config.cross_agent_pattern_check && context.record) {
-            // This would integrate with the Pattern Index to detect conflicting patterns
-            // For now, we log that we would do this check
-            Logger.debug('Cross-agent pattern check: would analyze patterns across agent scopes');
         }
 
         return failures;

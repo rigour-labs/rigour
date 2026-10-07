@@ -23,11 +23,13 @@ import path from 'path';
 import { APPENDED_COMMENT } from './hooks-git.js';
 import { disableHere, enabledHere, uninstallMachine } from './personal.js';
 import { isEmptyConfig, isRigourScript, readInstallRecord, unchangedSinceInstall, withoutRigour } from './install-record.js';
+import { GITIGNORE_PATTERNS } from './init.js';
 
 const CONFIGS = ['.claude/settings.json', '.cursor/hooks.json', '.windsurf/hooks.json', '.cursor/mcp.json', '.mcp.json'];
 /** Files Rigour may have written without a record (an install older than the record): known by their content. */
 const KNOWN_SCRIPTS = ['.clinerules/hooks/PostToolUse', '.clinerules/hooks/PreToolUse'];
-const GITIGNORE_LINES = new Set(['rigour-report.json', 'rigour-fix-packet.json', '.rigour/', '.rigour/*', '!.rigour/dismissed.json', '!.rigour/backtest.json']);
+// What setup adds, and the older single `.rigour/` line.
+const GITIGNORE_LINES = new Set([...GITIGNORE_PATTERNS, '.rigour/']);
 
 export interface UninstallOptions { all?: boolean; dryRun?: boolean; machine?: boolean }
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded. Studio is organised around the review and what agents learned (its Review, Setup and How it learns pages), not around an execution graph. Kept as the record of the decision at the time.
 
 ## Context
 

@@ -29,7 +29,6 @@ export async function runDeepAnalysis(
     const deepGate = new DeepAnalysisGate({
         options: deepOptions,
         checks: config.gates.deep?.checks,
-        threads: config.gates.deep?.threads,
         maxTokens: config.gates.deep?.max_tokens,
         temperature: config.gates.deep?.temperature,
         timeoutMs: config.gates.deep?.timeout_ms,
