@@ -55,7 +55,7 @@ async function loadConfig(cwd: string): Promise<Config> {
         const raw = yaml.parse(await fs.readFile(configPath, 'utf-8'));
         return ConfigSchema.parse(raw);
     }
-    return ConfigSchema.parse({ version: 1 });
+    return ConfigSchema.parse({});
 }
 
 /**

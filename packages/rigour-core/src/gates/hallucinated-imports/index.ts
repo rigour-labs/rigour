@@ -41,8 +41,6 @@ export interface HallucinatedImport {
 
 export interface HallucinatedImportsConfig {
     enabled?: boolean;
-    check_relative?: boolean;
-    check_packages?: boolean;
     ignore_patterns?: string[];
 }
 
@@ -53,8 +51,6 @@ export class HallucinatedImportsGate extends Gate {
         super('hallucinated-imports', 'Hallucinated Import Detection');
         this.config = {
             enabled: config.enabled ?? true,
-            check_relative: config.check_relative ?? true,
-            check_packages: config.check_packages ?? true,
             ignore_patterns: config.ignore_patterns ?? [
                 '\\.css$', '\\.scss$', '\\.less$', '\\.svg$', '\\.png$', '\\.jpg$',
                 '\\.json$', '\\.wasm$', '\\.graphql$', '\\.gql$',

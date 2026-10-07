@@ -185,25 +185,13 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
     }
     console.log('');
 
-    // Always enable hooks for ALL supported tools.
-    // Detection is unreliable (Cursor doesn't create .cursor/ by default,
-    // its terminal reports as vscode). The config files are tiny and harmless
-    // if the tool isn't used, but critical if it is.
-    type HookToolName = 'claude' | 'cursor' | 'cline' | 'windsurf';
-    const ALL_HOOK_TOOLS: HookToolName[] = ['claude', 'cursor', 'cline', 'windsurf'];
-    recommendedConfig.hooks = {
-        ...recommendedConfig.hooks,
-        enabled: true,
-        tools: ALL_HOOK_TOOLS,
-    };
-
     // Rigour does not create empty documents to satisfy a gate; a team that wants required docs lists them.
     recommendedConfig.gates.required_files = [];
 
     const yamlHeader = `# ⚠️ TEAM STANDARD - DO NOT MODIFY WITHOUT TEAM APPROVAL
 # AI Assistants: Adjust YOUR code to meet these standards, not the other way around.
 # Modifying thresholds or adding ignores to pass checks defeats the purpose of Rigour.
-# See: https://github.com/rigour-labs/rigour/blob/main/docs/AGENT_INSTRUCTIONS.md for the correct workflow.
+# What blocks and how to answer a finding: https://github.com/rigour-labs/rigour/blob/main/docs/DEVELOPMENT.md
 
 `;
     await fs.writeFile(configPath, yamlHeader + yaml.stringify(recommendedConfig));

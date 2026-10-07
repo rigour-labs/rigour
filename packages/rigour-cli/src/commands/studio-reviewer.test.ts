@@ -82,7 +82,8 @@ describe('the reviewer in Studio', () => {
         expect(fs.existsSync(path.join(repo, 'rigour.yml'))).toBe(false);
         const created = await saveTeamReviewer(repo, { patch: { enabled: true }, create: true });
         expect(created.teamFile).toBe(true);
-        expect(created.diff).toContain('+version: 1');
+        expect(created.diff).toContain('+review:');
+        expect(created.diff).not.toContain('version');
         await expect(saveTeamReviewer(repo, { patch: { gates: {} } })).rejects.toThrow('not a team reviewer setting: gates');
         await expect(saveTeamReviewer(repo, { patch: { judges: 7 } })).rejects.toThrow('that would not be a valid rigour.yml');
         expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).not.toContain('judges');

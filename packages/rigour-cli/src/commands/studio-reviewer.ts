@@ -95,7 +95,7 @@ export async function saveTeamReviewer(cwd: string, body: unknown): Promise<Stud
     const exists = fs.existsSync(file);
     if (exists && fs.lstatSync(file).isSymbolicLink()) throw new Error('rigour.yml is a link: edit the file it points to directly');
     if (!exists && create !== true) throw new Error('there is no rigour.yml: creating one makes this the team\'s setup, so confirm it (create: true)');
-    const doc = YAML.parseDocument(exists ? fs.readFileSync(file, 'utf8') : 'version: 1\n');
+    const doc = exists ? YAML.parseDocument(fs.readFileSync(file, 'utf8')) : new YAML.Document({});
     if (doc.errors.length) throw new Error(`rigour.yml does not parse: ${doc.errors[0].message}`);
     for (const [key, value] of Object.entries(patch)) {
         if (value === null) doc.deleteIn(['review', 'reviewer', key]);

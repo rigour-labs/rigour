@@ -53,7 +53,6 @@ const CLOUD_CONCURRENCY = 4;
 export interface DeepGateConfig {
     options: DeepOptions;
     checks?: Record<string, boolean>;
-    threads?: number;
     maxTokens?: number;
     temperature?: number;
     timeoutMs?: number;

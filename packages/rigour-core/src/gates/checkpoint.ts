@@ -51,7 +51,6 @@ export interface CheckpointConfig {
     interval_minutes?: number;
     quality_threshold?: number;
     drift_detection?: boolean;
-    auto_save_on_failure?: boolean;
     /** EWMA smoothing factor. Higher = more weight on recent data. Default 0.3 */
     ewma_alpha?: number;
     /** Drop from EWMA that triggers drift warning. Default 15 */
@@ -331,7 +330,6 @@ export class CheckpointGate extends Gate {
             interval_minutes: config.interval_minutes ?? 15,
             quality_threshold: config.quality_threshold ?? 80,
             drift_detection: config.drift_detection ?? true,
-            auto_save_on_failure: config.auto_save_on_failure ?? true,
             ewma_alpha: config.ewma_alpha ?? 0.3,
             drift_drop_threshold: config.drift_drop_threshold ?? 15,
         };

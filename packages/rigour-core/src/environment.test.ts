@@ -18,7 +18,6 @@ describe('Environment Alignment Gate', () => {
 
     it('should detect tool version mismatch (Explicit)', async () => {
         const rawConfig: RawConfig = {
-            version: 1,
             gates: {
                 environment: {
                     enabled: true,
@@ -43,7 +42,6 @@ describe('Environment Alignment Gate', () => {
 
     it('should detect missing environment variables', async () => {
         const rawConfig: RawConfig = {
-            version: 1,
             gates: {
                 environment: {
                     enabled: true,
@@ -68,7 +66,6 @@ ruff = ">=99.14.0"
 `);
 
         const rawConfig: RawConfig = {
-            version: 1,
             gates: {
                 environment: {
                     enabled: true,
@@ -91,7 +88,6 @@ ruff = ">=99.14.0"
 
     it('should prioritize environment gate and run it first', async () => {
         const rawConfig: RawConfig = {
-            version: 1,
             gates: {
                 max_file_lines: 1,
                 environment: {

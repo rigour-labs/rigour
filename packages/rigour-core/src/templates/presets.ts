@@ -8,7 +8,6 @@ export interface Template {
         paradigm?: string;
         commands?: Record<string, unknown>;
         gates?: Partial<Gates>;
-        planned?: string[];
         ignore?: string[];
     };
 }
@@ -31,10 +30,6 @@ export const TEMPLATES: Template[] = [
                 max_file_lines: 300,
                 required_files: ['docs/SPEC.md', 'docs/ARCH.md', 'README.md'],
             },
-            planned: [
-                'Layer Boundary: Components cannot import from DB',
-                'Prop-Drilling Detection: Max depth 5',
-            ],
         },
     },
     {
@@ -56,10 +51,6 @@ export const TEMPLATES: Template[] = [
                 max_file_lines: 400,
                 required_files: ['docs/SPEC.md', 'docs/ARCH.md', 'README.md'],
             },
-            planned: [
-                'Service Layer Enforcement: Controllers -> Services only',
-                'Repo Pattern: Databases access isolated to repositories/',
-            ],
         },
     },
     {
@@ -90,10 +81,6 @@ export const TEMPLATES: Template[] = [
                 max_file_lines: 500,
                 required_files: ['docs/DATA_DICTIONARY.md', 'docs/PIPELINE.md', 'README.md'],
             },
-            planned: [
-                'Stochastic Determinism: Seed setting enforcement',
-                'Data Leaks: Detecting PII in notebook outputs',
-            ],
         },
     },
     // --- Regulated Industry Presets ---
@@ -147,8 +134,6 @@ export const TEMPLATES: Template[] = [
                 agent_team: {
                     enabled: true,
                     max_concurrent_agents: 3,
-                    cross_agent_pattern_check: true,
-                    handoff_verification: true,
                     task_ownership: 'strict',
                 },
             },
@@ -168,8 +153,6 @@ export const TEMPLATES: Template[] = [
                 required_files: ['docs/SECURITY.md', 'docs/SPEC.md', 'docs/ARCH.md', 'README.md'],
                 ast: {
                     complexity: 8, max_methods: 10, max_params: 4,
-                    max_nesting: 3, max_inheritance_depth: 3,
-                    max_class_dependencies: 5, max_function_lines: 40,
                 },
                 security: {
                     enabled: true,
@@ -184,8 +167,6 @@ export const TEMPLATES: Template[] = [
                 agent_team: {
                     enabled: true,
                     max_concurrent_agents: 3,
-                    cross_agent_pattern_check: true,
-                    handoff_verification: true,
                     task_ownership: 'strict',
                 },
                 checkpoint: {
@@ -193,7 +174,6 @@ export const TEMPLATES: Template[] = [
                     interval_minutes: 10,
                     quality_threshold: 85,
                     drift_detection: true,
-                    auto_save_on_failure: true,
                 },
             },
         },
@@ -216,8 +196,6 @@ export const TEMPLATES: Template[] = [
                 required_files: ['docs/SECURITY.md', 'docs/RUNBOOK.md', 'README.md'],
                 ast: {
                     complexity: 10, max_methods: 10, max_params: 5,
-                    max_nesting: 3, max_inheritance_depth: 3,
-                    max_class_dependencies: 5, max_function_lines: 50,
                 },
                 security: {
                     enabled: true,
@@ -232,8 +210,6 @@ export const TEMPLATES: Template[] = [
                 agent_team: {
                     enabled: true,
                     max_concurrent_agents: 3,
-                    cross_agent_pattern_check: true,
-                    handoff_verification: true,
                     task_ownership: 'strict',
                 },
             },

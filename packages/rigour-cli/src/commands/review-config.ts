@@ -15,10 +15,10 @@ export async function loadConfig(cwd: string, options: { config?: string }, trus
     if (trustedRef) {
         const rel = path.relative(cwd, options.config ? path.resolve(cwd, options.config) : path.join(cwd, 'rigour.yml'));
         const content = readStateFile(cwd, rel, trustedRef);
-        return ConfigSchema.parse(content === null ? { version: 1 } : yaml.parse(content));
+        return ConfigSchema.parse(content === null ? {} : yaml.parse(content));
     }
     const configPath = options.config ? path.resolve(cwd, options.config) : path.join(cwd, 'rigour.yml');
     if (await fs.pathExists(configPath)) return ConfigSchema.parse(yaml.parse(await fs.readFile(configPath, 'utf-8')));
     if (options.config) throw new UsageError(`Config file not found: ${configPath}`);
-    return ConfigSchema.parse({ version: 1 });
+    return ConfigSchema.parse({});
 }

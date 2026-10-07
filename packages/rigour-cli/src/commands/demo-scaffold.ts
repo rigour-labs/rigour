@@ -20,7 +20,6 @@ export async function scaffoldDemoProject(dir: string): Promise<void> {
 
 export function buildDemoConfig(): Record<string, unknown> {
     return {
-        version: 1,
         preset: 'api',
         gates: {
             max_file_lines: 300,
@@ -31,7 +30,6 @@ export function buildDemoConfig(): Record<string, unknown> {
             hallucinated_imports: { enabled: true, severity: 'critical' },
             promise_safety: { enabled: true, severity: 'high' },
         },
-        hooks: { enabled: true, tools: ['claude'] },
         ignore: ['.git/**', 'node_modules/**'],
         output: { report_path: 'rigour-report.json' },
     };

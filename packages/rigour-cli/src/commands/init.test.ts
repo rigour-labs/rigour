@@ -33,7 +33,8 @@ describe('initCommand', () => {
         expect(fs.existsSync(configPath)).toBe(true);
 
         const content = fs.readFileSync(configPath, 'utf-8');
-        expect(content).toContain('version');
+        expect(content).toContain('gates:');
+        expect(content).not.toMatch(/^version:|fast_gates|^planned:|input_validation|adaptive:/m); // settings nothing reads are not written
     });
 
     it('writes no instruction files or empty documents unless asked', async () => {

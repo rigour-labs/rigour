@@ -7,7 +7,6 @@ export const GatesSchema = z.object({
     max_file_lines: z.number().optional().default(500),
     forbid_todos: z.boolean().optional().default(true),
     forbid_fixme: z.boolean().optional().default(true),
-    forbid_paths: z.array(z.string()).optional().default([]),
     required_files: z.array(z.string()).optional().default([
         'docs/SPEC.md',
         'docs/ARCH.md',
@@ -18,10 +17,6 @@ export const GatesSchema = z.object({
         complexity: z.number().optional().default(10),
         max_methods: z.number().optional().default(10),
         max_params: z.number().optional().default(5),
-        max_nesting: z.number().optional().default(4),
-        max_inheritance_depth: z.number().optional().default(3),
-        max_class_dependencies: z.number().optional().default(5),
-        max_function_lines: z.number().optional().default(50),
     }).optional().default({}),
     staleness: z.object({
         enabled: z.boolean().optional().default(false),
@@ -39,7 +34,6 @@ export const GatesSchema = z.object({
     }).optional().default({}),
     dependencies: z.object({
         forbid: z.array(z.string()).optional().default([]),
-        trusted_registry: z.string().optional(),
         detect_unused: z.boolean().optional().default(true),
         detect_heavy_alternatives: z.boolean().optional().default(true),
         detect_duplicate_purpose: z.boolean().optional().default(true),
@@ -60,12 +54,6 @@ export const GatesSchema = z.object({
         enabled: z.boolean().optional().default(true),
         sensitivity: z.number().min(0).max(1).optional().default(0.8), // 0.8 correlation threshold
         mining_depth: z.number().optional().default(100), // Number of files to sample
-        ignored_patterns: z.array(z.string()).optional().default([]),
-        // v2.14+ Extended Context for frontier models
-        cross_file_patterns: z.boolean().optional().default(true),
-        naming_consistency: z.boolean().optional().default(true),
-        import_relationships: z.boolean().optional().default(true),
-        max_cross_file_depth: z.number().optional().default(50),
     }).optional().default({}),
     environment: z.object({
         enabled: z.boolean().optional().default(true),
@@ -76,14 +64,11 @@ export const GatesSchema = z.object({
     retry_loop_breaker: z.object({
         enabled: z.boolean().optional().default(true),
         max_retries: z.number().optional().default(3), // Fail after 3 consecutive failures in same category
-        auto_classify: z.boolean().optional().default(true), // Auto-detect failure category from error message
         doc_sources: z.record(z.string()).optional().default({}), // Custom doc URLs per category
     }).optional().default({}),
     agent_team: z.object({
         enabled: z.boolean().optional().default(false),
         max_concurrent_agents: z.number().optional().default(3),
-        cross_agent_pattern_check: z.boolean().optional().default(true),
-        handoff_verification: z.boolean().optional().default(true),
         task_ownership: z.enum(['strict', 'collaborative']).optional().default('strict'),
     }).optional().default({}),
     checkpoint: z.object({
@@ -91,7 +76,6 @@ export const GatesSchema = z.object({
         interval_minutes: z.number().optional().default(15),
         quality_threshold: z.number().optional().default(80),
         drift_detection: z.boolean().optional().default(true),
-        auto_save_on_failure: z.boolean().optional().default(true),
     }).optional().default({}),
     security: z.object({
         enabled: z.boolean().optional().default(true),
@@ -139,13 +123,6 @@ export const GatesSchema = z.object({
         ]),
         allowlist_env_names: z.array(z.string()).optional().default([]),
     }).optional().default({}),
-    adaptive: z.object({
-        enabled: z.boolean().optional().default(false),
-        base_coverage_threshold: z.number().optional().default(80),
-        base_quality_threshold: z.number().optional().default(80),
-        auto_detect_tier: z.boolean().optional().default(true),
-        forced_tier: z.enum(['hobby', 'startup', 'enterprise']).optional(),
-    }).optional().default({}),
     // v2.16+ AI-Native Drift Detection Gates
     duplication_drift: z.object({
         enabled: z.boolean().optional().default(true),
@@ -154,8 +131,6 @@ export const GatesSchema = z.object({
     }).optional().default({}),
     hallucinated_imports: z.object({
         enabled: z.boolean().optional().default(true),
-        check_relative: z.boolean().optional().default(true),
-        check_packages: z.boolean().optional().default(true),
         ignore_patterns: z.array(z.string()).optional().default([
             '\\.css$', '\\.scss$', '\\.less$', '\\.svg$', '\\.png$', '\\.jpg$',
             '\\.json$', '\\.wasm$', '\\.graphql$', '\\.gql$',
@@ -207,10 +182,8 @@ export const GatesSchema = z.object({
         check_empty_tests: z.boolean().optional().default(true),
         check_tautological: z.boolean().optional().default(true),
         check_mock_heavy: z.boolean().optional().default(true),
-        check_snapshot_abuse: z.boolean().optional().default(true),
         check_assertion_free_async: z.boolean().optional().default(true),
         max_mocks_per_test: z.number().optional().default(5),
-        ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
     // v4.2+ Memory & Skills Governance
     governance: z.object({
@@ -262,15 +235,6 @@ export const GatesSchema = z.object({
             '.cursor/hooks.json',      // Rigour's own hook config
             '.windsurf/hooks.json',    // Rigour's own hook config
         ]),
-    }).optional().default({}),
-    // v4.2+ AI Agent DLP (Data Loss Prevention)
-    input_validation: z.object({
-        enabled: z.boolean().optional().default(true),
-        block_on_detection: z.boolean().optional().default(true),
-        min_secret_length: z.number().optional().default(8),
-        custom_patterns: z.array(z.string()).optional().default([]),
-        ignore_patterns: z.array(z.string()).optional().default([]),
-        audit_log: z.boolean().optional().default(true),
     }).optional().default({}),
     // v4.3+ Side-Effect Safety Analysis
     // On by default: full scans of three real repositories reported no finding that was not a real defect.
@@ -351,17 +315,8 @@ export const GatesSchema = z.object({
         track_branches: z.boolean().optional().default(false), // opt-in: counts change on purpose in most edits
         track_returns: z.boolean().optional().default(false),  // opt-in: same
     }).optional().default({}),
-    // v4.0+ Deep Analysis (LLM-powered)
+    // Model review. Whether it runs, the tier, the provider and its key come from flags and the person's settings, never from a committed file.
     deep: z.object({
-        enabled: z.boolean().optional().default(false),
-        pro: z.boolean().optional().default(false),
-        max: z.boolean().optional().default(false), // local Qwen2.5-Coder-7B (4.7GB); needs ~8GB free memory
-        provider: z.string().optional().default('local'), // 'local' for sidecar, or any cloud: 'claude', 'openai', 'gemini', 'groq', 'mistral', 'together', etc.
-        api_key: z.string().optional(),
-        api_base_url: z.string().optional(), // custom API base URL (for self-hosted, proxies, any OpenAI-compatible endpoint)
-        model_name: z.string().optional(), // cloud model name override (e.g. 'gpt-4o', 'claude-sonnet-4-5-20250929', 'gemini-pro')
-        model_path: z.string().optional(), // custom local GGUF model path override
-        threads: z.number().optional().default(4),
         max_tokens: z.number().optional(), // default per provider: local 1024, cloud 4096
         temperature: z.number().optional().default(0.1),
         timeout_ms: z.number().optional(), // per inference call; default per provider: local 60s, cloud 120s
@@ -398,27 +353,11 @@ export const CommandsSchema = z.object({
 });
 
 export const HooksSchema = z.object({
-    enabled: z.boolean().optional().default(false),
-    tools: z.array(z.enum(['claude', 'cursor', 'cline', 'windsurf'])).optional().default([]),
-    fast_gates: z.array(z.string()).optional().default([
-        'hallucinated-imports',
-        'phantom-apis',
-        'deprecated-apis',
-        'promise-safety',
-        'security-patterns',
-        'side-effect-analysis',
-        'file-size',
-    ]),
-    timeout_ms: z.number().optional().default(5000),
-    block_on_failure: z.boolean().optional().default(false),
     /** Stop hook: hold "done" until the agent acknowledges each risky changed function (rigour_review_ack). */
     require_review_ack: z.boolean().optional().default(false),
-    /** Enable DLP (Data Loss Prevention) pre-input hooks — default ON for security */
-    dlp: z.boolean().optional().default(true),
 }).optional().default({});
 
 export const ConfigSchema = z.object({
-    version: z.number().default(1),
     preset: z.string().optional(),
     paradigm: z.string().optional(),
     commands: CommandsSchema.optional().default({}),
@@ -487,7 +426,6 @@ export const ConfigSchema = z.object({
             cross_models: z.record(ModelName).optional().default({}),
         }).optional().default({}),
     }).optional().default({}),
-    planned: z.array(z.string()).optional().default([]),
     ignore: z.array(z.string()).optional().default([]),
 });
 

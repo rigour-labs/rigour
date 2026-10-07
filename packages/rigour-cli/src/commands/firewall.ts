@@ -31,7 +31,7 @@ import {
 
 async function loadFirewallConfig(cwd: string) {
     const configPath = path.join(cwd, 'rigour.yml');
-    if (!await fs.pathExists(configPath)) return ConfigSchema.parse({ version: 1 });
+    if (!await fs.pathExists(configPath)) return ConfigSchema.parse({});
     return ConfigSchema.parse(yaml.parse(await fs.readFile(configPath, 'utf-8')));
 }
 
