@@ -107,19 +107,26 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const report = await new GateRunner({ ...input.config, commands: {} }).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     const preexisting = await dropPreexisting(input, report, targets);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
-    report.failures.push(...migrationOrderFailures(input.cwd, diff, input.source, input.config));
-    report.failures.push(...unusedExportFailures(input.cwd, diff, input.config), ...orphanFileFailures(input.cwd, diff, input.config));
-    report.failures.push(
-        ...queryPatternFailures(input.cwd, changedLines, input.config),
-        ...optionalParamFailures(input.cwd, changedLines, input.config),
-        ...duplicateFunctionFailures(input.cwd, changedLines, input.config),
+    // The review's own checks, each recorded in the summary beside the gates, so a report says everything that ran.
+    const reviewCheck = (id: string, key: keyof Config['gates'], failures: Failure[]) => {
+        const enabled = (input.config.gates[key] as { enabled?: boolean } | undefined)?.enabled;
+        report.summary[id] = !enabled ? 'SKIP' : failures.length ? 'FAIL' : 'PASS';
+        report.failures.push(...failures);
+    };
+    reviewCheck('migration-order', 'migration_order', migrationOrderFailures(input.cwd, diff, input.source, input.config));
+    reviewCheck('unused-exports', 'unused_exports', unusedExportFailures(input.cwd, diff, input.config));
+    reviewCheck('orphan-files', 'orphan_files', orphanFileFailures(input.cwd, diff, input.config));
+    reviewCheck('query-patterns', 'query_patterns', queryPatternFailures(input.cwd, changedLines, input.config));
+    reviewCheck('optional-params', 'optional_params', optionalParamFailures(input.cwd, changedLines, input.config));
+    reviewCheck('duplicate-functions', 'duplicate_functions', duplicateFunctionFailures(input.cwd, changedLines, input.config));
+    reviewCheck('change-sweep', 'change_sweep', [
         ...loopCopyFailures(input.cwd, changedLines, input.config),
         ...partialFixFailures(input.cwd, changedLines, input.config),
         ...partialWiringFailures(input.cwd, changedLines, input.config),
-    );
+    ]);
     const typed: Redundancy = input.typed ? typedChecks(input.cwd, changedLines, input.config) : { failures: [], hints: [] };
-    report.failures.push(...typed.failures);
     if (typed.error) report.summary[TYPED_CHECKS] = 'ERROR'; // a check that could not run is a crashed gate, never a pass
+    else if (input.typed) reviewCheck('redundancy', 'redundancy', typed.failures);
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);
     const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics, input.trustedRef);
