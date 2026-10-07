@@ -132,6 +132,20 @@ describe('git-backed review', () => {
         expect(toReviewFinding(semantic[0])).toMatchObject({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2, severity: 'high' });
     });
 
+    it("names every check it ran in the summary, the review's own beside the gates", async () => {
+        write('src/a.ts', 'export const a = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/b.ts', 'export const unused = 2;\n');
+        git('add', '-A');
+        const config = ConfigSchema.parse({ gates: { migration_order: { enabled: false } } });
+
+        const { report } = await reviewChange({ cwd: repo, config });
+
+        expect(report?.summary).toMatchObject({ 'unused-exports': 'FAIL', 'migration-order': 'SKIP', 'query-patterns': 'PASS', 'change-sweep': 'PASS' });
+        expect(report?.summary).not.toHaveProperty('redundancy'); // typed checks were not asked for
+    });
+
     it('reports what the change introduced, not what the touched code already had', async () => {
         const branchy = (name: string, extra = '') => [
             `export function ${name}(x: number) {`,

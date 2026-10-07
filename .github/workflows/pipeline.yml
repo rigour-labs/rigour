@@ -11,10 +11,51 @@ permissions:
   issues: write
   pull-requests: write
   id-token: write
+  actions: read     # to read the pull request's pipeline result (already-tested)
 
 jobs:
+  # A push to main or dev whose exact tree a pull request already tested, with its pipeline green,
+  # does not run the test matrix again: same files, same result. (A pull request run tests the head
+  # merged into its base; the pushed tree equals the head's tree only when the head was up to date,
+  # and then that merge is this tree.) A tree that differs from every tested head (main moved on, a
+  # direct push), or a check that cannot tell, is tested as always.
+  already-tested:
+    name: Already tested in the pull request?
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      tested: ${{ steps.check.outputs.tested }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TREE: ${{ github.event.head_commit.tree_id }}
+        run: |
+          set -euo pipefail
+          tested=false
+          for head in $(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[].head.sha' 2>/dev/null || true); do
+            head_tree=$(gh api "repos/$REPO/git/commits/$head" --jq '.tree.sha' 2>/dev/null || true)
+            if [ "$head_tree" != "$TREE" ]; then
+              echo "Pull request head $head has a different tree: testing."
+              continue
+            fi
+            if gh api "repos/$REPO/actions/runs?head_sha=$head&event=pull_request&status=success" \
+                 --jq '[.workflow_runs[] | select(.path == ".github/workflows/pipeline.yml")] | length > 0' | grep -qx true; then
+              echo "Pull request head $head has this exact tree and its pipeline passed: not testing again."
+              tested=true
+              break
+            fi
+            echo "Pull request head $head has this tree but no passing pipeline: testing."
+          done
+          echo "tested=$tested" >> "$GITHUB_OUTPUT"
+
   test:
     name: Test & Build
+    needs: already-tested
+    # On a pull request already-tested is skipped, and the matrix always runs.
+    if: ${{ !cancelled() && needs.already-tested.outputs.tested != 'true' }}
     strategy:
       # One OS failing must not cancel the others: a failure on one alone is a platform bug, on all of them a real one.
       fail-fast: false
@@ -50,8 +91,12 @@ jobs:
 
   release:
     name: Release
-    needs: test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && !contains(github.event.head_commit.message, '[skip ci]')
+    needs: [already-tested, test]
+    # Released only after the tests passed here, or the same tree passed in its pull request.
+    if: >-
+      !cancelled() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      && !contains(github.event.head_commit.message, '[skip ci]')
+      && (needs.test.result == 'success' || (needs.test.result == 'skipped' && needs.already-tested.outputs.tested == 'true'))
     runs-on: ubuntu-latest
     env:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

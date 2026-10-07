@@ -249,6 +249,7 @@ rigour review --base origin/main --json > review.json
 | Field | Type | Present | Meaning |
 |:---|:---|:---|:---|
 | `status` | `PASS` \| `FAIL` \| `ERROR` | Always | `FAIL` when `failures` is not empty. `ERROR` when model review was requested and did not run, or when a gate that proves defects crashed. |
+| `checked` | object | Always | What was checked, so a verdict can be reproduced and proved later. See below. |
 | `score` | number | Always | The underlying report's `score`; `100` when the change touched no file. |
 | `ai_health_score`, `structural_score` | number | When files were checked | From the underlying report. |
 | `total_failures` | number | Always | Findings on the changed files, after pre-existing ones are removed and before filtering to the changed lines. |
@@ -271,6 +272,21 @@ rigour review --base origin/main --json > review.json
 | `reviewer` | object | With `--reviewer` | The reviewer's verdict. Its `outcome` is `passed`, `findings`, `unavailable` or `skipped`, and `blocks` is `true` for `findings` and `unavailable`. See [REVIEWER.md](REVIEWER.md). |
 
 Which findings land in `failures` and which in `advisory` is decided by the rules in [CHECKS.md](CHECKS.md).
+
+### `checked`
+
+The same Rigour version, settings and commits give the same checks, so these fields are enough to reproduce
+a verdict, or to compare a review on a laptop with the one CI ran.
+
+| Field | Type | Meaning |
+|:---|:---|:---|
+| `rigour_version` | string | The CLI version that reviewed. |
+| `base` | string \| null | The ref the change was compared with (`--base`), or `null` for uncommitted work against `HEAD`. |
+| `base_sha` | string \| null | The commit the comparison started from: the merge base with `base`, or `HEAD`. |
+| `head_sha` | string \| null | `HEAD` when the review ran. |
+| `uncommitted` | boolean | Tracked files differed from `HEAD`, so the review covered work that is not committed. |
+| `config` | string | The settings read: a path such as `rigour.yml`, `rigour.yml at <commit>` for an independent review, or `defaults` when there is none. |
+| `checks` | object | Every check the run reached, by id: `PASS`, `FAIL`, `SKIP` (switched off) or `ERROR` (could not run). The review's own checks (`unused-exports`, `migration-order` and the rest) are listed beside the gates. |
 
 ### A finding in `rigour review --json`
 
