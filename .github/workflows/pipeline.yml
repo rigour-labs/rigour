@@ -57,8 +57,6 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     outputs:
       cli_version: ${{ steps.capture_version.outputs.cli_version }}
-      # True only when a new npm version was published this run.
-      did_release: ${{ steps.capture_version.outputs.published == 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -180,28 +178,45 @@ jobs:
           if [ "${{ steps.release_guard.outputs.skip_release }}" = "true" ]; then
             VERSION="${{ steps.release_guard.outputs.existing_tag }}"
             VERSION="${VERSION#v}"
-            echo "published=false" >> "$GITHUB_OUTPUT"
           elif [ "${{ steps.semantic_release.outputs.published }}" = "true" ]; then
             VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
-            echo "published=true" >> "$GITHUB_OUTPUT"
           else
             if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
               VERSION=$(npm view @rigour-labs/cli dist-tags.beta 2>/dev/null || npm view @rigour-labs/cli version)
             else
               VERSION=$(npm view @rigour-labs/cli version)
             fi
-            echo "published=false" >> "$GITHUB_OUTPUT"
           fi
           echo "cli_version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Verify npm release is installable
         run: node scripts/npm-release-readiness.mjs "${{ steps.capture_version.outputs.cli_version }}"
 
+      # Every step from here is safe to run again, and runs on a re-run too, for the version
+      # this commit released: a release interrupted after npm publish is finished by re-running
+      # the job, never left half done. Each one changes nothing when its part is already there.
+      - name: Ensure the GitHub release
+        if: success() && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.capture_version.outputs.cli_version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "GitHub release v${VERSION} exists."
+          elif git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            gh release create "v${VERSION}" --verify-tag --generate-notes --title "v${VERSION}"
+            echo "Created GitHub release v${VERSION}."
+          else
+            echo "No tag v${VERSION} in this checkout: nothing to release here."
+          fi
+
       - name: Publish Homebrew Formula
-        if: success() && github.ref == 'refs/heads/main' && steps.capture_version.outputs.published == 'true'
+        if: success() && github.ref == 'refs/heads/main'
         env:
           HOMEBREW_TAP_GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GH_TOKEN }}
           HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'rigour-labs/homebrew-tap' }}
+          VERSION: ${{ steps.capture_version.outputs.cli_version }}
         run: |
           set -euo pipefail
 
@@ -210,7 +225,6 @@ jobs:
             exit 0
           fi
 
-          VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
           TARBALL_URL="https://registry.npmjs.org/@rigour-labs/cli/-/cli-${VERSION}.tgz"
           TARBALL_PATH="/tmp/rigour-cli-${VERSION}.tgz"
 
@@ -266,12 +280,18 @@ jobs:
           echo "Homebrew formula updated in ${HOMEBREW_TAP_REPO}"
 
       - name: Publish to MCP Registry
-        if: success() && github.ref == 'refs/heads/main' && steps.capture_version.outputs.published == 'true'
+        if: success() && github.ref == 'refs/heads/main'
         working-directory: packages/rigour-mcp
+        env:
+          VERSION: ${{ steps.capture_version.outputs.cli_version }}
         run: |
-          # Get the version from the package.json which was just updated by semantic-release
-          VERSION=$(node -p "require('./package.json').version")
-          
+          set -euo pipefail
+          NAME=$(jq -r .name server.json)
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.modelcontextprotocol.io/v0/servers/$(jq -rn --arg n "$NAME" '$n|@uri')/versions/${VERSION}")
+          if [ "$STATUS" = "200" ]; then
+            echo "MCP Registry already has ${NAME} ${VERSION}."
+            exit 0
+          fi
           echo "Syncing server.json to version $VERSION"
           jq ".version = \"$VERSION\" | .packages[0].version = \"$VERSION\"" server.json > server.json.tmp && mv server.json.tmp server.json
           
