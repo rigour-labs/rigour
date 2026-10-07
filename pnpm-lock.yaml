@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@rigour-labs/core':
+        specifier: workspace:*
+        version: link:packages/rigour-core
       '@semantic-release/commit-analyzer':
         specifier: ^13.0.1
         version: 13.0.1(semantic-release@25.0.2(typescript@5.9.3))

@@ -1,16 +1,16 @@
 # Backtest: measured against your own reviewers
 
-`rigour backtest` answers one question with a number: of the points a person made reviewing
-a pull request in this repository, how many would Rigour have caught before them, and would it
-have blocked anything they called good?
+`rigour backtest` answers one question with a number: of the points a person made reviewing a pull request in this repository, how many would Rigour have caught before them, and would it have blocked anything they called good?
 
-It runs the review on a commit someone reviewed, with that review hidden, and scores what Rigour
-reports against the review. The score is the acceptance test for every rule: a check is only as
-good as its ledger row, and a rule change that lowers the score does not ship.
+It runs the review on a commit someone reviewed, with that review hidden, and scores what Rigour reports against the review.
+
+The backtest is a measurement, not a required check. No hook, push gate or CI step runs it; you run it when you want the number, for example before and after changing a rule or a reviewer setting. Its exit code is there so you can make it a gate in your own CI if you choose to.
 
 ## The ledger
 
-`.rigour/backtest.json`, committed with the repository. One round per human review:
+The ledger is `.rigour/backtest.json`. It is shared: `rigour init` ignores `.rigour/*` in `.gitignore` but keeps `.rigour/backtest.json` (with the dismissals and `reviewed.json`) so it is committed with the repository, and `rigour uninstall` leaves it in place unless you pass `--all`. Everyone on the team scores against the same rounds.
+
+One round per human review:
 
 ```json
 {
@@ -33,46 +33,71 @@ good as its ledger row, and a rule change that lowers the score does not ship.
 }
 ```
 
-- `commit`: the commit the person reviewed. `base`: the main branch as it was then (a later merge
-  must not change what the round measures). `reviewed_at`: from then on, reviews and comments are
-  hidden from the reviewer.
-- A point is a `file` pattern (a regular expression over the finding's path) plus a `lines` window
-  at that commit, or a `text` pattern over the finding's words, or both: either one is enough. A
-  row with neither is rejected before anything runs.
-- `must_not_flag` lists code the person called good, in the same shape. A blocking finding there is
-  a false block.
+| Field | Meaning |
+| --- | --- |
+| `id` | The round's name, used by `--round` |
+| `commit` | The commit the person reviewed (at least 7 characters). It must exist in your clone; fetch the branch it was reviewed on if it does not |
+| `base` | The main branch as it was then, so a later merge does not change what the round measures |
+| `reviewed_at` | Optional. With `--reviewer`, reviews and comments posted from this time on are hidden from the reviewer |
+| `pr` | Optional. The pull request the reviewer reads, since the round's checkout is detached |
+| `points` | What the person said. Each has an `id`, a `point` (the sentence, for the report) and a match |
+| `must_not_flag` | Code the person called good, as matches. A blocking finding there is a false block. Optional |
 
-`rigour backtest init --pr <number>` writes the rounds from a pull request's human reviews. An
-inline comment gives its point a file and a line window for free. A point made in the review's
-body has no line, so it is written with `needs` set, and someone adds its pattern once.
+A match always has a `file` pattern, a regular expression over the finding's path. It also needs a `lines` window (`[first, last]` at the reviewed commit) or a `text` pattern (a regular expression over the finding's title, details and hint), or both. The file pattern must match, and then either the finding's line falls inside the window or its text matches. Both patterns ignore case.
+
+The ledger is checked before anything runs. A row with an empty `file`, with neither `lines` nor `text`, with a pattern that is not a valid regular expression, or still marked `needs` is listed and the run stops.
+
+### Writing rounds from a pull request
+
+```bash
+rigour backtest init --pr 212
+```
+
+This reads the pull request's reviews through `gh` and writes one round per review by a person: not a bot, not the pull request's author, and with a body or a "changes requested" state.
+
+- An inline comment becomes a point with its file (as an escaped pattern) and a window of 10 lines either side of its line. A comment with no line is marked `needs`.
+- Each bulleted or numbered line in the review body becomes a point with no file, marked `needs`: add its `file` and `text` patterns once.
+- `base` is the last commit on the main branch before the review was posted.
+- `must_not_flag` is left empty for you to fill in.
+
+Rounds already in the ledger with the same `id` are replaced; others are kept. The command prints how many points still need a pattern. Set `review.github_account` in `rigour.yml` (or `RIGOUR_GITHUB_ACCOUNT`) when `gh` holds several accounts.
 
 ## Running it
 
 ```bash
-rigour backtest              # every round
-rigour backtest --round r5   # one round
-rigour backtest --reviewer   # the reviewer too, with each round's review hidden
-rigour backtest --json
+rigour backtest                 # every round
+rigour backtest --round pr212-r2  # one round
+rigour backtest --reviewer      # the reviewer too, with each round's review hidden
+rigour backtest --json          # { passed, rounds } as JSON
+rigour backtest -c <path>       # another rigour.yml
 ```
 
-Each round is checked out in a detached worktree under the git directory (`.git/rigour-backtest/`),
-so the branch you are on does not move. The score and every finding reported are written to
-`.rigour/backtest/<round>-<commit>.json`, so a pattern that missed can be checked against what was
-actually there.
+Each round is checked out in a detached worktree under the git directory, `<git common dir>/rigour-backtest/<commit>`, so the branch you are on does not move. The worktree is reused on the next run, and your checkout's `node_modules` is linked into it rather than installed again. The score and every finding reported are written to `.rigour/backtest/<round>-<commit>.json` (not committed), so a pattern that missed can be checked against what was actually reported.
 
 ```
-pr212-r2 at 3f9c2a1d: 1/3 caught, 0 false block(s), 12 finding(s), 15s
+pr212-r2 at 3f9c2a1d: 1/3 caught, 0 false block(s), 12 finding(s), 15s; caught by unbounded-window 1
   caught  R2-2 the export reads every line item (unbounded-window src/lib/server/invoices.ts:41)
   noted   R2-3 quadratic scan in latestPayment (advisory only)
   MISSED  R2-1 the checkout link drops the currency
 ```
 
-A point counts as **caught** only when a blocking finding matches it. A match in an advisory note
-is shown as **noted** and still counted as missed, because nothing advisory stops a push. The
-command exits 1 until every point is caught with no false block, and when the reviewer ran and
-gave no verdict.
+A false block is listed on a `FALSE` line with the check, file and line. When the reviewer ran and gave no verdict, the round shows `NO VERDICT` and the reason.
 
-With two or three judges (`mode: full`, or a panel), the report adds what each judge did on its own. An example of its shape (illustrative numbers):
+A point counts as **caught** only when a blocking finding matches it. A match in an advisory note or a context finding is shown as **noted** and still counted as missed, because nothing advisory stops a push. With `--reviewer`, the reviewer's confirmed items count as blocking; its unverified items, notes and disputed items count as advisory.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Every point in the rounds run was caught, nothing was falsely blocked, and the reviewer, if it ran, gave a verdict |
+| 1 | Anything else |
+| 2 | The run could not start: no ledger, an invalid ledger, an unknown round, a commit not in the repository |
+
+### What `--reviewer` costs and needs
+
+`--reviewer` runs the reviewer on every round, ignoring cached verdicts, with the agent CLIs the reviewer settings name (`review.reviewer` in `rigour.yml`, then your own settings). Each round is one or more agent runs, and they reach the agents' vendors. It reads the round's pull request through `gh`. See [The reviewer](./REVIEWER.md) and [Security, privacy and network use](./SECURITY.md).
+
+### Comparing judges
+
+When two or more judges ran (`mode: full`, or a panel), the report adds what each judge raised on its own. An example of its shape (illustrative numbers):
 
 ```
 Judges (4 round(s), 11 human point(s))
@@ -82,13 +107,12 @@ Judges (4 round(s), 11 human point(s))
   16 agent run(s), $9.80 recorded, $1.40 per caught point
 ```
 
-Kappa is agreement beyond chance on the ledger's own points. Near 1, the judges share blind spots
-and another one adds little; a judge whose catches the others always make too is not earning its
-runs. Run the same rounds with `escalate: risk` and compare: it is safe to switch only if no point
-the always-on panel caught goes missing. See [The reviewer](./REVIEWER.md).
+Kappa is Cohen's kappa over the ledger's points: agreement beyond chance on which points each judge raised. Above 0.8 the report adds that the judges share blind spots and a second one adds little. A judge whose catches the others always make too is not earning its runs. Dollars appear only when the CLIs report them, and the cost per caught point divides by every point caught in those rounds, by any check or judge.
+
+To decide whether `escalate: risk` is safe, run the same rounds with it and with `escalate: always`, and compare: switch only if no point the always-on panel caught goes missing.
 
 ## What the number means
 
-The score is on your own history, not a benchmark: the reviewer's points are the standard, so the
-ledger says what your team's reviews would have been spared. Keep the rounds of every reviewed PR
-you care about; a rule is retired or promoted on what the rows say, not on what it should catch.
+The score is on your own history, not a benchmark: the reviewer's points are the standard, so the ledger says what your team's reviews would have been spared. It measures recall against points people made and false blocks on code they approved. It does not measure findings no one wrote down: a finding that matches no point and no `must_not_flag` row counts for nothing either way.
+
+Keep the rounds of every reviewed pull request you care about, and judge a rule by its rows rather than by what it should catch.

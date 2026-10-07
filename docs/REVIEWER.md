@@ -8,6 +8,14 @@ reviews the change itself.
 It is **off by default**, and every part of it is a choice: your team's, in `rigour.yml`, or yours,
 for your own runs. Start with one judge; add more when the backtest says they earn their cost.
 
+| Term | Meaning |
+| --- | --- |
+| Judge | One run of one agent CLI reviewing the change. |
+| Vendor | Who makes the model behind a CLI: Anthropic (`claude`), OpenAI (`codex`), Cursor (`cursor`). Judges from different vendors have different blind spots. |
+| Panel | Two or three judges from different vendors whose findings are matched, and whose disagreements are settled by evidence. |
+| Cross-examination | The one follow-up question a judge is asked about findings it did not raise: confirm or refute, quoting `file:line`. |
+| Floor | A setting in `rigour.yml` that no person's choice may go below. |
+
 ## Three ways to run it
 
 | Mode | Judges | When it fits |
@@ -64,6 +72,11 @@ The nearest choice wins:
 2. the environment, for hooks and CI that take no flags: `RIGOUR_REVIEWER_MODE`, `RIGOUR_REVIEWER_PANEL`;
 3. **yours**: the `reviewer` block in the settings of your Rigour home, or Studio's Setup page;
 4. **your team's**: `review.reviewer` in `rigour.yml` (Rigour's defaults when there is none).
+
+| Setting | Who may set it |
+| --- | --- |
+| `enabled`, `mode`, `panel` (on or off), `judges`, `escalate`, `reviewers`, `models`, `max_runs_per_day`, `max_usd_per_day` | The team in `rigour.yml`, and each person for their own runs |
+| `panel: required`, `mode_required`, `dismissals`, `on_push`, `timeout_ms`, `panel_max_items`, `cross_models`, `model` | The team only |
 
 Your own settings apply to your runs in every repository on your machine. The team can set a
 **floor** that no nearer choice goes below: `panel: required` and `mode_required: true`. Under a
@@ -160,7 +173,7 @@ When a team turns dismissals off again, the recorded ones stop counting.
 
 ## Where it does not run
 
-The [PR bot](./PR_BOT.md) reviews with a model key in CI and does not run the reviewer: the agent
+The [pull request check](./CI.md) reviews with a model key in CI and does not run the reviewer: the agent
 CLIs the judges use are on your machine, not on the CI runner. Run the panel before pushing
 (`on_push: wait`, or `rigour review --reviewer --full` before asking for a human review).
 

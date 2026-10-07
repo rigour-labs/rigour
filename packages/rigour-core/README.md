@@ -1,104 +1,28 @@
 # @rigour-labs/core
 
-[![npm version](https://img.shields.io/npm/v/@rigour-labs/core?color=cyan)](https://www.npmjs.com/package/@rigour-labs/core)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/@rigour-labs/core?color=4f46e5)](https://www.npmjs.com/package/@rigour-labs/core)
+[![License: MIT](https://img.shields.io/badge/license-MIT-facc15.svg)](https://opensource.org/licenses/MIT)
 
-**AI Agent Governance Engine — deterministic quality gates, drift detection, and LLM-powered deep analysis.**
+The engine behind [Rigour](https://github.com/rigour-labs/rigour): the checks, the review of a change, the
+reviewer that runs coding agents' own CLIs as judges, model review, local learning and the team database.
 
-The core library powering [Rigour](https://rigour.run) — 27+ quality gates, five-signal deep analysis pipeline, temporal drift engine, and AI agent DLP across TypeScript, JavaScript, Python, Go, Ruby, and C#/.NET.
+Most people want the command, [@rigour-labs/cli](https://www.npmjs.com/package/@rigour-labs/cli), or the MCP
+server, [@rigour-labs/mcp](https://www.npmjs.com/package/@rigour-labs/mcp). This package is for building on
+the engine.
 
-> This package is the engine. For the CLI, use [`@rigour-labs/cli`](https://www.npmjs.com/package/@rigour-labs/cli). For MCP integration, use [`@rigour-labs/mcp`](https://www.npmjs.com/package/@rigour-labs/mcp).
-
-## What's Inside
-
-### 27+ Deterministic Quality Gates
-
-**Structural:** File size, cyclomatic complexity, method count, parameter count, nesting depth, required docs, content hygiene.
-
-**Security:** Hardcoded secrets, SQL injection, XSS, command injection, path traversal, frontend secret exposure.
-
-**AI Drift Detection:**
-- **Three-pass duplication drift** — MD5 exact → AST Jaccard (tree-sitter) → semantic embedding (all-MiniLM-L6-v2, 384D cosine). Catches `.find()` vs `.filter()[0]` — same intent, different implementation.
-- **Hallucinated imports** — language-aware resolution for relative + package imports.
-- **Phantom APIs** — non-existent stdlib/framework methods the LLM invented.
-- **Style drift** — fingerprints naming, error handling, import style, quote preferences against project baseline.
-- **Logic drift** — tracks comparison operators (>= → >), branch counts, return statements per function across scans.
-- **Dependency bloat** — unused deps, heavy alternatives (moment→dayjs), duplicate purpose packages.
-- **Context-window artifacts**, inconsistent error handling, promise safety, deprecated APIs.
-
-**Semantic Bugs (type-aware, on by default):** a TypeScript program with the checker and cross-file value tracing proves a defect before reporting it: credentials forwarded on redirect, paged reads aggregated in memory, cached responses that can carry a failure fallback. Rules learned from fixes (`rigour learn`) run alongside them from `.rigour/rules/`.
-
-**Agent Governance:** Multi-agent scope isolation, EWMA-based checkpoint supervision, context drift, retry loop breaker, memory & skills governance with DLP scanning.
-
-### Real-Time Hook Engine
-
-Sub-200ms per-file-write checker with 5 fast gates (governance, hallucinated imports, promise safety, security patterns, file size). Generates native hook configs for Claude Code, Cursor, Cline, and Windsurf.
-
-### AI Agent DLP (Data Loss Prevention)
-
-29 credential patterns with anti-evasion hardening (unicode normalization, zero-width char removal, bidi control stripping, Shannon entropy detection >4.5 bits). Compliance-mapped to SOC2-CC6.1, HIPAA-164.312, PCI-DSS-3.4/3.5/6.5, OWASP-A2, CWE-798.
-
-### Five-Signal Deep Analysis Pipeline
-
-Rigour's deep analysis is not a wrapper around a generic LLM. The model operates within a cage of deterministic facts:
-
-1. **Extract** — five independent signal streams (AST facts, semantic embeddings, style fingerprints, logic baselines, dependency graphs) computed deterministically before the LLM sees anything.
-2. **Interpret** — the model receives structured facts (not raw source), focuses on SOLID, design patterns, language idioms, architecture. Constrained input prevents hallucination.
-3. **Verify** — every LLM finding is cross-referenced against all five signal streams. Wrong line numbers, phantom patterns, non-existent functions → discarded. Only verified findings with confidence scores reach the report.
-
-Deep review is built for frontier models: your own key, or the coding agent's own model. The small local models (lite and deep tiers fine-tuned via the [DriftBench RLAIF pipeline](https://github.com/rigour-labs/driftbench); max is the stock Qwen2.5-Coder-7B) remain available offline but are no longer developed.
-
-### Temporal Drift Engine (v5.1)
-
-Cross-session trend analysis powered by EWMA and Z-score anomaly detection. Tracks three independent provenance streams (AI drift, structural, security) with separate trend directions. Reads from the SQLite brain for month-over-month analysis.
-
-Key capabilities: per-provenance EWMA streams (alpha=0.3), Z-score anomaly detection (|Z| > 2.0), monthly/weekly rollups, semantic duplicate tracking, style + logic baseline evolution, human-readable narrative generation.
-
-### Multi-Language Support
-
-Hallucinated import detection supports 8 languages with stdlib whitelists and dependency manifest parsing: TypeScript, JavaScript, Python, Go, Ruby, C#/.NET, Rust, Java, and Kotlin. Core structural gates support all languages via AST analysis.
-
-### Two-Score System
-
-Every failure carries a **provenance tag** (`ai-drift`, `traditional`, `security`, `governance`) and contributes to two sub-scores:
-
-- **AI Health Score** (0–100) — AI-specific failures
-- **Structural Score** (0–100) — Traditional code quality
-
-### Fix Packets (v2)
-
-Machine-readable JSON diagnostics with severity, provenance, file, line number, and step-by-step remediation instructions that AI agents can consume directly.
-
-## Usage
-
-```typescript
-import { GateRunner } from '@rigour-labs/core';
-
-const runner = new GateRunner(config);
-const report = await runner.run(projectRoot);
-
-console.log(report.status);    // 'PASS' or 'FAIL'
-console.log(report.stats.score);     // 0-100
-console.log(report.failures);  // Failure[]
+```bash
+npm install @rigour-labs/core
 ```
 
-### With Deep Analysis
+```ts
+import { ConfigSchema, reviewChange } from '@rigour-labs/core';
 
-```typescript
-import { GateRunner } from '@rigour-labs/core';
-
-const runner = new GateRunner(config);
-const report = await runner.run(projectRoot, undefined, {
-  enabled: true,
-  pro: false,        // true for full-power model
-  provider: 'local', // or 'claude', 'openai', etc.
-});
+const config = ConfigSchema.parse({});   // or the parsed rigour.yml
+const result = await reviewChange({ cwd: process.cwd(), config, source: { mode: 'working' } });
+console.log(result.status, result.findings);
 ```
 
-## Documentation
-
-**[Full docs at docs.rigour.run](https://docs.rigour.run)**
-
-## License
+What each check finds and whether it blocks: [What Rigour checks](https://github.com/rigour-labs/rigour/blob/main/docs/CHECKS.md). Every setting:
+[Configuration reference](https://github.com/rigour-labs/rigour/blob/main/docs/CONFIG_REFERENCE.md). Node 22 or later.
 
 MIT © [Rigour Labs](https://github.com/rigour-labs)

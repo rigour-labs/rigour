@@ -1,27 +1,92 @@
 # Telemetry
 
-Rigour can send anonymous usage data, **only if you say yes**. It tells us which commands people use, how reviews end, and above all which checks get dismissed as "not a bug", so the next release fixes what actually gets in your way.
+Rigour can send anonymous usage data, and only if you say yes. It shows which commands people run, how reviews end, and which checks get dismissed as "not a bug", so the next release fixes what gets in your way. Nothing is sent until you opt in, and a published build is the only kind that can send at all.
 
 ## Your choice
 
-- `rigour init` asks once, at a terminal. CI is never asked and never sends.
-- `rigour telemetry on`, `rigour telemetry off`, `rigour telemetry status`.
-- `DO_NOT_TRACK=1` or `RIGOUR_TELEMETRY=0` turns it off whatever you chose. `RIGOUR_TELEMETRY=1` turns it on (for CI you want measured).
-- Builds from source and forks have no telemetry token and never send anything.
+### When Rigour asks
+
+Rigour asks once, at a terminal, at the end of `rigour init`. `rigour setup --team` runs `rigour init` when the repository has no `rigour.yml` yet, so it asks there too. A personal `rigour setup`, and `rigour setup --team` in a repository that already has a `rigour.yml`, do not ask.
+
+The question is skipped, and nothing is recorded, when:
+
+- stdin or stdout is not a terminal;
+- a CI variable is set (`CI`, `GITHUB_ACTIONS`, `BUILDKITE`, `GITLAB_CI`, `CIRCLECI`, `JENKINS_URL`, `TF_BUILD` or `TEAMCITY_VERSION`);
+- `RIGOUR_TELEMETRY` is set to any value;
+- `DO_NOT_TRACK` is set to anything other than `0`;
+- the build has no telemetry token;
+- you already answered.
+
+The default answer is no. Only `y` or `yes` turns it on.
+
+### Changing it
+
+```bash
+rigour telemetry status   # on or off, and why (also the default with no argument)
+rigour telemetry on
+rigour telemetry off
+```
+
+The answer is stored in `telemetry.json` in Rigour's home: `~/.rigour/telemetry.json`, or `$RIGOUR_HOME/.rigour/telemetry.json` when `RIGOUR_HOME` is set. A profile sets `RIGOUR_HOME`, so each profile keeps its own answer and its own install id (see [Several organizations on one machine](docs/PROFILES.md)).
+
+### Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `DO_NOT_TRACK` set to any value except `0` | Off, whatever you chose |
+| `RIGOUR_TELEMETRY=0` | Off, whatever you chose |
+| `RIGOUR_TELEMETRY=1` | On without asking, in CI too. Use it for a CI job you want measured |
+| `RIGOUR_MIXPANEL_TOKEN` | The Mixpanel project token to send with, in place of the one built into the release |
+
+Any other value of `RIGOUR_TELEMETRY` does nothing: your stored answer applies. In CI, telemetry is off unless `RIGOUR_TELEMETRY=1`.
+
+### Builds without a token
+
+The token is empty in the source and written in by the release workflow before the published package is built. A build from source or a fork has no token and sends nothing, unless `RIGOUR_MIXPANEL_TOKEN` is set.
 
 ## Never sent
 
-Code, file names, paths, repository names, git remotes, branch names, finding messages, emails, API keys, environment variables, or your IP address (events go to Mixpanel with `ip=0`).
+Code, file names, paths, repository names, git remotes, branch names, finding messages, emails, API keys or environment variables. Events go to `https://api.mixpanel.com/track?ip=0`; `ip=0` tells Mixpanel not to record the IP address the request comes from.
 
 ## Sent
 
-Every event carries: a random install id (`~/.rigour/telemetry.json`, not tied to you, your machine or a repository), the Rigour version, the OS (`darwin`, `linux`, `win32`), the Node major version, and whether it ran in CI.
+### On every event
 
-| Event | When | Fields |
+| Property | Value |
+| --- | --- |
+| `distinct_id` | A random install id (a UUID in `telemetry.json`), not derived from you, your machine or a repository |
+| `time` | The time of the event, in seconds |
+| `$insert_id` | A random id per event |
+| `token` | The Mixpanel project token |
+| `os` | `darwin`, `linux` or `win32` |
+| `node_major` | The Node.js major version |
+| `ci` | Whether a CI variable was set |
+| `version` | The Rigour CLI version, on events sent by the CLI command itself (`command_run`, `review_completed`, and `daily_usage` sent after a command). `reviewer_completed` and the `daily_usage` sent by `rigour review` or the MCP server do not carry it |
+
+### Events
+
+| Event | When | Properties |
 | --- | --- | --- |
-| `command_run` | A CLI command finishes (not agent hooks) | `command` (e.g. `review`, `learn`), `outcome` (`ok`/`fail`), `duration` (bucket: `<1s` … `>2m`) |
-| `review_completed` | `rigour review` finishes | `status`, `surface` (`terminal`/`json`/`ci`/`github`), `changed_files` (count), `findings_by_gate`, `advisory_by_gate`, `dismissed_by_gate` (counts per check name), `context_findings` (count), `deep_tier`, `deep_routed`, `deep_tool_calls` (counts), `deep_cost_bucket`, `duration` (bucket) |
-| `reviewer_completed` | The model reviewer finishes, or ends without a verdict | `outcome`, `trigger` (`push`/`review`/`backtest`), `scope` (`full`/`delta`), `asked` and `ran` (`single`/`cross`/`full`/`panel`), `source` (`flag`/`env`/`user`/`team`), `degraded` (yes/no), `escalation` (`one-judge`/`all-judges`), `refused`, `judges`, `confirmed`, `disputed`, `dropped`, `notes`, `dismissed`, `runs` (counts), `cached` (yes/no), `cost_bucket` |
-| `daily_usage` | Once a day, the totals of agent activity counted locally | `hook_check`, `hook_finding:<check>`, `stop_review`, `stop_block`, `stop_block_repeat`, `mcp:<tool>`, `mcp_error:<tool>` (counts) |
+| `command_run` | A CLI command finishes. Not sent for `rigour hooks ...` or `rigour telemetry` | `command` (the command's name, for example `review` or `learn`), `outcome` (`ok` or `fail`), `duration` (a bucket) |
+| `review_completed` | `rigour review` finishes | `status`; `surface` (`terminal`, `json`, `ci` or `github`); `changed_files` (count); `findings_by_gate`, `advisory_by_gate`, `dismissed_by_gate` (counts keyed by check id); `context_findings` (count); `deep_tier` (`none` without a model); `deep_routed`, `deep_tool_calls` (counts); `deep_cost_bucket`; `duration` (a bucket) |
+| `reviewer_completed` | The reviewer finishes, or ends without a verdict | `outcome` (`passed`, `findings`, `unavailable` or `skipped`); `trigger` (`push`, `review` or `backtest`); `scope` (`full` or `delta`); `asked` and `ran` (`single`, `cross`, `full` or `panel`); `source` (`flag`, `env`, `user` or `team`); `degraded` (true or false); `escalation` (`one-judge` or `all-judges`); `refused`, `judges`, `confirmed`, `disputed`, `dropped`, `notes`, `dismissed`, `runs` (counts); `cached` (true or false); `cost_bucket` |
+| `daily_usage` | At most once a day: the agent activity counted on your machine since the last one | One count per name that occurred: `hook_check`, `hook_finding:<check id>`, `stop_review`, `stop_block`, `stop_block_repeat`, `mcp:<tool>`, `mcp_error:<tool>` |
 
-Agent hooks and MCP tools run on every edit, so they are only counted on your machine (`~/.rigour/telemetry-counters.json`, no network) and sent as one `daily_usage` event a day. A send that fails or takes more than two seconds is dropped; telemetry never slows or fails a command.
+Buckets:
+
+| Bucket | Values |
+| --- | --- |
+| `duration` | `<1s`, `1-5s`, `5-30s`, `30s-2m`, `>2m` |
+| `deep_cost_bucket`, `cost_bucket` | `<$0.10`, `$0.10-0.50`, `$0.50-2`, `>$2` |
+
+A property with no value is left out of the event.
+
+### Hooks and MCP tools are counted locally
+
+Agent hooks and MCP tools run on every edit, so they never send an event themselves. While telemetry is on they add to counters in `telemetry-counters.json` in Rigour's home, with no network call. Once the counters are a day old, the next CLI command (other than `rigour hooks ...` and `rigour telemetry`), `rigour review`, or MCP server start sends them as one `daily_usage` event and starts a new day.
+
+## Delivery
+
+An event is one HTTPS POST with a two-second timeout. A send that fails or times out is dropped and not retried; telemetry never fails or slows a command beyond that timeout.
+
+See [Security, privacy and network use](docs/SECURITY.md) for every other network call Rigour makes.

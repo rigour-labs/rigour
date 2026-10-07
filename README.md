@@ -47,7 +47,7 @@ brew install rigour-labs/tap/rigour    # or: npm install -g @rigour-labs/cli
 rigour setup                           # in your repository
 ```
 
-`rigour setup` connects Rigour to your agents, installs the three moments, and checks that everything works. By default it is **personal: nothing in your working tree**. The agent hooks are installed once per machine and stay silent in any repository you have not switched on, and switching this one on writes only inside `.git/`. When your team wants it for everyone who clones, `rigour setup --team` commits it to the repository instead. Either way it merges into the agent configs you already have rather than replacing them. Changed your mind? `rigour uninstall` takes out exactly what it put in. The [quick start](docs/QUICK_START.md) walks through it.
+`rigour setup` connects Rigour to your agents, installs the three moments, and checks that everything works. By default it is **personal: nothing in your working tree**. The agent hooks are installed once per machine and stay silent in any repository you have not switched on, and switching this one on writes only inside `.git/`. When your team wants it for everyone who clones, `rigour setup --team` commits it to the repository instead. Either way it merges into the agent configs you already have rather than replacing them. Changed your mind? `rigour uninstall` takes out exactly what it put in. [Get started](docs/QUICK_START.md) walks through it.
 
 Rigour is about 70 MB per version. Semantic search (about 230 MB) is installed once per machine by `rigour setup` and shared by every version; skip it with `--no-semantic`.
 
@@ -78,7 +78,7 @@ Then open Studio to watch it work:
 rigour studio
 ```
 
-## Five commands
+## The commands you will use
 
 | Command | What it does |
 | --- | --- |
@@ -95,7 +95,7 @@ Everything else is in `rigour help --all`.
 - **It never cries wolf.** A deterministic check blocks only after it has been measured on real pull requests. The model reviewer's findings block only when they name a wrong outcome or a cost, and with a panel, only when most judges agree. Guesses about style or size never block you and never show up on a PR.
 - **Say "not a bug" once.** That finding never comes back, and checks your team keeps overruling go quiet on their own.
 - **When it can't check, it says so.** No reviewer answer, nothing to review, a tool that isn't installed: each is reported plainly, never as a clean pass.
-- **Your code stays on your machine.** Nothing is sent anywhere unless you add a model key; team sync sends only lessons from your team's own repositories.
+- **Your code stays on your machine.** The checks run locally. Code leaves only for a model you choose: your agents' own CLIs for the reviewer, or a provider when you run a model review with your key. Team sync sends only lessons from your team's own repositories. Every network call Rigour can make, and how to turn each off, is in [Security](docs/SECURITY.md).
 - **You see what it costs.** When a model is used, Rigour records the real cost of each run.
 - **Measured in the open.** Claims about what Rigour catches are tested on real pull requests in the public [driftbench arena](https://github.com/rigour-labs/driftbench).
 - **Measured against your own reviewers.** `rigour backtest` replays the review on commits your team reviewed, with the review hidden, and scores it: which of the reviewer's points it would have caught first, and whether it would have blocked anything they called good. See [Backtest](docs/BACKTEST.md).
@@ -107,9 +107,11 @@ Rigour is free. With an agent you need nothing else: the checks run locally, and
 
 ## For teams
 
-**Pull request bot.** Add one workflow file and Rigour reviews every PR, quietly. With `enforce: true` it becomes a required check, and a PR can't dismiss its own findings. See [PR Bot](docs/PR_BOT.md).
+**Pull requests.** Add one workflow file and Rigour reviews every PR, quietly. Make it a required check, and a PR can't dismiss its own findings or loosen its own settings. See [Pull requests and CI](docs/CI.md).
 
-**Shared knowledge.** Point Rigour at a PostgreSQL database and lessons one person's agent learns can be shared with the whole team, after someone approves them. Only lessons from the team's own repositories are ever sent. See [Enterprise & Teams](docs/ENTERPRISE.md).
+**One setup for everyone.** `rigour setup --team` commits the configuration, and each teammate runs `rigour setup` once after cloning. See [Team setup](docs/TEAM_SETUP.md).
+
+**Shared knowledge.** Point Rigour at a PostgreSQL database and lessons one person's agent learns can be shared with the whole team, after someone approves them. Only lessons from the team's own repositories are ever sent. See [Team database](docs/TEAM_DATABASE.md).
 
 **Working for more than one company?** Profiles keep each one's memory, lessons and team apart, chosen by the repository you're in. See [Profiles](docs/PROFILES.md).
 
@@ -117,15 +119,18 @@ Rigour is free. With an agent you need nothing else: the checks run locally, and
 
 | If you want to… | Read |
 | --- | --- |
-| Install and run Rigour step by step | [Quick Start](docs/QUICK_START.md) |
-| Connect a coding agent | [Agent Integration](docs/AGENT_INTEGRATION.md) · [MCP Integration](docs/MCP_INTEGRATION.md) |
-| Set up the pull request bot | [PR Bot](docs/PR_BOT.md) |
+| Install and run Rigour step by step | [Get started](docs/QUICK_START.md) |
+| Know what to do with a finding while you work | [During development](docs/DEVELOPMENT.md) |
+| Set it up for a whole team | [Team setup](docs/TEAM_SETUP.md) |
+| Review every pull request in CI | [Pull requests and CI](docs/CI.md) |
+| See which agents it supports, and its MCP tools | [Coding agents and MCP](docs/AGENTS.md) |
 | Run the reviewer, from one judge to a panel | [The reviewer](docs/REVIEWER.md) |
-| Use your own model key | [Deep Analysis](docs/DEEP_ANALYSIS.md) |
-| Tune what Rigour checks | [Configuration](docs/CONFIGURATION.md) |
+| Use your own model key, or a local model | [Model review](docs/MODEL_REVIEW.md) |
+| Tune what Rigour checks | [Configuration](docs/CONFIGURATION.md) · [every setting](docs/CONFIG_REFERENCE.md) |
+| See every check, and how accuracy is kept honest | [What Rigour checks](docs/CHECKS.md) |
+| Approve it for your organization | [Security and network use](docs/SECURITY.md) · [Telemetry](TELEMETRY.md): opt-in, anonymous, never code |
 | Work across several companies on one machine | [Profiles](docs/PROFILES.md) |
-| See how each check is measured | [Accuracy](docs/ACCURACY.md) |
-| Know exactly what is collected | [Telemetry](TELEMETRY.md): opt-in, anonymous, never code |
+| Everything | [Documentation index](docs/README.md) |
 
 ## Build from source
 
@@ -135,8 +140,10 @@ pnpm build
 pnpm test
 ```
 
+See [Contributing](CONTRIBUTING.md).
+
 ---
 
-**[Documentation](https://docs.rigour.run)** · **[Discussions](https://github.com/rigour-labs/rigour/discussions)** · **[Issues](https://github.com/rigour-labs/rigour/issues)**
+**[Documentation](docs/README.md)** · **[Discussions](https://github.com/rigour-labs/rigour/discussions)** · **[Issues](https://github.com/rigour-labs/rigour/issues)**
 
 MIT © [Rigour Labs](https://github.com/rigour-labs) · Built by [Ashutosh](https://github.com/erashu212)
