@@ -4,13 +4,14 @@
  * the moment that matters (before a push) so nobody has to remember. Only tools the project
  * installed are run (node_modules/.bin, never a download). A tool the project never declared is
  * skipped and said so; one declared in package.json but not installed FAILS, since a checkout
- * without its dependencies cannot prove anything about the change. A tool configured under
- * `commands:` is left to that command, which every review already runs.
+ * without its dependencies cannot prove anything about the change. A tool the team configured
+ * under `commands:` is run as that command instead, as written (whole project, not per file).
  */
 import { execa } from 'execa';
 import fs from 'fs';
 import path from 'path';
 import type { Config } from '../types/index.js';
+import { splitCommand } from '../utils/command-line.js';
 import { installedBin } from '../utils/installed-bin.js';
 import { onChangedLines, overlayUnavailable, writeOverlayConfig } from './lint-overlay.js';
 import { ownOutputs } from './unused-exports.js';
@@ -43,7 +44,12 @@ export async function runToolchain(cwd: string, changedFiles: string[], config: 
     const configured: Record<string, string | undefined> = config.commands ?? {};
     const results: ToolResult[] = [];
     const run = async (tool: ToolResult['tool'], step: () => Promise<ToolResult>) => {
-        results.push(configured[tool] ? { tool, status: 'skipped', command: `commands.${tool} runs it` } : await step());
+        const command = configured[tool];
+        if (!command) results.push(await step());
+        else {
+            const { bin, args } = splitCommand(command);
+            results.push(await once(tool, cwd, bin, args));
+        }
     };
     await run('format', () => formatCheck(cwd, files.filter(file => FORMATTED.test(file))));
     await run('lint', () => lint(cwd, code));

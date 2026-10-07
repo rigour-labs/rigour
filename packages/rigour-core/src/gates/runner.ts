@@ -2,6 +2,7 @@ import { Gate } from './base.js';
 import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
 import { runDeepAnalysis } from './deep-runner.js';
 import { persistAndReinforce } from '../storage/local-memory.js';
+import { splitCommand } from '../utils/command-line.js';
 import { recordGateRun, type ProvenanceRunData } from '../services/adaptive-thresholds.js';
 import { FileGate } from './file.js';
 import { ContentGate } from './content.js';
@@ -223,9 +224,7 @@ export class GateRunner {
 
                 try {
                     Logger.info(`Running command gate: ${key} (${cmd})`);
-                    const parts = cmd.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [cmd];
-                    const bin = parts[0];
-                    const args = parts.slice(1).map(a => a.replace(/^["']|["']$/g, ''));
+                    const { bin, args } = splitCommand(cmd);
                     await execa(bin, args, { cwd });
                     summary[key] = 'PASS';
                 } catch (error: any) {
