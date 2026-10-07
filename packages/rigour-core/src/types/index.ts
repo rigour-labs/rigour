@@ -461,6 +461,11 @@ export const ConfigSchema = z.object({
             panel: z.enum(['off', 'on', 'required']).optional().default('off'),
             /** No user or run may review with fewer than the team's mode (a protected branch, CI). */
             mode_required: z.boolean().optional().default(false),
+            /**
+             * Whether people may dismiss a reviewer finding as not a bug (`rigour dismiss <id>`, Studio). Off by default:
+             * a wrong finding is fixed by improving the reviewer, a right one by fixing the code. A team decision only.
+             */
+            dismissals: z.boolean().optional().default(false),
             /** Findings cross-examined per review at most; the rest are shown as disputed. */
             panel_max_items: z.number().int().positive().optional().default(20),
             /** Judges in a full or panel review, each from a different vendor; capped by the vendors installed. */

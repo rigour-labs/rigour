@@ -167,6 +167,12 @@ function writeJson(target: string, value: unknown): void {
 }
 
 /** A duration as a coarse bucket, so timing never identifies a run. */
+/** A model run's cost as a coarse bucket: never the amount. */
+export function costBucket(usd: number | undefined): string | undefined {
+    if (typeof usd !== 'number') return undefined;
+    return usd < 0.1 ? '<$0.10' : usd < 0.5 ? '$0.10-0.50' : usd < 2 ? '$0.50-2' : '>$2';
+}
+
 export function durationBucket(ms: number): string {
     if (ms < 1000) return '<1s';
     if (ms < 5000) return '1-5s';

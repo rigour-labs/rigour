@@ -68,7 +68,8 @@ describe('Studio pages', () => {
         const data = reviewerData({ status: { last: { head: 'abcdef0123456', at: '2026-10-06T10:00:00Z', mode: 'full', ran: { asked: 'panel', ran: 'single', source: 'user', degraded: '3 judges asked, claude could run (not installed: codex, cursor-agent)' },
             open: [{ id: 'abcdef0123', kind: 'finding', class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', consequence: 'two runs send the same email', reviewer: 'claude+codex' }],
             disputed: [{ id: 'ffff000011', kind: 'finding', class: 'production-cost', file: 'src/job.ts', line: 9, issue: 'maybe slow' }] } } });
-        const out = html(<Verdict data={data} canWrite onChange={() => undefined} />);
+        const out = html(<Verdict data={{ ...data, effective: { ...data.effective, dismissals: true } }} canWrite onChange={() => undefined} />);
+        expect(html(<Verdict data={data} canWrite onChange={() => undefined} />)).not.toContain('Not a bug'); // the team has not allowed dismissals
         expect(out).toContain('1 finding to fix');
         expect(out).toContain('Asked for a panel: only what a majority confirms blocks (user); ran one judge. 3 judges asked, claude could run (not installed: codex, cursor-agent)');
         expect(out).toContain('one judge, the whole branch at abcdef012');
@@ -103,6 +104,7 @@ describe('Studio pages', () => {
     it('marks the team\'s choice when a person has not chosen', () => {
         const out = html(<Settings data={reviewerData({})} canWrite saving={null} onSave={() => undefined} onSaveTeam={() => undefined} />);
         expect(out.match(/aria-checked="true" class="on"[^>]*>Team</g)).toHaveLength(5); // every setting a person can choose
+        expect(out).toContain('aria-label="Team Dismissals"'); // a team decision only
         expect(out).toContain('Set team defaults'); // no rigour.yml: creating one is an explicit step
     });
 
@@ -117,7 +119,7 @@ describe('Studio pages', () => {
 function reviewerData(over: Record<string, unknown>): any {
     return {
         branch: 'feature', status: null, teamFile: false, user: {}, team: { enabled: false, mode: 'single', panel: 'off', judges: 2, escalate: 'always' }, available: [],
-        effective: { enabled: false, mode: 'single', panel: false, judges: 2, escalate: 'always', reviewers: ['claude'], source: { mode: 'team', panel: 'team' }, required: { mode: false, panel: false }, refused: [] },
+        effective: { enabled: false, mode: 'single', panel: false, judges: 2, escalate: 'always', dismissals: false, reviewers: ['claude'], source: { mode: 'team', panel: 'team' }, required: { mode: false, panel: false }, refused: [] },
         ...over,
     };
 }

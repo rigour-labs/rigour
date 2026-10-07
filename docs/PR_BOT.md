@@ -50,6 +50,10 @@ On `pull_request`, GitHub runs the workflow file from the PR itself, so a PR can
 - **One summary comment**, edited in place on every push: the verdict, how many findings, how many changed functions the model reviewed by risk, how many were already reviewed before the PR, the model, and what the run cost.
 - **The job summary** gets the same summary.
 
+## What the PR bot does not run
+
+The PR bot reviews with a model key, through the API. The [reviewer](./REVIEWER.md), from one judge up to a panel, runs your coding agents' own CLIs (Claude Code, Codex, Cursor) with their logins, so it runs on your machine at push and on request, not on a CI runner where those CLIs are not installed and logged in. The two are separate checks with separate settings: a team that wants the panel's verdict on every pull request runs it before pushing (`review.reviewer.on_push: wait`, or `rigour review --reviewer --full` before asking for a human review); the PR bot then adds its own review.
+
 ## What the model sees
 
 With a key, Rigour reviews the pull request as one conversation: the diff with line numbers (lockfiles and build output left out), the riskiest changed functions with what to check in each, and the PR description. The model can read files and search the repository (read-only, never `.env` files, keys or credentials) before reporting. A finding is kept only if it names a line and identifiers the model actually read. If nothing in the PR is risky, no model call is made.

@@ -118,15 +118,21 @@ Each judge starts from what your team already knows, written to a file it reads:
   on a file that has not changed since. Judges are told not to raise them again without something new;
 - the docs that name the changed code.
 
-When a finding is wrong, say so once: `rigour dismiss <id> --reason "…"`, or **Not a bug** in
-Studio. It never blocks again, and neither does the same finding re-worded: the same file and
-class, within a few lines, in mostly the same words. A different bug nearby is never covered by
-it. Every later judge is told, the background review included. Commit
-`.rigour/dismissed-review-items.json` to share it with the team.
+**Dismissing a finding is the team's decision, and it is off by default.** A wrong finding is fixed
+by improving the reviewer (its rules, its prompt, the reviewers it runs); a right one by fixing the
+code. A team that wants an escape hatch turns on `review.reviewer.dismissals: true`; no personal
+setting can. Then `rigour dismiss <id> --reason "…"`, or **Not a bug** in Studio, records the
+finding with its reason and who dismissed it (their git email). It never blocks again, and neither
+does the same finding re-worded: the same file and class, within a few lines, in mostly the same
+words. A different bug nearby is never covered by it. Every later judge is told, the background
+review included. Commit `.rigour/dismissed-review-items.json` so the record is reviewed and shared.
+When a team turns dismissals off again, the recorded ones stop counting.
 
 ## Where you see it
 
 - `rigour review --reviewer`: the verdict, what ran and why, and each finding with its id.
+- Telemetry, only if you opted in: one anonymous `reviewer_completed` event with counts and a cost
+  bucket, never code or finding text ([Telemetry](../TELEMETRY.md)).
 - `rigour review --status`: what the background reviewer last decided on this branch, or why its
   last review was skipped or could not run.
 - Studio's **Review** page: the verdict first, then the risky functions your agent checked.
@@ -134,7 +140,23 @@ it. Every later judge is told, the background review included. Commit
   runs a model and never dismisses: that is a person's call.
 - In a fix round, `rigour review --scope` shows what changed beyond the points the review raised.
 
+## Where it does not run
+
+The [PR bot](./PR_BOT.md) reviews with a model key in CI and does not run the reviewer: the agent
+CLIs the judges use are on your machine, not on the CI runner. Run the panel before pushing
+(`on_push: wait`, or `rigour review --reviewer --full` before asking for a human review).
+
+## Upgrading
+
+Nothing changes until you turn something on: the default is still one judge, no panel. The first
+review after upgrading is a full review of the branch rather than a delta, because the reviewer's
+instructions changed; later pushes get deltas again.
+
 ## Measure it before you rely on it
+
+What is designed here (the matching, the majority rule, the consequence rule) is tested; how much a
+panel improves on one judge is not yet measured on public pull requests, and depends on your code
+and your reviewers. The backtest measures it on yours.
 
 `rigour backtest --reviewer` replays reviewed pull requests with their reviews hidden. With two or
 more judges it also reports each judge's catches, what only that judge caught, how often each pair

@@ -55,6 +55,8 @@ describe('the reviewer in Studio', () => {
     it('dismisses only with a finding id and a reason', async () => {
         await expect(dismissFromStudio(repo, { id: 'nope', reason: 'whatever it is' })).rejects.toThrow('reviewer finding id');
         await expect(dismissFromStudio(repo, { id: 'abcdef0123', reason: 'no' })).rejects.toThrow('say why');
+        await expect(dismissFromStudio(repo, { id: 'abcdef0123', reason: 'the lock is one level up' })).rejects.toThrow('this team does not dismiss reviewer findings');
+        fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\nreview:\n  reviewer:\n    dismissals: true\n');
         await expect(dismissFromStudio(repo, { id: 'abcdef0123', reason: 'the lock is one level up' })).rejects.toThrow('no open reviewer finding abcdef0123 on feature');
     });
 

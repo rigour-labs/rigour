@@ -21,7 +21,7 @@ export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest
 export { scaffoldLedger } from './review/backtest-init.js';
 export { fixScope, type FixScope } from './review/fix-scope.js';
 export { isGeneratedFile } from './review/generated-files.js';
-export { countUsage, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';
+export { costBucket, countUsage, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';
 export { buildReviewTask, type ReviewTask, type ReviewTaskItem } from './review/review-task.js';
 export { buildQualityReceipt, receiptReport, type QualityReceipt, type ReceiptGap, type ReceiptOptions } from './review/receipt.js';
 export { runToolchain, type ToolResult, type ToolStatus } from './review/toolchain.js';

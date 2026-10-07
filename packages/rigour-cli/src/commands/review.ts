@@ -16,7 +16,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
+import { buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
 import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { receiptFor } from './review-receipt.js';
 import { printReviewer, printStatus, reviewerBase, reviewerFor, reviewerJson } from './review-reviewer.js';
@@ -279,7 +279,7 @@ async function reportUsage(result: ReviewResult, isDeep: boolean, options: Revie
         deep_tier: isDeep ? deep?.tier ?? 'unknown' : 'none',
         deep_routed: deep?.router?.routed,
         deep_tool_calls: deep?.tool_calls,
-        deep_cost_bucket: typeof deep?.cost_usd === 'number' ? (deep.cost_usd < 0.1 ? '<$0.10' : deep.cost_usd < 0.5 ? '$0.10-0.50' : deep.cost_usd < 2 ? '$0.50-2' : '>$2') : undefined,
+        deep_cost_bucket: costBucket(deep?.cost_usd),
         duration: durationBucket(ms),
     }, { version: process.env.RIGOUR_CLI_VERSION });
     await flushDailyUsage();

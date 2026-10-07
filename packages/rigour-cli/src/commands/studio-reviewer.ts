@@ -17,7 +17,7 @@ import {
 } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
-const TEAM_KEYS = ['enabled', 'mode', 'panel', 'mode_required', 'judges', 'escalate', 'reviewers', 'on_push', 'panel_max_items'] as const;
+const TEAM_KEYS = ['enabled', 'mode', 'panel', 'mode_required', 'judges', 'escalate', 'reviewers', 'on_push', 'panel_max_items', 'dismissals'] as const;
 
 export interface StudioReviewer {
     branch: string;
@@ -74,7 +74,7 @@ export async function dismissFromStudio(cwd: string, body: unknown): Promise<{ d
     const { id, reason } = (body ?? {}) as { id?: unknown; reason?: unknown };
     if (typeof id !== 'string' || !/^[0-9a-f]{10}$/.test(id)) throw new Error('a reviewer finding id (10 hex characters) is required');
     if (typeof reason !== 'string' || reason.trim().length < 5) throw new Error('say why it is not a bug, in a few words');
-    const { item, error } = await dismissReviewerFinding(cwd, id, reason.trim());
+    const { item, error } = await dismissReviewerFinding(cwd, id, reason.trim(), resolveReviewer(await loadConfig(cwd, {})).dismissals);
     if (error) throw new Error(error);
     return { dismissed: item!.issue };
 }

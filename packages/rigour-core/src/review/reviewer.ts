@@ -22,7 +22,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { Config } from '../types/index.js';
-import { ADAPTERS, isReviewerName, resolveAdapter, selectReviewers, vendorsOf, type Installed, type ReviewMode, type ReviewerName } from './reviewer/adapters.js';
+import { ADAPTERS, isReviewerName, resolveAdapter, selectReviewers, vendorsOf, type Installed, type ReviewMode, type ReviewerName, type Tokens } from './reviewer/adapters.js';
 import { defaultExec, GH_TIMEOUT_MS, githubEnv, type Exec, type Progress } from './reviewer/exec.js';
 import { findPullRequest, ghFor, humanReviews, linesChanged, mergesBaseIn, rulesText, sha, type HumanReviews, type PullRequest } from './reviewer/inputs.js';
 import { mergeImpact } from './reviewer/merge-impact.js';
@@ -30,6 +30,8 @@ import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/p
 import { crossExamPrompt, deltaBlock, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
 import { VerdictStore } from './reviewer/store.js';
+import { trackUsage } from '../telemetry/telemetry.js';
+import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { account, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 
@@ -87,6 +89,10 @@ export interface ReviewerResult {
     scope?: 'full' | 'delta';
     why?: string;
     costUsd?: number;
+    /** Tokens every run reported, summed: the only measure of a CLI that reports no dollars (Codex). */
+    tokens?: Tokens;
+    /** Whether the team lets people dismiss these findings (review.reviewer.dismissals). */
+    dismissable?: boolean;
     /** Agent runs behind this verdict: one per judge, plus each cross-examination. */
     runs?: number;
     /** The mode asked for, the one that ran, where the choice came from, and why it ran with fewer judges. */
@@ -118,7 +124,14 @@ const PROGRESS_EVERY_MS = 60_000;
 const MAX_DELTAS = 4;
 const MAX_DELTA_LINES = 400;
 
+/** The reviewer, and one anonymous usage event for what it did (only when the person opted in to telemetry). */
 export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec, progress: Progress = message => process.stderr.write(`${message}\n`), options: ReviewerOptions = {}): Promise<ReviewerResult> {
+    const result = await review(cwd, base, config, exec, progress, options);
+    await trackUsage('reviewer_completed', reviewerUsage(result, options.trigger ?? (options.reviewsBefore ? 'backtest' : 'review')));
+    return result;
+}
+
+async function review(cwd: string, base: string, config: Config, exec: Exec, progress: Progress, options: ReviewerOptions): Promise<ReviewerResult> {
     const settings = resolveReviewer(config, { ...options.choice, ...(options.full ? { mode: 'full' as const } : {}) });
     const trigger = options.trigger ?? (options.reviewsBefore ? 'backtest' : 'review');
     const git = async (args: string[]) => (await exec('git', args, { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim();
@@ -167,6 +180,8 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
         reviews = read.reviews!;
     }
     const stateRoot = options.stateRoot ?? cwd;
+    // Dismissals count only where the team allows them; otherwise the file, if any, is ignored.
+    const dismissals = settings.dismissals ? readReviewDismissals(stateRoot) : [];
     const body = pr?.body || '(no pull request description)\n';
     const rules = rulesText(cwd);
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
@@ -175,7 +190,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
-        if (verdict && decided) return result(redismiss(decided, readReviewDismissals(stateRoot)), verdict, verdict.inputs?.reviewers ?? reviewers, previous.mode, 'same commit and inputs as the last verdict', true, reviews, pr, verdict.inputs?.mode ?? modeRecord);
+        if (verdict && decided) return result(redismiss(decided, dismissals), verdict, verdict.inputs?.reviewers ?? reviewers, previous.mode, 'same commit and inputs as the last verdict', true, reviews, pr, verdict.inputs?.mode ?? modeRecord, settings.dismissals);
     }
     // What the team already knows, for every judge; built once, and its risk count decides escalation.
     const fullDiff = (await exec('git', ['diff', `${baseSha}...HEAD`], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout;
@@ -183,7 +198,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     const sincePrevious = previousIsAncestor ? new Set((await git(['diff', '--name-only', `${previous!.head}..HEAD`])).split('\n').filter(Boolean)) : new Set<string>();
     const changedFiles = [...fullDiff.matchAll(/^diff --git a\/.* b\/(.*)$/gm)].map(m => m[1]);
     const context = buildContext({
-        cwd, stateRoot, diff: fullDiff, router: config.gates.deep?.router, touched: sincePrevious, checks: options.checks ?? [],
+        cwd, stateRoot, dismissals, diff: fullDiff, router: config.gates.deep?.router, touched: sincePrevious, checks: options.checks ?? [],
         previousPanel: previousIsAncestor ? store.readJson<Verdict>(previous!.verdict)?.panel?.items : undefined,
         docs: await relatedDocs(cwd, changedFiles, exec),
     });
@@ -223,7 +238,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     const verify = verifier(cwd);
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
-        return result(decide(verdict, previousOpen, verify, readReviewDismissals(stateRoot)), verdict, reviewers, scope, why, true, reviews, pr, modeRecord);
+        return result(decide(verdict, previousOpen, verify, dismissals), verdict, reviewers, scope, why, true, reviews, pr, modeRecord, settings.dismissals);
     }
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
@@ -270,7 +285,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
                 progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
                 const answer = adapter.answer(run.stdout);
                 return run.exitCode === 0 || answer.text.trim()
-                    ? parseVerdict(answer.text, needsPriorPoints, name, answer.costUsd)
+                    ? parseVerdict(answer.text, needsPriorPoints, name, answer)
                     : { error: `${name}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
             }));
             const failed = answers.find(a => 'error' in a);
@@ -286,7 +301,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
             // Each judge's own blocking items, unmerged: the panel groups them into findings and decides each one.
             const judgeItems = parts.map(part => account({ ...part, prior_points: [], carried: [], resolved_previous: [] }, undefined, verify).open);
             const previousPanel = scope === 'delta' ? store.readJson<Verdict>(previous!.verdict)?.panel : undefined;
-            const cross: Array<{ reviewer: string; cost_usd?: number }> = [];
+            const cross: Array<{ reviewer: string; cost_usd?: number; tokens?: Tokens }> = [];
             const items = await runPanel({
                 judges: parts.map(part => part.reviewer!),
                 items: judgeItems,
@@ -299,19 +314,19 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
                     const name = judge as ReviewerName;
                     const run = await exec(installed.get(name)!.binary, ADAPTERS[name].args(crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked), settings.cross_models[name] ?? modelFor(name)), { cwd, timeoutMs: settings.timeout_ms });
                     const answer = ADAPTERS[name].answer(run.stdout);
-                    cross.push({ reviewer: `${name} cross-exam`, ...(answer.costUsd !== undefined ? { cost_usd: answer.costUsd } : {}) });
+                    cross.push({ reviewer: `${name} cross-exam`, ...(answer.costUsd !== undefined ? { cost_usd: answer.costUsd } : {}), ...(answer.tokens ? { tokens: answer.tokens } : {}) });
                     progress(`Rigour reviewer: ${name} cross-examined ${asked.length} finding(s) (exit ${run.exitCode})`);
                     return parseAnswers(answer.text);
                 },
             });
             verdict = { ...verdict, panel: { judgeItemIds: judgeItems.flat().map(item => item.id), items }, reviewers: [...(verdict.reviewers ?? []), ...cross] };
         }
-        const accounted = decide(verdict, previousOpen, verify, readReviewDismissals(stateRoot));
+        const accounted = decide(verdict, previousOpen, verify, dismissals);
         store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString() } });
         store.writeJson(openFile, accounted.open);
         store.writeJson(store.decidedPath(verdictFile), accounted);
         if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key, inputsKey });
-        return result(accounted, verdict, reviewers, scope, why, false, reviews, pr, modeRecord);
+        return result(accounted, verdict, reviewers, scope, why, false, reviews, pr, modeRecord, settings.dismissals);
     } finally {
         fs.rmSync(work, { recursive: true, force: true });
     }
@@ -399,8 +414,9 @@ function verifier(cwd: string): (file: string, line: number | undefined) => bool
     };
 }
 
-function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[], scope: 'full' | 'delta', why: string, cached: boolean, reviews: HumanReviews, pr: PullRequest | undefined, mode: ModeRecord): ReviewerResult {
+function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[], scope: 'full' | 'delta', why: string, cached: boolean, reviews: HumanReviews, pr: PullRequest | undefined, mode: ModeRecord, dismissable: boolean): ReviewerResult {
     const cost = (verdict.reviewers ?? []).map(r => r.cost_usd).filter((c): c is number => typeof c === 'number');
+    const used = (verdict.reviewers ?? []).map(r => r.tokens).filter((t): t is Tokens => !!t);
     return {
         outcome: accounted.open.length ? 'findings' : 'passed',
         items: accounted.open,
@@ -416,8 +432,10 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         scope,
         why,
         ...(cost.length ? { costUsd: cost.reduce((a, b) => a + b, 0) } : {}),
+        ...(used.length ? { tokens: used.reduce((a, b) => ({ input: a.input + b.input, output: a.output + b.output }), { input: 0, output: 0 }) } : {}),
         runs: (verdict.reviewers ?? []).length,
         mode,
+        dismissable,
         cached,
         ...(reviews.label ? { previousReview: reviews.label } : {}),
         ...(pr ? { pr: pr.number } : {}),

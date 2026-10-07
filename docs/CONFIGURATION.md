@@ -117,6 +117,8 @@ review:
     judges: 2                  # 2 or 3 in a full or panel review, one per vendor installed
     escalate: always           # risk: add judges only for a risky change or one a person reviewed; one judge otherwise
     panel_max_items: 20        # findings cross-examined per review at most; the rest are shown as disputed
+    dismissals: false          # true lets people dismiss a reviewer finding as not a bug, with a reason, recorded
+                               # with who; off, a wrong finding is fixed by improving the reviewer. A team decision only.
     cross_models: {}           # a model per reviewer for cross-examination, e.g. { claude: claude-haiku-4-5 }
     model: claude-opus-5-5     # optional, for claude; models: { cursor: auto } for the others
     timeout_ms: 900000

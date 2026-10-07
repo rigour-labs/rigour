@@ -16,7 +16,7 @@ Works with Claude Code, Cursor, Codex, Cline and Windsurf. Free, open source, an
 - **It works at the three moments that matter, not only at the pull request.** On every edit, before your agent says "done", and before it pushes. Most problems are fixed before a pull request exists.
 - **It remembers what your reviewer said last time.** Before a push, a fresh reviewer checks every point from the last human review against the code, so a fix that only covered half of a comment is caught, not shipped. It uses your agent's own login: no API key.
 - **A second opinion that agrees by evidence, not by volume.** Run one judge, or a panel of two or three from different vendors. The panel matches their findings, cross-examines only what they disagree on, and blocks only on what most of them raise, or confirm with a `file:line` from your code. An opinion ("this could be cleaner") never blocks. See [The reviewer](docs/REVIEWER.md).
-- **It learns from every "not a bug".** Dismiss a finding once and it never blocks again, even re-worded, and every later judge is told what your team already settled, which lessons apply and which docs describe the code.
+- **It starts from what your team already knows.** Every judge is told which lessons and rules apply to the files changed, what your checks already found, which docs describe the code and, if your team allows dismissals, which findings it settled.
 - **It reports what you changed, not what was already there.** Old problems in code you touched stay out of your review, so every finding is yours to fix.
 - **It runs your team's own tools.** Your formatter, linter, type check and the tests that touch the change run before every push, without anyone remembering to.
 - **It only blocks on what it can prove.** Dead code, offset paging, unbounded time windows, copied functions, merge conflicts, stale references: each check was run over real merged pull requests before it was allowed to block. Anything less certain is a note, never a gate.
@@ -92,7 +92,7 @@ Everything else is in `rigour help --all`.
 
 ## Built to be trusted
 
-- **It never cries wolf.** A check blocks only after it has been measured on real pull requests. Guesses about style or size never block you and never show up on a PR.
+- **It never cries wolf.** A deterministic check blocks only after it has been measured on real pull requests. The model reviewer's findings block only when they name a wrong outcome or a cost, and with a panel, only when most judges agree. Guesses about style or size never block you and never show up on a PR.
 - **Say "not a bug" once.** That finding never comes back, and checks your team keeps overruling go quiet on their own.
 - **When it can't check, it says so.** No reviewer answer, nothing to review, a tool that isn't installed: each is reported plainly, never as a clean pass.
 - **Your code stays on your machine.** Nothing is sent anywhere unless you add a model key; team sync sends only lessons from your team's own repositories.

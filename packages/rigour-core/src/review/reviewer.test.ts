@@ -226,10 +226,10 @@ describe('verdicts', () => {
     it('finds the verdict when the reviewer wraps it in a summary or a code fence, and refuses prose', () => {
         const verdict = JSON.stringify(EMPTY);
         for (const text of [`## Summary\nAll checked.\n\n\`\`\`json\n${verdict}\n\`\`\`\nDone.`, `Notes first.\n${verdict}\nThat is all {see above}.`]) {
-            expect(parseVerdict(text, true, 'claude', undefined)).toMatchObject({ verdict: { prior_points: [{ point: 'lock before read' }], reviewer: 'claude' } });
+            expect(parseVerdict(text, true, 'claude', {})).toMatchObject({ verdict: { prior_points: [{ point: 'lock before read' }], reviewer: 'claude' } });
         }
-        expect(parseVerdict('Looks good to me!', false, 'claude', undefined)).toMatchObject({ error: expect.stringContaining('no valid verdict') });
-        expect(parseVerdict(JSON.stringify({ ...EMPTY, prior_points: [] }), true, 'claude', undefined)).toEqual({ error: 'claude did not report on the human reviews' });
+        expect(parseVerdict('Looks good to me!', false, 'claude', {})).toMatchObject({ error: expect.stringContaining('no valid verdict') });
+        expect(parseVerdict(JSON.stringify({ ...EMPTY, prior_points: [] }), true, 'claude', {})).toEqual({ error: 'claude did not report on the human reviews' });
     });
 
     it('turns reads, scans, redundancy and merge impact into open items with stable ids, and answers non-blocking points in the reply', () => {
@@ -320,32 +320,40 @@ describe('a panel of judges', () => {
 });
 
 describe('what the team already knows', () => {
+    const allowing = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], dismissals: true } } });
+
+    it('refuses a dismissal unless the team allows them: fix the code, or the reviewer', async () => {
+        const first = await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' }] }), seenNow()), () => undefined);
+        expect((await dismissReviewerFinding(repo, first.items[0].id, 'the runner holds a lock', false)).error).toContain('this team does not dismiss reviewer findings');
+        expect(fs.existsSync(path.join(repo, '.rigour/dismissed-review-items.json'))).toBe(false);
+    });
+
     it('a dismissed finding reaches the next judge as settled, and a re-worded repeat never blocks', async () => {
         fs.mkdirSync(path.join(repo, 'docs'));
         fs.writeFileSync(path.join(repo, 'docs/jobs.md'), 'The job runner (src/job.ts) takes the lock first.\n');
         git('add', '-A');
         git('commit', '-qm', 'docs');
         const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' };
-        const first = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [finding] }), seenNow()), () => undefined);
+        const first = await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify({ ...EMPTY, findings: [finding] }), seenNow()), () => undefined);
         expect(first.outcome).toBe('findings');
-        expect(await dismissReviewerFinding(repo, 'abcdef0123', 'not one of ours')).toEqual({ error: 'no open reviewer finding abcdef0123 on feature: run `rigour review --reviewer` and copy the id it shows' });
-        expect((await dismissReviewerFinding(repo, first.items[0].id, 'the runner holds a lock one level up')).item?.issue).toBe('returns before the lock is taken');
+        expect(await dismissReviewerFinding(repo, 'abcdef0123', 'not one of ours', true)).toEqual({ error: 'no open reviewer finding abcdef0123 on feature: run `rigour review --reviewer` and copy the id it shows' });
+        expect((await dismissReviewerFinding(repo, first.items[0].id, 'the runner holds a lock one level up', true)).item?.issue).toBe('returns before the lock is taken');
         expect((await reviewStatus(repo, 'feature'))?.last?.open).toEqual([]); // not work any more, right away
 
         const seen = seenNow();
         // The same commit again: no new run; the stored decision is reused, with the dismissal applied.
-        const reused = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify(EMPTY), seenNow()), () => undefined);
+        const reused = await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify(EMPTY), seenNow()), () => undefined);
         expect(reused).toMatchObject({ cached: true, outcome: 'passed' });
         expect(reused.dismissed.map(i => i.issue)).toEqual(['returns before the lock is taken']);
         // A fresh review: the judge is told it is settled, and a re-worded repeat does not block either.
-        const again = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ ...finding, issue: 'returns before the lock is taken, so it races' }] }), seen), () => undefined, { force: true });
+        const again = await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ ...finding, issue: 'returns before the lock is taken, so it races' }] }), seen), () => undefined, { force: true });
         expect(again.cached).toBe(false);
         expect(again.outcome).toBe('passed');
         expect(again.dismissed.map(i => i.issue)).toEqual(['returns before the lock is taken, so it races']);
-        expect(seen.files['team-knowledge.md']).toContain('dismissed as not a bug: src/job.ts:2 [correctness] returns before the lock is taken (reason: the runner holds a lock one level up)');
+        expect(seen.files['team-knowledge.md']).toContain('dismissed as not a bug by t@example.com: src/job.ts:2 [correctness] returns before the lock is taken (reason: the runner holds a lock one level up)');
         expect(seen.files['team-knowledge.md']).toContain('docs/jobs.md (names src/job.ts');
         const told = seenNow();
-        await runReviewer(repo, 'main', config, fakes(() => JSON.stringify(EMPTY), told), () => undefined, { force: true, checks: ['src/job.ts:1 Unused export `job`'] });
+        await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify(EMPTY), told), () => undefined, { force: true, checks: ['src/job.ts:1 Unused export `job`'] });
         expect(told.files['team-knowledge.md']).toContain("## Already found by Rigour's checks: they block on their own, so do not report them again\n- src/job.ts:1 Unused export `job`");
     });
 

@@ -33,7 +33,7 @@ export function printReviewer(result: ReviewerResult): void {
     for (const { item, evidence } of result.resolved) console.log(chalk.green(`  resolved  ${item.file ?? ''}${item.line ? `:${item.line}` : ''} ${item.issue.slice(0, 120)}`) + chalk.dim(`\n            ${evidence}`));
     for (const item of result.items) {
         console.log(`  ${chalk.red('OPEN')}  ${itemLine(item)}`);
-        if (item.kind !== 'prior') console.log(chalk.dim(`        not a bug? rigour dismiss ${item.id} --reason "…"`));
+        if (item.kind !== 'prior' && result.dismissable) console.log(chalk.dim(`        not a bug? rigour dismiss ${item.id} --reason "…"`));
     }
     for (const item of result.disputed) console.log(chalk.yellow(`  disputed, never blocks (no majority)  ${itemLine(item)}`));
     for (const item of result.notes) console.log(chalk.dim(`  note, never blocks (no wrong outcome or cost named)  ${itemLine(item)}`));
@@ -41,7 +41,8 @@ export function printReviewer(result: ReviewerResult): void {
     if (result.dropped.length) console.log(chalk.dim(`  ${result.dropped.length} finding(s) refuted with evidence by the other judges (--json lists them)`));
     for (const item of result.unverified) console.log(chalk.dim(`  unverified (names code the checkout does not have)  ${itemLine(item)}`));
     for (const point of result.answerInReply) console.log(chalk.dim(`  answer in the reply  ${point.point}${point.evidence ? `\n            ${point.evidence}` : ''}`));
-    const cost = result.costUsd !== undefined ? `, $${result.costUsd.toFixed(2)}` : '';
+    const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens` : '';
+    const cost = `${result.costUsd !== undefined ? `, $${result.costUsd.toFixed(2)}` : ''}${tokens}`;
     console.log(`  ${result.items.length} open item(s)${result.cached ? chalk.dim(' (cached for this commit)') : cost}\n`);
 }
 
@@ -74,6 +75,7 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         mode: result.mode ?? null,
         panel: result.panel ?? null,
         cost_usd: result.costUsd ?? null,
+        tokens: result.tokens ?? null,
         cached: result.cached,
         previous_review: result.previousReview ?? null,
         pr: result.pr ?? null,

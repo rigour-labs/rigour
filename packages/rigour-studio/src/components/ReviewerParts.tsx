@@ -11,7 +11,7 @@ type Source = 'flag' | 'env' | 'user' | 'team';
 export interface ReviewerData {
     branch: string;
     status: { running?: { head: string }; attempt?: { head: string; outcome: 'unavailable' | 'skipped'; reason: string; at: string }; last?: { head: string; at: string; mode: string; open: Item[]; disputed: Item[]; ran?: ModeRecord } } | null;
-    effective: { enabled: boolean; mode: string; panel: boolean; judges: number; escalate: string; reviewers: string[]; source: { mode: Source; panel: Source }; required: { mode: boolean; panel: boolean }; refused: string[] };
+    effective: { enabled: boolean; mode: string; panel: boolean; judges: number; escalate: string; dismissals: boolean; reviewers: string[]; source: { mode: Source; panel: Source }; required: { mode: boolean; panel: boolean }; refused: string[] };
     team: Record<string, unknown>;
     teamFile: boolean;
     user: Record<string, unknown>;
@@ -44,7 +44,7 @@ export const Verdict: React.FC<{ data: ReviewerData; canWrite: boolean; onChange
                     {last.ran && (last.ran.degraded || last.ran.escalation || last.ran.asked !== last.ran.ran) && (
                         <div className="st-sub">Asked for {RAN[last.ran.asked] ?? last.ran.asked} ({last.ran.source}); ran {RAN[last.ran.ran] ?? last.ran.ran}. {[last.ran.degraded, last.ran.escalation].filter(Boolean).join('; ')}</div>
                     )}
-                    {last.open.map(item => <Finding key={item.id} item={item} canWrite={canWrite} onChange={onChange} />)}
+                    {last.open.map(item => <Finding key={item.id} item={item} canWrite={canWrite && data.effective.dismissals} onChange={onChange} />)}
                     {last.disputed.length > 0 && <div className="st-sub" style={{ marginTop: 8 }}>No majority, so these never block:</div>}
                     {last.disputed.map(item => <Finding key={item.id} item={item} disputed canWrite={false} onChange={onChange} />)}
                 </div>
@@ -129,6 +129,7 @@ export const Settings: React.FC<{ data: ReviewerData; canWrite: boolean; saving:
         { key: 'mode', label: 'Mode', help: 'One judge; one from a vendor that did not write the code; or one judge per vendor (up to Judges), findings merged.', effective: e.mode, user: { value: data.user.mode, options: modes }, team: { value: t.mode ?? 'single', options: modes }, locked: e.required.mode ? 'your team requires at least this' : undefined },
         { key: 'mode_required', label: 'Required for everyone', help: 'No person or run may review with fewer judges than the team\'s, in CI or anywhere.', effective: e.required.mode ? 'yes' : 'no', team: { value: t.mode_required ?? false, options: [{ value: true, label: 'yes' }, { value: false, label: 'no' }] } },
         { key: 'panel', label: 'Panel', help: 'Judges cross-examine what only one of them found; only what a majority confirms blocks. Required: no one may turn it off.', effective: e.panel ? 'on' : 'off', user: { value: data.user.panel, options: on }, team: { value: t.panel ?? 'off', options: [{ value: 'off', label: 'off' }, { value: 'on', label: 'on' }, { value: 'required', label: 'required' }] }, locked: e.required.panel ? 'your team requires the panel' : undefined },
+        { key: 'dismissals', label: 'Dismissals', help: 'Whether people may mark a reviewer finding "not a bug". Off: a wrong finding is fixed by improving the reviewer, a right one by fixing the code.', effective: e.dismissals ? 'allowed' : 'off', team: { value: t.dismissals ?? false, options: [{ value: true, label: 'allowed' }, { value: false, label: 'off' }] } },
         { key: 'judges', label: 'Judges', help: 'How many judges a full or panel review uses, each from a different vendor. Three give a real majority.', effective: String(e.judges), user: { value: data.user.judges, options: [{ value: 2, label: '2' }, { value: 3, label: '3' }] }, team: { value: t.judges ?? 2, options: [{ value: 2, label: '2' }, { value: 3, label: '3' }] } },
         { key: 'escalate', label: 'When to add judges', help: 'Always, or only for a risky change or one a person has reviewed. The backtest shows whether that loses anything.', effective: e.escalate, user: { value: data.user.escalate, options: [{ value: 'always', label: 'always' }, { value: 'risk', label: 'when risky' }] }, team: { value: t.escalate ?? 'always', options: [{ value: 'always', label: 'always' }, { value: 'risk', label: 'when risky' }] }, locked: floor ? 'your team requires every review to be full' : undefined },
     ];

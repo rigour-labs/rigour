@@ -8,6 +8,7 @@
  * its end, is a reviewer's slip, reported apart and never a block.
  */
 import { createHash } from 'crypto';
+import type { Spend, Tokens } from './adapters.js';
 import type { PanelItem } from './panel.js';
 
 export interface PriorPoint { point: string; review?: string; severity?: 'blocking' | 'should-fix' | 'non-blocking'; resolved: boolean; evidence?: string; checked_siblings?: string[]; reviewer?: string }
@@ -28,7 +29,8 @@ export interface Verdict {
     resolved_previous: Array<{ id: string; evidence: string }>;
     reviewer?: string;
     cost_usd?: number;
-    reviewers?: Array<{ reviewer: string; cost_usd?: number }>;
+    tokens?: Tokens;
+    reviewers?: Array<{ reviewer: string; cost_usd?: number; tokens?: Tokens }>;
     /** With a panel: every judge's own item ids, and the panel's decision on each finding (reviewer/panel.ts). */
     panel?: { judgeItemIds: string[]; items: PanelItem[] };
 }
@@ -55,12 +57,12 @@ const SHAPE: Array<keyof Verdict> = ['prior_points', 'reads', 'findings'];
 const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'carried', 'resolved_previous'];
 
 /** The verdict in a reviewer's answer, or why it is not one. `needsPriorPoints`: a human review exists and none of its points is carried. */
-export function parseVerdict(text: string, needsPriorPoints: boolean, reviewer: string, costUsd: number | undefined): { verdict: Verdict } | { error: string } {
+export function parseVerdict(text: string, needsPriorPoints: boolean, reviewer: string, spend: Spend): { verdict: Verdict } | { error: string } {
     const parsed = verdictIn(text);
     if (!parsed || !SHAPE.every(key => Array.isArray(parsed[key]))) return { error: `${reviewer}: no valid verdict (${text.slice(0, 200).replace(/\s+/g, ' ')})` };
     if (needsPriorPoints && parsed.prior_points.length === 0) return { error: `${reviewer} did not report on the human reviews` };
     for (const key of LISTS) if (!Array.isArray(parsed[key])) parsed[key] = [];
-    return { verdict: { ...parsed, reviewer, ...(costUsd !== undefined ? { cost_usd: costUsd } : {}) } };
+    return { verdict: { ...parsed, reviewer, ...(spend.costUsd !== undefined ? { cost_usd: spend.costUsd } : {}), ...(spend.tokens ? { tokens: spend.tokens } : {}) } };
 }
 
 /** The whole answer, a fenced block, or the last object that starts with "prior_points" (a model sometimes writes a summary around it). */
@@ -104,7 +106,7 @@ export function mergeVerdicts(parts: Verdict[]): Verdict {
         findings: tagged(part => part.findings),
         carried: parts.flatMap(part => part.carried),
         resolved_previous: parts.length === 1 ? parts[0].resolved_previous : parts[0].resolved_previous.filter(x => parts.every(part => part.resolved_previous.some(y => y.id === x.id))),
-        reviewers: parts.map(part => ({ reviewer: part.reviewer ?? '?', ...(part.cost_usd !== undefined ? { cost_usd: part.cost_usd } : {}) })),
+        reviewers: parts.map(part => ({ reviewer: part.reviewer ?? '?', ...(part.cost_usd !== undefined ? { cost_usd: part.cost_usd } : {}), ...(part.tokens ? { tokens: part.tokens } : {}) })),
     };
 }
 

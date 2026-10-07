@@ -20,9 +20,15 @@ export interface Adapter {
     binary: string;
     /** The command line for one review: the prompt is passed as text, never through a shell. */
     args(prompt: string, model: string | undefined): string[];
-    /** The reviewer's final message and, when the CLI reports it, what the run cost. */
-    answer(stdout: string): { text: string; costUsd?: number };
+    /** The reviewer's final message and, when the CLI reports them, what the run cost and the tokens it used. */
+    answer(stdout: string): { text: string } & Spend;
 }
+
+/** What a run used: dollars when the CLI reports them (Claude Code), tokens otherwise (Codex reports only tokens). */
+export interface Spend { costUsd?: number; tokens?: Tokens }
+export interface Tokens { input: number; output: number }
+
+const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git log:*)', 'Bash(git grep:*)'];
 
@@ -45,7 +51,12 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         answer: stdout => {
             try {
                 const parsed = JSON.parse(stdout);
-                return { text: String(parsed.result ?? ''), ...(typeof parsed.total_cost_usd === 'number' ? { costUsd: parsed.total_cost_usd } : {}) };
+                const usage = parsed.usage;
+                return {
+                    text: String(parsed.result ?? ''),
+                    ...(typeof parsed.total_cost_usd === 'number' ? { costUsd: parsed.total_cost_usd } : {}),
+                    ...(usage ? { tokens: { input: n(usage.input_tokens) + n(usage.cache_read_input_tokens) + n(usage.cache_creation_input_tokens), output: n(usage.output_tokens) } } : {}),
+                };
             } catch {
                 return { text: stdout };
             }
@@ -70,18 +81,22 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         binary: 'codex',
         args: (prompt, model) => ['exec', '--sandbox', 'read-only', '--json', ...(model ? ['--model', model] : []), '-c', 'model_reasoning_effort=high', prompt],
         // `codex exec --json` streams events; the last text-bearing one carries the answer.
+        // Warnings arrive as `error` items with a `message`, not `text`, so they are never taken for the answer.
+        // `turn.completed` carries the tokens (Codex reports no dollars).
         answer: stdout => {
             let text = '';
+            let tokens: Tokens | undefined;
             for (const line of stdout.split('\n').filter(Boolean)) {
                 try {
                     const event = JSON.parse(line);
                     const candidate = event?.item?.text ?? event?.msg?.message ?? event?.text;
                     if (typeof candidate === 'string') text = candidate;
+                    if (event?.type === 'turn.completed' && event.usage) tokens = { input: n(event.usage.input_tokens), output: n(event.usage.output_tokens) + n(event.usage.reasoning_output_tokens) };
                 } catch {
                     // not an event line
                 }
             }
-            return { text: text || stdout };
+            return { text: text || stdout, ...(tokens ? { tokens } : {}) };
         },
     },
 };

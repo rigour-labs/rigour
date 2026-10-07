@@ -26,7 +26,7 @@ export const REVIEW_DISMISSALS = path.join('.rigour', 'dismissed-review-items.js
 const MAX_DOCS = 10;
 const MAX_SETTLED = 40;
 
-export interface ReviewDismissal { id: string; file?: string; line?: number; class: string; issue: string; reason: string; at: string }
+export interface ReviewDismissal { id: string; file?: string; line?: number; class: string; issue: string; reason: string; at: string; by?: string }
 
 export function readReviewDismissals(cwd: string): ReviewDismissal[] {
     try {
@@ -38,11 +38,11 @@ export function readReviewDismissals(cwd: string): ReviewDismissal[] {
 }
 
 /** Records "not a bug" for a reviewer finding; idempotent. A human's own review point is never dismissed this way. */
-function dismissReviewItem(cwd: string, item: OpenItem, reason: string, at = new Date().toISOString()): boolean {
+function dismissReviewItem(cwd: string, item: OpenItem, reason: string, by: string, at = new Date().toISOString()): boolean {
     if (item.kind === 'prior') return false;
     const entries = readReviewDismissals(cwd);
     if (entries.some(e => e.id === item.id)) return true;
-    entries.push({ id: item.id, ...(item.file ? { file: item.file } : {}), ...(item.line ? { line: item.line } : {}), class: item.class, issue: item.issue, reason, at });
+    entries.push({ id: item.id, ...(item.file ? { file: item.file } : {}), ...(item.line ? { line: item.line } : {}), class: item.class, issue: item.issue, reason, at, ...(by ? { by } : {}) });
     fs.mkdirSync(path.join(cwd, '.rigour'), { recursive: true });
     fs.writeFileSync(path.join(cwd, REVIEW_DISMISSALS), JSON.stringify({ entries }, null, 2));
     return true;
@@ -69,6 +69,8 @@ export interface ContextInput {
     cwd: string;
     /** Where .rigour lives: the main checkout when cwd is the background reviewer's worktree. */
     stateRoot: string;
+    /** The team's dismissals, when it allows them (empty otherwise). */
+    dismissals: ReviewDismissal[];
     diff: string;
     router: RouterPolicy | undefined;
     /** The previous verdict's panel decisions, and the files changed since it. */
@@ -98,7 +100,7 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
     if (task?.rules.length) sections.push(`## Repository rules that name what this change touches\n${task.rules.map(r => `- ${r.source}: ${r.text}`).join('\n')}`);
 
     if (input.checks.length) sections.push(`## Already found by Rigour's checks: they block on their own, so do not report them again\n${input.checks.slice(0, MAX_SETTLED).map(c => `- ${c}`).join('\n')}`);
-    const dismissed = readReviewDismissals(input.stateRoot).slice(-MAX_SETTLED).map(d => `- dismissed as not a bug: ${where(d)} [${d.class}] ${d.issue} (reason: ${d.reason})`);
+    const dismissed = input.dismissals.slice(-MAX_SETTLED).map(d => `- dismissed as not a bug${d.by ? ` by ${d.by}` : ''}: ${where(d)} [${d.class}] ${d.issue} (reason: ${d.reason})`);
     const refuted = (input.previousPanel ?? []).filter(p => p.status === 'dropped' && !!p.item.file && !input.touched.has(p.item.file)).slice(0, MAX_SETTLED)
         .map(p => `- refuted with evidence in the last round: ${where(p.item)} [${p.item.class}] ${p.item.issue} (${(p.cross ?? []).find(c => c.call === 'refute')?.evidence ?? 'evidence in the previous verdict'})`);
     if (dismissed.length || refuted.length) sections.push(`## Settled: do not raise these again unless the code now shows something new\n${[...dismissed, ...refuted].join('\n')}`);
@@ -136,8 +138,13 @@ export async function relatedDocs(cwd: string, changedFiles: string[], exec: Exe
     return [...found].map(([doc, hits]) => ({ doc, names: [...hits].slice(0, 3) }));
 }
 
-/** `rigour dismiss <id>` on a reviewer finding: the item is found in this branch's latest verdict and recorded with its reason. */
-export async function dismissReviewerFinding(cwd: string, id: string, reason: string, exec: Exec = defaultExec): Promise<{ item?: OpenItem; error?: string }> {
+/**
+ * `rigour dismiss <id>` on a reviewer finding: only where the team allows it (`review.reviewer.dismissals`), with a
+ * reason, recorded with who dismissed it. The item is found in this branch's latest verdict.
+ */
+export async function dismissReviewerFinding(cwd: string, id: string, reason: string, allowed: boolean, exec: Exec = defaultExec): Promise<{ item?: OpenItem; error?: string }> {
+    if (!allowed) return { error: 'this team does not dismiss reviewer findings (review.reviewer.dismissals is off): fix the code, or improve the reviewer (its prompt, rules or the reviewers it runs) so the finding is not raised' };
+    if (reason.trim().length < 5) return { error: 'say why it is not a bug, in a few words' };
     const store = await VerdictStore.open(cwd, exec);
     if (!store) return { error: 'not a git repository' };
     const branch = (await exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim();
@@ -145,6 +152,7 @@ export async function dismissReviewerFinding(cwd: string, id: string, reason: st
     const open = state ? store.readJson<OpenItem[]>(store.openPath(state.verdict)) ?? [] : [];
     const item = open.find(i => i.id === id);
     if (!item) return { error: `no open reviewer finding ${id} on ${branch}: run \`rigour review --reviewer\` and copy the id it shows` };
-    if (!dismissReviewItem(cwd, item, reason)) return { error: `${id} is a human review point: answer it in the reply, it cannot be dismissed here` };
+    const who = (await exec('git', ['config', 'user.email'], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim() || (await exec('git', ['config', 'user.name'], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim();
+    if (!dismissReviewItem(cwd, item, reason, who)) return { error: `${id} is a human review point: answer it in the reply, it cannot be dismissed here` };
     return { item };
 }
