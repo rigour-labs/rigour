@@ -1,0 +1,30 @@
+name: Cancel a closed pull request's runs
+
+# A merged or closed pull request's checks can no longer decide anything (main runs its own
+# pipeline after a merge), so whatever is still running for it is cancelled.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel the pull request's runs still in progress
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SELF: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for status in queued in_progress; do
+            for id in $(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&status=$status" --jq '.workflow_runs[].id'); do
+              [ "$id" = "$SELF" ] && continue
+              # A fork's pull request gets a read-only token: say so rather than fail a closed pull request.
+              if gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1; then echo "Cancelled run $id."; else echo "Could not cancel run $id."; fi
+            done
+          done
