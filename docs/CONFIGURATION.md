@@ -110,7 +110,7 @@ The reviewer is the exception, because it runs each person's own agent CLIs on t
 nearest choice wins: a flag on this run, then an environment variable, then the person's own settings, then
 `rigour.yml`. The team can set floors no nearer choice goes below (`review.reviewer.panel: required`,
 `mode_required`), and some settings only the team can set (`dismissals`, `on_push`, `timeout_ms`,
-`panel_max_items`, `cross_models`). A person can set a lower daily cap, never a higher one. Studio's Setup
+`panel_max_items`, `cross_models`, `judge_env`). A person can set a lower daily cap, never a higher one. Studio's Setup
 page shows, for each setting, what runs, yours and the team's, and where the running value comes from.
 
 [Model review](./MODEL_REVIEW.md) with an API key is chosen per run, by flags or your own settings. The

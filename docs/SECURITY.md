@@ -44,6 +44,15 @@ How each CLI is run:
 
 The prompt is passed as an argument, never through a shell, and stdin is closed. A team can cap the reviewer's spend with `max_runs_per_day` and `max_usd_per_day`. See [The reviewer](./REVIEWER.md).
 
+Each CLI runs with your environment, because that is how it finds its own login or API key, with two exceptions. `RIGOUR_API_KEY` (Rigour's model-review key) is never passed to a judge. And a team can keep any other variable from a judge with `review.reviewer.judge_env`, for example when `OPENAI_API_KEY` holds a key for a gateway rather than for OpenAI:
+
+```yaml
+review:
+  reviewer:
+    judge_env:
+      codex: { unset: [OPENAI_API_KEY] }
+```
+
 ### Installs and package managers
 
 | Destination | When | What is sent | How to turn it off |
