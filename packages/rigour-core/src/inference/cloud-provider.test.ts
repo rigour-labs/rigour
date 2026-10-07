@@ -7,7 +7,7 @@ vi.mock('openai', () => ({
     default: class { chat = { completions: { create: openaiCreate } }; },
 }));
 vi.mock('@anthropic-ai/sdk', () => ({
-    default: class { messages = { create: anthropicCreate }; },
+    default: class { constructor(readonly options: unknown) {} messages = { create: anthropicCreate }; },
 }));
 
 const { CloudProvider } = await import('./cloud-provider.js');
@@ -22,6 +22,13 @@ describe('CloudProvider', () => {
     it('names no model it cannot know: a provider without a default needs one', () => {
         expect(() => new CloudProvider('somecloud', 'k')).toThrow(/pass --model-name/);
         expect(() => new CloudProvider('somecloud', 'k', { modelName: 'x' })).not.toThrow();
+    });
+
+    it('sends Claude calls to a base URL when one is given', async () => {
+        anthropicCreate.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 } });
+        const provider = new CloudProvider('claude', 'k', { modelName: 'claude-sonnet-5-5', baseUrl: 'https://gateway.example/anthropic' });
+        await provider.setup();
+        expect((provider as any).client.options).toMatchObject({ baseURL: 'https://gateway.example/anthropic' });
     });
 
     it('sends OpenRouter calls to OpenRouter, asking it to report their cost', async () => {

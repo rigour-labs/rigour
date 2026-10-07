@@ -8,7 +8,7 @@ describe('the update check', () => {
         const fetch = vi.fn();
         vi.stubGlobal('fetch', fetch);
         const review = ['node', 'rigour', 'review'];
-        for (const env of [{ RIGOUR_UPDATE_CHECK: '0' }, { DO_NOT_TRACK: '1' }, { CI: 'true' }, { GITHUB_ACTIONS: 'true' }]) {
+        for (const env of [{ RIGOUR_UPDATE_CHECK: '0' }, { DO_NOT_TRACK: '1' }, { DO_NOT_TRACK: 'yes' }, { CI: 'true' }, { GITHUB_ACTIONS: 'true' }]) {
             expect(await checkForUpdates('1.0.0', env, review)).toBeNull();
         }
         expect(await checkForUpdates('1.0.0', {}, ['node', 'rigour', 'hooks', 'check'])).toBeNull(); // an agent hook on every edit

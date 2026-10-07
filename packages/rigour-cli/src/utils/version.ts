@@ -5,7 +5,7 @@
  */
 import fs from 'fs-extra';
 import path from 'path';
-import { rigourUserDir } from '@rigour-labs/core';
+import { doNotTrack, rigourUserDir } from '@rigour-labs/core';
 
 const cacheFile = () => path.join(rigourUserDir(), 'version-cache.json');
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -85,7 +85,7 @@ function compareVersions(current: string, latest: string): boolean {
 
 /** Whether this run may ask the registry at all: never in CI, in agent hooks, or when the person opted out. */
 function updateCheckAllowed(env: NodeJS.ProcessEnv, argv: string[]): boolean {
-    if (env.RIGOUR_UPDATE_CHECK === '0' || env.DO_NOT_TRACK === '1' || env.DO_NOT_TRACK === 'true') return false;
+    if (env.RIGOUR_UPDATE_CHECK === '0' || doNotTrack(env)) return false;
     if (env.CI || env.GITHUB_ACTIONS) return false;
     return !argv.includes('hooks');
 }

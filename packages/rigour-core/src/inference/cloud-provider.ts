@@ -79,7 +79,8 @@ export class CloudProvider implements InferenceProvider {
         if (this.isClaude) {
             try {
                 const { default: Anthropic } = await import('@anthropic-ai/sdk');
-                this.client = new Anthropic({ apiKey: this.apiKey });
+                // A base URL given for Claude (a proxy, a gateway) is honoured like any other provider's.
+                this.client = new Anthropic({ apiKey: this.apiKey, ...(this.baseUrl ? { baseURL: this.baseUrl } : {}) });
                 onProgress?.(`✓ ${this.providerName} API connected (model: ${this.modelName})`);
             } catch {
                 throw new Error(

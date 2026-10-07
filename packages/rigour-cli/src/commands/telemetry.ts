@@ -1,6 +1,6 @@
 /** `rigour telemetry on|off|status`: the person's choice about anonymous usage telemetry. */
 import chalk from 'chalk';
-import { isTelemetryEnabled as isEnabled, readTelemetryState as readState, setTelemetryEnabled as setEnabled, telemetryToken as token } from '@rigour-labs/core';
+import { doNotTrack, isTelemetryEnabled as isEnabled, readTelemetryState as readState, setTelemetryEnabled as setEnabled, telemetryToken as token } from '@rigour-labs/core';
 
 export function telemetryCommand(action: string | undefined): void {
     if (action === 'on' || action === 'off') {
@@ -11,7 +11,7 @@ export function telemetryCommand(action: string | undefined): void {
         return;
     }
     const state = readState();
-    const reason = process.env.DO_NOT_TRACK && process.env.DO_NOT_TRACK !== '0' ? ' (DO_NOT_TRACK is set)'
+    const reason = doNotTrack() ? ' (DO_NOT_TRACK is set)'
         : process.env.RIGOUR_TELEMETRY === '0' ? ' (RIGOUR_TELEMETRY=0)'
             : !token() ? ' (this build has no telemetry token)' : '';
     console.log(`Anonymous usage telemetry: ${isEnabled() ? chalk.green('on') : chalk.yellow('off')}${reason}`);

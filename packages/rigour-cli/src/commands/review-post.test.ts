@@ -17,8 +17,14 @@ function fakeGitHub(state: { review: any[]; issue: any[] }, refuseInline = false
         const body = init.body ? JSON.parse(init.body) : undefined;
         calls.push({ method, path, body });
         const reply = (ok: boolean, json: unknown = {}) => ({ ok, status: ok ? 200 : 422, json: async () => json, text: async () => '' });
-        if (method === 'GET' && path === '/pulls/7/comments') return reply(true, state.review);
-        if (method === 'GET' && path === '/issues/7/comments') return reply(true, state.issue);
+        const query = new URL(url).searchParams;
+        const page = (items: any[]) => {
+            const size = Number(query.get('per_page') ?? 30);
+            const from = (Number(query.get('page') ?? 1) - 1) * size;
+            return items.slice(from, from + size);
+        };
+        if (method === 'GET' && path === '/pulls/7/comments') return reply(true, page(state.review));
+        if (method === 'GET' && path === '/issues/7/comments') return reply(true, page(state.issue));
         if (method === 'POST' && path === '/pulls/7/reviews') {
             if (refuseInline) return reply(false);
             state.review.push(...body.comments.map((c: any) => ({ body: c.body, user: BOT })));
@@ -77,6 +83,16 @@ describe('postReview', () => {
         expect(state.issue).toHaveLength(1);
     });
 
+    it('finds its summary on a later page of a long conversation, and edits it instead of adding one', async () => {
+        const chatter = Array.from({ length: 150 }, (_, i) => ({ id: i + 1, body: `comment ${i}`, user: { login: 'someone' } }));
+        chatter[120] = { id: 121, body: '<!-- rigour:summary -->\nold', user: BOT };
+        const state = { review: [] as any[], issue: chatter };
+        const { fetchImpl, calls } = fakeGitHub(state);
+        await postReview(report, target, 2, fetchImpl);
+        expect(calls.filter(c => c.method === 'POST' && c.path === '/issues/7/comments')).toHaveLength(0);
+        expect(calls.some(c => c.method === 'PATCH' && c.path === '/issues/comments/121')).toBe(true);
+    });
+
     it('still posts the summary when GitHub refuses an inline comment', async () => {
         const state = { review: [] as any[], issue: [] as any[] };
         const result = await postReview(report, target, 2, fakeGitHub(state, true).fetchImpl);
@@ -116,5 +132,17 @@ describe('postReview', () => {
             '- `formatTotal` in `src/pay.ts:3`: matches a team lesson: Format money from integer cents.',
         ]);
         expect(receiptLines({ functions: 2, reviewed: 0, changed_since_review: 0, low_risk: 0, set_aside: 2, not_covered: [] })[1]).toContain('not counted: this check is independent');
+    });
+});
+
+describe('reviewPostCommand', () => {
+    it('says why when the review did not run, and posts nothing', async () => {
+        const { reviewPostCommand } = await import('./review-post.js');
+        const fs = await import('fs');
+        const os = await import('os');
+        const path = await import('path');
+        const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'post-')), 'report.json');
+        fs.writeFileSync(file, JSON.stringify({ error: 'rigour.yml: gates.ast.complexity: Expected number' }));
+        await expect(reviewPostCommand({ report: file })).rejects.toThrow('The review did not run, so there is nothing to post: rigour.yml: gates.ast.complexity');
     });
 });

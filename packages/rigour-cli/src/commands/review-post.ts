@@ -175,6 +175,10 @@ function orderOf(order: string[], value: string): number {
     return index === -1 ? order.length : index;
 }
 
+const PAGE_SIZE = 100;
+/** 2,000 comments: far past any real pull request, and a bound on what one post can read. */
+const MAX_PAGES = 20;
+
 class GitHub {
     private readonly base: string;
 
@@ -182,11 +186,18 @@ class GitHub {
         this.base = `${(target.apiUrl || 'https://api.github.com').replace(/\/$/, '')}/repos/${target.repo}`;
     }
 
+    /** Every page of a list, so a long pull request's earlier comments are found and not posted again. */
     async list(path: string): Promise<any[]> {
-        const response = await this.fetchImpl(`${this.base}${path}?per_page=100`, { headers: this.headers() });
-        if (!response.ok) throw new Error(`GitHub ${path}: HTTP ${response.status}`);
-        const body = await response.json();
-        return Array.isArray(body) ? body : [];
+        const all: any[] = [];
+        for (let page = 1; page <= MAX_PAGES; page++) {
+            const response = await this.fetchImpl(`${this.base}${path}?per_page=${PAGE_SIZE}&page=${page}`, { headers: this.headers() });
+            if (!response.ok) throw new Error(`GitHub ${path}: HTTP ${response.status}`);
+            const body = await response.json();
+            const items = Array.isArray(body) ? body : [];
+            all.push(...items);
+            if (items.length < PAGE_SIZE) break;
+        }
+        return all;
     }
 
     /** false when GitHub refuses (e.g. a line outside the diff); the summary still goes out. */
@@ -218,7 +229,9 @@ export function targetFromEnv(env: NodeJS.ProcessEnv = process.env): PostTarget 
 }
 
 export async function reviewPostCommand(options: { report: string; maxComments?: string }): Promise<void> {
-    const report = JSON.parse(fs.readFileSync(options.report, 'utf8')) as ReviewReport;
+    const report = JSON.parse(fs.readFileSync(options.report, 'utf8')) as ReviewReport & { error?: unknown };
+    // `rigour review --json` that could not start writes {"error": ...} and no verdict: say why, post nothing.
+    if (!report.status) throw new Error(`The review did not run, so there is nothing to post: ${String(report.error ?? 'the report has no status')}`);
     const result = await postReview(report, targetFromEnv(), Number(options.maxComments ?? 2));
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, result.summary.replace(SUMMARY_MARKER, '') + '\n');
     console.log(`Posted ${result.inline} inline comment(s); summary ${result.summaryUpdated ? 'updated' : 'not updated'}.`);

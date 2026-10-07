@@ -607,7 +607,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_task_cost",
-        description: "Returns both verified actual model usage/cost (from Cursor Admin API or imported CSV) and Rigour estimated avoided context/cost USD.",
+        description: "Rigour's estimate of the context and cost its scoped reads avoided for a task, beside any model usage recorded for it.",
         inputSchema: {
             type: "object",
             properties: {

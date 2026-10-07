@@ -74,8 +74,13 @@ function isCi(env: Env): boolean {
 }
 
 /** Opted out by the environment, whatever the stored answer. */
+/** The cross-tool opt-out (consoledonottrack.com): any value but "0" means no telemetry and no update check. */
+export function doNotTrack(env: Env = process.env): boolean {
+    return !!env.DO_NOT_TRACK && env.DO_NOT_TRACK !== '0';
+}
+
 function vetoed(env: Env): boolean {
-    return (!!env.DO_NOT_TRACK && env.DO_NOT_TRACK !== '0') || env.RIGOUR_TELEMETRY === '0' || !telemetryToken(env);
+    return doNotTrack(env) || env.RIGOUR_TELEMETRY === '0' || !telemetryToken(env);
 }
 
 export function isTelemetryEnabled(deps: TelemetryDeps = {}): boolean {
