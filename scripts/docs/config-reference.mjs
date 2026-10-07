@@ -95,7 +95,8 @@ if (undescribed.length || unknown.length) {
 const page = render(keys, descriptions);
 if (process.argv.includes('--write')) fs.writeFileSync(PAGE, page);
 else if (process.argv.includes('--check')) {
-    if (fs.readFileSync(PAGE, 'utf8') !== page) {
+    // A Windows checkout has CRLF line endings; the page is the same page either way.
+    if (fs.readFileSync(PAGE, 'utf8').replace(/\r\n/g, '\n') !== page) {
         console.error('docs/CONFIG_REFERENCE.md is out of date: run pnpm docs:config');
         process.exit(1);
     }
