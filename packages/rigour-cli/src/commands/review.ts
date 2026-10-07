@@ -19,6 +19,7 @@ import chalk from 'chalk';
 import { buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
 import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { receiptFor } from './review-receipt.js';
+import { whatWasChecked, type Checked } from './review-checked.js';
 import { printReviewer, printStatus, reviewerBase, reviewerFor, reviewerJson } from './review-reviewer.js';
 import { printHuman, type HumanContext } from './review-human.js';
 import { printScope } from './review-scope.js';
@@ -86,7 +87,8 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         if (options.base) recordPrCatches(cwd, result.findings);
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
         const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full, { ...(options.single ? { mode: 'single' as const } : {}), ...(options.panel !== undefined ? { panel: options.panel } : {}) }, result) : undefined;
-        await print(result, options, receipt, reviewer, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started });
+        const checked = options.json ? whatWasChecked(cwd, options, trustedRef, result) : undefined;
+        await print(result, options, receipt, reviewer, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started }, checked);
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
         }
@@ -171,10 +173,10 @@ function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'fo
     };
 }
 
-async function print(result: ReviewResult, options: ReviewOptions, receipt: QualityReceipt | null, reviewer: ReviewerResult | undefined, context: Omit<HumanContext, 'receipt'>): Promise<void> {
+async function print(result: ReviewResult, options: ReviewOptions, receipt: QualityReceipt | null, reviewer: ReviewerResult | undefined, context: Omit<HumanContext, 'receipt'>, checked?: Checked): Promise<void> {
     const summary = buildCiReviewSummary(result.findings, result.report?.failures.length ?? 0, result.changedLines,
         result.unlocated + result.fileFindings.length);
-    if (options.json) return writeJson(result, summary, receipt, reviewer);
+    if (options.json) return writeJson(result, summary, receipt, reviewer, checked);
     if (options.githubSummary || options.ci) {
         // The machine-read outputs say why a review is not a pass on stderr; the human one says it in its verdict.
         if (result.deepError) console.error(chalk.red(`Deep analysis did not run: ${result.deepError}`));
@@ -211,10 +213,11 @@ function changeDiff(cwd: string, source: DiffSource): string | undefined {
     }
 }
 
-function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiReviewSummary>, receipt: QualityReceipt | null, reviewer?: ReviewerResult): Promise<void> {
+function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiReviewSummary>, receipt: QualityReceipt | null, reviewer?: ReviewerResult, checked?: Checked): Promise<void> {
     const stats = result.report?.stats;
     const json = JSON.stringify({
         status: result.status,
+        ...(checked ? { checked } : {}),
         score: stats?.score ?? 100,
         ai_health_score: stats?.ai_health_score,
         structural_score: stats?.structural_score,

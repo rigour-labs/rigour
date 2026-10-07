@@ -16,7 +16,9 @@ import { join } from 'node:path';
 const root = process.cwd();
 const cliPackage = JSON.parse(readFileSync(join(root, 'packages/rigour-cli/package.json'), 'utf8'));
 const prerelease = String(cliPackage.version).split('-')[1];
-const distTag = prerelease ? prerelease.split('.')[0] : 'latest';
+// A stable release waits under `pending` until every package installs; the pipeline then moves
+// `latest` to it (promote-release.mjs). A prerelease goes straight to its channel (beta).
+const distTag = prerelease ? prerelease.split('.')[0] : 'pending';
 
 console.log(`Publishing @rigour-labs/* packages with npm dist-tag ${distTag}...`);
 
