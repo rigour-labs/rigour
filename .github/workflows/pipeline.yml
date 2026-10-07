@@ -13,6 +13,12 @@ permissions:
   id-token: write
   actions: read     # to read the pull request's pipeline result (already-tested)
 
+# A new push to a pull request makes its older run pointless: cancel it. Pushes to main and dev
+# each get their own group and are never cancelled, because they release.
+concurrency:
+  group: pipeline-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # A push to main or dev whose exact tree a pull request already tested, with its pipeline green,
   # does not run the test matrix again: same files, same result. (A pull request run tests the head
