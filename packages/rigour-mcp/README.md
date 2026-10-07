@@ -22,7 +22,7 @@ Or, in any client's MCP configuration:
 { "mcpServers": { "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp@6"] } } }
 ```
 
-Node 22 or later. Each call works in the repository given by its `cwd` argument, else `RIGOUR_CWD`, else
+Node 22.13 or later. Each call works in the repository given by its `cwd` argument, else `RIGOUR_CWD`, else
 the directory the server started in.
 
 ## The tools

@@ -5,7 +5,7 @@ how releases work.
 
 ## Set up
 
-You need Node 22 or later, pnpm and git.
+You need Node 22.13 or later, pnpm and git.
 
 ```bash
 pnpm install

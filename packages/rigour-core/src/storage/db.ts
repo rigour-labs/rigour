@@ -3,46 +3,39 @@
  * Single file at ~/.rigour/rigour.db stores all scan history, findings,
  * learned patterns, and feedback. ACID-safe, portable, queryable.
  *
- * Uses node-sqlite3 (async, widely supported, no native build issues).
- * All public APIs are async. Graceful degradation if sqlite3 not installed.
+ * Uses Node's built-in SQLite (node:sqlite): nothing to install or compile, and no native addon to
+ * crash a worker thread. All public APIs are async. Where node:sqlite is missing (Node before
+ * 22.13), storage is off and every caller degrades as before.
  */
 import path from 'path';
 import fs from 'fs-extra';
 import { createRequire } from 'module';
 import { rigourUserDir } from '../utils/user-state.js';
 
-// ---------------------------------------------------------------------------
-// Optional dynamic import of sqlite3
-// ---------------------------------------------------------------------------
-let sqlite3Module: any = null;
-let _resolved = false;
+type DatabaseSync = import('node:sqlite').DatabaseSync;
+type SQLInputValue = import('node:sqlite').SQLInputValue;
 
-function loadSqlite3(): any {
-    if (_resolved) return sqlite3Module;
-    _resolved = true;
+let sqliteModule: typeof import('node:sqlite') | null | undefined;
 
-    // Try multiple resolution paths:
-    // 1. Relative to this package (works when sqlite3 is installed in monorepo)
-    // 2. Relative to cwd (works when user installs sqlite3 in their project)
-    // 3. Relative to global node_modules (works for global installs)
-    const searchPaths = [
-        import.meta.url,
-        `file://${process.cwd()}/package.json`,
-        `file://${path.join(rigourUserDir(), 'package.json')}`,
-    ];
-
-    for (const base of searchPaths) {
-        try {
-            const req = createRequire(base);
-            sqlite3Module = req('sqlite3');
-            if (sqlite3Module) return sqlite3Module;
-        } catch {
-            // Try next path
-        }
+/**
+ * node:sqlite, or null where this Node has none. Node 22 prints an "experimental feature" warning on
+ * the first load; it says nothing a Rigour user can act on, so that one warning is not shown.
+ */
+function loadSqlite(): typeof import('node:sqlite') | null {
+    if (sqliteModule !== undefined) return sqliteModule;
+    const emitWarning = process.emitWarning;
+    process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
+        if (String((warning as Error)?.message ?? warning).startsWith('SQLite is an experimental feature')) return;
+        return (emitWarning as (...args: unknown[]) => void).call(process, warning, ...rest);
+    }) as typeof process.emitWarning;
+    try {
+        sqliteModule = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+    } catch {
+        sqliteModule = null;
+    } finally {
+        process.emitWarning = emitWarning;
     }
-
-    sqlite3Module = null;
-    return sqlite3Module;
+    return sqliteModule;
 }
 
 // RIGOUR_HOME when set (tests, sandboxes) so nothing but a real run touches ~/.rigour.
@@ -261,12 +254,12 @@ CREATE INDEX IF NOT EXISTS idx_interaction_events_request ON interaction_events(
 `;
 
 // ---------------------------------------------------------------------------
-// Async wrapper around node-sqlite3
+// Async wrapper around node:sqlite
 // ---------------------------------------------------------------------------
 
 /**
- * Promisified wrapper around a node-sqlite3 Database instance.
- * Provides run/get/all/exec methods that return Promises.
+ * The database behind a promise API: run/get/all/exec return Promises, so callers do not change
+ * with the driver, and a later move to a worker or an async driver stays inside this file.
  */
 export interface RigourDB {
     /** Execute a write statement (INSERT/UPDATE/DELETE). Returns { changes }. */
@@ -283,47 +276,40 @@ export interface RigourDB {
     transaction<T>(fn: (db: RigourDB) => Promise<T>): Promise<T>;
 }
 
-function wrapDatabase(raw: any): RigourDB {
+/**
+ * A value as SQLite stores it. node:sqlite refuses what sqlite3 converted silently, so the same
+ * conversions happen here: undefined is NULL, a boolean is 1 or 0, a Date is its epoch milliseconds.
+ */
+function bindable(value: unknown): SQLInputValue {
+    if (value === undefined) return null;
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    if (value instanceof Date) return value.getTime();
+    return value as SQLInputValue;
+}
+
+/** Rows as plain objects (node:sqlite returns them without a prototype). */
+function plain<T>(row: T): T {
+    return row && typeof row === 'object' ? { ...row } : row;
+}
+
+function wrapDatabase(raw: DatabaseSync): RigourDB {
+    const prepare = (sql: string) => raw.prepare(sql);
     const db: RigourDB = {
-        run(sql: string, ...params: any[]) {
-            return new Promise((resolve, reject) => {
-                raw.run(sql, ...params, function (this: any, err: Error | null) {
-                    if (err) return reject(err);
-                    resolve({ changes: this.changes, lastID: this.lastID });
-                });
-            });
+        async run(sql: string, ...params: any[]) {
+            const result = prepare(sql).run(...params.map(bindable));
+            return { changes: Number(result.changes), lastID: Number(result.lastInsertRowid) };
         },
-        get(sql: string, ...params: any[]) {
-            return new Promise((resolve, reject) => {
-                raw.get(sql, ...params, (err: Error | null, row: any) => {
-                    if (err) return reject(err);
-                    resolve(row);
-                });
-            });
+        async get(sql: string, ...params: any[]) {
+            return plain(prepare(sql).get(...params.map(bindable)));
         },
-        all(sql: string, ...params: any[]) {
-            return new Promise((resolve, reject) => {
-                raw.all(sql, ...params, (err: Error | null, rows: any[]) => {
-                    if (err) return reject(err);
-                    resolve(rows || []);
-                });
-            });
+        async all(sql: string, ...params: any[]) {
+            return prepare(sql).all(...params.map(bindable)).map(plain);
         },
-        exec(sql: string) {
-            return new Promise((resolve, reject) => {
-                raw.exec(sql, (err: Error | null) => {
-                    if (err) return reject(err);
-                    resolve();
-                });
-            });
+        async exec(sql: string) {
+            raw.exec(sql);
         },
-        close() {
-            return new Promise((resolve, reject) => {
-                raw.close((err: Error | null) => {
-                    if (err) return reject(err);
-                    resolve();
-                });
-            });
+        async close() {
+            raw.close();
         },
         async transaction<T>(fn: (db: RigourDB) => Promise<T>): Promise<T> {
             await db.exec('BEGIN TRANSACTION');
@@ -342,23 +328,16 @@ function wrapDatabase(raw: any): RigourDB {
 
 /**
  * Open (or create) the Rigour SQLite database.
- * Returns null if sqlite3 is not available.
+ * Returns null where this Node has no node:sqlite.
  */
 export async function openDatabase(dbPath?: string): Promise<RigourDB | null> {
-    const sqlite3 = loadSqlite3();
-    if (!sqlite3) return null;
+    const sqlite = loadSqlite();
+    if (!sqlite) return null;
 
     const resolvedPath = dbPath || DB_PATH;
     fs.ensureDirSync(path.dirname(resolvedPath));
 
-    const raw = await new Promise<any>((resolve, reject) => {
-        const instance = new sqlite3.Database(resolvedPath, (err: Error | null) => {
-            if (err) return reject(err);
-            resolve(instance);
-        });
-    });
-
-    const db = wrapDatabase(raw);
+    const db = wrapDatabase(new sqlite.DatabaseSync(resolvedPath));
 
     // Wait for a lock instead of failing at once: a hook and an MCP server often open the database
     // at the same moment, and without this the second open fails with SQLITE_BUSY.
@@ -558,7 +537,7 @@ async function enableWal(db: RigourDB, attempts = 10): Promise<void> {
             await db.exec('PRAGMA journal_mode = WAL');
             return;
         } catch (error) {
-            if (!/SQLITE_BUSY/.test(String(error)) || attempt >= attempts) throw error;
+            if (!/SQLITE_BUSY|database is locked/i.test(String(error)) || attempt >= attempts) throw error;
             await new Promise(resolve => setTimeout(resolve, 25 * attempt));
         }
     }
@@ -583,8 +562,7 @@ async function addColumnIfMissing(db: RigourDB, table: string, column: string, a
  * Compact the database — prune old data, reclaim disk space.
  */
 export async function compactDatabase(retainDays = 90): Promise<CompactResult> {
-    const sqlite3 = loadSqlite3();
-    if (!sqlite3) return { pruned: 0, patternsDecayed: 0, sizeBefore: 0, sizeAfter: 0 };
+    if (!loadSqlite()) return { pruned: 0, patternsDecayed: 0, sizeBefore: 0, sizeAfter: 0 };
 
     const resolvedPath = DB_PATH;
     const sizeBefore = fs.existsSync(resolvedPath) ? fs.statSync(resolvedPath).size : 0;
@@ -649,11 +627,9 @@ export function resetDatabase(): void {
     if (fs.existsSync(DB_PATH + '-shm')) fs.removeSync(DB_PATH + '-shm');
 }
 
-/**
- * Check if SQLite is available (sqlite3 installed)
- */
+/** Whether this Node has SQLite (node:sqlite, Node 22.13 or later). */
 export function isSQLiteAvailable(): boolean {
-    return loadSqlite3() !== null;
+    return loadSqlite() !== null;
 }
 
 export { RIGOUR_DIR, DB_PATH };

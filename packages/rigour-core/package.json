@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "description": "Rigour's review engine: deterministic gates on changed lines, rules and lessons learned from your team's fixes, and per-check precision from what you fix versus dismiss, across TypeScript, JavaScript, Python, Go, Ruby and C#.",
     "engines": {
-        "node": ">=22"
+        "node": ">=22.13"
     },
     "license": "MIT",
     "homepage": "https://rigour.run",
@@ -80,8 +80,7 @@
         "@rigour-labs/brain-win-x64": "workspace:*",
         "@anthropic-ai/sdk": "^0.30.1",
         "pg": "^8.16.3",
-        "sqlite3": "^5.1.7",
-        "openai": "^4.104.0"
+        "openai": "^5.23.2"
     },
     "devDependencies": {
         "@types/fs-extra": "^11.0.4",

@@ -24,7 +24,7 @@ tool, and what to do when something does not fire. Setting Rigour up is covered 
 tool and to a push from your terminal. Claude Code also checks a push before the command reaches git.
 
 Every hook runs the CLI pinned to the version that wrote it: `npx --yes @rigour-labs/cli@<version>`.
-Node 22 or later is required.
+Node 22.13 or later is required.
 
 ## Where the hooks go
 
@@ -357,4 +357,4 @@ When the clone has Rigour's `pre-push` hook, doctor also runs the same real-push
 - **Calls are refused for this repository.** The server applies the profile of the repository it
   serves and refuses calls for another profile's repositories. Set `RIGOUR_CWD`, or see
   [Profiles](./PROFILES.md).
-- **The server does not start.** It needs Node 22 or later.
+- **The server does not start.** It needs Node 22.13 or later.

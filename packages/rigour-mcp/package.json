@@ -3,7 +3,7 @@
     "version": "5.4.0",
     "description": "Rigour's MCP server: lets coding agents review their change, check for an existing helper before writing a new one, and recall the team's lessons. Works with Claude Code, Cursor and other MCP clients.",
     "engines": {
-        "node": ">=22"
+        "node": ">=22.13"
     },
     "license": "MIT",
     "homepage": "https://rigour.run",

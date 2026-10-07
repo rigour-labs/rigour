@@ -9,7 +9,7 @@ itself. Works with Claude Code, Cursor, Codex, Cline and Windsurf. Free, open so
 
 ## Try it, changing nothing
 
-On a branch with work on it (Node 22 or later):
+On a branch with work on it (Node 22.13 or later):
 
 ```bash
 npx @rigour-labs/cli review --base origin/main

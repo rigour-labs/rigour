@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "description": "Code review that happens while your agent writes: deterministic checks on the lines it changed, quiet unless it can prove a defect, and learning from your team's fixes and dismissals. Works with Claude Code, Cursor, Codex, Cline and Windsurf.",
     "engines": {
-        "node": ">=22"
+        "node": ">=22.13"
     },
     "license": "MIT",
     "homepage": "https://rigour.run",
