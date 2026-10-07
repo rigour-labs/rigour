@@ -36,6 +36,7 @@ describe('profiles', () => {
 
     it("applies the profile's home and team, clearing team settings inherited from the shell", () => {
         const dir = repo('work/acme/api');
+        delete process.env.RIGOUR_HOME; // no home of your own: the profile chooses it
         process.env.RIGOUR_TEAM_DATABASE_URL = 'postgres://other-org';
         process.env.RIGOUR_ORGANIZATION_ID = 'other-org';
         applyProfile(dir, [{ name: 'acme', match: [path.join(root, 'work/acme')], home: path.join(root, 'acme-home'), githubAccount: 'acme-dev' }]);
@@ -47,6 +48,16 @@ describe('profiles', () => {
 
         applyProfile(dir, [{ name: 'acme', match: [dir], team: { organization: 'acme', team: 'web', actor: 'dev', repositories: ['github.com/acme/*'], databaseUrlCommand: 'echo url' } }]);
         expect([process.env.RIGOUR_ORGANIZATION_ID, process.env.RIGOUR_TEAM_REPOSITORIES, process.env.RIGOUR_TEAM_DATABASE_URL_COMMAND]).toEqual(['acme', 'github.com/acme/*', 'echo url']);
+    });
+
+    it('leaves a RIGOUR_HOME you set yourself alone: no profile replaces it or brings its team', () => {
+        const dir = repo('work/acme/api');
+        delete process.env.RIGOUR_PROFILE;
+        process.env.RIGOUR_HOME = path.join(root, 'isolated');
+        const applied = applyProfile(dir, [{ name: 'acme', match: [path.join(root, 'work/acme')], home: path.join(root, 'acme-home'), team: { organization: 'acme', team: 'web', actor: 'dev' } }]);
+        expect(applied).toBeUndefined();
+        expect(process.env.RIGOUR_HOME).toBe(path.join(root, 'isolated'));
+        expect(process.env.RIGOUR_ORGANIZATION_ID).toBeUndefined();
     });
 
     it('refuses to act for a repository of another profile than the one the process started with', () => {

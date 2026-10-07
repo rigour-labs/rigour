@@ -61,7 +61,8 @@ gates:
 
 Rigour reports an export nothing imports, and a new file nothing imports or runs. It already knows the
 common conventions (route modules, tests, migrations, config files); list what your tooling loads that it
-cannot see.
+cannot see. Both are notes until the team sets `block: true` under `unused_exports` or `orphan_files`; then they
+block like any proven finding.
 
 ### Database migrations
 
@@ -148,7 +149,7 @@ rigour init --preset api --paradigm functional --force
 
 | Variable | What it does |
 | --- | --- |
-| `RIGOUR_HOME` | Rigour's home folder, instead of `~/.rigour` or the profile's. |
+| `RIGOUR_HOME` | The folder Rigour keeps its state under (in `$RIGOUR_HOME/.rigour`), instead of your home or a profile's. Set it yourself and no [profile](./PROFILES.md) applies to that run, so an isolated run stays isolated; agent CLIs the reviewer runs still use your real home and logins. |
 | `RIGOUR_API_KEY` | The key for [model review](./MODEL_REVIEW.md) when no `--api-key` is given. |
 | `RIGOUR_REVIEWER_MODE`, `RIGOUR_REVIEWER_PANEL` | The reviewer's mode (`single`, `cross`, `full`) and panel (`on`, `off`), for runs that take no flags. |
 | `RIGOUR_GITHUB_ACCOUNT` | The `gh` account whose token reads pull requests and their reviews. `GH_TOKEN` wins when set. |

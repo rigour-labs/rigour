@@ -34,6 +34,23 @@ export async function githubEnv(cwd: string, account: string | undefined, exec: 
     return token.exitCode === 0 && token.stdout.trim() ? { GH_TOKEN: token.stdout.trim() } : undefined;
 }
 
+/**
+ * The token to read GitHub with: an explicit one first (GH_TOKEN, GITHUB_TOKEN: CI, or a person's
+ * own choice), then the named account's (review.github_account / RIGOUR_GITHUB_ACCOUNT), and the
+ * gh CLI's active account only when no account is named, so a machine signed in to several
+ * accounts never reads as the wrong one.
+ */
+export async function githubToken(cwd: string, account: string | undefined, exec: Exec): Promise<string> {
+    const explicit = process.env.GH_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim();
+    if (explicit) return explicit;
+    const named = account?.trim();
+    const read = await exec('gh', named ? ['auth', 'token', '--user', named] : ['auth', 'token'], { cwd, timeoutMs: GH_TIMEOUT_MS });
+    if (read.exitCode === 0 && read.stdout.trim()) return read.stdout.trim();
+    throw new Error(named
+        ? `GitHub account ${named} is named for reading, but \`gh auth token --user ${named}\` gave no token: sign in to it with \`gh auth login\`, or set GITHUB_TOKEN.`
+        : 'Set GITHUB_TOKEN or sign in with `gh auth login` (read access to the repository is enough).');
+}
+
 /** `gh --paginate` prints one JSON array per page. */
 export function parseJsonArrays(text: string): any[] {
     try {

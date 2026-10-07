@@ -38,3 +38,24 @@ describe('the reviewer as the CLI prints it', () => {
         expect(out.join('\n')).not.toContain('rigour dismiss');
     });
 });
+
+describe('rigour review --status', () => {
+    it('runs in a repository with no verdict yet, instead of crashing on the branch lookup', async () => {
+        const { execFileSync } = await import('child_process');
+        const fs = await import('fs');
+        const os = await import('os');
+        const path = await import('path');
+        const { printStatus } = await import('./review-reviewer.js');
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'status-'));
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+        execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: repo });
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        try {
+            expect(await printStatus(repo, true)).toBe(0);
+            expect(JSON.parse(String(log.mock.calls[0][0]))).toMatchObject({ branch: 'main' });
+        } finally {
+            log.mockRestore();
+            fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
+});

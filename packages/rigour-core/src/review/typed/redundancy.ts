@@ -9,6 +9,8 @@
  *   write-only-property       a property the hosts set and nothing reads. When the value only
  *                             leaves through serialisation to a callee the program does not declare
  *                             (a wire payload), that is a hint for the reviewer, not a block.
+ * Plus dead-null-guard (dead-null-guards.ts): a null guard on a column every query returning the row filters;
+ * constant-member and constant-argument (constant-inputs.ts): an input production never varies.
  * Plus a note, not yet proven on merged pull requests so it never blocks:
  *   nullable-not-null-column  the row type of `.from('t')` says `| null` for a column the
  *                             migrations make NOT NULL (`schema_migrations`, schema-nullability.ts).
@@ -23,6 +25,8 @@ import { emitsDeclarations } from '../package-layout.js';
 import { isTestFile } from '../test-files.js';
 import { loadProgram, type TextFile, type TypedProgram } from './program.js';
 import { loadSchemaNullability, tableKey, type SchemaNullability } from './schema-nullability.js';
+import { deadNullGuards } from './dead-null-guards.js';
+import { constantInputs } from './constant-inputs.js';
 
 export interface Redundancy {
     failures: Failure[];
@@ -155,6 +159,8 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
         });
     }
 
+    deadNullGuards(typed, changedSources, { chainOf, outermost, rowTypeOf, strArg, isNullLiteral, isNullable, touched, at, report, walk });
+
     // Interfaces and type literals declared in changed files, with their properties.
     interface Declared { node: TS.InterfaceDeclaration | TS.TypeAliasDeclaration; name: string; sym: TS.Symbol; type: TS.Type; members: TS.PropertySignature[] }
     const declaredTypes: Declared[] = [];
@@ -214,6 +220,8 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
         const stem = rel(t.node.getSourceFile()).replace(/\.[cm]?ts$/, '');
         return typed.textFiles.find(s => (word(t.name).test(s.text) || s.text.includes(stem) || s.text.includes(stem.replace(/^src\/lib\//, '$lib/'))) && new RegExp(`\\.${prop}\\b|\\{[^}]*\\b${prop}\\b[^}]*\\}`).test(s.text));
     };
+
+    constantInputs(typed, changedSources, declaredTypes, { hostsOf, touched, spanTouched, at, rel, report, walk });
 
     // A value of the type that leaves the program's sight: placed in a string, or passed to a callee the program does not declare.
     const escapeMemo = new Map<TS.Symbol, string | undefined>();

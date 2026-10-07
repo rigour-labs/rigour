@@ -37,6 +37,28 @@ export function ghFor(cwd: string, exec: Exec, env: Record<string, string> | und
 
 const PR_FIELDS = 'number,state,isDraft,author,body';
 
+/**
+ * The description as it read at `at` (a backtest's review time): GitHub keeps every version in
+ * `userContentEdits`, the first being the text at creation. Undefined when it cannot be read, so a
+ * caller never falls back to today's text, which may describe code written after the review.
+ */
+export async function bodyAsOf(gh: Gh, pr: number, at: string): Promise<string | undefined> {
+    const query = 'query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){body lastEditedAt userContentEdits(first:100){totalCount nodes{editedAt diff}}}}}';
+    const read = await gh(['api', 'graphql', '-f', `query=${query}`, '-F', 'owner={owner}', '-F', 'repo={repo}', '-F', `pr=${pr}`]);
+    if (read.exitCode !== 0) return undefined;
+    try {
+        const node = JSON.parse(read.stdout)?.data?.repository?.pullRequest;
+        if (!node) return undefined;
+        if (!node.lastEditedAt || node.lastEditedAt < at) return String(node.body ?? '');
+        const edits: Array<{ editedAt: string; diff: string | null }> = node.userContentEdits?.nodes ?? [];
+        if ((node.userContentEdits?.totalCount ?? 0) > edits.length) return undefined; // older versions beyond the page: unknown
+        const before = edits.filter(e => e.editedAt < at && typeof e.diff === 'string').sort((a, b) => (a.editedAt < b.editedAt ? 1 : -1))[0];
+        return before?.diff ?? undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 /** The pull request for the branch (or the one named, or the one the commit is on), or none, or why it could not be read. */
 export async function findPullRequest(gh: Gh, branch: string, head: string, named: number | undefined): Promise<{ pr?: PullRequest; error?: string }> {
     if (named !== undefined) return viewPullRequest(gh, String(named));

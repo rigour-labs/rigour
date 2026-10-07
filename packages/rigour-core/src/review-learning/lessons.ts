@@ -1,34 +1,115 @@
 /**
- * Review lessons: what a team's acted-on review comments taught, ready to
- * hand to the next agent before it opens a PR.
+ * Review lessons: what a team's reviews taught, ready to hand to the next agent
+ * and judge.
  *
- * A lesson starts as a candidate with its evidence (PR, comment, author). It
- * becomes verified only when the same lesson was acted on in two or more PRs,
- * or a person promotes it. Lessons stay in the repository's .rigour/ folder
- * (ignored by git) and are sent nowhere except to the user's own model.
+ * Evidence only. Every review point, a person's, an AI's posted under a person's
+ * login, or a bot's, is a candidate; who wrote it is recorded, never the gate. A
+ * candidate becomes a lesson on evidence (lessonState): an outcome (a later fix
+ * to the lines it pointed at), a person accepting it, or, weak alone, the same
+ * point recurring across pull requests by different authors. Counter-evidence (the
+ * lines shipped unchanged and nothing needed fixing within a window) holds it
+ * back, and a person rejecting it makes it an anti-lesson the judges are told is
+ * settled. Every piece of evidence stays on the lesson. Lessons stay in the
+ * repository's .rigour/ folder and are sent nowhere except to the user's own model.
  */
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import type { Git, ReviewComment } from './acted-on.js';
+import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
+import { bodyPoints } from './review-points.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
 const MAX_TEXT = 220;
 const MAX_SYMBOLS = 8;
-const VERIFY_AT_PRS = 2;
+/**
+ * Recurrence is weak evidence, and only when independent: the same point on this many pull requests,
+ * by this many different authors, raised by different reviewers or by one reviewer in different words
+ * (a senior re-raising a standard counts; a bot pasting its template on every pull request does not).
+ */
+const RECUR_PRS = 2;
+const RECUR_AUTHORS = 2;
+/** Team standards served with a change, on top of the lessons about its files (an agent's question; a judge takes more), and the words they must share with it. */
+const MAX_STANDARDS = 3;
+const STANDARD_WORDS = 2;
+/** Words that say nothing about what a rule or a change is about. */
+const PLAIN_WORDS = new Set(['when', 'that', 'this', 'with', 'from', 'before', 'after', 'every', 'their', 'them', 'than', 'each', 'only', 'into', 'rather', 'instead', 'should', 'make', 'keep', 'sure', 'does', 'what', 'which', 'there', 'these', 'those', 'such', 'more', 'other', 'same', 'then', 'also', 'both', 'must', 'never', 'always', 'once', 'been', 'have', 'will', 'your', 'about', 'over', 'under', 'change', 'changes', 'code', 'value', 'values', 'data', 'true', 'false', 'null', 'undefined', 'return', 'const', 'function', 'export', 'import', 'await', 'async', 'string', 'number', 'type']);
 /** Lessons from these teach about one document, test or config file, not about code that will change again. */
 const NOT_CODE = /(\.(md|mdx|txt|ya?ml|json|lock|snap)$)|(\.(test|spec)\.[cm]?[jt]sx?$)|(^|\/)(__tests__|docs?|migrations|\.github)\//i;
 const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 'await', 'async', 'function', 'true', 'false', 'null', 'undefined', 'string', 'number', 'boolean', 'export', 'import', 'type', 'interface', 'else', 'when', 'then', 'should', 'line', 'lines']);
+
+/**
+ * One piece of a lesson's evidence trail:
+ *   point     a review point making it (the candidate's own source; weak, but it can recur);
+ *   outcome   a later commit fixed the lines the point named, or the pull request was reverted;
+ *   counter   the lines shipped unchanged and nothing needed fixing within the window;
+ *   correction  a person changed what an agent wrote (human-edits.ts): heavily weighted, it makes a lesson;
+ *   accepted / rejected   a person decided (`rigour learn-reviews --promote / --reject`);
+ *   norule    the rule writer found no rule in it (a report, a template, a one-off): never promoted again.
+ * A record from before evidence kinds has none: it is a `point`.
+ */
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule';
+
+export interface LessonEvidence {
+    kind?: EvidenceKind;
+    pr: number;
+    /** The review comment or review-body point (or, for a decision, what decided it). */
+    comment: string;
+    /** Who wrote the point, or who decided. */
+    author: string;
+    /** A review bot's login (a GitHub App), or a person's (whose text may itself be an AI's): metadata, never a gate. */
+    source?: 'person' | 'bot';
+    /** Who wrote the pull request: recurrence counts only across different authors. */
+    prAuthor?: string;
+    /** Whether the pull request changed the lines before merging: not evidence (agents apply comments on their own), recorded. */
+    actedOn?: boolean;
+    /** The person's own words, kept when a rule was written from them (rules-from-reviews.ts). */
+    said?: string;
+    /** A point's own words, as it was made (each point merged into a lesson keeps its own). */
+    text?: string;
+    /** What the evidence was: the fixing commit, the window, who decided and why. */
+    detail?: string;
+    at?: string;
+}
 
 export interface ReviewLesson {
     id: string;
     text: string;
     file: string;
     symbols: string[];
-    state: 'candidate' | 'verified';
-    evidence: Array<{ pr: number; comment: string; author: string }>;
+    /** `rejected`: an anti-lesson, a point the team decided against. */
+    state: 'candidate' | 'verified' | 'rejected';
+    /** Which evidence made it a lesson. */
+    promotedBy?: 'outcome' | 'correction' | 'person' | 'recurrence' | 'legacy';
+    evidence: LessonEvidence[];
+    /** Where the point sits in the commit it was made on, for outcome evidence (inline comments only). */
+    at?: { commit: string; start: number; end: number };
     createdAt: string;
     updatedAt: string;
+}
+
+/**
+ * A lesson's state from its evidence trail. A person's decision wins; then an outcome; counter-evidence
+ * holds a candidate back; recurrence across pull requests and authors is enough only without it. A record
+ * from before evidence kinds keeps the state it had.
+ */
+export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 'promotedBy'> {
+    const kinds = new Set(lesson.evidence.map(e => e.kind));
+    if (!lesson.evidence.some(e => e.kind)) return lesson.state === 'verified' ? { state: 'verified', promotedBy: lesson.promotedBy ?? 'legacy' } : { state: lesson.state };
+    const decisions = lesson.evidence.filter(e => e.kind === 'accepted' || e.kind === 'rejected');
+    const last = decisions.at(-1);
+    if (last?.kind === 'rejected') return { state: 'rejected' };
+    if (last?.kind === 'accepted') return { state: 'verified', promotedBy: 'person' };
+    if (kinds.has('norule')) return { state: 'candidate' };
+    if (kinds.has('correction')) return { state: 'verified', promotedBy: 'correction' };
+    if (kinds.has('outcome')) return { state: 'verified', promotedBy: 'outcome' };
+    if (kinds.has('counter')) return { state: 'candidate' };
+    const points = lesson.evidence.filter(e => (e.kind ?? 'point') === 'point');
+    const prs = new Set(points.map(e => e.pr)).size;
+    const authors = new Set(points.map(e => e.prAuthor).filter(Boolean)).size;
+    const reviewers = new Set(points.map(e => e.author).filter(Boolean)).size;
+    const wordings = new Set(points.map(e => normalize(e.text ?? '')).filter(Boolean)).size;
+    const independent = reviewers >= 2 || wordings >= 2;
+    return prs >= RECUR_PRS && authors >= RECUR_AUTHORS && independent ? { state: 'verified', promotedBy: 'recurrence' } : { state: 'candidate' };
 }
 
 /** The point of a review comment: its bold title, else its first sentence, without tool output or markup. */
@@ -70,8 +151,29 @@ export function lessonFromComment(git: Git, comment: ReviewComment, at = new Dat
     return {
         id: crypto.createHash('sha256').update(`${comment.path}\u0000${normalize(text)}`).digest('hex').slice(0, 12),
         text, file: comment.path, symbols: lessonSymbols(comment.body, codeLines), state: 'candidate',
-        evidence: [{ pr: comment.prNumber, comment: comment.id, author: comment.author }], createdAt: at, updatedAt: at,
+        evidence: [{ kind: 'point', pr: comment.prNumber, comment: comment.id, author: comment.author, ...pointMeta(comment), text, at }],
+        at: { commit: comment.commit, start: comment.start, end: comment.end }, createdAt: at, updatedAt: at,
     };
+}
+
+/**
+ * Candidate lessons from a review body's points. A point naming a path is about that file; one naming
+ * only a file the PR changed after the review (by its name) is about that file; a point naming none is
+ * a team standard (file ''), served with any change it is about once evidence makes it a lesson.
+ * Whether files changed after it is recorded, not required.
+ */
+export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString()): ReviewLesson[] {
+    return bodyPoints(review.body).flatMap((point, i) => {
+        const text = point.replace(/[*_]/g, '').slice(0, MAX_TEXT).trim();
+        if (text.length < 12) return [];
+        const named = /(?:^|[\s`(])((?:[\w.-]+\/)+[\w.-]+\.\w+)/.exec(point)?.[1];
+        const file = named ?? changedAfter.find(f => text.includes(path.posix.basename(f))) ?? '';
+        return [{
+            id: crypto.createHash('sha256').update(`${file}\u0000${normalize(text)}`).digest('hex').slice(0, 12),
+            text, file, symbols: lessonSymbols(point, []), state: 'candidate' as const,
+            evidence: [{ kind: 'point' as const, pr: review.prNumber, comment: `review-${review.id}-${i}`, author: review.author, ...pointMeta(review), actedOn: changedAfter.length > 0, text, at }], createdAt: at, updatedAt: at,
+        }];
+    });
 }
 
 /**
@@ -83,21 +185,23 @@ export function mergeLessons(existing: ReviewLesson[], incoming: ReviewLesson[])
     const lessons = existing.map(l => ({ ...l, evidence: [...l.evidence] }));
     let added = 0;
     for (const lesson of incoming) {
-        const same = lessons.find(l => l.id === lesson.id || (l.file === lesson.file && shared(l.symbols, lesson.symbols) >= 2));
+        // Shared names find the same point made again on another pull request; two points on one pull request are two points.
+        const otherPr = (l: ReviewLesson) => !l.evidence.some(e => lesson.evidence.some(x => x.pr === e.pr));
+        const same = lessons.find(l => l.id === lesson.id || (l.file === lesson.file && shared(l.symbols, lesson.symbols) >= 2 && otherPr(l))
+            || (!l.file && !lesson.file && sameWords(l.text, lesson.text)));
         if (!same) {
-            lessons.push(lesson);
+            lessons.push({ ...lesson, evidence: [...lesson.evidence] });
             added++;
             continue;
         }
-        for (const e of lesson.evidence) if (!same.evidence.some(x => x.comment === e.comment)) same.evidence.push(e);
+        for (const e of lesson.evidence) if (!same.evidence.some(x => x.comment === e.comment && x.kind === e.kind)) same.evidence.push(e);
         same.updatedAt = lesson.updatedAt;
     }
     let verified = 0;
     for (const lesson of lessons) {
-        if (lesson.state === 'candidate' && new Set(lesson.evidence.map(e => e.pr)).size >= VERIFY_AT_PRS) {
-            lesson.state = 'verified';
-            verified++;
-        }
+        const before = lesson.state;
+        Object.assign(lesson, lessonState(lesson));
+        if (lesson.state === 'verified' && before !== 'verified') verified++;
     }
     return { lessons, added, verified };
 }
@@ -112,12 +216,13 @@ export interface ChangeShape {
  * Lessons that apply to a change, best first. A lesson applies when the change
  * touches its file, or shares at least two specific identifiers with it; a
  * shared directory only breaks ties. Lessons about docs, tests or config never
- * apply to other files.
+ * apply to other files. A team standard (a lesson with no file) applies to every
+ * change; the best-evidenced few follow the file lessons.
  */
-export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, options: { includeCandidates?: boolean; limit?: number } = {}): ReviewLesson[] {
+export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, options: { includeCandidates?: boolean; limit?: number; standards?: number } = {}): ReviewLesson[] {
     const dirs = new Set(change.files.map(f => path.posix.dirname(f)));
     const scored = lessons
-        .filter(l => (options.includeCandidates || l.state === 'verified') && !NOT_CODE.test(l.file))
+        .filter(l => !!l.file && (l.state === 'verified' || (options.includeCandidates && l.state === 'candidate')) && !NOT_CODE.test(l.file))
         .map(l => ({
             lesson: l,
             score: (change.files.includes(l.file) ? 3 : 0) + (dirs.has(path.posix.dirname(l.file)) ? 0.5 : 0)
@@ -125,7 +230,17 @@ export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, optio
         }))
         .filter(s => s.score >= 3)
         .sort((a, b) => b.score - a.score || b.lesson.evidence.length - a.lesson.evidence.length);
-    return scored.slice(0, options.limit ?? 5).map(s => s.lesson);
+    // A team standard (no file) applies when its words are the change's: its paths and the names on its added lines,
+    // split into words. A rule about keyboard shortcuts says nothing to a change to a database job.
+    const changeWords = new Set([...change.files.flatMap(f => f.split(/[/._-]+/)), ...change.symbols].flatMap(words));
+    const standards = lessons
+        .filter(l => !l.file && (l.state === 'verified' || (options.includeCandidates && l.state === 'candidate')))
+        .map(l => ({ lesson: l, shared: new Set(words(l.text)).size === 0 ? 0 : [...new Set(words(l.text))].filter(w => changeWords.has(w)).length }))
+        .filter(s => s.shared >= STANDARD_WORDS)
+        .sort((a, b) => b.shared - a.shared || b.lesson.evidence.length - a.lesson.evidence.length)
+        .slice(0, options.standards ?? MAX_STANDARDS)
+        .map(s => s.lesson);
+    return [...scored.slice(0, options.limit ?? 5).map(s => s.lesson), ...standards];
 }
 
 /** RIGOUR_REVIEW_LESSONS points at a lessons file outside the clone (CI, or a team's shared copy). */
@@ -148,12 +263,14 @@ export function writeLessons(cwd: string, lessons: ReviewLesson[]): void {
     fs.writeFileSync(file, JSON.stringify({ version: 1, lessons }, null, 2) + '\n');
 }
 
-export function promoteLesson(cwd: string, id: string): ReviewLesson | undefined {
+/** A person's decision on a lesson, kept as evidence: accepted makes it a lesson, rejected an anti-lesson. Undefined for an unknown id. */
+export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected', by: string, why = ''): ReviewLesson | undefined {
     const lessons = readLessons(cwd);
     const lesson = lessons.find(l => l.id === id);
     if (!lesson) return undefined;
-    lesson.state = 'verified';
-    lesson.updatedAt = new Date().toISOString();
+    const at = new Date().toISOString();
+    lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
+    Object.assign(lesson, lessonState(lesson), { updatedAt: at });
     writeLessons(cwd, lessons);
     return lesson;
 }
@@ -169,4 +286,23 @@ function normalize(text: string): string {
 
 function shared(a: string[], b: string[]): number {
     return a.filter(s => b.includes(s)).length;
+}
+
+/** Two team standards are the same point when most of their words are: a reviewer rarely repeats a sentence exactly. */
+function sameWords(a: string, b: string): boolean {
+    const words = (t: string) => new Set(normalize(t).split(' ').filter(w => w.length >= 4));
+    const x = words(a), y = words(b);
+    if (x.size === 0 || y.size === 0) return false;
+    const common = [...x].filter(w => y.has(w)).length;
+    return common / Math.max(x.size, y.size) >= 0.6;
+}
+
+/** The meaningful words of a text or an identifier: `hasLaterAttempt` and "a later attempt" share later and attempt. */
+function words(text: string): string[] {
+    return text.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z]+/).filter(w => w.length >= 4 && !PLAIN_WORDS.has(w));
+}
+
+/** Who made a point and on whose pull request: recorded with it, never a filter. */
+function pointMeta(x: { source?: 'person' | 'bot'; prAuthor?: string; actedOn?: boolean }): Pick<LessonEvidence, 'source' | 'prAuthor' | 'actedOn'> {
+    return { ...(x.source ? { source: x.source } : {}), ...(x.prAuthor ? { prAuthor: x.prAuthor } : {}), ...(x.actedOn !== undefined ? { actedOn: x.actedOn } : {}) };
 }

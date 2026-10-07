@@ -4,6 +4,7 @@
  *   - baseline: the commit HEAD was at when the session first edited a file. The stop review
  *     covers everything since then, so committing mid-session hides nothing.
  *   - attempts: how many times the stop review has blocked this session.
+ *   - taught: the team lessons and rules the stop review already put to the agent, so each is asked once.
  */
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
@@ -16,6 +17,8 @@ interface SessionEntry {
     attempts?: number;
     /** The state of the work when the stop review last ran (workFingerprint). */
     reviewed?: string;
+    /** Keys of the team knowledge already shown to this session. */
+    taught?: string[];
     at: number;
 }
 
@@ -107,4 +110,14 @@ export function nextStopAttempt(cwd: string, session: string): number {
 /** The agent finished cleanly: the next stop starts counting again. The baseline stays. */
 export function clearStopAttempts(cwd: string, session: string): void {
     if (readStore(cwd)[session]?.attempts) update(cwd, session, entry => ({ ...entry, attempts: 0 }));
+}
+
+/** Of these team-knowledge keys, the ones this session has not been shown yet. */
+export function untaught(cwd: string, session: string, keys: string[]): string[] {
+    const taught = new Set(readStore(cwd)[session]?.taught ?? []);
+    return keys.filter(key => !taught.has(key));
+}
+
+export function recordTaught(cwd: string, session: string, keys: string[]): void {
+    if (keys.length) update(cwd, session, entry => ({ ...entry, taught: [...new Set([...(entry.taught ?? []), ...keys])] }));
 }

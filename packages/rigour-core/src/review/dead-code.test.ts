@@ -5,6 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { diffFromGit } from './git-diff.js';
+import { mustFix } from './quiet.js';
 import { orphanFileFailures } from './orphan-files.js';
 import { unusedExportFailures } from './unused-exports.js';
 
@@ -96,6 +97,19 @@ describe('unused exports', () => {
         write('src/app.ts', 'export function start() {}\nexport const orphanName = 1;\n');
         write('rigour-report.json', '{"failures":[{"details":"orphanName"}]}\n');
         expect(unusedExportFailures(repo, diffFromGit(repo), config())).toHaveLength(1);
+    });
+
+    it('reports dead code as a note unless the team blocks on it', () => {
+        write('src/app.ts', 'export function start() {}\nexport function lonely() { return 1; }\n');
+        write('src/new-tool.ts', 'export const tool = 1;\n');
+        const found = (gates: Record<string, unknown> = {}) => [
+            ...unusedExportFailures(repo, diffFromGit(repo), config(gates)),
+            ...orphanFileFailures(repo, diffFromGit(repo), config(gates)),
+        ];
+        expect(found().map(f => [f.id, mustFix(f)])).toEqual(expect.arrayContaining([['unused-export', false], ['orphan-file', false]]));
+        const strict = found({ unused_exports: { block: true }, orphan_files: { block: true } });
+        expect(strict.length).toBeGreaterThan(0);
+        expect(strict.every(mustFix)).toBe(true);
     });
 
     it('is off when disabled', () => {

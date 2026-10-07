@@ -12,7 +12,7 @@ import { DEFAULT_MAX_FUNCTIONS, DEFAULT_MIN_SCORE, type RouterPolicy } from '../
 import { rankChangedFunctions, type FunctionRisk } from '../deep/risk.js';
 import { changedLinesByFile, parseDiff, removedByFile } from '../utils/diff.js';
 import { isReviewed, reviewedKeys, type ReviewedKey } from './ledger.js';
-import { activeLessons, DEFAULT_LESSON_MODE, lessonsForDiff, type LessonMode } from '../review-learning/team-lessons.js';
+import { activeLessons, DEFAULT_LESSON_MODE, lessonsForDiff, lessonView, type LessonMode, type LessonView } from '../review-learning/team-lessons.js';
 import { rulesForDiff } from '../review-learning/repo-rules.js';
 
 export interface ReviewTaskItem {
@@ -31,7 +31,7 @@ export interface ReviewTask {
     /** Risky functions already reviewed at their current content. */
     alreadyReviewed: number;
     /** The team's past review lessons that apply to this change. */
-    lessons: Array<{ file: string; text: string; prs: number[] }>;
+    lessons: LessonView[];
     /** The repository's own rules (AGENTS.md, …) that name what this change touches. */
     rules: Array<{ source: string; text: string }>;
     instructions: string;
@@ -55,7 +55,7 @@ export function buildReviewTask(
     const ranked = rankChangedFunctions(cwd, changedLinesByFile(changed), removedByFile(diff), activeLessons(cwd, lessonMode));
     const risky = ranked.filter(f => f.score >= (policy.min_score ?? DEFAULT_MIN_SCORE)).slice(0, policy.max_functions ?? DEFAULT_MAX_FUNCTIONS);
     const pending = risky.filter(f => !isReviewed(reviewed, { file: f.file, function: f.name, hash: f.hash }));
-    const lessons = lessonsForDiff(cwd, diff, lessonMode).map(l => ({ file: l.file, text: l.text, prs: [...new Set(l.evidence.map(e => e.pr))] }));
+    const lessons = lessonsForDiff(cwd, diff, lessonMode).map(lessonView);
     return {
         items: pending.map(toItem),
         alreadyReviewed: risky.length - pending.length,

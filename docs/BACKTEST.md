@@ -37,9 +37,9 @@ One round per human review:
 | --- | --- |
 | `id` | The round's name, used by `--round` |
 | `commit` | The commit the person reviewed (at least 7 characters). It must exist in your clone; fetch the branch it was reviewed on if it does not |
-| `base` | The main branch as it was then, so a later merge does not change what the round measures |
-| `reviewed_at` | Optional. With `--reviewer`, reviews and comments posted from this time on are hidden from the reviewer |
-| `pr` | Optional. The pull request the reviewer reads, since the round's checkout is detached |
+| `base` | Where the reviewed commit left the main branch (their merge-base), so the round reviews only the branch's own changes, never main's |
+| `reviewed_at` | Optional. With `--reviewer`, reviews and comments posted from this time on are hidden from the reviewer, and it reads the pull request description as it was at that time (from GitHub's edit history). If that version cannot be recovered, it gets no description, never today's |
+| `pr` | Optional. The pull request the reviewer reads, since the round's checkout is detached. Without it, `--reviewer` reviews the commit **blind**: no human review, no description, and GitHub is never asked |
 | `points` | What the person said. Each has an `id`, a `point` (the sentence, for the report) and a match |
 | `must_not_flag` | Code the person called good, as matches. A blocking finding there is a false block. Optional |
 
@@ -57,7 +57,7 @@ This reads the pull request's reviews through `gh` and writes one round per revi
 
 - An inline comment becomes a point with its file (as an escaped pattern) and a window of 10 lines either side of its line. A comment with no line is marked `needs`.
 - Each bulleted or numbered line in the review body becomes a point with no file, marked `needs`: add its `file` and `text` patterns once.
-- `base` is the last commit on the main branch before the review was posted.
+- `base` is the merge-base of the reviewed commit and the main branch as it was when the review was posted. A branch that merged main in is measured from the newest main it contains. When a round's base is older than that, `rigour backtest` warns: the diff would include main's own commits, and anything found on them would be scored as the branch's.
 - `must_not_flag` is left empty for you to fill in.
 
 Rounds already in the ledger with the same `id` are replaced; others are kept. The command prints how many points still need a pattern. Set `review.github_account` in `rigour.yml` (or `RIGOUR_GITHUB_ACCOUNT`) when `gh` holds several accounts.
@@ -72,7 +72,7 @@ rigour backtest --json          # { passed, rounds } as JSON
 rigour backtest -c <path>       # another rigour.yml
 ```
 
-Each round is checked out in a detached worktree under the git directory, `<git common dir>/rigour-backtest/<commit>`, so the branch you are on does not move. The worktree is reused on the next run, and your checkout's `node_modules` is linked into it rather than installed again. The score and every finding reported are written to `.rigour/backtest/<round>-<commit>.json` (not committed), so a pattern that missed can be checked against what was actually reported.
+Each round is checked out in one detached worktree under the git directory, `<git common dir>/rigour-backtest/checkout`, moved from round to round, so the branch you are on does not move and a backtest of many pull requests takes the disk of one checkout. Run one backtest at a time per repository. The worktree is reused on the next run, and your checkout's `node_modules` is linked into it rather than installed again. The score and every finding reported are written to `.rigour/backtest/<round>-<commit>.json` (not committed), so a pattern that missed can be checked against what was actually reported.
 
 ```
 pr212-r2 at 3f9c2a1d: 1/3 caught, 0 false block(s), 12 finding(s), 15s; caught by unbounded-window 1
@@ -93,7 +93,7 @@ A point counts as **caught** only when a blocking finding matches it. A match in
 
 ### What `--reviewer` costs and needs
 
-`--reviewer` runs the reviewer on every round, ignoring cached verdicts, with the agent CLIs the reviewer settings name (`review.reviewer` in `rigour.yml`, then your own settings). Each round is one or more agent runs, and they reach the agents' vendors. It reads the round's pull request through `gh`. See [The reviewer](./REVIEWER.md) and [Security, privacy and network use](./SECURITY.md).
+`--reviewer` runs the reviewer on every round, ignoring cached verdicts, with the agent CLIs the reviewer settings name (`review.reviewer` in `rigour.yml`, then your own settings). Each round is one or more agent runs, and they reach the agents' vendors. It reads the round's pull request through `gh`; a round with no `pr` is reviewed blind and makes no GitHub call. See [The reviewer](./REVIEWER.md) and [Security, privacy and network use](./SECURITY.md).
 
 ### Comparing judges
 

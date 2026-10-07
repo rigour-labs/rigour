@@ -1,6 +1,6 @@
 import os from 'os';
-import { describe, expect, it } from 'vitest';
-import { defaultExec } from './exec.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { defaultExec, githubToken, type Exec } from './exec.js';
 
 describe('running a command', () => {
     it('passes the command\'s own output through', async () => {
@@ -37,5 +37,27 @@ describe('running a command', () => {
         const slow = await defaultExec(process.execPath, ['-e', 'setTimeout(() => {}, 10_000)'], { cwd: os.tmpdir(), timeoutMs: 200 });
         expect(slow.exitCode).not.toBe(0);
         expect(slow.stderr).toMatch(/timed out/i);
+    });
+});
+
+describe('the token GitHub is read with', () => {
+    afterEach(() => { vi.unstubAllEnvs(); });
+    const gh = (tokens: Record<string, string>, asked: string[][]): Exec => async (_command, args) => {
+        asked.push(args);
+        const user = args[args.indexOf('--user') + 1];
+        const token = args.includes('--user') ? tokens[user] : tokens.active;
+        return token ? { exitCode: 0, stdout: `${token}\n`, stderr: '' } : { exitCode: 1, stdout: '', stderr: 'no account' };
+    };
+
+    it('is an explicit token first, then the named account, and the active account only when none is named', async () => {
+        vi.stubEnv('GH_TOKEN', ''); vi.stubEnv('GITHUB_TOKEN', '');
+        const asked: string[][] = [];
+        const tokens = { active: 'other-employer', work: 'work-token' };
+        expect(await githubToken(os.tmpdir(), 'work', gh(tokens, asked))).toBe('work-token');
+        expect(await githubToken(os.tmpdir(), undefined, gh(tokens, asked))).toBe('other-employer');
+        await expect(githubToken(os.tmpdir(), 'missing', gh(tokens, asked))).rejects.toThrow('GitHub account missing is named for reading');
+        expect(asked).toEqual([['auth', 'token', '--user', 'work'], ['auth', 'token'], ['auth', 'token', '--user', 'missing']]); // a named account never falls back to the active one
+        vi.stubEnv('GITHUB_TOKEN', 'ci-token');
+        expect(await githubToken(os.tmpdir(), 'work', gh(tokens, asked))).toBe('ci-token');
     });
 });

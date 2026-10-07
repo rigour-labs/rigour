@@ -5,6 +5,11 @@
 commands: {}
 gates:
   max_file_lines: 400
+  # This project blocks on dead code: an export or file nothing uses is removed before merge.
+  unused_exports:
+    block: true
+  orphan_files:
+    block: true
   forbid_todos: true
   forbid_fixme: true
   required_files:

@@ -213,10 +213,12 @@ export const UNIVERSAL_CONFIG: Config = {
         unused_exports: {
             enabled: true,
             allow: [],
+            block: false,
         },
         orphan_files: {
             enabled: true,
             allow: [],
+            block: false,
         },
         query_patterns: {
             enabled: true,

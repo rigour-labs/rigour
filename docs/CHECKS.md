@@ -8,7 +8,7 @@ Every setting named here is listed with its default in [CONFIG_REFERENCE.md](CON
 
 One rule decides what blocks, in `packages/rigour-core/src/review/quiet.ts` (`mustFix`). The review verdict, the stop hook and the push gate all use it, so they never disagree about a finding. A finding blocks when any of these is true:
 
-- It comes from a **proven** check: one that traces the defect itself rather than guessing at it. These gate ids are proven: `semantic-bugs`, `hallucinated-imports`, `security-patterns`, `deep-analysis`, `diff-tests`, `unused-export`, `orphan-file`, `offset-paging`, `unbounded-window`, `duplicate-function`, `partial-fix`, `partial-wiring`, `migration-order`, `duplicate-null-filter`, `nullable-filtered-column`, `optional-always-supplied`, `write-only-property`, `typed-checks-unavailable`.
+- It comes from a **proven** check: one that traces the defect itself rather than guessing at it. These gate ids are proven: `semantic-bugs`, `hallucinated-imports`, `security-patterns`, `deep-analysis`, `diff-tests`, `unused-export`, `orphan-file`, `offset-paging`, `unbounded-window`, `duplicate-function`, `partial-fix`, `partial-wiring`, `migration-order`, `duplicate-null-filter`, `nullable-filtered-column`, `optional-always-supplied`, `write-only-property`, `typed-checks-unavailable`. `unused-export` and `orphan-file` block only when the team turns on their `block` setting (below); otherwise they are notes.
 - Its severity is `critical`.
 - Its severity is `high` and it was verified (the semantic rules and verified model findings set this), or it came from a security check.
 
@@ -30,7 +30,7 @@ Two settings change the picture:
 | Moment | What runs |
 |:---|:---|
 | After every edit (agent hook) | A fast per-file subset: protected paths, file size, hallucinated imports and promise safety (JS/TS), security patterns. See [After-edit checks](#after-edit-checks). |
-| Before the agent says done (stop hook) | The review below, without the typed checks, plus the branch checks when on a branch. At most three stops. |
+| Before the agent says done (stop hook) | The review below, without the typed checks, plus the branch checks when on a branch. At most three stops. It also asks the agent, once per session for each, to check the change against the team's verified review lessons that apply to it (and the repository rules that name it, when `gates.deep.repo_rules` is on). |
 | Before `git push` | The review with the typed checks, the branch checks, and the push-time toolchain. The reviewer too, when it is turned on ([REVIEWER.md](REVIEWER.md)). |
 | `rigour review` | The review with the typed checks. No branch checks, no toolchain. Model review only when you pass `--deep`, `--pro`, `--max` or `-k` ([MODEL_REVIEW.md](MODEL_REVIEW.md)). |
 | `rigour check` | The repository-wide gates and the `commands:` in rigour.yml. None of the review-only checks. |
@@ -75,8 +75,8 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Unused export | An export on an added line that no other file imports from its module. A test is not a consumer. Framework route and hook exports are skipped. | JS/TS, Svelte | `unused-export` | On | Yes |
-| Orphaned file | A new code file that nothing imports or runs. Routes, hooks, tests, migrations and config files are skipped. A folder of new files that only import each other is reported as a whole. | JS/TS, Svelte | `orphan-file` | On | Yes |
+| Unused export | An export on an added line that no other file imports from its module. A test is not a consumer. Framework route and hook exports are skipped. | JS/TS, Svelte | `unused-export` | On | Note; `block: true` makes it block |
+| Orphaned file | A new code file that nothing imports or runs. Routes, hooks, tests, migrations and config files are skipped. A folder of new files that only import each other is reported as a whole. | JS/TS, Svelte | `orphan-file` | On | Note; `block: true` makes it block |
 | Duplicate function | A changed function whose body is the same, line for line, as another function in the touched files (comments and layout ignored; at least 4 statements and 6 lines). | JS/TS, Svelte | `duplicate-function` | On | Yes |
 | Optional member every host supplies | An optional property that every object providing it sets. | TypeScript | `optional-always-supplied` | On (`redundancy`) | Yes |
 | Write-only property | A property the hosts set that nothing reads. When the value only leaves through serialisation, it is a hint instead. | TypeScript | `write-only-property` | On (`redundancy`) | Yes |
@@ -92,6 +92,9 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 | Unbounded window | A lower bound on a time column taken from a window object, with no upper bound on the same column in the same query. A bare "since" query is not reported. | JS/TS | `unbounded-window` | On (`query_patterns`) | Yes |
 | Redundant null filter | `.not(col, 'is', null)` in a chain that already ranges or equals on `col`. | TypeScript | `duplicate-null-filter` | On (`redundancy`) | Yes |
 | Nullable type for a filtered column | The query filters a column non-null, but the row type still says `\| null`, so every guard on it is dead. | TypeScript | `nullable-filtered-column` | On (`redundancy`) | Yes |
+| Dead null guard | A guard (`??`, `?.`, `== null`, `!x.col`, a truthiness test) on a column every query returning the row type filters non-null, while no code builds that row with the column missing or null. A string column's truthiness test is reported with the empty-string case named; number and boolean ones are not reported. | TypeScript | `dead-null-guard` | On (`redundancy`) | Note |
+| Constant member | A property every production object of the type sets to the same literal, while code branches on it: the other branches never run outside tests. | TypeScript | `constant-member` | On (`redundancy`) | Note |
+| Constant argument | A parameter every production call (two or more) passes the same literal, while the body branches on it. A function passed around as a value is never reported. | TypeScript | `constant-argument` | On (`redundancy`) | Note |
 | Nullable type for a NOT NULL column | The row type of `.from('t')` says `\| null` for a column the migrations in `schema_migrations` make NOT NULL. | TypeScript | `nullable-not-null-column` | On (`redundancy`) | Note |
 | Quadratic copy | An accumulator copied whole on every loop step (`acc = [...acc, item]`). | JS/TS | `quadratic-copy` | On (`change_sweep`) | Note |
 | Migration out of order | A migration the change adds that sorts before the newest migration on the base. Only folders in `dirs` (default `**/supabase/migrations`). | SQL migrations | `migration-order` | Off | Yes, when enabled |
@@ -180,7 +183,7 @@ gates:
 
 ## Typed checks
 
-The five checks with gate ids `duplicate-null-filter`, `nullable-filtered-column`, `nullable-not-null-column`, `optional-always-supplied` and `write-only-property` use the project's own TypeScript program (its `tsconfig.json` and installed `typescript`). Building it takes seconds, so they run at push and in `rigour review`, not at every stop. They only look at lines the change touched or members it declared.
+The checks with gate ids `duplicate-null-filter`, `nullable-filtered-column`, `nullable-not-null-column`, `optional-always-supplied`, `write-only-property`, `dead-null-guard`, `constant-member` and `constant-argument` use the project's own TypeScript program (its `tsconfig.json` and installed `typescript`). Building it takes seconds, so they run at push and in `rigour review`, not at every stop. They only look at lines the change touched or members it declared.
 
 - If the project is TypeScript and the program cannot be built (dependencies not installed, generated config missing), the review reports `typed-checks-unavailable` and blocks. A checkout that cannot prove the change is never a pass.
 - `wire_contracts` lists files whose types another service reads, so their members are never reported as write-only.
@@ -194,9 +197,15 @@ gates:
     schema_migrations: ["../database/supabase/migrations"]
   unused_exports:
     allow: [register]              # export names a tool loads by name
+    block: true                    # this team's reviewers block on dead exports
   orphan_files:
     allow: ["scripts/one-off/**"]  # files a tool loads by path
 ```
+
+**Dead code is a note unless your team blocks on it.** Across real approved pull requests from many
+teams, the exports reviewers let through were mostly test seams and types another export's signature
+needs. Blocking on them by default stopped approved code. A team whose reviewers do block on dead exports
+or files sets `block: true`, and from then on the review, the stop hook and the push gate refuse them.
 
 Turn any review-only check off with `enabled: false` under its setting: `unused_exports`, `orphan_files`, `query_patterns`, `duplicate_functions`, `optional_params`, `change_sweep`, `redundancy`. `migration_order` and `unindexed_reads` are off until you set `enabled: true`.
 

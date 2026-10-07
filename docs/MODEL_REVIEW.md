@@ -257,7 +257,7 @@ These tune a model review once it runs. Rigour's defaults apply when they are un
 | `gates.deep.router.enabled` | `true` | Cloud only: send only the riskiest changed functions. |
 | `gates.deep.router.min_score` | `1` | Risk score a function needs to be routed. |
 | `gates.deep.router.max_functions` | `12` | Routed functions at most. |
-| `gates.deep.review_lessons` | `verified` | Team review lessons that raise risk and are shown to the model: `verified`, `all` (adds candidates) or `off`. A lesson is verified when it was acted on in two or more PRs, or by `rigour learn-reviews --promote <id>`. |
+| `gates.deep.review_lessons` | `verified` | Team review lessons that raise risk and are shown to the model: `verified`, `all` (adds candidates) or `off`. A candidate becomes a lesson on evidence: a later fix to the lines it named, a person's `rigour learn-reviews --promote <id>`, or the same point raised independently on pull requests by different authors ([REVIEWER.md](REVIEWER.md#how-it-learns)). |
 | `gates.deep.repo_rules` | `false` | Show the model the rules from the repository's agent rules files that name what the change touches. |
 | `gates.deep.intent_checks` | `false` | In a change review, ask the model one yes-or-no question at `await Promise.all([...])` sites with no failure handling: is one read optional while another is required? At most 10 sites per run. Off because the local models did not meet the zero-false-finding bar. |
 | `gates.deep.checks.*` | all `true` | Categories for the whole-repository pass (`rigour check --deep` with no paths). |

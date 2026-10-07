@@ -14,6 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
 import { buildReviewTask } from '../review-task.js';
+import { describeLesson, lessonsForDiff, lessonView, rejectedForDiff, type LessonMode } from '../../review-learning/team-lessons.js';
 import { reviewedKeys } from '../ledger.js';
 import type { RouterPolicy } from '../../deep/router.js';
 import { textSimilarity } from './consensus.js';
@@ -24,6 +25,8 @@ import type { OpenItem } from './verdict.js';
 
 export const REVIEW_DISMISSALS = path.join('.rigour', 'dismissed-review-items.json');
 const MAX_DOCS = 10;
+/** Team standards a judge is shown with the lessons about the changed files. */
+const JUDGE_STANDARDS = 15;
 const MAX_SETTLED = 40;
 
 export interface ReviewDismissal { id: string; file?: string; line?: number; class: string; issue: string; reason: string; at: string; by?: string }
@@ -73,6 +76,8 @@ export interface ContextInput {
     dismissals: ReviewDismissal[];
     diff: string;
     router: RouterPolicy | undefined;
+    /** Which of the team's review lessons the judges see (gates.deep.review_lessons): verified by default, all, or off. */
+    lessons?: LessonMode;
     /** The previous verdict's panel decisions, and the files changed since it. */
     previousPanel: PanelItem[] | undefined;
     touched: Set<string>;
@@ -92,18 +97,24 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
     const sections: string[] = [];
     let task: ReturnType<typeof buildReviewTask> | undefined;
     try {
-        task = buildReviewTask(input.cwd, input.diff, input.router, undefined, undefined, reviewedKeys(input.stateRoot));
+        task = buildReviewTask(input.cwd, input.diff, input.router, input.lessons, undefined, reviewedKeys(input.stateRoot));
     } catch {
         task = undefined;
     }
-    if (task?.lessons.length) sections.push(`## Lessons this team verified on earlier reviews, for the files this change touches\n${task.lessons.map(l => `- ${l.file}: ${l.text}${l.prs.length ? ` (PR ${l.prs.join(', ')})` : ''}`).join('\n')}`);
+    // A judge reads the whole pull request: more of what the team taught fits than an agent's one question at the stop.
+    const lessons = input.lessons === 'off' ? [] : lessonsForDiff(input.cwd, input.diff, input.lessons, JUDGE_STANDARDS).map(lessonView);
+    if (lessons.length) sections.push(`## Lessons this team taught on earlier reviews, for what this change touches (context: a lesson never blocks on its own; a finding still needs its quote)\n${lessons.map(l => `- ${describeLesson(l)}`).join('\n')}`);
     if (task?.rules.length) sections.push(`## Repository rules that name what this change touches\n${task.rules.map(r => `- ${r.source}: ${r.text}`).join('\n')}`);
 
     if (input.checks.length) sections.push(`## Already found by Rigour's checks: they block on their own, so do not report them again\n${input.checks.slice(0, MAX_SETTLED).map(c => `- ${c}`).join('\n')}`);
+    const rejected = input.lessons === 'off' ? [] : rejectedForDiff(input.cwd, input.diff).map(l => {
+        const no = l.evidence.filter(e => e.kind === 'rejected').at(-1);
+        return `- this team decided against: ${l.text}${no?.author ? ` (rejected by ${no.author}${no.detail ? `: ${no.detail}` : ''})` : ''}`;
+    });
     const dismissed = input.dismissals.slice(-MAX_SETTLED).map(d => `- dismissed as not a bug${d.by ? ` by ${d.by}` : ''}: ${where(d)} [${d.class}] ${d.issue} (reason: ${d.reason})`);
     const refuted = (input.previousPanel ?? []).filter(p => p.status === 'dropped' && !!p.item.file && !input.touched.has(p.item.file)).slice(0, MAX_SETTLED)
         .map(p => `- refuted with evidence in the last round: ${where(p.item)} [${p.item.class}] ${p.item.issue} (${(p.cross ?? []).find(c => c.call === 'refute')?.evidence ?? 'evidence in the previous verdict'})`);
-    if (dismissed.length || refuted.length) sections.push(`## Settled: do not raise these again unless the code now shows something new\n${[...dismissed, ...refuted].join('\n')}`);
+    if (dismissed.length || refuted.length || rejected.length) sections.push(`## Settled: do not raise these again unless the code now shows something new\n${[...rejected, ...dismissed, ...refuted].join('\n')}`);
 
     const docs = input.docs;
     if (docs.length) sections.push(`## Docs that describe the changed code (read one when its claim matters to a finding)\n${docs.map(d => `- ${d.doc} (names ${d.names.join(', ')})`).join('\n')}`);

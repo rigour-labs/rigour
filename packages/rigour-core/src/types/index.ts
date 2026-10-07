@@ -253,6 +253,8 @@ export const GatesSchema = z.object({
     unused_exports: z.object({
         enabled: z.boolean().optional().default(true),
         allow: z.array(z.string()).optional().default([]), // export names a tool loads by name
+        // Block on them. Off by default: teams routinely approve exports kept for tests or for a signature; a team whose reviewers block on them turns it on.
+        block: z.boolean().optional().default(false),
     }).optional().default({}),
     /** Query shapes that cost production: offset paging in a loop, a time window with no upper bound (review/query-patterns.ts). */
     query_patterns: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
@@ -279,6 +281,8 @@ export const GatesSchema = z.object({
     orphan_files: z.object({
         enabled: z.boolean().optional().default(true),
         allow: z.array(z.string()).optional().default([]), // globs for files a tool loads by path
+        // Block on them. Off by default, like unused_exports.block: a team whose reviewers block on dead files turns it on.
+        block: z.boolean().optional().default(false),
     }).optional().default({}),
     migration_order: z.object({
         enabled: z.boolean().optional().default(false),
@@ -480,6 +484,8 @@ export const FailureSchema = z.object({
     source: z.enum(['ast', 'llm', 'hybrid']).optional(), // Finding source
     category: z.string().optional(), // e.g. 'srp_violation', 'god_function'
     verified: z.boolean().optional(), // AST-verified LLM finding
+    /** A proven check the team keeps as a note (its `block: false`): shown, never blocking. */
+    advisory: z.boolean().optional(),
 });
 export type Failure = z.infer<typeof FailureSchema>;
 

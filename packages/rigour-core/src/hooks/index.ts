@@ -26,6 +26,6 @@ export { generateDLPHookFiles } from './dlp-templates.js';
 export type { GeneratedDLPHookFile } from './dlp-templates.js';
 
 // Stop review ("before you say done")
-export { stopReview, stopMessage, STOP_MAX_ATTEMPTS } from './stop-review.js';
-export type { StopDecision } from './stop-review.js';
-export { recordSessionBaseline, sessionBaseline, nextStopAttempt, clearStopAttempts, workFingerprint, alreadyReviewed, recordReviewed } from './session-state.js';
+export { stopReview, stopMessage, teamMessage, STOP_MAX_ATTEMPTS } from './stop-review.js';
+export type { StopDecision, TeamGuidance } from './stop-review.js';
+export { recordSessionBaseline, sessionBaseline, nextStopAttempt, clearStopAttempts, workFingerprint, alreadyReviewed, recordReviewed, untaught, recordTaught } from './session-state.js';

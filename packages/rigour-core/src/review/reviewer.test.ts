@@ -8,7 +8,7 @@ import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './r
 import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
-import { account, carryResolved, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
+import { account, carryResolved, checkoutVerifier, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
 
 let repo: string;
 const config = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
@@ -101,7 +101,7 @@ afterEach(() => {
 describe('the reviewer', () => {
     it('works from every human review with inline comments and the description, written to files, and blocks on an open point', async () => {
         const seen = seenNow();
-        const answer = JSON.stringify({ ...EMPTY, prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: false, evidence: 'src/job.ts:2' }] });
+        const answer = JSON.stringify({ ...EMPTY, prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: false, evidence: 'src/job.ts:2', file: 'src/job.ts', line: 2, quote: 'export function job() {' }] });
         const result = await runReviewer(repo, 'main', config, fakes(() => answer, seen), () => undefined);
         expect(seen.files['previous-reviews.md']).toContain('Review by senior');
         expect(seen.files['previous-reviews.md']).toContain('- 2026-10-03 src/job.ts:12: Check the lock before the first read.');
@@ -118,7 +118,7 @@ describe('the reviewer', () => {
 
     it('caches the verdict per commit and inputs, so the same push is free, and the next commit gets a delta review that carries what is not accounted for', async () => {
         const seen = seenNow();
-        const open = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', consequence: 'a second run reads stale rows', why: 'x' }] });
+        const open = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', quote: 'export function job() {', consequence: 'a second run reads stale rows', why: 'x' }] });
         const first = await runReviewer(repo, 'main', config, fakes(() => open, seen), () => undefined, { checks: ['src/job.ts:1 Unused export `job`'] });
         expect(first.items).toHaveLength(1);
         const again = await runReviewer(repo, 'main', config, fakes(() => open, seen), () => undefined, { checks: ['src/job.ts:1 Unused export `job`'] });
@@ -143,7 +143,7 @@ describe('the reviewer', () => {
 
     it('resolves a previous item only with evidence, and never blocks on an item that names code the checkout does not have', async () => {
         const seen = seenNow();
-        const first = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', consequence: 'a second run reads stale rows' }, { class: 'dead-code', file: 'src/ghost.ts', line: 1, issue: 'unused', consequence: 'a second run reads stale rows' }, { class: 'dead-code', file: '', issue: 'somewhere, no file named', consequence: 'a second run reads stale rows' }] }), seen), () => undefined);
+        const first = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', quote: 'export function job() {', consequence: 'a second run reads stale rows' }, { class: 'dead-code', file: 'src/ghost.ts', line: 1, issue: 'unused', consequence: 'a second run reads stale rows' }, { class: 'dead-code', file: '', issue: 'somewhere, no file named', consequence: 'a second run reads stale rows' }] }), seen), () => undefined);
         expect(first.items.map(i => i.file)).toEqual(['src/job.ts']);
         expect(first.unverified.map(i => i.file)).toEqual(['src/ghost.ts', '']); // a slip and a finding with no place to check: shown, never a block
         const id = first.items[0].id;
@@ -178,6 +178,34 @@ describe('the reviewer', () => {
         expect(shown).toMatchObject({ outcome: 'unavailable', reason: 'claude did not report on the human reviews' });
     });
 
+    it('for a backtest, gives the description as it read at the review, never a later edit', async () => {
+        const versions = { lastEditedAt: '2026-10-06T00:00:00Z', body: 'today: refunds are issued by the nightly job', userContentEdits: { totalCount: 3, nodes: [
+            { editedAt: '2026-10-06T00:00:00Z', diff: 'today: refunds are issued by the nightly job' },
+            { editedAt: '2026-10-02T00:00:00Z', diff: 'then: refunds are issued on request' },
+            { editedAt: '2026-09-30T00:00:00Z', diff: 'first draft' },
+        ] } };
+        const withEdits = (answer: () => string, seen: ReturnType<typeof seenNow>, graphql: unknown): Exec => {
+            const base = fakes(answer, seen);
+            return async (command, args, options) => command === 'gh' && args[0] === 'api' && args[1] === 'graphql'
+                ? { exitCode: graphql ? 0 : 1, stdout: JSON.stringify({ data: { repository: { pullRequest: graphql } } }), stderr: '' }
+                : base(command, args, options);
+        };
+        const reply = () => JSON.stringify({ ...EMPTY, prior_points: [] });
+        const seen = seenNow();
+        await runReviewer(repo, 'main', config, withEdits(reply, seen, versions), () => undefined, { pr: 42, reviewsBefore: '2026-10-03T00:00:00Z', force: true });
+        expect(seen.files['pr-description.md']).toBe('then: refunds are issued on request');
+        await runReviewer(repo, 'main', config, withEdits(reply, seen, null), () => undefined, { pr: 42, reviewsBefore: '2026-10-03T00:00:00Z', force: true });
+        expect(seen.files['pr-description.md']).toContain('could not be recovered');
+    });
+
+    it('blind, reviews the commit alone and never asks GitHub', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seen), () => undefined, { blind: true, trigger: 'backtest', force: true });
+        expect(result.outcome).toBe('passed');
+        expect(seen.ghArgs).toEqual([]);
+        expect(seen.files['previous-reviews.md']).toBe('none\n');
+    });
+
     it('never passes without a verdict: a crash, a malformed answer, an unreadable pull request or no installed reviewer', async () => {
         const crashed = await runReviewer(repo, 'main', config, fakes(() => ({ exitCode: 1, stdout: '', stderr: 'API error' }), seenNow()), () => undefined);
         expect(crashed).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('claude: no answer (exit 1)') });
@@ -190,9 +218,32 @@ describe('the reviewer', () => {
         for (const result of [crashed, prose]) expect(reviewerBlocks(result as ReviewerResult)).toBe(true);
     });
 
+    it('asks a judge once more after an answer that is not a verdict, and is unavailable only when the second is not one either', async () => {
+        const seen = seenNow();
+        let calls = 0;
+        const slipOnce = await runReviewer(repo, 'main', config, fakes(() => (++calls === 1 ? '{"prior_points":[], "findings":[{"class"' : JSON.stringify(EMPTY)), seen), () => undefined, { force: true });
+        expect(slipOnce.outcome).toBe('passed');
+        expect(seen.prompts).toHaveLength(2);
+        const twice = seenNow();
+        const slipTwice = await runReviewer(repo, 'main', config, fakes(() => 'not json', twice), () => undefined, { force: true });
+        expect(slipTwice).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('no valid verdict') });
+        expect(twice.prompts).toHaveLength(2); // once more, never a loop
+    });
+
+    it('says what was asked and that nothing ran when a review ends early, with why a judge is missing', async () => {
+        const seen = { ...seenNow(), installed: ['claude'] }; // cursor is listed but not installed
+        const unreadable: Exec = async (command, args, options) => command === 'gh' && args[0] === 'pr' ? { exitCode: 1, stdout: '', stderr: 'gh auth login required' } : fakes(() => '', seen)(command, args, options);
+        const result = await runReviewer(repo, 'main', config, unreadable, () => undefined, { choice: { mode: 'full', panel: true } });
+        expect(result).toMatchObject({ outcome: 'unavailable', reviewers: ['claude'] });
+        expect(result.mode).toMatchObject({ asked: 'panel', ran: 'none', source: 'flag', degraded: expect.stringContaining('not installed: cursor-agent') });
+
+        const early = await runReviewer(repo, 'main', config, fakes(() => '', { ...seenNow(), installed: [] }), () => undefined, { choice: { mode: 'full', panel: true } });
+        expect(early).toMatchObject({ outcome: 'unavailable', mode: { asked: 'panel', ran: 'none', source: 'flag' } }); // before any judge was found
+    });
+
     it('in full mode runs two vendors and resolves a human point only when both say so', async () => {
         const seen = seenNow();
-        const by = (name: string) => JSON.stringify({ ...EMPTY, prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: name === 'claude', evidence: 'src/job.ts:2' }], findings: name === 'cursor' ? [{ class: 'dead-code', file: 'a.ts', line: 1, issue: 'a is unused', consequence: 'a second run reads stale rows' }] : [] });
+        const by = (name: string) => JSON.stringify({ ...EMPTY, prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: name === 'claude', evidence: 'src/job.ts:2', file: 'src/job.ts', line: 2, quote: 'export function job() {' }], findings: name === 'cursor' ? [{ class: 'dead-code', file: 'a.ts', line: 1, issue: 'a is unused', consequence: 'a second run reads stale rows', quote: 'export const a = 1;' }] : [] });
         const result = await runReviewer(repo, 'main', config, fakes(by, seen), () => undefined, { full: true });
         expect(result.reviewers).toEqual(['claude', 'cursor']);
         expect(result.items.map(i => [i.kind, i.reviewer])).toEqual([['prior', 'cursor'], ['finding', 'cursor']]);
@@ -233,7 +284,74 @@ describe('verdicts', () => {
         expect(parseVerdict(JSON.stringify({ ...EMPTY, prior_points: [] }), true, 'claude', {})).toEqual({ error: 'claude did not report on the human reviews' });
     });
 
-    it('turns reads, scans, redundancy and merge impact into open items with stable ids, and answers non-blocking points in the reply', () => {
+    it('keeps the journey, sibling parity and claims as working notes, never blocks, and reads a verdict cached before they existed', () => {
+        const verdict = {
+            ...EMPTY,
+            journey: [
+                { file: 'src/w.ts', line: 4, what: 'stamps sent_at', cleared_by: null, retry_safe: false, overlap_safe: true, can_move_back: true, keys: [{ name: 'dedupeKey', inputs: 'updated_at', stable_under_edit: false }] },
+                { file: 'src/w.ts', line: 9, what: 'caches the token', cleared_by: 'ttl', retry_safe: true, overlap_safe: true, can_move_back: null },
+            ],
+            siblings: [
+                { changed: 'src/a/run.ts:3', sibling: 'src/b/run.ts:7', needs_same_change: true, has_it: false, why: 'same lock' },
+                { changed: 'src/a/run.ts:3', sibling: 'src/c/run.ts:2', needs_same_change: true, has_it: true },
+                { changed: 'src/a/run.ts:3', sibling: 'src/d/run.ts:2', needs_same_change: false, has_it: false },
+            ],
+            claims: [
+                { source: 'description', claim: 'at worst one email', file: 'src/w.ts', line: 12, holds: false, evidence: 'loop sends per row' },
+                { source: 'comment', claim: 'runs daily', file: 'src/cron.ts', line: 1, holds: true },
+            ],
+        };
+        const { open, notes } = account(verdict as Verdict, undefined, () => true);
+        expect(open).toEqual([]);
+        expect(notes.map(i => `${i.kind} ${i.class} ${i.file}:${i.line}`)).toEqual([
+            'journey correctness src/w.ts:4', 'journey correctness src/w.ts:4', 'journey correctness src/w.ts:4',
+            'sibling correctness src/b/run.ts:7', 'claim stale-claim src/w.ts:12',
+        ]);
+        expect(notes[3].issue).toContain('needs the same change as src/a/run.ts:3: same lock');
+        const cached = { ...EMPTY } as Partial<Verdict>;
+        delete cached.journey; delete cached.siblings; delete cached.claims;
+        expect(account(cached as Verdict, undefined, () => true).open).toEqual([]);
+        expect(mergeVerdicts([cached as Verdict, { ...verdict, reviewer: 'codex' } as Verdict]).claims).toHaveLength(2);
+    });
+
+    it('blocks on a finding only when the code it quotes is at the line it names, and never carries an old working note as a block', () => {
+        const verify = checkoutVerifier(repo);
+        const at = (quote?: string, line = 2) => account({ ...EMPTY, prior_points: [], findings: [{ class: 'correctness', file: 'src/job.ts', line, issue: 'returns before the lock', input: 'two runs at once', consequence: 'two emails', ...(quote === undefined ? {} : { quote }) }] } as Verdict, undefined, verify);
+        expect(at('    return 1;').open).toHaveLength(1);
+        expect(at('return   1;').open).toHaveLength(1); // whitespace aside
+        expect(at('return 1;', 9)).toMatchObject({ open: [], unverified: [expect.objectContaining({ issue: 'returns before the lock' })] }); // past the end
+        expect(at('return 99;')).toMatchObject({ open: [], unverified: [expect.anything()] }); // not in the file
+        expect(at()).toMatchObject({ open: [], unverified: [expect.anything()] }); // no quote at all
+        const old = { id: 'r1', kind: 'read' as const, class: 'production-cost', file: 'src/q.ts', line: 3, issue: 'window not bounded' };
+        const carried = account({ ...EMPTY, prior_points: [] } as Verdict, [old], verify);
+        expect(carried).toMatchObject({ open: [], notes: [expect.objectContaining({ id: 'r1' })] });
+    });
+
+    it('shows a team lesson the change repeats as a note, never a block on its own', () => {
+        const verdict = { ...EMPTY, lessons: [
+            { lesson: 'Regenerate the API client after changing the schema.', applies: true, file: 'src/schema.ts', line: 3, evidence: 'schema.ts changed, client not' },
+            { lesson: 'Paginate with keyset.', applies: false, file: 'src/scan.ts', line: 9 },
+        ] } as unknown as Verdict;
+        const { open, notes } = account(verdict, undefined, () => true);
+        expect(open).toEqual([]);
+        expect(notes.map(n => [n.kind, n.class, n.issue])).toEqual([['lesson', 'team-lesson', 'repeats a team lesson: Regenerate the API client after changing the schema.']]);
+    });
+
+    it('blocks only on what it can show: a quoted open human point, a blocking finding, never a missing thing that is there or a point a human accepted', () => {
+        const verify = checkoutVerifier(repo);
+        const decide = (v: Partial<Verdict>) => account({ ...EMPTY, prior_points: [], ...v } as Verdict, undefined, verify);
+        const open = { point: 'take the lock before the first read', severity: 'blocking' as const, resolved: false };
+        expect(decide({ prior_points: [{ ...open, file: 'src/job.ts', line: 2, quote: 'return 1;' }] }).open).toHaveLength(1);
+        expect(decide({ prior_points: [open] })).toMatchObject({ open: [], unverified: [expect.objectContaining({ kind: 'prior' })] }); // a later commit may have done it: no quote, no block
+        const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'job never closes the connection', input: 'every run', consequence: 'one connection leaks per run', quote: 'return 1;' };
+        expect(decide({ findings: [{ ...finding, absent: 'return 1' }] })).toMatchObject({ open: [], unverified: [expect.anything()] }); // "missing", but the file has it
+        expect(decide({ findings: [{ ...finding, absent: 'conn.close(' }] }).open).toHaveLength(1);
+        expect(decide({ findings: [{ ...finding, severity: 'should' }] })).toMatchObject({ open: [], notes: [expect.anything()] });
+        const accepted = { point: 'job never closes the connection after the read', severity: 'non-blocking' as const, resolved: false };
+        expect(decide({ prior_points: [accepted], findings: [finding] })).toMatchObject({ open: [], notes: [expect.anything()] }); // a human raised it and accepted it
+    });
+
+    it('keeps reads, scans, redundancy and merge impact as notes with stable ids, and answers non-blocking points in the reply', () => {
         const verdict: Verdict = {
             ...EMPTY,
             prior_points: [{ point: 'nit: rename', severity: 'non-blocking', resolved: false }],
@@ -242,12 +360,13 @@ describe('verdicts', () => {
             redundant: [{ file: 'src/r.ts', line: 5, what: 'null guard', made_redundant_by: 'src/r.ts:2', removed: false }, { file: 'src/r.ts', line: 9, what: 'removed guard', removed: true }],
             merge_impact: [{ symbol: 'parseId', main_file: 'src/id.ts', call_site: 'src/link.ts:4', holds: false, why: 'band dropped' }],
         };
-        const { open, answerInReply } = account(verdict, undefined, () => true);
-        expect(open.map(i => `${i.class} ${i.file}:${i.line}`)).toEqual([
+        const { open, notes, answerInReply } = account(verdict, undefined, () => true);
+        expect(open).toEqual([]);
+        expect(notes.map(i => `${i.class} ${i.file}:${i.line}`)).toEqual([
             'dead-code src/r.ts:5', 'production-cost src/q.ts:10', 'production-cost src/q.ts:10', 'production-cost src/q.ts:10', 'correctness src/q.ts:10', 'production-cost src/s.ts:3', 'correctness src/link.ts:4',
         ]);
-        expect(new Set(open.map(i => i.id)).size).toBe(open.length);
-        expect(account(verdict, undefined, () => true).open.map(i => i.id)).toEqual(open.map(i => i.id)); // stable
+        expect(new Set(notes.map(i => i.id)).size).toBe(notes.length);
+        expect(account(verdict, undefined, () => true).notes.map(i => i.id)).toEqual(notes.map(i => i.id)); // stable
         expect(answerInReply).toEqual([expect.objectContaining({ point: 'nit: rename' })]);
     });
 
@@ -270,9 +389,9 @@ describe('verdicts', () => {
 
 describe('a panel of judges', () => {
     const panelConfig = (reviewer: Record<string, unknown>) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor', 'codex'], mode: 'full', panel: 'on', ...reviewer } } });
-    const LOCK = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' };
-    const LONE = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', consequence: 'a reader treats it as the contract' };
-    const OPINION = { class: 'duplication', file: 'src/job.ts', line: 2, issue: 'could be one line shorter', consequence: '' };
+    const LOCK = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', quote: 'export function job() {', consequence: 'two runs send the same email' };
+    const LONE = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', quote: 'export function job() {', consequence: 'a reader treats it as the contract' };
+    const OPINION = { class: 'duplication', file: 'src/job.ts', line: 2, issue: 'could be one line shorter', quote: 'export function job() {', consequence: '' };
 
     it("keeps Rigour's own key from every judge, and a key the team names from that judge, in reviews and cross-examinations alike", async () => {
         installFake(bins[0], 'codex');
@@ -339,7 +458,7 @@ describe('a panel of judges', () => {
 
     it('counts every run, stops new reviews at the cost cap, and leaves a cross-examination past the run cap disputed', async () => {
         const seen = seenNow();
-        const lone = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', consequence: 'a reader treats it as the contract' };
+        const lone = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', quote: 'export function job() {', consequence: 'a reader treats it as the contract' };
         const reply = (name: string) => JSON.stringify({ ...EMPTY, findings: name === 'claude' ? [LOCK] : [{ ...LOCK, line: 3, issue: 'the lock is taken only after it returns' }, lone] });
         // Two judges fit in a cap of 2; the cross-examination of cursor's lone finding would be a third run.
         const result = await runReviewer(repo, 'main', panelConfig({ max_runs_per_day: 2 }), fakes(reply, seen), () => undefined);
@@ -365,7 +484,7 @@ describe('what the team already knows', () => {
     const allowing = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], dismissals: true } } });
 
     it('refuses a dismissal unless the team allows them: fix the code, or the reviewer', async () => {
-        const first = await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' }] }), seenNow()), () => undefined);
+        const first = await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', quote: 'export function job() {', consequence: 'two runs send the same email' }] }), seenNow()), () => undefined);
         expect((await dismissReviewerFinding(repo, first.items[0].id, 'the runner holds a lock', false)).error).toContain('this team does not dismiss reviewer findings');
         expect(fs.existsSync(path.join(repo, '.rigour/dismissed-review-items.json'))).toBe(false);
     });
@@ -375,7 +494,7 @@ describe('what the team already knows', () => {
         fs.writeFileSync(path.join(repo, 'docs/jobs.md'), 'The job runner (src/job.ts) takes the lock first.\n');
         git('add', '-A');
         git('commit', '-qm', 'docs');
-        const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', consequence: 'two runs send the same email' };
+        const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', quote: 'export function job() {', consequence: 'two runs send the same email' };
         const first = await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify({ ...EMPTY, findings: [finding] }), seenNow()), () => undefined);
         expect(first.outcome).toBe('findings');
         expect(await dismissReviewerFinding(repo, 'abcdef0123', 'not one of ours', true)).toEqual({ error: 'no open reviewer finding abcdef0123 on feature: run `rigour review --reviewer` and copy the id it shows' });
@@ -400,7 +519,7 @@ describe('what the team already knows', () => {
     });
 
     it('fails closed: a finding whose judge left out the consequence still blocks', async () => {
-        const result = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock' }] }), seenNow()), () => undefined);
+        const result = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', quote: 'export function job() {' }] }), seenNow()), () => undefined);
         expect(result.items.map(i => i.issue)).toEqual(['returns before the lock']);
         expect(result.notes).toEqual([]);
     });

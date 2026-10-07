@@ -83,7 +83,7 @@ export function selfTestCommand(bin = process.argv[1]): string {
 
 /**
  * Installs the hook in a scratch clone of a scratch bare remote, pushes a change the gate must
- * refuse (an export nothing uses), then the fix, and reads the remote's refs: the exit code git
+ * refuse (an export nothing uses, in a scratch team that blocks on dead code), then the fix, and reads the remote's refs: the exit code git
  * acted on is the evidence, not what the hook printed.
  */
 export async function selfTestGitPushHook(rigourCommand: string): Promise<SelfTest> {
@@ -99,6 +99,8 @@ export async function selfTestGitPushHook(rigourCommand: string): Promise<SelfTe
         fs.writeFileSync(path.join(clone, 'src/main.ts'), "import { used } from './util';\nconsole.log(used);\n");
         fs.writeFileSync(path.join(clone, 'src/util.ts'), 'export const used = 1;\n');
         fs.writeFileSync(path.join(clone, '.gitignore'), '.rigour/\n');
+        // The scratch team blocks on dead code (off by default), so an unused export is a change the gate must refuse.
+        fs.writeFileSync(path.join(clone, 'rigour.yml'), 'version: 1\ngates:\n  unused_exports:\n    block: true\n');
         git(clone, ['add', '-A']);
         git(clone, ['commit', '-qm', 'base']);
         git(clone, ['push', '-q', '-u', 'origin', 'HEAD:main']);

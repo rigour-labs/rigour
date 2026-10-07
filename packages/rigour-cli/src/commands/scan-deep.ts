@@ -1,3 +1,4 @@
+import path from 'path';
 import chalk from 'chalk';
 import type { Failure, Report, Config } from '@rigour-labs/core';
 import { getScoreTrend, localTier, resolveDeepOptions } from '@rigour-labs/core';
@@ -37,7 +38,7 @@ export async function persistDeepResults(cwd: string, report: Report, isDeep: bo
         const { openDatabase, insertScan, insertFindings } = await import('@rigour-labs/core');
         const db = await openDatabase();
         if (!db) return;
-        const repoName = require('path').basename(cwd);
+        const repoName = path.basename(cwd);
         const scanId = await insertScan(db, repoName, report, {
             deepTier: (report as any).stats.deep?.tier || localTier(options),
             deepModel: (report as any).stats.deep?.model,

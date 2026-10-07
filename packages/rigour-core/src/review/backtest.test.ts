@@ -112,7 +112,7 @@ describe('rigour backtest on a repository', () => {
             ],
             must_not_flag: [{ file: 'app\\.ts', lines: [1, 1] }],
         }] }));
-        const config = ConfigSchema.parse({ version: 1 });
+        const config = ConfigSchema.parse({ version: 1, gates: { unused_exports: { block: true } } });
         const results = await runBacktest(repo, config, loadLedger(repo), { progress: () => undefined });
         expect(results).toHaveLength(1);
         expect(results[0].points).toMatchObject([{ id: 'R1-1', caught: true, by: 'unused-export src/lib/util.ts:1' }, { id: 'R1-2', caught: false, noted: false }]);
@@ -121,12 +121,56 @@ describe('rigour backtest on a repository', () => {
         expect(backtestPassed(results)).toBe(false);
         expect(git('branch', '--show-current')).toBe('main');
         expect(fs.existsSync(path.join(repo, 'src/lib/util.ts'))).toBe(false); // the checkout did not move
-        expect(fs.existsSync(path.join(repo, '.git/rigour-backtest', reviewed.slice(0, 12), 'src/lib/util.ts'))).toBe(true);
+        expect(fs.existsSync(path.join(repo, '.git/rigour-backtest/checkout/src/lib/util.ts'))).toBe(true);
         expect(fs.readdirSync(path.join(repo, '.rigour/backtest'))).toEqual([`r1-${reviewed.slice(0, 12)}.json`]);
         // The worktree is reused on the next run.
         const again = await runBacktest(repo, config, loadLedger(repo), { round: 'r1', progress: () => undefined });
         expect(again[0].points[0].caught).toBe(true);
     }, 60_000); // a real worktree and a typed review: over 10s on a Windows runner
+
+    it('warns when the base is older than the main the head already merged in', async () => {
+        const forked = git('rev-parse', 'main');
+        git('checkout', '-q', 'main');
+        write('src/main-only.ts', 'export const later = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'main moves on');
+        const merged = git('rev-parse', 'HEAD');
+        git('checkout', '-q', 'feature');
+        git('merge', '-q', '--no-edit', 'main');
+        const reviewed = git('rev-parse', 'HEAD');
+        const config = ConfigSchema.parse({ version: 1 });
+        const run = async (base: string) => {
+            const lines: string[] = [];
+            const ledger: Ledger = { rounds: [{ id: 'r1', commit: reviewed, base, points: [], must_not_flag: [] }] };
+            await runBacktest(repo, config, ledger, { progress: line => lines.push(line), collect: async () => ({ items: [] }) });
+            return lines.filter(line => line.includes('warning'));
+        };
+        expect(await run(forked)).toEqual([expect.stringContaining(`set the base to ${merged.slice(0, 9)}`)]);
+        expect(await run(merged)).toEqual([]);
+        git('update-ref', 'refs/heads/main', forked); // a local main older than the round's base: the ref is stale, not the base
+        expect(await run(merged)).toEqual([]);
+        git('update-ref', 'refs/heads/main', merged);
+        git('checkout', '-q', 'main');
+        git('merge', '-q', '--no-edit', 'feature'); // the pull request is merged: its head is on main now
+        expect(await run(merged)).toEqual([]);
+    }, 60_000);
+
+    it('moves one worktree from round to round, leaving nothing of the last round behind', async () => {
+        const reviewed = git('rev-parse', 'HEAD');
+        const base = git('rev-parse', 'main');
+        const seen: Array<{ tree: string; util: boolean; leftover: boolean }> = [];
+        const ledger: Ledger = { rounds: [
+            { id: 'after', commit: reviewed, base, points: [], must_not_flag: [] },
+            { id: 'before', commit: base, base, points: [], must_not_flag: [] },
+        ] };
+        await runBacktest(repo, ConfigSchema.parse({ version: 1 }), ledger, { progress: () => undefined, collect: async tree => {
+            seen.push({ tree, util: fs.existsSync(path.join(tree, 'src/lib/util.ts')), leftover: fs.existsSync(path.join(tree, 'scratch.txt')) });
+            fs.writeFileSync(path.join(tree, 'scratch.txt'), 'left by a round');
+            return { items: [] };
+        } });
+        expect(seen.map(s => s.tree)).toEqual([seen[0].tree, seen[0].tree]);
+        expect(seen.map(s => [s.util, s.leftover])).toEqual([[true, false], [false, false]]);
+    }, 60_000);
 
     it('names a round or a commit it cannot find', async () => {
         const config = ConfigSchema.parse({ version: 1 });

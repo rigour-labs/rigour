@@ -126,7 +126,7 @@ export function unusedExportFailures(cwd: string, diff: string, config: Config):
     const points = pointsAtCache(cwd);
     return candidates
         .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && !isTestFile(user) && points(user, exp.file)))
-        .map(unused);
+        .map(exp => unused(exp, !settings.block));
 }
 
 /**
@@ -191,9 +191,10 @@ function filesNaming(cwd: string, names: string[], excluded: string[]): Map<stri
     return found;
 }
 
-function unused(exp: AddedExport): Failure {
+function unused(exp: AddedExport, advisory: boolean): Failure {
     return {
         id: 'unused-export',
+        ...(advisory ? { advisory } : {}),
         title: `Unused export \`${exp.name}\``,
         details: `\`${exp.name}\` is exported but no other file uses it (a test is not a consumer). An export nothing imports is dead code that readers and agents treat as part of the module's contract.`,
         severity: 'medium',

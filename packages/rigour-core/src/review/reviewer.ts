@@ -24,7 +24,7 @@ import path from 'path';
 import type { Config } from '../types/index.js';
 import { ADAPTERS, isReviewerName, resolveAdapter, selectReviewers, vendorsOf, type Installed, type ReviewMode, type ReviewerName, type Tokens } from './reviewer/adapters.js';
 import { defaultExec, GH_TIMEOUT_MS, githubEnv, type Exec, type Progress } from './reviewer/exec.js';
-import { findPullRequest, ghFor, humanReviews, linesChanged, mergesBaseIn, rulesText, sha, type HumanReviews, type PullRequest } from './reviewer/inputs.js';
+import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBaseIn, rulesText, sha, type HumanReviews, type PullRequest } from './reviewer/inputs.js';
 import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
@@ -33,10 +33,10 @@ import { VerdictStore } from './reviewer/store.js';
 import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
-import { account, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
+import { account, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
 
-export { defaultExec, githubEnv, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
+export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
 export { itemLine, type OpenItem } from './reviewer/verdict.js';
 
 export type ReviewerOutcome = 'passed' | 'findings' | 'unavailable' | 'skipped';
@@ -46,6 +46,8 @@ export interface ReviewerOptions {
     pr?: number;
     /** ISO time: a review or comment posted from then on is not shown to the reviewer (a backtest). */
     reviewsBefore?: string;
+    /** No pull request at all: the commit is reviewed alone, with no human review or description, and GitHub is never asked (a backtest round that names no pull request). */
+    blind?: boolean;
     /** At push the ready-pull-request rule applies; a review command or a backtest always reviews. */
     trigger?: 'push' | 'review' | 'backtest';
     /** Two vendors over the whole branch, never a delta: the step before requesting a human review. */
@@ -106,7 +108,8 @@ export interface ReviewerResult {
 
 export interface ModeRecord {
     asked: 'single' | 'cross' | 'full' | 'panel';
-    ran: 'single' | 'cross' | 'full' | 'panel';
+    /** `none` when the review ended before any judge ran (unavailable or skipped); `degraded` or the reason says why. */
+    ran: 'single' | 'cross' | 'full' | 'panel' | 'none';
     source: Source;
     /** Why fewer judges ran than were asked for. */
     degraded?: string;
@@ -141,10 +144,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const branch = options.branch ?? await git(['rev-parse', '--abbrev-ref', 'HEAD']);
     const repoRoot = (await git(['rev-parse', '--show-toplevel'])) || cwd;
     let attempts: VerdictStore | undefined;
+    // What was asked, from the first line: every verdict, a review that never ran included, says what was asked and what ran.
+    let modeRecord: ModeRecord = askedOnly(settings);
     // A review that ends without a verdict says why where the person looks (status, Studio, MCP), not only in a log.
     const none = (outcome: 'unavailable' | 'skipped', reason: string, extra: Partial<ReviewerResult> = {}): ReviewerResult => {
         if (attempts && branch !== 'HEAD') attempts.recordAttempt(branch, { head, outcome, reason, at: new Date().toISOString() });
-        return { outcome, items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason, reviewers: [], cached: false, ...extra };
+        return { outcome, items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason, reviewers: [], cached: false, ...extra, mode: { ...modeRecord, ...extra.mode, ran: 'none' } };
     };
     if (!head || !baseSha) return none('unavailable', `not a repository, or ${base} is unknown`);
     const store = await VerdictStore.open(cwd, exec);
@@ -161,13 +166,13 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const mode: ReviewMode = settings.mode;
     let reviewers = selectReviewers(candidates, mode, authors, new Set(installed.keys()), settings.judges);
     if (reviewers.length === 0) return none('unavailable', `no reviewer installed: ${candidates.map(n => ADAPTERS[n].binary).join(', ') || 'review.reviewer.reviewers is empty'}`);
-    let modeRecord = modeRan(settings, reviewers, candidates, installed);
+    modeRecord = modeRan(settings, reviewers, candidates, installed);
     if (reviewers.length < 2 && mode === 'full' && (settings.required.panel || settings.required.mode)) {
         return none('unavailable', `rigour.yml requires two reviewers from different vendors, and ${modeRecord.degraded}`, { reviewers, mode: modeRecord });
     }
 
-    const gh = ghFor(cwd, exec, await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec));
-    const found = await findPullRequest(gh, branch, head, options.pr);
+    const gh = options.blind ? undefined : ghFor(cwd, exec, await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec));
+    const found = gh ? await findPullRequest(gh, branch, head, options.pr) : {};
     if (found.error) return none('unavailable', found.error, { reviewers });
     const pr = found.pr;
     if (trigger === 'push' && !options.full && !options.force) {
@@ -175,7 +180,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         if (skip) return none('skipped', skip, { reviewers, pr: pr?.number });
     }
     let reviews: HumanReviews = { markdown: 'none\n', key: '', count: 0 };
-    if (pr) {
+    if (gh && pr) {
         const read = await humanReviews(gh, pr, options.reviewsBefore);
         if (read.error) return none('unavailable', read.error, { reviewers, pr: pr.number });
         reviews = read.reviews!;
@@ -183,7 +188,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const stateRoot = options.stateRoot ?? cwd;
     // Dismissals count only where the team allows them; otherwise the file, if any, is ignored.
     const dismissals = settings.dismissals ? readReviewDismissals(stateRoot) : [];
-    const body = pr?.body || '(no pull request description)\n';
+    // A backtest sees the description as it read at the review, never a later edit describing later code.
+    const body = gh && pr && options.reviewsBefore
+        ? (await bodyAsOf(gh, pr.number, options.reviewsBefore)) ?? '(the description as of this review could not be recovered: judge claims against the code and its comments only)\n'
+        : pr?.body || '(no pull request description)\n';
     const rules = rulesText(cwd);
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
@@ -199,7 +207,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const sincePrevious = previousIsAncestor ? new Set((await git(['diff', '--name-only', `${previous!.head}..HEAD`])).split('\n').filter(Boolean)) : new Set<string>();
     const changedFiles = [...fullDiff.matchAll(/^diff --git a\/.* b\/(.*)$/gm)].map(m => m[1]);
     const context = buildContext({
-        cwd, stateRoot, dismissals, diff: fullDiff, router: config.gates.deep?.router, touched: sincePrevious, checks: options.checks ?? [],
+        cwd, stateRoot, dismissals, diff: fullDiff, router: config.gates.deep?.router, lessons: config.gates.deep?.review_lessons, touched: sincePrevious, checks: options.checks ?? [],
         previousPanel: previousIsAncestor ? store.readJson<Verdict>(previous!.verdict)?.panel?.items : undefined,
         docs: await relatedDocs(cwd, changedFiles, exec),
     });
@@ -236,7 +244,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const openFile = store.openPath(verdictFile);
     const previousOpen = scope === 'delta' ? store.readJson<OpenItem[]>(store.openPath(previous!.verdict)) ?? [] : undefined;
 
-    const verify = verifier(cwd);
+    const verify = checkoutVerifier(cwd);
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
         return result(decide(verdict, previousOpen, verify, dismissals), verdict, reviewers, scope, why, true, reviews, pr, modeRecord, settings.dismissals);
@@ -286,13 +294,20 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         try {
             const answers = await Promise.all(reviewers.map(async name => {
                 const adapter = ADAPTERS[name];
-                const run = await exec(installed.get(name)!.binary, adapter.args(prompt, modelFor(name)), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
-                progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
-                const answer = adapter.answer(run.stdout);
-                store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
-                return run.exitCode === 0 || answer.text.trim()
-                    ? parseVerdict(answer.text, needsPriorPoints, name, answer)
-                    : { error: `${name}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
+                const ask = async () => {
+                    const run = await exec(installed.get(name)!.binary, adapter.args(prompt, modelFor(name)), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
+                    progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
+                    const answer = adapter.answer(run.stdout);
+                    store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
+                    return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? parseVerdict(answer.text, needsPriorPoints, name, answer) : undefined };
+                };
+                let first = await ask();
+                // An answer that is not a verdict is a slip, not a decision: asked once more, inside the caps, before the review is unavailable.
+                if (first.verdict && 'error' in first.verdict && !overBudget(store.spend(), settings, 1)) {
+                    progress(`Rigour reviewer: ${name} gave no valid verdict; asking once more`);
+                    first = await ask();
+                }
+                return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };
             }));
             const failed = answers.find(a => 'error' in a);
             if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
@@ -388,15 +403,20 @@ function escalationFor(humanReviews: number, risky: number | undefined): { escal
         : { escalate: false, why: 'no risky changed function and no human review: one judge (review.reviewer.escalate: risk)' };
 }
 
+/** What was asked and where the choice came from, before anything has run. */
+function askedOnly(settings: ResolvedReviewer): ModeRecord {
+    const asked = settings.panel ? 'panel' : settings.mode;
+    const source = settings.panel ? settings.source.panel : settings.source.mode;
+    return { asked, ran: asked, source, ...(settings.refused.length ? { refused: settings.refused } : {}) };
+}
+
 /** The mode asked for and the one the installed reviewers allow: a panel or full review needs two vendors. */
 function modeRan(settings: ResolvedReviewer, reviewers: ReviewerName[], candidates: ReviewerName[], installed: Map<ReviewerName, Installed>): ModeRecord {
-    const asked = settings.panel ? 'panel' : settings.mode;
-    const refused = settings.refused.length ? { refused: settings.refused } : {};
-    const source = settings.panel ? settings.source.panel : settings.source.mode;
-    if (settings.mode !== 'full' || reviewers.length >= settings.judges) return { asked, ran: asked, source, ...refused };
+    const record = askedOnly(settings);
+    if (settings.mode !== 'full' || reviewers.length >= settings.judges) return record;
     const missing = candidates.filter(name => !installed.has(name)).map(name => ADAPTERS[name].binary);
     const degraded = `${settings.judges} judges asked, ${reviewers.join(' and ')} could run (${missing.length ? `not installed: ${missing.join(', ')}` : 'no other vendor in review.reviewer.reviewers'})`;
-    return { asked, ran: reviewers.length > 1 ? asked : 'single', source, degraded, ...refused };
+    return { ...record, ran: reviewers.length > 1 ? record.asked : 'single', degraded };
 }
 
 /**
@@ -420,22 +440,6 @@ function skipReason(onPush: 'background' | 'wait' | 'off', branch: string, pr: P
     return undefined;
 }
 
-/** A file in the checkout, and a line it has: an item naming anything else is a reviewer's slip. */
-function verifier(cwd: string): (file: string, line: number | undefined) => boolean {
-    const lengths = new Map<string, number>();
-    return (file, line) => {
-        const target = path.join(cwd, file);
-        if (!lengths.has(file)) {
-            try {
-                lengths.set(file, fs.readFileSync(target, 'utf8').split('\n').length);
-            } catch {
-                lengths.set(file, -1);
-            }
-        }
-        const length = lengths.get(file)!;
-        return length >= 0 && (line === undefined || line <= length);
-    };
-}
 
 function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[], scope: 'full' | 'delta', why: string, cached: boolean, reviews: HumanReviews, pr: PullRequest | undefined, mode: ModeRecord, dismissable: boolean): ReviewerResult {
     const cost = (verdict.reviewers ?? []).map(r => r.cost_usd).filter((c): c is number => typeof c === 'number');

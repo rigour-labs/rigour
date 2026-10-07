@@ -131,6 +131,153 @@ export async function scan(since: string): Promise<Row[]> {
     }, 60_000);
 });
 
+describe('a null guard on a column the query makes non-null', () => {
+    const SESSION = `import { from } from './db';
+export interface Session { id: string; ended_at: string | null; label: string | null }
+export async function endedSessions(): Promise<Session[]> {
+    return from('sessions').not('ended_at', 'is', null).returns<Session[]>();
+}
+`;
+    const CONSUMER = `import { endedSessions } from './sessions';
+export async function summary(): Promise<string[]> {
+    const rows = await endedSessions();
+    return rows.map(row => {
+        if (row.ended_at == null) return 'open';
+        const ended = row.ended_at ?? 'never';
+        if (!row.label) return ended;
+        return row.label;
+    });
+}
+`;
+    const guards = async () => (await review()).advisory.filter(f => f.id === 'dead-null-guard').map(f => [f.files?.[0], f.line]);
+
+    it('names each guard the filter made dead, and leaves a guard on a column no query filters alone', async () => {
+        write('src/sessions.ts', SESSION);
+        write('src/summary.ts', CONSUMER);
+        git('add', '-A');
+        git('commit', '-qm', 'sessions');
+        expect(await guards()).toEqual([['src/summary.ts', 5], ['src/summary.ts', 6]]);
+    });
+
+    it("names a truthiness test on a filtered string column with the empty-string case, and leaves a number's alone", async () => {
+        write('src/sessions.ts', `import { from } from './db';
+export interface Visit { id: string; page: string | null; seconds: number | null }
+export async function visits(): Promise<Visit[]> {
+    return from('visits').not('page', 'is', null).not('seconds', 'is', null).returns<Visit[]>();
+}
+export async function pages(): Promise<string[]> {
+    return (await visits()).filter(v => !!v.page && !v.seconds).map(v => v.page ?? '');
+}
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'visits');
+        const result = (await review()).advisory.filter(f => f.id === 'dead-null-guard');
+        expect(result.map(f => f.line)).toEqual([7, 7]); // \`!v.page\` and \`v.page ?? ''\`, not \`!v.seconds\`
+        expect(result.some(f => /empty string/.test(f.details ?? ''))).toBe(true);
+    });
+
+    it('follows a query typed through a generic pager and an intersection, and ignores the pager\'s own type parameter', async () => {
+        write('src/pager.ts', `import { from, type Query } from './db';
+export async function readAll<Row>(page: () => Query<unknown>): Promise<Row[]> {
+    await page();
+    return from('audit').returns<Row[]>(); // the helper's own query, typed by its parameter: not a row type
+}
+`);
+        write('src/sessions.ts', `import { from } from './db';
+import { readAll } from './pager';
+export interface Session { id: string; ended_at: string | null }
+export async function endedSessions(): Promise<Session[]> {
+    return readAll<Session & Record<string, unknown>>(() => from('sessions').not('ended_at', 'is', null));
+}
+export async function summary(): Promise<string[]> {
+    return (await endedSessions()).map(row => row.ended_at ?? 'never');
+}
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'pager');
+        expect(await guards()).toEqual([['src/sessions.ts', 8]]);
+    });
+
+    it('says nothing when another query returns the same rows unfiltered', async () => {
+        write('src/sessions.ts', `${SESSION}export async function allSessions(): Promise<Session[]> {
+    return from('sessions').returns<Session[]>();
+}
+`);
+        write('src/summary.ts', CONSUMER);
+        git('add', '-A');
+        git('commit', '-qm', 'sessions');
+        expect(await guards()).toEqual([]);
+    });
+
+    it('says nothing when code builds such a row with the column null', async () => {
+        write('src/sessions.ts', `${SESSION}export const draft: Session = { id: 'new', ended_at: null, label: null };
+`);
+        write('src/summary.ts', CONSUMER);
+        git('add', '-A');
+        git('commit', '-qm', 'sessions');
+        expect(await guards()).toEqual([]);
+    });
+});
+
+describe('an input production never varies', () => {
+    const found = async (id: string) => (await review()).advisory.filter(f => f.id === id).map(f => [f.files?.[0], f.line]);
+    const commit = () => { git('add', '-A'); git('commit', '-qm', 'change'); };
+
+    it('names a member every production object sets to the same value while code branches on it; tests do not count', async () => {
+        write('src/jobs.ts', `export interface Job { id: string; retries: number }
+export function next(job: Job): string { return job.retries > 0 ? 'retry' : 'run'; }
+export const nightly: Job = { id: 'nightly', retries: 0 };
+export const hourly: Job = { id: 'hourly', retries: 0 };
+`);
+        write('src/jobs.test.ts', `import { next } from './jobs';
+export const flaky = next({ id: 'flaky', retries: 3 });
+`);
+        commit();
+        expect(await found('constant-member')).toEqual([['src/jobs.ts', 1]]);
+    });
+
+    it('says nothing when production sets the member differently', async () => {
+        write('src/jobs.ts', `export interface Job { id: string; retries: number }
+export function next(job: Job): string { return job.retries > 0 ? 'retry' : 'run'; }
+export const nightly: Job = { id: 'nightly', retries: 0 };
+export const hourly: Job = { id: 'hourly', retries: 2 };
+`);
+        commit();
+        expect(await found('constant-member')).toEqual([]);
+    });
+
+    it('names a parameter every production call passes the same literal while the body branches on it', async () => {
+        write('src/format.ts', `export function label(text: string, upper: boolean): string { return upper ? text.toUpperCase() : text; }
+export const a = label('one', false);
+export const b = label('two', false);
+export function wrap(text: string, client: { send(t: string): string }): string { return client.send(text); }
+`);
+        write('src/send.ts', `import { wrap } from './format';
+const client = { send: (t: string) => t };
+export const x = wrap('a', client);
+export const y = wrap('b', client); // the same variable name is not the same literal
+`);
+        write('src/format.test.ts', `import { label } from './format';
+export const loud = label('three', true);
+`);
+        commit();
+        expect(await found('constant-argument')).toEqual([['src/format.ts', 1]]);
+    });
+
+    it('says nothing when production calls vary, or the function is passed around as a value', async () => {
+        write('src/format.ts', `export function label(text: string, upper: boolean): string { return upper ? text.toUpperCase() : text; }
+export const a = label('one', false);
+export const b = label('two', true);
+export function shout(text: string, loud: boolean): string { return loud ? text + '!' : text; }
+export const c = shout('x', false);
+export const d = shout('y', false);
+export const handlers = [shout];
+`);
+        commit();
+        expect(await found('constant-argument')).toEqual([]);
+    });
+});
+
 describe('a nullable row type for a NOT NULL column, from migrations in another repository', () => {
     const SUPABASE = `export class Query<T> {
     select(_columns: string): Query<T> { return this; }
