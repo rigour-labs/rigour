@@ -28,8 +28,8 @@ async function logStudioEvent(cwd: string, event: any) {
     }
 }
 
-/** What setup adds to .gitignore: Rigour's state stays local except what a team shares (dismissals, the backtest ledger). Uninstall removes exactly these. */
-export const GITIGNORE_PATTERNS = ['rigour-report.json', 'rigour-fix-packet.json', '.rigour/*', '!.rigour/dismissed.json', '!.rigour/dismissed-review-items.json', '!.rigour/backtest.json'];
+/** What setup adds to .gitignore: Rigour's state stays local except what a team shares (dismissals, the functions reviewed before the PR, the backtest ledger). Uninstall removes exactly these. */
+export const GITIGNORE_PATTERNS = ['rigour-report.json', 'rigour-fix-packet.json', '.rigour/*', '!.rigour/dismissed.json', '!.rigour/dismissed-review-items.json', '!.rigour/reviewed.json', '!.rigour/backtest.json'];
 
 export interface InitOptions {
     preset?: string;

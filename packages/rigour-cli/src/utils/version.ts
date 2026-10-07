@@ -1,8 +1,13 @@
+/**
+ * The update check: one request to the npm registry for the latest version number, at most once a day,
+ * cached in Rigour's home. It sends nothing about you or your code, and it never runs in CI, in agent
+ * hooks, under DO_NOT_TRACK, or with RIGOUR_UPDATE_CHECK=0 (docs/SECURITY.md lists every network call).
+ */
 import fs from 'fs-extra';
 import path from 'path';
-import os from 'os';
+import { rigourUserDir } from '@rigour-labs/core';
 
-const CACHE_FILE = path.join(os.homedir(), '.rigour-version-cache.json');
+const cacheFile = () => path.join(rigourUserDir(), 'version-cache.json');
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org/@rigour-labs/cli/latest';
 
@@ -19,8 +24,8 @@ interface UpdateCheckResult {
 
 async function getCachedVersion(): Promise<string | null> {
     try {
-        if (await fs.pathExists(CACHE_FILE)) {
-            const cache: VersionCache = await fs.readJson(CACHE_FILE);
+        if (await fs.pathExists(cacheFile())) {
+            const cache: VersionCache = await fs.readJson(cacheFile());
             if (Date.now() - cache.timestamp < CACHE_TTL_MS) {
                 return cache.latestVersion;
             }
@@ -33,7 +38,8 @@ async function getCachedVersion(): Promise<string | null> {
 
 async function cacheVersion(version: string): Promise<void> {
     try {
-        await fs.writeJson(CACHE_FILE, {
+        await fs.ensureDir(path.dirname(cacheFile()));
+        await fs.writeJson(cacheFile(), {
             latestVersion: version,
             timestamp: Date.now()
         } satisfies VersionCache);
@@ -77,7 +83,15 @@ function compareVersions(current: string, latest: string): boolean {
     return false;
 }
 
-export async function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult | null> {
+/** Whether this run may ask the registry at all: never in CI, in agent hooks, or when the person opted out. */
+function updateCheckAllowed(env: NodeJS.ProcessEnv, argv: string[]): boolean {
+    if (env.RIGOUR_UPDATE_CHECK === '0' || env.DO_NOT_TRACK === '1' || env.DO_NOT_TRACK === 'true') return false;
+    if (env.CI || env.GITHUB_ACTIONS) return false;
+    return !argv.includes('hooks');
+}
+
+export async function checkForUpdates(currentVersion: string, env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): Promise<UpdateCheckResult | null> {
+    if (!updateCheckAllowed(env, argv)) return null;
     // Try cache first
     let latestVersion = await getCachedVersion();
 

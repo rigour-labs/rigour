@@ -696,7 +696,7 @@ settingsCmd
         if (updateInfo?.hasUpdate && !isSilent && !isDevBuild) {
             // Use stderr so stdout stays clean for programmatic consumers
             console.error(chalk.yellow(`\n⚡ Update available: ${updateInfo.currentVersion} → ${updateInfo.latestVersion}`));
-            console.error(chalk.dim(`   Run: npx @rigour-labs/cli@latest init --force\n`));
+            console.error(chalk.dim(`   Upgrade: npm install -g @rigour-labs/cli@latest (or brew upgrade rigour), then rigour setup to point your hooks at it.\n`));
         }
     } catch {
         // Ignore version check errors

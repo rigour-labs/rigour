@@ -310,7 +310,7 @@ export const UNIVERSAL_CONFIG: Config = {
     hooks: {
         enabled: false,
         tools: [],
-        fast_gates: ['hallucinated-imports', 'phantom-apis', 'deprecated-apis', 'promise-safety', 'security-patterns', 'file-size'],
+        fast_gates: ['hallucinated-imports', 'phantom-apis', 'deprecated-apis', 'promise-safety', 'security-patterns', 'side-effect-analysis', 'file-size'],
         timeout_ms: 5000,
         block_on_failure: false,
         require_review_ack: false,

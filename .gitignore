@@ -43,4 +43,5 @@ rigour-fix-packet.json
 .rigour/*
 !.rigour/dismissed.json
 !.rigour/dismissed-review-items.json
+!.rigour/reviewed.json
 !.rigour/backtest.json
