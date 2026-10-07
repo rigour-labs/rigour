@@ -222,7 +222,7 @@ describe('the reviewer', () => {
         const seen = seenNow();
         const base = fakes(() => JSON.stringify(EMPTY), seen);
         const streaming: Exec = async (command, args, options) => {
-            if (!command.endsWith('claude') || args[0] === '--version') return base(command, args, options);
+            if (path.basename(command).replace(/\.(cmd|exe)$/, '') !== 'claude' || args[0] === '--version') return base(command, args, options); // claude.cmd on Windows
             const prompt = args[args.indexOf('-p') + 1];
             const diff = /(\S+full\.diff)/.exec(prompt)![1];
             const call = (id: string, name: string, input: object) => ({ type: 'assistant', message: { id: `m-${id}`, usage: { input_tokens: 1, cache_read_input_tokens: 100, cache_creation_input_tokens: 10, output_tokens: 5 }, content: [{ type: 'tool_use', id, name, input }] } });
