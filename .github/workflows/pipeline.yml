@@ -237,6 +237,12 @@ jobs:
       - name: Verify npm release is installable
         run: node scripts/npm-release-readiness.mjs "${{ steps.capture_version.outputs.cli_version }}"
 
+      # A stable release is published under `pending`; only now that every package installs does
+      # `latest` move to it, so nobody is pointed at a version npm cannot serve yet. Safe to re-run.
+      - name: Promote the release to latest
+        if: success() && github.ref == 'refs/heads/main'
+        run: node scripts/promote-release.mjs "${{ steps.capture_version.outputs.cli_version }}" latest
+
       # Every step from here is safe to run again, and runs on a re-run too, for the version
       # this commit released: a release interrupted after npm publish is finished by re-running
       # the job, never left half done. Each one changes nothing when its part is already there.
