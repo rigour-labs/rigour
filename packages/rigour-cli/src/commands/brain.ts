@@ -51,9 +51,8 @@ async function handleStatus(core: any): Promise<void> {
     const stats = await core.getProjectStats(cwd);
 
     if (!stats) {
-        // Never install packages on the user's behalf; say what is missing and how to add it.
         console.log(chalk.yellow('   SQLite is not available, so there are no stats to show.'));
-        console.log(chalk.dim('   To enable it: cd ~/.rigour && npm install sqlite3'));
+        console.log(chalk.dim(`   It is built into Node 22.13 and later; this is Node ${process.versions.node}.`));
         return;
     }
 

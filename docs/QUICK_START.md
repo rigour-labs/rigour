@@ -1,6 +1,6 @@
 # Get started
 
-One path, four steps, each safe to stop at. You need Node 22 or later and a git repository.
+One path, four steps, each safe to stop at. You need Node 22.13 or later and a git repository.
 
 ## 1. See what it finds, changing nothing
 

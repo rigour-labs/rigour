@@ -186,7 +186,7 @@ export async function generateTemporalDriftReport(cwd: string, maxScans = 200): 
     if (!db) {
         if (!_sqliteWarningShown) {
             _sqliteWarningShown = true;
-            Logger.warn('Temporal drift: SQLite not available — install sqlite3 to enable scan history');
+            Logger.warn('Temporal drift: SQLite not available (it is built into Node 22.13 and later), so there is no scan history');
         }
         return null;
     }

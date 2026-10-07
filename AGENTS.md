@@ -2,7 +2,7 @@
 
 Rigour is a pnpm monorepo: `packages/rigour-core` (checks, review, the reviewer), `rigour-cli` (the `rigour`
 command, hooks, Studio's server), `rigour-mcp` (the MCP server) and `rigour-studio` (Studio's web page, built
-into `packages/rigour-cli/studio-dist`). Node 22 or later.
+into `packages/rigour-cli/studio-dist`). Node 22.13 or later.
 
 ## Build and test
 

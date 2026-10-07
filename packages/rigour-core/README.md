@@ -23,6 +23,6 @@ console.log(result.status, result.findings);
 ```
 
 What each check finds and whether it blocks: [What Rigour checks](https://github.com/rigour-labs/rigour/blob/main/docs/CHECKS.md). Every setting:
-[Configuration reference](https://github.com/rigour-labs/rigour/blob/main/docs/CONFIG_REFERENCE.md). Node 22 or later.
+[Configuration reference](https://github.com/rigour-labs/rigour/blob/main/docs/CONFIG_REFERENCE.md). Node 22.13 or later.
 
 MIT © [Rigour Labs](https://github.com/rigour-labs)

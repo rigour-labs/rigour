@@ -70,7 +70,7 @@ Lessons are encrypted at rest in the local store and queue (AES-256-GCM, see [Da
 - An administrator login that can create a schema (and the `vector` extension, if you want pgvector).
 - One login role per person, which the administrator creates.
 - For a database that is not on `localhost`, `127.0.0.1` or `::1`: TLS. Rigour refuses a remote URL without `sslmode=require` or `sslmode=verify-full`.
-- On each machine: Node 22 or later and the Rigour CLI (`npm install -g @rigour-labs/cli`). The PostgreSQL driver (`pg`) is an optional dependency that npm installs by default. If it was left out, Rigour says so.
+- On each machine: Node 22.13 or later and the Rigour CLI (`npm install -g @rigour-labs/cli`). The PostgreSQL driver (`pg`) is an optional dependency that npm installs by default. If it was left out, Rigour says so.
 - Optional, for search by meaning: the `vector` extension with HNSW index support, and Rigour's semantic search installed on each machine (`rigour setup` installs it unless you pass `--no-semantic`).
 
 ## Set up the database (administrator)

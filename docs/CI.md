@@ -135,7 +135,7 @@ jobs:
 
 Notes on the workflow:
 
-- **Node 22 or later.** The CLI requires it.
+- **Node 22.13 or later.** The CLI requires it.
 - **`fetch-depth: 0`.** The review finds where the branch left its base with `git merge-base`, which
   needs the history and the `origin/<base>` branch.
 - **The key never goes on a command line.** Rigour reads `RIGOUR_API_KEY` from the environment.
