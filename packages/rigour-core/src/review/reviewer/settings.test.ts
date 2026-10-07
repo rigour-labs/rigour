@@ -54,5 +54,14 @@ describe('the reviewer settings a run uses', () => {
         expect(resolved.refused).toEqual(['reviews off (user) refused: rigour.yml requires the reviewer', 'judges 2 (user) refused: rigour.yml requires 3']);
         expect(resolveReviewer(team({ enabled: true }), {}, { enabled: false, judges: 3 }, {})).toMatchObject({ enabled: false, judges: 3 }); // no floor: your choice
     });
+
+    it('takes the lower daily cap: a person can spend less than the team allows, never more', () => {
+        expect(resolveReviewer(team({ max_runs_per_day: 20, max_usd_per_day: 5 }), {}, { max_runs_per_day: 6 }, {})).toMatchObject({ max_runs_per_day: 6, max_usd_per_day: 5, refused: [] });
+        const higher = resolveReviewer(team({ max_runs_per_day: 20 }), {}, { max_runs_per_day: 50 }, {});
+        expect(higher.max_runs_per_day).toBe(20);
+        expect(higher.refused).toEqual(['max_runs_per_day 50 (user) refused: rigour.yml caps it at 20']);
+        expect(resolveReviewer(team(), {}, { max_usd_per_day: 2 }, {})).toMatchObject({ max_usd_per_day: 2 }); // no team cap: yours
+        expect(resolveReviewer(team(), {}, undefined, {}).max_runs_per_day).toBeUndefined(); // unset by default
+    });
 });
 

@@ -117,6 +117,9 @@ review:
     judges: 2                  # 2 or 3 in a full or panel review, one per vendor installed
     escalate: always           # risk: add judges only for a risky change or one a person reviewed; one judge otherwise
     panel_max_items: 20        # findings cross-examined per review at most; the rest are shown as disputed
+    max_runs_per_day: 40       # optional: agent runs per repository and local day, checked before any judge starts
+    max_usd_per_day: 15        # optional: dollars the CLIs reported today; new reviews stop once reached. Past a cap a
+                               # review is skipped, or unavailable where the reviewer is required. A person can set lower.
     dismissals: false          # true lets people dismiss a reviewer finding as not a bug, with a reason, recorded
                                # with who; off, a wrong finding is fixed by improving the reviewer. A team decision only.
     cross_models: {}           # a model per reviewer for cross-examination, e.g. { claude: claude-haiku-4-5 }

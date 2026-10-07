@@ -15,7 +15,7 @@ import { reviewChange } from '../review.js';
 import { pushReviewSkip, runReviewer, type ModeRecord, type ReviewerResult } from '../reviewer.js';
 import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
 import { dismissedAs, readReviewDismissals, reviewerInputs } from './context.js';
-import { VerdictStore, type ReviewAttempt } from './store.js';
+import { VerdictStore, type DaySpend, type ReviewAttempt } from './store.js';
 import { itemLine, type OpenItem, type Verdict } from './verdict.js';
 
 export interface BackgroundJob { head: string; branch: string; base: string }
@@ -71,6 +71,8 @@ export interface ReviewStatus {
     branch: string;
     /** A review still running, and for which commit. */
     running?: { pid: number; head: string };
+    /** What the reviewer spent today in this repository: the count the daily caps are checked against. */
+    today: DaySpend;
     /** The last review that ended without a verdict, when it is newer than the last verdict. */
     attempt?: ReviewAttempt;
     /** The last verdict recorded for the branch. */
@@ -82,7 +84,7 @@ export interface ReviewStatus {
 export async function reviewStatus(cwd: string, branch: string, exec: Exec = defaultExec): Promise<ReviewStatus | undefined> {
     const store = await VerdictStore.open(cwd, exec);
     if (!store) return undefined;
-    const status: ReviewStatus = { branch };
+    const status: ReviewStatus = { branch, today: store.spend() };
     const running = runningJob(store, branch);
     if (running) status.running = running;
     const state = store.branchState(branch);

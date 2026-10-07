@@ -10,8 +10,8 @@ interface ModeRecord { asked: string; ran: string; source: string; degraded?: st
 type Source = 'flag' | 'env' | 'user' | 'team';
 export interface ReviewerData {
     branch: string;
-    status: { running?: { head: string }; attempt?: { head: string; outcome: 'unavailable' | 'skipped'; reason: string; at: string }; last?: { head: string; at: string; mode: string; open: Item[]; disputed: Item[]; ran?: ModeRecord } } | null;
-    effective: { enabled: boolean; mode: string; panel: boolean; judges: number; escalate: string; dismissals: boolean; reviewers: string[]; source: { mode: Source; panel: Source }; required: { mode: boolean; panel: boolean }; refused: string[] };
+    status: { today?: { runs: number; usd: number }; running?: { head: string }; attempt?: { head: string; outcome: 'unavailable' | 'skipped'; reason: string; at: string }; last?: { head: string; at: string; mode: string; open: Item[]; disputed: Item[]; ran?: ModeRecord } } | null;
+    effective: { enabled: boolean; mode: string; panel: boolean; judges: number; escalate: string; dismissals: boolean; max_runs_per_day?: number; max_usd_per_day?: number; reviewers: string[]; source: { mode: Source; panel: Source }; required: { mode: boolean; panel: boolean }; refused: string[] };
     team: Record<string, unknown>;
     teamFile: boolean;
     user: Record<string, unknown>;
@@ -165,8 +165,26 @@ export const Settings: React.FC<{ data: ReviewerData; canWrite: boolean; saving:
                     </div>
                 ))}
             </div>
+            <Spend data={data} />
             {e.refused.length > 0 && <div className="st-stack" style={{ marginTop: 12 }}>{e.refused.map(line => <div key={line} className="st-sub"><span className="st-chip warn">not applied</span> {line}</div>)}</div>}
         </>
+    );
+};
+
+/** Today's spend against the daily caps; the caps are set in rigour.yml or your settings, not here. */
+const Spend: React.FC<{ data: ReviewerData }> = ({ data }) => {
+    const today = data.status?.today ?? { runs: 0, usd: 0 };
+    const { max_runs_per_day: runs, max_usd_per_day: usd } = data.effective;
+    return (
+        <div className="st-card" style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 15 }}>Today in this repository</div>
+            <div className="st-sub" style={{ marginTop: 4, lineHeight: 1.6 }}>
+                {plural(today.runs, 'agent run')}{runs !== undefined ? ` of ${runs} allowed` : ''}{today.usd || usd !== undefined ? `, $${today.usd.toFixed(2)} reported${usd !== undefined ? ` of $${usd.toFixed(2)}` : ''}` : ''}.{' '}
+                {runs === undefined && usd === undefined
+                    ? <>No daily cap: set <span className="st-mono">max_runs_per_day</span> or <span className="st-mono">max_usd_per_day</span> in <span className="st-mono">rigour.yml</span>.</>
+                    : 'Past a cap, reviews are skipped until tomorrow (or cannot run, where your team requires the reviewer).'}
+            </div>
+        </div>
     );
 };
 

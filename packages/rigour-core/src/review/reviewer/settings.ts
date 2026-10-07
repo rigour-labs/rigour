@@ -32,6 +32,9 @@ export interface ResolvedReviewer {
     panel_max_items: number;
     /** Whether reviewer findings may be dismissed: the team's decision, never a person's. */
     dismissals: boolean;
+    /** The daily caps that apply: the lower of the team's and the person's. */
+    max_runs_per_day?: number;
+    max_usd_per_day?: number;
     judges: 2 | 3;
     escalate: 'always' | 'risk';
     cross_models: Record<string, string>;
@@ -101,6 +104,8 @@ export function resolveReviewer(config: Config, choice: RunChoice = {}, user: Us
         panel,
         panel_max_items: team.panel_max_items,
         dismissals: team.dismissals,
+        ...cap('max_runs_per_day', team.max_runs_per_day, user?.max_runs_per_day, refused),
+        ...cap('max_usd_per_day', team.max_usd_per_day, user?.max_usd_per_day, refused),
         judges: floor ? Math.max(team.judges, user?.judges ?? team.judges) as 2 | 3 : user?.judges ?? team.judges,
         escalate: requiredEscalation(team, user, refused),
         cross_models: team.cross_models,
@@ -108,6 +113,13 @@ export function resolveReviewer(config: Config, choice: RunChoice = {}, user: Us
         required: { mode: team.mode_required, panel: requirePanel },
         refused,
     };
+}
+
+/** A cap is the lower of the team's and the person's: a person can spend less than the team allows, never more. */
+function cap(key: 'max_runs_per_day' | 'max_usd_per_day', team: number | undefined, user: number | undefined, refused: string[]): Record<string, number> {
+    if (user !== undefined && team !== undefined && user > team) refused.push(`${key} ${user} (user) refused: rigour.yml caps it at ${team}`);
+    const value = team === undefined ? user : user === undefined ? team : Math.min(team, user);
+    return value === undefined ? {} : { [key]: value };
 }
 
 /** A team that requires full or panel review wants it on every review: no user may escalate on risk only. */
@@ -145,7 +157,7 @@ export function saveUserReviewer(patch: UserReviewerPatch): UserReviewerSettings
 }
 
 function patchProblem(patch: UserReviewerPatch): string | undefined {
-    const known = new Set(['enabled', 'mode', 'panel', 'judges', 'escalate', 'reviewers', 'models']);
+    const known = new Set(['enabled', 'mode', 'panel', 'judges', 'escalate', 'reviewers', 'models', 'max_runs_per_day', 'max_usd_per_day']);
     const unknown = Object.keys(patch).find(key => !known.has(key));
     if (unknown) return `not a reviewer setting a person can change: ${unknown}`;
     const ok = (value: unknown, test: (v: unknown) => boolean) => value === null || value === undefined || test(value);
@@ -154,6 +166,8 @@ function patchProblem(patch: UserReviewerPatch): string | undefined {
     if (!ok(patch.panel, v => typeof v === 'boolean')) return 'panel is true or false';
     if (!ok(patch.judges, v => v === 2 || v === 3)) return 'judges is 2 or 3';
     if (!ok(patch.escalate, v => v === 'always' || v === 'risk')) return 'escalate is always or risk';
+    if (!ok(patch.max_runs_per_day, v => Number.isInteger(v) && (v as number) > 0)) return 'max_runs_per_day is a whole number above 0';
+    if (!ok(patch.max_usd_per_day, v => typeof v === 'number' && v > 0)) return 'max_usd_per_day is a number above 0';
     if (!ok(patch.reviewers, v => Array.isArray(v) && v.every(x => x === 'claude' || x === 'cursor' || x === 'codex'))) return 'reviewers lists claude, cursor or codex';
     // A model name is handed to an agent CLI as an argument: one that starts with "-" would be read as a flag.
     if (!ok(patch.models, v => !!v && typeof v === 'object' && Object.values(v).every(x => typeof x === 'string' && /^[\w.:/@-]+$/.test(x) && !x.startsWith('-')))) return 'models maps a reviewer to a model name (letters, digits and . : / @ -, not starting with -)';

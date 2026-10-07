@@ -41,6 +41,8 @@ export interface PanelInput {
     maxItems: number;
     /** Asks `judge` about items other judges raised; resolves to its answers (a missing one counts as unsure). */
     ask: (judge: string, items: OpenItem[]) => Promise<Answer[]>;
+    /** Why no more agent runs may start today (a daily cap), checked before each judge's cross-examination. */
+    capped?: () => string | undefined;
     /** Whether an answer's evidence quotes real code: a `file:line` the checkout has. */
     evidenced: (evidence: string) => boolean;
 }
@@ -73,6 +75,14 @@ export async function runPanel(input: PanelInput): Promise<PanelItem[]> {
     await Promise.all(input.judges.map(async judge => {
         const mine = asked.filter(d => !d.judges.includes(judge));
         if (!mine.length) return;
+        const cap = input.capped?.();
+        if (cap) {
+            for (const d of mine) {
+                d.calls[judge] = 'not asked';
+                d.note = cap;
+            }
+            return;
+        }
         let answers: Answer[] = [];
         try {
             answers = await input.ask(judge, mine.map(d => d.item));

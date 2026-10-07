@@ -468,6 +468,13 @@ export const ConfigSchema = z.object({
             dismissals: z.boolean().optional().default(false),
             /** Findings cross-examined per review at most; the rest are shown as disputed. */
             panel_max_items: z.number().int().positive().optional().default(20),
+            /**
+             * Spending caps per repository and local day, unset by default. Runs are checked before any judge starts
+             * (a cross-examination counts too); dollars are the ones the CLIs reported, so a cap stops new reviews once
+             * reached. Past a cap a review is skipped, or unavailable when the team requires the reviewer.
+             */
+            max_runs_per_day: z.number().int().positive().optional(),
+            max_usd_per_day: z.number().positive().optional(),
             /** Judges in a full or panel review, each from a different vendor; capped by the vendors installed. */
             judges: z.union([z.literal(2), z.literal(3)]).optional().default(2),
             /**

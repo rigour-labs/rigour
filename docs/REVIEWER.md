@@ -107,7 +107,25 @@ step, because it turns a personal install into the team's.
 - **A push nobody will read costs nothing:** before checking anything out, the background review
   asks whether the branch has an open, ready pull request; if not, it stops and says why.
 
-Every verdict records its agent runs and, where the CLI reports it, its cost.
+**Daily caps**, per repository, unset by default:
+
+```yaml
+review:
+  reviewer:
+    max_runs_per_day: 40     # agent runs, judges and cross-examinations alike
+    max_usd_per_day: 15      # dollars the CLIs reported (Claude Code reports them; Codex reports tokens)
+```
+
+Runs are counted before any judge starts, so a review that would pass the run cap does not start,
+and a cross-examination that would pass it is not made (its findings are shown as disputed, with
+the cap as the reason). Dollars are known only after a run, so the cost cap stops new reviews once
+today's reported spend reaches it. Past a cap, a review is skipped and says why; where the team
+requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
+A person may set a lower cap for their own runs, never a higher one. `rigour review --status` and
+Studio's Setup page show today's runs and spend against the caps.
+
+Every verdict records its agent runs, the tokens each judge used and, where the CLI reports it, its
+cost.
 
 ## How it learns
 

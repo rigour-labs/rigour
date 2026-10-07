@@ -309,6 +309,29 @@ describe('a panel of judges', () => {
         expect(required.reason).toContain('rigour.yml requires two reviewers');
     });
 
+    it('keeps to the daily caps: a review past the run cap is skipped, or unavailable when the team requires the reviewer', async () => {
+        const reply = () => JSON.stringify({ ...EMPTY, findings: [LOCK] });
+        const skipped = await runReviewer(repo, 'main', panelConfig({ max_runs_per_day: 1 }), fakes(reply, seenNow()), () => undefined);
+        expect(skipped.outcome).toBe('skipped');
+        expect(skipped.reason).toContain('the daily run cap is reached: 0 of 1 agent runs used today in this repository, and this needs 2 more');
+        const required = await runReviewer(repo, 'main', panelConfig({ max_runs_per_day: 1, panel: 'required' }), fakes(reply, seenNow()), () => undefined);
+        expect(required.outcome).toBe('unavailable');
+    });
+
+    it('counts every run, stops new reviews at the cost cap, and leaves a cross-examination past the run cap disputed', async () => {
+        const seen = seenNow();
+        const lone = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', consequence: 'a reader treats it as the contract' };
+        const reply = (name: string) => JSON.stringify({ ...EMPTY, findings: name === 'claude' ? [LOCK] : [{ ...LOCK, line: 3, issue: 'the lock is taken only after it returns' }, lone] });
+        // Two judges fit in a cap of 2; the cross-examination of cursor's lone finding would be a third run.
+        const result = await runReviewer(repo, 'main', panelConfig({ max_runs_per_day: 2 }), fakes(reply, seen), () => undefined);
+        expect(seen.prompts).toHaveLength(2);
+        expect(result.items.map(i => i.issue)).toEqual([LOCK.issue]);
+        expect(result.panel?.find(d => d.item.issue === lone.issue)).toMatchObject({ status: 'disputed', note: expect.stringContaining('the daily run cap is reached') });
+        // claude reported $1.50: a cost cap of $1 lets no new review start today.
+        const capped = await runReviewer(repo, 'main', panelConfig({ max_usd_per_day: 1 }), fakes(reply, seenNow()), () => undefined, { force: true });
+        expect(capped).toMatchObject({ outcome: 'skipped', reason: expect.stringContaining('the daily cost cap is reached: $1.50 of $1.00') });
+    });
+
     it('escalates on risk: one judge for a change with no risky function and no human review', async () => {
         const seen = seenNow();
         const result = await runReviewer(repo, 'main', panelConfig({ escalate: 'risk' }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined);

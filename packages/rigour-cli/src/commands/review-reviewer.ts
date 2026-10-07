@@ -92,7 +92,7 @@ export async function printStatus(cwd: string, json: boolean): Promise<number> {
         console.log(JSON.stringify(status, null, 2));
         return 0;
     }
-    console.log(chalk.bold(`  Reviewer on ${status.branch}`));
+    console.log(chalk.bold(`  Reviewer on ${status.branch}`) + chalk.dim(`  today: ${status.today.runs} agent run(s)${status.today.usd ? `, $${status.today.usd.toFixed(2)} reported` : ''}`));
     if (status.running) console.log(chalk.yellow(`  running for ${status.running.head.slice(0, 9)} (pid ${status.running.pid})${status.log ? chalk.dim(`, log: ${status.log}`) : ''}`));
     if (status.attempt) console.log(chalk.yellow(`  last attempt on ${status.attempt.head.slice(0, 9)}, ${status.attempt.at}: ${status.attempt.outcome === 'skipped' ? 'skipped' : 'could not run'}: ${status.attempt.reason}`));
     if (status.last) {

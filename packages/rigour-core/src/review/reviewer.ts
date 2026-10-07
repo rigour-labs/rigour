@@ -241,6 +241,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         return result(decide(verdict, previousOpen, verify, dismissals), verdict, reviewers, scope, why, true, reviews, pr, modeRecord, settings.dismissals);
     }
 
+    // The daily caps, before any judge starts: a cached or reused verdict above cost nothing and never reaches here.
+    const over = overBudget(store.spend(), settings, reviewers.length);
+    if (over) return none(settings.required.panel || settings.required.mode ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
+
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
     try {
         const file = (name: string, text: string) => {
@@ -284,6 +288,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 const run = await exec(installed.get(name)!.binary, adapter.args(prompt, modelFor(name)), { cwd, timeoutMs: settings.timeout_ms });
                 progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
                 const answer = adapter.answer(run.stdout);
+                store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
                 return run.exitCode === 0 || answer.text.trim()
                     ? parseVerdict(answer.text, needsPriorPoints, name, answer)
                     : { error: `${name}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
@@ -302,6 +307,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             const judgeItems = parts.map(part => account({ ...part, prior_points: [], carried: [], resolved_previous: [] }, undefined, verify).open);
             const previousPanel = scope === 'delta' ? store.readJson<Verdict>(previous!.verdict)?.panel : undefined;
             const cross: Array<{ reviewer: string; cost_usd?: number; tokens?: Tokens }> = [];
+            let reserved = 0;
             const items = await runPanel({
                 judges: parts.map(part => part.reviewer!),
                 items: judgeItems,
@@ -310,10 +316,19 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 evidenced: text => evidenceNames(text).some(([file, line]) => verify(file, line)),
                 touched,
                 maxItems: settings.panel_max_items,
+                // Judges cross-examine at the same time: a run is reserved when allowed, so together they never pass the cap.
+                capped: () => {
+                    const spent = store.spend();
+                    const reason = overBudget({ ...spent, runs: spent.runs + reserved }, settings, 1);
+                    if (!reason) reserved++;
+                    return reason;
+                },
                 ask: async (judge, asked) => {
                     const name = judge as ReviewerName;
                     const run = await exec(installed.get(name)!.binary, ADAPTERS[name].args(crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked), settings.cross_models[name] ?? modelFor(name)), { cwd, timeoutMs: settings.timeout_ms });
                     const answer = ADAPTERS[name].answer(run.stdout);
+                    store.addSpend(1, answer.costUsd);
+                    reserved--;
                     cross.push({ reviewer: `${name} cross-exam`, ...(answer.costUsd !== undefined ? { cost_usd: answer.costUsd } : {}), ...(answer.tokens ? { tokens: answer.tokens } : {}) });
                     progress(`Rigour reviewer: ${name} cross-examined ${asked.length} finding(s) (exit ${run.exitCode})`);
                     return parseAnswers(answer.text);
@@ -355,6 +370,13 @@ function evidenceNames(text: string): Array<[string, number]> {
 }
 
 type Decided = Accounting & { disputed: OpenItem[]; dropped: OpenItem[]; dismissed: OpenItem[] };
+
+/** Why the caps leave no room for `planned` more runs today, or nothing when they do. */
+function overBudget(spent: { runs: number; usd: number }, caps: { max_runs_per_day?: number; max_usd_per_day?: number }, planned: number): string | undefined {
+    if (caps.max_runs_per_day !== undefined && spent.runs + planned > caps.max_runs_per_day) return `the daily run cap is reached: ${spent.runs} of ${caps.max_runs_per_day} agent runs used today in this repository, and this needs ${planned} more (review.reviewer.max_runs_per_day)`;
+    if (caps.max_usd_per_day !== undefined && spent.usd >= caps.max_usd_per_day) return `the daily cost cap is reached: $${spent.usd.toFixed(2)} of $${caps.max_usd_per_day.toFixed(2)} reported today in this repository (review.reviewer.max_usd_per_day)`;
+    return undefined;
+}
 
 /** Whether a risk-escalated review adds judges: a human review exists, or the router finds a risky changed function. */
 function escalationFor(humanReviews: number, risky: number | undefined): { escalate: boolean; why: string } {

@@ -62,6 +62,9 @@ export interface UserReviewerSettings {
   panel?: boolean;
   judges?: 2 | 3;
   escalate?: 'always' | 'risk';
+  /** A lower cap for your own runs; never above the team's. */
+  max_runs_per_day?: number;
+  max_usd_per_day?: number;
   reviewers?: string[];
   models?: Record<string, string>;
 }

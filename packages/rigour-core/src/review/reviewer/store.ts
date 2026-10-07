@@ -10,6 +10,14 @@ import path from 'path';
 import type { Exec } from './exec.js';
 import { GH_TIMEOUT_MS } from './exec.js';
 
+/** What the reviewer spent on one local day in this repository: agent runs, and the dollars the CLIs reported. */
+export interface DaySpend { runs: number; usd: number }
+
+/** The local calendar day, as a team's "per day" means it. */
+function localDay(at = new Date()): string {
+    return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+}
+
 export interface ReviewAttempt { head: string; outcome: 'unavailable' | 'skipped'; reason: string; at: string }
 
 export interface BranchState {
@@ -63,6 +71,34 @@ export class VerdictStore {
     recordBranch(branch: string, state: Omit<BranchState, 'chain' | 'at'>): void {
         const previous = this.branchState(branch);
         this.writeJson(this.branchFile(branch), { ...state, chain: state.mode === 'delta' ? (previous?.chain ?? 0) + 1 : 0, at: new Date().toISOString() });
+    }
+
+    /** Today's spend, summed from the day's append-only log (one line per run or batch of runs). */
+    spend(day = localDay()): DaySpend {
+        let text = '';
+        try {
+            text = fs.readFileSync(this.spendFile(day), 'utf8');
+        } catch {
+            return { runs: 0, usd: 0 };
+        }
+        return text.split('\n').filter(Boolean).reduce((sum, line) => {
+            try {
+                const entry = JSON.parse(line);
+                return { runs: sum.runs + (Number(entry.runs) || 0), usd: sum.usd + (Number(entry.usd) || 0) };
+            } catch {
+                return sum;
+            }
+        }, { runs: 0, usd: 0 });
+    }
+
+    /** Adds runs and reported dollars to today's log: an append, so the background reviewer and a person's run never lose each other's count. */
+    addSpend(runs: number, usd: number | undefined, day = localDay()): void {
+        fs.mkdirSync(path.join(this.dir, 'spend'), { recursive: true });
+        fs.appendFileSync(this.spendFile(day), `${JSON.stringify({ runs, ...(usd ? { usd } : {}), at: new Date().toISOString() })}\n`);
+    }
+
+    private spendFile(day: string): string {
+        return path.join(this.dir, 'spend', `${day}.jsonl`);
     }
 
     /** The decision a verdict led to (what blocks, what is disputed or a note), kept so the same commit is not decided again. */

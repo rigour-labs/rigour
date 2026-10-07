@@ -108,6 +108,12 @@ describe('Studio pages', () => {
         expect(out).toContain('Set team defaults'); // no rigour.yml: creating one is an explicit step
     });
 
+    it('shows today\'s spend against the daily caps', () => {
+        const capped = reviewerData({ status: { today: { runs: 7, usd: 2.1 } }, effective: { ...reviewerData({}).effective, max_runs_per_day: 20, max_usd_per_day: 10 } });
+        expect(html(<Settings data={capped} canWrite saving={null} onSave={() => undefined} onSaveTeam={() => undefined} />)).toContain('7 agent runs of 20 allowed, $2.10 reported of $10.00.');
+        expect(html(<Settings data={reviewerData({})} canWrite saving={null} onSave={() => undefined} onSaveTeam={() => undefined} />)).toContain('No daily cap');
+    });
+
     it('says how many judges this machine can field', () => {
         const two = reviewerData({ effective: { ...reviewerData({}).effective, reviewers: ['claude', 'codex', 'cursor'] }, available: [{ name: 'claude', vendor: 'anthropic', binary: 'claude', installed: true, version: '2.1' }, { name: 'codex', vendor: 'openai', binary: 'codex', installed: true }, { name: 'cursor', vendor: 'cursor', binary: 'cursor-agent', installed: false }] });
         const out = html(<Agents data={two} />);
