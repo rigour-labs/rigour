@@ -117,6 +117,13 @@ describe('goalFailures', () => {
         expect(parseGoal('## Scope\n- `src/x/`\n- `res.json`', exists).scope).toEqual(['src/x/']);
     });
 
+    it('never reads a URL or an app route as a file of the repository', () => {
+        const goal = parseGoal('## Done when\n- `a.e2e.ts` asserts the CTA href is `https://<host>/checkout?[lead_id=…&]origin=x`\n- `/learner/dashboard` shows the plan\n- `http://www.vt.local:3002/learner` loads', () => true);
+        expect(goal.doneWhen.map(i => i.paths)).toEqual([['a.e2e.ts'], [], []]);
+        expect(check('## Scope\n- `/learner/`\n- `https://example.com/x`', diffOf({ 'src/a.ts': ['x'] }))).toEqual([]);
+        expect(parseGoal('## Scope\n- `src/routes/(app)/learner/+page.svelte`\n- `$lib/server/`').scope).toEqual(['src/routes/(app)/learner/+page.svelte', '$lib/server/']);
+    });
+
     it('never counts deleting a generated file as scope drift', () => {
         const diff = diffOf({ 'src/a.ts': ['x'] }, ['lib/client.gen.ts', 'lib/hand.ts']);
         const failures = goalFailures(parseGoal('## Scope\n- `src/`'), parseDiff(diff), diff, file => file.includes('.gen.'));
