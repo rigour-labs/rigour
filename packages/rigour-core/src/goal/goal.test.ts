@@ -44,6 +44,13 @@ describe('parseGoal', () => {
         expect(goal.doneWhen.map(i => [i.paths, i.symbols])).toEqual([[[], ['parseGoal']], [['docs/GOAL.md'], []], [[], []]]);
     });
 
+    it('reads the headings teams already write a goal under as Done when, and never a procedure checklist', () => {
+        for (const heading of ['Acceptance criteria', 'Definition of done', 'Success criteria', 'Done when']) {
+            expect(parseGoal(`## ${heading}\n- [x] \`run\` is called`).doneWhen.map(i => i.symbols)).toEqual([['run']]);
+        }
+        for (const heading of ['Test plan', 'Review checklist']) expect(parseGoal(`## ${heading}\n- [ ] \`run\` is called`).doneWhen).toEqual([]);
+    });
+
     it('stops a section at the next heading, so another section\'s paths are not scope', () => {
         expect(parseGoal(BODY).scope).not.toContain('src/other.ts');
     });

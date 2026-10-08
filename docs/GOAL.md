@@ -25,7 +25,8 @@ Only sections the author writes on purpose. A heading can be markdown (`## Scope
 
 - **Scope** (also `In scope`, `Boundary`): the paths the change may touch, as folders, files or globs, in backticks or one bare path per bullet.
 - **Out of scope** (also `Not in scope`): paths it must not touch.
-- **Done when**: a checklist. An item that names a file, path or symbol in backticks is checkable (a file blocks, a symbol is a note); a prose item is not.
+- **Done when** (also `Acceptance criteria`, `Definition of done`, `Success criteria`): a checklist. An item that names a file, path or symbol in backticks is checkable (a file blocks, a symbol is a note); a prose item is not.
+- A procedure checklist (`Test plan`, `Review checklist`) is not a goal and is not read.
 - **Invariants**: not checked deterministically; the reviewer judges them (below).
 
 A description without these sections declares no goal, and the check says nothing about it.

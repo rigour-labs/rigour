@@ -35,7 +35,8 @@ export interface Goal {
 type Section = 'doneWhen' | 'scope' | 'outOfScope' | 'invariants';
 
 const HEADINGS: Array<[RegExp, Section]> = [
-    [/^done when$/, 'doneWhen'],
+    // The headings teams already write a goal under; a checklist of procedure ("Test plan", "Review checklist") is not one.
+    [/^(?:done when|acceptance criteria|definition of done|success criteria)$/, 'doneWhen'],
     [/^(?:scope|boundary|in scope)$/, 'scope'],
     [/^(?:out of scope|not in scope|out-of-scope)$/, 'outOfScope'],
     [/^invariants?$/, 'invariants'],
