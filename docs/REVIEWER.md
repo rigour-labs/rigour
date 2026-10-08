@@ -226,7 +226,7 @@ cost.
 
 Each judge starts from what your team already knows, written to a file it reads:
 
-- the review lessons your team verified (`gates.deep.review_lessons: all` adds candidates, `off` none), and the repository's rules, for what the change touches. A lesson is context: it never blocks on its own;
+- the review lessons your team verified (`gates.deep.review_lessons: all` adds candidates, `off` none), and the repository's rules, for what the change touches: up to thirty file lessons, at most three per touched file, so one file's many lessons never crowd out another file's only one, and never a lesson learned only from the pull request under review, which the judge already reads as the reviewer's own points. A lesson is context: it never blocks on its own;
 - findings the team settled: dismissed as not a bug, or refuted with evidence in an earlier round
   on a file that has not changed since. Judges are told not to raise them again without something new;
 - the docs that name the changed code.
@@ -300,7 +300,8 @@ When a team turns dismissals off again, the recorded ones stop counting.
   the judge could show (a verified quote), worth a person's time and never blocking; everything else
   (working notes, disputed items, items whose quote or file the checkout does not have, dismissed
   items) folded into one count. `--notes` lists them all. The same point found in several places is
-  one item carrying every location, and it blocks until every location is fixed.
+  one item carrying every location, and it blocks until every location is fixed. A rule break and the
+  finding it caused on the same lines are one item too.
 - **The record of the review**, written beside the verdict (`<git common dir>/rigour-reviewer/*.record.json`)
   and carried in `rigour review --json` under `reviewer.record`: what Rigour verified against the
   checkout (blocking items, should-fixes, the repository rules served and answered, the lessons served

@@ -229,7 +229,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const sincePrevious = previousIsAncestor ? new Set((await git(['diff', '--name-only', `${previous!.head}..HEAD`])).split('\n').filter(Boolean)) : new Set<string>();
     const changedFiles = [...fullDiff.matchAll(/^diff --git a\/.* b\/(.*)$/gm)].map(m => m[1]);
     const context = buildContext({
-        cwd, stateRoot, dismissals, diff: fullDiff, router: config.gates.deep?.router, lessons: config.gates.deep?.review_lessons, touched: sincePrevious, checks: options.checks ?? [],
+        cwd, stateRoot, dismissals, diff: fullDiff, router: config.gates.deep?.router, lessons: config.gates.deep?.review_lessons, ...(pr ? { pr: pr.number } : {}), touched: sincePrevious, checks: options.checks ?? [],
         previousPanel: previousIsAncestor ? store.readJson<Verdict>(previous!.verdict)?.panel?.items : undefined,
         docs: await relatedDocs(cwd, changedFiles, exec),
     });

@@ -17,12 +17,12 @@ export function activeLessons(cwd: string, mode: LessonMode = DEFAULT_LESSON_MOD
     return readLessons(cwd).filter(l => mode === 'all' || l.state === 'verified');
 }
 
-/** `standards`: how many team standards may come with the file lessons (a judge reading a whole pull request takes more than an agent's one question). */
-export function lessonsForDiff(cwd: string, diff: string, mode: LessonMode = DEFAULT_LESSON_MODE, standards?: number): ReviewLesson[] {
+/** `standards`, `limit`, `perFile`: how many team standards and file lessons may come, and how many per file (a judge reading a whole pull request takes more than an agent's one question). */
+export function lessonsForDiff(cwd: string, diff: string, mode: LessonMode = DEFAULT_LESSON_MODE, standards?: number, limit?: number, perFile?: number, excludePr?: number): ReviewLesson[] {
     if (mode === 'off') return [];
     const lessons = readLessons(cwd);
     if (lessons.length === 0) return [];
-    return matchLessons(lessons, changeShape(diff), { includeCandidates: mode === 'all', ...(standards !== undefined ? { standards } : {}) });
+    return matchLessons(lessons, changeShape(diff), { includeCandidates: mode === 'all', ...(standards !== undefined ? { standards } : {}), ...(limit !== undefined ? { limit } : {}), ...(perFile !== undefined ? { perFile } : {}), ...(excludePr !== undefined ? { excludePr } : {}) });
 }
 
 /** The points this team rejected that a change touches: what the judges are told is settled. */

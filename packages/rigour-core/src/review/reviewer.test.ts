@@ -440,7 +440,7 @@ describe('verdicts', () => {
             return { verdict, ...account(verdict, undefined, verify) };
         };
         const broken = judged([{ id: 'r1', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'no lock before the read' }]);
-        expect(broken.open.map(i => [i.kind, i.class, i.issue])).toEqual([['rule', 'repo-rule', 'breaks a rule this repository wrote for itself (AGENTS.md): Every job must take the lock before its first read.']]);
+        expect(broken.open.map(i => [i.kind, i.class, i.issue, i.evidence])).toEqual([['rule', 'repo-rule', 'Every job must take the lock before its first read.', 'breaks a rule this repository wrote for itself (AGENTS.md): no lock before the read']]);
         expect(judged([{ id: 'r1', status: 'broken', file: 'src/job.ts', line: 2 }])).toMatchObject({ open: [], unverified: [expect.objectContaining({ kind: 'rule' })] }); // no quote: not shown as a block
         expect(judged([{ id: 'r2', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;' }])).toMatchObject({ open: [], advisory: [expect.objectContaining({ class: 'repo-rule' })] }); // guidance: shown, never a block
         expect(judged([{ id: 'r1', status: 'followed' }, { id: 'r1', status: 'not-applicable' }])).toMatchObject({ open: [], notes: [], advisory: [], unverified: [] });
@@ -458,9 +458,14 @@ describe('verdicts', () => {
         const { open } = account(verdict, undefined, checkoutVerifier(repo));
         expect(open.map(i => [i.kind, i.class, i.locations ?? []])).toEqual([
             ['prior', 'prior point', []], ['prior', 'prior point', []],
-            ['finding', 'production-cost', [{ file: 'a.ts', line: 1 }]], // the same point in another file: one item, both places
-            ['finding', 'correctness', []], // a different class is a different point
+            // The same point in another file, and the same point said as another class on the next line: one item, every place.
+            ['finding', 'production-cost', [{ file: 'a.ts', line: 1 }, { file: 'src/job.ts', line: 2 }]],
         ]);
+        // A rule break and the finding it caused, on the same lines and in like words, are one item.
+        const twice = account({ ...EMPTY, prior_points: [], findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'the raw table name is inlined instead of the JOBS_TABLE constant', input: 'any run', consequence: 'a rename misses it', quote: 'return 1;' }],
+            rules: [{ id: 'r', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'Import the JOBS_TABLE constant; do not inline the raw table name again.', source: 'AGENTS.md', requirement: true }] } as unknown as Verdict, undefined, checkoutVerifier(repo));
+        expect(twice.open.map(i => i.class)).toEqual(['repo-rule']);
+        expect(twice.open[0].locations).toEqual([{ file: 'src/job.ts', line: 2 }]);
     });
 
     it('keeps reads, scans, redundancy and merge impact as notes with stable ids, and answers non-blocking points in the reply', () => {
