@@ -47,8 +47,8 @@ describe('acted on', () => {
 
 describe('lessons', () => {
     it('never makes a lesson of a bare path or a review bot\'s line-range scaffolding', () => {
-        expect(lessonText('src/routes/learner/+layout.ts')).toBe('');
-        expect(lessonText('`src/routes/learner/api/[planId]/+server.ts`')).toBe('');
+        expect(lessonText('src/routes/account/+layout.ts')).toBe('');
+        expect(lessonText('`src/routes/account/api/[planId]/+server.ts`')).toBe('');
         expect(lessonText('In src/a.ts around lines 10-12: Check the lock before the first read.')).toBe('Check the lock before the first read.');
         expect(lessonText('Around line 124-141: Add a test for the failed save.')).toBe('Add a test for the failed save.');
         expect(lessonsFromReview({ id: '1', prNumber: 3, commit: 'c', author: 'rabbit[bot]', source: 'bot', body: '- `src/a/b.ts`\n- Bound both ends of the time window.' }, ['src/a/b.ts']).map(l => l.text))

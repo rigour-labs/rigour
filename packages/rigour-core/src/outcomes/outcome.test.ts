@@ -179,8 +179,8 @@ describe('CI on the merge commit', () => {
         const ok = { name: 'build', status: 'completed', conclusion: 'success' };
         expect(await ciFrom([ok, { name: 'tests', status: 'completed', conclusion: 'failure' }])).toBe('failure');
         expect(await ciFrom([ok, { name: 'tests', status: 'completed', conclusion: 'timed_out' }])).toBe('failure');
-        // CodeQL was already red on main: the merge broke nothing.
-        expect(await ciFrom([ok, { name: 'CodeQL', status: 'completed', conclusion: 'failure' }], [{ name: 'CodeQL', status: 'completed', conclusion: 'failure' }])).toBe('success');
+        // A security scan was already red on main: the merge broke nothing.
+        expect(await ciFrom([ok, { name: 'security-scan', status: 'completed', conclusion: 'failure' }], [{ name: 'security-scan', status: 'completed', conclusion: 'failure' }])).toBe('success');
         expect(await ciFrom([])).toBe('none');
         expect(await ciFrom([ok, { name: 'e2e', status: 'in_progress', conclusion: null }])).toBe('pending');
         expect(await ciFrom([ok, { name: 'lint', status: 'completed', conclusion: 'skipped' }])).toBe('success');
@@ -213,14 +213,15 @@ describe('rigour outcomes', () => {
         const { mergeSha, mergedAt } = history('merge');
         const file = path.join(repo, '.rigour', 'review-lessons.json');
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        const lesson = { id: 'L1', text: 'a is never off by one', file: 'a.ts', symbols: [], state: 'candidate', evidence: [{ kind: 'point', pr: 7, comment: 'c7', author: 'rev', actedOn: false }], createdAt: day(-1), updatedAt: day(-1) };
+        // An inline point on line 1 of a.ts, made on the pull request's last commit and left alone by it.
+        const lesson = { id: 'L1', text: 'a is never off by one', file: 'a.ts', symbols: [], state: 'candidate', at: { commit: git(['rev-parse', 'feature']), start: 1, end: 1 }, evidence: [{ kind: 'point', pr: 7, comment: 'c7', author: 'rev', actedOn: false }], createdAt: day(-1), updatedAt: day(-1) };
         fs.writeFileSync(file, JSON.stringify({ version: 1, lessons: [lesson] }));
         const exec: Exec = async (_c, args) => {
             if (args[0] === 'pr') return { exitCode: 0, stdout: JSON.stringify({ number: 7, mergedAt, mergeCommit: { oid: mergeSha }, headRefName: 'feature', author: { login: 'ana' }, state: 'MERGED' }), stderr: '' };
             return { exitCode: 0, stdout: JSON.stringify([{ status: 'completed', conclusion: 'success' }]), stderr: '' };
         };
         const run = await runOutcomes(repo, ConfigSchema.parse({ version: 1 }), { flag: true, pr: 7, exec });
-        // a.ts fixed later, and the pull request reverted: the second signal.
+        // The fix on day 3 changed the point's own line.
         expect(run.lessons).toMatchObject({ added: 1, promoted: ['L1'] });
         expect(JSON.parse(fs.readFileSync(file, 'utf8')).lessons[0]).toMatchObject({ state: 'verified', promotedBy: 'outcome' });
         const written = fs.statSync(file).mtimeMs;

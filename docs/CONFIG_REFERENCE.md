@@ -66,7 +66,7 @@ File-wide settings: the template labels rigour init applied, and the paths every
 | `brief.max_items` | number | `10` | The most items a briefing gives, between 1 and 10. |
 | `learning.outcomes.mode` | "off" \| "on" \| "required" | `"off"` | Reads what happened after each pull request merged (CI on its merge commit, later commits and fixes on its files, a revert) with rigour outcomes: off, on, or required, which stops a person, RIGOUR_OUTCOMES or --no-outcomes turning it off (team; a person sets outcomes in settings.json). |
 | `learning.outcomes.window_days` | number | `30` | How many days after a merge later commits on its files count, from 7 to 90; a record is settled once its window has closed and CI has an answer. |
-| `learning.outcomes.demote_after` | number | `2` | How many later pull requests, from more than one author or week, that a review found repeating a lesson and that then settled clean (CI passed, no fix on its file, no revert) take back a lesson an outcome or recurrence promoted; at least 2. |
+| `learning.outcomes.demote_after` | number | `2` | How many later pull requests, from more than one author or merged at least a week apart, that a review found repeating a lesson and that then settled clean (CI passed, no fix on its file, no revert) take back a lesson an outcome or recurrence promoted; at least 2. |
 | `ignore` | list of string | `[]` | Glob patterns for files every check, review and agent hook skips. |
 
 ## Project commands
