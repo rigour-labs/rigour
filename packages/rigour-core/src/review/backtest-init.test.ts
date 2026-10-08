@@ -5,7 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { ledgerProblems, loadLedger, LEDGER_PATH, LedgerSchema } from './backtest.js';
-import { scaffoldLedger } from './backtest-init.js';
+import { mergedPrs, scaffoldLedger } from './backtest-init.js';
 import type { Exec } from './reviewer.js';
 
 let repo: string;
@@ -98,5 +98,27 @@ describe('rigour backtest init', () => {
         await scaffoldLedger(repo, 212, config, fakeExec([]));
         const written = LedgerSchema.parse(JSON.parse(fs.readFileSync(path.join(repo, LEDGER_PATH), 'utf8')));
         expect(written.rounds.map(r => [r.id, r.commit])).toEqual([['pr7-r1', 'other00'], ['pr212-r1', 'c2c2c2c2c2']]);
+    });
+});
+
+describe('the last N merged pull requests', () => {
+    it('lists by last update, over-fetches, and keeps the N most recently merged: a long-lived pull request merged last week is in', async () => {
+        const calls: string[][] = [];
+        const listed = [
+            { number: 7, mergedAt: '2026-04-01T00:00:00Z' }, // opened last, merged first
+            { number: 3, mergedAt: '2026-04-12T00:00:00Z' }, // opened months ago, reviewed for weeks, merged last
+            { number: 6, mergedAt: '2026-04-10T00:00:00Z' },
+            { number: 5, mergedAt: '2026-04-05T00:00:00Z' },
+        ];
+        const exec: Exec = async (command, args, options) => {
+            calls.push([command, ...args]);
+            if (command === 'gh' && args[0] === 'auth') return { exitCode: 0, stdout: 'token\n', stderr: '' };
+            if (command === 'gh' && args[0] === 'pr') return { exitCode: 0, stdout: JSON.stringify(listed), stderr: '' };
+            return fakeExec([])(command, args, options);
+        };
+        const last = await mergedPrs(repo, 2, config, exec);
+        expect(last.map(p => p.number)).toEqual([3, 6]);
+        const list = calls.find(c => c[1] === 'pr')!;
+        expect(list.slice(1)).toEqual(['pr', 'list', '--state', 'merged', '--limit', '8', '--search', 'sort:updated-desc', '--json', 'number,mergedAt']);
     });
 });

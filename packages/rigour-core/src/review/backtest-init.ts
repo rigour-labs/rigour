@@ -54,10 +54,15 @@ export async function roundsForPr(cwd: string, pr: number, config: Config, exec:
     return { rounds, ...(approved ? { approved } : {}) };
 }
 
+/** How many merged pull requests to list per one wanted: gh lists by creation date, and a long-lived pull request merged last week may have been opened months ago. */
+const MERGED_OVERFETCH = 4;
+
 /** The last `n` merged pull requests, newest merge first. */
 export async function mergedPrs(cwd: string, n: number, config: Config, exec: Exec = defaultExec): Promise<Array<{ number: number; mergedAt: string }>> {
     const env = await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec);
-    const list = await exec('gh', ['pr', 'list', '--state', 'merged', '--limit', String(n), '--json', 'number,mergedAt'], { cwd, timeoutMs: GH_TIMEOUT_MS, env });
+    // Listed by last update, over-fetched, then sorted by merge date here: the limit is applied by gh before any sort,
+    // and in creation order it cuts off exactly the long-reviewed pull requests a backtest is for.
+    const list = await exec('gh', ['pr', 'list', '--state', 'merged', '--limit', String(n * MERGED_OVERFETCH), '--search', 'sort:updated-desc', '--json', 'number,mergedAt'], { cwd, timeoutMs: GH_TIMEOUT_MS, env });
     if (list.exitCode !== 0) throw new Error(`could not list merged pull requests: ${list.stderr.trim() || 'is gh signed in?'}`);
     try {
         return (JSON.parse(list.stdout) as Array<{ number: number; mergedAt: string }>).sort((a, b) => (a.mergedAt < b.mergedAt ? 1 : -1)).slice(0, n);
