@@ -26,7 +26,7 @@ export { buildReviewTask, type ReviewTask, type ReviewTaskItem } from './review/
 export { buildQualityReceipt, receiptReport, type QualityReceipt, type ReceiptGap, type ReceiptOptions } from './review/receipt.js';
 export { runToolchain, type ToolResult, type ToolStatus } from './review/toolchain.js';
 export { branchFailures, mergeConflicts, staleReferences } from './review/branch-checks.js';
-export { runReviewer, reviewerBlocks, itemLine, type ReviewerOptions, type ReviewerResult, type ReviewerOutcome, type OpenItem } from './review/reviewer.js';
+export { runReviewer, reviewerBlocks, itemLine, defaultExec, githubToken, type ReviewerOptions, type ReviewerResult, type ReviewerOutcome, type OpenItem } from './review/reviewer.js';
 export { startBackgroundReview, backgroundReview, reviewStatus, type ReviewStatus } from './review/reviewer/background.js';
 export { dismissReviewerFinding, REVIEW_DISMISSALS, reviewerInputs } from './review/reviewer/context.js';
 export { resolveReviewer, saveUserReviewer, type ResolvedReviewer, type RunChoice, type UserReviewerPatch } from './review/reviewer/settings.js';
@@ -38,8 +38,10 @@ export { rankChangedFunctions, scoreRisk, functionHash, findFunction, type Funct
 export { routeFiles, type RouterPolicy, type RouterStats } from './deep/router.js';
 export { appendDeepRun, readDeepRuns, summarizeDeepRuns, type DeepRun, type DeepRunSummary } from './review/deep-runs.js';
 export { learnFromReviews, type LearnFromReviewsOptions, type LearnFromReviewsResult } from './review-learning/learn-from-reviews.js';
-export { readLessons, writeLessons, promoteLesson, matchLessons, lessonText, lessonsPath, type ReviewLesson } from './review-learning/lessons.js';
+export { ruleWriterFor } from './review/reviewer/rule-writer.js';
+export { readLessons, writeLessons, decideLesson, lessonState, matchLessons, lessonText, lessonsPath, type ReviewLesson, type LessonEvidence } from './review-learning/lessons.js';
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
+export { recordAgentWrites, captureHumanEdits } from './review-learning/human-edits.js';
 export { readRepoRules, rulesForDiff, rulesSection, splitRules, type RepoRule } from './review-learning/repo-rules.js';
 export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
 export { checkPrecisions, checkId, precisionOf, isMuted, readOutcomes, MUTE_MIN_OUTCOMES, MUTE_BELOW, type CheckPrecision, type CheckOutcome } from './review/check-outcomes.js';

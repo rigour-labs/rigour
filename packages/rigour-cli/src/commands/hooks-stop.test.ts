@@ -25,7 +25,7 @@ describe('rigour hooks stop', () => {
         git('config', 'user.email', 't@example.com');
         git('config', 'user.name', 't');
         git('config', 'commit.gpgsign', 'false');
-        write('rigour.yml', 'version: 1\ngates:\n  semantic_bugs:\n    enabled: true\n');
+        write('rigour.yml', 'version: 1\ngates:\n  semantic_bugs:\n    enabled: true\n  unused_exports:\n    block: true\n'); // this team blocks on dead code
         write('.gitignore', '.rigour/\n');
         git('add', '-A');
         git('commit', '-qm', 'init');
@@ -53,6 +53,20 @@ describe('rigour hooks stop', () => {
         expect(reply.followup_message).toContain('src/notify.ts:2');
         expect(await hooksStopCommand('cursor', JSON.stringify({ cwd: repo, status: 'completed', loop_count: 3 }), '/')).toBe('');
         expect(await hooksStopCommand('cursor', JSON.stringify({ cwd: repo, status: 'aborted' }), '/')).toBe('');
+    });
+
+    it('asks once, at the end of the task, about what the team learned that applies to the change', async () => {
+        const lesson = { id: 'l1', text: 'Time out every fetch the loader makes.', file: 'src/load.ts', symbols: ['load'], state: 'verified', evidence: [{ pr: 7, comment: 'c1', author: 'senior' }, { pr: 9, comment: 'c2', author: 'senior' }], createdAt: '2026-01-01', updatedAt: '2026-01-01' };
+        write('.rigour/review-lessons.json', JSON.stringify({ version: 1, lessons: [lesson, { ...lesson, id: 'l2', text: 'Unrelated lesson about billing.', file: 'src/billing.ts', symbols: ['charge'] }] }));
+        write('src/load.ts', HEURISTIC);
+        write('src/main.ts', "import { load } from './load';\nvoid load('/');\n");
+        const payload = JSON.stringify({ cwd: repo, session_id: 'teach' });
+        const first = JSON.parse(await hooksStopCommand('claude', payload, '/'));
+        expect(first.decision).toBe('block');
+        expect(first.reason).toContain('src/load.ts: Time out every fetch the loader makes. (acted on in PR #7, #9)');
+        expect(first.reason).not.toContain('billing');
+        write('src/load.ts', `${HEURISTIC}// the agent checked it\n`);
+        expect(await hooksStopCommand('claude', payload, '/')).toBe(''); // asked once: never a loop
     });
 
     it('lets the agent stop when only heuristic findings remain', async () => {

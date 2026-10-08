@@ -43,6 +43,7 @@ describe('rigour hooks push', () => {
         write('src/main.ts', "import { used } from './util';\nconsole.log(used);\n");
         write('src/util.ts', 'export const used = 1;\n');
         write('package.json', '{"scripts":{"start":"node src/main.ts"}}\n');
+        write('rigour.yml', 'version: 1\ngates:\n  unused_exports:\n    block: true\n'); // this team blocks on dead code
         git('add', '-A');
         git('commit', '-qm', 'init');
         git('checkout', '-q', '-b', 'feature');

@@ -79,6 +79,7 @@ Most teams change very little. These are the settings a team usually decides tog
 | Your own lint, type check and test commands, if the defaults are not right | `commands` | [Configuration](./CONFIGURATION.md#commands) |
 | Paths no check should look at | `ignore` | [Configuration](./CONFIGURATION.md) |
 | Exports or files a framework loads by name, so they are not reported as unused | `gates.unused_exports.allow`, `gates.orphan_files.allow` | [Configuration](./CONFIGURATION.md) |
+| Whether an unused export or an orphaned file blocks, or is a note (the default) | `gates.unused_exports.block`, `gates.orphan_files.block` | [Checks](./CHECKS.md) |
 | Where your database migrations live, for the schema-aware checks | `gates.redundancy.schema_migrations`, `gates.migration_order` | [Configuration](./CONFIGURATION.md) |
 | Whether to run the model reviewer, and how many judges | `review.reviewer` | [The reviewer](./REVIEWER.md) |
 | A daily cap on what the reviewer may spend | `review.reviewer.max_runs_per_day`, `max_usd_per_day` | [The reviewer](./REVIEWER.md#what-it-costs-and-how-it-saves) |

@@ -14,6 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
 import type { Config, Failure } from '../types/index.js';
+import { branchBase } from '../gates/logic-drift-git-base.js';
 import { reviewChange } from './review.js';
 import { defaultExec, runReviewer, type Exec, type OpenItem, type Progress } from './reviewer.js';
 import { reviewerInputs } from './reviewer/context.js';
@@ -125,6 +126,8 @@ export async function runBacktest(cwd: string, config: Config, ledger: Ledger, o
         const worktree = await worktreeFor(cwd, round.commit, exec);
         const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: worktree, timeoutMs: GIT_TIMEOUT_MS })).stdout.trim();
         progress(`backtest ${round.id}: ${head.slice(0, 9)} against ${round.base}${round.reviewed_at ? `, reviews hidden from ${round.reviewed_at}` : ''}`);
+        const stale = await staleBase(worktree, head, round.base, exec);
+        if (stale) progress(`backtest ${round.id}: warning: ${stale}`);
         const collect = options.collect ?? ((tree, r, c) => collectItems(tree, r, c, !!options.reviewer, exec, progress));
         const { items, reviewerError, judged } = await collect(worktree, round, config);
         const result = { ...score(round, head, items, Date.now() - started, reviewerError), ...(judged ? { judges: judgeCatches(round, judged) } : {}) };
@@ -132,6 +135,23 @@ export async function runBacktest(cwd: string, config: Config, ledger: Ledger, o
         results.push(result);
     }
     return results;
+}
+
+/**
+ * Why a round's base would review main's own commits as the branch's: the head already contains a newer
+ * main than the base (the branch merged main in), so the diff from the base carries everything main did since.
+ */
+async function staleBase(worktree: string, head: string, base: string, exec: Exec): Promise<string | undefined> {
+    const mainRef = branchBase(worktree)?.mainRef;
+    if (!mainRef) return undefined;
+    const git = async (...args: string[]) => (await exec('git', args, { cwd: worktree, timeoutMs: GIT_TIMEOUT_MS })).stdout.trim();
+    const [mergeBase, baseSha] = await Promise.all([git('merge-base', head, mainRef), git('rev-parse', `${base}^{commit}`)]);
+    // A merged head is on main already: its merge-base with main is itself, and says nothing about the base.
+    if (!mergeBase || !baseSha || mergeBase === baseSha || mergeBase === head) return undefined;
+    // Only a base strictly older than that main is stale; a newer one means the local main ref is the stale thing.
+    const older = await exec('git', ['merge-base', '--is-ancestor', baseSha, mergeBase], { cwd: worktree, timeoutMs: GIT_TIMEOUT_MS });
+    if (older.exitCode !== 0) return undefined;
+    return `the head already contains ${mainRef} up to ${mergeBase.slice(0, 9)}, so diffing from ${base} reviews main's own commits as the branch's; set the base to ${mergeBase.slice(0, 9)}`;
 }
 
 /** Every point caught, nothing the reviewer called good flagged, and a verdict when the reviewer ran. */
@@ -168,11 +188,18 @@ async function worktreeFor(cwd: string, commit: string, exec: Exec): Promise<str
         const reason = resolved.stderr.trim().split('\n').at(-1);
         throw new Error(`commit ${commit} is not in this repository (fetch the branch it was reviewed on)${reason ? `: git said "${reason}"` : ''}`);
     }
-    const dir = path.join(common, 'rigour-backtest', resolved.stdout.trim().slice(0, 12));
+    // One worktree, moved from round to round: a checkout per commit filled the disk on a backtest of dozens of pull requests.
+    const dir = path.join(common, 'rigour-backtest', 'checkout');
+    const sha = resolved.stdout.trim();
     if (!fs.existsSync(path.join(dir, '.git'))) {
         fs.mkdirSync(path.dirname(dir), { recursive: true });
-        const added = await exec('git', ['worktree', 'add', '--detach', dir, resolved.stdout.trim()], { cwd, timeoutMs: 5 * GIT_TIMEOUT_MS });
+        const added = await exec('git', ['worktree', 'add', '--detach', dir, sha], { cwd, timeoutMs: 5 * GIT_TIMEOUT_MS });
         if (added.exitCode !== 0) throw new Error(`could not check out ${commit} for the backtest: ${added.stderr.trim()}`);
+    } else {
+        const moved = await exec('git', ['checkout', '-q', '--detach', '--force', sha], { cwd: dir, timeoutMs: 5 * GIT_TIMEOUT_MS });
+        if (moved.exitCode !== 0) throw new Error(`could not check out ${commit} for the backtest: ${moved.stderr.trim()}`);
+        // What the last round left behind (untracked files) must not reach this one; the linked dependencies stay.
+        await exec('git', ['clean', '-q', '-fdx', '-e', 'node_modules'], { cwd: dir, timeoutMs: GIT_TIMEOUT_MS });
     }
     shareDependencies(cwd, dir);
     return dir;
@@ -199,7 +226,7 @@ async function collectItems(worktree: string, round: LedgerRound, config: Config
         ...[...review.advisory, ...review.contextFindings].map(f => asItem(f, false)),
     ];
     if (!reviewer) return { items };
-    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: round.reviewed_at, trigger: 'backtest', force: true, ...reviewerInputs(review) });
+    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: round.reviewed_at, blind: round.pr === undefined, trigger: 'backtest', force: true, ...reviewerInputs(review) });
     if (result.outcome === 'unavailable' || result.outcome === 'skipped') return { items, reviewerError: result.reason ?? result.outcome };
     // The reviewer behind each catch is part of the score, so the gate is `reviewer:<name>`.
     const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.consequence, item.evidence].filter(Boolean).join(' '), blocking });

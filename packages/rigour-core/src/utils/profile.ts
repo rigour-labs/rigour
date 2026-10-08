@@ -67,8 +67,13 @@ export function profileFor(cwd: string, profiles: RigourProfile[] = readProfiles
         : isInside(where, real(expandHome(entry)))));
 }
 
-/** Apply the profile for `cwd` to this process's environment; returns it, or undefined when none matches. */
+/**
+ * Apply the profile for `cwd` to this process's environment; returns it, or undefined when none matches.
+ * A RIGOUR_HOME you set yourself (not one a profile set: RIGOUR_PROFILE is unset) is a home you chose, so
+ * no profile replaces it or brings its team: an isolated run stays isolated.
+ */
 export function applyProfile(cwd: string, profiles?: RigourProfile[]): RigourProfile | undefined {
+    if (process.env.RIGOUR_HOME && !process.env.RIGOUR_PROFILE) return undefined;
     const profile = profileFor(cwd, profiles);
     if (!profile) return undefined;
     process.env.RIGOUR_PROFILE = profile.name;

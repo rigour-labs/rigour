@@ -27,6 +27,7 @@ import {
     STOP_MAX_ATTEMPTS,
     recordHookPayload,
     recordSessionBaseline,
+    recordAgentWrites,
 } from '@rigour-labs/core';
 import type { HookCheckerResult } from '@rigour-labs/core';
 import { pushGateShell, rigourUserDir } from '@rigour-labs/core';
@@ -858,6 +859,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         const requestId = randomUUID();
         const outcome = repoResult.status === 'pass' ? 'success' : repoResult.status === 'fail' ? 'rejected' : 'error';
         return [
+            Promise.resolve().then(() => recordAgentWrites(root, repoFiles)), // as the agent left them: a person's later change is a lesson
             updateAutomaticIndexForFiles(root, repoFiles),
             recordEditCatches(root, repoResult, repoFiles),
             recordInteractionEvidence(root, {

@@ -414,12 +414,16 @@ Examples:
 
 program
     .command('learn-reviews')
-    .description("Learn from review comments this repository's developers acted on, so agents get them before the next PR")
+    .description("Learn this repository's review lessons on evidence (what later happened to the code, people's decisions), so agents and judges get them")
     .option('--since <date>', 'Only PRs merged on or after this date (ISO)')
-    .option('--until <date>', 'Only PRs merged before this date (ISO)')
+    .option('--until <date>', 'Only PRs merged before this date (ISO); with --pr, only reviews posted before it')
+    .option('--pr <n>', 'Learn from this one pull request, open or merged, as it stood at --until (or now)')
     .option('--limit <n>', 'Merged PRs to read at most', '100')
+    .option('--rules', "Write each newly promoted lesson as the rule behind it, with the team's reviewer CLI (counts toward review.reviewer.max_usd_per_day)")
     .option('--list', 'List the lessons learned so far')
-    .option('--promote <id>', 'Mark a candidate lesson verified')
+    .option('--promote <id>', 'Accept a candidate as a lesson (recorded as your decision)')
+    .option('--reject <id>', 'Reject a candidate or lesson: the judges are told this team decided against it')
+    .option('--why <text>', 'Why, recorded with --promote or --reject')
     .option('--json', 'Output as JSON')
     .action(async (options: any) => {
         await learnReviewsCommand(process.cwd(), options);

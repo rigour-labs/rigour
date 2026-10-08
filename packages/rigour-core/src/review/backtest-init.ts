@@ -8,6 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { branchBase } from '../gates/logic-drift-git-base.js';
+import { bodyPoints, firstLine } from '../review-learning/review-points.js';
 import type { Config } from '../types/index.js';
 import { LEDGER_PATH, LedgerSchema, type Ledger, type LedgerPoint, type LedgerRound } from './backtest.js';
 import { defaultExec, githubEnv, parseJsonArrays, type Exec } from './reviewer.js';
@@ -15,7 +16,6 @@ import { defaultExec, githubEnv, parseJsonArrays, type Exec } from './reviewer.j
 const GH_TIMEOUT_MS = 60_000;
 /** Lines either side of an inline comment that a finding for the same point may land on. */
 const LINE_SLACK = 10;
-const BULLET = /^\s*(?:[-*]|\d+[.)])\s+(.{8,})$/;
 
 export async function scaffoldLedger(cwd: string, pr: number, config: Config, exec: Exec = defaultExec): Promise<{ file: string; rounds: LedgerRound[]; incomplete: number }> {
     const env = await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec);
@@ -38,11 +38,11 @@ export async function scaffoldLedger(cwd: string, pr: number, config: Config, ex
         for (const [i, line] of bodyPoints(String(review.body ?? '')).entries()) {
             points.push({ id: `R${round}-B${i + 1}`, point: line, file: '', needs: 'a file pattern and a text pattern (this point was made in the review body, not on a line)' });
         }
-        const base = await exec('git', ['rev-list', '-1', `--before=${review.submitted_at}`, mainRef], { cwd, timeoutMs: GH_TIMEOUT_MS });
+        const base = await baseAt(cwd, String(review.commit_id), review.submitted_at, mainRef, exec);
         rounds.push({
             id: `pr${pr}-r${round}`,
             commit: String(review.commit_id),
-            base: base.stdout.trim() || mainRef,
+            base,
             reviewed_at: String(review.submitted_at),
             pr,
             points,
@@ -68,16 +68,6 @@ function inlinePoint(id: string, comment: any): LedgerPoint {
     };
 }
 
-/** The bullet and numbered lines of a review body: the points a reviewer makes outside any one line. */
-function bodyPoints(body: string): string[] {
-    return body.split('\n').map(l => BULLET.exec(l)?.[1]).filter((l): l is string => !!l).map(firstLine);
-}
-
-function firstLine(text: string): string {
-    const line = text.split('\n').find(l => l.trim())?.replace(/[*_`#]/g, '').trim() ?? '';
-    return line.length > 140 ? `${line.slice(0, 137)}...` : line;
-}
-
 function escape(text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -87,4 +77,15 @@ function existingLedger(file: string): Ledger {
     const parsed = LedgerSchema.safeParse(JSON.parse(fs.readFileSync(file, 'utf8')));
     if (!parsed.success) throw new Error(`${LEDGER_PATH} exists but is not a ledger; fix or remove it first`);
     return parsed.data;
+}
+
+/**
+ * What the reviewer saw the change against: the merge-base of the reviewed commit and main as of the review.
+ * Not main itself: a branch that merged main in already has main's newer commits, and diffing from an older
+ * main would review them as the branch's own. Main as of the review when the commit is not fetched here.
+ */
+async function baseAt(cwd: string, commit: string, reviewedAt: string, mainRef: string, exec: Exec): Promise<string> {
+    const main = (await exec('git', ['rev-list', '-1', `--before=${reviewedAt}`, mainRef], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim() || mainRef;
+    const mergeBase = await exec('git', ['merge-base', commit, main], { cwd, timeoutMs: GH_TIMEOUT_MS });
+    return (mergeBase.exitCode === 0 && mergeBase.stdout.trim()) || main;
 }

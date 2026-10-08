@@ -13,12 +13,14 @@
  * that sees `fetch` without `.catch`) is not enough to hold an agent back; callers also cap the
  * number of attempts.
  */
+import { createHash } from 'crypto';
 import type { Config, Failure } from '../types/index.js';
 import { reviewChange } from '../review/review.js';
 import { buildReviewTask, type ReviewTaskItem } from '../review/review-task.js';
 import { diffFromGit, type DiffSource } from '../review/git-diff.js';
 import { branchBase } from '../gates/logic-drift-git-base.js';
 import { branchFailures } from '../review/branch-checks.js';
+import { describeLesson, type LessonView } from '../review-learning/team-lessons.js';
 
 export const STOP_MAX_ATTEMPTS = 3;
 const MAX_LISTED = 8;
@@ -33,7 +35,11 @@ export interface StopDecision {
     reviewedFiles: string[];
     /** What the review was measured against, e.g. `origin/main @ 1a2b3c4` or `uncommitted work`. */
     against: string;
+    /** What this team learned that applies to the change (verified lessons; rules when `gates.deep.repo_rules` is on), keyed for asking once. */
+    guidance: TeamGuidance[];
 }
+
+export interface TeamGuidance { key: string; text: string }
 
 /** The branch since it left main; on main, what the session changed since its baseline (session-state.ts). */
 function stopSource(cwd: string, sessionBaseline?: string): { source: DiffSource; against: string } {
@@ -58,14 +64,33 @@ export async function stopReview(cwd: string, config: Config, attempt: number, s
         ? result.gateErrors.map(id => ({ id, title: 'A check could not run', details: id === 'typed-checks-unavailable' && result.typedError ? result.typedError : `${id} crashed instead of running`, severity: 'high', files: [], hint: 'Fix the environment (dependencies, generated config), then try again.' }))
         : [];
     const blocking = [...result.findings, ...whole, ...crashed];
-    const unreviewed = config.hooks?.require_review_ack ? buildReviewTask(cwd, diff, config.gates.deep?.router).items : [];
-    const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines), against };
+    const task = buildReviewTask(cwd, diff, config.gates.deep?.router, config.gates.deep?.review_lessons, config.gates.deep?.repo_rules ?? false);
+    const unreviewed = config.hooks?.require_review_ack ? task.items : [];
+    const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines), against, guidance: teamGuidance(task) };
     if (blocking.length === 0 && unreviewed.length === 0) return { block: false, message: '', blocking: 0, ...reviewed };
     const message = [
         ...(blocking.length ? [stopMessage(blocking, attempt)] : []),
         ...(unreviewed.length ? [reviewAckMessage(unreviewed, attempt)] : []),
     ].join('\n\n');
     return { block: true, message, blocking: blocking.length + unreviewed.length, ...reviewed };
+}
+
+/** Each lesson and rule once, keyed by its text so the same one is never asked twice in a session. */
+function teamGuidance(task: { lessons: LessonView[]; rules: Array<{ source: string; text: string }> }): TeamGuidance[] {
+    const key = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 12);
+    return [
+        ...task.lessons.map(l => ({ key: key(`lesson\u0000${l.file}\u0000${l.text}`), text: describeLesson(l) })),
+        ...task.rules.map(r => ({ key: key(`rule\u0000${r.source}\u0000${r.text}`), text: `${r.source}: ${r.text}` })),
+    ];
+}
+
+/** Asked once per new lesson or rule: the senior's question at the end of the task, never a loop. */
+export function teamMessage(guidance: TeamGuidance[]): string {
+    return [
+        'Before you finish, check this change against what this team learned on earlier work that applies to it.',
+        'If the change repeats one, fix it; if none applies, say so in one line and finish:',
+        ...guidance.slice(0, MAX_LISTED).map(g => `- ${g.text}`),
+    ].join('\n');
 }
 
 export function reviewAckMessage(items: ReviewTaskItem[], attempt: number): string {

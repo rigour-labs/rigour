@@ -226,7 +226,7 @@ reviewer sees a change to Rigour's own settings.
 | The reviewer (one judge or a panel) | Developer's machine | Uses the agents' own CLIs and logins ([The reviewer](./REVIEWER.md)). |
 | Risky-function review by the agent (`rigour review-task`, `rigour review-ack`) | Developer's machine | Shared with CI only through a committed `.rigour/reviewed.json`. |
 | Dismissing a finding (`rigour dismiss`) | Developer's machine | Shared through a committed `.rigour/dismissed.json`, which CI reads. |
-| Learning from past review comments (`rigour learn-reviews`) | Developer's machine | Reads GitHub with `GITHUB_TOKEN` or the `gh` login; writes local files only. |
+| Learning from past reviews (`rigour learn-reviews`) | Developer's machine | Reads GitHub with `GITHUB_TOKEN`, the account named in `review.github_account`, or the `gh` login; writes local files only. |
 | Branch review of the pull request (`rigour review --base`) | CI | Deterministic checks always. |
 | Model review with an API key (`--deep` with `RIGOUR_API_KEY`) | CI, or a machine with a key | Riskiest changed functions only. |
 | Posting comments (`rigour review-post`) | CI only | Needs the GitHub Actions environment. |

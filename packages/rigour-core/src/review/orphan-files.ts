@@ -42,7 +42,7 @@ export function orphanFileFailures(cwd: string, diff: string, config: Config): F
     const files = repositoryFiles(cwd)?.filter(file => !excluded.some(own => file === own || file.startsWith(`${own}/`)));
     if (!files) return []; // git could not answer: say nothing rather than guess
     const referrers = referrersOf(cwd, added, files);
-    return [...unreferenced(added, referrers)].map(orphan);
+    return [...unreferenced(added, referrers)].map(file => orphan(file, !settings.block));
 }
 
 /** Tracked and new (untracked, not ignored) files. */
@@ -112,9 +112,10 @@ function unreferenced(added: string[], referrers: Map<string, Set<string>>): Set
     return suspects;
 }
 
-function orphan(file: string): Failure {
+function orphan(file: string, advisory: boolean): Failure {
     return {
         id: 'orphan-file',
+        ...(advisory ? { advisory } : {}),
         title: 'Orphaned file',
         details: `\`${file}\` is new, but nothing outside the change's new files imports or runs it.`,
         severity: 'medium',

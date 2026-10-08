@@ -24,7 +24,13 @@ const INLINE = [
 function fakeExec(calls: string[][]): Exec {
     return async (command, args, options) => {
         calls.push([command, ...args]);
-        if (command === 'git') return { exitCode: 0, stdout: execFileSync('git', args, { cwd: options.cwd, encoding: 'utf8' }), stderr: '' };
+        if (command === 'git') {
+            try {
+                return { exitCode: 0, stdout: execFileSync('git', args, { cwd: options.cwd, encoding: 'utf8', stdio: 'pipe' }), stderr: '' };
+            } catch (error: any) {
+                return { exitCode: error.status ?? 1, stdout: '', stderr: String(error.stderr ?? '') };
+            }
+        }
         if (args[0] === 'auth') return { exitCode: 0, stdout: 'token\n', stderr: '' };
         if (args[0] === 'pr') return { exitCode: 0, stdout: 'author\n', stderr: '' };
         if (args[1].endsWith('/reviews')) return { exitCode: 0, stdout: JSON.stringify(REVIEWS), stderr: '' };
@@ -45,6 +51,25 @@ beforeEach(() => {
 afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
 
 describe('rigour backtest init', () => {
+    it('takes the base from where the reviewed commit left main, not from main as of the review', async () => {
+        const forked = git('rev-parse', 'HEAD');
+        git('checkout', '-q', '-b', 'feature');
+        fs.writeFileSync(path.join(repo, 'b.ts'), 'export const b = 1;\n');
+        git('add', '-A');
+        execFileSync('git', ['-C', repo, 'commit', '-qm', 'the branch'], { env: { ...process.env, GIT_COMMITTER_DATE: '2026-04-12T09:30:00Z', GIT_AUTHOR_DATE: '2026-04-12T09:30:00Z' } });
+        const reviewed = git('rev-parse', 'HEAD');
+        git('checkout', '-q', 'main');
+        fs.writeFileSync(path.join(repo, 'c.ts'), 'export const c = 1;\n');
+        git('add', '-A');
+        execFileSync('git', ['-C', repo, 'commit', '-qm', 'main moves on before the review'], { env: { ...process.env, GIT_COMMITTER_DATE: '2026-04-12T11:00:00Z', GIT_AUTHOR_DATE: '2026-04-12T11:00:00Z' } });
+        const realCommit = (calls: string[][]): Exec => async (command, args, options) => {
+            const answer = await fakeExec(calls)(command, args, options);
+            return command === 'gh' && args[1]?.endsWith('/reviews') ? { ...answer, stdout: JSON.stringify(REVIEWS.map(r => ({ ...r, commit_id: reviewed }))) } : answer;
+        };
+        const { rounds } = await scaffoldLedger(repo, 212, config, realCommit([]));
+        expect(rounds[0].base).toBe(forked);
+    });
+
     it('writes one round per human review: inline comments become file-and-window points, body bullets need a pattern', async () => {
         const calls: string[][] = [];
         const mainAtReview = git('rev-parse', 'HEAD');

@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 /**
  * `rigour hooks stop --tool claude|cursor`: the stop hook.
  *
@@ -21,7 +22,7 @@ import path from 'path';
 import yaml from 'yaml';
 import {
     alreadyReviewed, appendAgentEvent, clearStopAttempts, ConfigSchema, countUsage, nextStopAttempt, recordFixLessons, recordReviewed, recordReviewOutcome, workFingerprint,
-    sessionBaseline, STOP_MAX_ATTEMPTS, stopReview, type Config,
+    sessionBaseline, STOP_MAX_ATTEMPTS, stopReview, teamMessage, untaught, recordTaught, captureHumanEdits, type Config,
 } from '@rigour-labs/core';
 
 export type StopTool = 'claude' | 'cursor';
@@ -61,11 +62,20 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
         recordReviewed(cwd, session, fingerprint);
         const capture = recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles, 'stop');
         await recordFixLessons(cwd, capture.fixes).catch(() => undefined); // learning never blocks the agent
+        try {
+            captureHumanEdits(cwd, gitEmail(cwd)); // a person's change to what the agent wrote is a lesson
+        } catch {
+            // learning never blocks the agent
+        }
+        // What the team learned that applies here, each lesson or rule asked once per session: a senior's question, not a loop.
+        const fresh = untaught(cwd, session, decision.guidance.map(g => g.key));
+        const guidance = decision.guidance.filter(g => fresh.includes(g.key));
+        recordTaught(cwd, session, fresh);
         if (!decision.block) {
             clearStopAttempts(cwd, session);
-            return '';
+            return guidance.length ? blockWith(tool, teamMessage(guidance)) : '';
         }
-        return blockWith(tool, decision.message);
+        return blockWith(tool, guidance.length ? `${decision.message}\n\n${teamMessage(guidance)}` : decision.message);
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         process.stderr.write(`Rigour stop review failed: ${reason}\n`);
@@ -98,4 +108,13 @@ function parsePayload(stdin: string): StopPayload {
 export async function loadHookConfig(cwd: string): Promise<Config> {
     const file = path.join(cwd, 'rigour.yml');
     return ConfigSchema.parse(await fs.pathExists(file) ? yaml.parse(await fs.readFile(file, 'utf8')) : {});
+}
+
+/** Who is at the keyboard, by their git email, for the record of a correction. */
+function gitEmail(cwd: string): string {
+    try {
+        return execFileSync('git', ['config', 'user.email'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || 'a person';
+    } catch {
+        return 'a person';
+    }
 }

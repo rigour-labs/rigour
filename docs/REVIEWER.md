@@ -16,6 +16,50 @@ for your own runs. Start with one judge; add more when the backtest says they ea
 | Cross-examination | The one follow-up question a judge is asked about findings it did not raise: confirm or refute, quoting `file:line`. |
 | Floor | A setting in `rigour.yml` that no person's choice may go below. |
 
+## What each judge checks
+
+Every judge follows the same steps, in order, and answers in a fixed shape, so a program (not the
+judge's own sense of severity) decides what blocks:
+
+1. **Every earlier human point**, siblings included: is it fully resolved at this commit?
+2. **Redundancy**: what a fix made unnecessary (a guard below a query that now filters, an optional
+   member every caller supplies) and whether it was removed.
+3. **Every read**: rules known before the read but applied after it, a cheaper source, keys that
+   change when a user edits, unbounded windows, OFFSET paging, the index that serves it.
+4. **Nested scans**: a collection scanned once per item of another.
+5. **Merge impact**: call sites of main-side code the merge changed.
+6. **The journey past the request**: state that outlives it (what clears it, a retry, two
+   overlapping runs), a status that can move backwards or overwrite a terminal one, and event or
+   dedupe keys that change when the user edits.
+7. **Sibling parity**: the routes, runners or handlers that do the same job and need the same change.
+8. **Claims**: every comment in a touched file and every sentence of the description that says what
+   the code does, checked against the code.
+9. **Team lessons**: every lesson the team taught that it was shown, answered one by one: does this
+   change repeat it? A lesson pasted as background was skimmed; asked as a checklist it is checked.
+10. **The diff as a person reads it.**
+
+Steps 2 to 9 are the judge's working notes: you see them, and they never block on their own. Only a
+finding can block, and only when it carries three things: the input that goes wrong, what goes wrong
+for it (or a material cost: one that grows with the data or traffic, such as an extra query, rows
+read that scale with users, a missing index or an unbounded window; one more column on rows already
+read, or a small duplicate check, is not), and the code that does it, quoted from the file. Rigour then checks the quote
+against the checkout: the quoted code must be at the line the finding names, within a few lines. A
+finding whose quote is missing or not there is shown as unverified and never blocks. That check
+is mechanical, so it holds whichever model is judging. Three more rules keep a team's approved code
+from being blocked:
+
+- **Severity, by how the wrong outcome is reached.** `blocking` when it happens on the feature's normal
+  path (every run, every user of it, growing with the data), even behind a flag or rollout: wrong data,
+  a lost or duplicated write or event, a crash, a security hole, or a material cost. `should` when it
+  needs an unusual combination of inputs or failures, is brief or cosmetic, or is a drifted comment:
+  shown, never blocking. For a scheduled job, the flag-off or lock-held path is a normal path: work
+  done before checking it is paid on every run.
+- **A claim that something is missing names it** (`absent`), and Rigour searches the file for it: a
+  finding about a call or check that is there is unverified.
+- **A human's open point blocks only where the judge quotes the code that keeps it open**, checked like a
+  finding: a later commit may already have done what it asked. And a point a human already raised and
+  accepted as non-blocking is never escalated into a blocking finding.
+
 ## Three ways to run it
 
 | Mode | Judges | When it fits |
@@ -134,7 +178,9 @@ and a cross-examination that would pass it is not made (its findings are shown a
 the cap as the reason). Dollars are known only after a run, so the cost cap stops new reviews once
 today's reported spend reaches it. Past a cap, a review is skipped and says why; where the team
 requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
-A person may set a lower cap for their own runs, never a higher one. `rigour review --status` and
+A judge whose answer is not a valid verdict (malformed or cut off) is asked once more, inside the caps;
+a review with no valid verdict after that is unavailable. A person may set a lower cap for their own
+runs, never a higher one. `rigour review --status` and
 Studio's Setup page show today's runs and spend against the caps.
 
 Every verdict records its agent runs, the tokens each judge used and, where the CLI reports it, its
@@ -144,10 +190,61 @@ cost.
 
 Each judge starts from what your team already knows, written to a file it reads:
 
-- the review lessons your team verified, and the repository's rules, for the files the change touches;
+- the review lessons your team verified (`gates.deep.review_lessons: all` adds candidates, `off` none), and the repository's rules, for what the change touches. A lesson is context: it never blocks on its own;
 - findings the team settled: dismissed as not a bug, or refuted with evidence in an earlier round
   on a file that has not changed since. Judges are told not to raise them again without something new;
 - the docs that name the changed code.
+
+**Where the lessons come from: evidence, not who wrote it.** `rigour learn-reviews` reads the
+repository's merged pull requests. Every review point is a **candidate**, whoever wrote it: a person, an
+AI posting under a person's login, or a review bot. Who wrote it, and whether the pull request changed
+those lines before merging, are recorded on the candidate and decide nothing: people paste AI text,
+and agents apply review comments on their own. A candidate becomes a **lesson** only on evidence:
+
+- **outcome**: after the merge, a commit on the main branch changed the lines the point named and says
+  it fixed something, or the pull request was reverted;
+- **a person's correction**: they changed what an agent wrote. The after-edit hook keeps each file as
+  the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
+  now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
+  change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
+- **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email;
+- **recurrence**, weak alone: the same point on two or more pull requests by different authors, raised
+  independently: by different reviewers, or by one reviewer in different words (a senior re-raising a
+  standard counts; a bot pasting its template on every pull request does not).
+
+**Counter-evidence** holds a candidate back: its lines shipped unchanged and nothing needed fixing
+within the window (30 days). `--reject <id>` makes an **anti-lesson**: judges are told this team decided
+against it, and it is never served as a lesson. Every piece of evidence stays on the lesson
+(`--list` shows what promoted each). With `--until <time>`, only history before it counts, so a
+measurement never sees the future. The pull request's author commenting on their own pull request is not
+a review point. GitHub is read as the account in `review.github_account` (or an explicit
+`GITHUB_TOKEN`), never silently as another signed-in account.
+
+A point that names a path is about that file. One that names none is a **team standard**: shown
+with a change, once it is a lesson, when it shares at least two meaningful words with the change (its
+paths and the names on its added lines): up to three in the agent's question at the stop, up to
+fifteen for a judge reading the whole pull request.
+
+**A long-running pull request teaches as it goes.** `rigour learn-reviews --pr <n>` learns from that
+one pull request's reviews, open or merged, with the same rules. `--until <time>` takes the pull
+request as it stood then.
+
+**Turning reviews into rules (`--rules`).** A senior's point is usually about one change ("the total is
+computed before the discount is applied"). With `rigour learn-reviews --rules`, the team's reviewer CLI
+writes the rule behind each point that evidence made a lesson ("apply discounts before computing a total"), or judges
+it no rule (a test report, a status note, a one-off fix). This is memory, never training: the rule
+is text the next judge and agent read, nothing is fine-tuned, and no model is produced. Three
+guards keep it honest:
+- **A lesson never blocks on its own.** It is context; a finding still needs its input, consequence
+  and quote.
+- **The person's words travel with the rule.** Every lesson a judge or agent sees shows the original
+  words and the pull request beside the rule, and every judgement, "no rule" included, is logged
+  in `.rigour/review-rules-log.jsonl`.
+- **Only lessons get rules**: the model is paid only for what evidence promoted, once each. A lesson
+  it finds no rule in is kept, marked, and never promoted again.
+
+Each call runs isolated and read-only like a judge, is sent only the points, and counts toward
+`review.reviewer.max_usd_per_day`. A lesson already written is never sent again.
 
 **Dismissing a finding is the team's decision, and it is off by default.** A wrong finding is fixed
 by improving the reviewer (its rules, its prompt, the reviewers it runs); a right one by fixing the

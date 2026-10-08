@@ -22,7 +22,7 @@ rigour profile list
 - Team settings come from the profile only. Any `RIGOUR_TEAM_*` or `RIGOUR_ORGANIZATION_ID` inherited from your shell is cleared, so another organization's team can never apply. `--database-url-command` prints the database URL when Rigour needs it (from a keychain or a vault); the URL is never written to the file.
 - `--github-account`: the account whose token fetches a pull request's previous review for the reviewer (`gh auth token --user`).
 
-Profiles live in `~/.rigour/profiles.json` in your real home (or `RIGOUR_PROFILES`). Repositories that match no profile use the default home, as before.
+Profiles live in `~/.rigour/profiles.json` in your real home (or `RIGOUR_PROFILES`). Repositories that match no profile use the default home, as before. A `RIGOUR_HOME` you set yourself turns profiles off for that run: no profile replaces the home you chose or brings its team, so a run you isolate stays isolated.
 
 ## What it guarantees
 

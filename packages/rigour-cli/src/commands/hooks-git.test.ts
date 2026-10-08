@@ -18,6 +18,7 @@ beforeEach(() => {
     git('config', 'commit.gpgsign', 'false');
     git('config', 'core.hooksPath', '.git/hooks'); // a machine-wide hooks path must not reach the test
     fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 1;\n');
+    fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\ngates:\n  unused_exports:\n    block: true\n'); // this team blocks on dead code
     git('add', '-A');
     git('commit', '-qm', 'init');
 });

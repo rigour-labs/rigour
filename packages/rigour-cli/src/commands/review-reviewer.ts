@@ -6,6 +6,7 @@
  * `--status` shows what the background reviewer has done for the branch.
  */
 import chalk from 'chalk';
+import { execFileSync } from 'child_process';
 import { branchBase, itemLine, reviewerInputs, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
 
 /** The base a branch review runs against: the one named, else where the branch left main. */
@@ -106,7 +107,6 @@ export async function printStatus(cwd: string, json: boolean): Promise<number> {
 }
 
 function currentBranch(cwd: string): string {
-    const { execFileSync } = require('child_process') as typeof import('child_process');
     try {
         return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
     } catch {
