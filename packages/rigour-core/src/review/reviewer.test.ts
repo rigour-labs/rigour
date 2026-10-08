@@ -57,7 +57,7 @@ function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout
         const prompt = binary === 'claude' ? args[args.indexOf('-p') + 1] : args[args.length - 1];
         seen.prompts.push(prompt);
         // Paths as the prompt names them, on either separator (Windows writes `D:\...`).
-        for (const match of prompt.matchAll(/(\S+(?:previous-reviews\.md|pr-description\.md|full\.diff|hints\.txt|previous-open\.json|delta\.diff|previous-resolved\.json|team-knowledge\.md))/g)) {
+        for (const match of prompt.matchAll(/(\S+(?:previous-reviews\.md|pr-description\.md|full\.diff|hints\.txt|previous-open\.json|delta\.diff|previous-resolved\.json|team-knowledge\.md|declared-goal\.md))/g)) {
             seen.files[path.basename(match[1])] = fs.readFileSync(match[1], 'utf8');
         }
         const reply = answer(name);
@@ -256,6 +256,30 @@ describe('the reviewer', () => {
         expect(result.rules).toEqual({ checked: 1, followed: 0, broken: 1, notApplicable: 0 });
     });
 
+    it('asks the judge about the goal the description declares, with the goal check on, and never blocks on it', async () => {
+        const body = 'Adds the job.\n\n## Done when\n- `src/job.ts` exists\n- the job takes the lock before it reads\n\n## Invariants\n- a second run never sends twice';
+        const goalConfig = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', goal: 'on', reviewer: { enabled: true, reviewers: ['claude'] } } });
+        const seen = seenNow();
+        const answer = () => JSON.stringify({ ...EMPTY, goal: [
+            { item: 'the job takes the lock before it reads', met: false, file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'no lock at all' },
+            { item: 'a second run never sends twice', met: false, file: 'src/job.ts', line: 2, quote: 'not in the file', evidence: 'cannot show' },
+            { item: 'something met', met: true, file: 'src/job.ts', line: 1 },
+        ] });
+        const result = await runReviewer(repo, 'main', goalConfig, fakes(answer, seen, { ...PR, body }), () => undefined, { force: true });
+        // Only what a model must judge: the item naming a file is the deterministic check's.
+        expect(seen.files['declared-goal.md']).toBe('- [done] the job takes the lock before it reads\n- [invariant] a second run never sends twice\n');
+        expect(seen.prompts[0]).toContain('12. The declared goal.');
+        expect(seen.prompts[0]).toContain('"goal":[{"item"');
+        expect(result.items).toEqual([]);
+        expect(result.advisory.map(i => [i.class, i.issue])).toEqual([['goal', 'the description\'s goal is not met: the job takes the lock before it reads']]);
+        expect(result.unverified.map(i => i.class)).toEqual(['goal']); // a quote that is not in the file is never shown as a should-fix
+
+        const off = seenNow();
+        await runReviewer(repo, 'main', goalConfig, fakes(() => JSON.stringify(EMPTY), off, { ...PR, body }), () => undefined, { force: true, goal: false });
+        expect(off.prompts[0]).not.toContain('The declared goal');
+        expect(off.files['declared-goal.md']).toBeUndefined();
+    });
+
     it('writes the record of the review beside the verdict, intact, and returns the same record on a cached read', async () => {
         const seen = seenNow();
         const answer = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' }] });
@@ -409,6 +433,17 @@ describe('verdicts', () => {
         delete cached.journey; delete cached.siblings; delete cached.claims;
         expect(account(cached as Verdict, undefined, () => true).open).toEqual([]);
         expect(mergeVerdicts([cached as Verdict, { ...verdict, reviewer: 'codex' } as Verdict]).claims).toHaveLength(2);
+    });
+
+    it('keeps a goal item one should-fix across judges, even when two judges both say it is not met', () => {
+        const goal = (reviewer: string) => ({ ...EMPTY, reviewer, goal: [{ item: 'runs once a day', met: false, file: 'src/job.ts', line: 2, quote: 'return 1;' }] }) as Verdict;
+        const merged = mergeVerdicts([goal('claude'), goal('codex')]);
+        expect(merged.goal).toHaveLength(2);
+        const { open, advisory } = account(merged, undefined, checkoutVerifier(repo));
+        expect(open).toEqual([]);
+        expect(advisory.map(i => [i.kind, i.reviewer])).toEqual([['goal', 'claude']]);
+        const cached = { ...EMPTY } as Verdict; // a verdict from before the goal step has none
+        expect(account(cached, undefined, () => true).advisory).toEqual([]);
     });
 
     it('blocks on a finding only when the code it quotes is at the line it names, and never carries an old working note as a block', () => {

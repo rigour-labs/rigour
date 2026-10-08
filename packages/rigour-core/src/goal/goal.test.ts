@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseDiff } from '../utils/diff.js';
-import { goalFailures, hasCheckableGoal, parseGoal } from './goal.js';
+import { goalFailures, hasCheckableGoal, modelGoalItems, parseGoal } from './goal.js';
 
 const BODY = [
     'Adds the goal check.',
@@ -136,5 +136,21 @@ describe('goalFailures', () => {
 
     it('says nothing when the description declares no goal', () => {
         expect(check('Just a fix.', diffOf({ 'anything.ts': ['x'] }))).toEqual([]);
+    });
+});
+
+describe('modelGoalItems', () => {
+    it('asks a model only about what the deterministic check cannot prove: done items naming no file, and invariants', () => {
+        const goal = parseGoal('## Done when\n- `src/a.ts` exists\n- `parseGoal` reads it\n- it works offline\n\n## Invariants\n- one send per person');
+        expect(modelGoalItems(goal)).toEqual([
+            { kind: 'done', text: '`parseGoal` reads it' },
+            { kind: 'done', text: 'it works offline' },
+            { kind: 'invariant', text: 'one send per person' },
+        ]);
+    });
+
+    it('asks about at most a dozen items', () => {
+        const goal = parseGoal(`## Invariants\n${Array.from({ length: 20 }, (_, i) => `- rule ${i}`).join('\n')}`);
+        expect(modelGoalItems(goal)).toHaveLength(12);
     });
 });

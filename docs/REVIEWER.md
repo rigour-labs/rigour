@@ -45,6 +45,10 @@ judge's own sense of severity) decides what blocks:
     (must, never, always, only, every, do not), broken with its quote verified, blocks; guidance broken is a
     should-fix. The rule's words and weight come from the file, never from the judge.
 11. **The diff as a person reads it.**
+12. **The declared goal**, only with the [goal check](GOAL.md) on and a description that declares one: each
+    "Done when" item that names no file, and each invariant, answered met, not met (with the code quoted)
+    or cannot tell. An item not met is a should-fix, never a block, whatever the judge says; the
+    deterministic goal check already blocks on what needs no model.
 
 Steps 2 to 10 are the judge's working notes: you see them, and they never block on their own, with one
 exception: a requirement rule shown broken with a verified quote. Otherwise only a

@@ -182,3 +182,17 @@ export function goalFailures(goal: Goal, changedLines: Record<string, Set<number
     }
     return failures;
 }
+
+/** The most declared items a judge is asked about: a goal is a few lines, and each item is a judge's turn. */
+const MODEL_GOAL_MAX_ITEMS = 12;
+
+/**
+ * What only a reader of the code can judge: the "Done when" items that name no file (prose, or a symbol) and the
+ * invariants. An item that names a file is proven or broken by goalFailures, without a model.
+ */
+export function modelGoalItems(goal: Goal): Array<{ kind: 'done' | 'invariant'; text: string }> {
+    return [
+        ...goal.doneWhen.filter(item => item.paths.length === 0).map(item => ({ kind: 'done' as const, text: item.text })),
+        ...goal.invariants.map(text => ({ kind: 'invariant' as const, text })),
+    ].slice(0, MODEL_GOAL_MAX_ITEMS);
+}

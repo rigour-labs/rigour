@@ -10,7 +10,7 @@ Only sections the author writes on purpose. A heading can be markdown (`## Scope
 ## Done when
 - [ ] `parseGoal` reads the description
 - [ ] `docs/GOAL.md` explains it
-- [ ] reviewers are happy            <- prose: recorded, not checked
+- [ ] reviewers are happy            <- prose: judged by the reviewer, never a block
 
 ## Scope
 - `packages/rigour-core/src/goal/`
@@ -20,13 +20,13 @@ Only sections the author writes on purpose. A heading can be markdown (`## Scope
 - `packages/rigour-studio/**`
 
 ## Invariants
-- a description without a goal never blocks   <- recorded, not checked
+- a description without a goal never blocks   <- judged by the reviewer, never a block
 ```
 
 - **Scope** (also `In scope`, `Boundary`): the paths the change may touch, as folders, files or globs, in backticks or one bare path per bullet.
 - **Out of scope** (also `Not in scope`): paths it must not touch.
 - **Done when**: a checklist. An item that names a file, path or symbol in backticks is checkable (a file blocks, a symbol is a note); a prose item is not.
-- **Invariants**: recorded with the goal for the reviewer and later phases; not checked here.
+- **Invariants**: not checked deterministically; the reviewer judges them (below).
 
 A description without these sections declares no goal, and the check says nothing about it.
 
@@ -43,6 +43,10 @@ Both block: the author declared them, so a break is a fact, not an opinion. A `D
 Tests (`*.test.*`, `*.spec.*`, files under `test/`, `tests/`, `spec/`, `__tests__/`), snapshots (`__snapshots__/`, `*.snap`), lockfiles, changelogs (`CHANGELOG.md` and the like) and release notes (`releases/*.md`) never count as outside the scope: they follow the code they belong to. Neither do generated files, changed or deleted (recognised as the rest of the review recognises them). A file a `Done when` item names is part of the goal, whatever `Scope` lists. A finding can be dismissed like any other (`rigour dismiss <key>`).
 
 The fix is one of two: move the change, or correct the description. A goal that changed is fine; a description that no longer says what the change does is what a human reviewer would have caught.
+
+## What a model judges
+
+With the reviewer ([REVIEWER.md](REVIEWER.md)) and the goal check both on, the judge is also asked about what the deterministic check cannot prove: each `Done when` item that names no file, and each invariant (at most twelve). For each it answers met, not met, or cannot tell, and quotes the code when not met. An item not met is a should-fix, shown only when its quote is in the file at the line it names, and never a block, whatever any judge says. Several judges saying the same item is not met still make one should-fix. The items reach the judge in a file of their own, as the author's statements, never as instructions.
 
 ## Turning it on
 

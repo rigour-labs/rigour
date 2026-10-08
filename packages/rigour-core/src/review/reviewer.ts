@@ -28,7 +28,9 @@ import { defaultExec, GH_TIMEOUT_MS, githubEnv, type Exec, type Progress } from 
 import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBaseIn, rulesText, sha, type HumanReviews, type PullRequest } from './reviewer/inputs.js';
 import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
-import { crossExamPrompt, deltaBlock, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
+import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
+import { modelGoalItems, parseGoal } from '../goal/goal.js';
+import { resolveGoal } from '../goal/settings.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
 import { VerdictStore } from './reviewer/store.js';
 import { trackUsage } from '../telemetry/telemetry.js';
@@ -69,6 +71,8 @@ export interface ReviewerOptions {
     stateRoot?: string;
     /** The branch the commit was pushed from, when reviewing it in a detached worktree (background.ts). */
     branch?: string;
+    /** This run's choice for the goal check (`--goal` / `--no-goal`), the nearest layer of goal/settings.ts. */
+    goal?: boolean;
 }
 
 export interface ReviewerResult {
@@ -221,9 +225,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         ? (await bodyAsOf(gh, pr.number, options.reviewsBefore)) ?? '(the description as of this review could not be recovered: judge claims against the code and its comments only)\n'
         : pr?.body || '(no pull request description)\n';
     const rules = rulesText(cwd);
+    // The goal the description declares, for step 12: only what a model must judge (goal/goal.ts proves the rest), only with the goal check on.
+    const goalItems = resolveGoal(config, options.goal).enabled ? modelGoalItems(parseGoal(body)) : [];
+    const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
-    const inputsKey = sha([PROMPT_VERSION, rules, body, reviews.key, JSON.stringify([settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates]), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
+    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates]), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
     if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
@@ -321,7 +328,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const diffFile = file('full.diff', fullDiff);
         const contextFile = file('team-knowledge.md', context.text);
         const hintsFile = file('hints.txt', options.hints?.trim() || 'none\n');
-        inlineInputs = [[reviewsFile, reviews.markdown], [prBodyFile, body], [diffstatFile, await git(['diff', '--stat', `${baseSha}...HEAD`])], [diffFile, fullDiff], [contextFile, context.text], [hintsFile, options.hints?.trim() || 'none\n']].map(([p, text]) => ({ path: p, text }));
+        const goalFile = goalText ? file('declared-goal.md', `${goalText}\n`) : undefined;
+        inlineInputs = [[reviewsFile, reviews.markdown], [prBodyFile, body], [diffstatFile, await git(['diff', '--stat', `${baseSha}...HEAD`])], [diffFile, fullDiff], [contextFile, context.text], [hintsFile, options.hints?.trim() || 'none\n'], ...(goalFile ? [[goalFile, `${goalText}\n`]] : [])].map(([p, text]) => ({ path: p, text }));
         let delta = '';
         // A reviewer must report on the human reviews, unless every point was settled by the previous verdict and is carried.
         let needsPriorPoints = reviews.count > 0;
@@ -340,7 +348,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             const impact = await mergeImpact(cwd, await git(['merge-base', 'HEAD^1', 'HEAD^2']), 'HEAD^2', 'HEAD', exec);
             merge = mergeBlock(base, impact ? file('merge-impact.md', impact) : undefined);
         }
-        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge });
+        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}) });
         progress(`Rigour reviewer: reviewing ${head.slice(0, 9)} against ${base} (${scope}: ${why}; ${reviews.count} human review(s), written by ${[...authors].join(', ') || 'a person'}) with ${reviewers.join(', ')}`);
         const started = Date.now();
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
