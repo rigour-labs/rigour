@@ -782,7 +782,7 @@ Tuning for model review: a check or review started with --deep, --pro, --max or 
 | `timeout_ms` | number | none | How long, in milliseconds, a single model review model call may run before it is abandoned. |
 | `budget_ms` | number | none | A time limit, in milliseconds, for the whole model review of a change; files not started before it runs out are reported as skipped instead of reviewed. |
 | `agentic` | boolean | none | Set to false to stop a cloud model from reading other repository files while it reviews a change, so it sees only what Rigour sends it. |
-| `repo_rules` | boolean | none | When true, the model review, the agent review list and the stop hook's end-of-task question include the rules from AGENTS.md, CLAUDE.md and Cursor rules that name what the change touches. |
+| `repo_rules` | boolean | none | When true, the model review, the agent review list and the stop hook's end-of-task question include the rules from AGENTS.md, CLAUDE.md and Cursor rules that name what the change touches. The reviewer (review.reviewer) always checks the repository's rules, whatever this says. |
 | `review_lessons` | "verified" \| "all" \| "off" | none | Which of the team's past review lessons raise a function's risk, are shown to the reviewer, and are put to the agent once at the stop hook: lessons (promoted on evidence), all of them including candidates, or none (off). |
 | `intent_checks` | boolean | `false` | When true, a scoped model review also asks the model intent questions at places the engine has proven read an optional value with no fallback. |
 

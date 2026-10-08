@@ -15,18 +15,21 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { buildReviewTask } from '../review-task.js';
 import { describeLesson, lessonsForDiff, lessonView, rejectedForDiff, type LessonMode } from '../../review-learning/team-lessons.js';
+import { rulesForDiff } from '../../review-learning/repo-rules.js';
 import { reviewedKeys } from '../ledger.js';
 import type { RouterPolicy } from '../../deep/router.js';
 import { textSimilarity } from './consensus.js';
 import type { PanelItem } from './panel.js';
 import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
 import { VerdictStore } from './store.js';
-import type { OpenItem } from './verdict.js';
+import type { OpenItem, ServedRule } from './verdict.js';
 
 export const REVIEW_DISMISSALS = path.join('.rigour', 'dismissed-review-items.json');
 const MAX_DOCS = 10;
 /** Team standards a judge is shown with the lessons about the changed files. */
 const JUDGE_STANDARDS = 15;
+/** Rules from the repository's own rules files a judge is asked to answer, most relevant first. */
+const JUDGE_RULES = 15;
 const MAX_SETTLED = 40;
 
 export interface ReviewDismissal { id: string; file?: string; line?: number; class: string; issue: string; reason: string; at: string; by?: string }
@@ -93,7 +96,7 @@ export function reviewerInputs(review: { hints: string[]; findings: Array<{ file
 }
 
 /** The context pack as Markdown, its hash for the fingerprint, and the router's count of risky changed functions (undefined when it could not score). */
-export function buildContext(input: ContextInput): { text: string; key: string; risky: number | undefined } {
+export function buildContext(input: ContextInput): { text: string; key: string; risky: number | undefined; rules: ServedRule[] } {
     const sections: string[] = [];
     let task: ReturnType<typeof buildReviewTask> | undefined;
     try {
@@ -104,7 +107,9 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
     // A judge reads the whole pull request: more of what the team taught fits than an agent's one question at the stop.
     const lessons = input.lessons === 'off' ? [] : lessonsForDiff(input.cwd, input.diff, input.lessons, JUDGE_STANDARDS).map(lessonView);
     if (lessons.length) sections.push(`## Lessons this team taught on earlier reviews, for what this change touches (context: a lesson never blocks on its own; a finding still needs its quote)\n${lessons.map(l => `- ${describeLesson(l)}`).join('\n')}`);
-    if (task?.rules.length) sections.push(`## Repository rules that name what this change touches\n${task.rules.map(r => `- ${r.source}: ${r.text}`).join('\n')}`);
+    // The repository's own rules, always: the reviewer is the boundary, and what the team wrote is the standard it checks.
+    const rules = rulesForDiff(input.cwd, input.diff, true, JUDGE_RULES).map((r): ServedRule => ({ id: r.id, source: r.source, text: r.text, requirement: r.requirement }));
+    if (rules.length) sections.push(`## Rules this repository wrote for itself that apply to this change (answer every one in rules, by id)\n${rules.map(r => `- [${r.id}] (${r.source}, ${r.requirement ? 'requirement' : 'guidance'}) ${r.text}`).join('\n')}`);
 
     if (input.checks.length) sections.push(`## Already found by Rigour's checks: they block on their own, so do not report them again\n${input.checks.slice(0, MAX_SETTLED).map(c => `- ${c}`).join('\n')}`);
     const rejected = input.lessons === 'off' ? [] : rejectedForDiff(input.cwd, input.diff).map(l => {
@@ -120,7 +125,7 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
     if (docs.length) sections.push(`## Docs that describe the changed code (read one when its claim matters to a finding)\n${docs.map(d => `- ${d.doc} (names ${d.names.join(', ')})`).join('\n')}`);
 
     const text = sections.length ? `# What this team already knows\n\n${sections.join('\n\n')}\n` : 'none\n';
-    return { text, key: createHash('sha256').update(text).digest('hex').slice(0, 16), risky: task ? task.items.length + task.alreadyReviewed : undefined };
+    return { text, key: createHash('sha256').update(text).digest('hex').slice(0, 16), risky: task ? task.items.length + task.alreadyReviewed : undefined, rules };
 }
 
 function where(x: { file?: string; line?: number }): string {

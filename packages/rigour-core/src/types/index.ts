@@ -326,7 +326,7 @@ export const GatesSchema = z.object({
         timeout_ms: z.number().optional(), // per model call; default: cloud 120s, local 60s, local --max 240s
         budget_ms: z.number().optional(), // whole deep run; files not started in time are reported as skipped
         agentic: z.boolean().optional(), // cloud tier: the model may read the repository while it reviews (default true)
-        repo_rules: z.boolean().optional(), // show the reviewer the rules in AGENTS.md / CLAUDE.md / Cursor rules that name what the change touches (default false)
+        repo_rules: z.boolean().optional(), // show the model review, the agent review list and the stop hook the rules in AGENTS.md / CLAUDE.md / Cursor rules that name what the change touches (default false); the reviewer always checks them
         review_lessons: z.enum(['verified', 'all', 'off']).optional(), // the team's past review lessons: they raise a function's risk and are shown to the reviewer. verified (default), all, or off
         router: z.object({ // cloud tier: review only the riskiest changed functions (deep/risk.ts)
             enabled: z.boolean().optional(), // default true

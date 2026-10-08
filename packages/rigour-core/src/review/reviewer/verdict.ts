@@ -25,6 +25,13 @@ interface Sibling { changed: string; sibling: string; needs_same_change: boolean
 interface Claim { source: 'comment' | 'description'; claim: string; file?: string; line?: number; holds: boolean; evidence?: string; reviewer?: string }
 /** The judge's answer for one team lesson it was shown: does this change repeat it. */
 interface LessonCheck { lesson: string; applies: boolean; file?: string; line?: number; evidence?: string; reviewer?: string }
+/** A rule Rigour served to the judge from the repository's own rules files, by id. */
+export interface ServedRule { id: string; source: string; text: string; requirement: boolean }
+/**
+ * The judge's answer for one served rule: followed, broken (with the code that breaks it) or not applicable.
+ * `rule`, `source` and `requirement` are filled in by Rigour from what it served, never taken from the judge.
+ */
+export interface RuleCheck { id: string; status: 'followed' | 'broken' | 'not-applicable'; file?: string; line?: number; quote?: string; evidence?: string; reviewer?: string; rule?: string; source?: string; requirement?: boolean }
 export interface Finding { class: string; file: string; line?: number; issue: string; why?: string; consequence?: string; input?: string; quote?: string; reviewer?: string; severity?: 'blocking' | 'should'; absent?: string }
 
 export interface Verdict {
@@ -38,6 +45,7 @@ export interface Verdict {
     siblings?: Sibling[];
     claims?: Claim[];
     lessons?: LessonCheck[];
+    rules?: RuleCheck[];
     findings: Finding[];
     carried: string[];
     resolved_previous: Array<{ id: string; evidence: string }>;
@@ -53,7 +61,7 @@ export interface Verdict {
 
 export interface OpenItem {
     id: string;
-    kind: 'prior' | 'redundant' | 'read' | 'scan' | 'merge' | 'journey' | 'sibling' | 'claim' | 'lesson' | 'finding';
+    kind: 'prior' | 'redundant' | 'read' | 'scan' | 'merge' | 'journey' | 'sibling' | 'claim' | 'lesson' | 'rule' | 'finding';
     class: string;
     file?: string;
     line?: number;
@@ -110,7 +118,7 @@ const ACCEPTED_SIMILARITY = 0.4;
 const WORKING_NOTES = new Set<OpenItem['kind']>(['redundant', 'read', 'scan', 'merge', 'journey', 'sibling', 'claim', 'lesson']);
 
 const SHAPE: Array<keyof Verdict> = ['prior_points', 'reads', 'findings'];
-const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'journey', 'siblings', 'claims', 'lessons', 'carried', 'resolved_previous'];
+const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'journey', 'siblings', 'claims', 'lessons', 'rules', 'carried', 'resolved_previous'];
 
 /** The verdict in a reviewer's answer, or why it is not one. `needsPriorPoints`: a human review exists and none of its points is carried. */
 export function parseVerdict(text: string, needsPriorPoints: boolean, reviewer: string, spend: Spend): { verdict: Verdict } | { error: string } {
@@ -163,6 +171,7 @@ export function mergeVerdicts(parts: Verdict[]): Verdict {
         siblings: tagged(part => part.siblings ?? []),
         claims: tagged(part => part.claims ?? []),
         lessons: tagged(part => part.lessons ?? []),
+        rules: tagged(part => part.rules ?? []),
         findings: tagged(part => part.findings),
         carried: parts.flatMap(part => part.carried),
         resolved_previous: parts.length === 1 ? parts[0].resolved_previous : parts[0].resolved_previous.filter(x => parts.every(part => part.resolved_previous.some(y => y.id === x.id))),
@@ -268,6 +277,14 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         if (l.applies !== true) continue;
         add({ id: id('team-lesson', l.file, l.lesson), kind: 'lesson', class: 'team-lesson', file: l.file, line: l.line, issue: `repeats a team lesson: ${l.lesson}`, evidence: l.evidence, reviewer: l.reviewer });
     }
+    // A rule the repository wrote for itself, broken: a requirement blocks where the judge quotes the code that
+    // breaks it (checked like any quote); guidance broken is shown. The rule's words and weight are Rigour's, not the judge's.
+    for (const r of verdict.rules ?? []) {
+        if (r.status !== 'broken' || !r.rule) continue;
+        const item: OpenItem = { id: id('repo-rule', r.file, r.id), kind: 'rule', class: 'repo-rule', file: r.file, line: r.line, issue: `breaks a rule this repository wrote for itself (${r.source}): ${r.rule}`, consequence: r.requirement ? 'the team wrote this rule as a requirement' : 'the team wrote this rule as guidance', ...(r.quote ? { quote: r.quote } : {}), evidence: r.evidence, reviewer: r.reviewer };
+        if (r.requirement) add(item);
+        else if (!notes.some(n => n.id === item.id)) notes.push(item);
+    }
     const stillOpen = new Set((previousOpen ?? []).map(item => item.id));
     for (const f of verdict.findings) {
         const item: OpenItem = { id: id(f.class, f.file, f.issue), kind: 'finding', class: f.class, file: f.file, line: f.line, issue: f.issue, evidence: f.why, ...(f.consequence?.trim() ? { consequence: f.consequence.trim() } : {}), ...(f.input?.trim() ? { input: f.input.trim() } : {}), ...(f.quote?.trim() ? { quote: f.quote } : {}), reviewer: f.reviewer };
@@ -307,4 +324,13 @@ export function itemLine(item: OpenItem): string {
     const by = item.reviewer ? ` (${item.reviewer})` : '';
     const status = item.status ? `, ${item.status}` : '';
     return `[${item.class}${status}]${by}${where} ${item.issue}${item.input ? `\n      input: ${item.input}` : ''}${item.consequence ? `\n      consequence: ${item.consequence}` : ''}${item.quote ? `\n      code: ${item.quote.trim().split('\n')[0].slice(0, 160)}` : ''}${item.evidence ? `\n      ${item.evidence}` : ''}`;
+}
+
+/** The rules Rigour served, onto the judge's answers by id: an answer naming no served rule is dropped. */
+export function attachServedRules(verdict: Verdict, served: ServedRule[]): void {
+    const byId = new Map(served.map(r => [r.id, r]));
+    verdict.rules = (verdict.rules ?? []).flatMap(r => {
+        const rule = byId.get(String(r.id));
+        return rule ? [{ ...r, id: rule.id, rule: rule.text, source: rule.source, requirement: rule.requirement }] : [];
+    });
 }

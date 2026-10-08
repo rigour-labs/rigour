@@ -42,6 +42,7 @@ export function printReviewer(result: ReviewerResult): void {
     if (result.dropped.length) console.log(chalk.dim(`  ${result.dropped.length} finding(s) refuted with evidence by the other judges (--json lists them)`));
     for (const item of result.unverified) console.log(chalk.dim(`  unverified (names code the checkout does not have)  ${itemLine(item)}`));
     for (const point of result.answerInReply) console.log(chalk.dim(`  answer in the reply  ${point.point}${point.evidence ? `\n            ${point.evidence}` : ''}`));
+    if (result.rules?.checked) console.log(chalk.dim(`  repository rules answered: ${result.rules.checked} (${result.rules.broken} broken, ${result.rules.followed} followed, ${result.rules.notApplicable} not applicable)`));
     const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens` : '';
     const cost = `${result.costUsd !== undefined ? `, $${result.costUsd.toFixed(2)}` : ''}${tokens}`;
     console.log(`  ${result.items.length} open item(s)${result.cached ? chalk.dim(' (cached for this commit)') : cost}\n`);

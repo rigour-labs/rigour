@@ -8,7 +8,7 @@ import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './r
 import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
-import { account, carryResolved, checkoutVerifier, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
+import { account, attachServedRules, carryResolved, checkoutVerifier, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
 
 let repo: string;
 const config = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
@@ -240,6 +240,19 @@ describe('the reviewer', () => {
         expect(verdict.reviewers[0].trace.calls.map((c: any) => c.category)).toEqual(['rigour-input', 'changed-file', 'other-file', 'git', 'search']);
     });
 
+    it('serves the repository\'s own rules to the judge with ids, and blocks on a requirement the judge shows broken', async () => {
+        fs.writeFileSync(path.join(repo, 'AGENTS.md'), '# Rules\n\n- `src/job.ts` must take the lock before its first read.\n- Prefer early returns.\n');
+        const seen = seenNow();
+        const answer = () => {
+            const id = /- \[([0-9a-f]{10})\] \(AGENTS\.md, requirement\)/.exec(seen.files['team-knowledge.md'] ?? '')?.[1];
+            return JSON.stringify({ ...EMPTY, rules: [{ id, status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'reads before any lock' }] });
+        };
+        const result = await runReviewer(repo, 'main', config, fakes(answer, seen), () => undefined, { force: true });
+        expect(seen.files['team-knowledge.md']).toContain('(AGENTS.md, requirement) `src/job.ts` must take the lock before its first read.');
+        expect(result.items.map(i => [i.class, i.file, i.line])).toEqual([['repo-rule', 'src/job.ts', 2]]);
+        expect(result.rules).toEqual({ checked: 1, followed: 0, broken: 1, notApplicable: 0 });
+    });
+
     it('asks a judge once more after an answer that is not a verdict, and is unavailable only when the second is not one either', async () => {
         const seen = seenNow();
         let calls = 0;
@@ -371,6 +384,27 @@ describe('verdicts', () => {
         expect(decide({ findings: [{ ...finding, severity: 'should' }] })).toMatchObject({ open: [], notes: [expect.anything()] });
         const accepted = { point: 'job never closes the connection after the read', severity: 'non-blocking' as const, resolved: false };
         expect(decide({ prior_points: [accepted], findings: [finding] })).toMatchObject({ open: [], notes: [expect.anything()] }); // a human raised it and accepted it
+    });
+
+    it('blocks on a broken requirement rule only with its quote, shows broken guidance, and takes the rule\'s words from what Rigour served', () => {
+        const verify = checkoutVerifier(repo);
+        const served = [
+            { id: 'r1', source: 'AGENTS.md', text: 'Every job must take the lock before its first read.', requirement: true },
+            { id: 'r2', source: 'AGENTS.md', text: 'Prefer small functions.', requirement: false },
+        ];
+        const judged = (answers: object[]) => {
+            const verdict = { ...EMPTY, prior_points: [], rules: answers } as unknown as Verdict;
+            attachServedRules(verdict, served);
+            return { verdict, ...account(verdict, undefined, verify) };
+        };
+        const broken = judged([{ id: 'r1', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'no lock before the read' }]);
+        expect(broken.open.map(i => [i.kind, i.class, i.issue])).toEqual([['rule', 'repo-rule', 'breaks a rule this repository wrote for itself (AGENTS.md): Every job must take the lock before its first read.']]);
+        expect(judged([{ id: 'r1', status: 'broken', file: 'src/job.ts', line: 2 }])).toMatchObject({ open: [], unverified: [expect.objectContaining({ kind: 'rule' })] }); // no quote: not shown as a block
+        expect(judged([{ id: 'r2', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;' }])).toMatchObject({ open: [], notes: [expect.objectContaining({ class: 'repo-rule' })] }); // guidance
+        expect(judged([{ id: 'r1', status: 'followed' }, { id: 'r1', status: 'not-applicable' }])).toMatchObject({ open: [], notes: [], unverified: [] });
+        const unknown = judged([{ id: 'made-up', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'a rule the judge invented', requirement: true }]);
+        expect(unknown.verdict.rules).toEqual([]); // an answer naming no served rule is dropped, whatever it claims
+        expect(unknown.open).toEqual([]);
     });
 
     it('keeps reads, scans, redundancy and merge impact as notes with stable ids, and answers non-blocking points in the reply', () => {

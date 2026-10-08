@@ -32,6 +32,20 @@ describe('repository rules', () => {
         expect(rules.map(r => r.text.slice(0, 30))).toEqual(['**Migrations are append-only.*', 'Every outbound send goes throu', 'Prefer `fetchWithTimeout` over']);
         expect(rules[1]).toMatchObject({ paths: ['src/lib/delivery.ts'], symbols: ['deliverOrder'] });
         expect(rules[0].paths).toEqual(['migrations/']);
+        expect(rules.map(r => r.requirement)).toEqual([true, true, false]); // "never", "every"; "prefer" is guidance
+        expect(rules[0].id).toMatch(/^[0-9a-f]{10}$/);
+        expect(splitRules('AGENTS.md', AGENTS)[0].id).toBe(rules[0].id); // stable across runs
+    });
+
+    it('keeps a rule\'s "Why" and "How to apply" paragraphs with it, and ranks a rule naming the change above one that only shares its words', () => {
+        const text = '- **Use the design system.** Every control comes from `src/lib/ui`.\n\n**Why:** one source of styling.\n\n**How to apply:** import from `$lib/ui`, never a raw `<button>`.\n\n- Bound both ends of every time window a scheduled job reads.\n\n- Name the index a new query relies on in the migrations.\n';
+        const rules = splitRules('AGENTS.md', text);
+        expect(rules.map(r => r.text.slice(0, 24))).toEqual(['**Use the design system.', 'Bound both ends of every', 'Name the index a new que']);
+        expect(rules[0].text).toContain('**How to apply:**');
+        fs.writeFileSync(path.join(repo, 'AGENTS.md'), text);
+        const change = diff('src/lib/ui/Button.svelte', 'const timeWindow = scheduledJob.readsRows();');
+        expect(rulesForDiff(repo, change, true, 10).map(r => r.text.slice(0, 12))).toEqual(['**Use the de', 'Bound both e']); // the path hit first, then shared words; the index rule shares nothing
+        expect(rulesForDiff(repo, change, true, 1)).toHaveLength(1);
     });
 
     it('shows only the rules that name what the change touches, and nothing when disabled', () => {

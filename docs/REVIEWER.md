@@ -36,9 +36,15 @@ judge's own sense of severity) decides what blocks:
    the code does, checked against the code.
 9. **Team lessons**: every lesson the team taught that it was shown, answered one by one: does this
    change repeat it? A lesson pasted as background was skimmed; asked as a checklist it is checked.
-10. **The diff as a person reads it.**
+10. **Repository rules**: the rules the repository wrote for itself (AGENTS.md, CLAUDE.md, Cursor rules,
+    Copilot instructions), the fifteen most relevant to the change, answered one by one: followed, broken,
+    or not applicable, with the code that breaks one quoted. A rule the team worded as a requirement
+    (must, never, always, only, every, do not), broken with its quote verified, blocks; guidance broken is a
+    should-fix. The rule's words and weight come from the file, never from the judge.
+11. **The diff as a person reads it.**
 
-Steps 2 to 9 are the judge's working notes: you see them, and they never block on their own. Only a
+Steps 2 to 10 are the judge's working notes: you see them, and they never block on their own, with one
+exception: a requirement rule shown broken with a verified quote. Otherwise only a
 finding can block, and only when it carries three things: the input that goes wrong, what goes wrong
 for it (or a material cost: one that grows with the data or traffic, such as an extra query, rows
 read that scale with users, a missing index or an unbounded window; one more column on rows already

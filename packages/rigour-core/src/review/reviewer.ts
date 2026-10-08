@@ -33,7 +33,7 @@ import { VerdictStore } from './reviewer/store.js';
 import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
-import { account, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
+import { account, attachServedRules, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
 
 export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
@@ -92,6 +92,8 @@ export interface ReviewerResult {
     scope?: 'full' | 'delta';
     why?: string;
     costUsd?: number;
+    /** The repository's own rules the judge answered, and how. */
+    rules?: { checked: number; followed: number; broken: number; notApplicable: number };
     /** Tokens every run reported, summed: the only measure of a CLI that reports no dollars (Codex). */
     tokens?: Tokens;
     /** Whether the team lets people dismiss these findings (review.reviewer.dismissals). */
@@ -312,7 +314,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             const failed = answers.find(a => 'error' in a);
             if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
             parts = answers.map(a => (a as { verdict: Verdict }).verdict);
-            for (const part of parts) if (part.trace) labelReads(part.trace, work, changedFiles);
+            for (const part of parts) {
+                if (part.trace) labelReads(part.trace, work, changedFiles);
+                attachServedRules(part, context.rules);
+            }
         } finally {
             clearInterval(ticker);
         }
@@ -475,6 +480,7 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         ...(cost.length ? { costUsd: cost.reduce((a, b) => a + b, 0) } : {}),
         ...(used.length ? { tokens: used.reduce((a, b) => ({ input: a.input + b.input, output: a.output + b.output }), { input: 0, output: 0 }) } : {}),
         runs: (verdict.reviewers ?? []).length,
+        ...(verdict.rules?.length ? { rules: { checked: verdict.rules.length, followed: verdict.rules.filter(r => r.status === 'followed').length, broken: verdict.rules.filter(r => r.status === 'broken').length, notApplicable: verdict.rules.filter(r => r.status === 'not-applicable').length } } : {}),
         mode,
         dismissable,
         cached,
