@@ -8,7 +8,7 @@ import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './r
 import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
-import { account, attachServedRules, carryResolved, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type PriorPoint, type Verdict } from './reviewer/verdict.js';
+import { account, attachServedRules, carryResolved, changedLinesOf, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { recordIntact } from './reviewer/record.js';
 
 let repo: string;
@@ -322,7 +322,8 @@ describe('the reviewer', () => {
         const by = (name: string) => JSON.stringify({ ...EMPTY, prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: name === 'claude', evidence: 'src/job.ts:2', file: 'src/job.ts', line: 2, quote: 'export function job() {' }], findings: name === 'cursor' ? [{ class: 'dead-code', file: 'a.ts', line: 1, issue: 'a is unused', consequence: 'a second run reads stale rows', quote: 'export const a = 1;' }] : [] });
         const result = await runReviewer(repo, 'main', config, fakes(by, seen), () => undefined, { full: true });
         expect(result.reviewers).toEqual(['claude', 'cursor']);
-        expect(result.items.map(i => [i.kind, i.reviewer])).toEqual([['prior', 'cursor'], ['finding', 'cursor']]);
+        expect(result.items.map(i => [i.kind, i.reviewer])).toEqual([['prior', 'cursor']]);
+        expect(result.notes.map(i => [i.kind, i.file, i.reviewer])).toEqual([['finding', 'a.ts', 'cursor']]); // a.ts is not in the change: what the code already had
         expect(seen.prompts).toHaveLength(2);
     });
 });
@@ -691,5 +692,40 @@ describe('searching the checkout for what a point calls missing', () => {
         expect(search('  expect(href).toBe("/checkout?origin=native");\n  more')).toBe('src/a.test.ts:2');
         expect(search('const ghost = 1;')).toBeUndefined();
         expect(search('   \n')).toBeUndefined();
+    });
+});
+
+describe('a block sits on a line the change touched', () => {
+    const diff = [
+        'diff --git a/src/player.ts b/src/player.ts', '--- a/src/player.ts', '+++ b/src/player.ts',
+        '@@ -10,4 +10,5 @@ function resume() {', '   const a = 1;', '-  old();', '+  report(a);', '+  report(b);', '   return a;', '   }',
+        'diff --git a/src/gone.ts b/src/gone.ts', '--- a/src/gone.ts', '+++ /dev/null', '@@ -1,2 +0,0 @@', '-export const x = 1;', '-export const y = 2;',
+        'diff --git a/src/new.ts b/src/new.ts', '--- /dev/null', '+++ b/src/new.ts', '@@ -0,0 +1,2 @@', '+export const z = 1;', '+export const w = 2;', '',
+    ].join('\n');
+    const changed = changedLinesOf(diff);
+    const rule = (file: string, line: number | undefined): Verdict => ({ ...EMPTY, prior_points: [], rules: [{ id: 'r1', status: 'broken', rule: 'wrap every navigation target in resolve()', source: 'AGENTS.md', requirement: true, file, line, quote: 'preloadCode(target)' }] } as unknown as Verdict);
+    const checks = { approvals: [], inCheckout: () => undefined, changed };
+
+    it('reads the touched lines of a diff: added lines, the place of a deletion, nothing for a deleted file', () => {
+        expect([...changed.get('src/player.ts')!].sort((a, b) => a - b)).toEqual([11, 12]); // the deletion's place, then the two added lines (11 is both)
+        expect([...changed.get('src/new.ts')!]).toEqual([1, 2]);
+        expect(changed.has('src/gone.ts')).toBe(false);
+    });
+
+    it('blocks a verified rule break near a touched line, and notes one on lines the change did not touch, or with no line', () => {
+        expect(account(rule('src/player.ts', 14), undefined, () => true, checks).open).toHaveLength(1); // within the window of line 12
+        const far = account(rule('src/player.ts', 1819), undefined, () => true, checks);
+        expect(far.open).toEqual([]);
+        expect(far.notes).toMatchObject([{ kind: 'rule', line: 1819, evidence: expect.stringContaining('on a line this change did not touch: what the code already had, never a block on this change') }]);
+        const unplaced = account(rule('src/player.ts', undefined), undefined, () => true, checks);
+        expect(unplaced.open).toEqual([]);
+        expect(unplaced.notes[0].evidence).toContain('names no line');
+        expect(account(rule('src/other.ts', 3), undefined, () => true, checks).open).toEqual([]); // a file the change did not touch at all
+    });
+
+    it("leaves a human's point, and every item when the diff is unknown, as before", () => {
+        const point: Verdict = { ...EMPTY, prior_points: [{ point: 'wrap the target', review: 'senior 2026-10-01', severity: 'blocking', resolved: false, file: 'src/player.ts', line: 1819, quote: 'preloadCode(target)' }] } as unknown as Verdict;
+        expect(account(point, undefined, () => true, checks).open).toHaveLength(1);
+        expect(account(rule('src/player.ts', 1819), undefined, () => true, { approvals: [], inCheckout: () => undefined }).open).toHaveLength(1);
     });
 });
