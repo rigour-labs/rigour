@@ -10,7 +10,7 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { GH_TIMEOUT_MS, parseJsonArrays, type Exec } from './exec.js';
-import type { Approval } from './verdict.js';
+import type { Approval, LabelledPoint } from './verdict.js';
 
 export interface PullRequest {
     number: number;
@@ -28,6 +28,8 @@ export interface HumanReviews {
     count: number;
     /** Each person's approval, in time order: every point that person raised before it is settled. */
     approvals: Approval[];
+    /** The points each review put under a severity heading of its own ("Blocking", "Should fix", "Nits"). */
+    labels: LabelledPoint[];
     /** `<login>, <date> (<n> reviews)` of the latest, for the report. */
     label?: string;
 }
@@ -120,9 +122,37 @@ export async function humanReviews(gh: Gh, pr: PullRequest, reviewsBefore: strin
             key: [...rounds.map((r: any) => `${r.id},${r.submitted_at},${r.commit_id},${r.state}`), ...inline.map((c: any) => `${c.id},${c.updated_at}`)].join('|'),
             count,
             approvals,
+            labels: rounds.filter(worded).flatMap((r: any) => severityLabels(String(r.body), String(r.user.login), String(r.submitted_at))),
             ...(latest ? { label: `${latest.user.login}, ${latest.submitted_at} (${count} review${count === 1 ? '' : 's'})` } : {}),
         },
     };
+}
+
+/** The severity a heading names: "Blocking", "Should fix", "Nits" and their usual spellings, alone on the line. */
+function headingSeverity(line: string): LabelledPoint['severity'] | undefined {
+    const bare = line.replace(/[#*_:`>]/g, ' ').replace(/\(\d+\)/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!bare || bare.split(' ').length > 3) return undefined;
+    if (/^(blocking|blockers?|must fix|must-fix)$/.test(bare)) return 'blocking';
+    if (/^(should fix|should-fix|should)$/.test(bare)) return 'should-fix';
+    if (/^(nits?|non blocking|non-blocking|minor|optional)$/.test(bare)) return 'non-blocking';
+    return undefined;
+}
+
+/** Each bullet or numbered line under a severity heading of the review, with that heading's severity. */
+function severityLabels(body: string, login: string, at: string): LabelledPoint[] {
+    const out: LabelledPoint[] = [];
+    let severity: LabelledPoint['severity'] | undefined;
+    for (const line of body.split('\n')) {
+        const heading = headingSeverity(line);
+        if (heading) {
+            severity = heading;
+            continue;
+        }
+        if (/^\s{0,3}#{1,6}\s/.test(line)) severity = undefined; // another heading ends the section
+        const item = /^\s*(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+        if (severity && item) out.push({ login, at, severity, text: item[1].trim() });
+    }
+    return out;
 }
 
 /** The repository's rules as the reviewer must read them. */

@@ -8,7 +8,7 @@ import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './r
 import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
-import { account, attachServedRules, carryResolved, changedLinesOf, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type PriorPoint, type Verdict } from './reviewer/verdict.js';
+import { account, attachServedRules, carryResolved, changedLinesOf, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type LabelledPoint, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { recordIntact } from './reviewer/record.js';
 
 let repo: string;
@@ -483,11 +483,17 @@ describe('verdicts', () => {
         // On other lines than any human point: the same point in another file, and said as another class on the next line, is one item, every place.
         const apart = account({ ...verdict, prior_points: [] } as Verdict, undefined, checkoutVerifier(repo));
         expect(apart.open.map(i => [i.kind, i.class, i.locations ?? []])).toEqual([['finding', 'production-cost', [{ file: 'a.ts', line: 1 }, { file: 'src/job.ts', line: 2 }]]]);
-        // A rule break on a human point's lines is that point, whatever the rule's words; a finding there in other words is its own.
-        const onHuman = account({ ...EMPTY, prior_points: [{ point: 'null guards on columns the query makes non-null', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 2, quote: 'return 1;' }],
+        // On a human point's lines: a rule break in like words is that point found again; a different rule, or a finding in other
+        // words, stays its own item, so fixing the human's point does not leave it for the next round.
+        const human = { point: 'null guards on columns the query makes non-null are dead fallbacks', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 2, quote: 'return 1;' };
+        const onHuman = account({ ...EMPTY, prior_points: [human],
             findings: [{ class: 'correctness', file: 'src/job.ts', line: 3, issue: 'the retry re-sends the email', input: 'a timeout', consequence: 'two emails', quote: '}' }],
-            rules: [{ id: 'r', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'No dead branches, unreachable fallbacks or unused imports.', source: 'AGENTS.md', requirement: true }] } as unknown as Verdict, undefined, checkoutVerifier(repo));
-        expect(onHuman.open.map(i => [i.kind, i.locations ?? []])).toEqual([['prior', [{ file: 'src/job.ts', line: 2 }]], ['finding', []]]);
+            rules: [
+                { id: 'r1', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'No dead fallbacks or null guards on non-null columns.', source: 'AGENTS.md', requirement: true },
+                { id: 'r2', status: 'broken', file: 'src/job.ts', line: 3, quote: '}', rule: 'Import the JOBS_TABLE constant; do not inline the raw table name.', source: 'AGENTS.md', requirement: true },
+            ] } as unknown as Verdict, undefined, checkoutVerifier(repo));
+        expect(onHuman.open.map(i => [i.kind, i.locations ?? []])).toEqual([['prior', [{ file: 'src/job.ts', line: 2 }]], ['rule', []], ['finding', []]]);
+        expect(onHuman.open[1].issue).toContain('JOBS_TABLE');
         // A rule break and the finding it caused, on the same lines and in like words, are one item.
         const twice = account({ ...EMPTY, prior_points: [], findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'the raw table name is inlined instead of the JOBS_TABLE constant', input: 'any run', consequence: 'a rename misses it', quote: 'return 1;' }],
             rules: [{ id: 'r', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'Import the JOBS_TABLE constant; do not inline the raw table name again.', source: 'AGENTS.md', requirement: true }] } as unknown as Verdict, undefined, checkoutVerifier(repo));
@@ -766,5 +772,27 @@ describe("a human's should-fix point", () => {
         const unplaced = account({ ...verdict, prior_points: [{ ...verdict.prior_points[0], quote: 'not in the file' }] } as Verdict, undefined, checkoutVerifier(repo));
         expect(unplaced.advisory).toEqual([]); // a should-fix the judge cannot show is not worth a person's time
         expect(unplaced.unverified).toHaveLength(1);
+    });
+});
+
+describe("the reviewer's own severity label", () => {
+    const at = '2026-10-01T10:00:00Z';
+    const labels: LabelledPoint[] = [
+        { login: 'senior', at, severity: 'blocking', text: 'The kill switch is read after every query: check it first.' },
+        { login: 'senior', at, severity: 'should-fix', text: 'The comment on the window still says daily.' },
+    ];
+    const point = (over: Partial<PriorPoint>): Verdict => ({ ...EMPTY, prior_points: [{ point: 'the kill switch is read after every query', review: 'senior 2026-10-01T10:00:00Z', severity: 'should-fix', resolved: false, file: 'src/job.ts', line: 2, quote: 'return 1;', ...over }] } as unknown as Verdict);
+
+    it('wins over the judge: a blocker the judge read as a should-fix blocks, and the disagreement is said', () => {
+        const { open, advisory } = account(point({}), undefined, checkoutVerifier(repo), { approvals: [], inCheckout: () => undefined, labels });
+        expect(advisory).toEqual([]);
+        expect(open).toMatchObject([{ kind: 'prior', evidence: 'the review labels it blocking; the judge read should-fix' }]);
+    });
+
+    it('applies only to the same reviewer and review, and only to a point that reads like the labelled line', () => {
+        for (const over of [{ review: 'peer 2026-10-01T10:00:00Z' }, { review: 'senior 2026-10-02T10:00:00Z' }, { point: 'the email retry sends twice' }]) {
+            const { open, advisory } = account(point(over), undefined, checkoutVerifier(repo), { approvals: [], inCheckout: () => undefined, labels });
+            expect([open.length, advisory.length]).toEqual([0, 1]); // the judge's should-fix stands
+        }
     });
 });

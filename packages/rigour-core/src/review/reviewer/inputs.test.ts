@@ -26,4 +26,17 @@ describe('the human reviews a judge reads', () => {
         const later = await humanReviews(gh, pr, '2026-09-28T15:12:54.000Z');
         expect(later.reviews!.approvals).toHaveLength(1);
     });
+
+    it('reads the bullets and numbered lines under Blocking / Should fix / Nits headings as that reviewer labelled them, and nothing under another heading', async () => {
+        const body = ['Thanks, a few things.', '', '## Blocking', '- The kill switch is read after every query: check it first.', '',
+            '**Should fix**', '1. The comment on the window still says daily.', '', 'Nits:', '* Rename tmp to rows.', '', '## Context', '- not a label'].join('\n');
+        const labelled = async (args: string[]) => ({ exitCode: 0, stdout: JSON.stringify(args[1].endsWith('/reviews') ? [{ ...reviews[0], body }] : []), stderr: '' });
+        const { reviews: read } = await humanReviews(labelled, pr, undefined);
+        expect(read!.labels.map(l => [l.login, l.severity, l.text])).toEqual([
+            ['senior', 'blocking', 'The kill switch is read after every query: check it first.'],
+            ['senior', 'should-fix', 'The comment on the window still says daily.'],
+            ['senior', 'non-blocking', 'Rename tmp to rows.'],
+        ]);
+        expect(read!.labels.every(l => l.at === '2026-09-25T18:09:11Z')).toBe(true);
+    });
 });

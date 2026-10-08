@@ -196,7 +196,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const skip = skipReason(settings.on_push, branch, pr);
         if (skip) return none('skipped', skip, { reviewers, pr: pr?.number });
     }
-    let reviews: HumanReviews = { markdown: 'none\n', key: '', count: 0, approvals: [] };
+    let reviews: HumanReviews = { markdown: 'none\n', key: '', count: 0, approvals: [], labels: [] };
     if (gh && pr) {
         const read = await humanReviews(gh, pr, options.reviewsBefore);
         if (read.error) return none('unavailable', read.error, { reviewers, pr: pr.number });
@@ -267,7 +267,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const previousOpen = scope === 'delta' ? store.readJson<OpenItem[]>(store.openPath(previous!.verdict)) ?? [] : undefined;
 
     const verify = checkoutVerifier(cwd);
-    const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff) };
+    const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff), labels: reviews.labels };
     const modelFor = (name: ReviewerName) => settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {

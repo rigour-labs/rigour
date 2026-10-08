@@ -72,9 +72,11 @@ from being blocked:
   input and consequence. A point that says something is still missing names what was searched for
   (`absent`), and Rigour searches the whole checkout for it, not only the file the point named: found
   elsewhere, the point is unverified. A point its reviewer gave as a should-fix keeps that tier: shown
-  with its quote, never a block. A rule break on a human point's lines, or a finding there in like
-  words, is that point found again and folds into it (the human's words stay; two human points never
-  merge). And a point a human already raised and accepted as non-blocking is never escalated into a
+  with its quote, never a block. When the review itself puts the point under a heading of its own
+  ("Blocking", "Should fix", "Nits"), that label wins over the judge's reading and a disagreement is
+  said on the item. A rule break or finding on a human point's lines in like words is that point found
+  again and folds into it (the human's words stay); one in other words is a different problem and
+  stays its own item; two human points never merge. And a point a human already raised and accepted as non-blocking is never escalated into a
   blocking finding.
 
 ## Three ways to run it
