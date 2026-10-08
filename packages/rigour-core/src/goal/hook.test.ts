@@ -48,7 +48,11 @@ describe('the goal at a stop or a push', () => {
         const exec = gh({ state: 'OPEN', body: '## Scope\n- `src/`' }, calls);
         expect(await hookGoalDescription(repo, on, exec)).toBe('## Scope\n- `src/`');
         expect(await hookGoalDescription(repo, on, exec)).toBe('## Scope\n- `src/`');
-        expect(calls).toEqual([['pr', 'view', 'feature', '--json', 'state,body', 'timeout 5000']]);
+        expect(calls.map(args => args.slice(0, -1))).toEqual([['pr', 'view', 'feature', '--json', 'state,body']]);
+        // What is left of the 5 second budget: a millisecond may already have gone.
+        const timeout = Number(calls[0].at(-1)!.replace('timeout ', ''));
+        expect(timeout).toBeGreaterThan(4_000);
+        expect(timeout).toBeLessThanOrEqual(5_000);
     });
 
     it('spends 5 seconds in all, the token call included', async () => {
