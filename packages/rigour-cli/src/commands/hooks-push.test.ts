@@ -54,7 +54,7 @@ describe('rigour hooks push', () => {
     it('blocks a push that leaves the scope its open pull request declares, and checks nothing without one', async () => {
         // A gh of our own on PATH: `pr view` answers with an open pull request, or fails.
         const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-gh-'));
-        fs.writeFileSync(path.join(bin, 'gh.js'), "const reply = process.env.FAKE_GH;\nif (reply === 'fail') { console.error('no pull requests found'); process.exit(1); }\nconsole.log(JSON.stringify({ state: 'OPEN', body: '## Scope\\n- `src/`' }));\n");
+        fs.writeFileSync(path.join(bin, 'gh.js'), "const reply = process.env.FAKE_GH;\nif (reply === 'fail') { console.error('no pull requests found'); process.exit(1); }\nconsole.log(JSON.stringify({ state: 'OPEN', body: reply === 'widened' ? '## Scope\\n- `src/`\\n- `docs/`\\n- `rigour.yml`' : '## Scope\\n- `src/`' }));\n");
         if (process.platform === 'win32') fs.writeFileSync(path.join(bin, 'gh.cmd'), `@"${process.execPath}" "%~dp0gh.js" %*\r\n`);
         else fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/gh.js" "$@"\n`, { mode: 0o755 });
         const saved = { PATH: process.env.PATH, FAKE_GH: process.env.FAKE_GH, GH_TOKEN: process.env.GH_TOKEN, RIGOUR_GITHUB_ACCOUNT: process.env.RIGOUR_GITHUB_ACCOUNT };
@@ -75,6 +75,9 @@ describe('rigour hooks push', () => {
             expect(blocked.message).toContain('Changes docs/notes.md, outside the scope the description declares');
             expect(blocked.message).toContain('Changes rigour.yml, outside the scope'); // the branch changed it too
             expect(readThread(repo)!.events.filter(e => e.kind === 'goal').map(e => [e.moment, e.declared, e.blocks])).toEqual([['push', true, 2]]);
+            // The author does what the block says: adds the paths to the description's Scope. No new commit is needed.
+            process.env.FAKE_GH = 'widened';
+            expect((await push()).exitCode).toBe(0);
         } finally {
             for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
             fs.rmSync(bin, { recursive: true, force: true });

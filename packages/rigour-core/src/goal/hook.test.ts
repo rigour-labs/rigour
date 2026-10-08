@@ -51,6 +51,29 @@ describe('the goal at a stop or a push', () => {
         expect(calls).toEqual([['pr', 'view', 'feature', '--json', 'state,body', 'timeout 5000']]);
     });
 
+    it('spends 5 seconds in all, the token call included', async () => {
+        const timeouts: number[] = [];
+        const slow: Exec = async (_command, args, options) => {
+            timeouts.push(options.timeoutMs);
+            if (args[0] === 'auth') { await new Promise(resolve => setTimeout(resolve, 50)); return { exitCode: 0, stdout: 'token\n', stderr: '' }; }
+            return { exitCode: 0, stdout: JSON.stringify({ state: 'OPEN', body: 'x' }), stderr: '' };
+        };
+        await hookGoalDescription(repo, ConfigSchema.parse({ version: 1, review: { goal: 'on', github_account: 'someone' } }), slow);
+        expect(timeouts[0]).toBe(5000);
+        expect(timeouts[1]).toBeLessThanOrEqual(5000 - 50);
+    });
+
+    it('reads the description again on the commit it blocked: the fix may be the description', async () => {
+        const calls: string[][] = [];
+        let body = '## Scope\n- `src/`';
+        const exec: Exec = async (_command, args) => { calls.push(args); return { exitCode: 0, stdout: JSON.stringify({ state: 'OPEN', body }), stderr: '' }; };
+        expect(await hookGoalDescription(repo, on, exec)).toBe(body);
+        recordGoal(repo, 'push', body, { findings: [{ id: 'goal-scope', title: 't', details: 'd' }] });
+        body = '## Scope\n- `src/`\n- `docs/`';
+        expect(await hookGoalDescription(repo, on, exec)).toBe(body);
+        expect(calls).toHaveLength(2);
+    });
+
     it('checks nothing, and never throws, with no pull request, a closed one, or gh failing', async () => {
         for (const reply of ['none', 'fail', { state: 'MERGED', body: '## Scope\n- `src/`' }] as const) {
             fs.rmSync(path.join(repo, '.git', 'rigour'), { recursive: true, force: true });
