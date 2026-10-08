@@ -21,7 +21,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
 import {
-    alreadyReviewed, appendAgentEvent, clearStopAttempts, ConfigSchema, countUsage, nextStopAttempt, recordFixLessons, recordReviewed, recordReviewOutcome, workFingerprint,
+    alreadyReviewed, appendAgentEvent, appendTaskEvent, clearStopAttempts, ConfigSchema, countUsage, nextStopAttempt, recordFixLessons, recordReviewed, recordReviewOutcome, workFingerprint,
     sessionBaseline, STOP_MAX_ATTEMPTS, stopReview, teamMessage, untaught, recordTaught, captureHumanEdits, type Config,
 } from '@rigour-labs/core';
 
@@ -56,6 +56,7 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
         const decision = await stopReview(cwd, config ?? await loadHookConfig(cwd), attempt, sessionBaseline(cwd, session));
         const nothing = decision.reviewedFiles.length === 0;
         appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(nothing ? { nothing_to_review: true } : {}) });
+        appendTaskEvent(cwd, { kind: 'stop-review', agent: tool, session, blocked: decision.block, blocking: decision.blocking, files: decision.reviewedFiles });
         if (nothing) process.stderr.write(`Rigour stop review: nothing to review against ${decision.against}.\n`);
         countUsage('stop_review');
         if (decision.block) countUsage(attempt > 1 ? 'stop_block_repeat' : 'stop_block');

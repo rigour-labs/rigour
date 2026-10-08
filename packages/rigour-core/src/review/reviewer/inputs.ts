@@ -18,6 +18,7 @@ export interface PullRequest {
     draft: boolean;
     author: string;
     body: string;
+    title?: string;
 }
 
 export interface HumanReviews {
@@ -40,7 +41,7 @@ export function ghFor(cwd: string, exec: Exec, env: Record<string, string> | und
     return args => exec('gh', args, { cwd, timeoutMs: GH_TIMEOUT_MS, env });
 }
 
-const PR_FIELDS = 'number,state,isDraft,author,body';
+const PR_FIELDS = 'number,state,isDraft,author,body,title';
 
 /**
  * The description as it read at `at` (a backtest's review time): GitHub keeps every version in
@@ -87,7 +88,7 @@ async function viewPullRequest(gh: Gh, selector: string): Promise<{ pr?: PullReq
     try {
         const parsed = JSON.parse(result.stdout);
         if (!Number.isInteger(parsed.number)) return { error: `gh returned no pull request number for ${selector}` };
-        return { pr: { number: parsed.number, state: String(parsed.state ?? '').toLowerCase() as PullRequest['state'], draft: !!parsed.isDraft, author: String(parsed.author?.login ?? ''), body: String(parsed.body ?? '') } };
+        return { pr: { number: parsed.number, state: String(parsed.state ?? '').toLowerCase() as PullRequest['state'], draft: !!parsed.isDraft, author: String(parsed.author?.login ?? ''), body: String(parsed.body ?? ''), ...(parsed.title ? { title: String(parsed.title) } : {}) } };
     } catch {
         return { error: `gh returned something other than a pull request for ${selector}: ${result.stdout.slice(0, 120)}` };
     }

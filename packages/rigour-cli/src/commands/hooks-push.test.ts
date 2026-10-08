@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { readThread } from '@rigour-labs/core';
 import { hooksPushCommand, isPush, pushTarget } from './hooks-push.js';
 
 describe('push command parsing', () => {
@@ -66,6 +67,8 @@ describe('rigour hooks push', () => {
         expect(result.exitCode).toBe(2);
         expect(result.message).toContain('- typed-checks-unavailable could not run: ');
         expect(result.message).toContain('.generated/tsconfig.json');
+        // The task's thread keeps the blocked push.
+        expect(readThread(repo, 'feature')?.events.map(e => [e.kind, e.passed, e.failed])).toEqual([['push', false, 1]]);
     });
 
     it('blocks a push that adds an export nothing uses, saying where', async () => {
