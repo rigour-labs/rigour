@@ -264,7 +264,7 @@ describe('hooksCheckCommand', () => {
         fs.writeFileSync(path.join(testDir, 'ok.ts'), 'export const x = 1;\n');
         vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
         await hooksCheckCommand(testDir, { files: 'ok.ts', agent: 'codex' });
-        expect(readThread(testDir, 'PROJ-21')?.events.map(e => [e.kind, e.agent, e.files, e.findings, e.status])).toEqual([['edit-check', 'codex', ['ok.ts'], 0, 'pass']]);
+        expect(readThread(testDir, 'feat/PROJ-21-thread')?.events.map(e => [e.kind, e.agent, e.files, e.findings, e.status])).toEqual([['edit-check', 'codex', ['ok.ts'], 0, 'pass']]);
     });
 
     it('reports skipped, not pass, when the hook named no file', async () => {

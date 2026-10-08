@@ -1,16 +1,18 @@
 /**
  * The engineering task: one piece of work, whatever agents and people touch it, and its thread, everything that
- * happened to it in order. The key is the ticket the branch names (`PROJ-123`), or the branch itself; a pull request
- * joins the thread when a review of it runs. Every writer appends one event to `<git dir>/rigour/threads/<key>.jsonl`,
- * never rewrites one, and never fails the hook or command it runs in: a thread is a record, not a gate. It lives in
- * the repository's own git folder, shared by its worktrees, so one task worked on in two worktrees is one thread, and
- * nothing is ever added to the working tree or committed.
+ * happened to it in order. Events are kept per branch, one file each (`<git dir>/rigour/threads/<branch>-<hash>.jsonl`,
+ * the hash of the exact branch name, so no two branches share a file). The task is the ticket the branch names when
+ * the branch's own commit subjects name it too (`PROJ-123`): a version token in a branch name (`pin-node-22`,
+ * `utf-8`) is not a ticket. Otherwise the task is the branch. Reading a ticket gathers every branch that worked on it;
+ * a pull request joins when a review of it runs. Writers only append, and never fail the hook or command they run in.
+ * The files live in the repository's common git folder, shared by its worktrees; nothing enters the working tree.
  *
  * What a thread holds is what Rigour saw: hooked agent sessions (the edit check, the stop review), the push gate, and
  * reviews. Work done where no hook ran (an agent without hooks, a person in an editor) shows only through the commits
  * and reviews that follow it.
  */
 import { spawnSync } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -41,12 +43,25 @@ export interface ThreadEvent extends TaskEvent {
     head?: string;
 }
 
-/** The task the checkout is working on: the ticket its branch names, else the branch; undefined on a detached head. */
+/**
+ * The task the checkout is working on: the ticket its branch names when one of the branch's own commit subjects names
+ * it too, else the branch; undefined on a detached head.
+ */
 export function taskOf(cwd: string): { key: string; branch: string; head?: string } | undefined {
     const branch = git(cwd, ['symbolic-ref', '--short', '-q', 'HEAD']); // a branch with no commit yet has a task too
     if (!branch) return undefined;
-    const ticket = TICKET.exec(branch)?.[1];
-    return { key: ticket ? ticket.toUpperCase() : `branch:${branch}`, branch, head: git(cwd, ['rev-parse', 'HEAD']) };
+    const ticket = TICKET.exec(branch)?.[1]?.toUpperCase();
+    // Written as a ticket (upper case, as trackers print it) in a commit subject of the branch: `node-22` in a subject is a version.
+    const confirmed = ticket && branchSubjects(cwd).some(subject => new RegExp(`(^|[^A-Za-z0-9])${ticket.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![0-9])`).test(subject));
+    return { key: confirmed ? ticket : `branch:${branch}`, branch, head: git(cwd, ['rev-parse', 'HEAD']) };
+}
+
+/** The subjects of the branch's own commits: since it left the main branch, or its last 50 when no main branch is found. */
+function branchSubjects(cwd: string): string[] {
+    const main = ['origin/main', 'main', 'origin/master', 'master'].find(ref => git(cwd, ['rev-parse', '--verify', '-q', ref]) !== undefined);
+    const base = main ? git(cwd, ['merge-base', 'HEAD', main]) : undefined;
+    const range = base && base !== git(cwd, ['rev-parse', 'HEAD']) ? [`${base}..HEAD`] : ['-50', 'HEAD'];
+    return (git(cwd, ['log', '--format=%s', ...range]) ?? '').split('\n').filter(Boolean);
 }
 
 /** Appends one event to the checkout's task thread. Best effort: a thread never breaks the hook or command it runs in. */
@@ -58,7 +73,7 @@ export function appendTaskEvent(cwd: string, event: TaskEvent): ThreadEvent | un
         const dir = threadsDir(cwd);
         if (!dir) return undefined;
         fs.mkdirSync(dir, { recursive: true });
-        fs.appendFileSync(path.join(dir, `${fileName(task.key)}.jsonl`), JSON.stringify(line) + '\n');
+        fs.appendFileSync(path.join(dir, branchFile(task.branch)), JSON.stringify(line) + '\n');
         return line;
     } catch {
         return undefined;
@@ -66,29 +81,37 @@ export function appendTaskEvent(cwd: string, event: TaskEvent): ThreadEvent | un
 }
 
 /**
- * The thread for a key, oldest first: a ticket (`PROJ-123`), a branch name, a pull request (`#42` or `42`), or nothing
- * for the checkout's own task. Unreadable lines are skipped, never guessed.
+ * The thread for a key, oldest first: a ticket (`PROJ-123`, every branch whose events carry it, from their first
+ * event), a branch name, a pull request (`#42` or `42`: the branches a review of it ran on), or nothing for the
+ * checkout's own task. Matching is on the keys stored in the events, never on file names. Unreadable lines are skipped.
  */
 export function readThread(cwd: string, key?: string): { task: string; events: ThreadEvent[] } | undefined {
-    const wanted = key?.trim();
     const dir = threadsDir(cwd);
     if (!dir) return undefined;
-    const read = (task: string) => readEvents(path.join(dir, `${fileName(task)}.jsonl`));
+    const wanted = key?.trim();
     if (!wanted) {
         const own = taskOf(cwd);
-        return own ? { task: own.key, events: read(own.key) } : undefined;
+        if (!own) return undefined;
+        return own.key.startsWith('branch:') ? { task: own.key, events: readEvents(path.join(dir, branchFile(own.branch))).filter(e => e.branch === own.branch) } : byTask(dir, own.key) ?? { task: own.key, events: [] };
     }
     const pr = /^#?(\d+)$/.exec(wanted)?.[1];
     if (pr) {
-        for (const file of listThreads(dir)) {
-            const events = readEvents(path.join(dir, file));
-            if (events.some(e => e.pr === Number(pr))) return { task: events[0].task, events };
-        }
-        return undefined;
+        const found = gather(dir, `#${pr}`, events => events.some(e => e.pr === Number(pr)));
+        return found ? { task: found.events[found.events.length - 1].task, events: found.events } : undefined;
     }
-    const ticket = TICKET.exec(wanted)?.[1];
-    const task = ticket && ticket.length === wanted.length ? ticket.toUpperCase() : TICKET.exec(wanted) ? TICKET.exec(wanted)![1].toUpperCase() : `branch:${wanted.replace(/^branch:/, '')}`;
-    const events = read(task);
+    const branch = wanted.replace(/^branch:/, '');
+    const own = readEvents(path.join(dir, branchFile(branch))).filter(e => e.branch === branch);
+    if (own.length) return { task: own[own.length - 1].task, events: own };
+    return byTask(dir, wanted.toUpperCase());
+}
+
+/** Every branch whose events name the task, whole, as one thread. */
+function byTask(dir: string, task: string): { task: string; events: ThreadEvent[] } | undefined {
+    return gather(dir, task, events => events.some(e => e.task === task));
+}
+
+function gather(dir: string, task: string, wanted: (events: ThreadEvent[]) => boolean): { task: string; events: ThreadEvent[] } | undefined {
+    const events = listThreads(dir).map(file => readEvents(path.join(dir, file))).filter(wanted).flat().sort(byTime);
     return events.length ? { task, events } : undefined;
 }
 
@@ -155,7 +178,7 @@ function readEvents(file: string): ThreadEvent[] {
         } catch {
             return [];
         }
-    }).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+    }).sort(byTime);
 }
 
 /** Where the repository's threads are: its common git folder, so every worktree of it writes to the same threads. */
@@ -172,9 +195,13 @@ function listThreads(dir: string): string[] {
     }
 }
 
-/** A key as a file name: anything but letters, digits, dot, dash and underscore becomes `_`. */
-function fileName(key: string): string {
-    return key.replace(/[^A-Za-z0-9._-]/g, '_');
+/** A branch's thread file: a readable form of its name, and a hash of the exact name, so `a/b` and `a_b` never share one. */
+function branchFile(branch: string): string {
+    return `${branch.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80)}-${createHash('sha1').update(branch).digest('hex').slice(0, 8)}.jsonl`;
+}
+
+function byTime(a: ThreadEvent, b: ThreadEvent): number {
+    return a.at < b.at ? -1 : a.at > b.at ? 1 : 0;
 }
 
 function num(v: unknown): number {

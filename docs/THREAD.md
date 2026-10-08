@@ -15,9 +15,15 @@ rigour thread --json       # the events, for a tool or an agent
 
 ## The key
 
-The task is the ticket the branch names (`feat/proj-123-retry` → `PROJ-123`), or the branch itself when it names
-none. Rigour never invents a key. A pull request joins the thread when a review of it runs, so `#42` finds the task
-afterwards. A detached head has no task, and nothing is recorded.
+The task is the ticket the branch names (`feat/proj-123-retry` → `PROJ-123`) once a commit subject on the branch
+names it too, written as a ticket (`PROJ-123: retry`); otherwise the branch itself. A version token in a branch name
+(`pin-node-22`, `fix/utf-8-decoding`, `release-1.4`) is not a ticket, because no commit writes it that way. Events are
+kept per branch, one file each, so a ticket worked on in two branches gathers both, from their first event, and two
+unrelated branches never share a thread. Rigour never invents a key. A pull request joins the thread when a review of
+it runs, so `#42` finds the task afterwards. A detached head has no task, and nothing is recorded.
+
+Known limit: a team whose commit subjects write a version in upper case the way a ticket is written (`UTF-8`) can have
+it read as a ticket for that branch; naming the team's project keys in configuration is not built yet.
 
 ## What is recorded
 
@@ -34,7 +40,7 @@ how many findings were caught while writing, and how many of those files came ba
 
 ## Where it lives
 
-`<git folder>/rigour/threads/<task>.jsonl`, in the repository's common git folder: shared by its worktrees (one task
+`<git folder>/rigour/threads/<branch>-<hash>.jsonl` (the hash of the exact branch name, so `a/b` and `a_b` never share a file), in the repository's common git folder: shared by its worktrees (one task
 worked on in two worktrees is one thread), never in the working tree, never committed. Lines are only appended. A
 thread that cannot be written is skipped: it never fails the hook or command it runs in.
 

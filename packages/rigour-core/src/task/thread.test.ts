@@ -20,32 +20,73 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
 describe('the engineering task', () => {
-    it('is the ticket the branch names, else the branch, and nothing on a detached head; one thread across worktrees', () => {
+    const commit = (subject: string) => {
+        fs.appendFileSync(path.join(repo, 'a.ts'), `// ${subject}\n`);
+        git('commit', '-qam', subject);
+    };
+
+    it('is the ticket the branch names only when its own commits name it too; a version token is never a ticket', () => {
+        for (const branch of ['chore/pin-node-22', 'fix/utf-8-decoding', 'feat/http-2-push', 'release-1.4', 'bump/python-3-12']) {
+            git('checkout', '-q', 'main');
+            git('checkout', '-qb', branch);
+            commit(`${branch.split('/').pop()}: bump it`); // the version token in the subject, as people write it
+            expect(taskOf(repo)?.key).toBe(`branch:${branch}`);
+        }
+        git('checkout', '-q', 'main');
         git('checkout', '-qb', 'feat/proj-123-resume-emails');
+        expect(taskOf(repo)?.key).toBe('branch:feat/proj-123-resume-emails'); // named by the branch, not yet by a commit
+        commit('proj-123 resume emails');
+        expect(taskOf(repo)?.key).toBe('branch:feat/proj-123-resume-emails'); // lower case is how versions are written, not tickets
+        commit('PROJ-123: resume emails');
         expect(taskOf(repo)).toMatchObject({ key: 'PROJ-123', branch: 'feat/proj-123-resume-emails' });
         git('checkout', '-qb', 'fix-the-thing');
-        expect(taskOf(repo)?.key).toBe('branch:fix-the-thing');
-        const other = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'thread-wt-')), 'wt');
-        git('worktree', 'add', '-q', '-b', 'feat/proj-123-more', other);
-        // One repository, one set of threads: an event from the other worktree lands in the same folder.
-        appendTaskEvent(other, { kind: 'push', passed: true });
-        expect(readThread(repo, 'PROJ-123')?.events.map(e => e.branch)).toEqual(['feat/proj-123-more']);
-        git('worktree', 'remove', '--force', other);
+        expect(taskOf(repo)?.key).toBe('branch:fix-the-thing'); // a branch with no ticket in its name
         git('checkout', '-q', '--detach');
         expect(taskOf(repo)).toBeUndefined();
         expect(appendTaskEvent(repo, { kind: 'push', passed: true })).toBeUndefined();
     });
 
+    it('keeps one file per exact branch: a/b and a_b never share a thread', () => {
+        git('checkout', '-qb', 'feat/a/b');
+        appendTaskEvent(repo, { kind: 'push', passed: true });
+        git('checkout', '-q', 'main');
+        git('checkout', '-qb', 'feat/a_b');
+        appendTaskEvent(repo, { kind: 'push', passed: false, failed: 2 });
+        expect(readThread(repo, 'feat/a/b')?.events.map(e => [e.branch, e.passed])).toEqual([['feat/a/b', true]]);
+        expect(readThread(repo, 'feat/a_b')?.events.map(e => [e.branch, e.passed])).toEqual([['feat/a_b', false]]);
+        expect(fs.readdirSync(threadsDir(repo)!)).toHaveLength(2);
+    });
+
+    it('gathers a ticket across the branches and worktrees that worked on it, from their first event', () => {
+        git('checkout', '-qb', 'feat/PROJ-5-api');
+        appendTaskEvent(repo, { kind: 'edit-check', files: ['src/api.ts'], findings: 1 }); // before the first commit names the ticket
+        commit('PROJ-5: the api');
+        appendTaskEvent(repo, { kind: 'push', passed: true });
+        const other = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'thread-wt-')), 'wt');
+        git('worktree', 'add', '-q', '-b', 'feat/PROJ-5-ui', other, 'main');
+        fs.appendFileSync(path.join(other, 'a.ts'), '// ui\n');
+        execFileSync('git', ['-C', other, 'commit', '-qam', 'PROJ-5 the ui'], { encoding: 'utf8' });
+        appendTaskEvent(other, { kind: 'push', passed: true }); // written from the other worktree, into the same folder
+        const thread = readThread(repo, 'proj-5');
+        expect(thread?.task).toBe('PROJ-5');
+        expect(thread?.events.map(e => [e.kind, e.branch])).toEqual([['edit-check', 'feat/PROJ-5-api'], ['push', 'feat/PROJ-5-api'], ['push', 'feat/PROJ-5-ui']]);
+        expect(readThread(repo, 'feat/PROJ-5-ui')?.events).toHaveLength(1);
+        git('worktree', 'remove', '--force', other);
+    });
+
     it('keeps an append-only thread, read by ticket, branch, pull request or the checkout, oldest first, skipping a broken line', () => {
         git('checkout', '-qb', 'feat/PROJ-7-retry');
+        commit('PROJ-7 retry');
         appendTaskEvent(repo, { kind: 'edit-check', session: 'sess-aaaa1111', agent: 'claude', files: ['src/job.ts'], findings: 2 });
         appendTaskEvent(repo, { kind: 'edit-check', session: 'sess-aaaa1111', agent: 'claude', files: ['src/job.ts'], findings: 0 });
         appendTaskEvent(repo, { kind: 'stop-review', session: 'sess-aaaa1111', agent: 'claude', blocked: true, blocking: 1 });
         appendTaskEvent(repo, { kind: 'push', passed: false, failed: 1 });
         appendTaskEvent(repo, { kind: 'push', passed: true, failed: 0 });
         appendTaskEvent(repo, { kind: 'review', pr: 42, outcome: 'passed', blocking: 0, should_fix: 1, integrity: 'abcdef0123456789abcdef' });
-        const file = path.join(threadsDir(repo)!, 'PROJ-7.jsonl');
-        expect(fs.realpathSync(file)).toBe(fs.realpathSync(path.join(repo, '.git', 'rigour', 'threads', 'PROJ-7.jsonl')));
+        const [name] = fs.readdirSync(threadsDir(repo)!);
+        const file = path.join(threadsDir(repo)!, name);
+        expect(name).toMatch(/^feat_PROJ-7-retry-[0-9a-f]{8}\.jsonl$/);
+        expect(fs.realpathSync(file)).toBe(fs.realpathSync(path.join(repo, '.git', 'rigour', 'threads', name)));
         expect(git('status', '--porcelain')).toBe(''); // nothing in the working tree
         fs.appendFileSync(file, 'not json\n{"kind":"push"}\n');
         const byTicket = readThread(repo, 'proj-7');
