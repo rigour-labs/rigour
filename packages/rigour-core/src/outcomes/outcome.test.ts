@@ -50,8 +50,9 @@ async function prOutcome(pr: { number: number; mergeSha: string; mergedAt: strin
     return (await updatePrOutcomes(repo, [pr], options)).outcomes[0];
 }
 const stored = () => JSON.parse(fs.readFileSync(path.join(repo, '.rigour', 'outcomes.json'), 'utf8')).outcomes;
-/** The CI result gh's check runs would give. */
-const ciFrom = (runs: Array<{ status: string; conclusion: string | null }>) => checkRunsCi(repo, async () => ({ exitCode: 0, stdout: JSON.stringify(runs), stderr: '' }))('abc');
+type Run = { name?: string; status: string; conclusion: string | null };
+/** The CI result gh's check runs would give: `merge` on the merge commit, `before` on the commit before it. */
+const ciFrom = (merge: Run[], before: Run[] = []) => checkRunsCi(repo, async (_c, args) => ({ exitCode: 0, stdout: JSON.stringify(args[2].includes('/abc^1/') ? before : merge), stderr: '' }))('abc', 'abc^1');
 
 beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'outcomes-'));
@@ -145,6 +146,27 @@ describe('the outcome of a merged pull request', () => {
         ]);
     });
 
+    it('reads the oldest merges first, and moves on from one read in the last 12 hours, so a deadline never starves the older ones', async () => {
+        const first = history('merge');
+        git(['checkout', '-qb', 'second']);
+        commit('b.ts', 'export const b = 9;\n', 'change b', day(1));
+        git(['checkout', '-q', 'main']);
+        git(['merge', '-q', '--no-ff', 'second', '-m', 'Merge pull request #8 from second'], day(2));
+        const prs = [
+            { number: 8, mergeSha: git(['rev-parse', 'HEAD']), mergedAt: day(2), branch: 'second', author: 'bo' }, // newest first, as gh lists them
+            { number: 7, ...first, branch: 'feature', author: 'ana' },
+        ];
+        const slow = (seen: string[]) => async (sha: string) => { seen.push(sha); await new Promise(resolve => setTimeout(resolve, 600)); return 'success' as const; };
+        const seen: string[] = [];
+        // Both windows open (day 10), and time for one read before the deadline.
+        const cut = await updatePrOutcomes(repo, prs, { mainRef: 'main', windowDays: 30, until: day(10), ci: slow(seen), deadline: Date.now() + 300 });
+        expect(cut).toMatchObject({ read: 1, stopped: expect.stringContaining('read deadline') });
+        expect(seen).toEqual([first.mergeSha]); // #7, merged first
+        const next = await updatePrOutcomes(repo, prs, { mainRef: 'main', windowDays: 30, until: new Date(Date.parse(day(10)) + 3_600_000).toISOString(), ci: slow(seen) });
+        expect(next.read).toBe(1); // #8 only: #7 was read an hour ago
+        expect(next.outcomes.map(o => o.pr)).toEqual([8, 7]); // in the order asked for
+    });
+
     it('writes no thread for a branch this machine never worked on', async () => {
         const { mergeSha, mergedAt } = history('merge');
         await updatePrOutcomes(repo, [{ number: 7, mergeSha, mergedAt, branch: 'someone-else', author: 'ana' }], { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
@@ -153,27 +175,36 @@ describe('the outcome of a merged pull request', () => {
 });
 
 describe('CI on the merge commit', () => {
-    it('fails on any failed or timed-out run, waits on one still going, and ignores cancelled and skipped runs', async () => {
+    it('fails only on a check the merge broke: one that did not fail on the commit before it', async () => {
+        const ok = { name: 'build', status: 'completed', conclusion: 'success' };
+        expect(await ciFrom([ok, { name: 'tests', status: 'completed', conclusion: 'failure' }])).toBe('failure');
+        expect(await ciFrom([ok, { name: 'tests', status: 'completed', conclusion: 'timed_out' }])).toBe('failure');
+        // CodeQL was already red on main: the merge broke nothing.
+        expect(await ciFrom([ok, { name: 'CodeQL', status: 'completed', conclusion: 'failure' }], [{ name: 'CodeQL', status: 'completed', conclusion: 'failure' }])).toBe('success');
         expect(await ciFrom([])).toBe('none');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'failure' }])).toBe('failure');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'timed_out' }])).toBe('failure');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'success' }, { status: 'in_progress', conclusion: null }])).toBe('pending');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'skipped' }])).toBe('success');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'cancelled' }])).toBe('none');
+        expect(await ciFrom([ok, { name: 'e2e', status: 'in_progress', conclusion: null }])).toBe('pending');
+        expect(await ciFrom([ok, { name: 'lint', status: 'completed', conclusion: 'skipped' }])).toBe('success');
+        expect(await ciFrom([{ name: 'x', status: 'completed', conclusion: 'cancelled' }])).toBe('none');
     });
 
-    it('reads every page of check runs: a failure on page two is a failure', async () => {
+    it('reads every page of check runs, and the commit before the merge only when the merge has a failure', async () => {
         const seen: string[][] = [];
-        const pages = [Array.from({ length: 100 }, () => ({ status: 'completed', conclusion: 'success' })), [{ status: 'completed', conclusion: 'failure' }]];
-        const paged: Exec = async (_c, args) => { seen.push(args); return { exitCode: 0, stdout: pages.map(p => JSON.stringify(p)).join('\n'), stderr: '' }; };
-        expect(await checkRunsCi(repo, paged)('abc')).toBe('failure');
-        expect(seen[0].slice(0, 3)).toEqual(['api', '--paginate', 'repos/{owner}/{repo}/commits/abc/check-runs?per_page=100']);
+        const pages = [Array.from({ length: 100 }, (_, i) => ({ name: `job ${i}`, status: 'completed', conclusion: 'success' })), [{ name: 'job 100', status: 'completed', conclusion: 'failure' }]];
+        const paged: Exec = async (_c, args) => { seen.push(args); return { exitCode: 0, stdout: args[2].includes('/abc^1/') ? '[]' : pages.map(p => JSON.stringify(p)).join('\n'), stderr: '' }; };
+        expect(await checkRunsCi(repo, paged)('abc', 'abc^1')).toBe('failure');
+        expect(seen.map(args => args.slice(0, 3))).toEqual([['api', '--paginate', 'repos/{owner}/{repo}/commits/abc/check-runs?per_page=100'], ['api', '--paginate', 'repos/{owner}/{repo}/commits/abc^1/check-runs?per_page=100']]);
+        seen.length = 0;
+        await checkRunsCi(repo, async (_c, args) => { seen.push(args); return { exitCode: 0, stdout: JSON.stringify([{ name: 'a', status: 'completed', conclusion: 'success' }]), stderr: '' }; })('abc', 'abc^1');
+        expect(seen).toHaveLength(1);
     });
 
     it('is unavailable, never a throw and never "none", when gh fails or answers something that does not parse', async () => {
-        expect(await checkRunsCi(repo, async () => ({ exitCode: 0, stdout: '[{"status":', stderr: '' }))('abc')).toBe('unavailable');
-        expect(await checkRunsCi(repo, async () => ({ exitCode: 1, stdout: '', stderr: 'HTTP 404' }))('abc')).toBe('unavailable');
-        expect(await checkRunsCi(repo, async () => { throw new Error('spawn gh ENOENT'); })('abc')).toBe('unavailable');
+        expect(await checkRunsCi(repo, async () => ({ exitCode: 0, stdout: '[{"status":', stderr: '' }))('abc', 'abc^1')).toBe('unavailable');
+        expect(await checkRunsCi(repo, async () => ({ exitCode: 1, stdout: '', stderr: 'HTTP 404' }))('abc', 'abc^1')).toBe('unavailable');
+        expect(await checkRunsCi(repo, async () => { throw new Error('spawn gh ENOENT'); })('abc', 'abc^1')).toBe('unavailable');
+        // A failure on the merge, and the commit before it unreadable: not known whether the merge broke it.
+        const merge = JSON.stringify([{ name: 't', status: 'completed', conclusion: 'failure' }]);
+        expect(await checkRunsCi(repo, async (_c, args) => (args[2].includes('/abc^1/') ? { exitCode: 1, stdout: '', stderr: 'HTTP 502' } : { exitCode: 0, stdout: merge, stderr: '' }))('abc', 'abc^1')).toBe('unavailable');
     });
 });
 

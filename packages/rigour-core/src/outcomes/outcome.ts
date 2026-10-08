@@ -15,9 +15,15 @@ import { GH_TIMEOUT_MS, type Exec } from '../review/reviewer/exec.js';
 import { appendBranchEvent } from '../task/thread.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** An unsettled record read this recently is kept as it is: its window is open, and reading it again every run starves the older ones. */
+const RECHECK_MS = 12 * 60 * 60 * 1000;
 const OUTCOMES_FILE = path.join('.rigour', 'outcomes.json');
 
-/** success and failure from the check runs; pending while one runs; none when there are none; unavailable when GitHub could not say. */
+/**
+ * failure: a check that passed on the commit before the merge failed on the merge commit (the merge broke it; a check
+ * already failing on main says nothing about this pull request); success: none did; pending while one runs; none when
+ * there are no runs; unavailable when GitHub could not say.
+ */
 export type CiResult = 'success' | 'failure' | 'pending' | 'none' | 'unavailable';
 
 export interface FollowUp {
@@ -55,8 +61,8 @@ export interface OutcomeOptions {
     windowDays: number;
     /** Only history before this time (a backtest); now when unset. */
     until?: string;
-    /** The CI result for a commit (gh); `unavailable` when it cannot be read. */
-    ci: (sha: string) => Promise<CiResult>;
+    /** The CI result for the merge commit against the commit before it on main (gh); `unavailable` when it cannot be read. */
+    ci: (sha: string, parent: string) => Promise<CiResult>;
     /** How git is run (tests count the calls); `spawnSync` by default. */
     git?: (args: string[]) => string;
 }
@@ -74,7 +80,7 @@ async function prOutcome(pr: MergedRef, options: OutcomeOptions, run: (args: str
     const files = lines(run(['diff', '--name-only', `${pr.mergeSha}^1`, pr.mergeSha]));
     const followUps = followUpsOf(log, pr, files, windowEnd);
     const revert = followUps.find(f => revertsPr(f.subject, pr));
-    const ci = await options.ci(pr.mergeSha);
+    const ci = await options.ci(pr.mergeSha, `${pr.mergeSha}^1`);
     return {
         pr: pr.number, mergeSha: pr.mergeSha, mergedAt: pr.mergedAt, branch: pr.branch, author: pr.author, files, ci, followUps,
         ...(revert ? { reverted: { sha: revert.sha, subject: revert.subject } } : {}),
@@ -111,26 +117,43 @@ function mainLog(run: (args: string[]) => string, mainRef: string, since: string
 }
 
 /**
- * The CI result for a commit from all its check runs, every page (a big matrix runs more than 100: a failure on page two
- * must not read as success); any error is `unavailable`, never a throw.
+ * The CI result for a merge commit from all its check runs, every page (a big matrix runs more than 100: a failure on
+ * page two must not read as success). A run that failed is counted only when the same check did not fail on the commit
+ * before the merge, read only then: on a main branch where a check is often red, "any run failed" says nothing about the
+ * pull request. Any error is `unavailable`, never a throw.
  */
-export function checkRunsCi(cwd: string, exec: Exec, env?: Record<string, string>): (sha: string) => Promise<CiResult> {
-    return async sha => {
+export function checkRunsCi(cwd: string, exec: Exec, env?: Record<string, string>): (sha: string, parent: string) => Promise<CiResult> {
+    const runs = async (sha: string): Promise<CheckRun[] | undefined> => {
         try {
-            const read = await exec('gh', ['api', '--paginate', `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`, '--jq', '[.check_runs[] | {status, conclusion}]'], { cwd, timeoutMs: GH_TIMEOUT_MS, ...(env ? { env } : {}) });
-            if (read.exitCode !== 0) return 'unavailable';
+            const read = await exec('gh', ['api', '--paginate', `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`, '--jq', '[.check_runs[] | {name, status, conclusion}]'], { cwd, timeoutMs: GH_TIMEOUT_MS, ...(env ? { env } : {}) });
+            if (read.exitCode !== 0) return undefined;
             // One array per page; unlike parseJsonArrays, output that does not parse is unavailable here, never an empty "none" that would settle.
-            return ciFrom(JSON.parse(`[${read.stdout.trim().replace(/\]\s*\[/g, '],[')}]`).flat());
+            return JSON.parse(`[${read.stdout.trim().replace(/\]\s*\[/g, '],[')}]`).flat();
         } catch {
-            return 'unavailable';
+            return undefined;
         }
+    };
+    return async (sha, parent) => {
+        const merge = await runs(sha);
+        if (!merge) return 'unavailable';
+        const failed = merge.filter(failedRun);
+        if (failed.length === 0) return ciFrom(merge);
+        const before = await runs(parent);
+        if (!before) return 'unavailable';
+        const redBefore = new Set(before.filter(failedRun).map(r => r.name));
+        return failed.some(r => !redBefore.has(r.name)) ? 'failure' : ciFrom(merge.filter(r => !failedRun(r)));
     };
 }
 
-/** A failure anywhere fails it; a run still going keeps it pending; cancelled and skipped runs say nothing. */
-function ciFrom(runs: Array<{ status?: string; conclusion?: string | null }>): CiResult {
+interface CheckRun { name?: string; status?: string; conclusion?: string | null }
+
+function failedRun(run: CheckRun): boolean {
+    return run.conclusion === 'failure' || run.conclusion === 'timed_out';
+}
+
+/** With no new failure: a run still going keeps it pending; cancelled and skipped runs say nothing. */
+function ciFrom(runs: CheckRun[]): CiResult {
     if (!Array.isArray(runs) || runs.length === 0) return 'none';
-    if (runs.some(r => r.conclusion === 'failure' || r.conclusion === 'timed_out')) return 'failure';
     if (runs.some(r => r.status !== 'completed')) return 'pending';
     return runs.some(r => r.conclusion === 'success') ? 'success' : 'none';
 }
@@ -157,31 +180,30 @@ export async function updatePrOutcomes(cwd: string, prs: MergedRef[], options: O
     const run = options.git ?? ((args: string[]) => git(cwd, args));
     let read = 0;
     let stopped: string | undefined;
-    // Main's log once, across every unsettled pull request's window: from a day before the earliest merge (so each merge
-    // commit is in it) to the latest window's end, bounded at both ends.
-    const pending = prs.filter(pr => pr.mergeSha && !store.outcomes[pr.mergeSha]?.settled);
     const now = options.until ? Date.parse(options.until) : Date.now();
+    const fresh = (outcome: PrOutcome | undefined) => !!outcome && (outcome.settled || now - Date.parse(outcome.checkedAt) < RECHECK_MS);
+    // Oldest merge first: those are the ones whose windows close, so a run cut short by the deadline still moves records
+    // towards settled instead of reading the newest, still-open ones again and again.
+    const pending = prs.filter(pr => pr.mergeSha && !fresh(store.outcomes[pr.mergeSha])).sort((a, b) => (a.mergedAt < b.mergedAt ? -1 : 1));
+    // Main's log once, across every pull request to read: from a day before the earliest merge (so each merge commit is in
+    // it) to the latest window's end, bounded at both ends.
     const log = pending.length ? mainLog(run, options.mainRef,
         new Date(Math.min(...pending.map(pr => Date.parse(pr.mergedAt))) - DAY_MS).toISOString(),
         new Date(Math.min(now, Math.max(...pending.map(pr => Date.parse(pr.mergedAt))) + options.windowDays * DAY_MS)).toISOString()) : [];
-    for (const pr of prs) {
-        if (!pr.mergeSha) continue;
-        const known = store.outcomes[pr.mergeSha];
-        if (known?.settled) {
-            result.push(known);
-            continue;
-        }
+    for (const pr of pending) {
         if (options.deadline !== undefined && Date.now() > options.deadline) {
             stopped = `read deadline reached after ${read} pull request(s); run again to read the rest`;
             break;
         }
+        const known = store.outcomes[pr.mergeSha];
         const outcome = await prOutcome(pr, options, run, log);
         read++;
         if (!known) appendBranchEvent(cwd, pr.branch, { kind: 'merge', pr: pr.number, merge_sha: pr.mergeSha, merged_at: pr.mergedAt });
         if (outcome.settled) appendBranchEvent(cwd, pr.branch, { kind: 'outcome', pr: pr.number, ci: outcome.ci, follow_ups: outcome.followUps.length, fixes: outcome.followUps.filter(f => f.fix).length, reverted: !!outcome.reverted });
         store.outcomes[pr.mergeSha] = outcome;
-        result.push(outcome);
     }
+    // In the order asked for: every record known for these pull requests, read now or kept.
+    for (const pr of prs) if (pr.mergeSha && store.outcomes[pr.mergeSha]) result.push(store.outcomes[pr.mergeSha]);
     fs.mkdirSync(path.join(cwd, '.rigour'), { recursive: true });
     fs.writeFileSync(path.join(cwd, OUTCOMES_FILE), JSON.stringify(store, null, 2) + '\n');
     return { outcomes: result, read, ...(stopped ? { stopped } : {}) };
