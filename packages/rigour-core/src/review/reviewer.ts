@@ -22,7 +22,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { Config } from '../types/index.js';
-import { ADAPTERS, isReviewerName, resolveAdapter, selectReviewers, vendorsOf, type Installed, type ReviewMode, type ReviewerName, type RunTrace, type Tokens } from './reviewer/adapters.js';
+import { runApiJudge } from './reviewer/api-judge.js';
+import { ADAPTERS, apiVendor, isReviewerName, resolveAdapter, selectReviewers, vendorsOf, type Installed, type ReviewMode, type ReviewerName, type RunTrace, type Tokens } from './reviewer/adapters.js';
 import { defaultExec, GH_TIMEOUT_MS, githubEnv, type Exec, type Progress } from './reviewer/exec.js';
 import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBaseIn, rulesText, sha, type HumanReviews, type PullRequest } from './reviewer/inputs.js';
 import { mergeImpact } from './reviewer/merge-impact.js';
@@ -43,6 +44,8 @@ export { itemLine, type OpenItem } from './reviewer/verdict.js';
 export type ReviewerOutcome = 'passed' | 'findings' | 'unavailable' | 'skipped';
 
 export interface ReviewerOptions {
+    /** For tests: what the API judge calls instead of fetch. */
+    fetch?: typeof fetch;
     /** The pull request to read when the checkout is detached (a backtest). */
     pr?: number;
     /** ISO time: a review or comment posted from then on is not shown to the reviewer (a backtest). */
@@ -167,12 +170,18 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const candidates = settings.reviewers.filter(isReviewerName);
     const installed = new Map<ReviewerName, Installed>();
     for (const name of candidates) {
+        if (name === 'api') {
+            // The API judge is installed when the team configured it and the key it names is set.
+            if (settings.api && process.env[settings.api.key_env]) installed.set('api', { binary: 'api', version: settings.api.model });
+            continue;
+        }
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
         if (found) installed.set(name, found);
     }
+    const vendorOf = (name: ReviewerName) => (name === 'api' ? apiVendor(settings.api) : ADAPTERS[name].vendor);
     const authors = vendorsOf(await git(['log', '--format=%(trailers:key=Co-Authored-By,valueonly)%(trailers:key=Co-authored-by,valueonly)', `${baseSha}..HEAD`]));
     const mode: ReviewMode = settings.mode;
-    let reviewers = selectReviewers(candidates, mode, authors, new Set(installed.keys()), settings.judges);
+    let reviewers = selectReviewers(candidates, mode, authors, new Set(installed.keys()), settings.judges, vendorOf);
     if (reviewers.length === 0) return none('unavailable', `no reviewer installed: ${candidates.map(n => ADAPTERS[n].binary).join(', ') || 'review.reviewer.reviewers is empty'}`);
     modeRecord = modeRan(settings, reviewers, candidates, installed);
     if (reviewers.length < 2 && mode === 'full' && (settings.required.panel || settings.required.mode)) {
@@ -278,6 +287,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     if (over) return none(settings.required.panel || settings.required.mode ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
+    // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
+    const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
+        ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
+        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
     try {
         const file = (name: string, text: string) => {
             const target = path.join(work, name);
@@ -317,7 +330,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             const answers = await Promise.all(reviewers.map(async name => {
                 const adapter = ADAPTERS[name];
                 const ask = async () => {
-                    const run = await exec(installed.get(name)!.binary, adapter.args(prompt, modelFor(name)), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
+                    const run = await runJudge(name, prompt, modelFor(name));
                     progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
                     const answer = adapter.answer(run.stdout);
                     store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
@@ -367,7 +380,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 },
                 ask: async (judge, asked) => {
                     const name = judge as ReviewerName;
-                    const run = await exec(installed.get(name)!.binary, ADAPTERS[name].args(crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked), settings.cross_models[name] ?? modelFor(name)), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
+                    const run = await runJudge(name, crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked), settings.cross_models[name] ?? modelFor(name));
                     const answer = ADAPTERS[name].answer(run.stdout);
                     store.addSpend(1, answer.costUsd);
                     reserved--;

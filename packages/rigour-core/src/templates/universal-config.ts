@@ -295,6 +295,7 @@ export const UNIVERSAL_CONFIG: Config = {
             escalate: 'always',
             cross_models: {},
             judge_env: {},
+            reasoning: {},
         },
     },
     ignore: [],

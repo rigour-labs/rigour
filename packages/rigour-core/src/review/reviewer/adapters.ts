@@ -11,15 +11,15 @@ import os from 'os';
 import path from 'path';
 import { defaultExec, type Exec } from './exec.js';
 
-export type ReviewerName = 'claude' | 'cursor' | 'codex';
-export type Vendor = 'anthropic' | 'cursor' | 'openai';
+export type ReviewerName = 'claude' | 'cursor' | 'codex' | 'api';
+export type Vendor = 'anthropic' | 'cursor' | 'openai' | 'google' | 'other';
 export type ReviewMode = 'single' | 'cross' | 'full';
 
 export interface Adapter {
     vendor: Vendor;
     binary: string;
     /** The command line for one review: the prompt is passed as text, never through a shell. */
-    args(prompt: string, model: string | undefined): string[];
+    args(prompt: string, model: string | undefined, options?: { reasoning?: 'low' | 'medium' | 'high' }): string[];
     /** The reviewer's final message and, when the CLI reports them, what the run cost and the tokens it used. */
     answer(stdout: string): { text: string } & Spend;
 }
@@ -77,7 +77,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
     codex: {
         vendor: 'openai',
         binary: 'codex',
-        args: (prompt, model) => ['exec', '--sandbox', 'read-only', '--json', ...(model ? ['--model', model] : []), '-c', 'model_reasoning_effort=high', prompt],
+        args: (prompt, model, options) => ['exec', '--sandbox', 'read-only', '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
         // `codex exec --json` streams events; the last text-bearing one carries the answer.
         // Warnings arrive as `error` items with a `message`, not `text`, so they are never taken for the answer.
         // `turn.completed` carries the tokens (Codex reports no dollars).
@@ -97,6 +97,26 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             return { text: text || stdout, ...(tokens ? { tokens } : {}) };
         },
     },
+    api: {
+        // A model API, not a CLI: reviewer.ts runs the loop (api-judge.ts); the answer is the loop's JSON.
+        vendor: 'other',
+        binary: 'api',
+        args: () => [],
+        answer: stdout => {
+            try {
+                const parsed = JSON.parse(stdout);
+                const u = parsed.usage ?? {};
+                return {
+                    text: String(parsed.result ?? ''),
+                    ...(typeof parsed.cost_usd === 'number' ? { costUsd: parsed.cost_usd } : {}),
+                    tokens: { input: n(u.input) + n(u.cacheRead) + n(u.cacheWrite), output: n(u.output) },
+                    ...(parsed.trace ? { trace: parsed.trace } : {}),
+                };
+            } catch {
+                return { text: stdout };
+            }
+        },
+    },
 };
 
 export function isReviewerName(name: string): name is ReviewerName {
@@ -114,6 +134,7 @@ const EXTRA_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', path.join(os.home
  * refuses current models, so the version decides, not PATH order.
  */
 export async function resolveAdapter(adapter: Adapter, cwd: string, exec: Exec): Promise<Installed | undefined> {
+    if (adapter.binary === 'api') return undefined; // never a binary: reviewer.ts installs it from review.reviewer.api
     const names = process.platform === 'win32' ? [`${adapter.binary}.cmd`, `${adapter.binary}.exe`, adapter.binary] : [adapter.binary];
     const dirs = [...(process.env.PATH ?? '').split(path.delimiter), ...EXTRA_BIN_DIRS].filter(Boolean);
     const candidates = new Set<string>();
@@ -168,23 +189,35 @@ export function vendorsOf(trailers: string): Set<Vendor> {
  * whose vendor is not on the trailers, else the first available. full: that one plus the next
  * available of each other vendor, up to `judges`. Empty when none is installed.
  */
-export function selectReviewers(candidates: ReviewerName[], mode: ReviewMode, authors: Set<Vendor>, available: Set<ReviewerName>, judges = 2): ReviewerName[] {
+export function selectReviewers(candidates: ReviewerName[], mode: ReviewMode, authors: Set<Vendor>, available: Set<ReviewerName>, judges = 2, vendorOf: (name: ReviewerName) => Vendor = name => ADAPTERS[name].vendor): ReviewerName[] {
     const installed = candidates.filter(name => available.has(name));
     if (installed.length === 0) return [];
     let first = installed[0];
-    if (mode !== 'single') first = installed.find(name => !authors.has(ADAPTERS[name].vendor)) ?? first;
+    if (mode !== 'single') first = installed.find(name => !authors.has(vendorOf(name))) ?? first;
     if (mode !== 'full') return [first];
     const chosen = [first];
     for (const name of installed) {
         if (chosen.length >= judges) break;
-        if (!chosen.some(c => ADAPTERS[c].vendor === ADAPTERS[name].vendor)) chosen.push(name);
+        if (!chosen.some(c => vendorOf(c) === vendorOf(name))) chosen.push(name);
     }
     return chosen;
 }
 
+/** The maker of an API judge's model: what the team said, else what the model's name says, else other. */
+export function apiVendor(api: { model: string; vendor?: Vendor } | undefined): Vendor {
+    if (!api) return 'other';
+    if (api.vendor) return api.vendor;
+    const model = api.model.toLowerCase();
+    if (/claude|anthropic/.test(model)) return 'anthropic';
+    if (/gpt|openai|^o[1-9]/.test(model)) return 'openai';
+    if (/gemini|google/.test(model)) return 'google';
+    return 'other';
+}
+
 /** Every reviewer Rigour can run, and whether this machine has it: what bounds the judges of a panel. */
 export async function reviewerAvailability(cwd: string, exec: Exec = defaultExec): Promise<Array<{ name: ReviewerName; vendor: Vendor; binary: string; installed: boolean; version?: string }>> {
-    return Promise.all((Object.keys(ADAPTERS) as ReviewerName[]).map(async name => {
+    // The CLIs only: the api judge is configured, not installed (reviewer.ts).
+    return Promise.all((Object.keys(ADAPTERS) as ReviewerName[]).filter(name => ADAPTERS[name].binary !== 'api').map(async name => {
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
         return { name, vendor: ADAPTERS[name].vendor, binary: ADAPTERS[name].binary, installed: !!found, ...(found ? { version: found.version } : {}) };
     }));

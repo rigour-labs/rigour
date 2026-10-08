@@ -428,6 +428,20 @@ export const ConfigSchema = z.object({
             escalate: z.enum(['always', 'risk']).optional().default('always'),
             /** A model per reviewer name for cross-examination (a narrow verification task), e.g. { claude: "haiku" }. */
             cross_models: z.record(ModelName).optional().default({}),
+            /** Reasoning effort per reviewer name where the CLI or API takes one (codex, api): low, medium or high. */
+            reasoning: z.record(z.enum(['low', 'medium', 'high'])).optional().default({}),
+            /**
+             * A judge reached through a model API (OpenAI-compatible chat completions with tools), named `api` in
+             * `reviewers`: any model the team can call. The key is read from the environment variable `key_env`, never
+             * from this file. `vendor` is the model's maker, for cross and full modes (inferred from the model name when unset).
+             */
+            api: z.object({
+                url: z.string().url(),
+                model: z.string().min(1),
+                key_env: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'an environment variable name').optional().default('RIGOUR_JUDGE_API_KEY'),
+                vendor: z.enum(['anthropic', 'openai', 'google', 'other']).optional(),
+                max_turns: z.number().int().positive().optional().default(60),
+            }).optional(),
             /**
              * Environment variables a judge's CLI must not see, per reviewer name, e.g. { codex: { unset: [OPENAI_API_KEY] } }
              * when that variable holds a key meant for another service. RIGOUR_API_KEY is never passed to a judge.

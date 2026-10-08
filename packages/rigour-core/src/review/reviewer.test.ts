@@ -267,6 +267,33 @@ describe('the reviewer', () => {
         expect(again.record?.integrity).toBe(first.record?.integrity);
     });
 
+    it('reviews through the API judge when the team configured one and its key is set, with the same prompt and accounting', async () => {
+        const seen = seenNow();
+        const calls: any[] = [];
+        const fetchImpl = (async (_url: string, init: any) => {
+            const body = JSON.parse(init.body);
+            calls.push(body);
+            const last = body.messages.at(-1);
+            const message = last.role === 'user'
+                ? { role: 'assistant', content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: /(\S+full\.diff)/.exec(last.content)![1] }) } }] }
+                : { role: 'assistant', content: JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' }] }) };
+            return new Response(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 100, completion_tokens: 20, cost: 0.05 } }), { status: 200 });
+        }) as unknown as typeof fetch;
+        const apiConfig = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['api'], api: { url: 'https://example.test/v1', model: 'qwen3-coder', key_env: 'TEST_JUDGE_KEY' }, reasoning: { api: 'low' } } } });
+        const without = await runReviewer(repo, 'main', apiConfig, fakes(() => '', seen), () => undefined, { fetch: fetchImpl });
+        expect(without).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('no reviewer installed') }); // the key is not set
+        process.env.TEST_JUDGE_KEY = 'secret';
+        try {
+            const result = await runReviewer(repo, 'main', apiConfig, fakes(() => '', seen), () => undefined, { fetch: fetchImpl, force: true });
+            expect(result).toMatchObject({ outcome: 'findings', reviewers: ['api'], costUsd: 0.1, items: [expect.objectContaining({ issue: 'returns before the lock', reviewer: 'api' })] });
+            expect(calls[0].reasoning_effort).toBe('low');
+            expect(calls[0].messages[1].content).toContain('full.diff'); // the same prompt a CLI judge gets
+            expect(result.record?.judges).toEqual([{ reviewer: 'api', version: 'qwen3-coder', cost_usd: 0.1, turns: 2 }]);
+        } finally {
+            delete process.env.TEST_JUDGE_KEY;
+        }
+    });
+
     it('asks a judge once more after an answer that is not a verdict, and is unavailable only when the second is not one either', async () => {
         const seen = seenNow();
         let calls = 0;

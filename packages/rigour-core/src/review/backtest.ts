@@ -68,6 +68,8 @@ export interface RoundResult {
     durationMs: number;
     /** Why the reviewer gave no verdict, when it ran. */
     reviewerError?: string;
+    /** What the reviewer's runs cost, when it ran and reported dollars. */
+    costUsd?: number;
     /** With two or more judges: the ledger points each raised on its own, and the round's runs and cost. */
     judges?: JudgeCatches;
 }
@@ -129,8 +131,8 @@ export async function runBacktest(cwd: string, config: Config, ledger: Ledger, o
         const stale = await staleBase(worktree, head, round.base, exec);
         if (stale) progress(`backtest ${round.id}: warning: ${stale}`);
         const collect = options.collect ?? ((tree, r, c) => collectItems(tree, r, c, !!options.reviewer, exec, progress));
-        const { items, reviewerError, judged } = await collect(worktree, round, config);
-        const result = { ...score(round, head, items, Date.now() - started, reviewerError), ...(judged ? { judges: judgeCatches(round, judged) } : {}) };
+        const { items, reviewerError, judged, costUsd } = await collect(worktree, round, config);
+        const result = { ...score(round, head, items, Date.now() - started, reviewerError), ...(judged ? { judges: judgeCatches(round, judged) } : {}), ...(costUsd !== undefined ? { costUsd } : {}) };
         record(cwd, result);
         results.push(result);
     }
@@ -170,7 +172,7 @@ export function score(round: LedgerRound, head: string, items: BacktestItem[], d
 }
 
 /** The file pattern must match, then either the line window holds the finding's line or the text pattern matches its text. */
-function matches(row: LedgerMatch, item: BacktestItem): boolean {
+export function matches(row: LedgerMatch, item: BacktestItem): boolean {
     if (!new RegExp(row.file, 'i').test(item.file)) return false;
     const inWindow = !!row.lines && item.line !== undefined && item.line >= row.lines[0] && item.line <= row.lines[1];
     const inText = row.text !== undefined && new RegExp(row.text, 'i').test(item.text);
@@ -211,7 +213,7 @@ function shareDependencies(cwd: string, worktree: string): void {
     if (fs.existsSync(root) && !fs.existsSync(path.join(worktree, 'node_modules'))) fs.symlinkSync(root, path.join(worktree, 'node_modules'), 'junction');
 }
 
-interface Collected { items: BacktestItem[]; reviewerError?: string; judged?: JudgeRun }
+interface Collected { items: BacktestItem[]; reviewerError?: string; judged?: JudgeRun; costUsd?: number }
 
 /** Which ledger points each judge raised itself, matched the way the score matches any finding. */
 function judgeCatches(round: LedgerRound, judged: JudgeRun): JudgeCatches {
@@ -232,7 +234,7 @@ async function collectItems(worktree: string, round: LedgerRound, config: Config
     const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.consequence, item.evidence].filter(Boolean).join(' '), blocking });
     items.push(...result.items.map(i => asReviewerItem(i, true)), ...[...result.advisory, ...result.unverified, ...result.notes, ...result.disputed].map(i => asReviewerItem(i, false)));
     const judged = judgedFrom(result);
-    return { items, ...(judged ? { judged } : {}) };
+    return { items, ...(judged ? { judged } : {}), ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}) };
 }
 
 function asItem(failure: Failure, blocking: boolean): BacktestItem {
