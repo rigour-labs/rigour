@@ -165,6 +165,14 @@ describe('sampling parameters for Claude', () => {
             expect(await sent('claude', model, 'chat')).toMatchObject({ temperature: 0.2 });
         }
         expect(await sent('openrouter', 'anthropic/claude-sonnet-5.5', 'analyze')).toMatchObject({ temperature: 0.2 }); // OpenRouter's path is unchanged
+        // A temperature of 0 is a temperature: kept on a model that takes one, on both calls.
+        for (const call of ['analyze', 'chat'] as const) {
+            const p = new CloudProvider('claude', 'k', { modelName: 'claude-sonnet-4-6' });
+            await p.setup();
+            if (call === 'analyze') await p.analyze('p', { temperature: 0 });
+            else await p.chat([{ role: 'user', content: 'p' }], [], { temperature: 0 });
+            expect(anthropicCreate.mock.calls[anthropicCreate.mock.calls.length - 1][0]).toMatchObject({ temperature: 0 });
+        }
     });
 });
 

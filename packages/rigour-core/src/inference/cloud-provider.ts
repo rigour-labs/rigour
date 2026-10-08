@@ -183,7 +183,7 @@ export class CloudProvider implements InferenceProvider {
         const response = await this.client.messages.create({
             model: this.modelName,
             max_tokens: options?.maxTokens || 2048,
-            ...claudeSampling(this.modelName, options?.temperature || 0.1),
+            ...claudeSampling(this.modelName, options?.temperature ?? 0.1),
             messages: [
                 { role: 'user', content: prompt }
             ],
