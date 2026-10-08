@@ -179,8 +179,8 @@ describe('CI on the merge commit', () => {
         const ok = { name: 'build', status: 'completed', conclusion: 'success' };
         expect(await ciFrom([ok, { name: 'tests', status: 'completed', conclusion: 'failure' }])).toBe('failure');
         expect(await ciFrom([ok, { name: 'tests', status: 'completed', conclusion: 'timed_out' }])).toBe('failure');
-        // CodeQL was already red on main: the merge broke nothing.
-        expect(await ciFrom([ok, { name: 'CodeQL', status: 'completed', conclusion: 'failure' }], [{ name: 'CodeQL', status: 'completed', conclusion: 'failure' }])).toBe('success');
+        // A security scan was already red on main: the merge broke nothing.
+        expect(await ciFrom([ok, { name: 'security-scan', status: 'completed', conclusion: 'failure' }], [{ name: 'security-scan', status: 'completed', conclusion: 'failure' }])).toBe('success');
         expect(await ciFrom([])).toBe('none');
         expect(await ciFrom([ok, { name: 'e2e', status: 'in_progress', conclusion: null }])).toBe('pending');
         expect(await ciFrom([ok, { name: 'lint', status: 'completed', conclusion: 'skipped' }])).toBe('success');
