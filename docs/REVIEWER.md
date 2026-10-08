@@ -263,7 +263,9 @@ those lines before merging, are recorded on the candidate and decide nothing: pe
 and agents apply review comments on their own. A candidate becomes a **lesson** only on evidence:
 
 - **outcome**: after the merge, a commit on the main branch changed the lines the point named and says
-  it fixed something, or the pull request was reverted;
+  it fixed something, or the pull request was reverted. With the [outcome loop](OUTCOMES.md) on, also: a
+  fix on the point's file, when the merge commit's CI failed or the pull request was reverted (a fix on
+  the file alone is recorded as `followup`, never enough);
 - **a person's correction**: they changed what an agent wrote. The after-edit hook keeps each file as
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
@@ -275,7 +277,13 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
 
 **Counter-evidence** holds a candidate back: its lines shipped unchanged and nothing needed fixing
-within the window (30 days). `--reject <id>` makes an **anti-lesson**: judges are told this team decided
+within the window (30 days). With the outcome loop on, evidence can also **take a lesson back**: when
+a review of a later pull request found it repeating the lesson, and that pull request merged anyway and
+settled clean (CI passed, no fix on the lesson's file within the window, no revert), that is `against`
+evidence. `learning.outcomes.demote_after` such pull requests (default 2), from more than one author or
+week, make a lesson that an outcome or recurrence promoted a candidate again (`demoted`). A pull request
+that followed the lesson, or that no review checked against it, never counts, and a lesson a person
+promoted or corrected into being is never taken back; a person promoting it again is final. `--reject <id>` makes an **anti-lesson**: judges are told this team decided
 against it, and it is never served as a lesson. Every piece of evidence stays on the lesson
 (`--list` shows what promoted each). With `--until <time>`, only history before it counts, so a
 measurement never sees the future. The pull request's author commenting on their own pull request is not

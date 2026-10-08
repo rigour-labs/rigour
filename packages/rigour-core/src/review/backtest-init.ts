@@ -60,7 +60,7 @@ const MERGED_OVERFETCH = 4;
 const MERGED_OVERFETCH_MAX = 32;
 
 /** A merged pull request, with its merge commit on the base and the branch it came from. */
-export interface MergedPr { number: number; mergedAt: string; mergeSha: string; branch: string }
+export interface MergedPr { number: number; mergedAt: string; mergeSha: string; branch: string; author: string }
 
 /** The last `n` merged pull requests, newest merge first; `incomplete` when the listing could not prove it has them all. */
 export async function mergedPrs(cwd: string, n: number, config: Config, exec: Exec = defaultExec): Promise<{ prs: MergedPr[]; incomplete: boolean }> {
@@ -70,15 +70,15 @@ export async function mergedPrs(cwd: string, n: number, config: Config, exec: Ex
     // than its update, which is no later than that). Until then the listing doubles: bots that touch old pull requests after
     // merge (backports, labels, stale comments) can crowd a window.
     for (let limit = n * MERGED_OVERFETCH; ; limit *= 2) {
-        const list = await exec('gh', ['pr', 'list', '--state', 'merged', '--limit', String(limit), '--search', 'sort:updated-desc', '--json', 'number,mergedAt,updatedAt,mergeCommit,headRefName'], { cwd, timeoutMs: GH_TIMEOUT_MS, env });
+        const list = await exec('gh', ['pr', 'list', '--state', 'merged', '--limit', String(limit), '--search', 'sort:updated-desc', '--json', 'number,mergedAt,updatedAt,mergeCommit,headRefName,author'], { cwd, timeoutMs: GH_TIMEOUT_MS, env });
         if (list.exitCode !== 0) throw new Error(`could not list merged pull requests: ${list.stderr.trim() || 'is gh signed in?'}`);
-        let listed: Array<{ number: number; mergedAt: string; updatedAt: string; mergeCommit?: { oid?: string } | null; headRefName?: string }>;
+        let listed: Array<{ number: number; mergedAt: string; updatedAt: string; mergeCommit?: { oid?: string } | null; headRefName?: string; author?: { login?: string } | null }>;
         try {
             listed = JSON.parse(list.stdout);
         } catch {
             throw new Error('could not read the list of merged pull requests');
         }
-        const prs = [...listed].sort((a, b) => (a.mergedAt < b.mergedAt ? 1 : -1)).slice(0, n).map(({ number, mergedAt, mergeCommit, headRefName }) => ({ number, mergedAt, mergeSha: mergeCommit?.oid ?? '', branch: headRefName ?? '' }));
+        const prs = [...listed].sort((a, b) => (a.mergedAt < b.mergedAt ? 1 : -1)).slice(0, n).map(({ number, mergedAt, mergeCommit, headRefName, author }) => ({ number, mergedAt, mergeSha: mergeCommit?.oid ?? '', branch: headRefName ?? '', author: author?.login ?? '' }));
         const oldestUpdate = listed.reduce((min, p) => (p.updatedAt < min ? p.updatedAt : min), listed[0]?.updatedAt ?? '');
         const complete = listed.length < limit || (prs.length === n && oldestUpdate <= prs[n - 1].mergedAt);
         if (complete) return { prs, incomplete: false };

@@ -100,8 +100,18 @@ export function reviewerInputs(review: { hints: string[]; findings: Array<{ file
     return { hints: review.hints.join('\n'), checks: review.findings.map(f => `${f.files?.[0] ?? '?'}${f.line ? `:${f.line}` : ''} ${f.title}`) };
 }
 
+/** A lesson as the judge was shown it: its id, and the line it was listed as (the judge answers by that line). */
+export interface ServedLesson { id: string; listed: string }
+
+/** The ids of the served lessons the judge said this change repeats; an answer that names no served lesson says nothing. */
+export function lessonsApplied(answers: Array<{ lesson: string; applies: boolean }>, served: ServedLesson[]): string[] {
+    const norm = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
+    const ids = answers.filter(a => a.applies === true && typeof a.lesson === 'string').map(a => served.find(s => norm(s.listed) === norm(a.lesson) || (norm(a.lesson).length >= 20 && norm(s.listed).startsWith(norm(a.lesson))))?.id);
+    return [...new Set(ids.filter((id): id is string => !!id))];
+}
+
 /** The context pack as Markdown, its hash for the fingerprint, and the router's count of risky changed functions (undefined when it could not score). */
-export function buildContext(input: ContextInput): { text: string; key: string; risky: number | undefined; rules: ServedRule[]; lessons: number } {
+export function buildContext(input: ContextInput): { text: string; key: string; risky: number | undefined; rules: ServedRule[]; lessons: number; servedLessons: ServedLesson[] } {
     const sections: string[] = [];
     let task: ReturnType<typeof buildReviewTask> | undefined;
     try {
@@ -110,8 +120,8 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
         task = undefined;
     }
     // A judge reads the whole pull request: more of what the team taught fits than an agent's one question at the stop.
-    const lessons = input.lessons === 'off' ? [] : lessonsForDiff(input.cwd, input.diff, input.lessons, JUDGE_STANDARDS, JUDGE_FILE_LESSONS, JUDGE_LESSONS_PER_FILE, input.pr).map(lessonView);
-    if (lessons.length) sections.push(`## Lessons this team taught on earlier reviews, for what this change touches (context: a lesson never blocks on its own; a finding still needs its quote)\n${lessons.map(l => `- ${describeLesson(l)}`).join('\n')}`);
+    const servedLessons: ServedLesson[] = input.lessons === 'off' ? [] : lessonsForDiff(input.cwd, input.diff, input.lessons, JUDGE_STANDARDS, JUDGE_FILE_LESSONS, JUDGE_LESSONS_PER_FILE, input.pr).map(l => ({ id: l.id, listed: describeLesson(lessonView(l)) }));
+    if (servedLessons.length) sections.push(`## Lessons this team taught on earlier reviews, for what this change touches (context: a lesson never blocks on its own; a finding still needs its quote)\n${servedLessons.map(l => `- ${l.listed}`).join('\n')}`);
     // The repository's own rules, always: the reviewer is the boundary, and what the team wrote is the standard it checks.
     const rules = rulesForDiff(input.cwd, input.diff, true, JUDGE_RULES).map((r): ServedRule => ({ id: r.id, source: r.source, text: r.text, requirement: r.requirement }));
     if (rules.length) sections.push(`## Rules this repository wrote for itself that apply to this change (answer every one in rules, by id)\n${rules.map(r => `- [${r.id}] (${r.source}, ${r.requirement ? 'requirement' : 'guidance'}) ${r.text}`).join('\n')}`);
@@ -130,7 +140,7 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
     if (docs.length) sections.push(`## Docs that describe the changed code (read one when its claim matters to a finding)\n${docs.map(d => `- ${d.doc} (names ${d.names.join(', ')})`).join('\n')}`);
 
     const text = sections.length ? `# What this team already knows\n\n${sections.join('\n\n')}\n` : 'none\n';
-    return { text, key: createHash('sha256').update(text).digest('hex').slice(0, 16), risky: task ? task.items.length + task.alreadyReviewed : undefined, rules, lessons: lessons.length };
+    return { text, key: createHash('sha256').update(text).digest('hex').slice(0, 16), risky: task ? task.items.length + task.alreadyReviewed : undefined, rules, lessons: servedLessons.length, servedLessons };
 }
 
 function where(x: { file?: string; line?: number }): string {

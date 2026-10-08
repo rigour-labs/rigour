@@ -35,7 +35,7 @@ import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } f
 import { VerdictStore } from './reviewer/store.js';
 import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
-import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
+import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
@@ -107,6 +107,8 @@ export interface ReviewerResult {
     rules?: { checked: number; followed: number; broken: number; notApplicable: number };
     /** The record of this review (record.ts) and where it is kept, beside the verdict. */
     record?: ReviewRecord;
+    /** The team's lessons the judge said this change repeats, by id: what the outcome loop reads against a lesson (review-learning/outcome-evidence.ts). */
+    lessonsApplied?: string[];
     recordPath?: string;
     /** Tokens every run reported, summed: the only measure of a CLI that reports no dollars (Codex). */
     tokens?: Tokens;
@@ -156,6 +158,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
         kind: 'review', trigger, outcome: result.outcome, blocking: result.items.length, should_fix: result.advisory.length,
         ...(result.pr ? { pr: result.pr } : {}),
         ...(result.prTitle ? { pr_title: result.prTitle } : {}),
+        ...(result.lessonsApplied ? { lessons_applied: result.lessonsApplied } : {}),
         ...(result.record ? { integrity: result.record.integrity, cost_usd: result.record.judges.reduce((sum, j) => sum + (j.cost_usd ?? 0), 0), judges: result.record.judges.map(j => j.reviewer) } : {}),
     });
     return result;
@@ -299,7 +302,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const recordPath = store.recordPath(verdictFile);
         const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
-        return { ...res, record, recordPath };
+        const applied = lessonsApplied(verdict.lessons ?? [], context.servedLessons);
+        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}) };
     };
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;

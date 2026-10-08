@@ -26,6 +26,7 @@ export async function outcomesCommand(cwd: string, options: { pr?: string; last?
     }
     for (const o of run.outcomes) console.log(outcomeLine(o));
     console.log(chalk.dim(`${run.outcomes.length} pull request(s), ${run.read} read now, the rest settled.${run.stopped ? ` Stopped early: ${run.stopped}.` : ''}`));
+    if (run.lessons?.added) console.log(`Lessons: ${run.lessons.added} new piece(s) of evidence, ${run.lessons.promoted.length} promoted, ${run.lessons.demoted.length} taken back (rigour learn-reviews --list).`);
     return 0;
 }
 

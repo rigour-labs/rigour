@@ -35,6 +35,8 @@ export interface PrOutcome {
     mergeSha: string;
     mergedAt: string;
     branch: string;
+    /** Who wrote the pull request: independence between pull requests is judged by it. */
+    author: string;
     /** What the merge changed on main: its first-parent diff. */
     files: string[];
     ci: CiResult;
@@ -55,19 +57,26 @@ export interface OutcomeOptions {
     until?: string;
     /** The CI result for a commit (gh); `unavailable` when it cannot be read. */
     ci: (sha: string) => Promise<CiResult>;
+    /** How git is run (tests count the calls); `spawnSync` by default. */
+    git?: (args: string[]) => string;
 }
 
-/** The outcome of one merged pull request as of now (or `until`). */
-async function prOutcome(cwd: string, pr: { number: number; mergeSha: string; mergedAt: string; branch: string }, options: OutcomeOptions): Promise<PrOutcome> {
+type MergedRef = { number: number; mergeSha: string; mergedAt: string; branch: string; author: string };
+
+/** A first-parent commit on main, with every file it touched. */
+interface MainCommit { sha: string; at: string; subject: string; files: string[] }
+
+/** The outcome of one merged pull request as of now (or `until`), its follow-ups taken from main's log read once for the run. */
+async function prOutcome(pr: MergedRef, options: OutcomeOptions, run: (args: string[]) => string, log: MainCommit[]): Promise<PrOutcome> {
     const now = options.until ? Date.parse(options.until) : Date.now();
     const windowEnd = new Date(Math.min(Date.parse(pr.mergedAt) + options.windowDays * DAY_MS, now)).toISOString();
     const closed = Date.parse(pr.mergedAt) + options.windowDays * DAY_MS <= now;
-    const files = lines(git(cwd, ['diff', '--name-only', `${pr.mergeSha}^1`, pr.mergeSha]));
-    const followUps = files.length ? followUpsOf(cwd, pr.mergeSha, options.mainRef, files, pr.mergedAt, windowEnd) : [];
+    const files = lines(run(['diff', '--name-only', `${pr.mergeSha}^1`, pr.mergeSha]));
+    const followUps = followUpsOf(log, pr, files, windowEnd);
     const revert = followUps.find(f => revertsPr(f.subject, pr));
     const ci = await options.ci(pr.mergeSha);
     return {
-        pr: pr.number, mergeSha: pr.mergeSha, mergedAt: pr.mergedAt, branch: pr.branch, files, ci, followUps,
+        pr: pr.number, mergeSha: pr.mergeSha, mergedAt: pr.mergedAt, branch: pr.branch, author: pr.author, files, ci, followUps,
         ...(revert ? { reverted: { sha: revert.sha, subject: revert.subject } } : {}),
         windowEnd,
         settled: closed && (ci === 'success' || ci === 'failure' || ci === 'none'),
@@ -75,23 +84,30 @@ async function prOutcome(cwd: string, pr: { number: number; mergeSha: string; me
     };
 }
 
-/**
- * First-parent commits on main after the merge, inside the window, that touched any of the pull request's files. Both
- * ends bounded. The files are matched here, not passed to git: a large pull request's paths would pass the command-line
- * limit (about 32 KB on Windows), and the window already bounds what git lists.
- */
-function followUpsOf(cwd: string, mergeSha: string, mainRef: string, files: string[], from: string, to: string): FollowUp[] {
+/** The commits after the merge on main's first-parent history, up to the window's end, that touched any of the pull request's files. */
+function followUpsOf(log: MainCommit[], pr: MergedRef, files: string[], windowEnd: string): FollowUp[] {
     const wanted = new Set(files);
-    const out = git(cwd, ['log', '--first-parent', '--name-only', '--format=%x00%H%x09%cI%x09%s', `--since=${from}`, `--until=${to}`, `${mergeSha}..${mainRef}`]);
+    const merged = log.findIndex(c => c.sha === pr.mergeSha);
+    // The merge itself is in the log (it is read from a day before the earliest merge); without it, time decides.
+    const after = merged >= 0 ? log.slice(merged + 1) : log.filter(c => c.at > pr.mergedAt);
+    return after.filter(c => c.at <= windowEnd).flatMap(c => {
+        const touched = c.files.filter(file => wanted.has(file));
+        return touched.length ? [{ sha: c.sha, at: c.at, subject: c.subject, files: touched, fix: FIX.test(c.subject) }] : [];
+    });
+}
+
+/**
+ * Main's first-parent history between two times, oldest first, with each commit's files: read once for every pull
+ * request a run brings up to date (their windows overlap). The files are matched in code, not passed to git: a large
+ * pull request's paths would pass the command-line limit (about 32 KB on Windows).
+ */
+function mainLog(run: (args: string[]) => string, mainRef: string, since: string, until: string): MainCommit[] {
+    const out = run(['log', '--first-parent', '--name-only', '--format=%x00%H%x09%cI%x09%s', `--since=${since}`, `--until=${until}`, mainRef]);
     return out.split('\0').filter(Boolean).flatMap(block => {
         const [header, ...rest] = block.split('\n');
         const [sha, at, ...subject] = header.split('\t');
-        if (!sha || !at) return [];
-        const touched = rest.map(line => line.trim()).filter(file => wanted.has(file));
-        if (touched.length === 0) return [];
-        const text = subject.join('\t');
-        return [{ sha, at, subject: text, files: touched, fix: FIX.test(text) }];
-    }).reverse(); // oldest first
+        return sha && at ? [{ sha, at, subject: subject.join('\t'), files: rest.map(line => line.trim()).filter(Boolean) }] : [];
+    }).reverse();
 }
 
 /**
@@ -121,7 +137,7 @@ function ciFrom(runs: Array<{ status?: string; conclusion?: string | null }>): C
 
 interface OutcomeStore { version: 1; outcomes: Record<string, PrOutcome> }
 
-function readPrOutcomes(cwd: string): OutcomeStore {
+export function readPrOutcomes(cwd: string): OutcomeStore {
     try {
         const parsed = JSON.parse(fs.readFileSync(path.join(cwd, OUTCOMES_FILE), 'utf8'));
         return parsed?.version === 1 && parsed.outcomes && typeof parsed.outcomes === 'object' ? parsed : { version: 1, outcomes: {} };
@@ -135,11 +151,19 @@ function readPrOutcomes(cwd: string): OutcomeStore {
  * again. The branch's thread (when this machine has one) gets a `merge` event the first time and an `outcome` event when
  * the record settles. Stops at `deadline` (ms since epoch) and says so: what was read is kept.
  */
-export async function updatePrOutcomes(cwd: string, prs: Array<{ number: number; mergeSha: string; mergedAt: string; branch: string }>, options: OutcomeOptions & { deadline?: number }): Promise<{ outcomes: PrOutcome[]; read: number; stopped?: string }> {
+export async function updatePrOutcomes(cwd: string, prs: MergedRef[], options: OutcomeOptions & { deadline?: number }): Promise<{ outcomes: PrOutcome[]; read: number; stopped?: string }> {
     const store = readPrOutcomes(cwd);
     const result: PrOutcome[] = [];
+    const run = options.git ?? ((args: string[]) => git(cwd, args));
     let read = 0;
     let stopped: string | undefined;
+    // Main's log once, across every unsettled pull request's window: from a day before the earliest merge (so each merge
+    // commit is in it) to the latest window's end, bounded at both ends.
+    const pending = prs.filter(pr => pr.mergeSha && !store.outcomes[pr.mergeSha]?.settled);
+    const now = options.until ? Date.parse(options.until) : Date.now();
+    const log = pending.length ? mainLog(run, options.mainRef,
+        new Date(Math.min(...pending.map(pr => Date.parse(pr.mergedAt))) - DAY_MS).toISOString(),
+        new Date(Math.min(now, Math.max(...pending.map(pr => Date.parse(pr.mergedAt))) + options.windowDays * DAY_MS)).toISOString()) : [];
     for (const pr of prs) {
         if (!pr.mergeSha) continue;
         const known = store.outcomes[pr.mergeSha];
@@ -151,7 +175,7 @@ export async function updatePrOutcomes(cwd: string, prs: Array<{ number: number;
             stopped = `read deadline reached after ${read} pull request(s); run again to read the rest`;
             break;
         }
-        const outcome = await prOutcome(cwd, pr, options);
+        const outcome = await prOutcome(pr, options, run, log);
         read++;
         if (!known) appendBranchEvent(cwd, pr.branch, { kind: 'merge', pr: pr.number, merge_sha: pr.mergeSha, merged_at: pr.mergedAt });
         if (outcome.settled) appendBranchEvent(cwd, pr.branch, { kind: 'outcome', pr: pr.number, ci: outcome.ci, follow_ups: outcome.followUps.length, fixes: outcome.followUps.filter(f => f.fix).length, reverted: !!outcome.reverted });
