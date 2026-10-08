@@ -20,9 +20,52 @@ export interface PriorPoint { point: string; review?: string; severity?: 'blocki
 /** A person's approval of the pull request: every point they raised before `at` is settled. */
 export interface Approval { login: string; at: string; commit?: string }
 
-/** What a prior point is checked against besides its quote: who approved, and whether the checkout has what it calls missing. */
-export interface PriorChecks { approvals: Approval[]; inCheckout: (text: string) => string | undefined }
+/**
+ * What an item is checked against besides its quote: who approved (a prior point), whether the checkout has what a
+ * point calls missing, and which lines the change touched (a block must sit on one; unknown when absent).
+ */
+export interface PriorChecks { approvals: Approval[]; inCheckout: (text: string) => string | undefined; changed?: ChangedLines }
 const NO_PRIOR_CHECKS: PriorChecks = { approvals: [], inCheckout: () => undefined };
+
+/** The lines a change touched, per file: every line added, and the place of every deletion, in the new file's numbering. */
+export type ChangedLines = Map<string, Set<number>>;
+
+/** The touched lines of a unified diff (`git diff base...head`). */
+export function changedLinesOf(diff: string): ChangedLines {
+    const changed: ChangedLines = new Map();
+    let file: Set<number> | undefined;
+    let line = 0;
+    for (const raw of diff.split('\n')) {
+        if (raw.startsWith('diff --git ') || /^--- (a\/|\/dev\/null)/.test(raw)) {
+            file = undefined; // headers, until the new file's name
+        } else if (/^\+\+\+ (b\/|\/dev\/null)/.test(raw)) {
+            const name = raw.slice(4).replace(/^b\//, '').replace(/\t.*$/, '');
+            file = name === '/dev/null' ? undefined : (changed.get(name) ?? new Set());
+            if (file) changed.set(name, file);
+        } else if (raw.startsWith('@@ ')) {
+            line = Number(/\+(\d+)/.exec(raw)?.[1] ?? 0);
+        } else if (raw.startsWith('+')) {
+            file?.add(line);
+            line++;
+        } else if (raw.startsWith('-')) {
+            file?.add(line);
+        } else if (raw.startsWith(' ') || raw === '') {
+            line++;
+        }
+    }
+    return changed;
+}
+
+/** Whether a line of a file is within CHANGED_WINDOW lines of one the change touched. */
+function nearChanged(changed: ChangedLines, file: string, line: number): boolean {
+    const lines = changed.get(file);
+    if (!lines) return false;
+    for (let l = line - CHANGED_WINDOW; l <= line + CHANGED_WINDOW; l++) if (lines.has(l)) return true;
+    return false;
+}
+
+/** How far from a touched line a block may sit: a judge names the statement, the diff names the line. */
+const CHANGED_WINDOW = 3;
 interface Redundant { file: string; line?: number; what: string; made_redundant_by?: string; removed: boolean; reviewer?: string }
 interface Read { file: string; line?: number; read: string; rules?: Array<{ rule: string; known_before_read: boolean; applied_before_read: boolean }>; narrower_source?: string | null; keys?: Key[]; window_bounded?: boolean | null; keyset?: boolean | null; reviewer?: string }
 interface Scan { file: string; line?: number; function: string; outer: string; inner: string; fix: string; reviewer?: string }
@@ -274,7 +317,14 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         seen.add(item.id);
         if (WORKING_NOTES.has(item.kind)) return void notes.push(item);
         const placed = !!item.file && !!item.quote?.trim() && verify(item.file, item.line, item.quote);
-        (placed ? open : unverified).push(item);
+        if (!placed) return void unverified.push(item);
+        // A block is about this change. A finding or rule break in a touched file but on lines the change did not touch is
+        // what the code already had: shown as a note, never a block on this change. A human's point is about the change by
+        // definition. Without the diff (a judge's own items for a panel, a test) nothing is known and nothing is moved.
+        if (item.kind !== 'prior' && prior.changed && (item.line === undefined || !nearChanged(prior.changed, item.file!, item.line))) {
+            return void notes.push({ ...item, evidence: `${item.evidence ? `${item.evidence}; ` : ''}${item.line === undefined ? 'names no line' : 'on a line this change did not touch'}: what the code already had, never a block on this change` });
+        }
+        open.push(item);
     };
     const answerInReply: PriorPoint[] = [];
     for (const p of verdict.prior_points) {

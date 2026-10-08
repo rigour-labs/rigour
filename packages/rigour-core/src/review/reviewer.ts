@@ -35,7 +35,7 @@ import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
-import { account, attachServedRules, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
+import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
 
 export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
@@ -267,7 +267,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const previousOpen = scope === 'delta' ? store.readJson<OpenItem[]>(store.openPath(previous!.verdict)) ?? [] : undefined;
 
     const verify = checkoutVerifier(cwd);
-    const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd) };
+    const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff) };
     const modelFor = (name: ReviewerName) => settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
