@@ -146,12 +146,15 @@ describe('promotion by the point\'s own lines', () => {
     }
     const lines = (change: Record<number, string>) => Array.from({ length: 10 }, (_, i) => change[i + 1] ?? `line ${i + 1}`);
 
-    it('promotes when a later fix changed the point\'s own lines, with CI and the revert as context', () => {
+    it('records a later fix on the point\'s own lines as evidence for a person, with CI as context, and never promotes on it', () => {
         const r = repoWith(write => write('src/job.ts', lines({ 5: 'line 5 fixed' }), 'fix: take the lock first', 3));
         try {
-            applyOutcomeEvidence([r.l], [{ ...r.rec, ci: 'failure' }], none, { demoteAfter: 2, git: r.git, mainRef: 'main' });
-            expect(r.l).toMatchObject({ state: 'verified', promotedBy: 'outcome' });
-            expect(r.l.evidence.at(-1)?.detail).toMatch(/^fixed later by \w{9} "fix: take the lock first"; CI regressed on the merge commit$/);
+            const result = applyOutcomeEvidence([r.l], [{ ...r.rec, ci: 'failure' }], none, { demoteAfter: 2, git: r.git, mainRef: 'main' });
+            expect(r.l.state).toBe('candidate');
+            expect(result).toMatchObject({ suggested: ['L1'], demoted: [] });
+            expect(r.l.evidence.at(-1)).toMatchObject({ kind: 'lines', detail: expect.stringMatching(/^fixed later by \w{9} "fix: take the lock first"; CI regressed on the merge commit$/) });
+            // Once: running again suggests nothing new.
+            expect(applyOutcomeEvidence([r.l], [{ ...r.rec, ci: 'failure' }], none, { demoteAfter: 2, git: r.git, mainRef: 'main' }).suggested).toEqual([]);
         } finally { r.cleanup(); }
     });
 
@@ -161,7 +164,7 @@ describe('promotion by the point\'s own lines', () => {
         try {
             applyOutcomeEvidence([near.l], [near.rec], none, { demoteAfter: 2, git: near.git, mainRef: 'main' });
             applyOutcomeEvidence([far.l], [{ ...far.rec, ci: 'failure' }], none, { demoteAfter: 2, git: far.git, mainRef: 'main' });
-            expect(near.l.state).toBe('verified');
+            expect(near.l.evidence.at(-1)?.kind).toBe('lines');
             expect(far.l.state).toBe('candidate');
             expect(far.l.evidence.map(e => e.kind)).toEqual(['point', 'followup']);
         } finally { near.cleanup(); far.cleanup(); }

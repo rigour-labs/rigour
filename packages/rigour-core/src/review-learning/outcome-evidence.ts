@@ -4,10 +4,10 @@
  *
  * For a lesson: a point its pull request did not act on, whose own lines (within three either side, followed through
  * every later commit as code moves: outcomes.ts outcomeFor) a later commit inside the record's window changed, where
- * that commit says it fixed something and touches at most fifteen files (a broad sweep says nothing about one point):
- * an `outcome`, and the point was right. CI regressing on the merge commit, or the pull request being reverted, is
- * recorded with it as context, never the trigger: they say the pull request was wrong somewhere, not that this point
- * was. A fix that touched only the point's file is `followup` evidence, never enough on its own.
+ * that commit says it fixed something and touches at most fifteen files: `lines` evidence, with CI regressing on the
+ * merge commit or a revert recorded as context. It never promotes on its own: judged by a person on real history, a fix
+ * on the same lines was most often unrelated work. Studio shows it on the candidate for a person to promote or dismiss.
+ * A fix that touched only the point's file is `followup` evidence.
  *
  * Against a lesson: only when a review of a later pull request recorded the lesson as APPLYING (the change does what the
  * lesson warns against; the reviewer's lessons step, review event `lessons_applied`) and the pull request merged anyway
@@ -28,7 +28,7 @@ const MAX_FIX_FILES = 15;
 
 export interface OutcomeEvidenceOptions {
     demoteAfter: number;
-    /** git in the repository, and its main branch: without them, no lines can be followed and nothing is promoted. */
+    /** git in the repository, and its main branch: without them, no lines can be followed. */
     git?: Git;
     mainRef?: string;
     /** Stop following lines at this time (ms since epoch); what was found is kept. */
@@ -37,7 +37,8 @@ export interface OutcomeEvidenceOptions {
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-export interface OutcomeEvidenceResult { added: number; promoted: string[]; demoted: string[] }
+/** `suggested`: lessons that got new `lines` evidence, for a person to promote or dismiss; `demoted`: lessons taken back. */
+export interface OutcomeEvidenceResult { added: number; suggested: string[]; demoted: string[] }
 
 /**
  * Adds the evidence the settled and unsettled records give, to `lessons` in place, once each (by its comment key), and
@@ -45,13 +46,14 @@ export interface OutcomeEvidenceResult { added: number; promoted: string[]; demo
  */
 export function applyOutcomeEvidence(lessons: ReviewLesson[], records: PrOutcome[], applied: Map<number, Set<string>>, options: OutcomeEvidenceOptions): OutcomeEvidenceResult {
     const byPr = new Map(records.map(r => [r.pr, r]));
-    const result: OutcomeEvidenceResult = { added: 0, promoted: [], demoted: [] };
+    const result: OutcomeEvidenceResult = { added: 0, suggested: [], demoted: [] };
     for (const lesson of lessons) {
         const before = lesson.state;
-        const add = (evidence: LessonEvidence) => {
-            if (lesson.evidence.some(e => e.comment === evidence.comment)) return;
+        const add = (evidence: LessonEvidence): boolean => {
+            if (lesson.evidence.some(e => e.comment === evidence.comment)) return false;
             lesson.evidence.push(evidence);
             result.added++;
+            return true;
         };
         const own = new Set(lesson.evidence.filter(e => (e.kind ?? 'point') === 'point').map(e => e.pr));
         // For it: a point its pull request left alone, whose own lines a later fix inside the window changed.
@@ -65,8 +67,13 @@ export function applyOutcomeEvidence(lessons: ReviewLesson[], records: PrOutcome
             const lines = options.git && options.mainRef && lesson.at && inTime
                 ? outcomeFor(options.git, lesson, { number: record.pr, mergeSha: record.mergeSha, mergedAt: record.mergedAt }, { mainRef: options.mainRef, until: record.windowEnd, slack: POINT_SLACK, maxFiles: MAX_FIX_FILES })
                 : undefined;
-            if (lines?.kind === 'outcome') add({ ...lines, detail: `${lines.detail}${context ? `; ${context}` : ''}` });
-            else add({ kind: 'followup', pr: record.pr, comment: `followup-${record.pr}-${fileFix.sha.slice(0, 12)}`, author: '', detail: `${lesson.file} fixed later by ${fileFix.sha.slice(0, 9)} "${fileFix.subject}", not on the point's lines${context ? `; ${context}` : ''}`, at: fileFix.at });
+            // Evidence for a person, never a promotion: a fix on the same lines is often unrelated work.
+            if (lines?.kind === 'outcome') {
+                const evidence: LessonEvidence = { ...lines, kind: 'lines', comment: `lines-${record.pr}-${lines.comment.replace(/^outcome-/, '')}`, detail: `${lines.detail}${context ? `; ${context}` : ''}` };
+                if (add(evidence)) result.suggested.push(lesson.id);
+            } else {
+                add({ kind: 'followup', pr: record.pr, comment: `followup-${record.pr}-${fileFix.sha.slice(0, 12)}`, author: '', detail: `${lesson.file} fixed later by ${fileFix.sha.slice(0, 9)} "${fileFix.subject}", not on the point's lines${context ? `; ${context}` : ''}`, at: fileFix.at });
+            }
         }
         // Against it: later pull requests a review found repeating it, merged anyway, settled clean.
         if (lesson.state === 'verified' && (lesson.promotedBy === 'outcome' || lesson.promotedBy === 'recurrence')) {
@@ -85,7 +92,7 @@ export function applyOutcomeEvidence(lessons: ReviewLesson[], records: PrOutcome
             }
         }
         Object.assign(lesson, lessonState(lesson));
-        if (lesson.state !== before) (lesson.state === 'verified' ? result.promoted : result.demoted).push(lesson.id);
+        if (before === 'verified' && lesson.state === 'candidate') result.demoted.push(lesson.id);
     }
     return result;
 }
