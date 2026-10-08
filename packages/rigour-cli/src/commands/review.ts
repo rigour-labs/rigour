@@ -16,7 +16,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, resolveGoal, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
+import { buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, resolveSwitch, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
 import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { goalReport, type GoalReport } from './review-goal.js';
 import { receiptFor } from './review-receipt.js';
@@ -78,7 +78,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         }
         if (!options.ci && !options.json && !options.githubSummary && isDeep) console.log(chalk.blue.bold('Deep analysis enabled.\n'));
         const source = options.base ? { mode: 'base' as const, base: options.base } : { mode: 'working' as const };
-        const goal = resolveGoal(config, options.goal);
+        const goal = resolveSwitch('goal', config, options.goal);
         const goalDescription = goal.enabled ? readPrBody(cwd, options) : undefined;
         const result = await reviewChange({
             cwd, config, diff, source,

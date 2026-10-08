@@ -30,7 +30,7 @@ import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
-import { resolveGoal } from '../goal/settings.js';
+import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
 import { VerdictStore } from './reviewer/store.js';
 import { trackUsage } from '../telemetry/telemetry.js';
@@ -71,7 +71,7 @@ export interface ReviewerOptions {
     stateRoot?: string;
     /** The branch the commit was pushed from, when reviewing it in a detached worktree (background.ts). */
     branch?: string;
-    /** This run's choice for the goal check (`--goal` / `--no-goal`), the nearest layer of goal/settings.ts. */
+    /** This run's choice for the goal check (`--goal` / `--no-goal`), the nearest layer of switches.ts. */
     goal?: boolean;
 }
 
@@ -226,7 +226,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         : pr?.body || '(no pull request description)\n';
     const rules = rulesText(cwd);
     // The goal the description declares, for step 12: only what a model must judge (goal/goal.ts proves the rest), only with the goal check on.
-    const goalItems = resolveGoal(config, options.goal).enabled ? modelGoalItems(parseGoal(body)) : [];
+    const goalItems = resolveSwitch('goal', config, options.goal).enabled ? modelGoalItems(parseGoal(body)) : [];
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.

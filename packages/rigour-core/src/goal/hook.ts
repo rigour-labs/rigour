@@ -11,7 +11,7 @@ import type { Config } from '../types/index.js';
 import type { ReviewResult } from '../review/review.js';
 import { defaultExec, type Exec } from '../review/reviewer/exec.js';
 import { appendTaskEvent, threadsDir } from '../task/thread.js';
-import { resolveGoal } from './settings.js';
+import { resolveSwitch } from '../switches.js';
 
 /** A stop or a push waits at most this long for GitHub in all: the goal is worth a check, not a stall. */
 const HOOK_GH_TIMEOUT_MS = 5_000;
@@ -21,7 +21,7 @@ type Cache = Record<string, { head: string; body: string | null; blocked?: boole
 
 /** The open pull request's description for this branch, when the goal check is on; undefined otherwise or when it cannot be read. */
 export async function hookGoalDescription(cwd: string, config: Config, exec: Exec = defaultExec): Promise<string | undefined> {
-    if (!resolveGoal(config).enabled) return undefined;
+    if (!resolveSwitch('goal', config).enabled) return undefined;
     const branch = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
     const head = git(cwd, ['rev-parse', 'HEAD']);
     const dir = threadsDir(cwd);

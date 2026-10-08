@@ -47,7 +47,7 @@ export interface RigourSettings {
   // The reviewer for this person's own runs; rigour.yml is the team's (review/reviewer/settings.ts).
   reviewer?: UserReviewerSettings;
 
-  // Check this person's reviews against the goal the pull request declares; rigour.yml's review.goal is the team's (goal/settings.ts).
+  // Check this person's reviews against the goal the pull request declares; rigour.yml's review.goal is the team's (switches.ts).
   goal?: boolean;
 
   // Cursor Admin API credentials

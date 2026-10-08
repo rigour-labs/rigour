@@ -8,7 +8,7 @@ import { Trend } from './Progress';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
 import { Agents, Settings, Verdict } from './ReviewerParts';
-import { GoalSettings, type GoalData } from './GoalParts';
+import { SwitchSettings, type SwitchData } from './SwitchParts';
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
@@ -124,8 +124,9 @@ describe('Studio pages', () => {
 });
 
 describe('the goal check on the Setup page', () => {
-    const goal = (over: Partial<GoalData>): GoalData => ({ effective: { enabled: false, source: 'team', required: false, refused: [] }, team: 'off', teamFile: false, user: null, ...over });
-    const draw = (data: GoalData, canWrite = true, diff: string | null = null) => html(<GoalSettings data={data} canWrite={canWrite} saving={false} problem={null} diff={diff} onSave={() => undefined} />);
+    const text = { title: 'The goal check', lead: 'Checks a change against its goal.', row: 'Check the goal', rowHelp: 'Required: no one may turn it off.', name: 'goal check' };
+    const goal = (over: Partial<SwitchData>): SwitchData => ({ effective: { enabled: false, source: 'team', required: false, refused: [] }, team: 'off', teamFile: false, user: null, ...over });
+    const draw = (data: SwitchData, canWrite = true, diff: string | null = null) => html(<SwitchSettings text={text} data={data} canWrite={canWrite} saving={false} problem={null} diff={diff} onSave={() => undefined} />);
 
     it('shows what runs and where it comes from, your choice and the team\'s', () => {
         const out = draw(goal({ effective: { enabled: true, source: 'user', required: false, refused: [] }, user: true }));

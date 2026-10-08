@@ -308,10 +308,13 @@ async function handleApiRequest(
         return true;
     }
 
-    if (url.pathname === '/api/goal' && (req.method === 'GET' || req.method === 'POST')) {
+    const switchPath = /^\/api\/switches\/([a-z]+)$/.exec(url.pathname);
+    if (switchPath && (req.method === 'GET' || req.method === 'POST')) {
         try {
-            const { loadStudioGoal, saveStudioGoal } = await import('./studio-goal.js');
-            sendJson(res, 200, req.method === 'GET' ? await loadStudioGoal(cwd) : await saveStudioGoal(cwd, JSON.parse((await readBody(req)) || '{}')));
+            const { loadStudioSwitch, saveStudioSwitch, switchNamed } = await import('./studio-switches.js');
+            const name = switchNamed(switchPath[1]);
+            if (!name) sendJson(res, 404, { error: `no switch named ${switchPath[1]}` });
+            else sendJson(res, 200, req.method === 'GET' ? await loadStudioSwitch(cwd, name) : await saveStudioSwitch(cwd, name, JSON.parse((await readBody(req)) || '{}')));
         } catch (e: any) {
             sendJson(res, req.method === 'GET' ? 500 : 400, { error: e.message });
         }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStudioJson } from './storyData';
-import { GoalSetup } from './Goal';
+import { SwitchSetup } from './Switch';
 import { ReviewerSetup } from './Reviewer';
 import './story.css';
 
@@ -29,7 +29,7 @@ export const SetupView: React.FC = () => {
                     </div>
                 ))}
             </div>
-            <GoalSetup />
+            <SwitchSetup name="goal" />
             <ReviewerSetup />
             <h2 style={{ margin: '32px 0 6px', fontSize: 18, fontWeight: 600 }}>Who double-checks risky code</h2>
             <div className="st-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', marginTop: 12 }}>

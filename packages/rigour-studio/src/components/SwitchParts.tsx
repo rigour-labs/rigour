@@ -1,11 +1,11 @@
-/** The goal check, as Studio draws it: what runs and where it comes from, yours and the team's. Goal.tsx loads the data. */
+/** A switch (the goal check, ...), as Studio draws it: what runs and where it comes from, yours and the team's. Switch.tsx loads the data. */
 import React from 'react';
 import { Lock } from 'lucide-react';
 import { Segmented, TeamDiff } from './ReviewerParts';
 import './story.css';
 
 type Source = 'flag' | 'env' | 'user' | 'team';
-export interface GoalData {
+export interface SwitchData {
     effective: { enabled: boolean; source: Source; required: boolean; refused: string[] };
     team: 'off' | 'on' | 'required';
     teamFile: boolean;
@@ -14,31 +14,40 @@ export interface GoalData {
 
 const SOURCE: Record<Source, string> = { flag: 'this run', env: 'environment', user: 'yours', team: 'team' };
 
-/** The goal check's one setting, yours and the team's, with where the running value comes from. GoalSetup loads the data. */
-export const GoalSettings: React.FC<{ data: GoalData; canWrite: boolean; saving: boolean; problem: string | null; diff: string | null; onSave: (payload: Record<string, unknown>) => void }> = ({ data, canWrite, saving, problem, diff, onSave }) => {
+/** A switch's words: Switch.tsx keeps one set per switch. */
+export interface SwitchText {
+    title: string;
+    lead: React.ReactNode;
+    row: string;
+    rowHelp: React.ReactNode;
+    /** The control's name to assistive tech: "goal check" reads "Your goal check", "Team goal check". */
+    name: string;
+}
+
+/** A switch's one setting, yours and the team's, with where the running value comes from. SwitchSetup loads the data. */
+export const SwitchSettings: React.FC<{ text: SwitchText; data: SwitchData; canWrite: boolean; saving: boolean; problem: string | null; diff: string | null; onSave: (payload: Record<string, unknown>) => void }> = ({ text, data, canWrite, saving, problem, diff, onSave }) => {
     const e = data.effective;
-    const locked = e.required ? 'your team requires the goal check' : undefined;
+    const locked = e.required ? `your team requires the ${text.name}` : undefined;
     return (
         <section style={{ marginTop: 32 }}>
-            <h2 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 600 }}>The goal check</h2>
+            <h2 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 600 }}>{text.title}</h2>
             <p className="st-sub" style={{ margin: '0 0 12px', lineHeight: 1.6 }}>
-                Checks a change against what its pull request says it is for: files outside its <span className="st-mono">Scope</span> or inside <span className="st-mono">Out of scope</span>, and
-                {' '}<span className="st-mono">Done when</span> items naming a file it never touched, block. No model; a description without these sections is never checked.
+                {text.lead}
                 {!canWrite && ' Open Studio from the link the terminal printed to change it here.'}
             </p>
             <div className="st-card st-setting">
                 <div>
-                    <div style={{ fontSize: 15 }}>Check the goal</div>
-                    <div className="st-sub" style={{ marginTop: 4, lineHeight: 1.5 }}>Required: no person, environment variable or flag may turn it off. <span className="st-mono">--goal</span> and <span className="st-mono">--no-goal</span> choose for one run.</div>
+                    <div style={{ fontSize: 15 }}>{text.row}</div>
+                    <div className="st-sub" style={{ marginTop: 4, lineHeight: 1.5 }}>{text.rowHelp}</div>
                 </div>
                 <div className="st-setting-controls">
                     <span className="st-sub">Runs</span>
                     <span><span className="st-mono">{e.enabled ? 'on' : 'off'}</span> <span className="st-sub">· {SOURCE[e.source]}</span>{locked && <span title={locked} aria-label={locked}> <Lock size={12} /></span>}</span>
                     <span className="st-sub">Yours</span>
-                    <Segmented label="Your goal check" withTeam disabled={!canWrite || saving} value={data.user ?? undefined}
+                    <Segmented label={`Your ${text.name}`} withTeam disabled={!canWrite || saving} value={data.user ?? undefined}
                         options={[{ value: true, label: 'on' }, { value: false, label: 'off' }]} onChange={value => onSave({ user: value })} />
                     <span className="st-sub">Team</span>
-                    <Segmented label="Team goal check" disabled={!canWrite || saving} value={data.team}
+                    <Segmented label={`Team ${text.name}`} disabled={!canWrite || saving} value={data.team}
                         options={[{ value: 'off', label: 'off' }, { value: 'on', label: 'on' }, { value: 'required', label: 'required' }]}
                         onChange={value => onSave({ team: value, create: !data.teamFile })} />
                 </div>

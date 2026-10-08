@@ -50,7 +50,7 @@ export interface ReviewInput {
     trustedRef?: string;
     /** Run the typed checks (review/typed): the project's TypeScript program takes seconds, so at push, in `rigour review` and in a backtest, not at every stop. */
     typed?: boolean;
-    /** The pull request's description, when the goal check is on (goal/settings.ts): the change is checked against the goal it declares. */
+    /** The pull request's description, when the goal check is on (switches.ts): the change is checked against the goal it declares. */
     goalDescription?: string;
 }
 
