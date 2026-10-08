@@ -60,4 +60,4 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}" }
 ```
 
-The records then live in that job's checkout: commit `.rigour/outcomes.json` from the job, or cache it, to keep them between runs.
+With the outcome loop off, the command reads nothing, says so, and exits 0, so the step stays green for a team that has not turned it on. The records then live in that job's checkout: commit `.rigour/outcomes.json` from the job, or cache it, to keep them between runs.

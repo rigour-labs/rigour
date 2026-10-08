@@ -107,6 +107,23 @@ describe('the outcome of a merged pull request', () => {
         expect(late).toMatchObject({ read: 0, stopped: expect.stringContaining('read deadline') });
     });
 
+    it('finds the later commits of a pull request with thousands of files, past any command-line limit', async () => {
+        commit('a.ts', 'export const a = 1;\n', 'init', day(-10));
+        git(['checkout', '-qb', 'feature']);
+        const files = Array.from({ length: 2000 }, (_, i) => `src/a-rather-long-module-folder-name/another-long-subfolder-name/generated-file-number-${i}.ts`);
+        fs.mkdirSync(path.join(repo, path.dirname(files[0])), { recursive: true });
+        for (const file of files) fs.writeFileSync(path.join(repo, file), `export const n = ${file.length};\n`);
+        git(['add', '-A']);
+        git(['commit', '-qm', 'many files'], day(-1));
+        git(['checkout', '-q', 'main']);
+        git(['merge', '-q', '--no-ff', 'feature', '-m', 'Merge pull request #9'], day(0));
+        const mergeSha = git(['rev-parse', 'HEAD']);
+        commit(files[1999], 'export const n = 0;\n', 'fix: the last file', day(2));
+        const outcome = await prOutcome({ number: 9, mergeSha, mergedAt: day(0), branch: 'feature' }, { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
+        expect(outcome.files).toHaveLength(2000);
+        expect(outcome.followUps.map(f => [f.subject, f.files])).toEqual([['fix: the last file', [files[1999]]]]);
+    }, 60_000);
+
     it('writes no thread for a branch this machine never worked on', async () => {
         const { mergeSha, mergedAt } = history('merge');
         await updatePrOutcomes(repo, [{ number: 7, mergeSha, mergedAt, branch: 'someone-else' }], { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
@@ -124,11 +141,16 @@ describe('CI on the merge commit', () => {
         expect(await ciFrom([{ status: 'completed', conclusion: 'cancelled' }])).toBe('none');
     });
 
-    it('reads the check runs with one gh call, and is unavailable, never a throw, when gh fails', async () => {
+    it('reads every page of check runs: a failure on page two is a failure', async () => {
         const seen: string[][] = [];
-        const ok: Exec = async (_c, args) => { seen.push(args); return { exitCode: 0, stdout: JSON.stringify([{ status: 'completed', conclusion: 'success' }]), stderr: '' }; };
-        expect(await checkRunsCi(repo, ok)('abc')).toBe('success');
-        expect(seen[0].slice(0, 2)).toEqual(['api', 'repos/{owner}/{repo}/commits/abc/check-runs?per_page=100']);
+        const pages = [Array.from({ length: 100 }, () => ({ status: 'completed', conclusion: 'success' })), [{ status: 'completed', conclusion: 'failure' }]];
+        const paged: Exec = async (_c, args) => { seen.push(args); return { exitCode: 0, stdout: pages.map(p => JSON.stringify(p)).join('\n'), stderr: '' }; };
+        expect(await checkRunsCi(repo, paged)('abc')).toBe('failure');
+        expect(seen[0].slice(0, 3)).toEqual(['api', '--paginate', 'repos/{owner}/{repo}/commits/abc/check-runs?per_page=100']);
+    });
+
+    it('is unavailable, never a throw and never "none", when gh fails or answers something that does not parse', async () => {
+        expect(await checkRunsCi(repo, async () => ({ exitCode: 0, stdout: '[{"status":', stderr: '' }))('abc')).toBe('unavailable');
         expect(await checkRunsCi(repo, async () => ({ exitCode: 1, stdout: '', stderr: 'HTTP 404' }))('abc')).toBe('unavailable');
         expect(await checkRunsCi(repo, async () => { throw new Error('spawn gh ENOENT'); })('abc')).toBe('unavailable');
     });

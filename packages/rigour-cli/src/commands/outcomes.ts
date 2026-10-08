@@ -14,14 +14,15 @@ export async function outcomesCommand(cwd: string, options: { pr?: string; last?
         ...(options.pr ? { pr: Number(options.pr.replace(/^#/, '')) } : {}),
         ...(options.last ? { last: Number(options.last) } : {}),
     });
+    // Off is a choice, not a failure: a CI step that runs this for every team stays green where outcomes are off.
     if (options.json) {
         console.log(JSON.stringify(run, null, 2));
-        return run.switch.enabled ? 0 : 1;
+        return 0;
     }
     for (const line of run.switch.refused) console.error(chalk.yellow(`Not applied: ${line}`));
     if (!run.switch.enabled) {
-        console.error(chalk.yellow(`Nothing read: ${run.stopped}.`));
-        return 1;
+        console.log(chalk.dim(`Nothing read (${run.switch.source}): ${run.stopped}.`));
+        return 0;
     }
     for (const o of run.outcomes) console.log(outcomeLine(o));
     console.log(chalk.dim(`${run.outcomes.length} pull request(s), ${run.read} read now, the rest settled.${run.stopped ? ` Stopped early: ${run.stopped}.` : ''}`));

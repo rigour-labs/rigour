@@ -75,27 +75,36 @@ async function prOutcome(cwd: string, pr: { number: number; mergeSha: string; me
     };
 }
 
-/** First-parent commits on main after the merge, inside the window, that touched any of the pull request's files. Both ends bounded. */
+/**
+ * First-parent commits on main after the merge, inside the window, that touched any of the pull request's files. Both
+ * ends bounded. The files are matched here, not passed to git: a large pull request's paths would pass the command-line
+ * limit (about 32 KB on Windows), and the window already bounds what git lists.
+ */
 function followUpsOf(cwd: string, mergeSha: string, mainRef: string, files: string[], from: string, to: string): FollowUp[] {
     const wanted = new Set(files);
-    const out = git(cwd, ['log', '--first-parent', '--name-only', '--format=%x00%H%x09%cI%x09%s', `--since=${from}`, `--until=${to}`, `${mergeSha}..${mainRef}`, '--', ...files]);
+    const out = git(cwd, ['log', '--first-parent', '--name-only', '--format=%x00%H%x09%cI%x09%s', `--since=${from}`, `--until=${to}`, `${mergeSha}..${mainRef}`]);
     return out.split('\0').filter(Boolean).flatMap(block => {
         const [header, ...rest] = block.split('\n');
         const [sha, at, ...subject] = header.split('\t');
         if (!sha || !at) return [];
         const touched = rest.map(line => line.trim()).filter(file => wanted.has(file));
+        if (touched.length === 0) return [];
         const text = subject.join('\t');
         return [{ sha, at, subject: text, files: touched, fix: FIX.test(text) }];
     }).reverse(); // oldest first
 }
 
-/** The CI result for a commit from its check runs, with one `gh api` call; any error is `unavailable`, never a throw. */
+/**
+ * The CI result for a commit from all its check runs, every page (a big matrix runs more than 100: a failure on page two
+ * must not read as success); any error is `unavailable`, never a throw.
+ */
 export function checkRunsCi(cwd: string, exec: Exec, env?: Record<string, string>): (sha: string) => Promise<CiResult> {
     return async sha => {
         try {
-            const read = await exec('gh', ['api', `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`, '--jq', '[.check_runs[] | {status, conclusion}]'], { cwd, timeoutMs: GH_TIMEOUT_MS, ...(env ? { env } : {}) });
+            const read = await exec('gh', ['api', '--paginate', `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`, '--jq', '[.check_runs[] | {status, conclusion}]'], { cwd, timeoutMs: GH_TIMEOUT_MS, ...(env ? { env } : {}) });
             if (read.exitCode !== 0) return 'unavailable';
-            return ciFrom(JSON.parse(read.stdout));
+            // One array per page; unlike parseJsonArrays, output that does not parse is unavailable here, never an empty "none" that would settle.
+            return ciFrom(JSON.parse(`[${read.stdout.trim().replace(/\]\s*\[/g, '],[')}]`).flat());
         } catch {
             return 'unavailable';
         }
