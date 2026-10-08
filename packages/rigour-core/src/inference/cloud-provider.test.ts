@@ -143,3 +143,36 @@ describe('priceTokens', () => {
         expect(priceTokens('mystery-7b', 1, 1)).toBeUndefined();
     });
 });
+
+describe('sampling parameters for Claude', () => {
+    it('sends no temperature to the Claude models that reject it, and keeps it for those that take it and for other providers', async () => {
+        anthropicCreate.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 } });
+        openaiCreate.mockResolvedValue({ choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } });
+        const sent = async (provider: string, modelName: string, call: 'analyze' | 'chat') => {
+            const p = new CloudProvider(provider, 'k', { modelName });
+            await p.setup();
+            if (call === 'analyze') await p.analyze('p', { temperature: 0.2 });
+            else await p.chat([{ role: 'user', content: 'p' }], [], { temperature: 0.2 });
+            const create = provider === 'claude' ? anthropicCreate : openaiCreate;
+            return create.mock.calls[create.mock.calls.length - 1][0];
+        };
+        for (const model of ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-5', 'claude-haiku-5-5', 'claude-fable-5-1']) {
+            expect(await sent('claude', model, 'analyze')).not.toHaveProperty('temperature');
+            expect(await sent('claude', model, 'chat')).not.toHaveProperty('temperature');
+        }
+        for (const model of ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5']) {
+            expect(await sent('claude', model, 'analyze')).toMatchObject({ temperature: 0.2 });
+            expect(await sent('claude', model, 'chat')).toMatchObject({ temperature: 0.2 });
+        }
+        expect(await sent('openrouter', 'anthropic/claude-sonnet-5.5', 'analyze')).toMatchObject({ temperature: 0.2 }); // OpenRouter's path is unchanged
+        // A temperature of 0 is a temperature: kept on a model that takes one, on both calls.
+        for (const call of ['analyze', 'chat'] as const) {
+            const p = new CloudProvider('claude', 'k', { modelName: 'claude-sonnet-4-6' });
+            await p.setup();
+            if (call === 'analyze') await p.analyze('p', { temperature: 0 });
+            else await p.chat([{ role: 'user', content: 'p' }], [], { temperature: 0 });
+            expect(anthropicCreate.mock.calls[anthropicCreate.mock.calls.length - 1][0]).toMatchObject({ temperature: 0 });
+        }
+    });
+});
+

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { deprecationWarnings, lostOrChanged, secretFindings, snapshot } from './release-gates.mjs';
@@ -44,4 +46,18 @@ test('an upgrade loses or changes nothing outside what a run may rewrite', () =>
   assert.deepEqual(lostOrChanged(before, snapshot(dir), [/^\.rigour\//]), []);
   writeFileSync(join(dir, 'rigour.yml'), 'version: 2\n');
   assert.deepEqual(lostOrChanged(before, snapshot(dir), [/^\.rigour\//]), ['rigour.yml']);
+});
+
+// Windows has no catchable SIGINT or SIGTERM for a child: a killed process ends without running a handler.
+test('an interrupted run removes its throwaway folders and exits 130 or 143', { skip: process.platform === 'win32' }, async () => {
+  const script = pathToFileURL(resolve('scripts/release-gates.mjs')).href;
+  for (const [signal, code] of [['SIGTERM', 143], ['SIGINT', 130]]) {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', `import { sandbox } from '${script}'; console.log(sandbox().root); setInterval(() => {}, 1000);`]);
+    const root = await new Promise((done) => child.stdout.once('data', chunk => done(String(chunk).trim())));
+    assert.ok(existsSync(root), `${root} was made`);
+    const exited = new Promise((done) => child.once('exit', done));
+    child.kill(signal);
+    assert.equal(await exited, code);
+    assert.ok(!existsSync(root), `${root} is gone after ${signal}`);
+  }
 });
