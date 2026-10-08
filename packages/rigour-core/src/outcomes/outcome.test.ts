@@ -222,8 +222,9 @@ describe('rigour outcomes', () => {
         };
         const run = await runOutcomes(repo, ConfigSchema.parse({ version: 1 }), { flag: true, pr: 7, exec });
         // The fix on day 3 changed the point's own line.
-        expect(run.lessons).toMatchObject({ added: 1, promoted: ['L1'] });
-        expect(JSON.parse(fs.readFileSync(file, 'utf8')).lessons[0]).toMatchObject({ state: 'verified', promotedBy: 'outcome' });
+        expect(run.lessons).toMatchObject({ added: 1, suggested: ['L1'] });
+        // Evidence for a person to look at in Studio, never a promotion.
+        expect(JSON.parse(fs.readFileSync(file, 'utf8')).lessons[0]).toMatchObject({ state: 'candidate', evidence: [{ kind: 'point' }, { kind: 'lines' }] });
         const written = fs.statSync(file).mtimeMs;
         expect((await runOutcomes(repo, ConfigSchema.parse({ version: 1 }), { flag: true, pr: 7, exec })).lessons).toMatchObject({ added: 0 });
         expect(fs.statSync(file).mtimeMs).toBe(written);

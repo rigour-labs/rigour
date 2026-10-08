@@ -263,12 +263,7 @@ those lines before merging, are recorded on the candidate and decide nothing: pe
 and agents apply review comments on their own. A candidate becomes a **lesson** only on evidence:
 
 - **outcome**: after the merge, a commit on the main branch changed the lines the point named and says
-  it fixed something, or the pull request was reverted. With the [outcome loop](OUTCOMES.md) on, the
-  point's lines are followed through every later commit as the code moves, within three lines either
-  side and inside the window; the commit that changes them must say it fixes something and touch at most
-  fifteen files (a broad sweep says nothing about one point). CI regressing on the merge commit or a
-  revert is recorded with it as context, never as the trigger. A fix that touched only the point's file
-  is recorded as `followup`, never enough;
+  it fixed something, or the pull request was reverted;
 - **a person's correction**: they changed what an agent wrote. The after-edit hook keeps each file as
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
@@ -278,6 +273,15 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   independently: by different reviewers, or by one person in different words (a senior re-raising a
   standard counts; a bot rewording its own point on every pull request does not). A point that is only
   a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
+
+**What the [outcome loop](OUTCOMES.md) finds never promotes on its own.** It follows a point's lines
+through every later commit as the code moves (within three lines either side, inside the window); a
+commit that changes them, says it fixes something and touches at most fifteen files is recorded as
+`lines` evidence, with CI regressing on the merge commit or a revert as context, and a fix elsewhere in
+the file as `followup`. Studio shows that evidence on the candidate, with the fix commit, for a person
+to promote or dismiss; the decision is theirs and final. It is evidence and not a verdict because, read
+by a person against real history, a fix on the same lines was most often unrelated work: the same code
+changing for another reason.
 
 **Counter-evidence** holds a candidate back: its lines shipped unchanged and nothing needed fixing
 within the window (30 days). With the outcome loop on, evidence can also **take a lesson back**: when

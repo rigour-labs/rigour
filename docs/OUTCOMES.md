@@ -16,7 +16,7 @@ Follow-ups are read by file on main's first-parent history, so a merge commit an
 
 A record is evidence, not a verdict. A commit that says "fix typo" touches a file as much as a real fix does, and a CI failure can be a flaky test. After each run, `rigour outcomes` reads every record it keeps against the team's review lessons:
 
-- for a point its pull request left alone, a later fix inside the window that changed the point's own lines (within three either side, followed as the code moves, touching at most fifteen files) is an `outcome` and promotes the lesson, with CI regressing or a revert recorded as context; a fix elsewhere in the point's file is `followup` evidence, never enough;
+- for a point its pull request left alone, a later fix inside the window that changed the point's own lines (within three either side, followed as the code moves, touching at most fifteen files) is `lines` evidence, with CI regressing or a revert recorded as context; a fix elsewhere in the point's file is `followup`. Neither promotes a lesson: Studio shows them on the candidate for a person to promote or dismiss ([REVIEWER.md](REVIEWER.md#how-it-learns) says why);
 - a later pull request that a review found repeating a lesson (`lessons_applied` on the [thread](THREAD.md)), merged anyway and settled clean, is `against` it; `learning.outcomes.demote_after` of those, independent, take back a lesson an outcome or recurrence promoted.
 
 The rules, and what is never taken back, are in [REVIEWER.md](REVIEWER.md#how-it-learns). The lessons file is written only when something changed.
