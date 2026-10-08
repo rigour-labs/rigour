@@ -38,7 +38,9 @@ judge's own sense of severity) decides what blocks:
    change repeat it? A lesson pasted as background was skimmed; asked as a checklist it is checked.
 10. **Repository rules**: the rules the repository wrote for itself (AGENTS.md, CLAUDE.md, Cursor rules,
     Copilot instructions, the AGENTS.md and CLAUDE.md files in folders below the root, and every file
-    they import with an `@path` line), the fifteen most relevant to the change, answered one by one: followed, broken,
+    they import with an `@path` line; a folder's own rules, and what they import, apply only to changes
+    in that folder, and rules files in vendored folders such as `vendor/` or `third_party/` are not the
+    team's), the fifteen most relevant to the change, answered one by one: followed, broken,
     or not applicable, with the code that breaks one quoted. A rule the team worded as a requirement
     (must, never, always, only, every, do not), broken with its quote verified, blocks; guidance broken is a
     should-fix. The rule's words and weight come from the file, never from the judge.

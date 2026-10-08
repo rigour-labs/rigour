@@ -79,4 +79,23 @@ describe('the rule files a judge is given', () => {
         expect(rules.filter(r => r.source === 'AGENTS.md')).toHaveLength(3); // imported twice, read once
         expect(rules.some(r => /hosts|outside/.test(r.source))).toBe(false); // nothing outside the repository
     });
+
+    it("applies a folder's own rules, and the rules it imports, only to changes in that folder; vendored folders add none", () => {
+        fs.mkdirSync(path.join(repo, 'services/billing'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'services/billing/AGENTS.md'), '@money.md\n\n- Never call `stripe.charges.create` directly from `services/billing/`; go through `ledgerClient`.\n');
+        fs.writeFileSync(path.join(repo, 'services/billing/money.md'), '- Every amount in `services/billing/` is integer cents via `toCents()`; never a float.\n');
+        fs.mkdirSync(path.join(repo, 'vendor/somelib'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'vendor/somelib/AGENTS.md'), '- Always run `make vendor-test` in `vendor/somelib/` before every commit.\n');
+        execFileSync('git', ['-C', repo, 'init', '-q']);
+        execFileSync('git', ['-C', repo, 'add', '-A']);
+        const all = readRepoRules(repo);
+        expect(all.filter(r => r.scope === 'services/billing/').map(r => r.source)).toEqual(['services/billing/AGENTS.md', 'services/billing/money.md']);
+        expect(all.some(r => r.source.startsWith('vendor/'))).toBe(false);
+        expect(all.filter(r => r.source === 'AGENTS.md').every(r => r.scope === undefined)).toBe(true);
+        // A change only in web/ that even names the billing words: the billing rules are not served, so never checked or broken.
+        const web = rulesForDiff(repo, diff('web/src/Price.tsx', 'const total = stripe.charges.create(toCents(amount));'), true, 15);
+        expect(web.some(r => r.scope)).toBe(false);
+        const billing = rulesForDiff(repo, diff('services/billing/charge.ts', 'const total = stripe.charges.create(toCents(amount));'), true, 15);
+        expect(billing.filter(r => r.scope).map(r => r.source).sort()).toEqual(['services/billing/AGENTS.md', 'services/billing/money.md']);
+    });
 });
