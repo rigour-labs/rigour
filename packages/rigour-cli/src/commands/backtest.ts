@@ -6,13 +6,21 @@
  * caught with no false block, so a rule change is measured, not believed.
  */
 import chalk from 'chalk';
-import { backtestPassed, formatBacktest, loadLedger, runBacktest, scaffoldLedger, LEDGER_PATH } from '@rigour-labs/core';
+import { backtestLast, backtestPassed, formatBacktest, formatLast, loadLedger, runBacktest, scaffoldLedger, LEDGER_PATH } from '@rigour-labs/core';
 import { loadConfig, UsageError } from './review-config.js';
 
-export interface BacktestOptions { round?: string; reviewer?: boolean; json?: boolean; config?: string }
+export interface BacktestOptions { round?: string; reviewer?: boolean; json?: boolean; config?: string; last?: string }
 
 export async function backtestCommand(cwd: string, options: BacktestOptions): Promise<number> {
     const config = await loadConfig(cwd, options);
+    if (options.last !== undefined) {
+        const last = Number(options.last);
+        if (!Number.isInteger(last) || last <= 0) throw new UsageError('--last takes how many merged pull requests to run, a positive number');
+        const report = await backtestLast(cwd, config, { last, reviewer: options.reviewer, progress: message => process.stderr.write(`${message}\n`) });
+        if (options.json) console.log(JSON.stringify(report, null, 2));
+        else console.log((report.blocksOnApproved.length ? chalk.red : chalk.green)(formatLast(report)));
+        return report.blocksOnApproved.length ? 1 : 0;
+    }
     const ledger = loadLedger(cwd);
     const results = await runBacktest(cwd, config, ledger, {
         round: options.round,

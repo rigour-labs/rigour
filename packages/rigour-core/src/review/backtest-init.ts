@@ -14,10 +14,16 @@ import { LEDGER_PATH, LedgerSchema, type Ledger, type LedgerPoint, type LedgerRo
 import { defaultExec, githubEnv, parseJsonArrays, type Exec } from './reviewer.js';
 
 const GH_TIMEOUT_MS = 60_000;
-/** Lines either side of an inline comment that a finding for the same point may land on. */
-const LINE_SLACK = 10;
 
-export async function scaffoldLedger(cwd: string, pr: number, config: Config, exec: Exec = defaultExec): Promise<{ file: string; rounds: LedgerRound[]; incomplete: number }> {
+export interface PrRounds {
+    /** One round per review by a person, oldest first. */
+    rounds: LedgerRound[];
+    /** When asked: the head a person approved, with no points, so a block on it is a false block. */
+    approved?: LedgerRound;
+}
+
+/** The ledger rounds a pull request's human reviews give, and the commit a person approved. */
+export async function roundsForPr(cwd: string, pr: number, config: Config, exec: Exec = defaultExec, options: { approvedHead?: boolean } = {}): Promise<PrRounds> {
     const env = await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec);
     const gh = (args: string[]) => exec('gh', args, { cwd, timeoutMs: GH_TIMEOUT_MS, env });
     const view = await gh(['pr', 'view', String(pr), '--json', 'author', '-q', '.author.login']);
@@ -25,9 +31,8 @@ export async function scaffoldLedger(cwd: string, pr: number, config: Config, ex
     const author = view.stdout.trim();
     const reviews = await gh(['api', `repos/{owner}/{repo}/pulls/${pr}/reviews`, '--paginate']);
     if (reviews.exitCode !== 0) throw new Error(`could not read the reviews of pull request ${pr}: ${reviews.stderr.trim()}`);
-    const humans = parseJsonArrays(reviews.stdout)
-        .filter((r: any) => r?.user && r.user.type !== 'Bot' && !/bot/i.test(r.user.login) && r.user.login !== author && (r.body?.trim() || r.state === 'CHANGES_REQUESTED'));
-    if (humans.length === 0) throw new Error(`pull request ${pr} has no review by a person yet`);
+    const byPerson = parseJsonArrays(reviews.stdout).filter((r: any) => r?.user && r.user.type !== 'Bot' && !/bot/i.test(r.user.login) && r.user.login !== author);
+    const humans = byPerson.filter((r: any) => r.body?.trim() || r.state === 'CHANGES_REQUESTED');
     const mainRef = branchBase(cwd)?.mainRef ?? 'origin/main';
     const rounds: LedgerRound[] = [];
     for (const [index, review] of humans.entries()) {
@@ -39,16 +44,32 @@ export async function scaffoldLedger(cwd: string, pr: number, config: Config, ex
             points.push({ id: `R${round}-B${i + 1}`, point: line, file: '', needs: 'a file pattern and a text pattern (this point was made in the review body, not on a line)' });
         }
         const base = await baseAt(cwd, String(review.commit_id), review.submitted_at, mainRef, exec);
-        rounds.push({
-            id: `pr${pr}-r${round}`,
-            commit: String(review.commit_id),
-            base,
-            reviewed_at: String(review.submitted_at),
-            pr,
-            points,
-            must_not_flag: [],
-        });
+        rounds.push({ id: `pr${pr}-r${round}`, commit: String(review.commit_id), base, reviewed_at: String(review.submitted_at), pr, points, must_not_flag: [] });
     }
+    const approval = options.approvedHead ? byPerson.find((r: any) => r.state === 'APPROVED' && r.commit_id) : undefined;
+    const approved = approval
+        ? { id: `pr${pr}-approved`, commit: String(approval.commit_id), base: await baseAt(cwd, String(approval.commit_id), approval.submitted_at, mainRef, exec), reviewed_at: String(approval.submitted_at), pr, points: [], must_not_flag: [] }
+        : undefined;
+    if (rounds.length === 0 && !approved) throw new Error(`pull request ${pr} has no review by a person yet`);
+    return { rounds, ...(approved ? { approved } : {}) };
+}
+
+/** The last `n` merged pull requests, newest merge first. */
+export async function mergedPrs(cwd: string, n: number, config: Config, exec: Exec = defaultExec): Promise<Array<{ number: number; mergedAt: string }>> {
+    const env = await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec);
+    const list = await exec('gh', ['pr', 'list', '--state', 'merged', '--limit', String(n), '--json', 'number,mergedAt'], { cwd, timeoutMs: GH_TIMEOUT_MS, env });
+    if (list.exitCode !== 0) throw new Error(`could not list merged pull requests: ${list.stderr.trim() || 'is gh signed in?'}`);
+    try {
+        return (JSON.parse(list.stdout) as Array<{ number: number; mergedAt: string }>).sort((a, b) => (a.mergedAt < b.mergedAt ? 1 : -1)).slice(0, n);
+    } catch {
+        throw new Error('could not read the list of merged pull requests');
+    }
+}
+/** Lines either side of an inline comment that a finding for the same point may land on. */
+const LINE_SLACK = 10;
+
+export async function scaffoldLedger(cwd: string, pr: number, config: Config, exec: Exec = defaultExec): Promise<{ file: string; rounds: LedgerRound[]; incomplete: number }> {
+    const { rounds } = await roundsForPr(cwd, pr, config, exec);
     const file = path.join(cwd, LEDGER_PATH);
     const existing = existingLedger(file);
     const merged: Ledger = { rounds: [...existing.rounds.filter(r => !rounds.some(n => n.id === r.id)), ...rounds] };

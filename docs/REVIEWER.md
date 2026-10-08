@@ -332,6 +332,10 @@ instructions changed; later pushes get deltas again.
 
 ## Measure it before you rely on it
 
+The quickest proof: `rigour backtest --last 20 --reviewer` runs the review on the last twenty merged
+pull requests and leads with blocks on approved heads and points caught rounds early
+([BACKTEST.md](BACKTEST.md)).
+
 What is designed here (the matching, the majority rule, the consequence rule) is tested; how much a
 panel improves on one judge is not yet measured on public pull requests, and depends on your code
 and your reviewers. The backtest measures it on yours.

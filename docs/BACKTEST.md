@@ -6,6 +6,32 @@ It runs the review on a commit someone reviewed, with that review hidden, and sc
 
 The backtest is a measurement, not a required check. No hook, push gate or CI step runs it; you run it when you want the number, for example before and after changing a rule or a reviewer setting. Its exit code is there so you can make it a gate in your own CI if you choose to.
 
+## Start here: `rigour backtest --last N`
+
+The front door. It takes the last N merged pull requests of this repository, builds the ledger on
+its own (one round per review by a person, from the inline comments; plus the head a person
+approved, with no points), runs the review on each round with that review hidden, and reports the
+two numbers a team needs before trusting a reviewer:
+
+1. **Blocks on heads the seniors approved.** Every one is a block the team would have overridden.
+   This number should be about zero, and when it is not, it is said first.
+2. **Points people raised in a later round that an earlier round had already blocked**, with how
+   many rounds earlier. What the review would have saved the reviewer.
+
+Then what was caught in its own round, the cost and the time. Add `--reviewer` to run the model
+reviewer too; without it, only the free checks run.
+
+```bash
+rigour backtest --last 20 --reviewer
+```
+
+What it does not do: a point made in a review's body (not on a line) needs a person's pattern, so
+the front door leaves it out; a round whose commit was force-pushed away is skipped and listed; the
+pull requests' heads are fetched (`git fetch origin pull/<n>/head`), read-only. The ledger it built
+is written to `.rigour/backtest-last.json` for a person to read and keep; nothing is sent anywhere,
+and the hand-made ledger in `.rigour/backtest.json` is untouched. Exit 1 when any block landed on
+an approved head.
+
 ## The ledger
 
 The ledger is `.rigour/backtest.json`. It is shared: `rigour init` ignores `.rigour/*` in `.gitignore` but keeps `.rigour/backtest.json` (with the dismissals and `reviewed.json`) so it is committed with the repository, and `rigour uninstall` leaves it in place unless you pass `--all`. Everyone on the team scores against the same rounds.
