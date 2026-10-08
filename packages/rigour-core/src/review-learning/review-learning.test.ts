@@ -8,7 +8,7 @@ import { learnFromReviews } from './learn-from-reviews.js';
 import { outcomeFor } from './outcomes.js';
 import { rulesFromReviews } from './rules-from-reviews.js';
 import { describeLesson, lessonView } from './team-lessons.js';
-import { decideLesson, isSpecific, lessonState, lessonText, matchLessons, mergeLessons, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
+import { decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
 import { lessonsForDiff, lessonsSection } from './team-lessons.js';
 
 let repo: string;
@@ -46,6 +46,15 @@ describe('acted on', () => {
 });
 
 describe('lessons', () => {
+    it('never makes a lesson of a bare path or a review bot\'s line-range scaffolding', () => {
+        expect(lessonText('src/routes/learner/+layout.ts')).toBe('');
+        expect(lessonText('`src/routes/learner/api/[planId]/+server.ts`')).toBe('');
+        expect(lessonText('In src/a.ts around lines 10-12: Check the lock before the first read.')).toBe('Check the lock before the first read.');
+        expect(lessonText('Around line 124-141: Add a test for the failed save.')).toBe('Add a test for the failed save.');
+        expect(lessonsFromReview({ id: '1', prNumber: 3, commit: 'c', author: 'rabbit[bot]', source: 'bot', body: '- `src/a/b.ts`\n- Bound both ends of the time window.' }, ['src/a/b.ts']).map(l => l.text))
+            .toEqual(['Bound both ends of the time window.']);
+    });
+
     it('keeps the point of a review comment and drops tool output and markup', () => {
         const body = '_⚠️ Potential issue_ | _🟠 Major_\n\n**Use an upsert keyed on `id`.**\n\n<details>\n<summary>🏁 Script executed</summary>\nrg -n insert\n</details>';
         expect(lessonText(body)).toBe('Use an upsert keyed on `id`.');
@@ -60,6 +69,7 @@ describe('lessons', () => {
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'ann')))).toEqual({ state: 'candidate' }); // two PRs, one author: weak, not enough
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob', 'bot')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // a bot's point counts the same
         const said = (e: LessonEvidence, text: string): LessonEvidence => ({ ...e, text });
+        expect(lessonState(lesson(said(point(1, 'ann', 'bot', 'helper[bot]'), 'Around line 60-103: update the callers.'), said(point(2, 'bob', 'bot', 'helper[bot]'), 'Around line 12-14: update the loader.')))).toEqual({ state: 'candidate' }); // a bot rewording its own point is one source
         expect(lessonState(lesson(said(point(1, 'ann', 'bot', 'helper[bot]'), 'Consider more tests.'), said(point(2, 'bob', 'bot', 'helper[bot]'), 'Consider more tests.')))).toEqual({ state: 'candidate' }); // one bot's template on every PR is one source
         expect(lessonState(lesson(said(point(1, 'ann', 'person', 'lead'), 'Regenerate the API client after changing the schema.'), said(point(2, 'bob', 'person', 'lead'), 'The generated client is stale again.')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // a senior re-raising it in their own words
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob'), { kind: 'norule', pr: 1, comment: 'n', author: '' }))).toEqual({ state: 'candidate' }); // no rule in it: never promoted again

@@ -23,8 +23,8 @@ const MAX_TEXT = 220;
 const MAX_SYMBOLS = 8;
 /**
  * Recurrence is weak evidence, and only when independent: the same point on this many pull requests,
- * by this many different authors, raised by different reviewers or by one reviewer in different words
- * (a senior re-raising a standard counts; a bot pasting its template on every pull request does not).
+ * by this many different authors, raised by different reviewers or by one person in different words
+ * (a senior re-raising a standard counts; a bot rewording its own point on every pull request does not).
  */
 const RECUR_PRS = 2;
 const RECUR_AUTHORS = 2;
@@ -107,7 +107,8 @@ export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 
     const prs = new Set(points.map(e => e.pr)).size;
     const authors = new Set(points.map(e => e.prAuthor).filter(Boolean)).size;
     const reviewers = new Set(points.map(e => e.author).filter(Boolean)).size;
-    const wordings = new Set(points.map(e => normalize(e.text ?? '')).filter(Boolean)).size;
+    // One person raising it again in their own words is a standard; a bot rewording its own point on every pull request is not.
+    const wordings = new Set(points.filter(e => e.source !== 'bot').map(e => normalize(e.text ?? '')).filter(Boolean)).size;
     const independent = reviewers >= 2 || wordings >= 2;
     return prs >= RECUR_PRS && authors >= RECUR_AUTHORS && independent ? { state: 'verified', promotedBy: 'recurrence' } : { state: 'candidate' };
 }
@@ -124,7 +125,16 @@ export function lessonText(body: string): string {
         .join('\n');
     const bold = /\*\*(.+?)\*\*/.exec(cleaned)?.[1]?.trim();
     const text = bold || cleaned.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0] || '';
-    return text.replace(/[*_]/g, '').slice(0, MAX_TEXT).trim();
+    return pointText(text.replace(/[*_]/g, '')).slice(0, MAX_TEXT).trim();
+}
+
+/**
+ * A point's words without a review bot's scaffolding (`In src/a.ts around lines 10-12:`), or '' when
+ * nothing but a path or a location is left: a file name alone teaches nothing.
+ */
+function pointText(text: string): string {
+    const bare = text.trim().replace(/^(in\s+\S+\s+)?around\s+lines?\s+[\d\s,–-]+:\s*/i, '').trim();
+    return /^[`'"]?[\w@.~/[\]()+-]+[`'"]?:?$/.test(bare) ? '' : bare;
 }
 
 /** Identifiers a lesson is about: those the comment names, then those on the lines it pointed at. */
@@ -164,7 +174,7 @@ export function lessonFromComment(git: Git, comment: ReviewComment, at = new Dat
  */
 export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString()): ReviewLesson[] {
     return bodyPoints(review.body).flatMap((point, i) => {
-        const text = point.replace(/[*_]/g, '').slice(0, MAX_TEXT).trim();
+        const text = pointText(point.replace(/[*_]/g, '')).slice(0, MAX_TEXT).trim();
         if (text.length < 12) return [];
         const named = /(?:^|[\s`(])((?:[\w.-]+\/)+[\w.-]+\.\w+)/.exec(point)?.[1];
         const file = named ?? changedAfter.find(f => text.includes(path.posix.basename(f))) ?? '';

@@ -209,8 +209,9 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
 - **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email;
 - **recurrence**, weak alone: the same point on two or more pull requests by different authors, raised
-  independently: by different reviewers, or by one reviewer in different words (a senior re-raising a
-  standard counts; a bot pasting its template on every pull request does not).
+  independently: by different reviewers, or by one person in different words (a senior re-raising a
+  standard counts; a bot rewording its own point on every pull request does not). A point that is only
+  a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
 
 **Counter-evidence** holds a candidate back: its lines shipped unchanged and nothing needed fixing
 within the window (30 days). `--reject <id>` makes an **anti-lesson**: judges are told this team decided
