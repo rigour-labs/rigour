@@ -392,6 +392,8 @@
         "gates.deep.checks.architecture": "Set to false to stop asking the model about layer violations, circular dependencies and API design in a whole-repository model review.",
         "gates.deep.checks.code_smells": "Set to false to stop asking the model about code smells (complex conditionals, magic numbers, hardcoded config) in a whole-repository model review.",
         "hooks.require_review_ack": "When true, the agent stop hook holds the agent until each risky changed function has been acknowledged with rigour_review_ack.",
+        "brief.enabled": "The kill switch for briefings: false stops the prompt hook, rigour brief and rigour_brief alike. The prompt hook itself is installed only with rigour hooks init --brief; RIGOUR_BRIEF=0 stops briefings for one person.",
+        "brief.max_items": "The most items a briefing gives, between 1 and 10.",
         "output.report_path": "The file, relative to the repository root, that rigour check writes its JSON report to and that other commands read it from.",
         "review.include_heuristics": "When true, heuristic findings (size, complexity, guessed intent) can decide the verdict and block, instead of only findings that prove a defect.",
         "review.show_preexisting": "When true, a review also reports rule findings the base commit already had, instead of only those the change introduced.",

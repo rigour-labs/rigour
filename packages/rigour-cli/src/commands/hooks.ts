@@ -46,6 +46,8 @@ export interface HooksOptions {
     block?: boolean;
     /** Also generate DLP pre-input warning hooks */
     dlp?: boolean;
+    /** Also brief the agent from its first prompt (Claude Code's UserPromptSubmit). Off unless asked. */
+    brief?: boolean;
 }
 
 export interface HooksCheckOptions {
@@ -165,6 +167,15 @@ function stopHookCommand(checker: CheckerCommandSpec, tool: 'claude' | 'cursor')
     return checkerToShellCommand({ command: checker.command, args: [...args, '--tool', tool] });
 }
 
+/** The briefing hook: the checker command with `brief` in place of `check`. */
+function briefHookCommand(checker: CheckerCommandSpec): string {
+    const args = checker.args[checker.args.length - 1] === 'check' ? [...checker.args.slice(0, -1), 'brief'] : [...checker.args, 'brief'];
+    return checkerToShellCommand({ command: checker.command, args });
+}
+
+/** Seconds Claude Code waits for the briefing: it reads local files only. */
+const BRIEF_HOOK_TIMEOUT_S = 20;
+
 /** Seconds Claude Code waits for the stop review before letting the agent stop. */
 const STOP_HOOK_TIMEOUT_S = 120;
 /** Seconds Claude Code waits for the push gate: the project's tests and the reviewer can take minutes. */
@@ -219,7 +230,7 @@ function resolveTools(cwd: string, toolFlag?: string): HookTool[] {
 
 // ── Per-tool hook generators ─────────────────────────────────────────
 
-function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: boolean = true): GeneratedFile[] {
+function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: boolean = true, brief: boolean = false): GeneratedFile[] {
     const blockFlag = block ? ' --block' : '';
     const checkerCommand = checkerToShellCommand(checker);
     const hooks: Record<string, unknown[]> = {
@@ -253,6 +264,9 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
         });
     }
     hooks.PreToolUse = preToolUse;
+
+    // Opt-in: the team's briefing for the task, once per session, from the session's first prompt (rigour hooks brief).
+    if (brief) hooks.UserPromptSubmit = [{ hooks: [{ type: "command" as const, command: briefHookCommand(checker), timeout: BRIEF_HOOK_TIMEOUT_S }] }];
 
     const settings = { hooks };
 
@@ -445,7 +459,7 @@ function generateWindsurfHooks(checker: CheckerCommandSpec, block: boolean, dlp:
     }];
 }
 
-const GENERATORS: Record<HookTool, (checker: CheckerCommandSpec, block: boolean, dlp?: boolean) => GeneratedFile[]> = {
+const GENERATORS: Record<HookTool, (checker: CheckerCommandSpec, block: boolean, dlp?: boolean, brief?: boolean) => GeneratedFile[]> = {
     claude: generateClaudeHooks,
     cursor: generateCursorHooks,
     cline: generateClineHooks,
@@ -586,7 +600,7 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     // Collect generated files — each generator includes DLP hooks in the SAME config file
     const allFiles: GeneratedFile[] = [];
     for (const tool of tools) {
-        allFiles.push(...GENERATORS[tool](checker, block, dlp));
+        allFiles.push(...GENERATORS[tool](checker, block, dlp, !!options.brief));
     }
 
     if (options.dryRun) {
@@ -597,7 +611,7 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     const { written, skipped, failedPaths } = await writeHookFiles(cwd, allFiles, !!options.force);
     const failed = failedPaths.size;
     const unavailableTools = new Set(tools.filter(tool => {
-        const generatedPaths = GENERATORS[tool](checker, block, dlp).map(file => file.path);
+        const generatedPaths = GENERATORS[tool](checker, block, dlp, !!options.brief).map(file => file.path);
         return generatedPaths.every(filePath => failedPaths.has(filePath));
     }));
 

@@ -34,6 +34,7 @@ the directory the server started in.
 | `rigour_reviewer_verdict` | What the reviewer last decided for the branch (read-only) |
 | `rigour_check`, `rigour_get_fix_packet` | Run the checks, and get the violations a page at a time |
 | `rigour_index`, `rigour_context_scope`, `rigour_check_pattern` | Find the few files a task needs, and whether a helper already exists |
+| `rigour_brief` | The team's briefing for a task before writing: rules, verified lessons, settled points; at most 10, each cited |
 | `rigour_recall`, `rigour_remember` | Recall and store conventions and lessons |
 
 More groups (agent teams, context, telemetry) are listed with `RIGOUR_MCP_TOOLS`. Every tool:

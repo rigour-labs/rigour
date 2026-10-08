@@ -39,6 +39,7 @@ import { getAdvertisedToolDefinitions } from './advertised-tools.js';
 import { handleCheck, handleExplain, handleStatus, handleGetFixPacket, handleListGates, handleGetConfig } from './tools/quality-handlers.js';
 import { handleRemember, handleForget } from './tools/memory-handlers.js';
 import { handleRecall } from './tools/memory-recall.js';
+import { handleBrief } from './tools/brief-handler.js';
 import { handleCheckPattern, handleSecurityAudit } from './tools/pattern-handlers.js';
 import { handleRun, handleRunSupervised } from './tools/execution-handlers.js';
 import { handleAgentRegister, handleCheckpoint, handleHandoff, handleAgentDeregister, handleHandoffAccept } from './tools/agent-handlers.js';
@@ -167,6 +168,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             // Memory
             case "rigour_remember":      result = await handleRemember(cwd, (args as any).key, (args as any).value || (args as any).content, (args as any).scope); break;
             case "rigour_recall":        result = await handleRecall(cwd, { key: (args as any).key, query: (args as any).query }); break;
+            case "rigour_brief":         result = handleBrief(cwd, config, args as any); break;
             case "rigour_forget":        result = await handleForget(cwd, (args as any).key, (args as any).scope); break;
 
             // Pattern intelligence

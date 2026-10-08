@@ -199,6 +199,26 @@ export const TOOL_DEFINITIONS = [
         },
     },
     {
+        name: "rigour_brief",
+        description: "Call once before writing code for a task: this team's rules, verified lessons and settled points for the files it will touch, at most 10, each cited. A [must] your change breaks blocks at review.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...cwdParam(),
+                goal: { type: "string", description: "What the task is for: the request or the ticket summary." },
+                files: { type: "array", items: { type: "string" }, description: "Optional. Files the task will touch." },
+            },
+            required: ["cwd", "goal"],
+        },
+        annotations: {
+            title: "Brief Before Writing",
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
         name: "rigour_recall",
         description: "Load stored conventions. At the START of a task, call it with 'query' describing the task to get the few memories that match by meaning, plus promoted team knowledge when team mode is on. With 'key' it returns that memory; with neither, every repository and user memory.",
         inputSchema: {

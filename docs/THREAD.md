@@ -34,7 +34,8 @@ it read as a ticket for that branch; naming the team's project keys in configura
 | `edit-check` | the after-edit hook | session, agent, files, findings, status |
 | `stop-review` | the stop hook | session, agent, blocked, blocking, files |
 | `push` | the push gate | passed, failed (checks that failed) |
-| `review` | the reviewer (not a backtest) | trigger, outcome, blocking, should_fix, pr, integrity, cost_usd, judges |
+| `review` | the reviewer (not a backtest) | trigger, outcome, blocking, should_fix, pr, pr_title, integrity, cost_usd, judges |
+| `brief` | the briefing (prompt hook, `rigour brief`, `rigour_brief`) | session, agent, items, ids, files |
 
 Every event carries the time, the task, the branch and the commit. The text view adds what only the sequence shows:
 how many findings were caught while writing, and how many of those files came back clean at a later edit check

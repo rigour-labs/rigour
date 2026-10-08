@@ -266,6 +266,7 @@ name.
 | Reuse and context | `rigour_index` | Build or update the pattern index (`.rigour/patterns.json`): functions, classes, routes and signatures, embedded locally so they can be found by intent. |
 | Reuse and context | `rigour_context_scope` | Before reading source files: a small edit scope (3 to 10 files) with signatures, for a plain-language description of the task. |
 | Reuse and context | `rigour_check_pattern` | Before writing a new function, component, hook or class: whether one already exists (by name, intent or signature), and known vulnerabilities. Refuses writes to protected paths such as `.github/` and `rigour.yml`. |
+| Before writing | `rigour_brief` | Once at the start of a task: the team's rules, verified lessons and settled points for the files it will touch, at most 10, each cited. See [The briefing](./BRIEF.md). |
 | Memory and lessons | `rigour_recall` | At the start of a task: the stored conventions and lessons that match it by meaning, plus promoted team knowledge when a team is configured. |
 | Memory and lessons | `rigour_remember` | Store a convention for later sessions, for this repository, for all your repositories, or as a team candidate a person can promote. Values containing credentials are refused. |
 

@@ -277,6 +277,10 @@ export const UNIVERSAL_CONFIG: Config = {
     output: {
         report_path: 'rigour-report.json',
     },
+    brief: {
+        enabled: true,
+        max_items: 10,
+    },
     review: {
         include_heuristics: false,
         show_preexisting: false,
