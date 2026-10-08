@@ -123,6 +123,17 @@ describe('Studio pages', () => {
     });
 });
 
+describe('a lesson back to a candidate, on the learning page', () => {
+    it('says why, shows the old evidence and offers Promote and Dismiss', () => {
+        const out = html(<LessonCard lesson={{ id: 'd1d2c3d4e5f6', text: 'guard a missing items list', origin: 'pr', learnedFrom: 'At PR #7, from r', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true, reclassified: { detail: 'promoted by the exact-line rule, which no longer promotes on its own', evidence: ['fixed later by abc123def "fix: total crashes"'] } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(out).toContain('back to candidate</span> <span class="st-sub">promoted by the exact-line rule');
+        expect(out).toContain('fixed later by abc123def');
+        expect(out).toContain('>Promote<');
+        expect(out).toContain('>Dismiss<');
+        expect(out).not.toContain('Seen once');
+    });
+});
+
 describe('a candidate with a later fix on its lines, on the learning page', () => {
     it('shows the fix and offers Promote and Dismiss', () => {
         const out = html(<LessonCard lesson={{ id: 'b1b2c3d4e5f6', text: 'keep the composer scrollable', origin: 'pr', learnedFrom: 'At PR #4, from r1', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true, suggested: { detail: 'fixed later by abc123def "fix: composer overflow"', pr: 4, at: '2026-09-05T00:00:00Z' } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);

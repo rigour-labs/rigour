@@ -126,3 +126,19 @@ describe('a candidate a later fix changed the lines of', () => {
         }
     });
 });
+
+describe('a lesson back to a candidate when outcomes stopped promoting', () => {
+    it('comes first, with why and the evidence that had promoted it, for a person to promote again or dismiss', () => {
+        const newer: ReviewLesson = { id: 'c1c2c3d4e5f6', text: 'newer lesson', file: 'src/x.ts', symbols: [], state: 'candidate', createdAt: '2026-10-05T00:00:00Z', updatedAt: '', evidence: [{ kind: 'point', pr: 9, comment: 'c9', author: 'r' }] };
+        const back: ReviewLesson = { id: 'd1d2c3d4e5f6', text: 'guard a missing items list', file: 'src/orders.ts', symbols: [], state: 'candidate', createdAt: '2026-09-01T00:00:00Z', updatedAt: '', evidence: [
+            { kind: 'point', pr: 7, comment: 'c7', author: 'r' },
+            { kind: 'outcome', pr: 7, comment: 'outcome-abc', author: '', detail: 'fixed later by abc123def "fix: total crashes"' },
+            { kind: 'reclassified', pr: 7, comment: 'reclassified-d1d2c3d4e5f6', author: '', detail: 'promoted by the exact-line rule, which no longer promotes on its own' },
+        ] };
+        const lessons = buildLearning({ now, lessons: [], reviewLessons: [newer, back], stories: [], events: [] }).lessons;
+        expect(lessons.map(l => l.id)).toEqual(['d1d2c3d4e5f6', 'c1c2c3d4e5f6']);
+        expect(lessons[0]).toMatchObject({ canDecide: true, reclassified: { detail: 'promoted by the exact-line rule, which no longer promotes on its own', evidence: ['fixed later by abc123def "fix: total crashes"'] } });
+        const decided = buildLearning({ now, lessons: [], reviewLessons: [{ ...back, evidence: [...back.evidence, { kind: 'dismissed', pr: 7, comment: 'dismissed-x', author: 'lead@team' }] }], stories: [], events: [] }).lessons[0];
+        expect(decided.reclassified).toBeUndefined();
+    });
+});

@@ -262,8 +262,6 @@ AI posting under a person's login, or a review bot. Who wrote it, and whether th
 those lines before merging, are recorded on the candidate and decide nothing: people paste AI text,
 and agents apply review comments on their own. A candidate becomes a **lesson** only on evidence:
 
-- **outcome**: after the merge, a commit on the main branch changed the lines the point named and says
-  it fixed something, or the pull request was reverted;
 - **a person's correction**: they changed what an agent wrote. The after-edit hook keeps each file as
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
@@ -274,7 +272,7 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   standard counts; a bot rewording its own point on every pull request does not). A point that is only
   a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
 
-**What the [outcome loop](OUTCOMES.md) finds never promotes on its own.** It follows a point's lines
+**What happens after the merge never promotes on its own.** A later commit on the main branch that changes the lines a point named and says it fixed something, or a revert of the pull request, is recorded on the candidate (`rigour learn-reviews` records it as `lines`). Lessons an earlier version promoted on that alone are back to candidates, each with a `reclassified` record, listed first in Studio. The [outcome loop](OUTCOMES.md) goes further: It follows a point's lines
 through every later commit as the code moves (within three lines either side, inside the window); a
 commit that changes them, says it fixes something and touches at most fifteen files is recorded as
 `lines` evidence, with CI regressing on the merge commit or a revert as context, and a fix elsewhere in
@@ -288,7 +286,7 @@ within the window (30 days). With the outcome loop on, evidence can also **take 
 a review of a later pull request found it repeating the lesson, and that pull request merged anyway and
 settled clean (CI passed, no fix on the lesson's file within the window, no revert), that is `against`
 evidence. `learning.outcomes.demote_after` such pull requests (default 2), from more than one author or
-merged at least a week apart, make a lesson that an outcome or recurrence promoted a candidate again (`demoted`). A pull request
+merged at least a week apart, make a lesson that recurrence promoted a candidate again (`demoted`). A pull request
 that followed the lesson, or that no review checked against it, never counts, and a lesson a person
 promoted or corrected into being is never taken back; a person promoting it again is final. `--reject <id>` makes an **anti-lesson**: judges are told this team decided
 against it, and it is never served as a lesson. Every piece of evidence stays on the lesson

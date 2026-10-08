@@ -18,6 +18,8 @@ export interface Journey {
     takenBack?: { detail: string; prs: number[]; at: string };
     /** A later fix changed the point's own lines: evidence for a person to promote or dismiss. */
     suggested?: { detail: string; pr: number; at: string };
+    /** Back to a candidate when outcomes stopped promoting, with the evidence that had promoted it. */
+    reclassified?: { detail: string; evidence: string[] };
 }
 
 /** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
@@ -45,6 +47,17 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
                 </div>
             </div>
         )}
+        {lesson.reclassified && (
+            <div style={{ marginTop: 14 }}>
+                <div><span className="st-chip warn">back to candidate</span> <span className="st-sub">{lesson.reclassified.detail}</span></div>
+                {lesson.reclassified.evidence.map(line => <div key={line} className="st-sub" style={{ marginTop: 4 }}>{line}</div>)}
+                <div className="st-row" style={{ marginTop: 10 }}>
+                    <span className="st-sub">A later fix on its lines used to make this a lesson by itself; now a person decides. Keep telling agents?</span>
+                    <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
+                    <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'dismissed')} type="button">Dismiss</button>
+                </div>
+            </div>
+        )}
         {lesson.suggested && (
             <div style={{ marginTop: 14 }}>
                 <div><span className="st-chip">a later fix changed these lines</span> <span className="st-sub">{lesson.suggested.detail}</span></div>
@@ -55,7 +68,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
                 </div>
             </div>
         )}
-        {lesson.canDecide && !lesson.takenBack && !lesson.suggested && (
+        {lesson.canDecide && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
             <div className="st-row" style={{ marginTop: 14 }}>
                 <span className="st-sub">{lesson.scope === 'team' ? 'Shared by a teammate. Give it to everyone\'s agents?' : 'Seen once. Keep it so your agents get told?'}</span>
                 <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>

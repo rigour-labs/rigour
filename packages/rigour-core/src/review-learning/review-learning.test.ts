@@ -75,13 +75,36 @@ describe('lessons', () => {
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob'), { kind: 'norule', pr: 1, comment: 'n', author: '' }))).toEqual({ state: 'candidate' }); // no rule in it: never promoted again
         const outcome: LessonEvidence = { kind: 'outcome', pr: 1, comment: 'o', author: '', detail: 'fixed later by abc' };
         const counter: LessonEvidence = { kind: 'counter', pr: 1, comment: 'k', author: '', detail: 'unchanged 40 days' };
-        expect(lessonState(lesson(point(1, 'ann', 'bot'), outcome))).toEqual({ state: 'verified', promotedBy: 'outcome' });
+        expect(lessonState(lesson(point(1, 'ann', 'bot'), outcome))).toEqual({ state: 'candidate' }); // an outcome is evidence for a person, never a promotion
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob'), counter))).toEqual({ state: 'candidate' }); // counter-evidence holds recurrence back
         const accepted: LessonEvidence = { kind: 'accepted', pr: 1, comment: 'y', author: 'lead@x' };
         const rejected: LessonEvidence = { kind: 'rejected', pr: 1, comment: 'n', author: 'lead@x' };
         expect(lessonState(lesson(point(1, 'ann'), outcome, rejected))).toEqual({ state: 'rejected' }); // a person's decision wins
         expect(lessonState(lesson(point(1, 'ann'), rejected, accepted))).toEqual({ state: 'verified', promotedBy: 'person' }); // the latest decision
         expect(lessonState({ ...lesson({ pr: 1, comment: 'old', author: 'r' }), state: 'verified' })).toEqual({ state: 'verified', promotedBy: 'legacy' }); // a record from before evidence keeps its state
+    });
+
+    it('takes a lesson an outcome alone promoted back to a candidate, once, with why, and leaves every other lesson as it was', () => {
+        const point = (pr: number, prAuthor: string, reviewer: string): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: reviewer, prAuthor });
+        const outcome: LessonEvidence = { kind: 'outcome', pr: 1, comment: 'outcome-abc', author: '', detail: 'fixed later by abc "fix: x"' };
+        const stored = (id: string, evidence: LessonEvidence[], promotedBy: ReviewLesson['promotedBy']): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy, evidence, createdAt: '', updatedAt: '' });
+        writeLessons(repo, [
+            stored('only-outcome', [point(1, 'ann', 'r1'), outcome], 'outcome'),
+            stored('also-recurs', [point(1, 'ann', 'r1'), point(2, 'bob', 'r2'), outcome], 'outcome'),
+            stored('person', [point(1, 'ann', 'r1'), outcome, { kind: 'accepted', pr: 1, comment: 'y', author: 'lead@x' }], 'person'),
+        ]);
+        const [only, recurs, person] = readLessons(repo);
+        expect(only).toMatchObject({ state: 'candidate', evidence: [point(1, 'ann', 'r1'), outcome, { kind: 'reclassified', comment: 'reclassified-only-outcome', detail: 'promoted by the exact-line rule, which no longer promotes on its own' }] });
+        expect(only.promotedBy).toBeUndefined();
+        expect(recurs).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
+        expect(recurs.evidence.some(e => e.kind === 'reclassified')).toBe(false);
+        expect(person).toMatchObject({ state: 'verified', promotedBy: 'person', evidence: [point(1, 'ann', 'r1'), outcome, { kind: 'accepted' }] });
+        // Kept by the next write, and never added twice.
+        writeLessons(repo, readLessons(repo));
+        expect(readLessons(repo)[0].evidence.filter(e => e.kind === 'reclassified')).toHaveLength(1);
+        // A person promoting it again is final.
+        decideLesson(repo, 'only-outcome', 'accepted', 'lead@x');
+        expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
     });
 
     it('records a person accepting or rejecting a lesson as evidence, with who and why', () => {
