@@ -8,6 +8,7 @@
  * is better served by the few rules that name a file or identifier the
  * change actually touches.
  */
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -35,12 +36,46 @@ export interface RepoRule {
     requirement: boolean;
 }
 
+/** The most rule files read, imports included: a loop or a sprawling import tree stops here. */
+const MAX_RULE_SOURCES = 50;
+
+/**
+ * Every rule file of the repository: the root ones, the AGENTS.md and CLAUDE.md files in folders below it, the rule
+ * directories, and every file a rule file imports with an `@path` line (relative to the importing file, inside the
+ * repository). A judge does not load these by itself; this is how the repository's rules reach it.
+ */
 export function readRepoRules(cwd: string): RepoRule[] {
-    const files = [
+    const queue = [
         ...RULE_FILES.filter(f => fs.existsSync(path.join(cwd, f))),
+        ...nestedRuleFiles(cwd),
         ...RULE_DIRS.flatMap(dir => listRuleFiles(cwd, dir)),
     ];
-    return files.flatMap(file => splitRules(file, fs.readFileSync(path.join(cwd, file), 'utf8')));
+    const read = new Set<string>();
+    const rules: RepoRule[] = [];
+    while (queue.length && read.size < MAX_RULE_SOURCES) {
+        const file = queue.shift()!;
+        if (read.has(file)) continue;
+        read.add(file);
+        let text: string;
+        try {
+            text = fs.readFileSync(path.join(cwd, file), 'utf8');
+        } catch {
+            continue;
+        }
+        rules.push(...splitRules(file, text));
+        for (const m of text.matchAll(/^@(\S+)\s*$/gm)) {
+            const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), m[1].replace(/^\.\//, '')));
+            if (target.startsWith('..') || path.isAbsolute(m[1]) || m[1].startsWith('~') || !fs.existsSync(path.join(cwd, target))) continue;
+            queue.push(target);
+        }
+    }
+    return rules;
+}
+
+/** AGENTS.md and CLAUDE.md in folders below the root, as git tracks them. */
+function nestedRuleFiles(cwd: string): string[] {
+    const listed = spawnSync('git', ['ls-files', '-z', '--', '*/AGENTS.md', '*/CLAUDE.md'], { cwd, encoding: 'utf8', timeout: 5000 });
+    return listed.status === 0 ? listed.stdout.split('\0').filter(Boolean) : [];
 }
 
 /** One rule per top-level bullet or paragraph; headings and import lines are not rules. */

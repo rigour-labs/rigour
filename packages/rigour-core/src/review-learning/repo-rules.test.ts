@@ -2,7 +2,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { rulesForDiff, rulesSection, splitRules } from './repo-rules.js';
+import { execFileSync } from 'child_process';
+import { readRepoRules, rulesForDiff, rulesSection, splitRules } from './repo-rules.js';
 
 const AGENTS = `# Conventions
 
@@ -57,5 +58,25 @@ describe('repository rules', () => {
         expect(rulesForDiff(repo, diff('src/ui/List.tsx', 'const x = 1;'), true)).toEqual([]);
         expect(rulesForDiff(repo, diff('migrations/2026_add.sql', 'x'), false)).toEqual([]);
         expect(rulesSection(rulesForDiff(repo, diff('src/a.ts', 'await fetchWithTimeout(url);'), true))).toContain('[AGENTS.md] Prefer `fetchWithTimeout`');
+    });
+});
+
+describe('the rule files a judge is given', () => {
+    it('follows @ imports from a rule file and reads AGENTS.md and CLAUDE.md in folders below the root, once each', () => {
+        fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '@AGENTS.md\n@docs/conventions.md\n@../outside.md\n@/etc/hosts\n@docs/missing.md\n');
+        fs.mkdirSync(path.join(repo, 'docs'));
+        fs.writeFileSync(path.join(repo, 'docs/conventions.md'), '@../AGENTS.md\n\n- Never log `apiToken` from `src/auth/session.ts`, even partly.\n');
+        fs.writeFileSync(path.join(repo, 'SHARED.md'), '- Every job in `src/jobs/` takes `withLock()` before the first read.\n');
+        fs.mkdirSync(path.join(repo, 'services/billing'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'services/billing/AGENTS.md'), '- Amounts in `services/billing/` are integer cents via `toCents()`; never a float.\n');
+        execFileSync('git', ['-C', repo, 'init', '-q']);
+        execFileSync('git', ['-C', repo, 'add', '-A']);
+        const rules = readRepoRules(repo);
+        const by = (source: string) => rules.filter(r => r.source === source).map(r => r.text);
+        expect(by('docs/conventions.md')).toEqual(['Never log `apiToken` from `src/auth/session.ts`, even partly.']);
+        expect(by('SHARED.md')).toEqual(['Every job in `src/jobs/` takes `withLock()` before the first read.']); // imported by AGENTS.md
+        expect(by('services/billing/AGENTS.md')).toEqual(['Amounts in `services/billing/` are integer cents via `toCents()`; never a float.']);
+        expect(rules.filter(r => r.source === 'AGENTS.md')).toHaveLength(3); // imported twice, read once
+        expect(rules.some(r => /hosts|outside/.test(r.source))).toBe(false); // nothing outside the repository
     });
 });

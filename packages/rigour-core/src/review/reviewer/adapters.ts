@@ -25,7 +25,7 @@ export interface Adapter {
     /** Variables the judge runs with, on top of what it inherits: what keeps a person's own instructions out of it. */
     env?: Record<string, string>;
     /** What this judge still reads from outside the repository on this machine (a person's own config), or undefined: said on the record, never hidden. */
-    outsideRepo?(home: string): string | undefined;
+    outsideRepo?(home: string, version: string | undefined): string | undefined;
 }
 
 /** What a run used: dollars when the CLI reports them (Claude Code), tokens otherwise (Codex reports only tokens). */
@@ -43,6 +43,9 @@ export interface RunTrace {
 export interface Tokens { input: number; output: number }
 
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/** The Claude Code version the memory switches were verified in: below it, a judge may still load a person's CLAUDE.md. */
+const CLAUDE_MEMORY_ISOLATION = '2.1.285';
 
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git log:*)', 'Bash(git grep:*)'];
 
@@ -66,6 +69,15 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         // own (the judge reads the repository's rules as files, as Rigour's prompt tells every judge to), and no auto-memory.
         // Claude Code's own safe mode uses the same switch. What the judge knows is the repository and what Rigour gives it.
         env: { CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
+        // An older Claude Code ignores those switches without a word and loads the memory files anyway: below the version
+        // they were verified in, or when the version cannot be read, the record says the isolation is unverified.
+        outsideRepo: (_home, version) => {
+            const found = /(\d+)\.(\d+)\.(\d+)/.exec(version ?? '');
+            const at = found ? found.slice(1).map(Number) : undefined;
+            const floor = CLAUDE_MEMORY_ISOLATION.split('.').map(Number);
+            const below = !at || at[0] !== floor[0] ? !at || at[0] < floor[0] : at[1] !== floor[1] ? at[1] < floor[1] : at[2] < floor[2];
+            return below ? `claude ${found?.[0] ?? '(version unknown)'}: memory isolation unverified (needs ${CLAUDE_MEMORY_ISOLATION} or later)` : undefined;
+        },
         answer: stdout => claudeAnswer(stdout),
     },
     cursor: {

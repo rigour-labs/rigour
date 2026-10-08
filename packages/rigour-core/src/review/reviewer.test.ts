@@ -9,7 +9,7 @@ import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
 import { account, attachServedRules, carryResolved, changedLinesOf, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type LabelledPoint, type PriorPoint, type Verdict } from './reviewer/verdict.js';
-import { recordIntact } from './reviewer/record.js';
+import { recordIntact, recordLines } from './reviewer/record.js';
 
 let repo: string;
 const config = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
@@ -812,12 +812,18 @@ describe("the reviewer's own severity label", () => {
 });
 
 describe('the judge Rigour launches', () => {
-    it('runs claude with every memory file switched off, and records no outside context for it', async () => {
+    it('runs claude with every memory file switched off, and records the isolation as unverified below the version it was verified in', async () => {
         const seen = seenNow();
         const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review' });
         expect(result.outcome).toBe('passed');
         const claude = seen.ran.findIndex(command => path.basename(command).startsWith('claude'));
         expect(seen.env?.[claude]).toEqual({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
-        expect(result.record?.judges.map(j => j.outside_repo)).toEqual([undefined]);
+        // The fake reports version 1.0.0, older than the one the switches were verified in: the record says so.
+        expect(result.record?.judges.map(j => j.outside_repo)).toEqual(['claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)']);
+        expect(recordLines(result.record!).join('\n')).toContain('[claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)]');
+        const current = seenNow();
+        current.versions = { [path.join(bins[0], 'claude')]: '2.1.285 (Claude Code)' };
+        const verified = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), current, null), () => undefined, { trigger: 'review', force: true });
+        expect(verified.record?.judges.map(j => j.outside_repo)).toEqual([undefined]);
     });
 });

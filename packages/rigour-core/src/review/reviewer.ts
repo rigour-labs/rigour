@@ -272,7 +272,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
     // What a judge reads besides the repository and Rigour's inputs, on this machine: on the record, so "the same judge" is a claim it can check.
     const outsideOf = (reviewer: string) => {
-        const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir());
+        const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir(), installed.get(reviewer as ReviewerName)?.version);
         return outside ? { outside_repo: outside } : {};
     };
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {

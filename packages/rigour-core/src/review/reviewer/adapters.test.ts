@@ -75,7 +75,11 @@ describe('what a judge knows besides the repository', () => {
         expect(args.slice(args.indexOf('--setting-sources'), args.indexOf('--setting-sources') + 2)).toEqual(['--setting-sources', 'project']);
         expect(args).toEqual(expect.arrayContaining(['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']));
         expect(JSON.parse(args[args.indexOf('--settings') + 1])).toMatchObject({ hooks: {} });
-        expect(ADAPTERS.claude.outsideRepo).toBeUndefined();
+        for (const v of ['2.1.285 (Claude Code)', '2.1.300', '2.2.0', '3.0.0']) expect(ADAPTERS.claude.outsideRepo!('/home/x', v)).toBeUndefined();
+        expect(ADAPTERS.claude.outsideRepo!('/home/x', '2.1.284 (Claude Code)')).toBe('claude 2.1.284: memory isolation unverified (needs 2.1.285 or later)');
+        expect(ADAPTERS.claude.outsideRepo!('/home/x', '2.0.999')).toContain('unverified');
+        expect(ADAPTERS.claude.outsideRepo!('/home/x', '1.9.400')).toContain('unverified');
+        expect(ADAPTERS.claude.outsideRepo!('/home/x', undefined)).toBe('claude (version unknown): memory isolation unverified (needs 2.1.285 or later)');
     });
 
     it("says when codex will also read a person's own Codex config or instructions, and from where", () => {
@@ -83,14 +87,14 @@ describe('what a judge knows besides the repository', () => {
         const saved = process.env.CODEX_HOME;
         delete process.env.CODEX_HOME;
         try {
-            expect(ADAPTERS.codex.outsideRepo!(home)).toBeUndefined();
+            expect(ADAPTERS.codex.outsideRepo!(home, undefined)).toBeUndefined();
             fs.mkdirSync(path.join(home, '.codex'));
             fs.writeFileSync(path.join(home, '.codex', 'AGENTS.md'), 'Always answer in French.\n');
             fs.writeFileSync(path.join(home, '.codex', 'config.toml'), 'personality = "pragmatic"\n');
-            expect(ADAPTERS.codex.outsideRepo!(home)).toBe(`codex also reads ${path.join(home, '.codex', 'config.toml')} and ${path.join(home, '.codex', 'AGENTS.md')}`);
+            expect(ADAPTERS.codex.outsideRepo!(home, undefined)).toBe(`codex also reads ${path.join(home, '.codex', 'config.toml')} and ${path.join(home, '.codex', 'AGENTS.md')}`);
             process.env.CODEX_HOME = path.join(home, 'elsewhere');
-            expect(ADAPTERS.codex.outsideRepo!(home)).toBeUndefined(); // CODEX_HOME wins over the home folder
-            expect(ADAPTERS.cursor.outsideRepo!(home)).toBe('cursor also reads your own Cursor rules and settings');
+            expect(ADAPTERS.codex.outsideRepo!(home, undefined)).toBeUndefined(); // CODEX_HOME wins over the home folder
+            expect(ADAPTERS.cursor.outsideRepo!(home, undefined)).toBe('cursor also reads your own Cursor rules and settings');
         } finally {
             if (saved === undefined) delete process.env.CODEX_HOME;
             else process.env.CODEX_HOME = saved;
