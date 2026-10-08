@@ -62,12 +62,13 @@ const FILE_EXTENSIONS = new Set(['ts', 'tsx', 'mts', 'cts', 'js', 'mjs', 'cjs', 
 
 /**
  * A token that names a file or path: has a folder separator or a glob, or ends in a known file extension. Member
- * access (`JSON.parse`, `session.leadId`, `res.status`) is a symbol, not a file.
+ * access (`JSON.parse`, `session.leadId`, `res.status`) is a symbol, not a file. A bare `name.ext` is a file only when
+ * `exists` (the repository's file names) knows it, so `package.json` is a file and `res.json` is a member access.
  */
-function isPath(token: string): boolean {
+function isPath(token: string, exists?: (name: string) => boolean): boolean {
     if (/[/*?[\]{}]/.test(token)) return true;
     const extension = /\.([A-Za-z0-9]{1,8})$/.exec(token)?.[1];
-    return !!extension && FILE_EXTENSIONS.has(extension);
+    return !!extension && FILE_EXTENSIONS.has(extension) && (!exists || exists(token));
 }
 
 /** A token that names a symbol: an identifier, optionally dotted, optionally called. */
@@ -76,8 +77,12 @@ function symbolOf(token: string): string | undefined {
     return m && m[1].length >= 3 ? m[1] : undefined;
 }
 
-/** The goal a pull request's description declares; empty when it declares none. */
-export function parseGoal(description: string): Goal {
+/**
+ * The goal a pull request's description declares; empty when it declares none. `exists` tells a bare file name from a
+ * member access (isPath); without it, every bare name with a known file extension is a file.
+ */
+export function parseGoal(description: string, exists?: (name: string) => boolean): Goal {
+    const path = (token: string) => isPath(token, exists);
     const goal: Goal = { doneWhen: [], scope: [], outOfScope: [], invariants: [] };
     let section: Section | undefined;
     for (const line of description.replace(/\r\n/g, '\n').split('\n')) {
@@ -91,12 +96,12 @@ export function parseGoal(description: string): Goal {
         if (!item) continue;
         const ticked = [...item.matchAll(TICKED)].map(m => m[1].trim());
         if (section === 'doneWhen') {
-            goal.doneWhen.push({ text: item, paths: ticked.filter(isPath), symbols: ticked.filter(t => !isPath(t)).map(symbolOf).filter((s): s is string => !!s) });
+            goal.doneWhen.push({ text: item, paths: ticked.filter(path), symbols: ticked.filter(t => !path(t)).map(symbolOf).filter((s): s is string => !!s) });
         } else if (section === 'invariants') {
             goal.invariants.push(item);
         } else {
             // A scope entry is what it names in backticks, or the bullet itself when it is a bare path.
-            const paths = ticked.length ? ticked.filter(isPath) : isPath(item) && !/\s/.test(item) ? [item] : [];
+            const paths = ticked.length ? ticked.filter(path) : path(item) && !/\s/.test(item) ? [item] : [];
             goal[section].push(...paths.map(p => p.replace(/^\.\//, '')));
         }
     }
@@ -121,13 +126,13 @@ const EXEMPT = [/(^|\/)(__tests__|tests?|spec|__snapshots__)\//, /\.(test|spec)\
 
 /**
  * The goal's deterministic findings for a change. `changedLines` is the review's changed lines per file (generated files
- * already left out); a deleted file has none and is read from the diff's headers. A named symbol must appear on an
- * added or removed line.
+ * already left out); a deleted file has none and is read from the diff's headers, left out too when `isGenerated` says
+ * so. A named symbol must appear on an added or removed line.
  */
-export function goalFailures(goal: Goal, changedLines: Record<string, Set<number>>, diff: string): Failure[] {
+export function goalFailures(goal: Goal, changedLines: Record<string, Set<number>>, diff: string, isGenerated: (file: string) => boolean = () => false): Failure[] {
     const changed: Record<string, number | undefined> = {};
     for (const [file, lines] of Object.entries(changedLines)) changed[file] = lines.size ? Math.min(...lines) : undefined;
-    for (const m of diff.matchAll(/^--- a\/(.+)\n\+\+\+ \/dev\/null$/gm)) if (!(m[1] in changed)) changed[m[1]] = undefined;
+    for (const m of diff.matchAll(/^--- a\/(.+)\n\+\+\+ \/dev\/null$/gm)) if (!(m[1] in changed) && !isGenerated(m[1])) changed[m[1]] = undefined;
     const touched = diff.split('\n').filter(line => /^[+-]/.test(line) && !/^(\+\+\+|---) /.test(line)).map(line => line.slice(1)).join('\n');
     const failures: Failure[] = [];
     const files = Object.keys(changed).sort();

@@ -248,6 +248,10 @@ describe('git-backed review', () => {
         expect(result.advisory.filter(f => f.id === 'goal-done-when')).toHaveLength(1); // a named symbol is a note, never a block
         expect(result.report?.summary.goal).toBe('FAIL');
         expect(result.goal?.scope).toEqual(['src/']);
+        // A bare name is a file only when the repository has it: `src/a.ts` exists as `a.ts`, `res.json` does not.
+        const named = await reviewChange({ cwd: repo, config, goalDescription: '## Done when\n- `a.ts` changed\n- `res.json` returns the body' });
+        expect(named.findings.filter(f => f.id === 'goal-done-when')).toEqual([]);
+        expect(named.advisory.filter(f => f.id === 'goal-done-when').map(f => f.title)).toEqual([expect.stringContaining('`res.json`')]);
         const without = await reviewChange({ cwd: repo, config });
         expect(without.findings.filter(f => f.id.startsWith('goal-'))).toEqual([]);
         expect(without.report?.summary).not.toHaveProperty('goal');

@@ -108,6 +108,21 @@ describe('goalFailures', () => {
         expect(parseGoal('## Done when\n- `package.json`, `events.manifest.sha256` and `src/` updated').doneWhen[0].paths).toEqual(['package.json', 'events.manifest.sha256', 'src/']);
     });
 
+    it('reads a bare file name as a file only when the repository has it', () => {
+        const exists = (name: string) => name === 'package.json';
+        const goal = parseGoal('## Done when\n- `package.json` bumped\n- `res.json` returns the body', exists);
+        expect(goal.doneWhen.map(i => [i.paths, i.symbols])).toEqual([[['package.json'], []], [[], ['res.json']]]);
+        const failures = goalFailures(goal, parseDiff(diffOf({ 'src/a.ts': ['x'] })), diffOf({ 'src/a.ts': ['x'] }));
+        expect(failures.map(f => [f.title.includes('package.json'), !!f.advisory])).toEqual([[true, false], [false, true]]); // package.json blocks, res.json is a note
+        expect(parseGoal('## Scope\n- `src/x/`\n- `res.json`', exists).scope).toEqual(['src/x/']);
+    });
+
+    it('never counts deleting a generated file as scope drift', () => {
+        const diff = diffOf({ 'src/a.ts': ['x'] }, ['lib/client.gen.ts', 'lib/hand.ts']);
+        const failures = goalFailures(parseGoal('## Scope\n- `src/`'), parseDiff(diff), diff, file => file.includes('.gen.'));
+        expect(failures.map(f => f.files)).toEqual([['lib/hand.ts']]);
+    });
+
     it('never counts snapshots, changelogs or release notes as scope drift', () => {
         const diff = diffOf({ 'src/a.ts': ['x'], 'src/__snapshots__/a.test.ts.snap': ['x'], 'ui/view.snap': ['x'], 'CHANGELOG.md': ['x'], 'docs/releases/6.9.0.md': ['x'] });
         expect(check('## Scope\n- `src/`', diff)).toEqual([]);
