@@ -116,6 +116,8 @@ export interface ReviewerResult {
     /** The latest human review it worked from (`<login>, <date> (<n> reviews)`). */
     previousReview?: string;
     pr?: number;
+    /** The pull request's title, when one was read. */
+    prTitle?: string;
 }
 
 export interface ModeRecord {
@@ -149,6 +151,7 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     if (trigger !== 'backtest' && result.outcome !== 'skipped') appendTaskEvent(cwd, {
         kind: 'review', trigger, outcome: result.outcome, blocking: result.items.length, should_fix: result.advisory.length,
         ...(result.pr ? { pr: result.pr } : {}),
+        ...(result.prTitle ? { pr_title: result.prTitle } : {}),
         ...(result.record ? { integrity: result.record.integrity, cost_usd: result.record.judges.reduce((sum, j) => sum + (j.cost_usd ?? 0), 0), judges: result.record.judges.map(j => j.reviewer) } : {}),
     });
     return result;
@@ -554,5 +557,6 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         cached,
         ...(reviews.label ? { previousReview: reviews.label } : {}),
         ...(pr ? { pr: pr.number } : {}),
+        ...(pr?.title ? { prTitle: pr.title } : {}),
     };
 }

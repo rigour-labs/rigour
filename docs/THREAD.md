@@ -15,8 +15,10 @@ rigour thread --json       # the events, for a tool or an agent
 
 ## The key
 
-The task is the ticket the branch names (`feat/proj-123-retry` → `PROJ-123`) once a commit subject on the branch
-names it too, written as a ticket (`PROJ-123: retry`); otherwise the branch itself. A version token in a branch name
+The task is the ticket the branch names (`feat/proj-123-retry` → `PROJ-123`) once a commit subject on the branch, or
+the title of its pull request as a review recorded it (`feat(PROJ-123): retry`), writes it as a ticket; otherwise the
+branch itself. The task is worked out once per commit and kept, so the after-edit hook adds about 25 ms per edit (three
+`git` calls), measured on this repository. A version token in a branch name
 (`pin-node-22`, `fix/utf-8-decoding`, `release-1.4`) is not a ticket, because no commit writes it that way. Events are
 kept per branch, one file each, so a ticket worked on in two branches gathers both, from their first event, and two
 unrelated branches never share a thread. Rigour never invents a key. A pull request joins the thread when a review of

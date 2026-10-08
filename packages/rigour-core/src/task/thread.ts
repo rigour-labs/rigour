@@ -2,8 +2,9 @@
  * The engineering task: one piece of work, whatever agents and people touch it, and its thread, everything that
  * happened to it in order. Events are kept per branch, one file each (`<git dir>/rigour/threads/<branch>-<hash>.jsonl`,
  * the hash of the exact branch name, so no two branches share a file). The task is the ticket the branch names when
- * the branch's own commit subjects name it too (`PROJ-123`): a version token in a branch name (`pin-node-22`,
- * `utf-8`) is not a ticket. Otherwise the task is the branch. Reading a ticket gathers every branch that worked on it;
+ * the branch's own commit subjects, or the title of its pull request as a review recorded it, write it as a ticket
+ * (`PROJ-123`): a version token in a branch name (`pin-node-22`, `utf-8`) is not a ticket. Otherwise the task is the
+ * branch. The task is worked out once per commit and kept: the edit hook runs on every edit. Reading a ticket gathers every branch that worked on it;
  * a pull request joins when a review of it runs. Writers only append, and never fail the hook or command they run in.
  * The files live in the repository's common git folder, shared by its worktrees; nothing enters the working tree.
  *
@@ -48,12 +49,49 @@ export interface ThreadEvent extends TaskEvent {
  * it too, else the branch; undefined on a detached head.
  */
 export function taskOf(cwd: string): { key: string; branch: string; head?: string } | undefined {
+    const task = taskIn(cwd);
+    return task ? { key: task.key, branch: task.branch, ...(task.head ? { head: task.head } : {}) } : undefined;
+}
+
+/** The task and the folder its thread is in, with one lookup of each: the edit hook pays for this on every edit. */
+function taskIn(cwd: string): { key: string; branch: string; head?: string; dir?: string } | undefined {
     const branch = git(cwd, ['symbolic-ref', '--short', '-q', 'HEAD']); // a branch with no commit yet has a task too
     if (!branch) return undefined;
+    const head = git(cwd, ['rev-parse', '-q', '--verify', 'HEAD']);
+    const dir = threadsDir(cwd);
+    const cache = dir ? path.join(dir, '..', 'task-cache.json') : undefined;
+    const cached = cache ? readJson(cache)[branch] : undefined;
+    if (cached && cached.head === (head ?? '') && typeof cached.key === 'string') return { key: cached.key, branch, ...(head ? { head } : {}), ...(dir ? { dir } : {}) };
     const ticket = TICKET.exec(branch)?.[1]?.toUpperCase();
-    // Written as a ticket (upper case, as trackers print it) in a commit subject of the branch: `node-22` in a subject is a version.
-    const confirmed = ticket && branchSubjects(cwd).some(subject => new RegExp(`(^|[^A-Za-z0-9])${ticket.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![0-9])`).test(subject));
-    return { key: confirmed ? ticket : `branch:${branch}`, branch, head: git(cwd, ['rev-parse', 'HEAD']) };
+    // Written as a ticket (upper case, as trackers print it): `node-22` in a subject is a version, not a ticket.
+    const written = ticket ? new RegExp(`(^|[^A-Za-z0-9])${ticket.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![0-9])`) : undefined;
+    const titles = dir ? readEvents(path.join(dir, branchFile(branch))).map(e => e.pr_title).filter((t): t is string => typeof t === 'string') : [];
+    const confirmed = !!written && [...titles, ...branchSubjects(cwd)].some(text => written.test(text));
+    const key = confirmed ? ticket! : `branch:${branch}`;
+    if (cache) writeCache(cache, branch, { head: head ?? '', key });
+    return { key, branch, ...(head ? { head } : {}), ...(dir ? { dir } : {}) };
+}
+
+function readJson(file: string): Record<string, { head?: string; key?: string }> {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+/** The task worked out for a branch at a commit; `undefined` forgets it (a new pull request title may confirm a ticket). */
+function writeCache(file: string, branch: string, entry: { head: string; key: string } | undefined): void {
+    try {
+        const all = readJson(file);
+        if (entry) all[branch] = entry;
+        else delete all[branch];
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(all));
+    } catch {
+        // a cache that cannot be written is worked out again next time
+    }
 }
 
 /** The subjects of the branch's own commits: since it left the main branch, or its last 50 when no main branch is found. */
@@ -67,13 +105,14 @@ function branchSubjects(cwd: string): string[] {
 /** Appends one event to the checkout's task thread. Best effort: a thread never breaks the hook or command it runs in. */
 export function appendTaskEvent(cwd: string, event: TaskEvent): ThreadEvent | undefined {
     try {
-        const task = taskOf(cwd);
-        if (!task) return undefined;
+        const task = taskIn(cwd);
+        if (!task?.dir) return undefined;
+        const dir = task.dir;
         const line: ThreadEvent = { at: new Date().toISOString(), task: task.key, branch: task.branch, ...(task.head ? { head: task.head } : {}), ...event };
-        const dir = threadsDir(cwd);
-        if (!dir) return undefined;
         fs.mkdirSync(dir, { recursive: true });
         fs.appendFileSync(path.join(dir, branchFile(task.branch)), JSON.stringify(line) + '\n');
+        // A pull request title can confirm the branch's ticket: work the task out again next time.
+        if (typeof event.pr_title === 'string' && task.key.startsWith('branch:')) writeCache(path.join(dir, '..', 'task-cache.json'), task.branch, undefined);
         return line;
     } catch {
         return undefined;

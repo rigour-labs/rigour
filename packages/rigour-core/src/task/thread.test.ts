@@ -46,6 +46,29 @@ describe('the engineering task', () => {
         expect(appendTaskEvent(repo, { kind: 'push', passed: true })).toBeUndefined();
     });
 
+    it("takes the ticket from the pull request's title once a review recorded it, when the commits use another scope", () => {
+        git('checkout', '-qb', 'feat/PROJ-7-retry');
+        commit('fix(retry): back off on 429');
+        appendTaskEvent(repo, { kind: 'edit-check', files: ['src/retry.ts'], findings: 0 });
+        expect(taskOf(repo)?.key).toBe('branch:feat/PROJ-7-retry');
+        appendTaskEvent(repo, { kind: 'review', pr: 7, pr_title: 'feat(PROJ-7): retry with backoff', outcome: 'passed', blocking: 0 });
+        expect(taskOf(repo)?.key).toBe('PROJ-7'); // the same commit: the title confirmed it, and the kept task was dropped
+        appendTaskEvent(repo, { kind: 'push', passed: true });
+        expect(readThread(repo, 'PROJ-7')?.events.map(e => [e.kind, e.task])).toEqual([['edit-check', 'branch:feat/PROJ-7-retry'], ['review', 'branch:feat/PROJ-7-retry'], ['push', 'PROJ-7']]);
+    });
+
+    it('works the task out once per commit and keeps it, so the edit hook does not read the branch history on every edit', () => {
+        git('checkout', '-qb', 'feat/PROJ-9-cache');
+        commit('PROJ-9: start');
+        expect(taskOf(repo)?.key).toBe('PROJ-9');
+        const cache = path.join(repo, '.git', 'rigour', 'task-cache.json');
+        expect(JSON.parse(fs.readFileSync(cache, 'utf8'))['feat/PROJ-9-cache']).toEqual({ head: git('rev-parse', 'HEAD'), key: 'PROJ-9' });
+        fs.writeFileSync(cache, JSON.stringify({ 'feat/PROJ-9-cache': { head: git('rev-parse', 'HEAD'), key: 'KEPT-1' } }));
+        expect(taskOf(repo)?.key).toBe('KEPT-1'); // read from what was kept, not worked out again
+        commit('PROJ-9: more');
+        expect(taskOf(repo)?.key).toBe('PROJ-9'); // a new commit: worked out again
+    });
+
     it('keeps one file per exact branch: a/b and a_b never share a thread', () => {
         git('checkout', '-qb', 'feat/a/b');
         appendTaskEvent(repo, { kind: 'push', passed: true });
