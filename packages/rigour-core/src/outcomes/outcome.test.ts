@@ -45,13 +45,14 @@ function history(strategy: 'merge' | 'squash'): { mergeSha: string; mergedAt: st
 const ci = (result: CiResult, calls: string[] = []) => async (sha: string) => { calls.push(sha); return result; };
 
 /** One pull request's outcome, read fresh (no store from an earlier read). */
-async function prOutcome(pr: { number: number; mergeSha: string; mergedAt: string; branch: string }, options: { mainRef: string; windowDays: number; until: string; ci: (sha: string) => Promise<CiResult> }): Promise<PrOutcome> {
+async function prOutcome(pr: { number: number; mergeSha: string; mergedAt: string; branch: string; author: string }, options: { mainRef: string; windowDays: number; until: string; ci: (sha: string) => Promise<CiResult> }): Promise<PrOutcome> {
     fs.rmSync(path.join(repo, '.rigour', 'outcomes.json'), { force: true });
     return (await updatePrOutcomes(repo, [pr], options)).outcomes[0];
 }
 const stored = () => JSON.parse(fs.readFileSync(path.join(repo, '.rigour', 'outcomes.json'), 'utf8')).outcomes;
-/** The CI result gh's check runs would give. */
-const ciFrom = (runs: Array<{ status: string; conclusion: string | null }>) => checkRunsCi(repo, async () => ({ exitCode: 0, stdout: JSON.stringify(runs), stderr: '' }))('abc');
+type Run = { name?: string; status: string; conclusion: string | null };
+/** The CI result gh's check runs would give: `merge` on the merge commit, `before` on the commit before it. */
+const ciFrom = (merge: Run[], before: Run[] = []) => checkRunsCi(repo, async (_c, args) => ({ exitCode: 0, stdout: JSON.stringify(args[2].includes('/abc^1/') ? before : merge), stderr: '' }))('abc', 'abc^1');
 
 beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'outcomes-'));
@@ -66,7 +67,7 @@ describe('the outcome of a merged pull request', () => {
     for (const strategy of ['merge', 'squash'] as const) {
         it(`reads its files, the later commits on them inside the window, and a revert, for a ${strategy} merge`, async () => {
             const { mergeSha, mergedAt } = history(strategy);
-            const outcome = await prOutcome({ number: 7, mergeSha, mergedAt, branch: 'feature' }, { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
+            const outcome = await prOutcome({ number: 7, mergeSha, mergedAt, branch: 'feature', author: 'ana' }, { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
             expect(outcome.files).toEqual(['a.ts']);
             // b.ts is not the pull request's file; day 45 is after the window.
             expect(outcome.followUps.map(f => [f.subject, f.fix, f.files])).toEqual([
@@ -80,7 +81,7 @@ describe('the outcome of a merged pull request', () => {
 
     it('is not settled while the window is open, or while CI is pending or unreadable', async () => {
         const { mergeSha, mergedAt } = history('merge');
-        const pr = { number: 7, mergeSha, mergedAt, branch: 'feature' };
+        const pr = { number: 7, mergeSha, mergedAt, branch: 'feature', author: 'ana' };
         const open = await prOutcome(pr, { mainRef: 'main', windowDays: 30, until: day(5), ci: ci('success') });
         expect(open).toMatchObject({ settled: false, windowEnd: day(5) });
         expect(open.followUps.map(f => f.subject)).toEqual(['fix: a was off by one']); // nothing after `until`
@@ -92,7 +93,7 @@ describe('the outcome of a merged pull request', () => {
 
     it('keeps a settled record without reading it again, records merge and outcome on the branch\'s thread once, and stops at a deadline', async () => {
         const { mergeSha, mergedAt } = history('merge');
-        const prs = [{ number: 7, mergeSha, mergedAt, branch: 'feature' }];
+        const prs = [{ number: 7, mergeSha, mergedAt, branch: 'feature', author: 'ana' }];
         const calls: string[] = [];
         const options = { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('failure', calls) };
         expect((await updatePrOutcomes(repo, prs, options)).read).toBe(1);
@@ -119,44 +120,116 @@ describe('the outcome of a merged pull request', () => {
         git(['merge', '-q', '--no-ff', 'feature', '-m', 'Merge pull request #9'], day(0));
         const mergeSha = git(['rev-parse', 'HEAD']);
         commit(files[1999], 'export const n = 0;\n', 'fix: the last file', day(2));
-        const outcome = await prOutcome({ number: 9, mergeSha, mergedAt: day(0), branch: 'feature' }, { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
+        const outcome = await prOutcome({ number: 9, mergeSha, mergedAt: day(0), branch: 'feature', author: 'ana' }, { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
         expect(outcome.files).toHaveLength(2000);
         expect(outcome.followUps.map(f => [f.subject, f.files])).toEqual([['fix: the last file', [files[1999]]]]);
     }, 60_000);
 
+    it('reads main\'s log once for every pull request it brings up to date', async () => {
+        const first = history('merge');
+        git(['checkout', '-qb', 'second']);
+        commit('b.ts', 'export const b = 9;\n', 'change b', day(46));
+        git(['checkout', '-q', 'main']);
+        git(['merge', '-q', '--no-ff', 'second', '-m', 'Merge pull request #8 from second'], day(47));
+        const second = git(['rev-parse', 'HEAD']);
+        commit('b.ts', 'export const b = 10;\n', 'fix: b again', day(50));
+        const calls: string[][] = [];
+        const counted = (args: string[]) => { calls.push(args); return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }); };
+        const { outcomes } = await updatePrOutcomes(repo, [
+            { number: 7, ...first, branch: 'feature', author: 'ana' },
+            { number: 8, mergeSha: second, mergedAt: day(47), branch: 'second', author: 'bo' },
+        ], { mainRef: 'main', windowDays: 30, until: day(90), ci: ci('success'), git: counted });
+        expect(calls.filter(args => args[0] === 'log')).toHaveLength(1);
+        expect(outcomes.map(o => [o.pr, o.followUps.map(f => f.subject)])).toEqual([
+            [7, ['fix: a was off by one', 'Revert "change a" (#7)']],
+            [8, ['fix: b again']],
+        ]);
+    });
+
+    it('reads the oldest merges first, and moves on from one read in the last 12 hours, so a deadline never starves the older ones', async () => {
+        const first = history('merge');
+        git(['checkout', '-qb', 'second']);
+        commit('b.ts', 'export const b = 9;\n', 'change b', day(1));
+        git(['checkout', '-q', 'main']);
+        git(['merge', '-q', '--no-ff', 'second', '-m', 'Merge pull request #8 from second'], day(2));
+        const prs = [
+            { number: 8, mergeSha: git(['rev-parse', 'HEAD']), mergedAt: day(2), branch: 'second', author: 'bo' }, // newest first, as gh lists them
+            { number: 7, ...first, branch: 'feature', author: 'ana' },
+        ];
+        const slow = (seen: string[]) => async (sha: string) => { seen.push(sha); await new Promise(resolve => setTimeout(resolve, 600)); return 'success' as const; };
+        const seen: string[] = [];
+        // Both windows open (day 10), and time for one read before the deadline.
+        const cut = await updatePrOutcomes(repo, prs, { mainRef: 'main', windowDays: 30, until: day(10), ci: slow(seen), deadline: Date.now() + 300 });
+        expect(cut).toMatchObject({ read: 1, stopped: expect.stringContaining('read deadline') });
+        expect(seen).toEqual([first.mergeSha]); // #7, merged first
+        const next = await updatePrOutcomes(repo, prs, { mainRef: 'main', windowDays: 30, until: new Date(Date.parse(day(10)) + 3_600_000).toISOString(), ci: slow(seen) });
+        expect(next.read).toBe(1); // #8 only: #7 was read an hour ago
+        expect(next.outcomes.map(o => o.pr)).toEqual([8, 7]); // in the order asked for
+    });
+
     it('writes no thread for a branch this machine never worked on', async () => {
         const { mergeSha, mergedAt } = history('merge');
-        await updatePrOutcomes(repo, [{ number: 7, mergeSha, mergedAt, branch: 'someone-else' }], { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
+        await updatePrOutcomes(repo, [{ number: 7, mergeSha, mergedAt, branch: 'someone-else', author: 'ana' }], { mainRef: 'main', windowDays: 30, until: day(60), ci: ci('success') });
         expect(readThread(repo, 'someone-else')).toBeUndefined();
     });
 });
 
 describe('CI on the merge commit', () => {
-    it('fails on any failed or timed-out run, waits on one still going, and ignores cancelled and skipped runs', async () => {
+    it('fails only on a check the merge broke: one that did not fail on the commit before it', async () => {
+        const ok = { name: 'build', status: 'completed', conclusion: 'success' };
+        expect(await ciFrom([ok, { name: 'tests', status: 'completed', conclusion: 'failure' }])).toBe('failure');
+        expect(await ciFrom([ok, { name: 'tests', status: 'completed', conclusion: 'timed_out' }])).toBe('failure');
+        // A security scan was already red on main: the merge broke nothing.
+        expect(await ciFrom([ok, { name: 'security-scan', status: 'completed', conclusion: 'failure' }], [{ name: 'security-scan', status: 'completed', conclusion: 'failure' }])).toBe('success');
         expect(await ciFrom([])).toBe('none');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'failure' }])).toBe('failure');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'timed_out' }])).toBe('failure');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'success' }, { status: 'in_progress', conclusion: null }])).toBe('pending');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'skipped' }])).toBe('success');
-        expect(await ciFrom([{ status: 'completed', conclusion: 'cancelled' }])).toBe('none');
+        expect(await ciFrom([ok, { name: 'e2e', status: 'in_progress', conclusion: null }])).toBe('pending');
+        expect(await ciFrom([ok, { name: 'lint', status: 'completed', conclusion: 'skipped' }])).toBe('success');
+        expect(await ciFrom([{ name: 'x', status: 'completed', conclusion: 'cancelled' }])).toBe('none');
     });
 
-    it('reads every page of check runs: a failure on page two is a failure', async () => {
+    it('reads every page of check runs, and the commit before the merge only when the merge has a failure', async () => {
         const seen: string[][] = [];
-        const pages = [Array.from({ length: 100 }, () => ({ status: 'completed', conclusion: 'success' })), [{ status: 'completed', conclusion: 'failure' }]];
-        const paged: Exec = async (_c, args) => { seen.push(args); return { exitCode: 0, stdout: pages.map(p => JSON.stringify(p)).join('\n'), stderr: '' }; };
-        expect(await checkRunsCi(repo, paged)('abc')).toBe('failure');
-        expect(seen[0].slice(0, 3)).toEqual(['api', '--paginate', 'repos/{owner}/{repo}/commits/abc/check-runs?per_page=100']);
+        const pages = [Array.from({ length: 100 }, (_, i) => ({ name: `job ${i}`, status: 'completed', conclusion: 'success' })), [{ name: 'job 100', status: 'completed', conclusion: 'failure' }]];
+        const paged: Exec = async (_c, args) => { seen.push(args); return { exitCode: 0, stdout: args[2].includes('/abc^1/') ? '[]' : pages.map(p => JSON.stringify(p)).join('\n'), stderr: '' }; };
+        expect(await checkRunsCi(repo, paged)('abc', 'abc^1')).toBe('failure');
+        expect(seen.map(args => args.slice(0, 3))).toEqual([['api', '--paginate', 'repos/{owner}/{repo}/commits/abc/check-runs?per_page=100'], ['api', '--paginate', 'repos/{owner}/{repo}/commits/abc^1/check-runs?per_page=100']]);
+        seen.length = 0;
+        await checkRunsCi(repo, async (_c, args) => { seen.push(args); return { exitCode: 0, stdout: JSON.stringify([{ name: 'a', status: 'completed', conclusion: 'success' }]), stderr: '' }; })('abc', 'abc^1');
+        expect(seen).toHaveLength(1);
     });
 
     it('is unavailable, never a throw and never "none", when gh fails or answers something that does not parse', async () => {
-        expect(await checkRunsCi(repo, async () => ({ exitCode: 0, stdout: '[{"status":', stderr: '' }))('abc')).toBe('unavailable');
-        expect(await checkRunsCi(repo, async () => ({ exitCode: 1, stdout: '', stderr: 'HTTP 404' }))('abc')).toBe('unavailable');
-        expect(await checkRunsCi(repo, async () => { throw new Error('spawn gh ENOENT'); })('abc')).toBe('unavailable');
+        expect(await checkRunsCi(repo, async () => ({ exitCode: 0, stdout: '[{"status":', stderr: '' }))('abc', 'abc^1')).toBe('unavailable');
+        expect(await checkRunsCi(repo, async () => ({ exitCode: 1, stdout: '', stderr: 'HTTP 404' }))('abc', 'abc^1')).toBe('unavailable');
+        expect(await checkRunsCi(repo, async () => { throw new Error('spawn gh ENOENT'); })('abc', 'abc^1')).toBe('unavailable');
+        // A failure on the merge, and the commit before it unreadable: not known whether the merge broke it.
+        const merge = JSON.stringify([{ name: 't', status: 'completed', conclusion: 'failure' }]);
+        expect(await checkRunsCi(repo, async (_c, args) => (args[2].includes('/abc^1/') ? { exitCode: 1, stdout: '', stderr: 'HTTP 502' } : { exitCode: 0, stdout: merge, stderr: '' }))('abc', 'abc^1')).toBe('unavailable');
     });
 });
 
 describe('rigour outcomes', () => {
+    it('applies what the records show to the team\'s review lessons, and writes them only when something changed', async () => {
+        const { mergeSha, mergedAt } = history('merge');
+        const file = path.join(repo, '.rigour', 'review-lessons.json');
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        // An inline point on line 1 of a.ts, made on the pull request's last commit and left alone by it.
+        const lesson = { id: 'L1', text: 'a is never off by one', file: 'a.ts', symbols: [], state: 'candidate', at: { commit: git(['rev-parse', 'feature']), start: 1, end: 1 }, evidence: [{ kind: 'point', pr: 7, comment: 'c7', author: 'rev', actedOn: false }], createdAt: day(-1), updatedAt: day(-1) };
+        fs.writeFileSync(file, JSON.stringify({ version: 1, lessons: [lesson] }));
+        const exec: Exec = async (_c, args) => {
+            if (args[0] === 'pr') return { exitCode: 0, stdout: JSON.stringify({ number: 7, mergedAt, mergeCommit: { oid: mergeSha }, headRefName: 'feature', author: { login: 'ana' }, state: 'MERGED' }), stderr: '' };
+            return { exitCode: 0, stdout: JSON.stringify([{ status: 'completed', conclusion: 'success' }]), stderr: '' };
+        };
+        const run = await runOutcomes(repo, ConfigSchema.parse({ version: 1 }), { flag: true, pr: 7, exec });
+        // The fix on day 3 changed the point's own line.
+        expect(run.lessons).toMatchObject({ added: 1, suggested: ['L1'] });
+        // Evidence for a person to look at in Studio, never a promotion.
+        expect(JSON.parse(fs.readFileSync(file, 'utf8')).lessons[0]).toMatchObject({ state: 'candidate', evidence: [{ kind: 'point' }, { kind: 'lines' }] });
+        const written = fs.statSync(file).mtimeMs;
+        expect((await runOutcomes(repo, ConfigSchema.parse({ version: 1 }), { flag: true, pr: 7, exec })).lessons).toMatchObject({ added: 0 });
+        expect(fs.statSync(file).mtimeMs).toBe(written);
+    });
+
     it('reads nothing, and asks GitHub nothing, with the outcome loop off', async () => {
         const calls: string[][] = [];
         const run = await runOutcomes(repo, ConfigSchema.parse({ version: 1 }), { exec: async (_c, args) => { calls.push(args); return { exitCode: 1, stdout: '', stderr: '' }; } });

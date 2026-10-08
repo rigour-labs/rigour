@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendTaskEvent, readThread, taskOf, threadsDir, threadText } from './thread.js';
+import { appendBranchEvent, appendTaskEvent, eventsOfKind, readThread, taskOf, threadsDir, threadText } from './thread.js';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
@@ -139,5 +139,19 @@ describe('the engineering task', () => {
         expect(appendTaskEvent(repo, { kind: 'push', passed: true })).toBeUndefined();
         expect(readThread(repo)?.events ?? []).toEqual([]);
         expect(threadText({ task: 'PROJ-8', events: [] })).toEqual(['PROJ-8: nothing recorded yet']);
+    });
+});
+
+describe('events across threads', () => {
+    it('reads one kind from every branch\'s thread, oldest first, and writes to a named branch only when it has a thread', () => {
+        git('checkout', '-qb', 'one');
+        appendTaskEvent(repo, { kind: 'review', pr: 1, lessons_applied: ['L1'] });
+        git('checkout', '-qb', 'two');
+        appendTaskEvent(repo, { kind: 'push', passed: true });
+        appendTaskEvent(repo, { kind: 'review', pr: 2 });
+        expect(eventsOfKind(repo, 'review').map(e => [e.branch, e.pr])).toEqual([['one', 1], ['two', 2]]);
+        expect(appendBranchEvent(repo, 'one', { kind: 'merge', pr: 1 })?.task).toBe('branch:one');
+        expect(appendBranchEvent(repo, 'never-here', { kind: 'merge', pr: 9 })).toBeUndefined();
+        expect(eventsOfKind(repo, 'merge').map(e => e.pr)).toEqual([1]);
     });
 });

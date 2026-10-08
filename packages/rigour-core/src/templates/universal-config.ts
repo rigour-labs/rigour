@@ -282,7 +282,7 @@ export const UNIVERSAL_CONFIG: Config = {
         max_items: 10,
     },
     learning: {
-        outcomes: { mode: 'off', window_days: 30 },
+        outcomes: { mode: 'off', window_days: 30, demote_after: 2 },
     },
     review: {
         include_heuristics: false,

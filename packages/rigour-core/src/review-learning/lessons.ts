@@ -44,10 +44,18 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *   counter   the lines shipped unchanged and nothing needed fixing within the window;
  *   correction  a person changed what an agent wrote (human-edits.ts): heavily weighted, it makes a lesson;
  *   accepted / rejected   a person decided (`rigour learn-reviews --promote / --reject`);
- *   norule    the rule writer found no rule in it (a report, a template, a one-off): never promoted again.
+ *   norule    the rule writer found no rule in it (a report, a template, a one-off): never promoted again;
+ *   followup  a later fix touched the point's file, with nothing else to show it was this point (outcome-evidence.ts):
+ *             recorded, never enough on its own;
+ *   lines     a later fix changed the point's own lines (outcome-evidence.ts): shown for a person to promote or dismiss,
+ *             never a promotion on its own (a fix on the same lines is often unrelated work);
+ *   dismissed a person looked at that evidence and set it aside: the lesson stays as it was;
+ *   against   a later pull request a review found repeating the lesson merged anyway and settled clean;
+ *   demoted   enough independent `against` pull requests took back a lesson evidence had promoted: a candidate again,
+ *             until a person promotes it.
  * A record from before evidence kinds has none: it is a `point`.
  */
-export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule';
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted';
 
 export interface LessonEvidence {
     kind?: EvidenceKind;
@@ -100,6 +108,8 @@ export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 
     if (last?.kind === 'rejected') return { state: 'rejected' };
     if (last?.kind === 'accepted') return { state: 'verified', promotedBy: 'person' };
     if (kinds.has('norule')) return { state: 'candidate' };
+    // Taken back by evidence (outcome-evidence.ts): a person's decision above is the only way back.
+    if (kinds.has('demoted')) return { state: 'candidate' };
     if (kinds.has('correction')) return { state: 'verified', promotedBy: 'correction' };
     if (kinds.has('outcome')) return { state: 'verified', promotedBy: 'outcome' };
     if (kinds.has('counter')) return { state: 'candidate' };
@@ -287,7 +297,7 @@ export function writeLessons(cwd: string, lessons: ReviewLesson[]): void {
 }
 
 /** A person's decision on a lesson, kept as evidence: accepted makes it a lesson, rejected an anti-lesson. Undefined for an unknown id. */
-export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected', by: string, why = ''): ReviewLesson | undefined {
+export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected' | 'dismissed', by: string, why = ''): ReviewLesson | undefined {
     const lessons = readLessons(cwd);
     const lesson = lessons.find(l => l.id === id);
     if (!lesson) return undefined;

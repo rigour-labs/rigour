@@ -10,6 +10,7 @@
 import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
+import { personOf } from './git-identity.js';
 import { branchBase, decideLesson, defaultExec, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
@@ -65,13 +66,7 @@ function list(cwd: string, json?: boolean): void {
 
 /** A person's decision, kept as evidence with who made it (their git email) and why. */
 function decide(cwd: string, id: string, decision: 'accepted' | 'rejected', why?: string): void {
-    let by = 'unknown';
-    try {
-        by = execFileSync('git', ['config', 'user.email'], { cwd, encoding: 'utf8' }).trim() || by;
-    } catch {
-        // no git identity: recorded as unknown
-    }
-    const lesson = decideLesson(cwd, id, decision, by, why);
+    const lesson = decideLesson(cwd, id, decision, personOf(cwd), why);
     if (!lesson) {
         console.error(chalk.red(`No lesson ${id}.`));
         process.exitCode = 1;

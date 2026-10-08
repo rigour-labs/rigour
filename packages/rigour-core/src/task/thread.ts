@@ -119,6 +119,13 @@ export function appendTaskEvent(cwd: string, event: TaskEvent): ThreadEvent | un
     }
 }
 
+/** Every thread's events of one kind, oldest first: what the outcome loop reads across tasks (the reviews that found a lesson repeated). */
+export function eventsOfKind(cwd: string, kind: TaskEventKind): ThreadEvent[] {
+    const dir = threadsDir(cwd);
+    if (!dir) return [];
+    return listThreads(dir).flatMap(file => readEvents(path.join(dir, file))).filter(e => e.kind === kind).sort(byTime);
+}
+
 /**
  * Appends one event to a named branch's thread, under the task its own events carry: what happened to a pull request
  * after it merged, recorded from wherever the outcome was read. Only a thread that already exists is written: a branch

@@ -385,6 +385,8 @@ export const ConfigSchema = z.object({
             mode: z.enum(['off', 'on', 'required']).optional().default('off'),
             /** How long after a merge later commits count, in days. */
             window_days: z.number().int().min(7).max(90).optional().default(30),
+            /** How many later pull requests, independent and settled clean after a review found them repeating a lesson, demote it (review-learning/outcome-evidence.ts). */
+            demote_after: z.number().int().min(2).optional().default(2),
         }).optional().default({}),
     }).optional().default({}),
     /** rigour review / rigour_review / the PR bot / the stop hook. */

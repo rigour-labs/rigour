@@ -99,7 +99,7 @@ describe('goalFailures', () => {
     });
 
     it('keeps an item stating a preserved property a note, never a block', () => {
-        for (const item of ['`isCronRequest` is still the only Bearer check', '`resolveReviewer` behaviour unchanged', '`attemptCounts` covers every writer', '`run` remains the only entry']) {
+        for (const item of ['`isAdminRequest` is still the only Bearer check', '`resolveReviewer` behaviour unchanged', '`retryCounts` covers every writer', '`run` remains the only entry']) {
             const failures = check(`## Done when\n- ${item}`, diffOf({ 'a.ts': ['x'] }));
             expect(failures).toHaveLength(1);
             expect(failures[0].advisory).toBe(true);
@@ -107,7 +107,7 @@ describe('goalFailures', () => {
     });
 
     it('reads member access as a symbol, never a file the change must touch', () => {
-        for (const token of ['JSON.parse', 'Promise.all', 'window.location', 'res.status', 'session.leadId', 'user.email']) {
+        for (const token of ['JSON.parse', 'Promise.all', 'window.location', 'res.status', 'order.customerId', 'user.email']) {
             const goal = parseGoal(`## Done when\n- \`${token}\` reaches checkout`);
             expect(goal.doneWhen[0]).toMatchObject({ paths: [], symbols: [token] });
             expect(check(`## Done when\n- \`${token}\` reaches checkout`, diffOf({ 'src/checkout.ts': [`const x = ${token};`] }))).toEqual([]);
@@ -125,10 +125,10 @@ describe('goalFailures', () => {
     });
 
     it('never reads a URL or an app route as a file of the repository', () => {
-        const goal = parseGoal('## Done when\n- `a.e2e.ts` asserts the CTA href is `https://<host>/checkout?[lead_id=…&]origin=x`\n- `/learner/dashboard` shows the plan\n- `http://www.vt.local:3002/learner` loads', () => true);
+        const goal = parseGoal('## Done when\n- `a.e2e.ts` asserts the CTA href is `https://<host>/checkout?[id=…&]origin=x`\n- `/app/dashboard` shows the plan\n- `http://app.local:3000/app` loads', () => true);
         expect(goal.doneWhen.map(i => i.paths)).toEqual([['a.e2e.ts'], [], []]);
-        expect(check('## Scope\n- `/learner/`\n- `https://example.com/x`', diffOf({ 'src/a.ts': ['x'] }))).toEqual([]);
-        expect(parseGoal('## Scope\n- `src/routes/(app)/learner/+page.svelte`\n- `$lib/server/`').scope).toEqual(['src/routes/(app)/learner/+page.svelte', '$lib/server/']);
+        expect(check('## Scope\n- `/app/`\n- `https://example.com/x`', diffOf({ 'src/a.ts': ['x'] }))).toEqual([]);
+        expect(parseGoal('## Scope\n- `src/routes/(app)/settings/+page.svelte`\n- `$lib/server/`').scope).toEqual(['src/routes/(app)/settings/+page.svelte', '$lib/server/']);
     });
 
     it('never counts deleting a generated file as scope drift', () => {

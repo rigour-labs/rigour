@@ -321,6 +321,16 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/review-lessons' && req.method === 'POST') {
+        try {
+            const { decideReviewLesson } = await import('./studio-learning.js');
+            sendJson(res, 200, decideReviewLesson(cwd, JSON.parse((await readBody(req)) || '{}')));
+        } catch (e: any) {
+            sendJson(res, 400, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/learning') {
         try {
             const { loadLearning } = await import('./studio-learning.js');

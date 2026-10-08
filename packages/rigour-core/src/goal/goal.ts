@@ -63,9 +63,9 @@ const FILE_EXTENSIONS = new Set(['ts', 'tsx', 'mts', 'cts', 'js', 'mjs', 'cjs', 
 
 /**
  * A token that names a file or path: has a folder separator or a glob, or ends in a known file extension. Member
- * access (`JSON.parse`, `session.leadId`, `res.status`) is a symbol, not a file. A bare `name.ext` is a file only when
+ * access (`JSON.parse`, `order.customerId`, `res.status`) is a symbol, not a file. A bare `name.ext` is a file only when
  * `exists` (the repository's file names) knows it, so `package.json` is a file and `res.json` is a member access. A URL
- * or an app route (`https://host/checkout?x=1`, `/learner/dashboard`) is never a file of the repository.
+ * or an app route (`https://host/checkout?x=1`, `/app/dashboard`) is never a file of the repository.
  */
 function isPath(token: string, exists?: (name: string) => boolean): boolean {
     if (/:\/\//.test(token) || token.startsWith('/') || !/^[\w.@/*?[\]{}!,+()$~-]+$/.test(token)) return false;
