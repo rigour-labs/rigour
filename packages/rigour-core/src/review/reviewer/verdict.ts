@@ -32,20 +32,28 @@ export interface LabelledPoint { login: string; at: string; severity: NonNullabl
 /** How alike a judge's prior point and a labelled line of the review must read to take the reviewer's label. */
 const LABEL_SIMILARITY = 0.4;
 
-/** The point with the severity its reviewer wrote, when the review labels it; the judge's reading otherwise. A disagreement is said. */
-function labelled(p: PriorPoint, labels: LabelledPoint[]): PriorPoint {
+/**
+ * The point with the severity its reviewer wrote, when the review labels it; the judge's reading otherwise. The reviewer
+ * is matched by login; the review by the date the judge names (judges write a timestamp, a date, or reformat it), and
+ * when no review of that reviewer has that date, by that reviewer's latest labelled review. A disagreement is said.
+ */
+function labelled(p: PriorPoint, labels: LabelledPoint[]): { point: PriorPoint; took: boolean; disagreed: boolean } {
     const [login, ...rest] = (p.review ?? '').trim().split(/\s+/);
-    const at = rest.join(' ');
+    const day = /\d{4}-\d{2}-\d{2}/.exec(rest.join(' '))?.[0];
+    const theirs = login ? labels.filter(l => l.login === login) : [];
+    const sameDay = day ? theirs.filter(l => l.at.startsWith(day)) : [];
+    const latest = theirs.reduce((max, l) => (l.at > max ? l.at : max), '');
+    const candidates = sameDay.length ? sameDay : theirs.filter(l => l.at === latest);
     const asItem = (issue: string): OpenItem => ({ id: '', kind: 'prior', class: 'prior point', issue });
     let best: { label: LabelledPoint; score: number } | undefined;
-    for (const label of labels) {
-        if (!login || label.login !== login || (at && label.at !== at)) continue;
+    for (const label of candidates) {
         const score = textSimilarity(asItem(p.point), asItem(label.text));
         if (score >= LABEL_SIMILARITY && (!best || score > best.score)) best = { label, score };
     }
-    if (!best || best.label.severity === p.severity) return p;
+    if (!best) return { point: p, took: false, disagreed: false };
+    if (best.label.severity === p.severity) return { point: p, took: true, disagreed: false };
     const note = `the review labels it ${best.label.severity}${p.severity ? `; the judge read ${p.severity}` : ''}`;
-    return { ...p, severity: best.label.severity, evidence: p.evidence ? `${p.evidence}; ${note}` : note };
+    return { point: { ...p, severity: best.label.severity, evidence: p.evidence ? `${p.evidence}; ${note}` : note }, took: true, disagreed: true };
 }
 const NO_PRIOR_CHECKS: PriorChecks = { approvals: [], inCheckout: () => undefined };
 
@@ -313,6 +321,8 @@ export interface Accounting {
     notes: OpenItem[];
     /** Should-fixes the judge could show (a verified quote): worth a person's time, never a block. */
     advisory: OpenItem[];
+    /** The reviews' own severity labels: how many there were, how many prior points took one, and how many the judge read otherwise. */
+    labels?: { served: number; taken: number; disagreed: number };
 }
 
 const id = (...parts: Array<string | number | undefined>) => createHash('sha1').update(parts.map(p => String(p ?? '')).join('|').toLowerCase().replace(/\s+/g, ' ')).digest('hex').slice(0, 10);
@@ -325,7 +335,8 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     const advisory: OpenItem[] = [];
     const seen = new Set<string>();
     // The reviewer's own label wins over the judge's reading of it: a judge that calls a blocker a should-fix would demote it silently.
-    const points = verdict.prior_points.map(p => labelled(p, prior.labels ?? []));
+    const read = verdict.prior_points.map(p => labelled(p, prior.labels ?? []));
+    const points = read.map(r => r.point);
     const accepted = points.filter(p => p.severity === 'non-blocking');
     // A should-fix is shown only when the judge could show it: a quote Rigour finds. One that cannot be checked is not a claim worth a person's time.
     const advise = (item: OpenItem) => {
@@ -461,7 +472,7 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
             }
         }
     }
-    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory) };
+    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory), labels: { served: prior.labels?.length ?? 0, taken: read.filter(r => r.took).length, disagreed: read.filter(r => r.disagreed).length } };
 }
 
 /** How alike two items' words must be to be the same point made in two places; and, on the same lines, to be one point said two ways. */

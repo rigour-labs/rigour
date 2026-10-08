@@ -789,10 +789,23 @@ describe("the reviewer's own severity label", () => {
         expect(open).toMatchObject([{ kind: 'prior', evidence: 'the review labels it blocking; the judge read should-fix' }]);
     });
 
-    it('applies only to the same reviewer and review, and only to a point that reads like the labelled line', () => {
-        for (const over of [{ review: 'peer 2026-10-01T10:00:00Z' }, { review: 'senior 2026-10-02T10:00:00Z' }, { point: 'the email retry sends twice' }]) {
-            const { open, advisory } = account(point(over), undefined, checkoutVerifier(repo), { approvals: [], inCheckout: () => undefined, labels });
+    it('matches the review by its date however the judge writes the time, and falls back to the reviewer\'s latest labelled review', () => {
+        const later: LabelledPoint = { login: 'senior', at: '2026-10-03T09:00:00Z', severity: 'should-fix', text: 'The kill switch is read after every query: check it first.' };
+        for (const review of ['senior 2026-10-01', 'senior 2026-10-01 10:00', 'senior']) {
+            const { open, labels: counted } = account(point({ review }), undefined, checkoutVerifier(repo), { approvals: [], inCheckout: () => undefined, labels });
+            expect(open).toHaveLength(1);
+            expect(counted).toEqual({ served: 2, taken: 1, disagreed: 1 });
+        }
+        // No review of that reviewer on the judge's date: the reviewer's latest labelled review decides (here, a should-fix).
+        const { open, advisory } = account(point({ review: 'senior 2026-09-30', severity: 'blocking' }), undefined, checkoutVerifier(repo), { approvals: [], inCheckout: () => undefined, labels: [...labels, later] });
+        expect([open.length, advisory.length]).toEqual([0, 1]);
+    });
+
+    it('applies only to the same reviewer, and only to a point that reads like the labelled line; the counts say so', () => {
+        for (const over of [{ review: 'peer 2026-10-01T10:00:00Z' }, { point: 'the email retry sends twice' }]) {
+            const { open, advisory, labels: counted } = account(point(over), undefined, checkoutVerifier(repo), { approvals: [], inCheckout: () => undefined, labels });
             expect([open.length, advisory.length]).toEqual([0, 1]); // the judge's should-fix stands
+            expect(counted).toEqual({ served: 2, taken: 0, disagreed: 0 });
         }
     });
 });

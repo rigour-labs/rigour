@@ -149,8 +149,10 @@ function severityLabels(body: string, login: string, at: string): LabelledPoint[
             continue;
         }
         if (/^\s{0,3}#{1,6}\s/.test(line)) severity = undefined; // another heading ends the section
-        const item = /^\s*(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
-        if (severity && item) out.push({ login, at, severity, text: item[1].trim() });
+        // A bullet, a numbered line, or a numbered line set in bold or underline ("**1. The column is NOT NULL.**"), which is
+        // how many reviewers title a point before its evidence.
+        const item = /^\s*(?:\*\*|__)?\s*(?:[-*+]|\d+[.)])\s+(.+?)\s*(?:\*\*|__)?\s*$/.exec(line);
+        if (severity && item) out.push({ login, at, severity, text: item[1].replace(/\*\*|__/g, '').trim() });
     }
     return out;
 }

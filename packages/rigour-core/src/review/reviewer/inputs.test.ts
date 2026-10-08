@@ -39,4 +39,19 @@ describe('the human reviews a judge reads', () => {
         ]);
         expect(read!.labels.every(l => l.at === '2026-09-25T18:09:11Z')).toBe(true);
     });
+
+    it('reads a numbered point set in bold, with its evidence sub-bullets, under each heading', async () => {
+        const body = ['## Blocking', '', '**1. The status column is typed nullable but the table declares it NOT NULL.**', '- the reader falls back to an empty string', '- two callers check for null again', '',
+            '**2. The retry posts the event twice when the first post times out.**', '', '## Should fix', '', '__1. The window comment says hourly; the job runs daily.__', '', '## Nits', '', '- Rename tmp to rows.'].join('\n');
+        const shaped = async (args: string[]) => ({ exitCode: 0, stdout: JSON.stringify(args[1].endsWith('/reviews') ? [{ ...reviews[0], body }] : []), stderr: '' });
+        const { reviews: read } = await humanReviews(shaped, pr, undefined);
+        expect(read!.labels.map(l => [l.severity, l.text])).toEqual([
+            ['blocking', 'The status column is typed nullable but the table declares it NOT NULL.'],
+            ['blocking', 'the reader falls back to an empty string'],
+            ['blocking', 'two callers check for null again'],
+            ['blocking', 'The retry posts the event twice when the first post times out.'],
+            ['should-fix', 'The window comment says hourly; the job runs daily.'],
+            ['non-blocking', 'Rename tmp to rows.'],
+        ]);
+    });
 });
