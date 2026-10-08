@@ -663,6 +663,7 @@ hooksCmd
     .option('--mode <mode>', 'Check mode: "check" (default) or "dlp" (credential scanning)')
     .option('--agent <name>', 'Agent name for DLP audit trail (e.g., cursor, claude)')
     .option('--dlp-allow-last', 'Record the last DLP warning as learned false positives (hook feedback)')
+    .option('--brief', 'DLP mode before an edit: also give the team\'s word on the file, the first time the session edits it')
     .addHelpText('after', `
 Examples:
   $ rigour hooks check --files src/app.ts

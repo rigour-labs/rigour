@@ -43,7 +43,7 @@ path names a word of the goal.
 
 | Agent | How |
 | --- | --- |
-| Claude Code | `rigour hooks init --brief` installs two hooks: an edit hook (`rigour hooks brief-file`, on Write, Edit and MultiEdit) for each file's first edit, and a prompt hook (`rigour hooks brief`) for the session's first prompt |
+| Claude Code | `rigour hooks init --brief` adds the briefing to Claude Code's hooks: each file's first edit is briefed by the credential-scan hook that already runs before every tool (`--brief`, one process for both), or by an edit hook of its own (`rigour hooks brief-file`) when that scan is off; the session's first prompt by a prompt hook (`rigour hooks brief`) |
 | Any agent with MCP | `rigour_brief` with `files` and no `goal` before editing them (the team's word on each), or with a `goal` for the task as a whole |
 | A person, a script, any agent with a shell | `rigour brief [goal] [--files a,b] [--json]` |
 
@@ -52,9 +52,11 @@ review can be read against what the agent was told.
 
 ## Cost
 
-The edit hook runs before every edit: about 0.36 s per edit, nearly all of it starting node and the CLI (the after-edit
-check hook pays the same start-up), and about 0.1 s more on a file's first edit in a session; measured on a 3,000-file
-repository. This is part of why both hooks are opt-in.
+The edit briefing rides on the credential-scan hook that already runs before every tool call, so it starts no process
+of its own. Measured on a 3,000-file repository (median of 7 runs): the scan alone 337 ms; with the briefing, a file's
+first edit in a session 441 ms (+104 ms) and every later edit 358 ms (+21 ms, the check that the file was already
+briefed). With the credential scan switched off, the edit hook of its own starts a process (about 0.36 s per edit),
+which is one reason the briefing is opt-in.
 
 ## Off, and the kill switch
 

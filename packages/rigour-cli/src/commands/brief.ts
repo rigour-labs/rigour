@@ -64,12 +64,23 @@ export async function hooksBriefCommand(stdin: string, fallbackCwd: string): Pro
  * first, so every later edit of the file costs one small file read. Prints nothing when off or when there is nothing.
  */
 export async function hooksBriefFileCommand(stdin: string, fallbackCwd: string): Promise<string> {
-    let payload: { cwd?: string; session_id?: string; tool_input?: { file_path?: string } } = {};
+    let payload: FileHookPayload = {};
     try {
         payload = JSON.parse(stdin);
     } catch {
         return '';
     }
+    const text = await fileBriefingContext(payload, fallbackCwd);
+    return text ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } }) : '';
+}
+
+export interface FileHookPayload { cwd?: string; session_id?: string; tool_name?: string; tool_input?: { file_path?: string } }
+
+/**
+ * The team's word on the file a PreToolUse payload is about to edit, the first time the session edits it; '' otherwise.
+ * Shared by the edit hook and the DLP pre-tool hook, so a machine with DLP on pays no second process per edit.
+ */
+export async function fileBriefingContext(payload: FileHookPayload, fallbackCwd: string): Promise<string> {
     const session = payload.session_id;
     const target = payload.tool_input?.file_path;
     if (!session || typeof target !== 'string' || !target) return '';
@@ -92,8 +103,7 @@ export async function hooksBriefFileCommand(stdin: string, fallbackCwd: string):
     markBriefed(root, key); // first, so two quick edits of one file never brief twice
     const { off, lessons } = await briefingOff(root);
     if (off) return '';
-    const text = fileBriefingText(briefFile(root, file, { session, agent: 'claude', ...(lessons ? { lessons } : {}) }));
-    return text ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } }) : '';
+    return fileBriefingText(briefFile(root, file, { session, agent: 'claude', ...(lessons ? { lessons } : {}) }));
 }
 
 /** The pull request's title and description as the goal, when gh can read one quickly; undefined otherwise. */

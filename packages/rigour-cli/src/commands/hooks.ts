@@ -13,6 +13,7 @@ import path from 'path';
 import chalk from 'chalk';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
+import { fileBriefingContext } from './brief.js';
 import {
     allowLastDLPBlock,
     appendTaskEvent,
@@ -61,6 +62,8 @@ export interface HooksCheckOptions {
     agent?: string;
     /** Record last DLP warning detections as learned false positives (hook feedback) */
     dlpAllowLast?: boolean;
+    /** DLP mode before an edit: also give the team's word on the file, the first time the session edits it (one process for both). */
+    brief?: boolean;
 }
 
 interface GeneratedFile {
@@ -259,7 +262,8 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
             matcher: ".*",
             hooks: [{
                 type: "command" as const,
-                command: `${checkerCommand} --mode dlp --stdin`,
+                // With --brief, the same process also briefs on a file's first edit: no second process before each edit.
+                command: `${checkerCommand} --mode dlp --stdin${brief ? ' --brief' : ''}`,
             }]
         });
     }
@@ -269,7 +273,8 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
     // and the team's word on each file the first time the session edits it (rigour hooks brief-file).
     if (brief) {
         hooks.UserPromptSubmit = [{ hooks: [{ type: "command" as const, command: briefHookCommand(checker), timeout: BRIEF_HOOK_TIMEOUT_S }] }];
-        preToolUse.push({ matcher: "Write|Edit|MultiEdit", hooks: [{ type: "command" as const, command: briefHookCommand(checker, 'brief-file'), timeout: BRIEF_HOOK_TIMEOUT_S }] });
+        // The DLP hook already runs before every tool and briefs too; without it, an edit hook of its own.
+        if (!dlp) preToolUse.push({ matcher: "Write|Edit|MultiEdit", hooks: [{ type: "command" as const, command: briefHookCommand(checker, 'brief-file'), timeout: BRIEF_HOOK_TIMEOUT_S }] });
     }
 
     const settings = { hooks };
@@ -757,8 +762,10 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         // Parse Cursor's structured payload to extract prompt text
         let textToScan = rawInput;
         let cursorMode = false;
+        let toolPayload: any;
         try {
             const payload = JSON.parse(rawInput);
+            toolPayload = payload;
             // Claude Code's PreToolUse hook sees every agent tool call: record it so
             // Studio's context savings are observed, not assumed.
             recordHookPayload(payload, cwd);
@@ -803,7 +810,9 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
                 process.stdout.write(JSON.stringify({ continue: true }));
             }
         } else {
-            process.stdout.write(JSON.stringify(result));
+            // The first edit of a file in a session: the team's word on it rides on this same hook's answer.
+            const briefing = options.brief && /^(Write|Edit|MultiEdit)$/.test(String(toolPayload?.tool_name ?? '')) ? await fileBriefingContext(toolPayload, cwd).catch(() => '') : '';
+            process.stdout.write(JSON.stringify(briefing ? { ...result, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: briefing } } : result));
         }
 
         if (result.status !== 'clean') {
