@@ -17,8 +17,10 @@ This checklist is release-blocking for end-user readiness.
    - an upgrade from the current `latest`: a repository set up with it opens with the new version, nothing it wrote lost;
    - no credential-shaped string in any published tarball.
    **Distribution Smoke** installs the exact version with `npx` and `npm i -g` on Linux, macOS and Windows.
-3. **A pull request from `next` into `main`**, merged by a maintainer once the candidate's gates are green and any
-   private checks of their own pass, is the decision to release. On main, semantic-release publishes the final version
+3. **A pull request from `next` into `main`**, merged by a maintainer once the candidate's gates are green, is the
+   decision to release. Before merging it, the maintainer runs their own confidentiality sweep locally on the
+   candidate's tarballs (`npm pack @rigour-labs/<package>@next`): a check for anything that must never be published,
+   kept out of this repository by design. On main, semantic-release publishes the final version
    under `pending`, the same gates and smoke run on it, and only then does **Promote to latest** move `latest`, publish
    the Homebrew formula and the MCP Registry entry. **Homebrew Smoke** then installs from the tap on macOS.
 4. After a release, merge `main` back into `next` so the next candidate starts from it.

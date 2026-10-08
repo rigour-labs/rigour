@@ -255,6 +255,12 @@ jobs:
           elif [ "${GITHUB_REF}" = "refs/heads/next" ] && [ "${VERSION#*-rc.}" != "$VERSION" ]; then
             GATE=true
           fi
+          # A release this push published must reach the gates: one that would be skipped (a prerelease version on main,
+          # or a version already `latest`) is a broken release, and the run fails here rather than leaving it at `pending`.
+          if [ "${{ steps.semantic_release.outputs.published }}" = "true" ] && [ "$GATE" != "true" ]; then
+            echo "::error::Published ${VERSION} on ${GITHUB_REF#refs/heads/}, but it is not gateable (latest: ${LATEST:-none}). Nothing would move it from its channel."
+            exit 1
+          fi
           echo "promotable=$PROMOTABLE" >> "$GITHUB_OUTPUT"
           echo "gate=$GATE" >> "$GITHUB_OUTPUT"
 
