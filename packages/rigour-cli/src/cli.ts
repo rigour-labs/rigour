@@ -519,6 +519,7 @@ hooksCmd
 const backtestCmd = program
     .command('backtest')
     .description('Score the review against the points people made reviewing this repository (.rigour/backtest.json); exit 1 until every point is caught with no false block')
+    .option('--last <n>', 'The front door: run on the last n merged pull requests (their human reviews and approved heads), no ledger needed')
     .option('--round <id>', 'Run one round only')
     .option('--reviewer', 'Run the reviewer too, with each round\'s human review hidden')
     .option('--json', 'Output the score in JSON format')
