@@ -1,3 +1,6 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { ADAPTERS, apiVendor, selectReviewers } from './adapters.js';
 
@@ -62,5 +65,36 @@ describe('a judge reached through an API', () => {
         expect(ADAPTERS.api.answer(JSON.stringify({ result: '{"prior_points":[]}', usage: { input: 10, cacheRead: 5, cacheWrite: 0, output: 3 }, cost_usd: 0.02, trace: { turns: 2, usage: {}, calls: [] } }))).toMatchObject({ text: '{"prior_points":[]}', costUsd: 0.02, tokens: { input: 15, output: 3 }, trace: { turns: 2 } });
         expect(ADAPTERS.codex.args('p', undefined, { reasoning: 'medium' })).toContain('model_reasoning_effort=medium');
         expect(ADAPTERS.codex.args('p', undefined)).toContain('model_reasoning_effort=high');
+    });
+});
+
+describe('what a judge knows besides the repository', () => {
+    it('launches claude with no memory file, auto-memory, user settings, hooks or MCP servers of its own', () => {
+        expect(ADAPTERS.claude.env).toEqual({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+        const args = ADAPTERS.claude.args('p', undefined);
+        expect(args.slice(args.indexOf('--setting-sources'), args.indexOf('--setting-sources') + 2)).toEqual(['--setting-sources', 'project']);
+        expect(args).toEqual(expect.arrayContaining(['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']));
+        expect(JSON.parse(args[args.indexOf('--settings') + 1])).toMatchObject({ hooks: {} });
+        expect(ADAPTERS.claude.outsideRepo).toBeUndefined();
+    });
+
+    it("says when codex will also read a person's own Codex config or instructions, and from where", () => {
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-home-'));
+        const saved = process.env.CODEX_HOME;
+        delete process.env.CODEX_HOME;
+        try {
+            expect(ADAPTERS.codex.outsideRepo!(home)).toBeUndefined();
+            fs.mkdirSync(path.join(home, '.codex'));
+            fs.writeFileSync(path.join(home, '.codex', 'AGENTS.md'), 'Always answer in French.\n');
+            fs.writeFileSync(path.join(home, '.codex', 'config.toml'), 'personality = "pragmatic"\n');
+            expect(ADAPTERS.codex.outsideRepo!(home)).toBe(`codex also reads ${path.join(home, '.codex', 'config.toml')} and ${path.join(home, '.codex', 'AGENTS.md')}`);
+            process.env.CODEX_HOME = path.join(home, 'elsewhere');
+            expect(ADAPTERS.codex.outsideRepo!(home)).toBeUndefined(); // CODEX_HOME wins over the home folder
+            expect(ADAPTERS.cursor.outsideRepo!(home)).toBe('cursor also reads your own Cursor rules and settings');
+        } finally {
+            if (saved === undefined) delete process.env.CODEX_HOME;
+            else process.env.CODEX_HOME = saved;
+            fs.rmSync(home, { recursive: true, force: true });
+        }
     });
 });

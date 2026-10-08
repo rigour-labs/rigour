@@ -14,7 +14,8 @@ export interface ReviewRecord {
     base: string;
     scope: 'full' | 'delta';
     at: string;
-    judges: Array<{ reviewer: string; version?: string; model?: string; cost_usd?: number; turns?: number }>;
+    /** `outside_repo`: what the judge also read from the machine's own config (a person's instructions); absent when it read only the repository and Rigour's inputs. */
+    judges: Array<{ reviewer: string; version?: string; model?: string; cost_usd?: number; turns?: number; outside_repo?: string }>;
     /** Checked by Rigour against the checkout. */
     verified: {
         blocking: OpenItem[];
@@ -106,6 +107,6 @@ export function recordLines(r: ReviewRecord, shouldFixShown = 5): string[] {
     if (v.should_fix.length > shouldFixShown) lines.push(`- …and ${v.should_fix.length - shouldFixShown} more should-fix in the record.`);
     const folded = [[v.notes, 'working note'], [v.disputed, 'disputed'], [v.unverified, 'unverified'], [r.people.dismissed, 'dismissed']].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
     if (folded.length) lines.push(`Also seen, never blocking: ${folded.map(([n, w]) => `${n} ${w}${n === 1 || w === 'disputed' || w === 'unverified' || w === 'dismissed' ? '' : 's'}`).join(', ')}.`);
-    lines.push(`Judged by ${r.judges.map(j => `${j.reviewer}${j.version ? ` ${j.version}` : ''}${j.model ? ` (${j.model})` : ''}${typeof j.cost_usd === 'number' ? ` $${j.cost_usd.toFixed(2)}` : ''}`).join(', ') || 'no judge'} on \`${r.head.slice(0, 9)}\` against \`${r.base.slice(0, 9)}\` (${r.scope}); ${r.reported.human_reviews} human review(s) seen. Integrity \`${r.integrity.slice(0, 16)}\`.`);
+    lines.push(`Judged by ${r.judges.map(j => `${j.reviewer}${j.version ? ` ${j.version}` : ''}${j.model ? ` (${j.model})` : ''}${typeof j.cost_usd === 'number' ? ` $${j.cost_usd.toFixed(2)}` : ''}${j.outside_repo ? ` [${j.outside_repo}]` : ''}`).join(', ') || 'no judge'} on \`${r.head.slice(0, 9)}\` against \`${r.base.slice(0, 9)}\` (${r.scope}); ${r.reported.human_reviews} human review(s) seen. Integrity \`${r.integrity.slice(0, 16)}\`.`);
     return lines;
 }
