@@ -10,7 +10,7 @@ import { changedHunks, type Hunk } from './acted-on.js';
 import type { LessonEvidence, ReviewLesson } from './lessons.js';
 
 /** Commit subjects that say the commit fixed something. */
-const FIX = /\b(fix(e[sd])?|bug|hotfix|regression|revert|broke|broken)\b/i;
+export const FIX = /\b(fix(e[sd])?|bug|hotfix|regression|revert|broke|broken)\b/i;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface OutcomeOptions {
@@ -64,11 +64,16 @@ export function revertOf(git: Git, pr: MergedAt, options: OutcomeOptions): Lesso
     }
     for (const line of log.split('\n')) {
         const [sha, date, subject] = line.split('\t');
-        if (sha && /^revert\b/i.test(subject ?? '') && (subject.includes(`#${pr.number}`) || subject.includes(pr.mergeSha.slice(0, 7)))) {
+        if (sha && revertsPr(subject ?? '', pr)) {
             return { kind: 'outcome', pr: pr.number, comment: `revert-${sha.slice(0, 12)}`, author: '', detail: `the pull request was reverted by ${sha.slice(0, 9)} "${subject}"`, at: date };
         }
     }
     return undefined;
+}
+
+/** A commit subject that reverts the pull request: "Revert ..." naming its number or its merge commit. */
+export function revertsPr(subject: string, pr: Pick<MergedAt, 'number' | 'mergeSha'>): boolean {
+    return /^revert\b/i.test(subject) && (subject.includes(`#${pr.number}`) || subject.includes(pr.mergeSha.slice(0, 7)));
 }
 
 /** The range after a commit's hunks, or undefined when a hunk touched it. */

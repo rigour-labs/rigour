@@ -21,6 +21,7 @@ interface SwitchDefinition {
 
 export const SWITCHES = {
     goal: { label: 'goal check', env: 'RIGOUR_GOAL', teamPath: ['review', 'goal'], team: config => config.review?.goal },
+    outcomes: { label: 'outcome loop', env: 'RIGOUR_OUTCOMES', teamPath: ['learning', 'outcomes', 'mode'], team: config => config.learning?.outcomes?.mode },
 } satisfies Record<string, SwitchDefinition>;
 
 export type SwitchName = keyof typeof SWITCHES & keyof RigourSettings;

@@ -377,6 +377,16 @@ export const ConfigSchema = z.object({
         /** At most this many items, never more than 10. */
         max_items: z.number().int().min(1).max(10).optional().default(10),
     }).optional().default({}),
+    /** What Rigour learns from, beyond the reviews themselves. */
+    learning: z.object({
+        /** What happened after each pull request merged (outcomes/outcome.ts): CI on the merge commit, later commits on its files, a revert. */
+        outcomes: z.object({
+            /** off, on, or required (no person, environment variable or flag may turn it off). */
+            mode: z.enum(['off', 'on', 'required']).optional().default('off'),
+            /** How long after a merge later commits count, in days. */
+            window_days: z.number().int().min(7).max(90).optional().default(30),
+        }).optional().default({}),
+    }).optional().default({}),
     /** rigour review / rigour_review / the PR bot / the stop hook. */
     review: z.object({
         /** Let heuristic gates decide the verdict too; by default only findings that prove a defect do (quiet.ts). */

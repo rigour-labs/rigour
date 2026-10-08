@@ -19,6 +19,8 @@ export { isControlFile, mergeBaseOf, readStateFile } from './review/trusted-stat
 export { dismissFinding, dismissedKeys, findingKey, isProven, mustFix, quietSplit, DISMISSED_FILE } from './review/quiet.js';
 export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest, LEDGER_PATH, type Ledger, type RoundResult } from './review/backtest.js';
 export { scaffoldLedger } from './review/backtest-init.js';
+export type { CiResult, FollowUp, PrOutcome } from './outcomes/outcome.js';
+export { runOutcomes, type OutcomesRun } from './outcomes/run.js';
 export { fixScope, type FixScope } from './review/fix-scope.js';
 export { isGeneratedFile } from './review/generated-files.js';
 export { costBucket, countUsage, doNotTrack, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';

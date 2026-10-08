@@ -50,6 +50,9 @@ export interface RigourSettings {
   // Check this person's reviews against the goal the pull request declares; rigour.yml's review.goal is the team's (switches.ts).
   goal?: boolean;
 
+  // Learn from what happened after this person's pull requests merged; rigour.yml's learning.outcomes.mode is the team's (switches.ts).
+  outcomes?: boolean;
+
   // Cursor Admin API credentials
   cursor?: {
     apiKey?: string;

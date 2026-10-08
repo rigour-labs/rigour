@@ -397,6 +397,8 @@
         "output.report_path": "The file, relative to the repository root, that rigour check writes its JSON report to and that other commands read it from.",
         "review.include_heuristics": "When true, heuristic findings (size, complexity, guessed intent) can decide the verdict and block, instead of only findings that prove a defect.",
         "review.show_preexisting": "When true, a review also reports rule findings the base commit already had, instead of only those the change introduced.",
+        "learning.outcomes.mode": "Reads what happened after each pull request merged (CI on its merge commit, later commits and fixes on its files, a revert) with rigour outcomes: off, on, or required, which stops a person, RIGOUR_OUTCOMES or --no-outcomes turning it off (team; a person sets outcomes in settings.json).",
+        "learning.outcomes.window_days": "How many days after a merge later commits on its files count, from 7 to 90; a record is settled once its window has closed and CI has an answer.",
         "review.goal": "Checks a change against the goal its pull request's description declares (Scope, Out of scope, Done when): off, on, or required, which stops a person, RIGOUR_GOAL or --no-goal turning it off (team; a person sets goal in settings.json).",
         "review.github_account": "The gh account whose token Rigour uses to read the pull request and its reviews, and that rigour learn-reviews reads past reviews as; ignored when GH_TOKEN is set, and RIGOUR_GITHUB_ACCOUNT is used when this is unset.",
         "review.reviewer.enabled": "Runs the model reviewer at push; a person cannot turn it off when the team sets panel: required or mode_required (team or person).",

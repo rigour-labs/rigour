@@ -28,6 +28,7 @@ and only on what the change itself introduced.
 | What changed in 6.8.0, upgrading, known limits and rollback | [Release notes](./releases/6.8.0.md) |
 | What an agent is told about the team before it writes | [The briefing](./BRIEF.md) |
 | Whether a change stays inside the goal its pull request declares | [The goal check](./GOAL.md) |
+| What happened after a pull request merged: CI, later fixes, reverts | [Outcomes](./OUTCOMES.md) |
 | What happened to one task, across agents, checks, pushes and reviews | [The task thread](./THREAD.md) |
 | The report and fix packet, for scripts and agents | [Fix packet and report](./FIX_PACKET.md) |
 

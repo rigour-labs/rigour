@@ -281,6 +281,9 @@ export const UNIVERSAL_CONFIG: Config = {
         enabled: true,
         max_items: 10,
     },
+    learning: {
+        outcomes: { mode: 'off', window_days: 30 },
+    },
     review: {
         include_heuristics: false,
         show_preexisting: false,

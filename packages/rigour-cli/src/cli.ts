@@ -15,6 +15,7 @@ import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
 import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { threadCommand } from './commands/thread.js';
+import { outcomesCommand } from './commands/outcomes.js';
 import { briefCommand, hooksBriefCommand, hooksBriefFileCommand } from './commands/brief.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
@@ -548,6 +549,18 @@ program
     .option('--json', 'Output the briefing in JSON format')
     .action(async (goal: string | undefined, options: any) => {
         process.exit(await briefCommand(process.cwd(), goal, options));
+    });
+
+program
+    .command('outcomes')
+    .description('What happened after recent pull requests merged: CI on the merge commit, later commits and fixes on their files, reverts. Needs the outcome loop on (learning.outcomes.mode, RIGOUR_OUTCOMES, or --outcomes)')
+    .option('--pr <number>', 'Only this merged pull request')
+    .option('--last <n>', 'The last n merged pull requests (default 20)')
+    .option('--outcomes', 'Read outcomes for this run, whatever your settings say')
+    .option('--no-outcomes', 'Do not read outcomes for this run (a team that requires them refuses this)')
+    .option('--json', 'Output the records in JSON format')
+    .action(async options => {
+        process.exit(await outcomesCommand(process.cwd(), options));
     });
 
 program

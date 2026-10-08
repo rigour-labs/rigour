@@ -40,6 +40,15 @@ describe('resolveSwitch, for the goal check', () => {
     });
 });
 
+describe('resolveSwitch, for the outcome loop', () => {
+    it('reads the team\'s from learning.outcomes.mode and the environment from RIGOUR_OUTCOMES, with the same floor', () => {
+        const outcomes = (mode?: 'off' | 'on' | 'required') => ConfigSchema.parse({ version: 1, ...(mode ? { learning: { outcomes: { mode } } } : {}) });
+        expect(resolveSwitch('outcomes', outcomes(), undefined, undefined, {})).toMatchObject({ enabled: false, source: 'team' });
+        expect(resolveSwitch('outcomes', outcomes('off'), undefined, undefined, { RIGOUR_OUTCOMES: 'on' })).toMatchObject({ enabled: true, source: 'env' });
+        expect(resolveSwitch('outcomes', outcomes('required'), false, undefined, {}).refused).toEqual(['outcome loop off (flag) refused: rigour.yml sets learning.outcomes.mode: required']);
+    });
+});
+
 describe('saveUserSwitch, for the goal check', () => {
     let home: string;
     const previous = process.env.RIGOUR_HOME;
