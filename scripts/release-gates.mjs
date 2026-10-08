@@ -15,7 +15,7 @@
  * `previous` defaults to the CLI's current `latest`. Exit 1 on the first failed gate, with what failed.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
@@ -64,8 +64,21 @@ export function lostOrChanged(before, after, mayChange = []) {
   return Object.keys(before).filter(file => !mayChange.some(pattern => pattern.test(file)) && after[file] !== before[file]);
 }
 
+/** Every throwaway folder this run made: removed when it exits, pass or fail, so a local run leaves no install behind. */
+const sandboxes = [];
+process.on('exit', () => {
+  for (const root of sandboxes) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      // a folder the system holds open is left to the system's temp cleanup
+    }
+  }
+});
+
 function sandbox() {
   const root = mkdtempSync(join(tmpdir(), 'rigour-gates-'));
+  sandboxes.push(root);
   const home = join(root, 'home');
   const env = {
     ...process.env,
