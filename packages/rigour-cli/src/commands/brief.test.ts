@@ -72,6 +72,14 @@ describe('the edit hook', () => {
         expect(readThread(repo)?.events.map(e => [e.kind, e.file, e.session, e.items])).toEqual([['brief', 'src/jobs/retry.ts', 's1', 1], ['brief', 'src/jobs/retry.ts', 's2', 1], ['brief', 'README.md', 's1', 0]]);
     });
 
+    it('places a file being created in a new folder, and says nothing for a file of another repository inside this one', async () => {
+        const created = JSON.parse(await hooksBriefFileCommand(edit('n1', 'src/jobs/new/sweep.ts'), '/'));
+        expect(created.hookSpecificOutput.additionalContext).toContain('Rigour, before you edit src/jobs/new/sweep.ts');
+        fs.mkdirSync(path.join(repo, 'vendor/other'), { recursive: true });
+        execFileSync('git', ['-C', path.join(repo, 'vendor/other'), 'init', '-q']);
+        expect(await hooksBriefFileCommand(edit('n1', 'vendor/other/src/jobs/x.ts'), '/')).toBe('');
+    });
+
     it('says nothing for a file outside the repository, a bad payload, or when briefings are switched off', async () => {
         expect(await hooksBriefFileCommand(JSON.stringify({ cwd: repo, session_id: 's1', tool_input: { file_path: '/etc/hosts' } }), '/')).toBe('');
         expect(await hooksBriefFileCommand('not json', '/')).toBe('');

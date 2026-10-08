@@ -85,25 +85,32 @@ export async function fileBriefingContext(payload: FileHookPayload, fallbackCwd:
     const target = payload.tool_input?.file_path;
     if (!session || typeof target !== 'string' || !target) return '';
     const cwd = payload.cwd || fallbackCwd;
-    const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', timeout: 5000 }).stdout?.trim();
+    const root = gitOut(cwd, ['rev-parse', '--show-toplevel']);
     if (!root) return '';
-    // Both sides as the file system resolves them (a symlinked home or temp folder): a file being created resolves through its folder.
-    const abs = path.resolve(cwd, target);
-    const real = (p: string): string => {
-        try {
-            return fs.realpathSync(p);
-        } catch {
-            return path.dirname(p) === p ? p : path.join(real(path.dirname(p)), path.basename(p));
-        }
-    };
-    const file = path.relative(real(root), real(abs)).split(path.sep).join('/');
-    if (!file || file.startsWith('..')) return ''; // a file outside the repository is not the team's
-    const key = `${session}\u0000${file}`;
+    // Once per file per session, checked first and keyed on the path as the agent sent it (one session spells a file one
+    // way): every later edit of the file costs this check only.
+    const key = `${session}\u0000${path.resolve(cwd, target)}`;
     if (briefedAlready(root, key)) return '';
     markBriefed(root, key); // first, so two quick edits of one file never brief twice
+    // Where the file sits, as git says it, never by comparing paths (symlinked folders, Windows drive letters and short
+    // names make two spellings of one folder). A file being created is placed through the nearest folder that exists.
+    let dir = path.dirname(path.resolve(cwd, target));
+    const rest = [path.basename(target)];
+    while (!fs.existsSync(dir) && path.dirname(dir) !== dir) {
+        rest.unshift(path.basename(dir));
+        dir = path.dirname(dir);
+    }
+    if (gitOut(dir, ['rev-parse', '--show-toplevel']) !== root) return ''; // outside this repository: not the team's file
+    const file = `${gitOut(dir, ['rev-parse', '--show-prefix']) ?? ''}${rest.join('/')}`;
+    if (!file) return '';
     const { off, lessons } = await briefingOff(root);
     if (off) return '';
     return fileBriefingText(briefFile(root, file, { session, agent: 'claude', ...(lessons ? { lessons } : {}) }));
+}
+
+function gitOut(cwd: string, args: string[]): string | undefined {
+    const run = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 5000 });
+    return run.status === 0 ? run.stdout.trim() : undefined;
 }
 
 /** The pull request's title and description as the goal, when gh can read one quickly; undefined otherwise. */
