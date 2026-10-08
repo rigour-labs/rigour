@@ -1,5 +1,6 @@
+import { buildRecord } from '@rigour-labs/core';
 import { describe, expect, it } from 'vitest';
-import { findingKey, postReview, rankFindings, receiptLines, type ReportFinding, type ReviewReport } from './review-post.js';
+import { findingKey, postReview, rankFindings, receiptLines, summaryBody, type ReportFinding, type ReviewReport } from './review-post.js';
 
 const target = { token: 't', repo: 'acme/app', pr: 7, sha: 'abc123' };
 const BOT = { login: 'github-actions[bot]' };
@@ -48,6 +49,19 @@ const report: ReviewReport = {
     ],
     deep: { model: 'anthropic/claude-sonnet-5.5', cost_usd: 0.0421, router: { routed: 3, functions: 11, already_reviewed: 2 } },
 };
+
+describe('the summary with a review record', () => {
+    it('carries the record: blocks, should-fixes, counts, judges and the hash', () => {
+        const record = buildRecord({ head: 'abcdef0123456789', base: '0123456789abcdef', scope: 'full', verdict: { prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [] } as any,
+            accounted: { open: [{ id: 'i1', kind: 'finding', class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock' }], advisory: [], unverified: [], notes: [], resolved: [], answerInReply: [], disputed: [], dismissed: [] },
+            judges: [{ reviewer: 'claude', cost_usd: 0.5 }], lessonsServed: 0, humanReviews: 0 });
+        const body = summaryBody({ ...report, reviewer: { record } }, 1, 1, 0);
+        expect(body).toContain('**Review record** · 1 blocking · 0 should-fix');
+        expect(body).toContain('- **Blocking** `src/job.ts:2` returns before the lock');
+        expect(body).toContain(`Integrity \`${record.integrity.slice(0, 16)}\``);
+        expect(summaryBody(report, 1, 1, 0)).not.toContain('Review record');
+    });
+});
 
 describe('rankFindings', () => {
     it('puts severity first, then the most provable source', () => {

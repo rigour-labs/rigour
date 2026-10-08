@@ -96,7 +96,7 @@ export function reviewerInputs(review: { hints: string[]; findings: Array<{ file
 }
 
 /** The context pack as Markdown, its hash for the fingerprint, and the router's count of risky changed functions (undefined when it could not score). */
-export function buildContext(input: ContextInput): { text: string; key: string; risky: number | undefined; rules: ServedRule[] } {
+export function buildContext(input: ContextInput): { text: string; key: string; risky: number | undefined; rules: ServedRule[]; lessons: number } {
     const sections: string[] = [];
     let task: ReturnType<typeof buildReviewTask> | undefined;
     try {
@@ -125,7 +125,7 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
     if (docs.length) sections.push(`## Docs that describe the changed code (read one when its claim matters to a finding)\n${docs.map(d => `- ${d.doc} (names ${d.names.join(', ')})`).join('\n')}`);
 
     const text = sections.length ? `# What this team already knows\n\n${sections.join('\n\n')}\n` : 'none\n';
-    return { text, key: createHash('sha256').update(text).digest('hex').slice(0, 16), risky: task ? task.items.length + task.alreadyReviewed : undefined, rules };
+    return { text, key: createHash('sha256').update(text).digest('hex').slice(0, 16), risky: task ? task.items.length + task.alreadyReviewed : undefined, rules, lessons: lessons.length };
 }
 
 function where(x: { file?: string; line?: number }): string {

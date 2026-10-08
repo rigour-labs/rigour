@@ -271,6 +271,14 @@ When a team turns dismissals off again, the recorded ones stop counting.
   (working notes, disputed items, items whose quote or file the checkout does not have, dismissed
   items) folded into one count. `--notes` lists them all. The same point found in several places is
   one item carrying every location, and it blocks until every location is fixed.
+- **The record of the review**, written beside the verdict (`<git common dir>/rigour-reviewer/*.record.json`)
+  and carried in `rigour review --json` under `reviewer.record`: what Rigour verified against the
+  checkout (blocking items, should-fixes, the repository rules served and answered, the lessons served
+  and found to apply, prior points open and resolved, how much was unverified or a note), what it only
+  recorded as reported (human reviews seen), what people decided (dismissals), who judged (reviewer,
+  version, model, cost, turns), and an integrity hash over all of it, so a copy can be checked against
+  the original. `rigour review-post` puts the record in the pull request's summary comment: blocks in
+  full, up to five should-fixes, the counts and the hash.
 - Telemetry, only if you opted in: one anonymous `reviewer_completed` event with counts and a cost
   bucket, never code or finding text ([Telemetry](../TELEMETRY.md)).
 - `rigour review --status`: what the background reviewer last decided on this branch, or why its

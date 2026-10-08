@@ -56,6 +56,7 @@ export function printReviewer(result: ReviewerResult, options: { notes?: boolean
         console.log(chalk.dim(`  Also seen, never blocking: ${folded.map(([n, what]) => `${n} ${what}${n === 1 || what.startsWith('more') || what === 'disputed' || what === 'unverified' ? '' : 's'}`).join(', ')} (rigour review --reviewer --notes lists them)`));
     }
     if (result.rules?.checked) console.log(chalk.dim(`  repository rules answered: ${result.rules.checked} (${result.rules.broken} broken, ${result.rules.followed} followed, ${result.rules.notApplicable} not applicable)`));
+    if (result.record && result.recordPath) console.log(chalk.dim(`  record: ${result.recordPath} (integrity ${result.record.integrity.slice(0, 16)})`));
     const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens` : '';
     const cost = `${result.costUsd !== undefined ? `, $${result.costUsd.toFixed(2)}` : ''}${tokens}`;
     console.log(`  ${result.items.length} open item(s)${result.cached ? chalk.dim(' (cached for this commit)') : cost}\n`);
@@ -95,6 +96,7 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         tokens: result.tokens ?? null,
         cached: result.cached,
         previous_review: result.previousReview ?? null,
+        record: result.record ?? null,
         pr: result.pr ?? null,
     };
 }

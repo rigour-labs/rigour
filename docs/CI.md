@@ -31,7 +31,7 @@ The verdict is one of three:
 | `FAIL` | At least one finding on the changed lines must be fixed. |
 | `ERROR` | The review did not finish: a model review was asked for and did not run, or a check that can block crashed. An `ERROR` is never a pass. |
 
-`rigour review-post` then posts:
+`rigour review-post` then posts (and, when the report includes the reviewer's record, the summary carries it: blocking items, up to five should-fixes, the counts and the integrity hash):
 
 - **Inline comments**, at most two by default (`--max-comments`). The most severe go first, and among
   equal severity, security findings before model findings before the rest. A finding is posted once:

@@ -9,6 +9,7 @@ import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
 import { account, attachServedRules, carryResolved, checkoutVerifier, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
+import { recordIntact } from './reviewer/record.js';
 
 let repo: string;
 const config = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
@@ -251,6 +252,19 @@ describe('the reviewer', () => {
         expect(seen.files['team-knowledge.md']).toContain('(AGENTS.md, requirement) `src/job.ts` must take the lock before its first read.');
         expect(result.items.map(i => [i.class, i.file, i.line])).toEqual([['repo-rule', 'src/job.ts', 2]]);
         expect(result.rules).toEqual({ checked: 1, followed: 0, broken: 1, notApplicable: 0 });
+    });
+
+    it('writes the record of the review beside the verdict, intact, and returns the same record on a cached read', async () => {
+        const seen = seenNow();
+        const answer = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' }] });
+        const first = await runReviewer(repo, 'main', config, fakes(() => answer, seen), () => undefined);
+        expect(first.record).toMatchObject({ scope: 'full', verified: { blocking: [expect.objectContaining({ issue: 'returns before the lock' })], should_fix: [] }, reported: { human_reviews: 1 }, judges: [expect.objectContaining({ reviewer: 'claude', cost_usd: 1.5 })] });
+        expect(first.recordPath).toMatch(/\.record\.json$/);
+        const onDisk = JSON.parse(fs.readFileSync(first.recordPath!, 'utf8'));
+        expect(recordIntact(onDisk)).toBe(true);
+        const again = await runReviewer(repo, 'main', config, fakes(() => { throw new Error('a cached read never runs a judge'); }, seen), () => undefined);
+        expect(again.cached).toBe(true);
+        expect(again.record?.integrity).toBe(first.record?.integrity);
     });
 
     it('asks a judge once more after an answer that is not a verdict, and is unavailable only when the second is not one either', async () => {
