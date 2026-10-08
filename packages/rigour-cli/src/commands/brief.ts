@@ -7,7 +7,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import chalk from 'chalk';
-import { briefingText, briefTask, threadsDir, type Briefing } from '@rigour-labs/core';
+import { briefFile, briefingText, briefTask, fileBriefingText, threadsDir, type Briefing } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
 
 /** Whether briefings are switched off here: the team's rigour.yml or the person's environment. */
@@ -58,6 +58,61 @@ export async function hooksBriefCommand(stdin: string, fallbackCwd: string): Pro
     return text ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } }) : '';
 }
 
+/**
+ * Claude Code's PreToolUse hook on Edit, Write and MultiEdit: the first time a session edits a file, the team's word on
+ * that file (at most three items) is added to the agent's context. Once per file per session; the check for that comes
+ * first, so every later edit of the file costs one small file read. Prints nothing when off or when there is nothing.
+ */
+export async function hooksBriefFileCommand(stdin: string, fallbackCwd: string): Promise<string> {
+    let payload: FileHookPayload = {};
+    try {
+        payload = JSON.parse(stdin);
+    } catch {
+        return '';
+    }
+    const text = await fileBriefingContext(payload, fallbackCwd);
+    return text ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } }) : '';
+}
+
+export interface FileHookPayload { cwd?: string; session_id?: string; tool_name?: string; tool_input?: { file_path?: string } }
+
+/**
+ * The team's word on the file a PreToolUse payload is about to edit, the first time the session edits it; '' otherwise.
+ * Shared by the edit hook and the DLP pre-tool hook, so a machine with DLP on pays no second process per edit.
+ */
+export async function fileBriefingContext(payload: FileHookPayload, fallbackCwd: string): Promise<string> {
+    const session = payload.session_id;
+    const target = payload.tool_input?.file_path;
+    if (!session || typeof target !== 'string' || !target) return '';
+    const cwd = payload.cwd || fallbackCwd;
+    const root = gitOut(cwd, ['rev-parse', '--show-toplevel']);
+    if (!root) return '';
+    // Once per file per session, checked first and keyed on the path as the agent sent it (one session spells a file one
+    // way): every later edit of the file costs this check only.
+    const key = `${session}\u0000${path.resolve(cwd, target)}`;
+    if (briefedAlready(root, key)) return '';
+    markBriefed(root, key); // first, so two quick edits of one file never brief twice
+    // Where the file sits, as git says it, never by comparing paths (symlinked folders, Windows drive letters and short
+    // names make two spellings of one folder). A file being created is placed through the nearest folder that exists.
+    let dir = path.dirname(path.resolve(cwd, target));
+    const rest = [path.basename(target)];
+    while (!fs.existsSync(dir) && path.dirname(dir) !== dir) {
+        rest.unshift(path.basename(dir));
+        dir = path.dirname(dir);
+    }
+    if (gitOut(dir, ['rev-parse', '--show-toplevel']) !== root) return ''; // outside this repository: not the team's file
+    const file = `${gitOut(dir, ['rev-parse', '--show-prefix']) ?? ''}${rest.join('/')}`;
+    if (!file) return '';
+    const { off, lessons } = await briefingOff(root);
+    if (off) return '';
+    return fileBriefingText(briefFile(root, file, { session, agent: 'claude', ...(lessons ? { lessons } : {}) }));
+}
+
+function gitOut(cwd: string, args: string[]): string | undefined {
+    const run = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 5000 });
+    return run.status === 0 ? run.stdout.trim() : undefined;
+}
+
 /** The pull request's title and description as the goal, when gh can read one quickly; undefined otherwise. */
 function pullRequestGoal(cwd: string): string | undefined {
     const view = spawnSync('gh', ['pr', 'view', '--json', 'title,body'], { cwd, encoding: 'utf8', timeout: 5000 });
@@ -95,8 +150,8 @@ function markBriefed(cwd: string, session: string): void {
             // first briefing in this repository
         }
         all[session] = new Date().toISOString();
-        // Keep the newest 500 sessions: the file is a guard against repeating, not a history (the thread is).
-        const kept = Object.entries(all).sort((a, b) => (a[1] < b[1] ? 1 : -1)).slice(0, 500);
+        // Keep the newest 2,000 entries (sessions, and files within them): a guard against repeating, not a history (the thread is).
+        const kept = Object.entries(all).sort((a, b) => (a[1] < b[1] ? 1 : -1)).slice(0, 2000);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, JSON.stringify(Object.fromEntries(kept)));
     } catch {

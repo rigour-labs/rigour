@@ -22,5 +22,11 @@ describe('rigour_brief', () => {
         expect(off.content[0].text).toContain('switched off');
         const none = handleBrief(repo, ConfigSchema.parse({ version: 1 }), { goal: 'reword the readme', files: ['README.md'] });
         expect(none.content[0].text).toContain('Nothing to brief');
+        // Only files, no goal: the team's word on each file the agent is about to edit.
+        fs.mkdirSync(path.join(repo, 'src/jobs'), { recursive: true });
+        const perFile = handleBrief(repo, ConfigSchema.parse({ version: 1 }), { files: ['src/jobs/retry.ts', 'README.md'] });
+        expect(perFile.content[0].text).toContain('Rigour, before you edit src/jobs/retry.ts');
+        expect(perFile.content[0].text).not.toContain('README.md');
+        expect(handleBrief(repo, ConfigSchema.parse({ version: 1 }), { files: ['README.md'] }).content[0].text).toContain('Nothing to brief for README.md');
     });
 });

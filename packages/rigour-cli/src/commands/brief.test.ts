@@ -4,8 +4,8 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readThread } from '@rigour-labs/core';
-import { briefCommand, hooksBriefCommand } from './brief.js';
-import { hooksInitCommand } from './hooks.js';
+import { briefCommand, hooksBriefCommand, hooksBriefFileCommand } from './brief.js';
+import { hooksCheckCommand, hooksInitCommand } from './hooks.js';
 
 let repo: string;
 const write = (file: string, text: string) => {
@@ -58,6 +58,62 @@ describe('the prompt hook', () => {
     });
 });
 
+describe('the edit hook', () => {
+    const edit = (session: string, file: string) => JSON.stringify({ cwd: repo, session_id: session, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(repo, file) } });
+
+    it("gives the team's word on a file the first time a session edits it, once per file per session", async () => {
+        const first = JSON.parse(await hooksBriefFileCommand(edit('s1', 'src/jobs/retry.ts'), '/'));
+        expect(first.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+        expect(first.hookSpecificOutput.additionalContext).toContain('Rigour, before you edit src/jobs/retry.ts');
+        expect(first.hookSpecificOutput.additionalContext).toContain('1. [must] Every job in `src/jobs/` must take `withLock()`');
+        expect(await hooksBriefFileCommand(edit('s1', 'src/jobs/retry.ts'), '/')).toBe(''); // the same file again
+        expect(await hooksBriefFileCommand(edit('s2', 'src/jobs/retry.ts'), '/')).not.toBe(''); // another session
+        expect(await hooksBriefFileCommand(edit('s1', 'README.md'), '/')).toBe(''); // nothing applies: nothing said
+        expect(readThread(repo)?.events.map(e => [e.kind, e.file, e.session, e.items])).toEqual([['brief', 'src/jobs/retry.ts', 's1', 1], ['brief', 'src/jobs/retry.ts', 's2', 1], ['brief', 'README.md', 's1', 0]]);
+    });
+
+    it('places a file being created in a new folder, and says nothing for a file of another repository inside this one', async () => {
+        const created = JSON.parse(await hooksBriefFileCommand(edit('n1', 'src/jobs/new/sweep.ts'), '/'));
+        expect(created.hookSpecificOutput.additionalContext).toContain('Rigour, before you edit src/jobs/new/sweep.ts');
+        fs.mkdirSync(path.join(repo, 'vendor/other'), { recursive: true });
+        execFileSync('git', ['-C', path.join(repo, 'vendor/other'), 'init', '-q']);
+        expect(await hooksBriefFileCommand(edit('n1', 'vendor/other/src/jobs/x.ts'), '/')).toBe('');
+    });
+
+    it('says nothing for a file outside the repository, a bad payload, or when briefings are switched off', async () => {
+        expect(await hooksBriefFileCommand(JSON.stringify({ cwd: repo, session_id: 's1', tool_input: { file_path: '/etc/hosts' } }), '/')).toBe('');
+        expect(await hooksBriefFileCommand('not json', '/')).toBe('');
+        expect(await hooksBriefFileCommand(JSON.stringify({ cwd: repo, tool_input: { file_path: 'src/jobs/retry.ts' } }), '/')).toBe('');
+        process.env.RIGOUR_BRIEF = 'off';
+        expect(await hooksBriefFileCommand(edit('s3', 'src/jobs/retry.ts'), '/')).toBe('');
+        delete process.env.RIGOUR_BRIEF;
+        write('rigour.yml', 'version: 1\nbrief:\n  enabled: false\n');
+        expect(await hooksBriefFileCommand(edit('s4', 'src/jobs/retry.ts'), '/')).toBe('');
+        expect(readThread(repo)?.events ?? []).toEqual([]);
+    });
+});
+
+describe('the DLP pre-tool hook with --brief', () => {
+    it("adds the file's briefing to its own answer on a first edit, and nothing on other tools or later edits", async () => {
+        const out: string[] = [];
+        vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => (out.push(String(chunk)), true));
+        vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const run = async (tool: string, session: string) => {
+            out.length = 0;
+            await hooksCheckCommand(repo, { mode: 'dlp', brief: true, files: JSON.stringify({ cwd: repo, session_id: session, tool_name: tool, tool_input: { file_path: path.join(repo, 'src/jobs/retry.ts') } }) });
+            return JSON.parse(out.join(''));
+        };
+        const first = await run('Edit', 'd1');
+        expect(first.status).toBe('clean'); // the DLP answer is unchanged
+        expect(first.hookSpecificOutput).toMatchObject({ hookEventName: 'PreToolUse', additionalContext: expect.stringContaining('Rigour, before you edit src/jobs/retry.ts') });
+        expect((await run('Edit', 'd1')).hookSpecificOutput).toBeUndefined(); // briefed once in the session
+        expect((await run('Read', 'd2')).hookSpecificOutput).toBeUndefined(); // not an edit
+        out.length = 0;
+        await hooksCheckCommand(repo, { mode: 'dlp', files: JSON.stringify({ cwd: repo, session_id: 'd3', tool_name: 'Edit', tool_input: { file_path: path.join(repo, 'src/jobs/retry.ts') } }) });
+        expect(JSON.parse(out.join('')).hookSpecificOutput).toBeUndefined(); // without --brief, DLP only
+    });
+});
+
 describe('rigour brief', () => {
     it('prints the briefing as JSON for a goal and files', async () => {
         const out: string[] = [];
@@ -71,10 +127,20 @@ describe('rigour hooks init --brief', () => {
     it('installs the prompt hook only when asked', async () => {
         vi.spyOn(console, 'log').mockImplementation(() => undefined);
         await hooksInitCommand(repo, { tool: 'claude' });
-        expect(JSON.parse(fs.readFileSync(path.join(repo, '.claude/settings.json'), 'utf8')).hooks.UserPromptSubmit).toBeUndefined();
+        const plain = JSON.parse(fs.readFileSync(path.join(repo, '.claude/settings.json'), 'utf8')).hooks;
+        expect(plain.UserPromptSubmit).toBeUndefined();
+        expect(plain.PreToolUse.some((h: any) => h.matcher === 'Write|Edit|MultiEdit')).toBe(false);
         await hooksInitCommand(repo, { tool: 'claude', brief: true, force: true });
         const hook = JSON.parse(fs.readFileSync(path.join(repo, '.claude/settings.json'), 'utf8')).hooks.UserPromptSubmit;
         expect(hook[0].hooks[0].command).toMatch(/ brief$/);
         expect(hook[0].hooks[0].timeout).toBe(20);
+        // DLP on (the default): the DLP hook, which already runs before every tool, briefs too; no second process per edit.
+        const pre = JSON.parse(fs.readFileSync(path.join(repo, '.claude/settings.json'), 'utf8')).hooks.PreToolUse;
+        expect(pre.some((h: any) => h.matcher === 'Write|Edit|MultiEdit')).toBe(false);
+        expect(pre.find((h: any) => h.matcher === '.*').hooks[0].command).toMatch(/--mode dlp --stdin --brief$/);
+        // DLP off: an edit hook of its own.
+        await hooksInitCommand(repo, { tool: 'claude', brief: true, dlp: false, force: true });
+        const own = JSON.parse(fs.readFileSync(path.join(repo, '.claude/settings.json'), 'utf8')).hooks.PreToolUse.find((h: any) => h.matcher === 'Write|Edit|MultiEdit');
+        expect(own.hooks[0].command).toMatch(/ brief-file$/);
     });
 });

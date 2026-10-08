@@ -13,6 +13,8 @@ import { appendTaskEvent, taskOf } from '../task/thread.js';
 
 /** The most items a briefing gives: past about ten, a briefing is a wall nobody reads. */
 export const BRIEFING_MAX_ITEMS = 10;
+/** The most items a briefing for one file gives, the first time an agent edits it: a word in passing, not a wall. */
+export const FILE_BRIEFING_MAX_ITEMS = 3;
 /** The most files a briefing reads the task's likely reach from. */
 const LIKELY_FILES = 20;
 
@@ -76,6 +78,42 @@ export function briefingText(briefing: Briefing): string {
     if (briefing.items.length === 0) return '';
     const lines = briefing.items.map((item, i) => `${i + 1}. ${item.requirement ? '[must] ' : item.kind === 'settled' ? '[settled] ' : ''}${item.text} (${item.cite})`);
     return [`Rigour briefing${briefing.task ? ` for ${briefing.task}` : ''}: how this team builds the code this task will likely touch. Follow these; a [must] broken in your change blocks at review.`, ...lines].join('\n');
+}
+
+/**
+ * The briefing for one file, the first time an agent edits it: the requirement rules that name it (or its folder), the
+ * lessons the team learned on it, and the points the team settled against on it; at most three. At session start the
+ * task's files are often unknown; the first edit of a file is when they are, and when a briefing can be specific.
+ */
+export function buildFileBriefing(cwd: string, file: string, input: { lessons?: LessonMode; limit?: number } = {}): Briefing {
+    const task = taskOf(cwd);
+    const limit = Math.max(0, Math.min(input.limit ?? FILE_BRIEFING_MAX_ITEMS, FILE_BRIEFING_MAX_ITEMS));
+    const shape = shapeOf([file], '');
+    const mode = input.lessons ?? 'verified';
+    const rules = rulesForDiff(cwd, shape, true, BRIEFING_MAX_ITEMS, true).filter(r => r.requirement);
+    const lessons = lessonsForDiff(cwd, shape, mode, 0, BRIEFING_MAX_ITEMS, BRIEFING_MAX_ITEMS).filter(l => l.file === file && (l.state === 'verified' || mode === 'all'));
+    const settled = rejectedForDiff(cwd, shape).filter(l => l.file === file);
+    const cited = (prs: number[]) => (prs.length ? `learned in PR ${prs.map(p => `#${p}`).join(', ')}` : 'the team\'s decision');
+    const items: BriefingItem[] = [
+        ...rules.map(r => ({ kind: 'rule' as const, text: r.text, cite: ruleCite(r.source, r.scope), requirement: true, id: `rule:${r.id}` })),
+        ...lessons.map(l => ({ kind: 'lesson' as const, text: lessonView(l).text, cite: cited(lessonView(l).prs), id: `lesson:${l.id}` })),
+        ...settled.map(l => ({ kind: 'settled' as const, text: `settled against, do not do or raise it: ${lessonView(l).text}`, cite: cited(lessonView(l).prs), id: `settled:${l.id}` })),
+    ];
+    return { ...(task ? { task: task.key } : {}), goal: '', files: [file], items: items.slice(0, limit) };
+}
+
+/** A file's briefing as an agent reads it, just before it edits that file. Empty when there is nothing to say. */
+export function fileBriefingText(briefing: Briefing): string {
+    if (briefing.items.length === 0) return '';
+    const lines = briefing.items.map((item, i) => `${i + 1}. ${item.requirement ? '[must] ' : item.kind === 'settled' ? '[settled] ' : ''}${item.text} (${item.cite})`);
+    return [`Rigour, before you edit ${briefing.files[0]}: what this team asks of this file.`, ...lines].join('\n');
+}
+
+/** Builds a file's briefing and records it on the task's thread, with the file. */
+export function briefFile(cwd: string, file: string, input: { lessons?: LessonMode; limit?: number; session?: string; agent?: string } = {}): Briefing {
+    const briefing = buildFileBriefing(cwd, file, input);
+    appendTaskEvent(cwd, { kind: 'brief', file, ...(input.session ? { session: input.session } : {}), ...(input.agent ? { agent: input.agent } : {}), items: briefing.items.length, ids: briefing.items.map(i => i.id), files: [file] });
+    return briefing;
 }
 
 /** Builds the briefing and records it on the task's thread (what was briefed, by id, so a later review can be read against it). */
