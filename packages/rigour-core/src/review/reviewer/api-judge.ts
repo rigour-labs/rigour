@@ -34,6 +34,8 @@ export interface ApiJudgeAnswer { result: string; usage: RunTrace['usage']; cost
 
 const SYSTEM = 'You review code with read-only tools. Read the files the task names with read_file (the review inputs are named by absolute path), search the repository with search, read history with git. When you are done, reply with the final answer the task asks for and nothing else.';
 const MAX_RESULT_CHARS = 60_000;
+/** Output tokens a turn may use, reasoning included: a review verdict is long, and a reasoning model's thinking counts against the default budget. */
+const MAX_OUTPUT_TOKENS = 32_000;
 const GIT_ALLOWED = new Set(['log', 'show', 'diff', 'blame', 'grep', 'ls-files', 'rev-parse', 'merge-base']);
 /** Git options that write, or point git at another repository. */
 const GIT_REFUSED = /^(--output|-o$|--git-dir|--work-tree|-C$|--exec-path|-c$|--config-env)/;
@@ -65,7 +67,7 @@ export async function runApiJudge(prompt: string, o: ApiJudgeOptions): Promise<A
             response = await fetchImpl(`${o.url.replace(/\/$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json', authorization: `Bearer ${o.key}` },
-                body: JSON.stringify({ model: o.model, messages, tools: TOOLS, tool_choice: 'auto', ...(o.reasoning ? { reasoning_effort: o.reasoning } : {}) }),
+                body: JSON.stringify({ model: o.model, messages, tools: TOOLS, tool_choice: 'auto', max_tokens: MAX_OUTPUT_TOKENS, ...(o.reasoning ? { reasoning_effort: o.reasoning } : {}) }),
                 signal: controller.signal,
             });
         } catch (error) {
@@ -86,12 +88,19 @@ export async function runApiJudge(prompt: string, o: ApiJudgeOptions): Promise<A
         usage.cacheRead += cached;
         usage.output += n(u.completion_tokens);
         if (typeof u.cost === 'number') cost = (cost ?? 0) + u.cost;
-        const message = body.choices?.[0]?.message;
+        const choice = body.choices?.[0];
+        // A gateway reports a provider's failure inside the choice, with the choice's finish_reason "error": say what it said.
+        if (choice?.error || body.error) return fail(`the API reported an error: ${JSON.stringify(choice?.error ?? body.error).slice(0, 300)}`);
+        const message = choice?.message;
         if (!message) return fail('no choices in the answer');
-        messages.push(message);
+        // Echo back what the API needs to continue (reasoning_details carries a reasoning model's chain), not the reasoning prose.
+        messages.push({ role: 'assistant', content: message.content ?? null, ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}), ...(message.reasoning_details ? { reasoning_details: message.reasoning_details } : {}) });
         const toolCalls: any[] = Array.isArray(message.tool_calls) ? message.tool_calls : [];
         if (toolCalls.length === 0) {
-            const answer: ApiJudgeAnswer = { result: String(message.content ?? ''), usage, ...(cost !== undefined ? { cost_usd: cost } : {}), trace: { turns: turn, usage, calls } };
+            const text = String(message.content ?? '').trim();
+            // An empty final message is not an answer: say why (the output budget ran out, a refusal), never report it as one.
+            if (!text) return fail(`an empty answer on turn ${turn} (finish_reason ${String(body.choices?.[0]?.finish_reason ?? 'unknown')}${message.refusal ? `, refusal: ${String(message.refusal).slice(0, 120)}` : ''})`);
+            const answer: ApiJudgeAnswer = { result: text, usage, ...(cost !== undefined ? { cost_usd: cost } : {}), trace: { turns: turn, usage, calls } };
             return { exitCode: 0, stdout: JSON.stringify(answer), stderr: '' };
         }
         for (const call of toolCalls) {

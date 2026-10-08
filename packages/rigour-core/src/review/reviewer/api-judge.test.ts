@@ -83,6 +83,18 @@ describe('the API judge', () => {
         expect(await runApiJudge('p', options(slow, { timeoutMs: 50 }))).toMatchObject({ exitCode: 1, stderr: expect.stringContaining('request failed') });
     });
 
+    it('fails closed on an empty final message, saying why, and echoes back only what the API needs to continue', async () => {
+        const empty = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '', reasoning: 'thinking…' }, finish_reason: 'length' }], usage: {} }), { status: 200 })) as unknown as typeof fetch;
+        expect(await runApiJudge('p', options(empty))).toMatchObject({ exitCode: 1, stderr: expect.stringContaining('an empty answer on turn 1 (finish_reason length)') });
+        const providerError = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '' }, finish_reason: 'error', error: { message: 'Provider returned error', code: 502 } }], usage: {} }), { status: 200 })) as unknown as typeof fetch;
+        expect(await runApiJudge('p', options(providerError))).toMatchObject({ exitCode: 1, stderr: expect.stringContaining('the API reported an error: {"message":"Provider returned error","code":502}') });
+        const { fetchImpl, seen } = model([{ tools: [{ name: 'list_dir', args: { path: '.' } }] }, { text: 'ok' }]);
+        await runApiJudge('p', options(fetchImpl));
+        const echoed = seen[1].messages.find((m: any) => m.role === 'assistant');
+        expect(Object.keys(echoed).sort()).toEqual(['content', 'role', 'tool_calls']); // no reasoning prose sent back
+        expect(seen[0].max_tokens).toBe(32000);
+    });
+
     it('passes the reasoning effort when asked', async () => {
         const { fetchImpl, seen } = model([{ text: 'ok' }]);
         await runApiJudge('p', options(fetchImpl, { reasoning: 'low' }));
