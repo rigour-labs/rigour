@@ -270,9 +270,14 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff), labels: reviews.labels };
     const modelFor = (name: ReviewerName) => settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
+    // What a judge reads besides the repository and Rigour's inputs, on this machine: on the record, so "the same judge" is a claim it can check.
+    const outsideOf = (reviewer: string) => {
+        const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir(), installed.get(reviewer as ReviewerName)?.version);
+        return outside ? { outside_repo: outside } : {};
+    };
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
         const res = result(accounted, verdict, reviewers, scope, why, cached, reviews, pr, modeRecord, settings.dismissals);
-        const judges = (verdict.reviewers ?? []).map(r => ({ reviewer: r.reviewer, ...(installed.get(r.reviewer as ReviewerName)?.version ? { version: installed.get(r.reviewer as ReviewerName)!.version } : {}), ...(modelFor(r.reviewer as ReviewerName) ? { model: modelFor(r.reviewer as ReviewerName) } : {}), ...(typeof r.cost_usd === 'number' ? { cost_usd: r.cost_usd } : {}), ...(r.trace?.turns ? { turns: r.trace.turns } : {}) }));
+        const judges = (verdict.reviewers ?? []).map(r => ({ reviewer: r.reviewer, ...(installed.get(r.reviewer as ReviewerName)?.version ? { version: installed.get(r.reviewer as ReviewerName)!.version } : {}), ...(modelFor(r.reviewer as ReviewerName) ? { model: modelFor(r.reviewer as ReviewerName) } : {}), ...(typeof r.cost_usd === 'number' ? { cost_usd: r.cost_usd } : {}), ...(r.trace?.turns ? { turns: r.trace.turns } : {}), ...outsideOf(r.reviewer) }));
         const recordPath = store.recordPath(verdictFile);
         const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
@@ -292,7 +297,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
         ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
-        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
+        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...(ADAPTERS[name].env ? { env: ADAPTERS[name].env } : {}) });
     try {
         const file = (name: string, text: string) => {
             const target = path.join(work, name);

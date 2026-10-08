@@ -2,7 +2,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { rulesForDiff, rulesSection, splitRules } from './repo-rules.js';
+import { execFileSync } from 'child_process';
+import { readRepoRules, rulesForDiff, rulesSection, splitRules } from './repo-rules.js';
 
 const AGENTS = `# Conventions
 
@@ -57,5 +58,44 @@ describe('repository rules', () => {
         expect(rulesForDiff(repo, diff('src/ui/List.tsx', 'const x = 1;'), true)).toEqual([]);
         expect(rulesForDiff(repo, diff('migrations/2026_add.sql', 'x'), false)).toEqual([]);
         expect(rulesSection(rulesForDiff(repo, diff('src/a.ts', 'await fetchWithTimeout(url);'), true))).toContain('[AGENTS.md] Prefer `fetchWithTimeout`');
+    });
+});
+
+describe('the rule files a judge is given', () => {
+    it('follows @ imports from a rule file and reads AGENTS.md and CLAUDE.md in folders below the root, once each', () => {
+        fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '@AGENTS.md\n@docs/conventions.md\n@../outside.md\n@/etc/hosts\n@docs/missing.md\n');
+        fs.mkdirSync(path.join(repo, 'docs'));
+        fs.writeFileSync(path.join(repo, 'docs/conventions.md'), '@../AGENTS.md\n\n- Never log `apiToken` from `src/auth/session.ts`, even partly.\n');
+        fs.writeFileSync(path.join(repo, 'SHARED.md'), '- Every job in `src/jobs/` takes `withLock()` before the first read.\n');
+        fs.mkdirSync(path.join(repo, 'services/billing'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'services/billing/AGENTS.md'), '- Amounts in `services/billing/` are integer cents via `toCents()`; never a float.\n');
+        execFileSync('git', ['-C', repo, 'init', '-q']);
+        execFileSync('git', ['-C', repo, 'add', '-A']);
+        const rules = readRepoRules(repo);
+        const by = (source: string) => rules.filter(r => r.source === source).map(r => r.text);
+        expect(by('docs/conventions.md')).toEqual(['Never log `apiToken` from `src/auth/session.ts`, even partly.']);
+        expect(by('SHARED.md')).toEqual(['Every job in `src/jobs/` takes `withLock()` before the first read.']); // imported by AGENTS.md
+        expect(by('services/billing/AGENTS.md')).toEqual(['Amounts in `services/billing/` are integer cents via `toCents()`; never a float.']);
+        expect(rules.filter(r => r.source === 'AGENTS.md')).toHaveLength(3); // imported twice, read once
+        expect(rules.some(r => /hosts|outside/.test(r.source))).toBe(false); // nothing outside the repository
+    });
+
+    it("applies a folder's own rules, and the rules it imports, only to changes in that folder; vendored folders add none", () => {
+        fs.mkdirSync(path.join(repo, 'services/billing'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'services/billing/AGENTS.md'), '@money.md\n\n- Never call `stripe.charges.create` directly from `services/billing/`; go through `ledgerClient`.\n');
+        fs.writeFileSync(path.join(repo, 'services/billing/money.md'), '- Every amount in `services/billing/` is integer cents via `toCents()`; never a float.\n');
+        fs.mkdirSync(path.join(repo, 'vendor/somelib'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'vendor/somelib/AGENTS.md'), '- Always run `make vendor-test` in `vendor/somelib/` before every commit.\n');
+        execFileSync('git', ['-C', repo, 'init', '-q']);
+        execFileSync('git', ['-C', repo, 'add', '-A']);
+        const all = readRepoRules(repo);
+        expect(all.filter(r => r.scope === 'services/billing/').map(r => r.source)).toEqual(['services/billing/AGENTS.md', 'services/billing/money.md']);
+        expect(all.some(r => r.source.startsWith('vendor/'))).toBe(false);
+        expect(all.filter(r => r.source === 'AGENTS.md').every(r => r.scope === undefined)).toBe(true);
+        // A change only in web/ that even names the billing words: the billing rules are not served, so never checked or broken.
+        const web = rulesForDiff(repo, diff('web/src/Price.tsx', 'const total = stripe.charges.create(toCents(amount));'), true, 15);
+        expect(web.some(r => r.scope)).toBe(false);
+        const billing = rulesForDiff(repo, diff('services/billing/charge.ts', 'const total = stripe.charges.create(toCents(amount));'), true, 15);
+        expect(billing.filter(r => r.scope).map(r => r.source).sort()).toEqual(['services/billing/AGENTS.md', 'services/billing/money.md']);
     });
 });

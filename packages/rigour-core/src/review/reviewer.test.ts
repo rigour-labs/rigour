@@ -9,7 +9,7 @@ import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
 import { account, attachServedRules, carryResolved, changedLinesOf, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type LabelledPoint, type PriorPoint, type Verdict } from './reviewer/verdict.js';
-import { recordIntact } from './reviewer/record.js';
+import { recordIntact, recordLines } from './reviewer/record.js';
 
 let repo: string;
 const config = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
@@ -25,7 +25,7 @@ const INLINE = [{ id: 7, user: { login: 'senior', type: 'User' }, path: 'src/job
 
 const EMPTY = { prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: true, evidence: 'a.ts:1' }], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [] };
 
-interface Seen { prompts: string[]; files: Record<string, string>; ghArgs: string[][]; ran: string[]; args?: string[][]; unset?: Array<string[] | undefined>; ghToken?: string; installed?: string[]; versions?: Record<string, string> }
+interface Seen { prompts: string[]; files: Record<string, string>; ghArgs: string[][]; ran: string[]; args?: string[][]; unset?: Array<string[] | undefined>; env?: Array<Record<string, string> | undefined>; ghToken?: string; installed?: string[]; versions?: Record<string, string> }
 
 /** Real git; scripted gh; agent CLIs that record what they were shown and answer `answer` (a function of the reviewer's name). */
 function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout: string; stderr: string }, seen: Seen, pr: typeof PR | null = PR): Exec {
@@ -51,6 +51,7 @@ function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout
         seen.ran.push(command);
         (seen.args ??= []).push(args);
         (seen.unset ??= []).push(options.unset);
+        (seen.env ??= []).push(options.env);
         const name = binary === 'claude' ? 'claude' : binary === 'cursor-agent' ? 'cursor' : 'codex';
         const prompt = binary === 'claude' ? args[args.indexOf('-p') + 1] : args[args.length - 1];
         seen.prompts.push(prompt);
@@ -807,5 +808,23 @@ describe("the reviewer's own severity label", () => {
             expect([open.length, advisory.length]).toEqual([0, 1]); // the judge's should-fix stands
             expect(counted).toEqual({ served: 2, taken: 0, disagreed: 0 });
         }
+    });
+});
+
+describe('the judge Rigour launches', () => {
+    it('runs claude with every memory file switched off, and records the isolation as unverified below the version it was verified in', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review' });
+        expect(result.outcome).toBe('passed');
+        const claude = seen.ran.findIndex(command => path.basename(command).startsWith('claude'));
+        expect(seen.env?.[claude]).toEqual({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+        // The fake reports version 1.0.0, older than the one the switches were verified in: the record says so.
+        expect(result.record?.judges.map(j => j.outside_repo)).toEqual(['claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)']);
+        expect(recordLines(result.record!).join('\n')).toContain('[claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)]');
+        const current = seenNow();
+        // The installed fake is claude on Unix and claude.cmd on Windows: name both.
+        current.versions = { [path.join(bins[0], 'claude')]: '2.1.285 (Claude Code)', [path.join(bins[0], 'claude.cmd')]: '2.1.285 (Claude Code)' };
+        const verified = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), current, null), () => undefined, { trigger: 'review', force: true });
+        expect(verified.record?.judges.map(j => j.outside_repo)).toEqual([undefined]);
     });
 });

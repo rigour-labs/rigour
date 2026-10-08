@@ -22,6 +22,10 @@ export interface Adapter {
     args(prompt: string, model: string | undefined, options?: { reasoning?: 'low' | 'medium' | 'high' }): string[];
     /** The reviewer's final message and, when the CLI reports them, what the run cost and the tokens it used. */
     answer(stdout: string): { text: string } & Spend;
+    /** Variables the judge runs with, on top of what it inherits: what keeps a person's own instructions out of it. */
+    env?: Record<string, string>;
+    /** What this judge still reads from outside the repository on this machine (a person's own config), or undefined: said on the record, never hidden. */
+    outsideRepo?(home: string, version: string | undefined): string | undefined;
 }
 
 /** What a run used: dollars when the CLI reports them (Claude Code), tokens otherwise (Codex reports only tokens). */
@@ -39,6 +43,9 @@ export interface RunTrace {
 export interface Tokens { input: number; output: number }
 
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/** The Claude Code version the memory switches were verified in: below it, a judge may still load a person's CLAUDE.md. */
+const CLAUDE_MEMORY_ISOLATION = '2.1.285';
 
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git log:*)', 'Bash(git grep:*)'];
 
@@ -58,12 +65,26 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             '--allowedTools', ...READ_ONLY_TOOLS,
             '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'Bash(git push:*)', 'Bash(git commit:*)',
         ],
+        // No memory file loads itself: not ~/.claude/CLAUDE.md, not one in a folder above the repository, not the repository's
+        // own (the judge reads the repository's rules as files, as Rigour's prompt tells every judge to), and no auto-memory.
+        // Claude Code's own safe mode uses the same switch. What the judge knows is the repository and what Rigour gives it.
+        env: { CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
+        // An older Claude Code ignores those switches without a word and loads the memory files anyway: below the version
+        // they were verified in, or when the version cannot be read, the record says the isolation is unverified.
+        outsideRepo: (_home, version) => {
+            const found = /(\d+)\.(\d+)\.(\d+)/.exec(version ?? '');
+            const at = found ? found.slice(1).map(Number) : undefined;
+            const floor = CLAUDE_MEMORY_ISOLATION.split('.').map(Number);
+            const below = !at || at[0] !== floor[0] ? !at || at[0] < floor[0] : at[1] !== floor[1] ? at[1] < floor[1] : at[2] < floor[2];
+            return below ? `claude ${found?.[0] ?? '(version unknown)'}: memory isolation unverified (needs ${CLAUDE_MEMORY_ISOLATION} or later)` : undefined;
+        },
         answer: stdout => claudeAnswer(stdout),
     },
     cursor: {
         vendor: 'cursor',
         binary: 'cursor-agent',
         // Ask mode is read-only and cannot run git: every input the prompt names is a file.
+        outsideRepo: () => 'cursor also reads your own Cursor rules and settings',
         args: (prompt, model) => ['-p', '--print', '--output-format', 'json', '--trust', '--mode', 'ask', '--model', model ?? 'auto', prompt],
         answer: stdout => {
             try {
@@ -77,6 +98,13 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
     codex: {
         vendor: 'openai',
         binary: 'codex',
+        // Codex has no switch that skips a person's ~/.codex/config.toml and ~/.codex/AGENTS.md and keeps their login, so the
+        // record says when those exist rather than claiming a judge that only knows the repository.
+        outsideRepo: home => {
+            const dir = process.env.CODEX_HOME?.trim() || path.join(home, '.codex');
+            const read = ['config.toml', 'AGENTS.md'].filter(name => fs.existsSync(path.join(dir, name)));
+            return read.length ? `codex also reads ${read.map(name => path.join(dir, name)).join(' and ')}` : undefined;
+        },
         args: (prompt, model, options) => ['exec', '--sandbox', 'read-only', '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
         // `codex exec --json` streams events; the last text-bearing one carries the answer.
         // Warnings arrive as `error` items with a `message`, not `text`, so they are never taken for the answer.

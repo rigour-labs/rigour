@@ -8,6 +8,7 @@
  * is better served by the few rules that name a file or identifier the
  * change actually touches.
  */
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -29,18 +30,61 @@ export interface RepoRule {
     text: string;
     /** Paths the rule names (files or directories). */
     paths: string[];
+    /** Where the rule applies: the folder of the nested rules file it came from (`services/billing/`); the whole repository when absent. */
+    scope?: string;
     /** Identifiers the rule names. */
     symbols: string[];
     /** Worded as a requirement: a break can block. Guidance otherwise: a break is shown. */
     requirement: boolean;
 }
 
+/** The most rule files read, imports included: a loop or a sprawling import tree stops here. */
+const MAX_RULE_SOURCES = 50;
+
+/** Folders of someone else's code a repository carries: a rules file in one is that project's, not this team's. */
+const VENDORED = /(^|\/)(vendor|vendors|third_party|third-party|node_modules|bower_components|external|externals)\//;
+
+/**
+ * Every rule file of the repository: the root ones, the AGENTS.md and CLAUDE.md files in folders below it (outside
+ * vendored folders), the rule directories, and every file a rule file imports with an `@path` line (relative to the
+ * importing file, inside the repository). A judge does not load these by itself; this is how the repository's rules
+ * reach it. A nested file's rules apply to its own folder only, and so do the rules of the files it imports.
+ */
 export function readRepoRules(cwd: string): RepoRule[] {
-    const files = [
-        ...RULE_FILES.filter(f => fs.existsSync(path.join(cwd, f))),
-        ...RULE_DIRS.flatMap(dir => listRuleFiles(cwd, dir)),
+    const queue: Array<{ file: string; scope?: string }> = [
+        ...RULE_FILES.filter(f => fs.existsSync(path.join(cwd, f))).map(file => ({ file })),
+        ...nestedRuleFiles(cwd).map(file => ({ file, scope: `${path.posix.dirname(file)}/` })),
+        ...RULE_DIRS.flatMap(dir => listRuleFiles(cwd, dir)).map(file => ({ file })),
     ];
-    return files.flatMap(file => splitRules(file, fs.readFileSync(path.join(cwd, file), 'utf8')));
+    const read = new Set<string>();
+    const rules: RepoRule[] = [];
+    while (queue.length && read.size < MAX_RULE_SOURCES) {
+        const { file, scope } = queue.shift()!;
+        // The same file imported from two places is read once, with the scope it was first reached with: a root import first.
+        if (read.has(file)) continue;
+        read.add(file);
+        let text: string;
+        try {
+            text = fs.readFileSync(path.join(cwd, file), 'utf8');
+        } catch {
+            continue;
+        }
+        rules.push(...splitRules(file, text).map(rule => (scope ? { ...rule, scope } : rule)));
+        for (const m of text.matchAll(/^@(\S+)\s*$/gm)) {
+            const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), m[1].replace(/^\.\//, '')));
+            if (target.startsWith('..') || path.isAbsolute(m[1]) || m[1].startsWith('~') || !fs.existsSync(path.join(cwd, target))) continue;
+            // Root imports go to the front, so a file both a root and a nested file import keeps the repository-wide scope.
+            if (scope) queue.push({ file: target, scope });
+            else queue.unshift({ file: target });
+        }
+    }
+    return rules;
+}
+
+/** AGENTS.md and CLAUDE.md in folders below the root, as git tracks them, outside vendored folders. */
+function nestedRuleFiles(cwd: string): string[] {
+    const listed = spawnSync('git', ['ls-files', '-z', '--', '*/AGENTS.md', '*/CLAUDE.md'], { cwd, encoding: 'utf8', timeout: 5000 });
+    return listed.status === 0 ? listed.stdout.split('\0').filter(f => f && !VENDORED.test(f)) : [];
 }
 
 /** One rule per top-level bullet or paragraph; headings and import lines are not rules. */
@@ -87,6 +131,8 @@ export function splitRules(source: string, text: string): RepoRule[] {
  * rule by rule from the top `limit`.
  */
 function rulesForChange(rules: RepoRule[], files: string[], symbols: Set<string>, limit = MAX_RULES): RepoRule[] {
+    // A folder's own rules are served only when the change touches that folder: never checked, so never broken, elsewhere.
+    rules = rules.filter(rule => !rule.scope || files.some(f => f.startsWith(rule.scope!)));
     const changeWords = new Set([...files.flatMap(f => f.split(/[/._-]+/)), ...symbols].flatMap(meaningfulWords));
     const scored = rules.map(rule => {
         const pathHits = rule.paths.filter(p => files.some(f => f === p || f.startsWith(p.endsWith('/') ? p : `${p}/`) || f.endsWith(`/${p}`))).length;
