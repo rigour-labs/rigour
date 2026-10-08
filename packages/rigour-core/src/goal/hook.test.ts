@@ -64,7 +64,8 @@ describe('the goal at a stop or a push', () => {
         };
         await hookGoalDescription(repo, ConfigSchema.parse({ version: 1, review: { goal: 'on', github_account: 'someone' } }), slow);
         expect(timeouts[0]).toBe(5000);
-        expect(timeouts[1]).toBeLessThanOrEqual(5000 - 50);
+        // The token call took about 50 ms of the budget (a timer may fire a millisecond early): the pull request call gets the rest.
+        expect(timeouts[1]).toBeLessThan(5000 - 25);
     });
 
     it('reads the description again on the commit it blocked: the fix may be the description', async () => {
