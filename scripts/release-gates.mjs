@@ -18,7 +18,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverPublishedWorkspacePackages } from './npm-release-readiness.mjs';
 
@@ -44,7 +44,7 @@ export function secretFindings(text) {
   return SECRET_PATTERNS.filter(([, pattern]) => pattern.test(text)).map(([kind]) => kind);
 }
 
-/** Every file under a folder, relative to it, with a hash of its contents: what an upgrade must leave as it was. */
+/** Every file under a folder, relative to it with '/' separators, with a hash of its contents: what an upgrade must leave as it was. */
 export function snapshot(dir, skip = ['.git', 'node_modules']) {
   const files = {};
   const walk = (at) => {
@@ -52,7 +52,7 @@ export function snapshot(dir, skip = ['.git', 'node_modules']) {
       if (skip.includes(name)) continue;
       const path = join(at, name);
       if (statSync(path).isDirectory()) walk(path);
-      else files[relative(dir, path)] = createHash('sha256').update(readFileSync(path)).digest('hex');
+      else files[relative(dir, path).split(sep).join('/')] = createHash('sha256').update(readFileSync(path)).digest('hex'); // '/' on every platform
     }
   };
   walk(dir);
