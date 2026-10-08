@@ -70,7 +70,7 @@ export function applyOutcomeEvidence(lessons: ReviewLesson[], records: PrOutcome
             // Evidence for a person, never a promotion: a fix on the same lines is often unrelated work.
             if (lines?.kind === 'outcome') {
                 const evidence: LessonEvidence = { ...lines, kind: 'lines', comment: `lines-${record.pr}-${lines.comment.replace(/^outcome-/, '')}`, detail: `${lines.detail}${context ? `; ${context}` : ''}` };
-                if (add(evidence)) result.suggested.push(lesson.id);
+                if (add(evidence) && !result.suggested.includes(lesson.id)) result.suggested.push(lesson.id);
             } else {
                 add({ kind: 'followup', pr: record.pr, comment: `followup-${record.pr}-${fileFix.sha.slice(0, 12)}`, author: '', detail: `${lesson.file} fixed later by ${fileFix.sha.slice(0, 9)} "${fileFix.subject}", not on the point's lines${context ? `; ${context}` : ''}`, at: fileFix.at });
             }
