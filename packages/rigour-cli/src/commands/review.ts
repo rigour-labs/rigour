@@ -184,7 +184,7 @@ async function print(result: ReviewResult, options: ReviewOptions, receipt: Qual
         return options.githubSummary ? void console.log(renderGithubSummary(summary)) : printCi(result);
     }
     printHuman(result, { ...context, receipt, all: options.all, notes: options.notes, showReceipt: options.receipt });
-    if (reviewer) printReviewer(reviewer);
+    if (reviewer) printReviewer(reviewer, { notes: options.notes });
 }
 
 function scopeOf(options: ReviewOptions): string {

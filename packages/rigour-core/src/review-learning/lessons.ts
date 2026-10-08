@@ -242,10 +242,10 @@ export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, optio
         .sort((a, b) => b.score - a.score || b.lesson.evidence.length - a.lesson.evidence.length);
     // A team standard (no file) applies when its words are the change's: its paths and the names on its added lines,
     // split into words. A rule about keyboard shortcuts says nothing to a change to a database job.
-    const changeWords = new Set([...change.files.flatMap(f => f.split(/[/._-]+/)), ...change.symbols].flatMap(words));
+    const changeWords = new Set([...change.files.flatMap(f => f.split(/[/._-]+/)), ...change.symbols].flatMap(meaningfulWords));
     const standards = lessons
         .filter(l => !l.file && (l.state === 'verified' || (options.includeCandidates && l.state === 'candidate')))
-        .map(l => ({ lesson: l, shared: new Set(words(l.text)).size === 0 ? 0 : [...new Set(words(l.text))].filter(w => changeWords.has(w)).length }))
+        .map(l => ({ lesson: l, shared: new Set(meaningfulWords(l.text)).size === 0 ? 0 : [...new Set(meaningfulWords(l.text))].filter(w => changeWords.has(w)).length }))
         .filter(s => s.shared >= STANDARD_WORDS)
         .sort((a, b) => b.shared - a.shared || b.lesson.evidence.length - a.lesson.evidence.length)
         .slice(0, options.standards ?? MAX_STANDARDS)
@@ -308,7 +308,7 @@ function sameWords(a: string, b: string): boolean {
 }
 
 /** The meaningful words of a text or an identifier: `hasLaterAttempt` and "a later attempt" share later and attempt. */
-function words(text: string): string[] {
+export function meaningfulWords(text: string): string[] {
     return text.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z]+/).filter(w => w.length >= 4 && !PLAIN_WORDS.has(w));
 }
 

@@ -15,11 +15,14 @@ export function reviewerBase(cwd: string, named: string | undefined): string | u
 }
 
 export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult): Promise<ReviewerResult> {
-    if (!base) return { outcome: 'unavailable', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason: 'no base to review against: pass --base, or fetch the main branch', reviewers: [], cached: false };
+    if (!base) return { outcome: 'unavailable', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason: 'no base to review against: pass --base, or fetch the main branch', reviewers: [], cached: false };
     return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...reviewerInputs(review) });
 }
 
-export function printReviewer(result: ReviewerResult): void {
+/** Verified should-fixes shown in full before the rest fold into a count. */
+const ADVISORY_SHOWN = 5;
+
+export function printReviewer(result: ReviewerResult, options: { notes?: boolean } = {}): void {
     const who = result.reviewers.length ? result.reviewers.join(' + ') : 'no reviewer';
     console.log(chalk.bold('\n  Reviewer') + chalk.dim(`  ${who}${result.scope ? `, ${result.scope}${result.why ? ` (${result.why})` : ''}` : ''}${result.previousReview ? `; previous review: ${result.previousReview}` : '; no previous human review'}`));
     printMode(result);
@@ -36,12 +39,24 @@ export function printReviewer(result: ReviewerResult): void {
         console.log(`  ${chalk.red('OPEN')}  ${itemLine(item)}`);
         if (item.kind !== 'prior' && result.dismissable) console.log(chalk.dim(`        not a bug? rigour dismiss ${item.id} --reason "…"`));
     }
-    for (const item of result.disputed) console.log(chalk.yellow(`  disputed, never blocks (no majority)  ${itemLine(item)}`));
-    for (const item of result.notes) console.log(chalk.dim(`  note, never blocks (no wrong outcome or cost named)  ${itemLine(item)}`));
-    for (const item of result.dismissed) console.log(chalk.dim(`  dismissed earlier as not a bug  ${itemLine(item)}`));
-    if (result.dropped.length) console.log(chalk.dim(`  ${result.dropped.length} finding(s) refuted with evidence by the other judges (--json lists them)`));
-    for (const item of result.unverified) console.log(chalk.dim(`  unverified (names code the checkout does not have)  ${itemLine(item)}`));
+    // What is shown gets the same discipline as what blocks: blocks in full, verified should-fixes capped, the rest one count.
+    const shown = result.advisory.slice(0, options.notes ? undefined : ADVISORY_SHOWN);
+    for (const item of shown) console.log(chalk.yellow(`  should fix (verified, never blocks)  ${itemLine(item)}`));
     for (const point of result.answerInReply) console.log(chalk.dim(`  answer in the reply  ${point.point}${point.evidence ? `\n            ${point.evidence}` : ''}`));
+    const folded = [
+        [result.advisory.length - shown.length, 'more should-fix'], [result.notes.length, 'working note'], [result.disputed.length, 'disputed'],
+        [result.unverified.length, 'unverified'], [result.dismissed.length, 'dismissed earlier'], [result.dropped.length, 'refuted by the other judges'],
+    ].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
+    if (options.notes) {
+        for (const item of result.disputed) console.log(chalk.dim(`  disputed, never blocks (no majority)  ${itemLine(item)}`));
+        for (const item of result.notes) console.log(chalk.dim(`  note, never blocks (a working step, or no wrong outcome named)  ${itemLine(item)}`));
+        for (const item of result.dismissed) console.log(chalk.dim(`  dismissed earlier as not a bug  ${itemLine(item)}`));
+        for (const item of result.unverified) console.log(chalk.dim(`  unverified (a quote or a file the checkout does not have)  ${itemLine(item)}`));
+    } else if (folded.length) {
+        console.log(chalk.dim(`  Also seen, never blocking: ${folded.map(([n, what]) => `${n} ${what}${n === 1 || what.startsWith('more') || what === 'disputed' || what === 'unverified' ? '' : 's'}`).join(', ')} (rigour review --reviewer --notes lists them)`));
+    }
+    if (result.rules?.checked) console.log(chalk.dim(`  repository rules answered: ${result.rules.checked} (${result.rules.broken} broken, ${result.rules.followed} followed, ${result.rules.notApplicable} not applicable)`));
+    if (result.record && result.recordPath) console.log(chalk.dim(`  record: ${result.recordPath} (integrity ${result.record.integrity.slice(0, 16)})`));
     const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens` : '';
     const cost = `${result.costUsd !== undefined ? `, $${result.costUsd.toFixed(2)}` : ''}${tokens}`;
     console.log(`  ${result.items.length} open item(s)${result.cached ? chalk.dim(' (cached for this commit)') : cost}\n`);
@@ -70,6 +85,8 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         resolved: result.resolved,
         answer_in_reply: result.answerInReply,
         notes: result.notes,
+        advisory: result.advisory,
+        shown: { blocking: result.items.length, should_fix: Math.min(result.advisory.length, ADVISORY_SHOWN), folded: result.advisory.length - Math.min(result.advisory.length, ADVISORY_SHOWN) + result.notes.length + result.disputed.length + result.unverified.length + result.dismissed.length + result.dropped.length },
         disputed: result.disputed,
         dropped: result.dropped,
         dismissed: result.dismissed,
@@ -79,6 +96,7 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         tokens: result.tokens ?? null,
         cached: result.cached,
         previous_review: result.previousReview ?? null,
+        record: result.record ?? null,
         pr: result.pr ?? null,
     };
 }

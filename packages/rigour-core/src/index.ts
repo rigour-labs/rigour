@@ -39,6 +39,7 @@ export { routeFiles, type RouterPolicy, type RouterStats } from './deep/router.j
 export { appendDeepRun, readDeepRuns, summarizeDeepRuns, type DeepRun, type DeepRunSummary } from './review/deep-runs.js';
 export { learnFromReviews, type LearnFromReviewsOptions, type LearnFromReviewsResult } from './review-learning/learn-from-reviews.js';
 export { ruleWriterFor } from './review/reviewer/rule-writer.js';
+export { buildRecord, recordLines, recordIntact, type ReviewRecord } from './review/reviewer/record.js';
 export { readLessons, writeLessons, decideLesson, lessonState, matchLessons, lessonText, lessonsPath, type ReviewLesson, type LessonEvidence } from './review-learning/lessons.js';
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
 export { recordAgentWrites, captureHumanEdits } from './review-learning/human-edits.js';

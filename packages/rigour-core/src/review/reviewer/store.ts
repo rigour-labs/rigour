@@ -101,6 +101,11 @@ export class VerdictStore {
         return path.join(this.dir, 'spend', `${day}.jsonl`);
     }
 
+    /** The record of the review (record.ts), beside its verdict. */
+    recordPath(verdictPath: string): string {
+        return verdictPath.replace(/\.json$/, '.record.json');
+    }
+
     /** The decision a verdict led to (what blocks, what is disputed or a note), kept so the same commit is not decided again. */
     decidedPath(verdictPath: string): string {
         return verdictPath.replace(/\.json$/, '.decided.json');

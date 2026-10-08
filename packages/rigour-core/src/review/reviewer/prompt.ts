@@ -131,12 +131,18 @@ Do these steps in order. Report only what you verified in the code, with file:li
    reviewers asked for before; it is not a finding by itself. When the change does repeat it, write
    the finding as for any other miss (input, consequence, quote), naming the lesson in why.
 
-10. Review the diff the way the human reviewers do: correctness, production cost, dead code and
+10. Repository rules. For EVERY rule listed under "Rules this repository wrote for itself" in the
+   team knowledge file, say in rules, by the rule's id, whether this change follows it, breaks it,
+   or does not apply to it. For a break give file, line and quote: the code that breaks it, copied
+   exactly. Judge each rule as written, never widened. A rule marked requirement, broken, with its
+   quote verified, blocks; guidance broken is shown as a should-fix.
+
+11. Review the diff the way the human reviewers do: correctness, production cost, dead code and
    unreferenced exports (a test is not a consumer), code duplicated across sibling routes or
    runners, links or ids built outside the helper that owns them, and the repository's rules.
 
-The lists from steps 2-9 are your working notes: people see them, and they never block on their
-own. A miss blocks only when you also put it in findings, with all three of:
+The lists from steps 2-10 are your working notes: people see them, and they never block on their
+own, with one exception: a requirement rule you mark broken, with its quote verified, blocks. A miss blocks only when you also put it in findings, with all three of:
 - input: the concrete input, state or sequence that goes wrong (a user edits, a retry, two runs at once);
 - consequence: what goes wrong for that input, or the cost (reads, calls or memory per what);
 - quote: the code at file:line that does it, copied exactly from the file (one to three lines).
@@ -175,6 +181,7 @@ Your final message must be ONLY this JSON, starting with { and ending with }, no
  "siblings":[{"changed":"file:line","sibling":"file:line","needs_same_change":true|false,"has_it":true|false,"why":"..."}],
  "claims":[{"source":"comment"|"description","claim":"...","file":"<code that contradicts it>","line":0,"holds":true|false,"evidence":"..."}],
  "lessons":[{"lesson":"<the lesson as listed>","applies":true|false,"file":"...","line":0,"evidence":"..."}],
+ "rules":[{"id":"<the rule's id as listed>","status":"followed"|"broken"|"not-applicable","file":"...","line":0,"quote":"<when broken: the code that breaks it, copied exactly>","evidence":"..."}],
  "findings":[{"class":"...","severity":"blocking"|"should","file":"...","line":0,"issue":"...","why":"...","input":"...","consequence":"<wrong outcome for that input, or the cost; empty for an opinion>","quote":"<the code at file:line, copied exactly>","absent":"<for a missing call or check: the exact text that is missing>"}],
  "carried":["<delta mode: ids of previous open items that still stand>"],
  "resolved_previous":[{"id":"<delta mode: id of a previous open item now fixed>","evidence":"file:line and the fix"}]}`;
@@ -183,7 +190,7 @@ Your final message must be ONLY this JSON, starting with { and ending with }, no
 export function deltaBlock(previousHead: string, previousVerdict: string, previousOpenFile: string, commitsFile: string, deltaDiffFile: string, settledFile: string): string {
     return `- DELTA MODE. The previous verdict on ${previousHead.slice(0, 9)} is at ${previousVerdict}; its open
   items, each with an id, are in ${previousOpenFile}. Only the commits in ${commitsFile} are new;
-  their diff is ${deltaDiffFile}. Do steps 1-10 on that diff and on every file an open item names.
+  their diff is ${deltaDiffFile}. Do steps 1-11 on that diff and on every file an open item names.
   Then, for EVERY previous open item: put its id in "carried" if it still stands, or in
   "resolved_previous" with the fix quoted at file:line. An id you leave out is treated as still open.
   Human points the previous verdict resolved, whose files these commits do not touch, are in

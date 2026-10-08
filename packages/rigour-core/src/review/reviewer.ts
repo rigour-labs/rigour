@@ -33,7 +33,8 @@ import { VerdictStore } from './reviewer/store.js';
 import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
-import { account, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
+import { buildRecord, type ReviewRecord } from './reviewer/record.js';
+import { account, attachServedRules, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
 
 export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
@@ -78,6 +79,8 @@ export interface ReviewerResult {
     answerInReply: PriorPoint[];
     /** Findings with no wrong outcome and no cost: shown, never a block. */
     notes: OpenItem[];
+    /** Should-fixes with a verified quote: shown, capped, never a block. */
+    advisory: OpenItem[];
     /** Panel findings without a majority: shown, never a block, not carried to the next round. */
     disputed: OpenItem[];
     /** Panel findings refuted with evidence: logged, never a block. */
@@ -92,6 +95,11 @@ export interface ReviewerResult {
     scope?: 'full' | 'delta';
     why?: string;
     costUsd?: number;
+    /** The repository's own rules the judge answered, and how. */
+    rules?: { checked: number; followed: number; broken: number; notApplicable: number };
+    /** The record of this review (record.ts) and where it is kept, beside the verdict. */
+    record?: ReviewRecord;
+    recordPath?: string;
     /** Tokens every run reported, summed: the only measure of a CLI that reports no dollars (Codex). */
     tokens?: Tokens;
     /** Whether the team lets people dismiss these findings (review.reviewer.dismissals). */
@@ -149,7 +157,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // A review that ends without a verdict says why where the person looks (status, Studio, MCP), not only in a log.
     const none = (outcome: 'unavailable' | 'skipped', reason: string, extra: Partial<ReviewerResult> = {}): ReviewerResult => {
         if (attempts && branch !== 'HEAD') attempts.recordAttempt(branch, { head, outcome, reason, at: new Date().toISOString() });
-        return { outcome, items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason, reviewers: [], cached: false, ...extra, mode: { ...modeRecord, ...extra.mode, ran: 'none' } };
+        return { outcome, items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason, reviewers: [], cached: false, ...extra, mode: { ...modeRecord, ...extra.mode, ran: 'none' } };
     };
     if (!head || !baseSha) return none('unavailable', `not a repository, or ${base} is unknown`);
     const store = await VerdictStore.open(cwd, exec);
@@ -199,7 +207,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
-        if (verdict && decided) return result(redismiss(decided, dismissals), verdict, verdict.inputs?.reviewers ?? reviewers, previous.mode, 'same commit and inputs as the last verdict', true, reviews, pr, verdict.inputs?.mode ?? modeRecord, settings.dismissals);
+        if (verdict && decided) {
+            // The record written with that verdict; a verdict from before records has none.
+            const recordPath = store.recordPath(previous.verdict);
+            const record = store.readJson<ReviewRecord>(recordPath);
+            return { ...result(redismiss(decided, dismissals), verdict, verdict.inputs?.reviewers ?? reviewers, previous.mode, 'same commit and inputs as the last verdict', true, reviews, pr, verdict.inputs?.mode ?? modeRecord, settings.dismissals), ...(record ? { record, recordPath } : {}) };
+        }
     }
     // What the team already knows, for every judge; built once, and its risk count decides escalation.
     const fullDiff = (await exec('git', ['diff', `${baseSha}...HEAD`], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout;
@@ -245,9 +258,19 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const previousOpen = scope === 'delta' ? store.readJson<OpenItem[]>(store.openPath(previous!.verdict)) ?? [] : undefined;
 
     const verify = checkoutVerifier(cwd);
+    const modelFor = (name: ReviewerName) => settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
+    // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
+    const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
+        const res = result(accounted, verdict, reviewers, scope, why, cached, reviews, pr, modeRecord, settings.dismissals);
+        const judges = (verdict.reviewers ?? []).map(r => ({ reviewer: r.reviewer, ...(installed.get(r.reviewer as ReviewerName)?.version ? { version: installed.get(r.reviewer as ReviewerName)!.version } : {}), ...(modelFor(r.reviewer as ReviewerName) ? { model: modelFor(r.reviewer as ReviewerName) } : {}), ...(typeof r.cost_usd === 'number' ? { cost_usd: r.cost_usd } : {}), ...(r.trace?.turns ? { turns: r.trace.turns } : {}) }));
+        const recordPath = store.recordPath(verdictFile);
+        const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count });
+        if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
+        return { ...res, record, recordPath };
+    };
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
-        return result(decide(verdict, previousOpen, verify, dismissals), verdict, reviewers, scope, why, true, reviews, pr, modeRecord, settings.dismissals);
+        return withRecord(decide(verdict, previousOpen, verify, dismissals), verdict, true);
     }
 
     // The daily caps, before any judge starts: a cached or reused verdict above cost nothing and never reaches here.
@@ -287,7 +310,6 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         }
         const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge });
         progress(`Rigour reviewer: reviewing ${head.slice(0, 9)} against ${base} (${scope}: ${why}; ${reviews.count} human review(s), written by ${[...authors].join(', ') || 'a person'}) with ${reviewers.join(', ')}`);
-        const modelFor = (name: ReviewerName) => settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
         const started = Date.now();
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
         let parts: Verdict[];
@@ -312,7 +334,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             const failed = answers.find(a => 'error' in a);
             if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
             parts = answers.map(a => (a as { verdict: Verdict }).verdict);
-            for (const part of parts) if (part.trace) labelReads(part.trace, work, changedFiles);
+            for (const part of parts) {
+                if (part.trace) labelReads(part.trace, work, changedFiles);
+                attachServedRules(part, context.rules);
+            }
         } finally {
             clearInterval(ticker);
         }
@@ -358,7 +383,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         store.writeJson(openFile, accounted.open);
         store.writeJson(store.decidedPath(verdictFile), accounted);
         if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key, inputsKey });
-        return result(accounted, verdict, reviewers, scope, why, false, reviews, pr, modeRecord, settings.dismissals);
+        return withRecord(accounted, verdict, false);
     } finally {
         fs.rmSync(work, { recursive: true, force: true });
     }
@@ -465,6 +490,7 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         resolved: accounted.resolved,
         answerInReply: accounted.answerInReply,
         notes: accounted.notes,
+        advisory: accounted.advisory,
         disputed: accounted.disputed,
         dropped: accounted.dropped,
         dismissed: accounted.dismissed,
@@ -475,6 +501,7 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         ...(cost.length ? { costUsd: cost.reduce((a, b) => a + b, 0) } : {}),
         ...(used.length ? { tokens: used.reduce((a, b) => ({ input: a.input + b.input, output: a.output + b.output }), { input: 0, output: 0 }) } : {}),
         runs: (verdict.reviewers ?? []).length,
+        ...(verdict.rules?.length ? { rules: { checked: verdict.rules.length, followed: verdict.rules.filter(r => r.status === 'followed').length, broken: verdict.rules.filter(r => r.status === 'broken').length, notApplicable: verdict.rules.filter(r => r.status === 'not-applicable').length } } : {}),
         mode,
         dismissable,
         cached,

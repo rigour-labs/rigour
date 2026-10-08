@@ -36,9 +36,15 @@ judge's own sense of severity) decides what blocks:
    the code does, checked against the code.
 9. **Team lessons**: every lesson the team taught that it was shown, answered one by one: does this
    change repeat it? A lesson pasted as background was skimmed; asked as a checklist it is checked.
-10. **The diff as a person reads it.**
+10. **Repository rules**: the rules the repository wrote for itself (AGENTS.md, CLAUDE.md, Cursor rules,
+    Copilot instructions), the fifteen most relevant to the change, answered one by one: followed, broken,
+    or not applicable, with the code that breaks one quoted. A rule the team worded as a requirement
+    (must, never, always, only, every, do not), broken with its quote verified, blocks; guidance broken is a
+    should-fix. The rule's words and weight come from the file, never from the judge.
+11. **The diff as a person reads it.**
 
-Steps 2 to 9 are the judge's working notes: you see them, and they never block on their own. Only a
+Steps 2 to 10 are the judge's working notes: you see them, and they never block on their own, with one
+exception: a requirement rule shown broken with a verified quote. Otherwise only a
 finding can block, and only when it carries three things: the input that goes wrong, what goes wrong
 for it (or a material cost: one that grows with the data or traffic, such as an extra query, rows
 read that scale with users, a missing index or an unbounded window; one more column on rows already
@@ -259,7 +265,20 @@ When a team turns dismissals off again, the recorded ones stop counting.
 
 ## Where you see it
 
-- `rigour review --reviewer`: the verdict, what ran and why, and each finding with its id.
+- `rigour review --reviewer`: the verdict, what ran and why, and each finding with its id. What is
+  shown gets the same discipline as what blocks: blocking items in full; then up to five should-fixes
+  the judge could show (a verified quote), worth a person's time and never blocking; everything else
+  (working notes, disputed items, items whose quote or file the checkout does not have, dismissed
+  items) folded into one count. `--notes` lists them all. The same point found in several places is
+  one item carrying every location, and it blocks until every location is fixed.
+- **The record of the review**, written beside the verdict (`<git common dir>/rigour-reviewer/*.record.json`)
+  and carried in `rigour review --json` under `reviewer.record`: what Rigour verified against the
+  checkout (blocking items, should-fixes, the repository rules served and answered, the lessons served
+  and found to apply, prior points open and resolved, how much was unverified or a note), what it only
+  recorded as reported (human reviews seen), what people decided (dismissals), who judged (reviewer,
+  version, model, cost, turns), and an integrity hash over all of it, so a copy can be checked against
+  the original. `rigour review-post` puts the record in the pull request's summary comment: blocks in
+  full, up to five should-fixes, the counts and the hash.
 - Telemetry, only if you opted in: one anonymous `reviewer_completed` event with counts and a cost
   bucket, never code or finding text ([Telemetry](../TELEMETRY.md)).
 - `rigour review --status`: what the background reviewer last decided on this branch, or why its

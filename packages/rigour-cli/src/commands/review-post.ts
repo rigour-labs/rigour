@@ -6,6 +6,7 @@
  * first, each posted once across pushes, and one summary comment that is
  * edited in place on every push rather than re-posted.
  */
+import { recordLines, type ReviewRecord } from '@rigour-labs/core';
 import crypto from 'crypto';
 import fs from 'fs';
 
@@ -38,6 +39,8 @@ export interface ReviewReport {
     dismissed?: number;
     control_files_changed?: string[];
     receipt?: ReportReceipt;
+    /** The reviewer's part of `rigour review --json`, when it ran: its record is what the summary shows. */
+    reviewer?: { record?: ReviewRecord | null };
 }
 
 /** The quality receipt as `rigour review --json` writes it (review-receipt.ts). */
@@ -135,6 +138,7 @@ export function summaryBody(report: ReviewReport, total: number, inline: number,
     ];
     if (report.context_findings?.length) lines.push('', `${report.context_findings.length} note(s) elsewhere in changed files (not blocking).`);
     if (report.receipt && report.receipt.functions > 0) lines.push('', ...receiptLines(report.receipt));
+    if (report.reviewer?.record) lines.push('', ...recordLines(report.reviewer.record));
     if (report.dismissed) lines.push('', `${report.dismissed} finding(s) on changed lines were dismissed as not a bug (.rigour/dismissed.json).`);
     if (report.control_files_changed?.length) {
         lines.push('', `⚠️ This PR edits Rigour's own settings: ${report.control_files_changed.map(f => `\`${f}\``).join(', ')}. Review them like code.`);

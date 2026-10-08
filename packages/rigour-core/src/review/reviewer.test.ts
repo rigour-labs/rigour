@@ -8,7 +8,8 @@ import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './r
 import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
-import { account, carryResolved, checkoutVerifier, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
+import { account, attachServedRules, carryResolved, checkoutVerifier, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
+import { recordIntact } from './reviewer/record.js';
 
 let repo: string;
 const config = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
@@ -240,6 +241,32 @@ describe('the reviewer', () => {
         expect(verdict.reviewers[0].trace.calls.map((c: any) => c.category)).toEqual(['rigour-input', 'changed-file', 'other-file', 'git', 'search']);
     });
 
+    it('serves the repository\'s own rules to the judge with ids, and blocks on a requirement the judge shows broken', async () => {
+        fs.writeFileSync(path.join(repo, 'AGENTS.md'), '# Rules\n\n- `src/job.ts` must take the lock before its first read.\n- Prefer early returns.\n');
+        const seen = seenNow();
+        const answer = () => {
+            const id = /- \[([0-9a-f]{10})\] \(AGENTS\.md, requirement\)/.exec(seen.files['team-knowledge.md'] ?? '')?.[1];
+            return JSON.stringify({ ...EMPTY, rules: [{ id, status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'reads before any lock' }] });
+        };
+        const result = await runReviewer(repo, 'main', config, fakes(answer, seen), () => undefined, { force: true });
+        expect(seen.files['team-knowledge.md']).toContain('(AGENTS.md, requirement) `src/job.ts` must take the lock before its first read.');
+        expect(result.items.map(i => [i.class, i.file, i.line])).toEqual([['repo-rule', 'src/job.ts', 2]]);
+        expect(result.rules).toEqual({ checked: 1, followed: 0, broken: 1, notApplicable: 0 });
+    });
+
+    it('writes the record of the review beside the verdict, intact, and returns the same record on a cached read', async () => {
+        const seen = seenNow();
+        const answer = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' }] });
+        const first = await runReviewer(repo, 'main', config, fakes(() => answer, seen), () => undefined);
+        expect(first.record).toMatchObject({ scope: 'full', verified: { blocking: [expect.objectContaining({ issue: 'returns before the lock' })], should_fix: [] }, reported: { human_reviews: 1 }, judges: [expect.objectContaining({ reviewer: 'claude', cost_usd: 1.5 })] });
+        expect(first.recordPath).toMatch(/\.record\.json$/);
+        const onDisk = JSON.parse(fs.readFileSync(first.recordPath!, 'utf8'));
+        expect(recordIntact(onDisk)).toBe(true);
+        const again = await runReviewer(repo, 'main', config, fakes(() => { throw new Error('a cached read never runs a judge'); }, seen), () => undefined);
+        expect(again.cached).toBe(true);
+        expect(again.record?.integrity).toBe(first.record?.integrity);
+    });
+
     it('asks a judge once more after an answer that is not a verdict, and is unavailable only when the second is not one either', async () => {
         const seen = seenNow();
         let calls = 0;
@@ -368,9 +395,45 @@ describe('verdicts', () => {
         const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'job never closes the connection', input: 'every run', consequence: 'one connection leaks per run', quote: 'return 1;' };
         expect(decide({ findings: [{ ...finding, absent: 'return 1' }] })).toMatchObject({ open: [], unverified: [expect.anything()] }); // "missing", but the file has it
         expect(decide({ findings: [{ ...finding, absent: 'conn.close(' }] }).open).toHaveLength(1);
-        expect(decide({ findings: [{ ...finding, severity: 'should' }] })).toMatchObject({ open: [], notes: [expect.anything()] });
+        expect(decide({ findings: [{ ...finding, severity: 'should' }] })).toMatchObject({ open: [], advisory: [expect.anything()], unverified: [] }); // a verified should-fix: shown
+        expect(decide({ findings: [{ ...finding, severity: 'should', quote: 'return 99;' }] })).toMatchObject({ open: [], advisory: [], unverified: [expect.anything()] }); // a should-fix it cannot show: not a claim worth time
         const accepted = { point: 'job never closes the connection after the read', severity: 'non-blocking' as const, resolved: false };
-        expect(decide({ prior_points: [accepted], findings: [finding] })).toMatchObject({ open: [], notes: [expect.anything()] }); // a human raised it and accepted it
+        expect(decide({ prior_points: [accepted], findings: [finding] })).toMatchObject({ open: [], advisory: [expect.anything()] }); // a human raised it and accepted it
+    });
+
+    it('blocks on a broken requirement rule only with its quote, shows broken guidance, and takes the rule\'s words from what Rigour served', () => {
+        const verify = checkoutVerifier(repo);
+        const served = [
+            { id: 'r1', source: 'AGENTS.md', text: 'Every job must take the lock before its first read.', requirement: true },
+            { id: 'r2', source: 'AGENTS.md', text: 'Prefer small functions.', requirement: false },
+        ];
+        const judged = (answers: object[]) => {
+            const verdict = { ...EMPTY, prior_points: [], rules: answers } as unknown as Verdict;
+            attachServedRules(verdict, served);
+            return { verdict, ...account(verdict, undefined, verify) };
+        };
+        const broken = judged([{ id: 'r1', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'no lock before the read' }]);
+        expect(broken.open.map(i => [i.kind, i.class, i.issue])).toEqual([['rule', 'repo-rule', 'breaks a rule this repository wrote for itself (AGENTS.md): Every job must take the lock before its first read.']]);
+        expect(judged([{ id: 'r1', status: 'broken', file: 'src/job.ts', line: 2 }])).toMatchObject({ open: [], unverified: [expect.objectContaining({ kind: 'rule' })] }); // no quote: not shown as a block
+        expect(judged([{ id: 'r2', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;' }])).toMatchObject({ open: [], advisory: [expect.objectContaining({ class: 'repo-rule' })] }); // guidance: shown, never a block
+        expect(judged([{ id: 'r1', status: 'followed' }, { id: 'r1', status: 'not-applicable' }])).toMatchObject({ open: [], notes: [], advisory: [], unverified: [] });
+        const unknown = judged([{ id: 'made-up', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'a rule the judge invented', requirement: true }]);
+        expect(unknown.verdict.rules).toEqual([]); // an answer naming no served rule is dropped, whatever it claims
+        expect(unknown.open).toEqual([]);
+    });
+
+    it('shows the same point found in several places as one item with every location, and never merges human points', () => {
+        const scan = (file: string, line: number, quote: string) => ({ class: 'production-cost', file, line, issue: `the ${file.split('/').pop()} scan has no upper bound on updated_at`, input: 'a week of rows', consequence: 'rows read grow with time', quote });
+        const verdict = { ...EMPTY, prior_points: [
+            { point: 'bound the window', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 1, quote: 'export function job() {' },
+            { point: 'bound the window again', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 1, quote: 'export function job() {' },
+        ], findings: [scan('src/job.ts', 1, 'export function job() {'), scan('a.ts', 1, 'export const a = 1;'), { ...scan('src/job.ts', 2, 'return 1;'), class: 'correctness' }] } as unknown as Verdict;
+        const { open } = account(verdict, undefined, checkoutVerifier(repo));
+        expect(open.map(i => [i.kind, i.class, i.locations ?? []])).toEqual([
+            ['prior', 'prior point', []], ['prior', 'prior point', []],
+            ['finding', 'production-cost', [{ file: 'a.ts', line: 1 }]], // the same point in another file: one item, both places
+            ['finding', 'correctness', []], // a different class is a different point
+        ]);
     });
 
     it('keeps reads, scans, redundancy and merge impact as notes with stable ids, and answers non-blocking points in the reply', () => {

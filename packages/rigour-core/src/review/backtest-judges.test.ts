@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatJudges, judgedFrom, type JudgeCatches } from './backtest-judges.js';
 import type { ReviewerResult } from './reviewer.js';
 
-const base: ReviewerResult = { outcome: 'findings', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reviewers: ['claude', 'codex'], cached: false };
+const base: ReviewerResult = { outcome: 'findings', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reviewers: ['claude', 'codex'], cached: false };
 
 describe('measuring each judge', () => {
     it('computes Cohen\'s kappa between two judges: 1 in full agreement, 0 at chance, and says when they share blind spots', () => {

@@ -40,6 +40,8 @@ describe('what the judges are told the team knows', () => {
             expect(told()).not.toContain('Log the save id');
             expect(told('all')).toContain('Log the save id on failure.');
             expect(told('off')).not.toContain('idempotent');
+            fs.writeFileSync(path.join(repo, 'AGENTS.md'), '- Every call to `save` in `src/a.ts` must be idempotent on retry.\n');
+            expect(told()).toMatch(/## Rules this repository wrote for itself[^\n]*\n- \[[0-9a-f]{10}\] \(AGENTS\.md, requirement\) Every call to `save` in `src\/a\.ts` must be idempotent on retry\./);
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
         }
