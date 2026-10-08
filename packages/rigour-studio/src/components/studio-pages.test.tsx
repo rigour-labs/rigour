@@ -8,6 +8,7 @@ import { Trend } from './Progress';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
 import { Agents, Settings, Verdict } from './ReviewerParts';
+import { SwitchSettings, type SwitchData } from './SwitchParts';
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
@@ -119,6 +120,35 @@ describe('Studio pages', () => {
         const out = html(<Agents data={two} />);
         expect(out).toContain('Enough for two judges; a third vendor, listed in the reviewers, allows three.');
         expect(out).toContain('cursor-agent: not installed');
+    });
+});
+
+describe('the goal check on the Setup page', () => {
+    const text = { title: 'The goal check', lead: 'Checks a change against its goal.', row: 'Check the goal', rowHelp: 'Required: no one may turn it off.', name: 'goal check' };
+    const goal = (over: Partial<SwitchData>): SwitchData => ({ effective: { enabled: false, source: 'team', required: false, refused: [] }, team: 'off', teamFile: false, user: null, ...over });
+    const draw = (data: SwitchData, canWrite = true, diff: string | null = null) => html(<SwitchSettings text={text} data={data} canWrite={canWrite} saving={false} problem={null} diff={diff} onSave={() => undefined} />);
+
+    it('shows what runs and where it comes from, your choice and the team\'s', () => {
+        const out = draw(goal({ effective: { enabled: true, source: 'user', required: false, refused: [] }, user: true }));
+        expect(out).toContain('The goal check');
+        expect(out).toContain('<span class="st-mono">on</span> <span class="st-sub">· yours</span>');
+        expect(out).toContain('aria-label="Your goal check"');
+        expect(out).toContain('aria-label="Team goal check"');
+        expect(out).toContain('setting the team&#x27;s value creates one');
+    });
+
+    it('locks under the team\'s floor and lists what was not applied, with the diff to commit', () => {
+        const out = draw(goal({ effective: { enabled: true, source: 'team', required: true, refused: ['goal check off (user) refused: rigour.yml sets review.goal: required'] }, team: 'required', teamFile: true, user: false }), true, '+  goal: required');
+        expect(out).toContain('aria-label="your team requires the goal check"');
+        expect(out).toContain('not applied</span> goal check off (user) refused');
+        expect(out).toContain('rigour.yml changed');
+        expect(out).not.toContain('creates one');
+    });
+
+    it('is read-only without the Studio key', () => {
+        const out = draw(goal({}), false);
+        expect(out).toContain('Open Studio from the link the terminal printed');
+        expect(out.match(/disabled=""/g)?.length).toBe(6); // yours: Team, on, off; the team's: off, on, required
     });
 });
 

@@ -71,6 +71,13 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 "Languages with an adapter" means JS/TS, Python, Go, Ruby, C#, Java, Kotlin and Rust.
 
+### The change against its goal
+
+| Check | What it finds | Languages | Gate id | Default | Blocks |
+|:---|:---|:---|:---|:---|:---|
+| Goal scope | A changed file outside the `Scope` the pull request's description declares, or inside its `Out of scope`. Tests, snapshots, lockfiles, changelogs and release notes are exempt. See [The goal check](GOAL.md). | Any | `goal-scope` | Off (`review.goal`) | Yes |
+| Goal done when | A `Done when` item in the description names a file or symbol the change never touches. | Any | `goal-done-when` | Off (`review.goal`) | A file blocks; a symbol is a note |
+
 ### Dead code and duplication
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { hasStudioKey, studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
-import { Agents, Settings, Verdict, type ReviewerData } from './ReviewerParts';
+import { Agents, Settings, TeamDiff, Verdict, type ReviewerData } from './ReviewerParts';
 import './story.css';
 
 /** Loads the reviewer's state once for a part of a page; `reload` after a change. */
@@ -47,12 +47,7 @@ export const ReviewerSetup: React.FC = () => {
                 onSave={patch => write('/api/reviewer/settings', patch, Object.keys(patch)[0])}
                 onSaveTeam={(patch, create) => write('/api/reviewer/team', { patch, create }, `team:${Object.keys(patch)[0]}`)} />
             {problem && <div className="st-card" style={{ marginTop: 12 }}><span className="st-chip bad">not saved</span> <span className="st-sub">{problem}</span></div>}
-            {diff && (
-                <div className="st-card" style={{ marginTop: 12 }}>
-                    <div className="st-row" style={{ justifyContent: 'space-between' }}><strong style={{ fontSize: 14 }}>rigour.yml changed</strong><span className="st-sub">Commit it so the change reaches your team.</span></div>
-                    <pre className="st-code" style={{ marginTop: 8 }}>{diff.split('\n').map((line, i) => <div key={i} className={`st-ln ${line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : ''}`}>{line}</div>)}</pre>
-                </div>
-            )}
+            {diff && <TeamDiff diff={diff} />}
             <Agents data={data} />
         </section>
     );

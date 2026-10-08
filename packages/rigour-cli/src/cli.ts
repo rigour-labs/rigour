@@ -15,6 +15,7 @@ import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
 import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { threadCommand } from './commands/thread.js';
+import { outcomesCommand } from './commands/outcomes.js';
 import { briefCommand, hooksBriefCommand, hooksBriefFileCommand } from './commands/brief.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
@@ -274,6 +275,8 @@ program
     .option('--max', 'Use the strongest local model (Qwen2.5-Coder-7B, 4.7GB; 16GB RAM)')
     .option('--model-path <gguf>', 'Run a local GGUF instead of the published model (to evaluate a fine-tune)')
     .option('--pr-body <path>', 'File with the PR description, read by --max and cloud review (default: the GitHub Actions pull request)')
+    .option('--goal', 'Check the change against the goal its PR description declares (Scope, Out of scope, Done when), whatever your settings say')
+    .option('--no-goal', 'Do not check the change against its PR description for this run (a team that requires it refuses this)')
     .option('--independent', 'Trust nothing the change wrote, for an enforcing check: review every risky function whatever agents recorded as reviewed, and with --base read dismissals, check outcomes and rigour.yml from the base')
     .option('--diff-tests', 'Run changed exported functions before and after the change and report behaviour changes (vitest/jest packages; needs --max or -k)')
     .option('-k, --api-key <key>', 'Cloud API key for deep analysis')
@@ -546,6 +549,18 @@ program
     .option('--json', 'Output the briefing in JSON format')
     .action(async (goal: string | undefined, options: any) => {
         process.exit(await briefCommand(process.cwd(), goal, options));
+    });
+
+program
+    .command('outcomes')
+    .description('What happened after recent pull requests merged: CI on the merge commit, later commits and fixes on their files, reverts. Needs the outcome loop on (learning.outcomes.mode, RIGOUR_OUTCOMES, or --outcomes)')
+    .option('--pr <number>', 'Only this merged pull request')
+    .option('--last <n>', 'The last n merged pull requests (default 20)')
+    .option('--outcomes', 'Read outcomes for this run, whatever your settings say')
+    .option('--no-outcomes', 'Do not read outcomes for this run (a team that requires them refuses this)')
+    .option('--json', 'Output the records in JSON format')
+    .action(async options => {
+        process.exit(await outcomesCommand(process.cwd(), options));
     });
 
 program

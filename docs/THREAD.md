@@ -36,6 +36,9 @@ it read as a ticket for that branch; naming the team's project keys in configura
 | `push` | the push gate | passed, failed (checks that failed) |
 | `review` | the reviewer (not a backtest) | trigger, outcome, blocking, should_fix, pr, pr_title, integrity, cost_usd, judges |
 | `brief` | the briefing (prompt hook, `rigour brief`, `rigour_brief`) | session, agent, items, ids, files |
+| `merge` | `rigour outcomes`, the first time it reads a merged pull request of this branch ([OUTCOMES.md](OUTCOMES.md)) | pr, merge_sha, merged_at |
+| `outcome` | `rigour outcomes`, when that record settles | pr, ci, follow_ups, fixes, reverted |
+| `goal` | the goal check at a stop or a push, when the branch's open pull request has a description ([GOAL.md](GOAL.md)) | moment (stop or push), declared, blocks |
 
 Every event carries the time, the task, the branch and the commit. The text view adds what only the sequence shows:
 how many findings were caught while writing, and how many of those files came back clean at a later edit check

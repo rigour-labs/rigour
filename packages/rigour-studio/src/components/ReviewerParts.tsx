@@ -86,7 +86,7 @@ const Finding: React.FC<{ item: Item; disputed?: boolean; canWrite: boolean; onC
 };
 
 /** A choice among a few values, as one row of pills; for your own setting, "Team" first clears it. A radio group to assistive tech. */
-const Segmented: React.FC<{ label: string; value: unknown; options: Array<{ value: unknown; label: string }>; disabled: boolean; withTeam?: boolean; onChange: (value: unknown) => void }> = ({ label, value, options, disabled, withTeam, onChange }) => {
+export const Segmented: React.FC<{ label: string; value: unknown; options: Array<{ value: unknown; label: string }>; disabled: boolean; withTeam?: boolean; onChange: (value: unknown) => void }> = ({ label, value, options, disabled, withTeam, onChange }) => {
     const all = withTeam ? [{ value: null as unknown, label: 'Team' }, ...options] : options;
     const chosen = value === undefined ? null : value;
     return (
@@ -170,6 +170,14 @@ export const Settings: React.FC<{ data: ReviewerData; canWrite: boolean; saving:
         </>
     );
 };
+
+/** The change a team setting made to rigour.yml, for the person to commit. */
+export const TeamDiff: React.FC<{ diff: string }> = ({ diff }) => (
+    <div className="st-card" style={{ marginTop: 12 }}>
+        <div className="st-row" style={{ justifyContent: 'space-between' }}><strong style={{ fontSize: 14 }}>rigour.yml changed</strong><span className="st-sub">Commit it so the change reaches your team.</span></div>
+        <pre className="st-code" style={{ marginTop: 8 }}>{diff.split('\n').map((line, i) => <div key={i} className={`st-ln ${line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : ''}`}>{line}</div>)}</pre>
+    </div>
+);
 
 /** Today's spend against the daily caps; the caps are set in rigour.yml or your settings, not here. */
 const Spend: React.FC<{ data: ReviewerData }> = ({ data }) => {

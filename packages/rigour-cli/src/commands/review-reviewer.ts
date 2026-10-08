@@ -14,9 +14,9 @@ export function reviewerBase(cwd: string, named: string | undefined): string | u
     return named ?? branchBase(cwd)?.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '');
 }
 
-export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult): Promise<ReviewerResult> {
+export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult, goal?: boolean): Promise<ReviewerResult> {
     if (!base) return { outcome: 'unavailable', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason: 'no base to review against: pass --base, or fetch the main branch', reviewers: [], cached: false };
-    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...reviewerInputs(review) });
+    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...(goal !== undefined ? { goal } : {}), ...reviewerInputs(review) });
 }
 
 /** Verified should-fixes shown in full before the rest fold into a count. */

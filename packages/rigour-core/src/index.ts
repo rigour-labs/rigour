@@ -19,6 +19,8 @@ export { isControlFile, mergeBaseOf, readStateFile } from './review/trusted-stat
 export { dismissFinding, dismissedKeys, findingKey, isProven, mustFix, quietSplit, DISMISSED_FILE } from './review/quiet.js';
 export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest, LEDGER_PATH, type Ledger, type RoundResult } from './review/backtest.js';
 export { scaffoldLedger } from './review/backtest-init.js';
+export type { CiResult, FollowUp, PrOutcome } from './outcomes/outcome.js';
+export { runOutcomes, type OutcomesRun } from './outcomes/run.js';
 export { fixScope, type FixScope } from './review/fix-scope.js';
 export { isGeneratedFile } from './review/generated-files.js';
 export { costBucket, countUsage, doNotTrack, durationBucket, flushDailyUsage, isTelemetryEnabled, readTelemetryState, setTelemetryEnabled, shouldAskTelemetry, telemetryToken, trackUsage } from './telemetry/telemetry.js';
@@ -29,6 +31,9 @@ export { branchFailures, mergeConflicts, staleReferences } from './review/branch
 export { runReviewer, reviewerBlocks, itemLine, defaultExec, githubToken, type ReviewerOptions, type ReviewerResult, type ReviewerOutcome, type OpenItem } from './review/reviewer.js';
 export { startBackgroundReview, backgroundReview, reviewStatus, type ReviewStatus } from './review/reviewer/background.js';
 export { dismissReviewerFinding, REVIEW_DISMISSALS, reviewerInputs } from './review/reviewer/context.js';
+export { goalFailures, hasCheckableGoal, parseGoal, type DoneItem, type Goal } from './goal/goal.js';
+export { resolveSwitch, saveUserSwitch, SWITCHES, type ResolvedSwitch, type SwitchName, type TeamSwitch } from './switches.js';
+export { hookGoalDescription, recordGoal } from './goal/hook.js';
 export { resolveReviewer, saveUserReviewer, type ResolvedReviewer, type RunChoice, type UserReviewerPatch } from './review/reviewer/settings.js';
 export { reviewerAvailability } from './review/reviewer/adapters.js';
 export { branchBase, type BranchBase } from './gates/logic-drift-git-base.js';

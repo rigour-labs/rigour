@@ -106,6 +106,8 @@ interface Sibling { changed: string; sibling: string; needs_same_change: boolean
 interface Claim { source: 'comment' | 'description'; claim: string; file?: string; line?: number; holds: boolean; evidence?: string; reviewer?: string }
 /** The judge's answer for one team lesson it was shown: does this change repeat it. */
 interface LessonCheck { lesson: string; applies: boolean; file?: string; line?: number; evidence?: string; reviewer?: string }
+/** The judge's answer for one item of the goal the description declares (prompt.ts goalStep). */
+interface GoalCheck { item: string; met: boolean | null; file?: string; line?: number; quote?: string; evidence?: string; reviewer?: string }
 /** A rule Rigour served to the judge from the repository's own rules files, by id. */
 export interface ServedRule { id: string; source: string; text: string; requirement: boolean }
 /**
@@ -127,6 +129,7 @@ export interface Verdict {
     claims?: Claim[];
     lessons?: LessonCheck[];
     rules?: RuleCheck[];
+    goal?: GoalCheck[];
     findings: Finding[];
     carried: string[];
     resolved_previous: Array<{ id: string; evidence: string }>;
@@ -142,7 +145,7 @@ export interface Verdict {
 
 export interface OpenItem {
     id: string;
-    kind: 'prior' | 'redundant' | 'read' | 'scan' | 'merge' | 'journey' | 'sibling' | 'claim' | 'lesson' | 'rule' | 'finding';
+    kind: 'prior' | 'redundant' | 'read' | 'scan' | 'merge' | 'journey' | 'sibling' | 'claim' | 'lesson' | 'rule' | 'goal' | 'finding';
     class: string;
     file?: string;
     line?: number;
@@ -228,7 +231,7 @@ const ACCEPTED_SIMILARITY = 0.4;
 const WORKING_NOTES = new Set<OpenItem['kind']>(['redundant', 'read', 'scan', 'merge', 'journey', 'sibling', 'claim', 'lesson']);
 
 const SHAPE: Array<keyof Verdict> = ['prior_points', 'reads', 'findings'];
-const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'journey', 'siblings', 'claims', 'lessons', 'rules', 'carried', 'resolved_previous'];
+const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'journey', 'siblings', 'claims', 'lessons', 'rules', 'goal', 'carried', 'resolved_previous'];
 
 /** The verdict in a reviewer's answer, or why it is not one. `needsPriorPoints`: a human review exists and none of its points is carried. */
 export function parseVerdict(text: string, needsPriorPoints: boolean, reviewer: string, spend: Spend): { verdict: Verdict } | { error: string } {
@@ -282,6 +285,7 @@ export function mergeVerdicts(parts: Verdict[]): Verdict {
         claims: tagged(part => part.claims ?? []),
         lessons: tagged(part => part.lessons ?? []),
         rules: tagged(part => part.rules ?? []),
+        goal: tagged(part => part.goal ?? []),
         findings: tagged(part => part.findings),
         carried: parts.flatMap(part => part.carried),
         resolved_previous: parts.length === 1 ? parts[0].resolved_previous : parts[0].resolved_previous.filter(x => parts.every(part => part.resolved_previous.some(y => y.id === x.id))),
@@ -438,6 +442,11 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         const item: OpenItem = { id: id('repo-rule', r.file, r.id), kind: 'rule', class: 'repo-rule', file: r.file, line: r.line, issue: r.rule, consequence: r.requirement ? 'the team wrote this rule as a requirement' : 'the team wrote this rule as guidance', ...(r.quote ? { quote: r.quote } : {}), evidence: `breaks a rule this repository wrote for itself (${r.source})${r.evidence ? `: ${r.evidence}` : ''}`, reviewer: r.reviewer };
         if (r.requirement) add(item);
         else advise(item);
+    }
+    // An item of the goal the description declares, not met: a should-fix with its quote, never a block, whatever the judge says.
+    for (const g of verdict.goal ?? []) {
+        if (g.met !== false || !g.item?.trim()) continue;
+        advise({ id: id('goal', g.item), kind: 'goal', class: 'goal', ...(g.file ? { file: g.file } : {}), ...(g.line ? { line: g.line } : {}), issue: `the description's goal is not met: ${g.item.trim()}`, ...(g.quote ? { quote: g.quote } : {}), ...(g.evidence ? { evidence: g.evidence } : {}), reviewer: g.reviewer });
     }
     const stillOpen = new Set((previousOpen ?? []).map(item => item.id));
     for (const f of verdict.findings) {

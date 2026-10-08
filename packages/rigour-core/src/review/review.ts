@@ -7,6 +7,7 @@
  * but could not analyze anything makes the result ERROR, never a clean PASS,
  * and so does a proven gate that crashed (a heuristic one is only listed).
  */
+import { spawnSync } from 'child_process';
 import { GateRunner } from '../gates/runner.js';
 import type { Config, DeepOptions, Failure, Report } from '../types/index.js';
 import { changedLinesByFile, parseDiff, removedByFile } from '../utils/diff.js';
@@ -14,7 +15,7 @@ import { normalizeScopePatterns } from '../utils/scope.js';
 import { deepAnalysisError } from '../utils/deep-status.js';
 import { splitByChangedLines } from './changed-lines.js';
 import { changedFunctionSpans } from './changed-function-spans.js';
-import { withoutGenerated } from './generated-files.js';
+import { isGeneratedFile, withoutGenerated } from './generated-files.js';
 import { findingKey, isProven, quietSplit } from './quiet.js';
 import { checkId, rememberReported } from './check-outcomes.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
@@ -31,6 +32,7 @@ import { partialFixFailures } from './partial-fixes.js';
 import { partialWiringFailures } from './partial-wiring.js';
 import { isControlFile } from './trusted-state.js';
 import { baseCommit, baseFindings, splitIntroduced } from './baseline.js';
+import { goalFailures, hasCheckableGoal, parseGoal, type Goal } from '../goal/goal.js';
 
 export interface ReviewInput {
     cwd: string;
@@ -48,6 +50,8 @@ export interface ReviewInput {
     trustedRef?: string;
     /** Run the typed checks (review/typed): the project's TypeScript program takes seconds, so at push, in `rigour review` and in a backtest, not at every stop. */
     typed?: boolean;
+    /** The pull request's description, when the goal check is on (switches.ts): the change is checked against the goal it declares. */
+    goalDescription?: string;
 }
 
 export interface ReviewResult {
@@ -78,6 +82,8 @@ export interface ReviewResult {
     hints: string[];
     /** Why the typed checks could not run on a TypeScript project (`gateErrors` then names `typed-checks-unavailable`). */
     typedError?: string;
+    /** The goal the description declared, when the goal check ran on one with something to check. */
+    goal?: Goal;
 }
 
 export interface ReviewFinding {
@@ -129,7 +135,12 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     else if (input.typed) reviewCheck('redundancy', 'redundancy', typed.failures);
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);
-    const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics, input.trustedRef);
+    // The goal's findings are about the change as a whole (a file it should not touch, an item it never did), not a line, so they skip the changed-line split.
+    const goal = input.goalDescription !== undefined ? parseGoal(input.goalDescription, fileNames(input.cwd, diff)) : undefined;
+    const checkedGoal = goal && hasCheckableGoal(goal) ? goal : undefined;
+    const goalFindings = checkedGoal ? goalFailures(checkedGoal, changedLines, diff, file => isGeneratedFile(input.cwd, file)) : [];
+    if (checkedGoal) report.summary.goal = goalFindings.length ? 'FAIL' : 'PASS';
+    const quiet = quietSplit(input.cwd, [...split.findings, ...goalFindings], input.config.review?.include_heuristics, input.trustedRef);
     rememberReported(input.cwd, [...quiet.speaking, ...quiet.advisory].map(f => ({ key: findingKey(f), check: checkId(f) })));
     const gateErrors = crashedGates(report);
     const provenCrashed = gateErrors.some(id => isProven({ id } as Failure));
@@ -152,6 +163,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         hints: typed.hints,
         ...(deepError ? { deepError } : {}),
         ...(typed.error ? { typedError: typed.error } : {}),
+        ...(checkedGoal ? { goal: checkedGoal } : {}),
     };
 }
 
@@ -198,4 +210,16 @@ export function toReviewFinding(failure: Failure): ReviewFinding {
         ...(failure.anchorLine !== undefined ? { anchor_line: failure.anchorLine } : {}),
         ...(failure.hint ? { suggestion: failure.hint } : {}),
     };
+}
+
+/**
+ * Whether a bare file name is one the repository has at any depth, or one the change touches (a deleted file too):
+ * goal/goal.ts tells `package.json` from `res.json` by it. Undefined outside git. Read once per review.
+ */
+function fileNames(cwd: string, diff: string): ((name: string) => boolean) | undefined {
+    const result = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd, encoding: 'utf8', timeout: 10_000, maxBuffer: 256 * 1024 * 1024 });
+    if (result.status !== 0) return undefined;
+    const touched = [...diff.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)].flatMap(m => [m[1], m[2]]);
+    const names = new Set([...result.stdout.split('\0'), ...touched].filter(Boolean).map(file => file.slice(file.lastIndexOf('/') + 1)));
+    return name => names.has(name);
 }
