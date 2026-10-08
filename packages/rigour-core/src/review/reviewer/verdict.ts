@@ -7,6 +7,7 @@
  * checked against the checkout before it can block: a file not in the repository, or a line past
  * its end, is a reviewer's slip, reported apart and never a block.
  */
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -14,7 +15,57 @@ import type { RunTrace, Spend, Tokens } from './adapters.js';
 import type { PanelItem } from './panel.js';
 import { textSimilarity } from './consensus.js';
 
-export interface PriorPoint { point: string; review?: string; severity?: 'blocking' | 'should-fix' | 'non-blocking'; resolved: boolean; evidence?: string; checked_siblings?: string[]; reviewer?: string; file?: string; line?: number; quote?: string }
+export interface PriorPoint { point: string; review?: string; severity?: 'blocking' | 'should-fix' | 'non-blocking'; resolved: boolean; evidence?: string; checked_siblings?: string[]; reviewer?: string; file?: string; line?: number; quote?: string; absent?: string }
+
+/** A person's approval of the pull request: every point they raised before `at` is settled. */
+export interface Approval { login: string; at: string; commit?: string }
+
+/**
+ * What an item is checked against besides its quote: who approved (a prior point), whether the checkout has what a
+ * point calls missing, and which lines the change touched (a block must sit on one; unknown when absent).
+ */
+export interface PriorChecks { approvals: Approval[]; inCheckout: (text: string) => string | undefined; changed?: ChangedLines }
+const NO_PRIOR_CHECKS: PriorChecks = { approvals: [], inCheckout: () => undefined };
+
+/** The lines a change touched, per file: every line added, and the place of every deletion, in the new file's numbering. */
+export type ChangedLines = Map<string, Set<number>>;
+
+/** The touched lines of a unified diff (`git diff base...head`). */
+export function changedLinesOf(diff: string): ChangedLines {
+    const changed: ChangedLines = new Map();
+    let file: Set<number> | undefined;
+    let line = 0;
+    for (const raw of diff.split('\n')) {
+        if (raw.startsWith('diff --git ') || /^--- (a\/|\/dev\/null)/.test(raw)) {
+            file = undefined; // headers, until the new file's name
+        } else if (/^\+\+\+ (b\/|\/dev\/null)/.test(raw)) {
+            const name = raw.slice(4).replace(/^b\//, '').replace(/\t.*$/, '');
+            file = name === '/dev/null' ? undefined : (changed.get(name) ?? new Set());
+            if (file) changed.set(name, file);
+        } else if (raw.startsWith('@@ ')) {
+            line = Number(/\+(\d+)/.exec(raw)?.[1] ?? 0);
+        } else if (raw.startsWith('+')) {
+            file?.add(line);
+            line++;
+        } else if (raw.startsWith('-')) {
+            file?.add(line);
+        } else if (raw.startsWith(' ') || raw === '') {
+            line++;
+        }
+    }
+    return changed;
+}
+
+/** Whether a line of a file is within CHANGED_WINDOW lines of one the change touched. */
+function nearChanged(changed: ChangedLines, file: string, line: number): boolean {
+    const lines = changed.get(file);
+    if (!lines) return false;
+    for (let l = line - CHANGED_WINDOW; l <= line + CHANGED_WINDOW; l++) if (lines.has(l)) return true;
+    return false;
+}
+
+/** How far from a touched line a block may sit: a judge names the statement, the diff names the line. */
+const CHANGED_WINDOW = 3;
 interface Redundant { file: string; line?: number; what: string; made_redundant_by?: string; removed: boolean; reviewer?: string }
 interface Read { file: string; line?: number; read: string; rules?: Array<{ rule: string; known_before_read: boolean; applied_before_read: boolean }>; narrower_source?: string | null; keys?: Key[]; window_bounded?: boolean | null; keyset?: boolean | null; reviewer?: string }
 interface Scan { file: string; line?: number; function: string; outer: string; inner: string; fix: string; reviewer?: string }
@@ -112,6 +163,33 @@ export function checkoutVerifier(cwd: string): Verify {
 
 /** How far from the line it names a finding's quote may sit: judges count lines loosely. */
 const QUOTE_WINDOW = 3;
+
+/** The approval, if any, the point's own reviewer gave after raising it (`review` reads `<login> <submitted_at>`). */
+function settledBy(point: PriorPoint, approvals: Approval[]): Approval | undefined {
+    const [login, ...rest] = (point.review ?? '').trim().split(/\s+/);
+    if (!login) return undefined;
+    const at = rest.join(' ');
+    return approvals.find(a => a.login === login && (!at || a.at > at));
+}
+
+/**
+ * Searches the whole checkout for a line of text (the first non-empty line of `text`, whitespace aside): `file:line` of
+ * the first place it is, or undefined. A `git grep` so the tracked tree is searched and nothing else.
+ */
+export function checkoutSearch(cwd: string): (text: string) => string | undefined {
+    return text => {
+        const line = text.split('\n').map(l => l.trim()).find(Boolean);
+        if (!line) return undefined;
+        try {
+            const out = execFileSync('git', ['grep', '-n', '-I', '-F', '-e', line, '--', '.'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 });
+            const hit = out.split('\n').find(Boolean);
+            const m = hit?.match(/^(.*?):(\d+):/);
+            return m ? `${m[1]}:${m[2]}` : undefined;
+        } catch {
+            return undefined;
+        }
+    };
+}
 
 /** How alike a finding and a point a human accepted as non-blocking must read to be that point again. */
 const ACCEPTED_SIMILARITY = 0.4;
@@ -218,7 +296,7 @@ export interface Accounting {
 const id = (...parts: Array<string | number | undefined>) => createHash('sha1').update(parts.map(p => String(p ?? '')).join('|').toLowerCase().replace(/\s+/g, ' ')).digest('hex').slice(0, 10);
 
 /** Everything the reviewers reported blocks; in delta mode, previous open items carry unless resolved with evidence. */
-export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, verify: Verify): Accounting {
+export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, verify: Verify, prior: PriorChecks = NO_PRIOR_CHECKS): Accounting {
     const open: OpenItem[] = [];
     const unverified: OpenItem[] = [];
     const notes: OpenItem[] = [];
@@ -239,14 +317,41 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         seen.add(item.id);
         if (WORKING_NOTES.has(item.kind)) return void notes.push(item);
         const placed = !!item.file && !!item.quote?.trim() && verify(item.file, item.line, item.quote);
-        (placed ? open : unverified).push(item);
+        if (!placed) return void unverified.push(item);
+        // A block is about this change. A finding or rule break in a touched file but on lines the change did not touch is
+        // what the code already had: shown as a note, never a block on this change. A human's point is about the change by
+        // definition. Without the diff (a judge's own items for a panel, a test) nothing is known and nothing is moved.
+        if (item.kind !== 'prior' && prior.changed && (item.line === undefined || !nearChanged(prior.changed, item.file!, item.line))) {
+            return void notes.push({ ...item, evidence: `${item.evidence ? `${item.evidence}; ` : ''}${item.line === undefined ? 'names no line' : 'on a line this change did not touch'}: what the code already had, never a block on this change` });
+        }
+        open.push(item);
     };
     const answerInReply: PriorPoint[] = [];
     for (const p of verdict.prior_points) {
         if (p.resolved) continue;
-        if (p.severity === 'non-blocking') answerInReply.push(p);
+        if (p.severity === 'non-blocking') {
+            answerInReply.push(p);
+            continue;
+        }
+        const item: OpenItem = { id: id('prior', p.review, p.point), kind: 'prior', class: 'prior point', issue: p.point, evidence: p.evidence, reviewer: p.reviewer, ...(p.file ? { file: p.file } : {}), ...(p.line ? { line: p.line } : {}), ...(p.quote ? { quote: p.quote } : {}) };
+        // The person who raised it approved afterwards: settled, whatever the judge makes of the code now. The same class
+        // coming back in later code is a finding of the judge's own, with its own input and consequence.
+        const approval = settledBy(p, prior.approvals);
+        if (approval) {
+            if (!seen.has(item.id)) notes.push({ ...item, evidence: `${approval.login} approved on ${approval.at}, after raising it: settled` });
+            seen.add(item.id);
+            continue;
+        }
+        // A point that says something is still missing names what it searched for, and the checkout is searched for it: the
+        // reply or a later commit may have put it in another file than the one the point named.
+        const found = p.absent?.trim() ? prior.inCheckout(p.absent) : undefined;
+        if (found) {
+            if (!seen.has(item.id)) unverified.push({ ...item, evidence: `says "${p.absent!.trim()}" is missing, and the checkout has it at ${found}` });
+            seen.add(item.id);
+            continue;
+        }
         // Still open only where the judge quotes the code that keeps it open: a point a later commit already fixed never blocks.
-        else add({ id: id('prior', p.review, p.point), kind: 'prior', class: 'prior point', issue: p.point, evidence: p.evidence, reviewer: p.reviewer, ...(p.file ? { file: p.file } : {}), ...(p.line ? { line: p.line } : {}), ...(p.quote ? { quote: p.quote } : {}) });
+        add(item);
     }
     for (const r of verdict.redundant) {
         if (r.removed === false) add({ id: id('dead-code', r.file, r.what), kind: 'redundant', class: 'dead-code', file: r.file, line: r.line, issue: r.what, evidence: r.made_redundant_by ? `made redundant by ${r.made_redundant_by}` : undefined, reviewer: r.reviewer });

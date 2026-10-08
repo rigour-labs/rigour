@@ -37,6 +37,8 @@ const Round = z.object({
     base: z.string().min(1),
     /** When the human review was posted: the reviewer sees nothing from then on. */
     reviewed_at: z.string().optional(),
+    /** The head a person approved: `reviewed_at` is the approval, and the reviewer sees it (it closes the points before it). */
+    approved: z.boolean().optional(),
     pr: z.number().int().positive().optional(),
     points: z.array(Point),
     must_not_flag: z.array(Match).default([]),
@@ -127,7 +129,7 @@ export async function runBacktest(cwd: string, config: Config, ledger: Ledger, o
         const started = Date.now();
         const worktree = await worktreeFor(cwd, round.commit, exec);
         const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: worktree, timeoutMs: GIT_TIMEOUT_MS })).stdout.trim();
-        progress(`backtest ${round.id}: ${head.slice(0, 9)} against ${round.base}${round.reviewed_at ? `, reviews hidden from ${round.reviewed_at}` : ''}`);
+        progress(`backtest ${round.id}: ${head.slice(0, 9)} against ${round.base}${round.reviewed_at ? `, reviews hidden from ${reviewsHiddenFrom(round)}` : ''}`);
         const stale = await staleBase(worktree, head, round.base, exec);
         if (stale) progress(`backtest ${round.id}: warning: ${stale}`);
         const collect = options.collect ?? ((tree, r, c) => collectItems(tree, r, c, !!options.reviewer, exec, progress));
@@ -228,7 +230,7 @@ async function collectItems(worktree: string, round: LedgerRound, config: Config
         ...[...review.advisory, ...review.contextFindings].map(f => asItem(f, false)),
     ];
     if (!reviewer) return { items };
-    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: round.reviewed_at, blind: round.pr === undefined, trigger: 'backtest', force: true, ...reviewerInputs(review) });
+    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: reviewsHiddenFrom(round), blind: round.pr === undefined, trigger: 'backtest', force: true, ...reviewerInputs(review) });
     if (result.outcome === 'unavailable' || result.outcome === 'skipped') return { items, reviewerError: result.reason ?? result.outcome };
     // The reviewer behind each catch is part of the score, so the gate is `reviewer:<name>`.
     const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.consequence, item.evidence].filter(Boolean).join(' '), blocking });
@@ -269,4 +271,11 @@ function byGate(result: RoundResult): string {
     const counts = new Map<string, number>();
     for (const p of result.points) if (p.by) counts.set(p.by.split(' ')[0], (counts.get(p.by.split(' ')[0]) ?? 0) + 1);
     return counts.size ? `; caught by ${[...counts].map(([gate, n]) => `${gate} ${n}`).join(', ')}` : '';
+}
+
+/** The moment the reviewer sees nothing from: the review itself for a round, and just after the approval for an approved head. */
+function reviewsHiddenFrom(round: Pick<LedgerRound, 'reviewed_at' | 'approved'>): string | undefined {
+    if (!round.reviewed_at || !round.approved) return round.reviewed_at;
+    const at = Date.parse(round.reviewed_at);
+    return Number.isNaN(at) ? round.reviewed_at : new Date(at + 1000).toISOString();
 }

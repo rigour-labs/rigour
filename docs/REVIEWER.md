@@ -62,9 +62,17 @@ from being blocked:
   done before checking it is paid on every run.
 - **A claim that something is missing names it** (`absent`), and Rigour searches the file for it: a
   finding about a call or check that is there is unverified.
+- **A block sits on a line the change touched.** A finding or rule break in a touched file, verified,
+  but on lines the change did not touch (or naming no line) is what the code already had: shown as a
+  note, never a block on this change. A human's point is about the change by definition.
 - **A human's open point blocks only where the judge quotes the code that keeps it open**, checked like a
-  finding: a later commit may already have done what it asked. And a point a human already raised and
-  accepted as non-blocking is never escalated into a blocking finding.
+  finding: a later commit may already have done what it asked. A point whose own reviewer approved the
+  pull request after raising it is settled, with or without words in the approval, and is shown as a
+  note at most: the same class coming back in later code is a finding of the judge's own, with its own
+  input and consequence. A point that says something is still missing names what was searched for
+  (`absent`), and Rigour searches the whole checkout for it, not only the file the point named: found
+  elsewhere, the point is unverified. And a point a human already raised and accepted as non-blocking
+  is never escalated into a blocking finding.
 
 ## Three ways to run it
 

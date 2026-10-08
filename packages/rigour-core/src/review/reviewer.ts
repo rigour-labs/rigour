@@ -35,7 +35,7 @@ import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
-import { account, attachServedRules, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorPoint, type Verdict } from './reviewer/verdict.js';
+import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
 
 export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
@@ -196,7 +196,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const skip = skipReason(settings.on_push, branch, pr);
         if (skip) return none('skipped', skip, { reviewers, pr: pr?.number });
     }
-    let reviews: HumanReviews = { markdown: 'none\n', key: '', count: 0 };
+    let reviews: HumanReviews = { markdown: 'none\n', key: '', count: 0, approvals: [] };
     if (gh && pr) {
         const read = await humanReviews(gh, pr, options.reviewsBefore);
         if (read.error) return none('unavailable', read.error, { reviewers, pr: pr.number });
@@ -267,6 +267,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const previousOpen = scope === 'delta' ? store.readJson<OpenItem[]>(store.openPath(previous!.verdict)) ?? [] : undefined;
 
     const verify = checkoutVerifier(cwd);
+    const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff) };
     const modelFor = (name: ReviewerName) => settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
@@ -279,7 +280,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     };
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
-        return withRecord(decide(verdict, previousOpen, verify, dismissals), verdict, true);
+        return withRecord(decide(verdict, previousOpen, verify, prior, dismissals), verdict, true);
     }
 
     // The daily caps, before any judge starts: a cached or reused verdict above cost nothing and never reaches here.
@@ -409,7 +410,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             });
             verdict = { ...verdict, panel: { judgeItemIds: judgeItems.flat().map(item => item.id), items }, reviewers: [...(verdict.reviewers ?? []), ...cross] };
         }
-        const accounted = decide(verdict, previousOpen, verify, dismissals);
+        const accounted = decide(verdict, previousOpen, verify, prior, dismissals);
         store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString() } });
         store.writeJson(openFile, accounted.open);
         store.writeJson(store.decidedPath(verdictFile), accounted);
@@ -421,8 +422,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
 }
 
 /** The accounting a verdict leads to: with a panel, only what it confirmed blocks; a finding the team dismissed never blocks. */
-function decide(verdict: Verdict, previousOpen: OpenItem[] | undefined, verify: (file: string, line: number | undefined) => boolean, dismissals: ReviewDismissal[]): Decided {
-    const accounted = account(verdict, previousOpen, verify);
+function decide(verdict: Verdict, previousOpen: OpenItem[] | undefined, verify: (file: string, line: number | undefined) => boolean, prior: PriorChecks, dismissals: ReviewDismissal[]): Decided {
+    const accounted = account(verdict, previousOpen, verify, prior);
     // An item an earlier round confirmed stays open until it is resolved with evidence, whatever this panel says of it.
     const earlier = new Set((previousOpen ?? []).map(item => item.id));
     const decided = verdict.panel

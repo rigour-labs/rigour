@@ -59,7 +59,13 @@ Do these steps in order. Report only what you verified in the code, with file:li
    description. Give each point the severity its reviewer gave it. For a point you say is NOT
    resolved, give file, line and quote: the code at this commit that shows it is still open, copied
    exactly. Rigour checks the quote; a point you cannot show still open that way is not open. Check the
-   code at THIS commit: a later commit may already have done what the point asked.
+   code at THIS commit: a later commit may already have done what the point asked. A reviewer's
+   APPROVED review settles every point that reviewer raised before it, with or without words: report
+   such a point resolved, citing the approval; the same class coming back in code written after the
+   approved commit is a finding of your own (step 11), with its own input and consequence. When a point
+   asks for something to exist (a test case, a guard, a call) and you say it is still missing, search
+   the WHOLE checkout for it, not only the file the point names: a reply or a later commit may have put
+   it elsewhere. Give absent: the exact code or test text you searched for. Rigour searches too.
 
 2. Redundancy. A fix often leaves behind what it made unnecessary. For every hunk in the reviewed
    range that moves a condition into a query (.not, .gte, .lte, .gt, .lt, .in, .like, .eq added),
@@ -172,7 +178,7 @@ and no material cost is an opinion: leave consequence empty and it is shown, nev
 report style preferences or trade-offs you would not request changes for.
 
 Your final message must be ONLY this JSON, starting with { and ending with }, nothing before or after it:
-{"prior_points":[{"point":"...","review":"<login> <submitted_at>","severity":"blocking"|"should-fix"|"non-blocking","resolved":true|false,"evidence":"file:line ...","file":"<when not resolved>","line":0,"quote":"<when not resolved: the code that shows it still open>","checked_siblings":["file:line"]}],
+{"prior_points":[{"point":"...","review":"<login> <submitted_at>","severity":"blocking"|"should-fix"|"non-blocking","resolved":true|false,"evidence":"file:line ...","file":"<when not resolved>","line":0,"quote":"<when not resolved: the code that shows it still open>","absent":"<when not resolved because something is missing: the exact text you searched the checkout for>","checked_siblings":["file:line"]}],
  "redundant":[{"file":"...","line":0,"what":"...","made_redundant_by":"file:line","removed":true|false}],
  "reads":[{"file":"...","line":0,"read":"...","rules":[{"rule":"...","known_before_read":true|false,"applied_before_read":true|false}],"consumer":{"file":"...","line":0,"uses":"ids-only"|"rows"|"aggregate"},"narrower_source":null|"...","keys":[{"name":"...","inputs":"...","stable_under_edit":true|false}],"window_bounded":true|false|null,"keyset":true|false|null,"index":"..."}],
  "scans":[{"file":"...","line":0,"function":"...","outer":"...","inner":"...","fix":"..."}],

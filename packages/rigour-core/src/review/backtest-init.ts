@@ -48,7 +48,7 @@ export async function roundsForPr(cwd: string, pr: number, config: Config, exec:
     }
     const approval = options.approvedHead ? byPerson.find((r: any) => r.state === 'APPROVED' && r.commit_id) : undefined;
     const approved = approval
-        ? { id: `pr${pr}-approved`, commit: String(approval.commit_id), base: await baseAt(cwd, String(approval.commit_id), approval.submitted_at, mainRef, exec), reviewed_at: String(approval.submitted_at), pr, points: [], must_not_flag: [] }
+        ? { id: `pr${pr}-approved`, commit: String(approval.commit_id), base: await baseAt(cwd, String(approval.commit_id), approval.submitted_at, mainRef, exec), reviewed_at: String(approval.submitted_at), approved: true, pr, points: [], must_not_flag: [] }
         : undefined;
     if (rounds.length === 0 && !approved) throw new Error(`pull request ${pr} has no review by a person yet`);
     return { rounds, ...(approved ? { approved } : {}) };
