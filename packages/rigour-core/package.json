@@ -30,7 +30,10 @@
     "type": "module",
     "files": [
         "dist",
-        "README.md"
+        "README.md",
+        "!dist/**/*.test.js",
+        "!dist/**/*.test.d.ts",
+        "!dist/**/*.test.js.map"
     ],
     "main": "dist/index.js",
     "types": "dist/index.d.ts",

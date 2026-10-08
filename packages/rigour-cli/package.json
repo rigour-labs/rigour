@@ -36,7 +36,10 @@
     "files": [
         "dist",
         "studio-dist",
-        "templates"
+        "templates",
+        "!dist/**/*.test.js",
+        "!dist/**/*.test.d.ts",
+        "!dist/**/*.test.js.map"
     ],
     "repository": {
         "type": "git",
