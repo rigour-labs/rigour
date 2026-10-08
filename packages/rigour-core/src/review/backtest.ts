@@ -230,7 +230,7 @@ async function collectItems(worktree: string, round: LedgerRound, config: Config
     if (result.outcome === 'unavailable' || result.outcome === 'skipped') return { items, reviewerError: result.reason ?? result.outcome };
     // The reviewer behind each catch is part of the score, so the gate is `reviewer:<name>`.
     const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.consequence, item.evidence].filter(Boolean).join(' '), blocking });
-    items.push(...result.items.map(i => asReviewerItem(i, true)), ...[...result.unverified, ...result.notes, ...result.disputed].map(i => asReviewerItem(i, false)));
+    items.push(...result.items.map(i => asReviewerItem(i, true)), ...[...result.advisory, ...result.unverified, ...result.notes, ...result.disputed].map(i => asReviewerItem(i, false)));
     const judged = judgedFrom(result);
     return { items, ...(judged ? { judged } : {}) };
 }

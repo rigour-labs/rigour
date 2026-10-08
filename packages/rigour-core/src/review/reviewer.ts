@@ -78,6 +78,8 @@ export interface ReviewerResult {
     answerInReply: PriorPoint[];
     /** Findings with no wrong outcome and no cost: shown, never a block. */
     notes: OpenItem[];
+    /** Should-fixes with a verified quote: shown, capped, never a block. */
+    advisory: OpenItem[];
     /** Panel findings without a majority: shown, never a block, not carried to the next round. */
     disputed: OpenItem[];
     /** Panel findings refuted with evidence: logged, never a block. */
@@ -151,7 +153,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // A review that ends without a verdict says why where the person looks (status, Studio, MCP), not only in a log.
     const none = (outcome: 'unavailable' | 'skipped', reason: string, extra: Partial<ReviewerResult> = {}): ReviewerResult => {
         if (attempts && branch !== 'HEAD') attempts.recordAttempt(branch, { head, outcome, reason, at: new Date().toISOString() });
-        return { outcome, items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason, reviewers: [], cached: false, ...extra, mode: { ...modeRecord, ...extra.mode, ran: 'none' } };
+        return { outcome, items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason, reviewers: [], cached: false, ...extra, mode: { ...modeRecord, ...extra.mode, ran: 'none' } };
     };
     if (!head || !baseSha) return none('unavailable', `not a repository, or ${base} is unknown`);
     const store = await VerdictStore.open(cwd, exec);
@@ -470,6 +472,7 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         resolved: accounted.resolved,
         answerInReply: accounted.answerInReply,
         notes: accounted.notes,
+        advisory: accounted.advisory,
         disputed: accounted.disputed,
         dropped: accounted.dropped,
         dismissed: accounted.dismissed,

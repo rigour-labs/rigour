@@ -381,9 +381,10 @@ describe('verdicts', () => {
         const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'job never closes the connection', input: 'every run', consequence: 'one connection leaks per run', quote: 'return 1;' };
         expect(decide({ findings: [{ ...finding, absent: 'return 1' }] })).toMatchObject({ open: [], unverified: [expect.anything()] }); // "missing", but the file has it
         expect(decide({ findings: [{ ...finding, absent: 'conn.close(' }] }).open).toHaveLength(1);
-        expect(decide({ findings: [{ ...finding, severity: 'should' }] })).toMatchObject({ open: [], notes: [expect.anything()] });
+        expect(decide({ findings: [{ ...finding, severity: 'should' }] })).toMatchObject({ open: [], advisory: [expect.anything()], unverified: [] }); // a verified should-fix: shown
+        expect(decide({ findings: [{ ...finding, severity: 'should', quote: 'return 99;' }] })).toMatchObject({ open: [], advisory: [], unverified: [expect.anything()] }); // a should-fix it cannot show: not a claim worth time
         const accepted = { point: 'job never closes the connection after the read', severity: 'non-blocking' as const, resolved: false };
-        expect(decide({ prior_points: [accepted], findings: [finding] })).toMatchObject({ open: [], notes: [expect.anything()] }); // a human raised it and accepted it
+        expect(decide({ prior_points: [accepted], findings: [finding] })).toMatchObject({ open: [], advisory: [expect.anything()] }); // a human raised it and accepted it
     });
 
     it('blocks on a broken requirement rule only with its quote, shows broken guidance, and takes the rule\'s words from what Rigour served', () => {
@@ -400,11 +401,25 @@ describe('verdicts', () => {
         const broken = judged([{ id: 'r1', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'no lock before the read' }]);
         expect(broken.open.map(i => [i.kind, i.class, i.issue])).toEqual([['rule', 'repo-rule', 'breaks a rule this repository wrote for itself (AGENTS.md): Every job must take the lock before its first read.']]);
         expect(judged([{ id: 'r1', status: 'broken', file: 'src/job.ts', line: 2 }])).toMatchObject({ open: [], unverified: [expect.objectContaining({ kind: 'rule' })] }); // no quote: not shown as a block
-        expect(judged([{ id: 'r2', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;' }])).toMatchObject({ open: [], notes: [expect.objectContaining({ class: 'repo-rule' })] }); // guidance
-        expect(judged([{ id: 'r1', status: 'followed' }, { id: 'r1', status: 'not-applicable' }])).toMatchObject({ open: [], notes: [], unverified: [] });
+        expect(judged([{ id: 'r2', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;' }])).toMatchObject({ open: [], advisory: [expect.objectContaining({ class: 'repo-rule' })] }); // guidance: shown, never a block
+        expect(judged([{ id: 'r1', status: 'followed' }, { id: 'r1', status: 'not-applicable' }])).toMatchObject({ open: [], notes: [], advisory: [], unverified: [] });
         const unknown = judged([{ id: 'made-up', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'a rule the judge invented', requirement: true }]);
         expect(unknown.verdict.rules).toEqual([]); // an answer naming no served rule is dropped, whatever it claims
         expect(unknown.open).toEqual([]);
+    });
+
+    it('shows the same point found in several places as one item with every location, and never merges human points', () => {
+        const scan = (file: string, line: number, quote: string) => ({ class: 'production-cost', file, line, issue: `the ${file.split('/').pop()} scan has no upper bound on updated_at`, input: 'a week of rows', consequence: 'rows read grow with time', quote });
+        const verdict = { ...EMPTY, prior_points: [
+            { point: 'bound the window', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 1, quote: 'export function job() {' },
+            { point: 'bound the window again', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 1, quote: 'export function job() {' },
+        ], findings: [scan('src/job.ts', 1, 'export function job() {'), scan('a.ts', 1, 'export const a = 1;'), { ...scan('src/job.ts', 2, 'return 1;'), class: 'correctness' }] } as unknown as Verdict;
+        const { open } = account(verdict, undefined, checkoutVerifier(repo));
+        expect(open.map(i => [i.kind, i.class, i.locations ?? []])).toEqual([
+            ['prior', 'prior point', []], ['prior', 'prior point', []],
+            ['finding', 'production-cost', [{ file: 'a.ts', line: 1 }]], // the same point in another file: one item, both places
+            ['finding', 'correctness', []], // a different class is a different point
+        ]);
     });
 
     it('keeps reads, scans, redundancy and merge impact as notes with stable ids, and answers non-blocking points in the reply', () => {

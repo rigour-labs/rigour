@@ -46,7 +46,7 @@ export async function backgroundReview(cwd: string, job: BackgroundJob, config: 
         store.recordAttempt(job.branch, { head: job.head, outcome: 'skipped', reason: skip, at: new Date().toISOString() });
         log(`review of ${job.head.slice(0, 9)}: skipped (${skip})`);
         clearPid(store, job.branch);
-        return { outcome: 'skipped', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], disputed: [], dropped: [], dismissed: [], reason: skip, reviewers: [], cached: false };
+        return { outcome: 'skipped', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason: skip, reviewers: [], cached: false };
     }
     const worktree = store.worktreeDir(job.head);
     const added = await exec('git', ['worktree', 'add', '--detach', worktree, job.head], { cwd, timeoutMs: 5 * GH_TIMEOUT_MS });

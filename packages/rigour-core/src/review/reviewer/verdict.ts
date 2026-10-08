@@ -75,6 +75,8 @@ export interface OpenItem {
     reviewer?: string;
     /** In delta mode, how the item reached this verdict. */
     status?: 'carried' | 'not accounted for';
+    /** The same point made elsewhere: one item per root cause, every place it was found. */
+    locations?: Array<{ file: string; line?: number }>;
 }
 
 /** Checks a file (and a line, and a quote of the code there) against the checkout; an item that fails cannot block. */
@@ -209,6 +211,8 @@ export interface Accounting {
     answerInReply: PriorPoint[];
     /** Findings with no wrong outcome and no cost (an opinion): shown, never a block, however many judges agree. */
     notes: OpenItem[];
+    /** Should-fixes the judge could show (a verified quote): worth a person's time, never a block. */
+    advisory: OpenItem[];
 }
 
 const id = (...parts: Array<string | number | undefined>) => createHash('sha1').update(parts.map(p => String(p ?? '')).join('|').toLowerCase().replace(/\s+/g, ' ')).digest('hex').slice(0, 10);
@@ -218,8 +222,15 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     const open: OpenItem[] = [];
     const unverified: OpenItem[] = [];
     const notes: OpenItem[] = [];
+    const advisory: OpenItem[] = [];
     const seen = new Set<string>();
     const accepted = verdict.prior_points.filter(p => p.severity === 'non-blocking');
+    // A should-fix is shown only when the judge could show it: a quote Rigour finds. One that cannot be checked is not a claim worth a person's time.
+    const advise = (item: OpenItem) => {
+        if (seen.has(item.id)) return;
+        seen.add(item.id);
+        (!!item.file && !!item.quote?.trim() && verify(item.file, item.line, item.quote) ? advisory : unverified).push(item);
+    };
     // A prior point is the human's and needs no file. A finding blocks only when the code it quotes is at the line it
     // names: any model's claim is checked, never trusted. What the working steps turned up is a note: the reasoning,
     // shown, and a block only when the judge also makes it a finding it can quote.
@@ -283,7 +294,7 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         if (r.status !== 'broken' || !r.rule) continue;
         const item: OpenItem = { id: id('repo-rule', r.file, r.id), kind: 'rule', class: 'repo-rule', file: r.file, line: r.line, issue: `breaks a rule this repository wrote for itself (${r.source}): ${r.rule}`, consequence: r.requirement ? 'the team wrote this rule as a requirement' : 'the team wrote this rule as guidance', ...(r.quote ? { quote: r.quote } : {}), evidence: r.evidence, reviewer: r.reviewer };
         if (r.requirement) add(item);
-        else if (!notes.some(n => n.id === item.id)) notes.push(item);
+        else advise(item);
     }
     const stillOpen = new Set((previousOpen ?? []).map(item => item.id));
     for (const f of verdict.findings) {
@@ -298,8 +309,10 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         if (present) {
             if (!seen.has(item.id)) unverified.push(item);
             seen.add(item.id);
-        } else if (!opinion && !should) add(item);
-        else if (!notes.some(n => n.id === item.id)) notes.push(item);
+        } else if (opinion) {
+            if (!notes.some(n => n.id === item.id)) notes.push(item);
+        } else if (should) advise(item);
+        else add(item);
     }
     const resolved: Accounting['resolved'] = [];
     if (previousOpen) {
@@ -316,14 +329,35 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
             }
         }
     }
-    return { open, unverified, resolved, answerInReply, notes };
+    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory) };
+}
+
+/** How alike two items' words must be to be the same point made in two places. */
+const SAME_POINT = 0.6;
+
+/**
+ * The same point found in several places is one item carrying every location, so a person reads one
+ * line, not one per file. Blocking is unchanged: the item blocks until every location is fixed.
+ */
+function onePerRootCause(items: OpenItem[]): OpenItem[] {
+    const kept: OpenItem[] = [];
+    for (const item of items) {
+        const same = item.kind === 'prior' ? undefined : kept.find(k => k.kind !== 'prior' && k.class === item.class && textSimilarity(k, item) >= SAME_POINT);
+        if (!same) {
+            kept.push(item);
+            continue;
+        }
+        if (item.file) (same.locations ??= []).push({ file: item.file, ...(item.line ? { line: item.line } : {}) });
+    }
+    return kept;
 }
 
 export function itemLine(item: OpenItem): string {
     const where = item.file ? ` ${item.file}${item.line ? `:${item.line}` : ''}` : '';
     const by = item.reviewer ? ` (${item.reviewer})` : '';
     const status = item.status ? `, ${item.status}` : '';
-    return `[${item.class}${status}]${by}${where} ${item.issue}${item.input ? `\n      input: ${item.input}` : ''}${item.consequence ? `\n      consequence: ${item.consequence}` : ''}${item.quote ? `\n      code: ${item.quote.trim().split('\n')[0].slice(0, 160)}` : ''}${item.evidence ? `\n      ${item.evidence}` : ''}`;
+    const also = item.locations?.length ? `\n      also at ${item.locations.map(l => `${l.file}${l.line ? `:${l.line}` : ''}`).join(', ')}` : '';
+    return `[${item.class}${status}]${by}${where} ${item.issue}${also}${item.input ? `\n      input: ${item.input}` : ''}${item.consequence ? `\n      consequence: ${item.consequence}` : ''}${item.quote ? `\n      code: ${item.quote.trim().split('\n')[0].slice(0, 160)}` : ''}${item.evidence ? `\n      ${item.evidence}` : ''}`;
 }
 
 /** The rules Rigour served, onto the judge's answers by id: an answer naming no served rule is dropped. */

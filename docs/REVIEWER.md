@@ -265,7 +265,12 @@ When a team turns dismissals off again, the recorded ones stop counting.
 
 ## Where you see it
 
-- `rigour review --reviewer`: the verdict, what ran and why, and each finding with its id.
+- `rigour review --reviewer`: the verdict, what ran and why, and each finding with its id. What is
+  shown gets the same discipline as what blocks: blocking items in full; then up to five should-fixes
+  the judge could show (a verified quote), worth a person's time and never blocking; everything else
+  (working notes, disputed items, items whose quote or file the checkout does not have, dismissed
+  items) folded into one count. `--notes` lists them all. The same point found in several places is
+  one item carrying every location, and it blocks until every location is fixed.
 - Telemetry, only if you opted in: one anonymous `reviewer_completed` event with counts and a cost
   bucket, never code or finding text ([Telemetry](../TELEMETRY.md)).
 - `rigour review --status`: what the background reviewer last decided on this branch, or why its
