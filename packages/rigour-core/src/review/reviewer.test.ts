@@ -468,18 +468,26 @@ describe('verdicts', () => {
         expect(unknown.open).toEqual([]);
     });
 
-    it('shows the same point found in several places as one item with every location, and never merges human points', () => {
+    it("shows the same point found in several places as one item with every location; a judge item on a human point's lines folds into it, and human points never merge", () => {
         const scan = (file: string, line: number, quote: string) => ({ class: 'production-cost', file, line, issue: `the ${file.split('/').pop()} scan has no upper bound on updated_at`, input: 'a week of rows', consequence: 'rows read grow with time', quote });
         const verdict = { ...EMPTY, prior_points: [
-            { point: 'bound the window', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 1, quote: 'export function job() {' },
+            { point: 'the scan has no upper bound on updated_at', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 1, quote: 'export function job() {' },
             { point: 'bound the window again', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 1, quote: 'export function job() {' },
         ], findings: [scan('src/job.ts', 1, 'export function job() {'), scan('a.ts', 1, 'export const a = 1;'), { ...scan('src/job.ts', 2, 'return 1;'), class: 'correctness' }] } as unknown as Verdict;
         const { open } = account(verdict, undefined, checkoutVerifier(repo));
         expect(open.map(i => [i.kind, i.class, i.locations ?? []])).toEqual([
-            ['prior', 'prior point', []], ['prior', 'prior point', []],
-            // The same point in another file, and the same point said as another class on the next line: one item, every place.
-            ['finding', 'production-cost', [{ file: 'a.ts', line: 1 }, { file: 'src/job.ts', line: 2 }]],
+            // The judge's scan on the human's lines, in like words, is the human's point found again, and so is the same point said as another class on the next line.
+            // The same scan in another file is not on the human's lines: its own item.
+            ['prior', 'prior point', [{ file: 'src/job.ts', line: 1 }, { file: 'src/job.ts', line: 2 }]], ['prior', 'prior point', []], ['finding', 'production-cost', []],
         ]);
+        // On other lines than any human point: the same point in another file, and said as another class on the next line, is one item, every place.
+        const apart = account({ ...verdict, prior_points: [] } as Verdict, undefined, checkoutVerifier(repo));
+        expect(apart.open.map(i => [i.kind, i.class, i.locations ?? []])).toEqual([['finding', 'production-cost', [{ file: 'a.ts', line: 1 }, { file: 'src/job.ts', line: 2 }]]]);
+        // A rule break on a human point's lines is that point, whatever the rule's words; a finding there in other words is its own.
+        const onHuman = account({ ...EMPTY, prior_points: [{ point: 'null guards on columns the query makes non-null', severity: 'blocking', resolved: false, file: 'src/job.ts', line: 2, quote: 'return 1;' }],
+            findings: [{ class: 'correctness', file: 'src/job.ts', line: 3, issue: 'the retry re-sends the email', input: 'a timeout', consequence: 'two emails', quote: '}' }],
+            rules: [{ id: 'r', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'No dead branches, unreachable fallbacks or unused imports.', source: 'AGENTS.md', requirement: true }] } as unknown as Verdict, undefined, checkoutVerifier(repo));
+        expect(onHuman.open.map(i => [i.kind, i.locations ?? []])).toEqual([['prior', [{ file: 'src/job.ts', line: 2 }]], ['finding', []]]);
         // A rule break and the finding it caused, on the same lines and in like words, are one item.
         const twice = account({ ...EMPTY, prior_points: [], findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'the raw table name is inlined instead of the JOBS_TABLE constant', input: 'any run', consequence: 'a rename misses it', quote: 'return 1;' }],
             rules: [{ id: 'r', status: 'broken', file: 'src/job.ts', line: 2, quote: 'return 1;', rule: 'Import the JOBS_TABLE constant; do not inline the raw table name again.', source: 'AGENTS.md', requirement: true }] } as unknown as Verdict, undefined, checkoutVerifier(repo));
@@ -745,5 +753,18 @@ describe('a block sits on a line the change touched', () => {
         const point: Verdict = { ...EMPTY, prior_points: [{ point: 'wrap the target', review: 'senior 2026-10-01', severity: 'blocking', resolved: false, file: 'src/player.ts', line: 1819, quote: 'preloadCode(target)' }] } as unknown as Verdict;
         expect(account(point, undefined, () => true, checks).open).toHaveLength(1);
         expect(account(rule('src/player.ts', 1819), undefined, () => true, { approvals: [], inCheckout: () => undefined }).open).toHaveLength(1);
+    });
+});
+
+describe("a human's should-fix point", () => {
+    it('is shown with its quote and never blocks, like a should-fix finding', () => {
+        const verdict = { ...EMPTY, prior_points: [{ point: 'a reopened deck reads as a return every day', review: 'senior 2026-10-01', severity: 'should-fix', resolved: false, file: 'src/job.ts', line: 2, quote: 'return 1;' }] } as unknown as Verdict;
+        const { open, advisory, unverified } = account(verdict, undefined, checkoutVerifier(repo));
+        expect(open).toEqual([]);
+        expect(advisory.map(i => [i.kind, i.issue])).toEqual([['prior', 'a reopened deck reads as a return every day']]);
+        expect(unverified).toEqual([]);
+        const unplaced = account({ ...verdict, prior_points: [{ ...verdict.prior_points[0], quote: 'not in the file' }] } as Verdict, undefined, checkoutVerifier(repo));
+        expect(unplaced.advisory).toEqual([]); // a should-fix the judge cannot show is not worth a person's time
+        expect(unplaced.unverified).toHaveLength(1);
     });
 });

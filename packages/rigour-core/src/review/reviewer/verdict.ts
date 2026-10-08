@@ -351,7 +351,9 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
             continue;
         }
         // Still open only where the judge quotes the code that keeps it open: a point a later commit already fixed never blocks.
-        add(item);
+        // A should-fix keeps the tier its reviewer gave it: shown with its quote, never a block, like a should-fix finding.
+        if (p.severity === 'should-fix') advise(item);
+        else add(item);
     }
     for (const r of verdict.redundant) {
         if (r.removed === false) add({ id: id('dead-code', r.file, r.what), kind: 'redundant', class: 'dead-code', file: r.file, line: r.line, issue: r.what, evidence: r.made_redundant_by ? `made redundant by ${r.made_redundant_by}` : undefined, reviewer: r.reviewer });
@@ -450,9 +452,13 @@ const SAME_LINES = 3;
 function onePerRootCause(items: OpenItem[]): OpenItem[] {
     const kept: OpenItem[] = [];
     for (const item of items) {
-        // The same class in the same words anywhere, or any two non-human items on the same lines that read alike (a rule break and the finding it caused).
+        // The same class in the same words anywhere, or any two non-human items on the same lines that read alike (a rule break and
+        // the finding it caused). A human's point owns its lines: a rule break there, or a finding there in like words, is that
+        // point found again and folds into it; the human's words stay. Two human points never merge.
         const nearby = (k: OpenItem) => !!k.file && k.file === item.file && k.line !== undefined && item.line !== undefined && Math.abs(k.line - item.line) <= SAME_LINES;
-        const same = item.kind === 'prior' ? undefined : kept.find(k => k.kind !== 'prior' && ((k.class === item.class && textSimilarity(k, item) >= SAME_POINT) || (nearby(k) && textSimilarity(k, item) >= SAME_PLACE)));
+        const same = item.kind === 'prior' ? undefined : kept.find(k => k.kind === 'prior'
+            ? nearby(k) && (item.kind === 'rule' || textSimilarity(k, item) >= SAME_PLACE)
+            : (k.class === item.class && textSimilarity(k, item) >= SAME_POINT) || (nearby(k) && textSimilarity(k, item) >= SAME_PLACE));
         if (!same) {
             kept.push(item);
             continue;
