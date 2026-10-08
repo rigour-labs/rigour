@@ -292,6 +292,17 @@ export function readLessons(cwd: string): ReviewLesson[] {
     }
 }
 
+/**
+ * What a person is asked to decide on a candidate, from the last of its evidence and decisions: taken back by evidence
+ * (`demoted`), back to a candidate when outcomes stopped promoting (`reclassified`), or a later fix on its lines
+ * (`lines`); undefined when nothing waits on a person. Studio and the outcome numbers read it, so they never disagree.
+ */
+export function pendingDecision(lesson: ReviewLesson): LessonEvidence | undefined {
+    if (lesson.state !== 'candidate') return undefined;
+    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'reclassified' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed').at(-1);
+    return last?.kind === 'demoted' || last?.kind === 'lines' || last?.kind === 'reclassified' ? last : undefined;
+}
+
 /** Why a lesson an outcome alone had promoted is a candidate again. */
 const RECLASSIFIED = 'promoted by the exact-line rule, which no longer promotes on its own';
 

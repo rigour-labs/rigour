@@ -1,13 +1,14 @@
 import React from 'react';
 import { studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
-import { LessonCard, type Journey } from './LearningParts';
+import { LessonCard, OutcomeCard, type Journey, type OutcomeNumbers } from './LearningParts';
 import './story.css';
 
 interface LearningData {
     lessons: Journey[];
     weeks: Array<{ from: string; stoppedInDevelopment: number; reachedPr: number | null }>;
     prRecorded: boolean;
+    outcomes?: OutcomeNumbers;
 }
 
 /** "How it learns": each lesson's path across development and the PR, and whether repeats still reach a PR. */
@@ -48,6 +49,7 @@ export const Learning: React.FC = () => {
                 )}
             </section>
 
+            {data.outcomes && <OutcomeCard numbers={data.outcomes} />}
             {data.lessons.length === 0
                 ? <div className="st-empty">No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</div>
                 : <div className="st-stack">{data.lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} onDecideReview={decideReview} />)}</div>}

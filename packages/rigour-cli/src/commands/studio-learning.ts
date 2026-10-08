@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { decideLesson, fixLessonPrefix, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { decideLesson, fixLessonPrefix, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { personOf } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
@@ -39,6 +39,8 @@ export interface StudioLearning {
     lessons: LessonJourney[];
     weeks: Array<{ from: string; stoppedInDevelopment: number; reachedPr: number | null }>;
     prRecorded: boolean;
+    /** What happened after merges this checkout read (core outcomes/metrics.ts); absent before `rigour outcomes` has run. */
+    outcomes?: OutcomeMetrics;
 }
 
 interface Catch { at: string; prefix: string }
@@ -114,8 +116,7 @@ function learnedFromPoints(points: ReviewLesson['evidence']): string {
  * or a candidate with a later fix on its lines (promote it, or dismiss the evidence).
  */
 function decisionFor(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 'takenBack' | 'suggested' | 'reclassified'> {
-    if (lesson.state !== 'candidate') return { canDecide: false };
-    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'reclassified' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed').at(-1);
+    const last = pendingDecision(lesson);
     if (last?.kind === 'reclassified') return { canDecide: true, reclassified: { detail: last.detail ?? '', evidence: lesson.evidence.filter(e => e.kind === 'outcome' || e.kind === 'lines').map(e => e.detail ?? '').filter(Boolean) } };
     if (last?.kind === 'demoted') return { canDecide: true, takenBack: { detail: last.detail ?? '', prs: lesson.evidence.filter(e => e.kind === 'against').map(e => e.pr), at: last.at ?? '' } };
     if (last?.kind === 'lines') return { canDecide: true, suggested: { detail: last.detail ?? '', pr: last.pr, at: last.at ?? '' } };
@@ -134,7 +135,9 @@ export function decideReviewLesson(cwd: string, body: unknown): { id: string; st
 
 export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS): Promise<StudioLearning> {
     const roots = checkoutRoots(cwd);
-    return buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
+    const learning = buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
+    const outcomes = localOutcomeMetrics(cwd);
+    return outcomes ? { ...learning, outcomes } : learning;
 }
 
 /**
