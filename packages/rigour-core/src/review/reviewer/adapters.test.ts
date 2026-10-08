@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADAPTERS } from './adapters.js';
+import { ADAPTERS, apiVendor, selectReviewers } from './adapters.js';
 
 /** A real `codex exec --json` run (codex-cli 0.160.1), the warning's path shortened: the shape the adapter must read. */
 const CODEX = [
@@ -46,5 +46,21 @@ describe('reading an agent CLI\'s answer', () => {
             ],
         });
         expect(ADAPTERS.claude.args('p', undefined)).toEqual(expect.arrayContaining(['--output-format', 'stream-json', '--verbose']));
+    });
+});
+
+describe('a judge reached through an API', () => {
+    it('is told apart by its model\'s maker, so cross and full modes pair it with a different vendor', () => {
+        expect(apiVendor({ model: 'anthropic/claude-sonnet-4.5' })).toBe('anthropic');
+        expect(apiVendor({ model: 'gpt-5' })).toBe('openai');
+        expect(apiVendor({ model: 'google/gemini-2.5-pro' })).toBe('google');
+        expect(apiVendor({ model: 'qwen3-coder' })).toBe('other');
+        expect(apiVendor({ model: 'qwen3-coder', vendor: 'openai' })).toBe('openai');
+        const vendorOf = (name: string) => (name === 'api' ? 'openai' : ADAPTERS[name as 'claude'].vendor) as 'openai' | 'anthropic' | 'cursor';
+        expect(selectReviewers(['claude', 'api'], 'cross', new Set(['anthropic']), new Set(['claude', 'api']), 2, vendorOf as any)).toEqual(['api']); // the author's vendor is skipped
+        expect(selectReviewers(['claude', 'api'], 'full', new Set(), new Set(['claude', 'api']), 2, vendorOf as any)).toEqual(['claude', 'api']);
+        expect(ADAPTERS.api.answer(JSON.stringify({ result: '{"prior_points":[]}', usage: { input: 10, cacheRead: 5, cacheWrite: 0, output: 3 }, cost_usd: 0.02, trace: { turns: 2, usage: {}, calls: [] } }))).toMatchObject({ text: '{"prior_points":[]}', costUsd: 0.02, tokens: { input: 15, output: 3 }, trace: { turns: 2 } });
+        expect(ADAPTERS.codex.args('p', undefined, { reasoning: 'medium' })).toContain('model_reasoning_effort=medium');
+        expect(ADAPTERS.codex.args('p', undefined)).toContain('model_reasoning_effort=high');
     });
 });

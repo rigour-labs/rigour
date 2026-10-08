@@ -1,418 +1,439 @@
 {
-  "sections": {
-    "gates": {
-      "title": "General",
-      "summary": "Repository-wide checks for file length, placeholder comments and required documents. Teams change these to match their own size limits and documentation layout.",
-      "blocks": "Advisory: never blocks"
+    "sections": {
+        "gates": {
+            "title": "General",
+            "summary": "Repository-wide checks for file length, placeholder comments and required documents. Teams change these to match their own size limits and documentation layout.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.ast": {
+            "title": "Structure and complexity",
+            "summary": "Per-function and per-class limits checked by parsing JavaScript, TypeScript, Python and other supported languages. Teams raise or lower them to match how large they let functions and classes grow.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.staleness": {
+            "title": "Legacy syntax",
+            "summary": "Flags outdated JavaScript and TypeScript syntax such as var. Off by default; teams turn it on while modernising a codebase.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.dependencies": {
+            "title": "Dependencies",
+            "summary": "Checks the root package.json (and Python, Go and Java manifests for forbidden packages) for banned, unused, heavy or overlapping dependencies. Teams change it to ban packages or quiet the unused-dependency check for side-effect imports.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.architecture": {
+            "title": "Architecture boundaries",
+            "summary": "Import rules between parts of the codebase, checked on JavaScript and TypeScript imports. Teams add rules to keep layers from importing each other.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.safety": {
+            "title": "Agent safety",
+            "summary": "Paths agents must not modify and a cap on how many files one agent cycle may change. Teams change it to protect CI, docs or config files that need human review.",
+            "blocks": "Advisory in review; the edit hook blocks the write (rigour setup installs it to block); rigour run stops on the file cap"
+        },
+        "gates.context": {
+            "title": "Context drift",
+            "summary": "Compares new code against conventions mined from the repository, such as environment variable names and naming style. Teams tune it when naming findings are too noisy or turn it off.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.environment": {
+            "title": "Environment alignment",
+            "summary": "Checks that required tools are installed at the versions the project declares and that required environment variables are set. Teams pin tool versions or list variables their build needs.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.retry_loop_breaker": {
+            "title": "Retry loop breaker",
+            "summary": "Reports when the same category of operation has failed repeatedly, telling the agent to stop retrying and read documentation. Teams change the retry limit or point categories at their own docs.",
+            "blocks": "Blocks: findings are critical"
+        },
+        "gates.agent_team": {
+            "title": "Agent teams",
+            "summary": "Governs sessions where several agents work at once, limiting their number and overlapping task scopes. Off by default; teams turn it on when they run agents in parallel.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.checkpoint": {
+            "title": "Checkpoints",
+            "summary": "Checks the checkpoints an agent reports during long tasks for gaps, low quality scores and a declining trend. Off by default; teams turn it on for long-running supervised agent work.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.security": {
+            "title": "Security patterns",
+            "summary": "Scans source for injection, cross-site scripting, path traversal, hardcoded secrets, insecure randomness and similar vulnerabilities. Teams turn off a category that does not apply or change which severities are reported.",
+            "blocks": "Blocks every finding it reports"
+        },
+        "gates.frontend_secret_exposure": {
+            "title": "Frontend secret exposure",
+            "summary": "Finds server-side secrets referenced or embedded in files that are bundled for the browser. Teams adjust which paths count as frontend or server and which variable names count as secrets.",
+            "blocks": "Blocks critical and high findings"
+        },
+        "gates.duplication_drift": {
+            "title": "Duplicated functions across files",
+            "summary": "Finds JavaScript, TypeScript and Python functions whose bodies are exact or near-identical copies in different files. Teams tune the similarity and minimum size when small, intentionally parallel functions are reported.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.hallucinated_imports": {
+            "title": "Imports that do not exist",
+            "summary": "Reports imports of files or packages that cannot be resolved in the project or its declared dependencies. Teams add ignore patterns for asset or generated imports a bundler resolves.",
+            "blocks": "Blocks on changed lines"
+        },
+        "gates.inconsistent_error_handling": {
+            "title": "Inconsistent error handling",
+            "summary": "Reports an error type that is caught and handled in more distinct ways than allowed across two or more files. Teams raise the limits when varied handling is deliberate.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.context_window_artifacts": {
+            "title": "Quality drop within a long file",
+            "summary": "Compares the top and bottom halves of long files and reports files whose bottom half is markedly worse (fewer comments, longer functions, shorter names, less error handling, more empty blocks or TODOs). Teams tune the thresholds to make it more or less sensitive.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.promise_safety": {
+            "title": "Async and error-handling safety",
+            "summary": "Reports promise chains without a catch, async functions that never await, HTTP calls without error handling and, optionally, unguarded JSON parsing, across JS/TS, Python, Go, Ruby and C#. Teams switch off individual patterns that do not fit their codebase.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.phantom_apis": {
+            "title": "Calls to standard-library APIs that do not exist",
+            "summary": "Reports calls to methods that do not exist on known standard-library modules in Node.js, Python, Go, C#, Java and Kotlin. Teams turn off a language or exclude files that define look-alike APIs.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.deprecated_apis": {
+            "title": "Deprecated and insecure APIs",
+            "summary": "Reports use of deprecated or removed standard-library and web APIs, with security-deprecated ones reported separately at a higher severity. Teams turn off a language or decide whether security deprecations block.",
+            "blocks": "Blocks on security-deprecated APIs when block_security_deprecated is on; otherwise advisory"
+        },
+        "gates.test_quality": {
+            "title": "Weak tests",
+            "summary": "Reports tests that are empty, assert nothing, assert a tautology, rely on too many mocks, or are async without awaiting. Teams adjust the mock limit or switch off individual patterns.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.governance": {
+            "title": "Agent memory and rules files",
+            "summary": "On the per-edit hook, checks agent writes to native memory and rules files (CLAUDE.md, .cursor/rules and similar), optionally refusing them, and always scans their content for credentials. Teams turn on enforcement to route agent memory through Rigour.",
+            "blocks": "Edit hook only: not part of check or review"
+        },
+        "gates.unindexed_reads": {
+            "title": "Unindexed Supabase reads",
+            "summary": "Reports a supabase-js read whose table, as the repository's SQL migrations define it, has no index that can serve the read's filters or sort. Off by default; teams with Supabase migrations in the repository turn it on.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.deprecated_dependencies": {
+            "title": "Deprecated npm dependencies",
+            "summary": "Reports package.json dependencies whose installed version npm marks deprecated, by asking the registry (answers cached for a day). Off by default because it sends package names and versions to the registry.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.unused_exports": {
+            "title": "Unused exports",
+            "summary": "Reports exports a change adds that no other non-test file imports. Teams list export names that a framework or tool loads by name.",
+            "blocks": "Blocks on changed lines"
+        },
+        "gates.query_patterns": {
+            "title": "Costly query shapes",
+            "summary": "Reports offset paging inside a loop and time windows read with a lower bound but no upper bound, on lines a change adds. Teams turn it off if they do not use query builders.",
+            "blocks": "Blocks on changed lines"
+        },
+        "gates.change_sweep": {
+            "title": "Half-finished changes",
+            "summary": "Reports a fix applied at some sites while the old condition remains elsewhere, a prop added to some sibling component mounts but not others, and accumulators copied on every loop step. Teams turn it off as a whole.",
+            "blocks": "Blocks on changed lines (partial fix, partial wiring); quadratic copy is advisory"
+        },
+        "gates.redundancy": {
+            "title": "Redundant code found with the TypeScript checker",
+            "summary": "Uses the project's TypeScript program to report redundant null filters, nullable row types for columns the query filters non-null, optional members every caller supplies, and properties written but never read. Teams list cross-service type files and the SQL migrations that define column nullability.",
+            "blocks": "Blocks on changed lines; the NOT NULL column note is advisory"
+        },
+        "gates.optional_params": {
+            "title": "Parameters optional only for tests",
+            "summary": "Reports a parameter a change adds as optional that every non-test caller passes. Teams turn it off if they keep such parameters optional on purpose.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.duplicate_functions": {
+            "title": "Duplicate functions in the change",
+            "summary": "Reports a function a change adds or edits whose body is the same as another function's in the files the change touched. Teams turn it off as a whole.",
+            "blocks": "Blocks on changed lines"
+        },
+        "gates.orphan_files": {
+            "title": "Files nothing uses",
+            "summary": "Reports code files a change adds that nothing imports, runs or names in package.json, CI or config. Teams list globs for files a tool loads by path.",
+            "blocks": "Blocks on changed lines"
+        },
+        "gates.migration_order": {
+            "title": "Migrations added out of order",
+            "summary": "Reports a SQL migration a change adds that sorts before the newest migration already on the base in the same directory. Off by default; teams whose migration runner applies files in name order turn it on.",
+            "blocks": "Blocks on changed lines"
+        },
+        "gates.semantic_bugs": {
+            "title": "Proven semantic bugs",
+            "summary": "Runs type-aware rules on JavaScript and TypeScript that trace a value from where it enters to where it causes a defect, and report only what they can prove. Teams can restrict it to named rules or opt in to candidate rules.",
+            "blocks": "Blocks on changed lines"
+        },
+        "gates.side_effect_analysis": {
+            "title": "Runaway side effects",
+            "summary": "Reports timers never cleared, spawned processes without lifecycle handling, I/O loops with no exit, retries without a limit, file watchers that trigger themselves, resource leaks, unbounded recursion and auto-restart loops. Teams switch off individual patterns or exclude files.",
+            "blocks": "Blocks on critical patterns (unbounded I/O loops, circular triggers, auto-restart); others advisory"
+        },
+        "gates.style_drift": {
+            "title": "Style drift from project conventions",
+            "summary": "Builds a per-language baseline of naming and error-handling conventions on the first full scan, then reports files that deviate from it. Teams tune the deviation threshold or move the baseline file.",
+            "blocks": "Advisory: never blocks"
+        },
+        "gates.logic_drift": {
+            "title": "Logic changes in edited functions",
+            "summary": "Compares changed functions with their version on the main branch (or a local baseline file outside Git) and reports comparison-operator changes and, optionally, return and branch count changes. Teams opt in to the extra signals.",
+            "blocks": "Advisory: never blocks"
+        },
+        "": {
+            "title": "Top level",
+            "summary": "File-wide settings: the template labels rigour init applied, and the paths every check skips.",
+            "blocks": ""
+        },
+        "commands": {
+            "title": "Project commands",
+            "summary": "Your own format, lint, type-check and test commands. Before a push, each replaces the tool Rigour would otherwise find in node_modules and run on the changed files; `rigour check` runs them too. Each runs as written, on the whole project, without a shell: pipes and `&&` are not interpreted, so point at a script for those.",
+            "blocks": "A command that exits non-zero blocks the push and fails `rigour check`."
+        },
+        "gates.deep": {
+            "title": "Model review",
+            "summary": "Tuning for model review: a check or review started with --deep, --pro, --max or an API key ([Model review](./MODEL_REVIEW.md)). Whether it runs, and which model and provider, come from those flags and your own settings, never from this file.",
+            "blocks": "Verified model findings fail the check."
+        },
+        "gates.deep.router": {
+            "title": "Risk router",
+            "summary": "Picks which changed functions get model attention: the riskiest ones, in cloud model reviews and in the agent review list.",
+            "blocks": ""
+        },
+        "gates.deep.checks": {
+            "title": "Model review categories",
+            "summary": "Which categories the model is asked about in a whole-repository model review. A review of a change does not use them.",
+            "blocks": ""
+        },
+        "hooks": {
+            "title": "Agent hooks",
+            "summary": "Settings for the hooks Rigour installs into coding agents. Installation itself is driven by rigour hooks init flags; of these keys only require_review_ack changes behaviour.",
+            "blocks": "With require_review_ack, the agent cannot finish until risky functions are acknowledged."
+        },
+        "output": {
+            "title": "Output",
+            "summary": "Where rigour check writes its JSON report, and where explain, export-audit, the MCP server and the stop hook look for it.",
+            "blocks": ""
+        },
+        "review": {
+            "title": "Review",
+            "summary": "How rigour review, the rigour_review tool, the stop hook and the push hook decide a verdict.",
+            "blocks": ""
+        },
+        "review.reviewer": {
+            "title": "The reviewer",
+            "summary": "The reviewer that runs your own installed coding-agent CLIs (claude, cursor, codex) headless against a change, from one judge up to a cross-vendor panel. A person may override some keys in their own settings; the team's rigour.yml can set a floor they cannot go below. See [The reviewer](./REVIEWER.md).",
+            "blocks": "Open findings, or an unavailable required review, block a push when on_push is wait."
+        }
     },
-    "gates.ast": {
-      "title": "Structure and complexity",
-      "summary": "Per-function and per-class limits checked by parsing JavaScript, TypeScript, Python and other supported languages. Teams raise or lower them to match how large they let functions and classes grow.",
-      "blocks": "Advisory: never blocks"
+    "keys": {
+        "gates.max_file_lines": "Maximum number of lines a file may have before it is reported as too long; the same limit is checked on every edit, and 0 turns the full-repository check off.",
+        "gates.forbid_todos": "When on, comments that start with TODO are reported, outside test files and examples.",
+        "gates.forbid_fixme": "When on, comments that start with FIXME are reported, outside test files and examples.",
+        "gates.required_files": "Files, relative to the repository root, that must exist; each one missing is reported, and an empty list turns the check off.",
+        "gates.ast.complexity": "Maximum cyclomatic complexity per function (for Go, Rust, Java, C# and Ruby, a nesting-weighted complexity score); functions above it are reported.",
+        "gates.ast.max_methods": "Maximum number of methods in one class in JavaScript, TypeScript and Python; larger classes are reported.",
+        "gates.ast.max_params": "Maximum number of parameters per function in JavaScript, TypeScript and Python; functions with more are reported.",
+        "gates.staleness.enabled": "Turns legacy-syntax checks on JavaScript and TypeScript files on or off.",
+        "gates.staleness.rules": "Per-rule switches for legacy-syntax checks; only no-var, no-commonjs (require calls) and no-arguments are checked, and a rule left out of the map is on while staleness is enabled.",
+        "gates.dependencies.forbid": "Package names that must not appear in package.json, requirements.txt, pyproject.toml, go.mod or pom.xml; each one found is reported.",
+        "gates.dependencies.detect_unused": "When on, package.json dependencies and devDependencies that no source or known config file imports or names are reported; common build tools and type packages are always skipped.",
+        "gates.dependencies.detect_heavy_alternatives": "When on, package.json dependencies that have a known lighter alternative are reported with that alternative.",
+        "gates.dependencies.detect_duplicate_purpose": "When on, two or more installed packages that serve the same purpose (for example two HTTP clients) are reported.",
+        "gates.dependencies.unused_allowlist": "Package names the unused-dependency check skips; a trailing * matches any name with that prefix.",
+        "gates.architecture.boundaries": "Import rules, each with from and to glob patterns and a mode; a deny rule reports any JavaScript or TypeScript file matching from that imports a path matching to, and allow rules have no effect.",
+        "gates.safety.max_files_changed_per_cycle": "Maximum number of files one agent command may change during rigour run before the run stops with a failure; it is also passed to the agent in the fix packet.",
+        "gates.safety.protected_paths": "Path patterns agents must not modify; an edit to a matching path is reported by the edit hook and the MCP pattern check, and staged or modified matching files are reported by a full check.",
+        "gates.context.enabled": "Turns the context-drift check on or off, including the scan that mines project conventions it compares against.",
+        "gates.context.sensitivity": "A 0-1 ratio that sets how readily naming inconsistencies are reported: a casing style is reported when it is not the dominant one and accounts for more than (1 - sensitivity) of the names of that kind, so a higher value reports more.",
+        "gates.context.mining_depth": "Maximum number of files sampled to learn the project's environment variable names, which variants are then compared against.",
+        "gates.environment.enabled": "Turns the environment alignment check on or off.",
+        "gates.environment.enforce_contracts": "When on, tool version ranges are also read from the project, Node from package.json engines and ruff and mypy from pyproject.toml, and checked against the installed tools.",
+        "gates.environment.tools": "Map of tool name to a semver range; each tool is run with --version and reported if missing or outside the range, and an entry overrides a range read from the project.",
+        "gates.environment.required_env": "Environment variable names that must be set in the environment Rigour runs in; each one unset is reported.",
+        "gates.retry_loop_breaker.enabled": "Turns the retry loop check on or off.",
+        "gates.retry_loop_breaker.max_retries": "Number of consecutive recorded failures in one category at which the loop is reported.",
+        "gates.retry_loop_breaker.doc_sources": "Map of failure category to a documentation link or note shown in the finding instead of the built-in one.",
+        "gates.agent_team.enabled": "Turns agent team checks on or off; they apply only while a multi-agent session is registered.",
+        "gates.agent_team.max_concurrent_agents": "Maximum number of agents registered in one session; more than this is reported.",
+        "gates.agent_team.task_ownership": "In strict mode, two agents whose task scopes overlap are reported; collaborative mode allows overlap.",
+        "gates.checkpoint.enabled": "Turns checkpoint checks on or off; they apply only once an agent has reported checkpoints.",
+        "gates.checkpoint.interval_minutes": "Expected minutes between checkpoints; a gap longer than twice this is reported.",
+        "gates.checkpoint.quality_threshold": "Minimum quality score, 0-100, for the latest checkpoint; a lower score is reported.",
+        "gates.checkpoint.drift_detection": "When on, a declining trend in checkpoint quality scores is reported.",
+        "gates.security.enabled": "Turns the security pattern check on or off for full checks, reviews and the push gate; the edit hook's own secret and command-injection checks are not affected.",
+        "gates.security.sql_injection": "When off, SQL injection patterns are not reported.",
+        "gates.security.xss": "When off, cross-site scripting patterns are not reported.",
+        "gates.security.path_traversal": "When off, path traversal patterns are not reported.",
+        "gates.security.hardcoded_secrets": "When off, secrets written into source are not reported by this check; the edit hook still checks for them.",
+        "gates.security.insecure_randomness": "When off, use of non-cryptographic random number generators for security values is not reported.",
+        "gates.security.command_injection": "When off, shell command injection patterns are not reported by this check; the edit hook still checks for them.",
+        "gates.security.block_on_severity": "Lowest severity of security finding that is reported; findings below it are dropped.",
+        "gates.frontend_secret_exposure.enabled": "Turns the frontend secret exposure check on or off.",
+        "gates.frontend_secret_exposure.block_on_severity": "Lowest severity of exposure that is reported; findings below it are dropped, and medium or low findings that are reported do not block.",
+        "gates.frontend_secret_exposure.check_process_env": "When on, secret-looking process.env references, including destructuring from process.env, are reported in frontend files.",
+        "gates.frontend_secret_exposure.check_import_meta_env": "When on, secret-looking import.meta.env references are reported in frontend files.",
+        "gates.frontend_secret_exposure.secret_env_name_patterns": "Case-insensitive regular expressions; an environment variable whose name matches one is treated as a secret.",
+        "gates.frontend_secret_exposure.safe_public_prefixes": "Name prefixes that mark an environment variable as intentionally public, so it is never treated as a secret.",
+        "gates.frontend_secret_exposure.frontend_path_patterns": "Regular expressions matched against file paths that mark a file as definitely bundled for the browser, which makes a secret reference there critical rather than high; setting it replaces the built-in list.",
+        "gates.frontend_secret_exposure.server_path_patterns": "Regular expressions matched against file paths that mark a file as server-only so it is not scanned; entries are added to the built-in server paths rather than replacing them.",
+        "gates.frontend_secret_exposure.allowlist_env_names": "Exact environment variable names that are never treated as secrets.",
+        "gates.duplication_drift.enabled": "Turns the cross-file duplicated-function check on or off.",
+        "gates.duplication_drift.similarity_threshold": "Structural similarity, from 0 to 1, above which two functions in different files are reported as near-duplicates; raise it to report only closer copies.",
+        "gates.duplication_drift.min_body_lines": "Minimum function body length, in lines, for a function to be compared; raise it to ignore small helpers.",
+        "gates.hallucinated_imports.enabled": "Turns the unresolvable-import check on or off.",
+        "gates.hallucinated_imports.ignore_patterns": "Regular expressions matched against an import's specifier; matching imports are never reported, which suits assets and generated modules a bundler resolves.",
+        "gates.inconsistent_error_handling.enabled": "Turns the inconsistent error-handling check on or off.",
+        "gates.inconsistent_error_handling.max_strategies_per_type": "Number of distinct handling strategies allowed for one caught error type before it is reported; raise it to tolerate more variety.",
+        "gates.inconsistent_error_handling.min_occurrences": "Minimum number of catch blocks for an error type before its handling is compared; raise it to ignore rarely caught types.",
+        "gates.inconsistent_error_handling.ignore_empty_catches": "When on, empty catch blocks do not count as a handling strategy, so swallowed errors no longer push a type over the limit.",
+        "gates.context_window_artifacts.enabled": "Turns the within-file quality-drop check on or off.",
+        "gates.context_window_artifacts.min_file_lines": "Minimum file length, in lines, for a file to be analysed; shorter files are skipped.",
+        "gates.context_window_artifacts.degradation_threshold": "Degradation score, from 0 to 1, a file must reach to be reported; lower it to report milder drops.",
+        "gates.context_window_artifacts.signals_required": "Number of separate degradation signals a file must show to be reported; lower it to make the check more sensitive.",
+        "gates.promise_safety.enabled": "Turns the async and error-handling safety check on or off.",
+        "gates.promise_safety.check_unhandled_then": "Reports JavaScript and TypeScript .then() chains that have no .catch() and are not inside a try block.",
+        "gates.promise_safety.check_unsafe_parse": "Reports JSON parsing outside error handling in each supported language; off by default because it cannot tell trusted input from untrusted input.",
+        "gates.promise_safety.check_async_without_await": "Reports async functions that never use await, in JavaScript, TypeScript, Python and C#.",
+        "gates.promise_safety.check_unsafe_fetch": "Reports HTTP calls (such as fetch or axios) made without error handling or a status check.",
+        "gates.promise_safety.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
+        "gates.phantom_apis.enabled": "Turns the non-existent standard-library API check on or off.",
+        "gates.phantom_apis.check_node": "Includes JavaScript and TypeScript files, checked against Node.js built-in modules.",
+        "gates.phantom_apis.check_python": "Includes Python files, checked against the Python standard library.",
+        "gates.phantom_apis.check_go": "Includes Go files, checked against known non-existent Go standard-library calls.",
+        "gates.phantom_apis.check_csharp": "Includes C# files, checked against known non-existent .NET APIs.",
+        "gates.phantom_apis.check_java": "Includes Java and Kotlin files, checked against known non-existent JDK APIs.",
+        "gates.phantom_apis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
+        "gates.deprecated_apis.enabled": "Turns the deprecated and insecure API check on or off.",
+        "gates.deprecated_apis.check_node": "Includes JavaScript and TypeScript files; turning it off also skips the web API checks, which run on the same files.",
+        "gates.deprecated_apis.check_python": "Includes Python files, checked against Python deprecations and removals.",
+        "gates.deprecated_apis.check_web": "Checks JavaScript and TypeScript files for deprecated browser APIs and with statements; has no effect when check_node is off.",
+        "gates.deprecated_apis.check_go": "Includes Go files, checked against deprecated Go standard-library APIs.",
+        "gates.deprecated_apis.check_csharp": "Includes C# files, checked against deprecated .NET APIs.",
+        "gates.deprecated_apis.check_java": "Includes Java files, checked against deprecated JDK APIs.",
+        "gates.deprecated_apis.block_security_deprecated": "Reports APIs deprecated for security reasons as critical, which blocks; when off they are reported as high and are advisory.",
+        "gates.deprecated_apis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
+        "gates.test_quality.enabled": "Turns the weak-test check on or off.",
+        "gates.test_quality.check_empty_tests": "Reports tests with an empty body or with code but no assertion.",
+        "gates.test_quality.check_tautological": "Reports assertions that can never fail, such as comparing a value with itself.",
+        "gates.test_quality.check_mock_heavy": "Reports tests that set up more mocks than max_mocks_per_test.",
+        "gates.test_quality.check_assertion_free_async": "Reports JavaScript and TypeScript async tests that assert without ever awaiting.",
+        "gates.test_quality.max_mocks_per_test": "Number of mocks a single test may set up before check_mock_heavy reports it.",
+        "gates.governance.enabled": "Turns all memory and rules-file governance on the edit hook on or off, including the credential scan of those files.",
+        "gates.governance.enforce_memory": "Reports a critical finding when an agent writes to a protected memory path, telling it to use rigour_remember; takes effect only while block_native_memory is also on.",
+        "gates.governance.enforce_skills": "Reports a critical finding when an agent writes to a protected skills or rules path.",
+        "gates.governance.block_native_memory": "Must be on, together with enforce_memory, for writes to protected memory paths to be reported; turning it off allows them.",
+        "gates.governance.protected_memory_paths": "Glob patterns for agent memory files that enforce_memory protects and whose content is scanned for credentials.",
+        "gates.governance.protected_skills_paths": "Glob patterns for agent skills and rules files that enforce_skills protects and whose content is scanned for credentials.",
+        "gates.governance.exempt_paths": "Glob patterns for files that governance never checks, such as Rigour's own hook configuration.",
+        "gates.unindexed_reads.enabled": "Turns the unindexed Supabase read check on or off.",
+        "gates.unindexed_reads.migrations": "Glob patterns for the SQL migration files to replay, each directory as its own database; when empty, every .sql file under a migrations folder is used.",
+        "gates.deprecated_dependencies.enabled": "Turns the deprecated npm dependency check on, which sends package names and installed versions to the registry.",
+        "gates.deprecated_dependencies.registry": "Base URL of the npm registry to ask about deprecations, for teams behind a private registry or mirror; npm's public registry is used when unset.",
+        "gates.unused_exports.enabled": "Turns the unused-export check on or off.",
+        "gates.unused_exports.allow": "Export names, matched exactly, that are never reported because a framework or tool loads them by name.",
+        "gates.unused_exports.block": "Make an unused export block. Off by default: it is reported as a note, since teams often approve exports kept for tests or for another export's signature.",
+        "gates.query_patterns.enabled": "Turns the offset-paging and unbounded-time-window checks on or off.",
+        "gates.change_sweep.enabled": "Turns the partial-fix, partial-wiring and quadratic-copy checks on or off together.",
+        "gates.redundancy.enabled": "Turns the TypeScript-checker redundancy checks on or off; they run only when the change touches non-test TypeScript files.",
+        "gates.redundancy.wire_contracts": "Glob patterns for files whose types another service reads, so their properties are never reported as written but never read.",
+        "gates.redundancy.schema_migrations": "Folders of SQL migrations (relative, absolute or starting with ~/, possibly in another repository) replayed in file-name order to learn which columns are NOT NULL; missing folders are skipped.",
+        "gates.optional_params.enabled": "Turns the optional-only-for-tests parameter check on or off.",
+        "gates.duplicate_functions.enabled": "Turns the duplicate-function check on the changed files on or off.",
+        "gates.orphan_files.enabled": "Turns the unused-new-file check on or off.",
+        "gates.orphan_files.allow": "Glob patterns for files that are never reported because a tool loads them by path.",
+        "gates.orphan_files.block": "Make an orphaned file block. Off by default: it is reported as a note.",
+        "gates.migration_order.enabled": "Turns the out-of-order migration check on or off.",
+        "gates.migration_order.dirs": "Glob patterns matched against the directory of each added .sql file; only migrations in matching directories are checked.",
+        "gates.semantic_bugs.enabled": "Turns the proven semantic-bug rules on or off.",
+        "gates.semantic_bugs.rules": "Rule ids to run, including opt-in candidate rules and learned rules as learned/<id>; when set, only the named rules run, and when unset the default rules plus the repository's learned rules run.",
+        "gates.side_effect_analysis.enabled": "Turns the runaway side-effect check on or off.",
+        "gates.side_effect_analysis.check_unbounded_timers": "Reports interval timers that are never cleared.",
+        "gates.side_effect_analysis.check_unbounded_loops": "Reports loops that perform I/O with no exit condition or delay.",
+        "gates.side_effect_analysis.check_process_lifecycle": "Reports spawned child processes with no exit handling, wait or kill.",
+        "gates.side_effect_analysis.check_recursive_depth": "Reports recursive functions with no base case before the recursive call.",
+        "gates.side_effect_analysis.check_resource_lifecycle": "Reports opened resources, such as files or connections, that are never closed.",
+        "gates.side_effect_analysis.check_retry_without_limit": "Reports retry loops that catch an error and try again with no attempt limit.",
+        "gates.side_effect_analysis.check_circular_triggers": "Reports file watchers that write to a path they are watching.",
+        "gates.side_effect_analysis.check_auto_restart": "Reports code that restarts a process on exit with no limit.",
+        "gates.side_effect_analysis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
+        "gates.style_drift.enabled": "Turns the style-drift check on or off.",
+        "gates.style_drift.deviation_threshold": "Fraction, from 0 to 1, by which a file's naming or error-handling style must differ from the project baseline to be reported; raise it to report only larger deviations.",
+        "gates.style_drift.sample_size": "Maximum number of files per language sampled when the style baseline is first built.",
+        "gates.style_drift.baseline_path": "Path, relative to the repository root, where the style baseline is stored and read; delete the file to rebuild the baseline on the next full scan.",
+        "gates.logic_drift.enabled": "Turns the logic-drift check on or off.",
+        "gates.logic_drift.baseline_path": "Path, relative to the repository root, of the local function baseline used only when the project is not a Git repository.",
+        "gates.logic_drift.track_operators": "Reports changes to comparison operators in an edited function, such as >= becoming >.",
+        "gates.logic_drift.track_returns": "Reports a change in the number of return statements in an edited function.",
+        "gates.logic_drift.track_branches": "Reports a change of two or more in the number of branches in an edited function.",
+        "preset": "Names the role template rigour init applied; it is shown in scan output and audit exports and does not change any check at run time.",
+        "paradigm": "Names the coding-paradigm template rigour init applied; it is shown in scan output and fix packets and does not change any check at run time.",
+        "commands.format": "Runs instead of the Prettier check of changed files; unset, Rigour uses what the project has installed.",
+        "commands.lint": "Runs instead of ESLint on changed files; unset, Rigour uses what the project has installed.",
+        "commands.typecheck": "Runs instead of the type check (the project's typecheck or check script, svelte-check or tsc); unset, Rigour uses what the project has installed.",
+        "commands.test": "Runs instead of the tests that import changed files (vitest related); unset, Rigour uses what the project has installed.",
+        "gates.deep.max_tokens": "The most tokens the model may write per model review call; lower values cut cost and may truncate answers.",
+        "gates.deep.temperature": "The sampling temperature for model review calls; higher values make the model's answers less repeatable.",
+        "gates.deep.timeout_ms": "How long, in milliseconds, a single model review model call may run before it is abandoned.",
+        "gates.deep.budget_ms": "A time limit, in milliseconds, for the whole model review of a change; files not started before it runs out are reported as skipped instead of reviewed.",
+        "gates.deep.agentic": "Set to false to stop a cloud model from reading other repository files while it reviews a change, so it sees only what Rigour sends it.",
+        "gates.deep.repo_rules": "When true, the model review, the agent review list and the stop hook's end-of-task question include the rules from AGENTS.md, CLAUDE.md and Cursor rules that name what the change touches. The reviewer (review.reviewer) always checks the repository's rules, whatever this says.",
+        "gates.deep.review_lessons": "Which of the team's past review lessons raise a function's risk, are shown to the reviewer, and are put to the agent once at the stop hook: lessons (promoted on evidence), all of them including candidates, or none (off).",
+        "gates.deep.router.enabled": "Set to false to send every changed file to the cloud model instead of only the riskiest changed functions.",
+        "gates.deep.router.min_score": "The risk score a changed function needs to go to the model or onto the agent review list; functions below it get the deterministic checks only.",
+        "gates.deep.router.max_functions": "The most changed functions sent to the model, or listed for agent review, per change; the highest-risk ones are kept.",
+        "gates.deep.intent_checks": "When true, a scoped model review also asks the model intent questions at places the engine has proven read an optional value with no fallback.",
+        "gates.deep.checks.solid": "Set to false to stop asking the model about SOLID principle violations in a whole-repository model review.",
+        "gates.deep.checks.dry": "Set to false to stop asking the model about duplicated logic in a whole-repository model review.",
+        "gates.deep.checks.design_patterns": "Set to false to stop asking the model about design anti-patterns (god classes, feature envy, long parameter lists and similar) in a whole-repository model review.",
+        "gates.deep.checks.language_idioms": "Set to false to stop asking the model about language-specific anti-patterns, naming conventions and dead code in a whole-repository model review.",
+        "gates.deep.checks.error_handling": "Set to false to stop asking the model about error handling (empty catches, swallowed errors, missing checks) in a whole-repository model review.",
+        "gates.deep.checks.test_quality": "Set to false to stop asking the model about weak or missing tests in a whole-repository model review.",
+        "gates.deep.checks.architecture": "Set to false to stop asking the model about layer violations, circular dependencies and API design in a whole-repository model review.",
+        "gates.deep.checks.code_smells": "Set to false to stop asking the model about code smells (complex conditionals, magic numbers, hardcoded config) in a whole-repository model review.",
+        "hooks.require_review_ack": "When true, the agent stop hook holds the agent until each risky changed function has been acknowledged with rigour_review_ack.",
+        "output.report_path": "The file, relative to the repository root, that rigour check writes its JSON report to and that other commands read it from.",
+        "review.include_heuristics": "When true, heuristic findings (size, complexity, guessed intent) can decide the verdict and block, instead of only findings that prove a defect.",
+        "review.show_preexisting": "When true, a review also reports rule findings the base commit already had, instead of only those the change introduced.",
+        "review.github_account": "The gh account whose token Rigour uses to read the pull request and its reviews, and that rigour learn-reviews reads past reviews as; ignored when GH_TOKEN is set, and RIGOUR_GITHUB_ACCOUNT is used when this is unset.",
+        "review.reviewer.enabled": "Runs the model reviewer at push; a person cannot turn it off when the team sets panel: required or mode_required (team or person).",
+        "review.reviewer.on_push": "At push, background starts the review without holding the push, wait holds the push for its verdict, and off reviews only when asked with rigour review --reviewer (team only).",
+        "review.reviewer.reviewers": "The agent CLIs to use as judges, in order of preference, from claude, cursor and codex (team or person).",
+        "review.reviewer.mode": "How many judges review: single uses the first installed reviewer, cross prefers a vendor that did not write the commits, full uses one per vendor and merges their verdicts (team or person).",
+        "review.reviewer.model": "The model the claude reviewer runs, unless models names one for claude (team only).",
+        "review.reviewer.models": "A model per reviewer name, passed to that agent CLI (team or person).",
+        "review.reviewer.timeout_ms": "How long, in milliseconds, each agent CLI run may take before it is stopped (team only).",
+        "review.reviewer.panel": "With two or more vendors, on makes judges cross-examine findings only one raised and block only on confirmed ones; required also stops anyone turning it off and makes a review without two vendors unavailable (a person may only switch it on or off) (team or person).",
+        "review.reviewer.mode_required": "When true, no person, environment variable or flag may review with fewer judges than the team's mode, and a run that cannot meet it is unavailable (team only).",
+        "review.reviewer.dismissals": "When true, people may dismiss a reviewer finding as not a bug and it is not reported again (team only).",
+        "review.reviewer.panel_max_items": "The most findings cross-examined per panel review; the rest are shown as disputed (team only).",
+        "review.reviewer.max_runs_per_day": "A cap on agent runs per repository per local day, cross-examinations included; past it a review is skipped, or unavailable when the team requires the reviewer, and a person may only set a lower cap (team or person).",
+        "review.reviewer.max_usd_per_day": "A cap, in US dollars as reported by the agent CLIs, on reviewer spend per repository per local day; past it a review is skipped, or unavailable when the team requires the reviewer, and a person may only set a lower cap (team or person).",
+        "review.reviewer.judges": "How many judges, each from a different vendor, a full or panel review uses (2 or 3), limited by the vendors installed; under a team floor a person cannot lower it (team or person).",
+        "review.reviewer.escalate": "With risk, a full or panel review uses one judge unless the change has a risky function, a human review exists or the run is rigour review --full; always uses every judge on every review; a team floor forces always (team or person).",
+        "review.reviewer.cross_models": "A model per reviewer name used only for cross-examining disputed findings, so that narrower step can run on a cheaper model (team only).",
+        "review.reviewer.judge_env": "Environment variables a judge's CLI must not see, per reviewer name, e.g. codex: { unset: [OPENAI_API_KEY] } when that variable holds a key meant for another service; RIGOUR_API_KEY is never passed to a judge (team only).",
+        "review.reviewer.reasoning": "Reasoning effort per reviewer name where the judge takes one (codex, api): low, medium or high. A slow judge finishes sooner at a lower effort; measure before you rely on it (team only).",
+        "review.reviewer.api": "A judge reached through an OpenAI-compatible chat-completions API with tools, named api in reviewers: any model the team can call. Rigour runs the read-only tool loop inside the checkout; the key is read from the environment variable key_env, never from this file (team only).",
+        "review.reviewer.api.url": "The API's base URL; /chat/completions is appended.",
+        "review.reviewer.api.model": "The model name the API expects.",
+        "review.reviewer.api.key_env": "The environment variable holding the API key (default RIGOUR_JUDGE_API_KEY). The judge is installed only when it is set.",
+        "review.reviewer.api.vendor": "The model's maker (anthropic, openai, google, other), used by cross and full modes to pair judges from different vendors; inferred from the model name when unset.",
+        "review.reviewer.api.max_turns": "Tool-call turns the judge may take before the review is unavailable (default 60).",
+        "review.reviewer.reasoning": "Reasoning effort per reviewer name where the judge takes one (codex, api): low, medium or high. A slow judge finishes sooner at a lower effort; measure before you rely on it (team only).",
+        "review.reviewer.api": "A judge reached through an OpenAI-compatible chat-completions API with tools, named api in reviewers: any model the team can call. Rigour runs the read-only tool loop inside the checkout; the key is read from the environment variable key_env, never from this file (team only).",
+        "review.reviewer.api.url": "The API's base URL; /chat/completions is appended.",
+        "review.reviewer.api.model": "The model name the API expects.",
+        "review.reviewer.api.key_env": "The environment variable holding the API key (default RIGOUR_JUDGE_API_KEY). The judge is installed only when it is set.",
+        "review.reviewer.api.vendor": "The model's maker (anthropic, openai, google, other), used by cross and full modes to pair judges from different vendors; inferred from the model name when unset.",
+        "review.reviewer.api.max_turns": "Tool-call turns the judge may take before the review is unavailable (default 60).",
+        "ignore": "Glob patterns for files every check, review and agent hook skips."
     },
-    "gates.staleness": {
-      "title": "Legacy syntax",
-      "summary": "Flags outdated JavaScript and TypeScript syntax such as var. Off by default; teams turn it on while modernising a codebase.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.dependencies": {
-      "title": "Dependencies",
-      "summary": "Checks the root package.json (and Python, Go and Java manifests for forbidden packages) for banned, unused, heavy or overlapping dependencies. Teams change it to ban packages or quiet the unused-dependency check for side-effect imports.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.architecture": {
-      "title": "Architecture boundaries",
-      "summary": "Import rules between parts of the codebase, checked on JavaScript and TypeScript imports. Teams add rules to keep layers from importing each other.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.safety": {
-      "title": "Agent safety",
-      "summary": "Paths agents must not modify and a cap on how many files one agent cycle may change. Teams change it to protect CI, docs or config files that need human review.",
-      "blocks": "Advisory in review; the edit hook blocks the write (rigour setup installs it to block); rigour run stops on the file cap"
-    },
-    "gates.context": {
-      "title": "Context drift",
-      "summary": "Compares new code against conventions mined from the repository, such as environment variable names and naming style. Teams tune it when naming findings are too noisy or turn it off.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.environment": {
-      "title": "Environment alignment",
-      "summary": "Checks that required tools are installed at the versions the project declares and that required environment variables are set. Teams pin tool versions or list variables their build needs.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.retry_loop_breaker": {
-      "title": "Retry loop breaker",
-      "summary": "Reports when the same category of operation has failed repeatedly, telling the agent to stop retrying and read documentation. Teams change the retry limit or point categories at their own docs.",
-      "blocks": "Blocks: findings are critical"
-    },
-    "gates.agent_team": {
-      "title": "Agent teams",
-      "summary": "Governs sessions where several agents work at once, limiting their number and overlapping task scopes. Off by default; teams turn it on when they run agents in parallel.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.checkpoint": {
-      "title": "Checkpoints",
-      "summary": "Checks the checkpoints an agent reports during long tasks for gaps, low quality scores and a declining trend. Off by default; teams turn it on for long-running supervised agent work.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.security": {
-      "title": "Security patterns",
-      "summary": "Scans source for injection, cross-site scripting, path traversal, hardcoded secrets, insecure randomness and similar vulnerabilities. Teams turn off a category that does not apply or change which severities are reported.",
-      "blocks": "Blocks every finding it reports"
-    },
-    "gates.frontend_secret_exposure": {
-      "title": "Frontend secret exposure",
-      "summary": "Finds server-side secrets referenced or embedded in files that are bundled for the browser. Teams adjust which paths count as frontend or server and which variable names count as secrets.",
-      "blocks": "Blocks critical and high findings"
-    },
-    "gates.duplication_drift": {
-      "title": "Duplicated functions across files",
-      "summary": "Finds JavaScript, TypeScript and Python functions whose bodies are exact or near-identical copies in different files. Teams tune the similarity and minimum size when small, intentionally parallel functions are reported.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.hallucinated_imports": {
-      "title": "Imports that do not exist",
-      "summary": "Reports imports of files or packages that cannot be resolved in the project or its declared dependencies. Teams add ignore patterns for asset or generated imports a bundler resolves.",
-      "blocks": "Blocks on changed lines"
-    },
-    "gates.inconsistent_error_handling": {
-      "title": "Inconsistent error handling",
-      "summary": "Reports an error type that is caught and handled in more distinct ways than allowed across two or more files. Teams raise the limits when varied handling is deliberate.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.context_window_artifacts": {
-      "title": "Quality drop within a long file",
-      "summary": "Compares the top and bottom halves of long files and reports files whose bottom half is markedly worse (fewer comments, longer functions, shorter names, less error handling, more empty blocks or TODOs). Teams tune the thresholds to make it more or less sensitive.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.promise_safety": {
-      "title": "Async and error-handling safety",
-      "summary": "Reports promise chains without a catch, async functions that never await, HTTP calls without error handling and, optionally, unguarded JSON parsing, across JS/TS, Python, Go, Ruby and C#. Teams switch off individual patterns that do not fit their codebase.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.phantom_apis": {
-      "title": "Calls to standard-library APIs that do not exist",
-      "summary": "Reports calls to methods that do not exist on known standard-library modules in Node.js, Python, Go, C#, Java and Kotlin. Teams turn off a language or exclude files that define look-alike APIs.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.deprecated_apis": {
-      "title": "Deprecated and insecure APIs",
-      "summary": "Reports use of deprecated or removed standard-library and web APIs, with security-deprecated ones reported separately at a higher severity. Teams turn off a language or decide whether security deprecations block.",
-      "blocks": "Blocks on security-deprecated APIs when block_security_deprecated is on; otherwise advisory"
-    },
-    "gates.test_quality": {
-      "title": "Weak tests",
-      "summary": "Reports tests that are empty, assert nothing, assert a tautology, rely on too many mocks, or are async without awaiting. Teams adjust the mock limit or switch off individual patterns.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.governance": {
-      "title": "Agent memory and rules files",
-      "summary": "On the per-edit hook, checks agent writes to native memory and rules files (CLAUDE.md, .cursor/rules and similar), optionally refusing them, and always scans their content for credentials. Teams turn on enforcement to route agent memory through Rigour.",
-      "blocks": "Edit hook only: not part of check or review"
-    },
-    "gates.unindexed_reads": {
-      "title": "Unindexed Supabase reads",
-      "summary": "Reports a supabase-js read whose table, as the repository's SQL migrations define it, has no index that can serve the read's filters or sort. Off by default; teams with Supabase migrations in the repository turn it on.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.deprecated_dependencies": {
-      "title": "Deprecated npm dependencies",
-      "summary": "Reports package.json dependencies whose installed version npm marks deprecated, by asking the registry (answers cached for a day). Off by default because it sends package names and versions to the registry.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.unused_exports": {
-      "title": "Unused exports",
-      "summary": "Reports exports a change adds that no other non-test file imports. Teams list export names that a framework or tool loads by name.",
-      "blocks": "Blocks on changed lines"
-    },
-    "gates.query_patterns": {
-      "title": "Costly query shapes",
-      "summary": "Reports offset paging inside a loop and time windows read with a lower bound but no upper bound, on lines a change adds. Teams turn it off if they do not use query builders.",
-      "blocks": "Blocks on changed lines"
-    },
-    "gates.change_sweep": {
-      "title": "Half-finished changes",
-      "summary": "Reports a fix applied at some sites while the old condition remains elsewhere, a prop added to some sibling component mounts but not others, and accumulators copied on every loop step. Teams turn it off as a whole.",
-      "blocks": "Blocks on changed lines (partial fix, partial wiring); quadratic copy is advisory"
-    },
-    "gates.redundancy": {
-      "title": "Redundant code found with the TypeScript checker",
-      "summary": "Uses the project's TypeScript program to report redundant null filters, nullable row types for columns the query filters non-null, optional members every caller supplies, and properties written but never read. Teams list cross-service type files and the SQL migrations that define column nullability.",
-      "blocks": "Blocks on changed lines; the NOT NULL column note is advisory"
-    },
-    "gates.optional_params": {
-      "title": "Parameters optional only for tests",
-      "summary": "Reports a parameter a change adds as optional that every non-test caller passes. Teams turn it off if they keep such parameters optional on purpose.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.duplicate_functions": {
-      "title": "Duplicate functions in the change",
-      "summary": "Reports a function a change adds or edits whose body is the same as another function's in the files the change touched. Teams turn it off as a whole.",
-      "blocks": "Blocks on changed lines"
-    },
-    "gates.orphan_files": {
-      "title": "Files nothing uses",
-      "summary": "Reports code files a change adds that nothing imports, runs or names in package.json, CI or config. Teams list globs for files a tool loads by path.",
-      "blocks": "Blocks on changed lines"
-    },
-    "gates.migration_order": {
-      "title": "Migrations added out of order",
-      "summary": "Reports a SQL migration a change adds that sorts before the newest migration already on the base in the same directory. Off by default; teams whose migration runner applies files in name order turn it on.",
-      "blocks": "Blocks on changed lines"
-    },
-    "gates.semantic_bugs": {
-      "title": "Proven semantic bugs",
-      "summary": "Runs type-aware rules on JavaScript and TypeScript that trace a value from where it enters to where it causes a defect, and report only what they can prove. Teams can restrict it to named rules or opt in to candidate rules.",
-      "blocks": "Blocks on changed lines"
-    },
-    "gates.side_effect_analysis": {
-      "title": "Runaway side effects",
-      "summary": "Reports timers never cleared, spawned processes without lifecycle handling, I/O loops with no exit, retries without a limit, file watchers that trigger themselves, resource leaks, unbounded recursion and auto-restart loops. Teams switch off individual patterns or exclude files.",
-      "blocks": "Blocks on critical patterns (unbounded I/O loops, circular triggers, auto-restart); others advisory"
-    },
-    "gates.style_drift": {
-      "title": "Style drift from project conventions",
-      "summary": "Builds a per-language baseline of naming and error-handling conventions on the first full scan, then reports files that deviate from it. Teams tune the deviation threshold or move the baseline file.",
-      "blocks": "Advisory: never blocks"
-    },
-    "gates.logic_drift": {
-      "title": "Logic changes in edited functions",
-      "summary": "Compares changed functions with their version on the main branch (or a local baseline file outside Git) and reports comparison-operator changes and, optionally, return and branch count changes. Teams opt in to the extra signals.",
-      "blocks": "Advisory: never blocks"
-    },
-    "": {
-      "title": "Top level",
-      "summary": "File-wide settings: the template labels rigour init applied, and the paths every check skips.",
-      "blocks": ""
-    },
-    "commands": {
-      "title": "Project commands",
-      "summary": "Your own format, lint, type-check and test commands. Before a push, each replaces the tool Rigour would otherwise find in node_modules and run on the changed files; `rigour check` runs them too. Each runs as written, on the whole project, without a shell: pipes and `&&` are not interpreted, so point at a script for those.",
-      "blocks": "A command that exits non-zero blocks the push and fails `rigour check`."
-    },
-    "gates.deep": {
-      "title": "Model review",
-      "summary": "Tuning for model review: a check or review started with --deep, --pro, --max or an API key ([Model review](./MODEL_REVIEW.md)). Whether it runs, and which model and provider, come from those flags and your own settings, never from this file.",
-      "blocks": "Verified model findings fail the check."
-    },
-    "gates.deep.router": {
-      "title": "Risk router",
-      "summary": "Picks which changed functions get model attention: the riskiest ones, in cloud model reviews and in the agent review list.",
-      "blocks": ""
-    },
-    "gates.deep.checks": {
-      "title": "Model review categories",
-      "summary": "Which categories the model is asked about in a whole-repository model review. A review of a change does not use them.",
-      "blocks": ""
-    },
-    "hooks": {
-      "title": "Agent hooks",
-      "summary": "Settings for the hooks Rigour installs into coding agents. Installation itself is driven by rigour hooks init flags; of these keys only require_review_ack changes behaviour.",
-      "blocks": "With require_review_ack, the agent cannot finish until risky functions are acknowledged."
-    },
-    "output": {
-      "title": "Output",
-      "summary": "Where rigour check writes its JSON report, and where explain, export-audit, the MCP server and the stop hook look for it.",
-      "blocks": ""
-    },
-    "review": {
-      "title": "Review",
-      "summary": "How rigour review, the rigour_review tool, the stop hook and the push hook decide a verdict.",
-      "blocks": ""
-    },
-    "review.reviewer": {
-      "title": "The reviewer",
-      "summary": "The reviewer that runs your own installed coding-agent CLIs (claude, cursor, codex) headless against a change, from one judge up to a cross-vendor panel. A person may override some keys in their own settings; the team's rigour.yml can set a floor they cannot go below. See [The reviewer](./REVIEWER.md).",
-      "blocks": "Open findings, or an unavailable required review, block a push when on_push is wait."
-    }
-  },
-  "keys": {
-    "gates.max_file_lines": "Maximum number of lines a file may have before it is reported as too long; the same limit is checked on every edit, and 0 turns the full-repository check off.",
-    "gates.forbid_todos": "When on, comments that start with TODO are reported, outside test files and examples.",
-    "gates.forbid_fixme": "When on, comments that start with FIXME are reported, outside test files and examples.",
-    "gates.required_files": "Files, relative to the repository root, that must exist; each one missing is reported, and an empty list turns the check off.",
-    "gates.ast.complexity": "Maximum cyclomatic complexity per function (for Go, Rust, Java, C# and Ruby, a nesting-weighted complexity score); functions above it are reported.",
-    "gates.ast.max_methods": "Maximum number of methods in one class in JavaScript, TypeScript and Python; larger classes are reported.",
-    "gates.ast.max_params": "Maximum number of parameters per function in JavaScript, TypeScript and Python; functions with more are reported.",
-    "gates.staleness.enabled": "Turns legacy-syntax checks on JavaScript and TypeScript files on or off.",
-    "gates.staleness.rules": "Per-rule switches for legacy-syntax checks; only no-var, no-commonjs (require calls) and no-arguments are checked, and a rule left out of the map is on while staleness is enabled.",
-    "gates.dependencies.forbid": "Package names that must not appear in package.json, requirements.txt, pyproject.toml, go.mod or pom.xml; each one found is reported.",
-    "gates.dependencies.detect_unused": "When on, package.json dependencies and devDependencies that no source or known config file imports or names are reported; common build tools and type packages are always skipped.",
-    "gates.dependencies.detect_heavy_alternatives": "When on, package.json dependencies that have a known lighter alternative are reported with that alternative.",
-    "gates.dependencies.detect_duplicate_purpose": "When on, two or more installed packages that serve the same purpose (for example two HTTP clients) are reported.",
-    "gates.dependencies.unused_allowlist": "Package names the unused-dependency check skips; a trailing * matches any name with that prefix.",
-    "gates.architecture.boundaries": "Import rules, each with from and to glob patterns and a mode; a deny rule reports any JavaScript or TypeScript file matching from that imports a path matching to, and allow rules have no effect.",
-    "gates.safety.max_files_changed_per_cycle": "Maximum number of files one agent command may change during rigour run before the run stops with a failure; it is also passed to the agent in the fix packet.",
-    "gates.safety.protected_paths": "Path patterns agents must not modify; an edit to a matching path is reported by the edit hook and the MCP pattern check, and staged or modified matching files are reported by a full check.",
-    "gates.context.enabled": "Turns the context-drift check on or off, including the scan that mines project conventions it compares against.",
-    "gates.context.sensitivity": "A 0-1 ratio that sets how readily naming inconsistencies are reported: a casing style is reported when it is not the dominant one and accounts for more than (1 - sensitivity) of the names of that kind, so a higher value reports more.",
-    "gates.context.mining_depth": "Maximum number of files sampled to learn the project's environment variable names, which variants are then compared against.",
-    "gates.environment.enabled": "Turns the environment alignment check on or off.",
-    "gates.environment.enforce_contracts": "When on, tool version ranges are also read from the project, Node from package.json engines and ruff and mypy from pyproject.toml, and checked against the installed tools.",
-    "gates.environment.tools": "Map of tool name to a semver range; each tool is run with --version and reported if missing or outside the range, and an entry overrides a range read from the project.",
-    "gates.environment.required_env": "Environment variable names that must be set in the environment Rigour runs in; each one unset is reported.",
-    "gates.retry_loop_breaker.enabled": "Turns the retry loop check on or off.",
-    "gates.retry_loop_breaker.max_retries": "Number of consecutive recorded failures in one category at which the loop is reported.",
-    "gates.retry_loop_breaker.doc_sources": "Map of failure category to a documentation link or note shown in the finding instead of the built-in one.",
-    "gates.agent_team.enabled": "Turns agent team checks on or off; they apply only while a multi-agent session is registered.",
-    "gates.agent_team.max_concurrent_agents": "Maximum number of agents registered in one session; more than this is reported.",
-    "gates.agent_team.task_ownership": "In strict mode, two agents whose task scopes overlap are reported; collaborative mode allows overlap.",
-    "gates.checkpoint.enabled": "Turns checkpoint checks on or off; they apply only once an agent has reported checkpoints.",
-    "gates.checkpoint.interval_minutes": "Expected minutes between checkpoints; a gap longer than twice this is reported.",
-    "gates.checkpoint.quality_threshold": "Minimum quality score, 0-100, for the latest checkpoint; a lower score is reported.",
-    "gates.checkpoint.drift_detection": "When on, a declining trend in checkpoint quality scores is reported.",
-    "gates.security.enabled": "Turns the security pattern check on or off for full checks, reviews and the push gate; the edit hook's own secret and command-injection checks are not affected.",
-    "gates.security.sql_injection": "When off, SQL injection patterns are not reported.",
-    "gates.security.xss": "When off, cross-site scripting patterns are not reported.",
-    "gates.security.path_traversal": "When off, path traversal patterns are not reported.",
-    "gates.security.hardcoded_secrets": "When off, secrets written into source are not reported by this check; the edit hook still checks for them.",
-    "gates.security.insecure_randomness": "When off, use of non-cryptographic random number generators for security values is not reported.",
-    "gates.security.command_injection": "When off, shell command injection patterns are not reported by this check; the edit hook still checks for them.",
-    "gates.security.block_on_severity": "Lowest severity of security finding that is reported; findings below it are dropped.",
-    "gates.frontend_secret_exposure.enabled": "Turns the frontend secret exposure check on or off.",
-    "gates.frontend_secret_exposure.block_on_severity": "Lowest severity of exposure that is reported; findings below it are dropped, and medium or low findings that are reported do not block.",
-    "gates.frontend_secret_exposure.check_process_env": "When on, secret-looking process.env references, including destructuring from process.env, are reported in frontend files.",
-    "gates.frontend_secret_exposure.check_import_meta_env": "When on, secret-looking import.meta.env references are reported in frontend files.",
-    "gates.frontend_secret_exposure.secret_env_name_patterns": "Case-insensitive regular expressions; an environment variable whose name matches one is treated as a secret.",
-    "gates.frontend_secret_exposure.safe_public_prefixes": "Name prefixes that mark an environment variable as intentionally public, so it is never treated as a secret.",
-    "gates.frontend_secret_exposure.frontend_path_patterns": "Regular expressions matched against file paths that mark a file as definitely bundled for the browser, which makes a secret reference there critical rather than high; setting it replaces the built-in list.",
-    "gates.frontend_secret_exposure.server_path_patterns": "Regular expressions matched against file paths that mark a file as server-only so it is not scanned; entries are added to the built-in server paths rather than replacing them.",
-    "gates.frontend_secret_exposure.allowlist_env_names": "Exact environment variable names that are never treated as secrets.",
-    "gates.duplication_drift.enabled": "Turns the cross-file duplicated-function check on or off.",
-    "gates.duplication_drift.similarity_threshold": "Structural similarity, from 0 to 1, above which two functions in different files are reported as near-duplicates; raise it to report only closer copies.",
-    "gates.duplication_drift.min_body_lines": "Minimum function body length, in lines, for a function to be compared; raise it to ignore small helpers.",
-    "gates.hallucinated_imports.enabled": "Turns the unresolvable-import check on or off.",
-    "gates.hallucinated_imports.ignore_patterns": "Regular expressions matched against an import's specifier; matching imports are never reported, which suits assets and generated modules a bundler resolves.",
-    "gates.inconsistent_error_handling.enabled": "Turns the inconsistent error-handling check on or off.",
-    "gates.inconsistent_error_handling.max_strategies_per_type": "Number of distinct handling strategies allowed for one caught error type before it is reported; raise it to tolerate more variety.",
-    "gates.inconsistent_error_handling.min_occurrences": "Minimum number of catch blocks for an error type before its handling is compared; raise it to ignore rarely caught types.",
-    "gates.inconsistent_error_handling.ignore_empty_catches": "When on, empty catch blocks do not count as a handling strategy, so swallowed errors no longer push a type over the limit.",
-    "gates.context_window_artifacts.enabled": "Turns the within-file quality-drop check on or off.",
-    "gates.context_window_artifacts.min_file_lines": "Minimum file length, in lines, for a file to be analysed; shorter files are skipped.",
-    "gates.context_window_artifacts.degradation_threshold": "Degradation score, from 0 to 1, a file must reach to be reported; lower it to report milder drops.",
-    "gates.context_window_artifacts.signals_required": "Number of separate degradation signals a file must show to be reported; lower it to make the check more sensitive.",
-    "gates.promise_safety.enabled": "Turns the async and error-handling safety check on or off.",
-    "gates.promise_safety.check_unhandled_then": "Reports JavaScript and TypeScript .then() chains that have no .catch() and are not inside a try block.",
-    "gates.promise_safety.check_unsafe_parse": "Reports JSON parsing outside error handling in each supported language; off by default because it cannot tell trusted input from untrusted input.",
-    "gates.promise_safety.check_async_without_await": "Reports async functions that never use await, in JavaScript, TypeScript, Python and C#.",
-    "gates.promise_safety.check_unsafe_fetch": "Reports HTTP calls (such as fetch or axios) made without error handling or a status check.",
-    "gates.promise_safety.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
-    "gates.phantom_apis.enabled": "Turns the non-existent standard-library API check on or off.",
-    "gates.phantom_apis.check_node": "Includes JavaScript and TypeScript files, checked against Node.js built-in modules.",
-    "gates.phantom_apis.check_python": "Includes Python files, checked against the Python standard library.",
-    "gates.phantom_apis.check_go": "Includes Go files, checked against known non-existent Go standard-library calls.",
-    "gates.phantom_apis.check_csharp": "Includes C# files, checked against known non-existent .NET APIs.",
-    "gates.phantom_apis.check_java": "Includes Java and Kotlin files, checked against known non-existent JDK APIs.",
-    "gates.phantom_apis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
-    "gates.deprecated_apis.enabled": "Turns the deprecated and insecure API check on or off.",
-    "gates.deprecated_apis.check_node": "Includes JavaScript and TypeScript files; turning it off also skips the web API checks, which run on the same files.",
-    "gates.deprecated_apis.check_python": "Includes Python files, checked against Python deprecations and removals.",
-    "gates.deprecated_apis.check_web": "Checks JavaScript and TypeScript files for deprecated browser APIs and with statements; has no effect when check_node is off.",
-    "gates.deprecated_apis.check_go": "Includes Go files, checked against deprecated Go standard-library APIs.",
-    "gates.deprecated_apis.check_csharp": "Includes C# files, checked against deprecated .NET APIs.",
-    "gates.deprecated_apis.check_java": "Includes Java files, checked against deprecated JDK APIs.",
-    "gates.deprecated_apis.block_security_deprecated": "Reports APIs deprecated for security reasons as critical, which blocks; when off they are reported as high and are advisory.",
-    "gates.deprecated_apis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
-    "gates.test_quality.enabled": "Turns the weak-test check on or off.",
-    "gates.test_quality.check_empty_tests": "Reports tests with an empty body or with code but no assertion.",
-    "gates.test_quality.check_tautological": "Reports assertions that can never fail, such as comparing a value with itself.",
-    "gates.test_quality.check_mock_heavy": "Reports tests that set up more mocks than max_mocks_per_test.",
-    "gates.test_quality.check_assertion_free_async": "Reports JavaScript and TypeScript async tests that assert without ever awaiting.",
-    "gates.test_quality.max_mocks_per_test": "Number of mocks a single test may set up before check_mock_heavy reports it.",
-    "gates.governance.enabled": "Turns all memory and rules-file governance on the edit hook on or off, including the credential scan of those files.",
-    "gates.governance.enforce_memory": "Reports a critical finding when an agent writes to a protected memory path, telling it to use rigour_remember; takes effect only while block_native_memory is also on.",
-    "gates.governance.enforce_skills": "Reports a critical finding when an agent writes to a protected skills or rules path.",
-    "gates.governance.block_native_memory": "Must be on, together with enforce_memory, for writes to protected memory paths to be reported; turning it off allows them.",
-    "gates.governance.protected_memory_paths": "Glob patterns for agent memory files that enforce_memory protects and whose content is scanned for credentials.",
-    "gates.governance.protected_skills_paths": "Glob patterns for agent skills and rules files that enforce_skills protects and whose content is scanned for credentials.",
-    "gates.governance.exempt_paths": "Glob patterns for files that governance never checks, such as Rigour's own hook configuration.",
-    "gates.unindexed_reads.enabled": "Turns the unindexed Supabase read check on or off.",
-    "gates.unindexed_reads.migrations": "Glob patterns for the SQL migration files to replay, each directory as its own database; when empty, every .sql file under a migrations folder is used.",
-    "gates.deprecated_dependencies.enabled": "Turns the deprecated npm dependency check on, which sends package names and installed versions to the registry.",
-    "gates.deprecated_dependencies.registry": "Base URL of the npm registry to ask about deprecations, for teams behind a private registry or mirror; npm's public registry is used when unset.",
-    "gates.unused_exports.enabled": "Turns the unused-export check on or off.",
-    "gates.unused_exports.allow": "Export names, matched exactly, that are never reported because a framework or tool loads them by name.",
-    "gates.unused_exports.block": "Make an unused export block. Off by default: it is reported as a note, since teams often approve exports kept for tests or for another export's signature.",
-    "gates.query_patterns.enabled": "Turns the offset-paging and unbounded-time-window checks on or off.",
-    "gates.change_sweep.enabled": "Turns the partial-fix, partial-wiring and quadratic-copy checks on or off together.",
-    "gates.redundancy.enabled": "Turns the TypeScript-checker redundancy checks on or off; they run only when the change touches non-test TypeScript files.",
-    "gates.redundancy.wire_contracts": "Glob patterns for files whose types another service reads, so their properties are never reported as written but never read.",
-    "gates.redundancy.schema_migrations": "Folders of SQL migrations (relative, absolute or starting with ~/, possibly in another repository) replayed in file-name order to learn which columns are NOT NULL; missing folders are skipped.",
-    "gates.optional_params.enabled": "Turns the optional-only-for-tests parameter check on or off.",
-    "gates.duplicate_functions.enabled": "Turns the duplicate-function check on the changed files on or off.",
-    "gates.orphan_files.enabled": "Turns the unused-new-file check on or off.",
-    "gates.orphan_files.allow": "Glob patterns for files that are never reported because a tool loads them by path.",
-    "gates.orphan_files.block": "Make an orphaned file block. Off by default: it is reported as a note.",
-    "gates.migration_order.enabled": "Turns the out-of-order migration check on or off.",
-    "gates.migration_order.dirs": "Glob patterns matched against the directory of each added .sql file; only migrations in matching directories are checked.",
-    "gates.semantic_bugs.enabled": "Turns the proven semantic-bug rules on or off.",
-    "gates.semantic_bugs.rules": "Rule ids to run, including opt-in candidate rules and learned rules as learned/<id>; when set, only the named rules run, and when unset the default rules plus the repository's learned rules run.",
-    "gates.side_effect_analysis.enabled": "Turns the runaway side-effect check on or off.",
-    "gates.side_effect_analysis.check_unbounded_timers": "Reports interval timers that are never cleared.",
-    "gates.side_effect_analysis.check_unbounded_loops": "Reports loops that perform I/O with no exit condition or delay.",
-    "gates.side_effect_analysis.check_process_lifecycle": "Reports spawned child processes with no exit handling, wait or kill.",
-    "gates.side_effect_analysis.check_recursive_depth": "Reports recursive functions with no base case before the recursive call.",
-    "gates.side_effect_analysis.check_resource_lifecycle": "Reports opened resources, such as files or connections, that are never closed.",
-    "gates.side_effect_analysis.check_retry_without_limit": "Reports retry loops that catch an error and try again with no attempt limit.",
-    "gates.side_effect_analysis.check_circular_triggers": "Reports file watchers that write to a path they are watching.",
-    "gates.side_effect_analysis.check_auto_restart": "Reports code that restarts a process on exit with no limit.",
-    "gates.side_effect_analysis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
-    "gates.style_drift.enabled": "Turns the style-drift check on or off.",
-    "gates.style_drift.deviation_threshold": "Fraction, from 0 to 1, by which a file's naming or error-handling style must differ from the project baseline to be reported; raise it to report only larger deviations.",
-    "gates.style_drift.sample_size": "Maximum number of files per language sampled when the style baseline is first built.",
-    "gates.style_drift.baseline_path": "Path, relative to the repository root, where the style baseline is stored and read; delete the file to rebuild the baseline on the next full scan.",
-    "gates.logic_drift.enabled": "Turns the logic-drift check on or off.",
-    "gates.logic_drift.baseline_path": "Path, relative to the repository root, of the local function baseline used only when the project is not a Git repository.",
-    "gates.logic_drift.track_operators": "Reports changes to comparison operators in an edited function, such as >= becoming >.",
-    "gates.logic_drift.track_returns": "Reports a change in the number of return statements in an edited function.",
-    "gates.logic_drift.track_branches": "Reports a change of two or more in the number of branches in an edited function.",
-    "preset": "Names the role template rigour init applied; it is shown in scan output and audit exports and does not change any check at run time.",
-    "paradigm": "Names the coding-paradigm template rigour init applied; it is shown in scan output and fix packets and does not change any check at run time.",
-    "commands.format": "Runs instead of the Prettier check of changed files; unset, Rigour uses what the project has installed.",
-    "commands.lint": "Runs instead of ESLint on changed files; unset, Rigour uses what the project has installed.",
-    "commands.typecheck": "Runs instead of the type check (the project's typecheck or check script, svelte-check or tsc); unset, Rigour uses what the project has installed.",
-    "commands.test": "Runs instead of the tests that import changed files (vitest related); unset, Rigour uses what the project has installed.",
-    "gates.deep.max_tokens": "The most tokens the model may write per model review call; lower values cut cost and may truncate answers.",
-    "gates.deep.temperature": "The sampling temperature for model review calls; higher values make the model's answers less repeatable.",
-    "gates.deep.timeout_ms": "How long, in milliseconds, a single model review model call may run before it is abandoned.",
-    "gates.deep.budget_ms": "A time limit, in milliseconds, for the whole model review of a change; files not started before it runs out are reported as skipped instead of reviewed.",
-    "gates.deep.agentic": "Set to false to stop a cloud model from reading other repository files while it reviews a change, so it sees only what Rigour sends it.",
-    "gates.deep.repo_rules": "When true, the model review, the agent review list and the stop hook's end-of-task question include the rules from AGENTS.md, CLAUDE.md and Cursor rules that name what the change touches. The reviewer (review.reviewer) always checks the repository's rules, whatever this says.",
-    "gates.deep.review_lessons": "Which of the team's past review lessons raise a function's risk, are shown to the reviewer, and are put to the agent once at the stop hook: lessons (promoted on evidence), all of them including candidates, or none (off).",
-    "gates.deep.router.enabled": "Set to false to send every changed file to the cloud model instead of only the riskiest changed functions.",
-    "gates.deep.router.min_score": "The risk score a changed function needs to go to the model or onto the agent review list; functions below it get the deterministic checks only.",
-    "gates.deep.router.max_functions": "The most changed functions sent to the model, or listed for agent review, per change; the highest-risk ones are kept.",
-    "gates.deep.intent_checks": "When true, a scoped model review also asks the model intent questions at places the engine has proven read an optional value with no fallback.",
-    "gates.deep.checks.solid": "Set to false to stop asking the model about SOLID principle violations in a whole-repository model review.",
-    "gates.deep.checks.dry": "Set to false to stop asking the model about duplicated logic in a whole-repository model review.",
-    "gates.deep.checks.design_patterns": "Set to false to stop asking the model about design anti-patterns (god classes, feature envy, long parameter lists and similar) in a whole-repository model review.",
-    "gates.deep.checks.language_idioms": "Set to false to stop asking the model about language-specific anti-patterns, naming conventions and dead code in a whole-repository model review.",
-    "gates.deep.checks.error_handling": "Set to false to stop asking the model about error handling (empty catches, swallowed errors, missing checks) in a whole-repository model review.",
-    "gates.deep.checks.test_quality": "Set to false to stop asking the model about weak or missing tests in a whole-repository model review.",
-    "gates.deep.checks.architecture": "Set to false to stop asking the model about layer violations, circular dependencies and API design in a whole-repository model review.",
-    "gates.deep.checks.code_smells": "Set to false to stop asking the model about code smells (complex conditionals, magic numbers, hardcoded config) in a whole-repository model review.",
-    "hooks.require_review_ack": "When true, the agent stop hook holds the agent until each risky changed function has been acknowledged with rigour_review_ack.",
-    "output.report_path": "The file, relative to the repository root, that rigour check writes its JSON report to and that other commands read it from.",
-    "review.include_heuristics": "When true, heuristic findings (size, complexity, guessed intent) can decide the verdict and block, instead of only findings that prove a defect.",
-    "review.show_preexisting": "When true, a review also reports rule findings the base commit already had, instead of only those the change introduced.",
-    "review.github_account": "The gh account whose token Rigour uses to read the pull request and its reviews, and that rigour learn-reviews reads past reviews as; ignored when GH_TOKEN is set, and RIGOUR_GITHUB_ACCOUNT is used when this is unset.",
-    "review.reviewer.enabled": "Runs the model reviewer at push; a person cannot turn it off when the team sets panel: required or mode_required (team or person).",
-    "review.reviewer.on_push": "At push, background starts the review without holding the push, wait holds the push for its verdict, and off reviews only when asked with rigour review --reviewer (team only).",
-    "review.reviewer.reviewers": "The agent CLIs to use as judges, in order of preference, from claude, cursor and codex (team or person).",
-    "review.reviewer.mode": "How many judges review: single uses the first installed reviewer, cross prefers a vendor that did not write the commits, full uses one per vendor and merges their verdicts (team or person).",
-    "review.reviewer.model": "The model the claude reviewer runs, unless models names one for claude (team only).",
-    "review.reviewer.models": "A model per reviewer name, passed to that agent CLI (team or person).",
-    "review.reviewer.timeout_ms": "How long, in milliseconds, each agent CLI run may take before it is stopped (team only).",
-    "review.reviewer.panel": "With two or more vendors, on makes judges cross-examine findings only one raised and block only on confirmed ones; required also stops anyone turning it off and makes a review without two vendors unavailable (a person may only switch it on or off) (team or person).",
-    "review.reviewer.mode_required": "When true, no person, environment variable or flag may review with fewer judges than the team's mode, and a run that cannot meet it is unavailable (team only).",
-    "review.reviewer.dismissals": "When true, people may dismiss a reviewer finding as not a bug and it is not reported again (team only).",
-    "review.reviewer.panel_max_items": "The most findings cross-examined per panel review; the rest are shown as disputed (team only).",
-    "review.reviewer.max_runs_per_day": "A cap on agent runs per repository per local day, cross-examinations included; past it a review is skipped, or unavailable when the team requires the reviewer, and a person may only set a lower cap (team or person).",
-    "review.reviewer.max_usd_per_day": "A cap, in US dollars as reported by the agent CLIs, on reviewer spend per repository per local day; past it a review is skipped, or unavailable when the team requires the reviewer, and a person may only set a lower cap (team or person).",
-    "review.reviewer.judges": "How many judges, each from a different vendor, a full or panel review uses (2 or 3), limited by the vendors installed; under a team floor a person cannot lower it (team or person).",
-    "review.reviewer.escalate": "With risk, a full or panel review uses one judge unless the change has a risky function, a human review exists or the run is rigour review --full; always uses every judge on every review; a team floor forces always (team or person).",
-    "review.reviewer.cross_models": "A model per reviewer name used only for cross-examining disputed findings, so that narrower step can run on a cheaper model (team only).",
-    "review.reviewer.judge_env": "Environment variables a judge's CLI must not see, per reviewer name, e.g. codex: { unset: [OPENAI_API_KEY] } when that variable holds a key meant for another service; RIGOUR_API_KEY is never passed to a judge (team only).",
-    "ignore": "Glob patterns for files every check, review and agent hook skips."
-  }
+    "review.reviewer.reasoning": "Reasoning effort per reviewer name where the judge takes one (codex, api): low, medium or high. A slow judge finishes sooner at a lower effort; measure before you rely on it (team only).",
+    "review.reviewer.api": "A judge reached through an OpenAI-compatible chat-completions API with tools, named api in reviewers: any model the team can call. Rigour runs the read-only tool loop inside the checkout; the key is read from the environment variable key_env, never from this file (team only).",
+    "review.reviewer.api.url": "The API's base URL; /chat/completions is appended.",
+    "review.reviewer.api.model": "The model name the API expects.",
+    "review.reviewer.api.key_env": "The environment variable holding the API key (default RIGOUR_JUDGE_API_KEY). The judge is installed only when it is set.",
+    "review.reviewer.api.vendor": "The model's maker (anthropic, openai, google, other), used by cross and full modes to pair judges from different vendors; inferred from the model name when unset.",
+    "review.reviewer.api.max_turns": "Tool-call turns the judge may take before the review is unavailable (default 60)."
 }

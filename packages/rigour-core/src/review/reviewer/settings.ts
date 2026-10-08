@@ -38,6 +38,10 @@ export interface ResolvedReviewer {
     judges: 2 | 3;
     escalate: 'always' | 'risk';
     cross_models: Record<string, string>;
+    /** Reasoning effort per reviewer name (codex, api). */
+    reasoning: Record<string, 'low' | 'medium' | 'high'>;
+    /** The API judge, when the team configured one (review.reviewer.api). */
+    api?: { url: string; model: string; key_env: string; vendor?: 'anthropic' | 'openai' | 'google' | 'other'; max_turns: number };
     /** Environment variables each judge's CLI must not see (the team's, never a person's). */
     judge_env: Record<string, { unset: string[] }>;
     /** Where the mode and the panel choice came from. */
@@ -53,7 +57,7 @@ const RANK: Record<Mode, number> = { single: 0, cross: 1, full: 2 };
 const NEAR: Record<Source, number> = { flag: 0, env: 1, user: 2, team: 3 };
 
 export function resolveReviewer(config: Config, choice: RunChoice = {}, user: UserReviewerSettings | undefined = loadSettings().reviewer, env: NodeJS.ProcessEnv = process.env): ResolvedReviewer {
-    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, dismissals: false, judges: 2 as const, escalate: 'always' as const, cross_models: {}, judge_env: {} };
+    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, dismissals: false, judges: 2 as const, escalate: 'always' as const, cross_models: {}, judge_env: {}, reasoning: {} };
     const refused: string[] = [];
     const envMode = parseMode(env.RIGOUR_REVIEWER_MODE);
     const envPanel = parseSwitch(env.RIGOUR_REVIEWER_PANEL);
@@ -112,6 +116,8 @@ export function resolveReviewer(config: Config, choice: RunChoice = {}, user: Us
         escalate: requiredEscalation(team, user, refused),
         cross_models: team.cross_models,
         judge_env: team.judge_env ?? {},
+        reasoning: team.reasoning ?? {},
+        ...(team.api ? { api: team.api } : {}),
         source: { mode: modeSource, panel: panelSource },
         required: { mode: team.mode_required, panel: requirePanel },
         refused,

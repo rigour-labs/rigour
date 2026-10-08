@@ -11,7 +11,7 @@ for your own runs. Start with one judge; add more when the backtest says they ea
 | Term | Meaning |
 | --- | --- |
 | Judge | One run of one agent CLI reviewing the change. |
-| Vendor | Who makes the model behind a CLI: Anthropic (`claude`), OpenAI (`codex`), Cursor (`cursor`). Judges from different vendors have different blind spots. |
+| Vendor | Who makes the model behind a judge: Anthropic (`claude`), OpenAI (`codex`), Cursor (`cursor`), or, for the `api` judge, the maker of the model you name. Judges from different vendors have different blind spots. |
 | Panel | Two or three judges from different vendors whose findings are matched, and whose disagreements are settled by evidence. |
 | Cross-examination | The one follow-up question a judge is asked about findings it did not raise: confirm or refute, quoting `file:line`. |
 | Floor | A setting in `rigour.yml` that no person's choice may go below. |
@@ -81,6 +81,36 @@ installed. With fewer than asked, the review runs with what there is and **says 
 records what was asked, what ran and why. A team can make the panel required, and then a review
 without enough vendors is *unavailable*, which blocks like any review that could not run, instead
 of quietly running with one judge.
+
+### Any model, through an API
+
+A judge does not have to be an agent CLI. Name `api` in `reviewers` and point it at any
+OpenAI-compatible chat-completions API with tools (OpenAI, OpenRouter, a local server, other vendors
+through a gateway):
+
+```yaml
+review:
+  reviewer:
+    reviewers: [api]
+    api:
+      url: https://openrouter.ai/api/v1   # /chat/completions is appended
+      model: qwen/qwen3-coder
+      key_env: RIGOUR_JUDGE_API_KEY       # the key is read from this variable, never from this file
+      vendor: other                       # the model's maker, for cross and full modes; inferred from the name when unset
+      max_turns: 60
+    reasoning: { api: medium, codex: medium }   # reasoning effort where a judge takes one
+```
+
+Rigour runs the loop itself: the model asks for a read-only tool (`read_file`, `search`, `list_dir`,
+a read-only `git`), Rigour runs it inside the checkout and the review's own input folder, and hands
+the result back until the model answers. The same prompt, the same evidence contract, the same
+record and trace as a CLI judge; cost when the API reports it, tokens always. The judge is
+installed only when `api` is configured and the key it names is set.
+
+What we measured on the same reviews, rules frozen: Claude Code finished every review in one to
+two minutes; Codex at high reasoning effort finished them four to six times slower, and ran out of
+time on a large pull request; Cursor's ask mode did not finish a small review within fifteen
+minutes. Set `reasoning` lower for a slow judge, and measure before you rely on any of them.
 
 ## How the panel agrees
 
