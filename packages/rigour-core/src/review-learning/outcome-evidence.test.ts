@@ -153,6 +153,12 @@ describe('promotion by the point\'s own lines', () => {
             expect(r.l.state).toBe('candidate');
             expect(result).toMatchObject({ suggested: ['L1'], demoted: [] });
             expect(r.l.evidence.at(-1)).toMatchObject({ kind: 'lines', detail: expect.stringMatching(/^fixed later by \w{9} "fix: take the lock first"; CI regressed on the merge commit$/) });
+            // Listed once, though points from two pull requests each give it new evidence.
+            const two = lesson([point(7), point(8)]);
+            two.at = r.l.at;
+            const twoRun = applyOutcomeEvidence([two], [r.rec, { ...r.rec, pr: 8 }], none, { demoteAfter: 2, git: r.git, mainRef: 'main' });
+            expect(two.evidence.filter(e => e.kind === 'lines').map(e => e.pr)).toEqual([7, 8]);
+            expect(twoRun.suggested).toEqual(['L1']);
             // Once: running again suggests nothing new.
             expect(applyOutcomeEvidence([r.l], [{ ...r.rec, ci: 'failure' }], none, { demoteAfter: 2, git: r.git, mainRef: 'main' }).suggested).toEqual([]);
         } finally { r.cleanup(); }
