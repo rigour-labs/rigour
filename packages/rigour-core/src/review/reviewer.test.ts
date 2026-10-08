@@ -822,7 +822,8 @@ describe('the judge Rigour launches', () => {
         expect(result.record?.judges.map(j => j.outside_repo)).toEqual(['claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)']);
         expect(recordLines(result.record!).join('\n')).toContain('[claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)]');
         const current = seenNow();
-        current.versions = { [path.join(bins[0], 'claude')]: '2.1.285 (Claude Code)' };
+        // The installed fake is claude on Unix and claude.cmd on Windows: name both.
+        current.versions = { [path.join(bins[0], 'claude')]: '2.1.285 (Claude Code)', [path.join(bins[0], 'claude.cmd')]: '2.1.285 (Claude Code)' };
         const verified = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), current, null), () => undefined, { trigger: 'review', force: true });
         expect(verified.record?.judges.map(j => j.outside_repo)).toEqual([undefined]);
     });
