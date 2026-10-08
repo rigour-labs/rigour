@@ -100,6 +100,19 @@ describe('rigour backtest on a repository', () => {
         fs.rmSync(repo, { recursive: true, force: true });
     });
 
+    it('hides the review itself for a round, and shows the approval for an approved head', async () => {
+        const commit = git('rev-parse', 'HEAD');
+        const base = git('rev-parse', 'main');
+        const lines: string[] = [];
+        const ledger: Ledger = { rounds: [
+            { id: 'r1', commit, base, reviewed_at: '2026-09-28T15:12:53Z', points: [], must_not_flag: [] },
+            { id: 'pr1-approved', commit, base, reviewed_at: '2026-09-28T15:12:53Z', approved: true, points: [], must_not_flag: [] },
+            { id: 'odd', commit, base, reviewed_at: 'not a date', approved: true, points: [], must_not_flag: [] },
+        ] };
+        await runBacktest(repo, ConfigSchema.parse({ version: 1 }), ledger, { progress: line => lines.push(line), collect: async () => ({ items: [] }) });
+        expect(lines.filter(l => l.includes('reviews hidden from')).map(l => l.replace(/^.*reviews hidden from /, ''))).toEqual(['2026-09-28T15:12:53Z', '2026-09-28T15:12:54.000Z', 'not a date']);
+    }, 60_000);
+
     it('reviews the reviewed commit in a worktree with the review hidden, scores it, and leaves the checkout alone', async () => {
         const reviewed = git('rev-parse', 'HEAD');
         const base = git('rev-parse', 'main');

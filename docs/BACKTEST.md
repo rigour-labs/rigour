@@ -10,7 +10,8 @@ The backtest is a measurement, not a required check. No hook, push gate or CI st
 
 The front door. It takes the last N merged pull requests of this repository, builds the ledger on
 its own (one round per review by a person, from the inline comments; plus the head a person
-approved, with no points), runs the review on each round with that review hidden, and reports the
+approved, with no points), runs the review on each round with that review hidden (an approved head
+keeps its approval: it closes the points raised before it), and reports the
 two numbers a team needs before trusting a reviewer:
 
 1. **Blocks on heads the seniors approved.** Every one is a block the team would have overridden.

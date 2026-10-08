@@ -10,6 +10,7 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { GH_TIMEOUT_MS, parseJsonArrays, type Exec } from './exec.js';
+import type { Approval } from './verdict.js';
 
 export interface PullRequest {
     number: number;
@@ -25,6 +26,8 @@ export interface HumanReviews {
     /** Changes when a review or comment is added or edited: part of the verdict fingerprint. */
     key: string;
     count: number;
+    /** Each person's approval, in time order: every point that person raised before it is settled. */
+    approvals: Approval[];
     /** `<login>, <date> (<n> reviews)` of the latest, for the report. */
     label?: string;
 }
@@ -101,17 +104,23 @@ export async function humanReviews(gh: Gh, pr: PullRequest, reviewsBefore: strin
     if (comments.exitCode !== 0) return { error: `could not read the comments of pull request ${pr.number}: ${comments.stderr.trim().slice(0, 200)}` };
     const human = (x: any) => isHuman(x, pr.author);
     const before = (at: unknown) => !reviewsBefore || (typeof at === 'string' && at < reviewsBefore);
-    const rounds = parseJsonArrays(reviews.stdout).filter((r: any) => human(r) && String(r.body ?? '').trim() && before(r.submitted_at));
+    const worded = (r: any) => !!String(r.body ?? '').trim();
+    // A review with words carries points. An approval without any carries none, and still settles every point its
+    // author raised before it: left out, the judge would see the points and never the approval that closed them.
+    const rounds = parseJsonArrays(reviews.stdout).filter((r: any) => human(r) && (worded(r) || r.state === 'APPROVED') && before(r.submitted_at));
     const inline = parseJsonArrays(comments.stdout).filter((c: any) => human(c) && before(c.created_at));
-    let markdown = rounds.map((r: any) => `## Review by ${r.user.login}, ${r.submitted_at}, ${r.state} (on ${String(r.commit_id ?? '').slice(0, 9)})\n\n${String(r.body).trim()}\n`).join('\n');
+    const approvals: Approval[] = rounds.filter((r: any) => r.state === 'APPROVED').map((r: any) => ({ login: String(r.user.login), at: String(r.submitted_at), commit: String(r.commit_id ?? '') }));
+    let markdown = rounds.map((r: any) => `## Review by ${r.user.login}, ${r.submitted_at}, ${r.state} (on ${String(r.commit_id ?? '').slice(0, 9)})\n\n${worded(r) ? String(r.body).trim() : `(approved without comment: every point ${r.user.login} raised before this is settled)`}\n`).join('\n');
     if (inline.length) markdown += `\n## Inline comments\n${inline.map((c: any) => `- ${c.created_at} ${c.path}:${c.line ?? c.original_line ?? '?'}: ${String(c.body ?? '').trim()}`).join('\n')}\n`;
     const latest = rounds.at(-1);
+    const count = rounds.filter(worded).length;
     return {
         reviews: {
             markdown: markdown || 'none\n',
             key: [...rounds.map((r: any) => `${r.id},${r.submitted_at},${r.commit_id},${r.state}`), ...inline.map((c: any) => `${c.id},${c.updated_at}`)].join('|'),
-            count: rounds.length,
-            ...(latest ? { label: `${latest.user.login}, ${latest.submitted_at} (${rounds.length} review${rounds.length === 1 ? '' : 's'})` } : {}),
+            count,
+            approvals,
+            ...(latest ? { label: `${latest.user.login}, ${latest.submitted_at} (${count} review${count === 1 ? '' : 's'})` } : {}),
         },
     };
 }

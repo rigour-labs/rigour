@@ -8,7 +8,7 @@ import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './r
 import { dismissReviewerFinding } from './reviewer/context.js';
 import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
-import { account, attachServedRules, carryResolved, checkoutVerifier, mergeVerdicts, parseVerdict, type Verdict } from './reviewer/verdict.js';
+import { account, attachServedRules, carryResolved, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { recordIntact } from './reviewer/record.js';
 
 let repo: string;
@@ -642,3 +642,54 @@ describe('what the team already knows', () => {
     });
 });
 
+
+describe("a human's prior point", () => {
+    const point = (over: Partial<PriorPoint>): PriorPoint => ({ point: 'keep a separate case for a visitor with no account', review: 'senior 2026-09-25T18:09:11Z', severity: 'blocking', resolved: false, evidence: 'tests/e2e/gate.ts:137', file: 'tests/e2e/gate.ts', line: 137, quote: 'expect(href).toMatch(/account_id=/)', ...over });
+    const verdict = (p: PriorPoint): Verdict => ({ ...EMPTY, prior_points: [p] } as unknown as Verdict);
+    const approvals = [{ login: 'senior', at: '2026-09-28T15:12:53Z' }];
+
+    it('blocks where the judge quotes the code that keeps it open and no one approved since', () => {
+        const { open } = account(verdict(point({})), undefined, () => true, { approvals: [], inCheckout: () => undefined });
+        expect(open.map(i => i.issue)).toEqual(['keep a separate case for a visitor with no account']);
+    });
+
+    it('is settled by its own reviewer approving after raising it: a note, never a block', () => {
+        const { open, notes } = account(verdict(point({})), undefined, () => true, { approvals, inCheckout: () => undefined });
+        expect(open).toEqual([]);
+        expect(notes).toMatchObject([{ kind: 'prior', issue: 'keep a separate case for a visitor with no account', evidence: 'senior approved on 2026-09-28T15:12:53Z, after raising it: settled' }]);
+    });
+
+    it('is not settled by an approval before it, by another person, or when the judge names no reviewer', () => {
+        const before = account(verdict(point({})), undefined, () => true, { approvals: [{ login: 'senior', at: '2026-09-20T00:00:00Z' }], inCheckout: () => undefined });
+        const other = account(verdict(point({})), undefined, () => true, { approvals: [{ login: 'peer', at: '2026-09-28T15:12:53Z' }], inCheckout: () => undefined });
+        const unnamed = account(verdict(point({ review: undefined })), undefined, () => true, { approvals, inCheckout: () => undefined });
+        for (const result of [before, other, unnamed]) expect(result.open).toHaveLength(1);
+        const undated = account(verdict(point({ review: 'senior' })), undefined, () => true, { approvals, inCheckout: () => undefined });
+        expect(undated.open).toEqual([]); // the reviewer named and approved: settled
+    });
+
+    it('that calls something missing is unverified when the checkout has it elsewhere', () => {
+        const searched: string[] = [];
+        const found = account(verdict(point({ absent: 'origin=native&returnTo=' })), undefined, () => true, { approvals: [], inCheckout: text => (searched.push(text), 'src/lib/Upsell.test.ts:128') });
+        expect(searched).toEqual(['origin=native&returnTo=']);
+        expect(found.open).toEqual([]);
+        expect(found.unverified).toMatchObject([{ kind: 'prior', evidence: 'says "origin=native&returnTo=" is missing, and the checkout has it at src/lib/Upsell.test.ts:128' }]);
+        const missing = account(verdict(point({ absent: 'origin=native&returnTo=' })), undefined, () => true, { approvals: [], inCheckout: () => undefined });
+        expect(missing.open).toHaveLength(1); // searched, not there: the point stands on its quote
+    });
+});
+
+describe('searching the checkout for what a point calls missing', () => {
+    it('finds the first line of the text anywhere in the tracked tree, and nothing untracked', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-search-'));
+        execFileSync('git', ['-C', dir, 'init', '-q']);
+        fs.mkdirSync(path.join(dir, 'src'));
+        fs.writeFileSync(path.join(dir, 'src', 'a.test.ts'), 'it("no account", () => {\n  expect(href).toBe("/checkout?origin=native");\n});\n');
+        fs.writeFileSync(path.join(dir, 'untracked.ts'), 'const ghost = 1;\n');
+        execFileSync('git', ['-C', dir, 'add', 'src']);
+        const search = checkoutSearch(dir);
+        expect(search('  expect(href).toBe("/checkout?origin=native");\n  more')).toBe('src/a.test.ts:2');
+        expect(search('const ghost = 1;')).toBeUndefined();
+        expect(search('   \n')).toBeUndefined();
+    });
+});
