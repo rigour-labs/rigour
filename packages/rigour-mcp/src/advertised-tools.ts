@@ -17,6 +17,7 @@ import { TOOL_DEFINITIONS } from './tools/definitions.js';
 export const TOOL_GROUPS = {
     /** Load memory, scope context, avoid reinvention, gate and review the change, learn. */
     core: [
+        'rigour_brief',
         'rigour_recall',
         'rigour_index',
         'rigour_context_scope',

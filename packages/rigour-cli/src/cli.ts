@@ -15,6 +15,7 @@ import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
 import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { threadCommand } from './commands/thread.js';
+import { briefCommand, hooksBriefCommand } from './commands/brief.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
 import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
@@ -493,6 +494,7 @@ hooksCmd
     .option('--dry-run', 'Show what files would be created without writing them')
     .option('-f, --force', 'Overwrite existing hook files')
     .option('--block', 'Configure hooks to block on failure (exit code 2)')
+    .option('--brief', 'Also brief Claude Code from each session\'s first prompt with the team\'s rules and lessons (off unless asked)')
     .addHelpText('after', `
 Examples:
   $ rigour hooks init                    # Auto-detect tools, generate hooks
@@ -506,6 +508,16 @@ Examples:
     });
 
 hooksCmd
+    .command('brief')
+    .description('Prompt hook: brief the agent once per session from its first prompt (installed by rigour hooks init --brief); reads the hook payload on stdin')
+    .action(async () => {
+        const chunks: Buffer[] = [];
+        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
+        const reply = await hooksBriefCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
+        if (reply) process.stdout.write(reply + '\n');
+    });
+
+hooksCmd
     .command('stop')
     .description('Stop hook: review the branch against main (on main, what the session changed) before the agent finishes; reads the hook payload on stdin')
     .option('--tool <name>', 'Hook format to reply in: claude or cursor', 'claude')
@@ -515,6 +527,15 @@ hooksCmd
         const tool = options.tool === 'cursor' ? 'cursor' : 'claude';
         const reply = await hooksStopCommand(tool, Buffer.concat(chunks).toString('utf8'), process.cwd());
         if (reply) process.stdout.write(reply + '\n');
+    });
+
+program
+    .command('brief [goal]')
+    .description('The briefing for the task in this checkout: the repository\'s rules, the team\'s verified lessons and settled points for the files it will likely touch, at most 10, each cited. Goal: the argument, else the pull request\'s title and description, else the branch')
+    .option('--files <list>', 'The files the task will touch, comma separated (default: the branch\'s changes and files the goal names)')
+    .option('--json', 'Output the briefing in JSON format')
+    .action(async (goal: string | undefined, options: any) => {
+        process.exit(await briefCommand(process.cwd(), goal, options));
     });
 
 program

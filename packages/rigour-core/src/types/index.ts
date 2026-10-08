@@ -370,6 +370,13 @@ export const ConfigSchema = z.object({
     output: z.object({
         report_path: z.string().default('rigour-report.json'),
     }).optional().default({}),
+    /** The briefing an agent gets before it writes (rigour brief, the prompt hook, rigour_brief). */
+    brief: z.object({
+        /** The kill switch: false stops every briefing, including an installed hook. The hook itself is installed only with `rigour hooks init --brief`. */
+        enabled: z.boolean().optional().default(true),
+        /** At most this many items, never more than 10. */
+        max_items: z.number().int().min(1).max(10).optional().default(10),
+    }).optional().default({}),
     /** rigour review / rigour_review / the PR bot / the stop hook. */
     review: z.object({
         /** Let heuristic gates decide the verdict too; by default only findings that prove a defect do (quiet.ts). */

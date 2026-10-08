@@ -130,7 +130,7 @@ export function splitRules(source: string, text: string): RepoRule[] {
  * not filtering: on a large change most rules share some words, so the judge decides applicability
  * rule by rule from the top `limit`.
  */
-function rulesForChange(rules: RepoRule[], files: string[], symbols: Set<string>, limit = MAX_RULES): RepoRule[] {
+function rulesForChange(rules: RepoRule[], files: string[], symbols: Set<string>, limit = MAX_RULES, namedOnly = false): RepoRule[] {
     // A folder's own rules are served only when the change touches that folder: never checked, so never broken, elsewhere.
     rules = rules.filter(rule => !rule.scope || files.some(f => f.startsWith(rule.scope!)));
     const changeWords = new Set([...files.flatMap(f => f.split(/[/._-]+/)), ...symbols].flatMap(meaningfulWords));
@@ -140,7 +140,7 @@ function rulesForChange(rules: RepoRule[], files: string[], symbols: Set<string>
         const shared = new Set(meaningfulWords(rule.text).filter(w => changeWords.has(w))).size;
         return { rule, named: 3 * pathHits + 2 * symbolHits, shared };
     });
-    return scored.filter(s => s.named > 0 || s.shared >= 2).sort((a, b) => b.named - a.named || b.shared - a.shared).slice(0, limit).map(s => s.rule);
+    return scored.filter(s => s.named > 0 || (!namedOnly && s.shared >= 2)).sort((a, b) => b.named - a.named || b.shared - a.shared).slice(0, limit).map(s => s.rule);
 }
 
 export function rulesSection(rules: RepoRule[]): string {
@@ -156,10 +156,14 @@ function listRuleFiles(cwd: string, dir: string): string[] {
     }
 }
 
-/** The rules that apply to a diff's changed files and added identifiers, the top `limit`. */
-export function rulesForDiff(cwd: string, diff: string, enabled = false, limit = MAX_RULES): RepoRule[] {
+/**
+ * The rules that apply to a diff's changed files and added identifiers, the top `limit`. `namedOnly`: only rules that
+ * name a path or identifier the change touches (a briefing has no code to judge applicability against, so a rule that
+ * merely shares words with a large change is noise there).
+ */
+export function rulesForDiff(cwd: string, diff: string, enabled = false, limit = MAX_RULES, namedOnly = false): RepoRule[] {
     if (!enabled) return [];
     const files = [...diff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(m => m[1].trim());
     const added = diff.split('\n').filter(line => line.startsWith('+') && !line.startsWith('+++')).join('\n');
-    return rulesForChange(readRepoRules(cwd), files, new Set(added.match(/[A-Za-z_$][\w$]*/g) ?? []), limit);
+    return rulesForChange(readRepoRules(cwd), files, new Set(added.match(/[A-Za-z_$][\w$]*/g) ?? []), limit, namedOnly);
 }
