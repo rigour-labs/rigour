@@ -47,7 +47,7 @@ describe('rigour hooks stop', () => {
         }
         write('src/notify.ts', `${LEAKY}// attempt 3\n`);
         expect(await hooksStopCommand('claude', payload, '/')).toBe('');
-    });
+    }, process.platform === 'win32' ? 90_000 : 30_000); // four whole stop reviews: Windows runners took past 30 s
 
     it('sends Cursor a follow-up message, and stops following up at the loop limit', async () => {
         write('src/notify.ts', LEAKY);
