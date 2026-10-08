@@ -126,7 +126,7 @@ describe('Studio pages', () => {
 describe('the numbers after the merge, on the learning page', () => {
     it('shows counts, a percentage only where there is one, and the two groups side by side without comparing them', () => {
         const few = { count: 1, of: 4, rate: null };
-        const out = html(<OutcomeCard numbers={{ records: { merged: 12, settled: 11, unsettled: 1 }, settled: { ciRegressed: { count: 2, of: 11, rate: 0.18 }, reverted: { count: 0, of: 11, rate: 0 }, fixedLater: { count: 3, of: 11, rate: 0.27 }, reviewed: { prs: 4, fixedLater: few }, notReviewed: { prs: 7, fixedLater: { count: 2, of: 7, rate: null } } }, lessons: { awaitingDecision: 2, promotedFromEvidence: 1, dismissed: 0, takenBack: 1 } }} />);
+        const out = html(<OutcomeCard numbers={{ records: { merged: 12, settled: 11, unsettled: 1 }, settled: { ciRegressed: { count: 2, of: 11, rate: 0.18 }, ciUnknown: 0, reverted: { count: 0, of: 11, rate: 0 }, fixedLater: { count: 3, of: 11, rate: 0.27 }, reviewed: { prs: 4, fixedLater: few }, notReviewed: { prs: 7, fixedLater: { count: 2, of: 7, rate: null } } }, lessons: { awaitingDecision: 2, promotedFromEvidence: 1, dismissed: 0, takenBack: 1 } }} />);
         expect(out).toContain('2 of 11 (18%)');
         expect(out).toContain('4 pull requests, 1 fixed later');
         expect(out).toContain('7 pull requests, 2 fixed later');

@@ -82,7 +82,7 @@ interface Share { count: number; of: number; rate: number | null }
 /** The outcome numbers (core outcomes/metrics.ts), as Studio shows them. */
 export interface OutcomeNumbers {
     records: { merged: number; settled: number; unsettled: number };
-    settled: { ciRegressed: Share; reverted: Share; fixedLater: Share; reviewed: { prs: number; fixedLater: Share }; notReviewed: { prs: number; fixedLater: Share } };
+    settled: { ciRegressed: Share; ciUnknown: number; reverted: Share; fixedLater: Share; reviewed: { prs: number; fixedLater: Share }; notReviewed: { prs: number; fixedLater: Share } };
     lessons: { awaitingDecision: number; promotedFromEvidence: number; dismissed: number; takenBack: number };
 }
 
@@ -95,7 +95,7 @@ export const OutcomeCard: React.FC<{ numbers: OutcomeNumbers }> = ({ numbers: m 
         <strong>After the merge</strong>
         <div className="st-sub" style={{ marginTop: 4 }}>{m.records.merged} merged pull requests read on this machine; {m.records.settled} settled, {m.records.unsettled} with the window still open.</div>
         <div className="st-journey" style={{ marginTop: 10 }}>
-            <div><div className="st-sub">CI regressed on the merge</div><div style={{ fontSize: 14, marginTop: 4 }}>{shareText(m.settled.ciRegressed)}</div></div>
+            <div><div className="st-sub">CI regressed on the merge</div><div style={{ fontSize: 14, marginTop: 4 }}>{shareText(m.settled.ciRegressed)}{m.settled.ciUnknown ? `, ${m.settled.ciUnknown} with no CI to read` : ''}</div></div>
             <div><div className="st-sub">Reverted</div><div style={{ fontSize: 14, marginTop: 4 }}>{shareText(m.settled.reverted)}</div></div>
             <div><div className="st-sub">Reviewed by Rigour</div><div style={{ fontSize: 14, marginTop: 4 }}>{m.settled.reviewed.prs} pull requests, {m.settled.reviewed.fixedLater.count} fixed later</div></div>
             <div><div className="st-sub">Not reviewed</div><div style={{ fontSize: 14, marginTop: 4 }}>{m.settled.notReviewed.prs} pull requests, {m.settled.notReviewed.fixedLater.count} fixed later</div></div>

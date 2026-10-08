@@ -27,7 +27,10 @@ export interface OutcomeMetrics {
     records: { merged: number; settled: number; unsettled: number };
     /** Over settled records only: an open window can still change. */
     settled: {
+        /** Over settled records whose CI result is known (passed or failed): one with no CI to read never dilutes it. */
         ciRegressed: Share;
+        /** Settled records with no CI result to read. */
+        ciUnknown: number;
         reverted: Share;
         /** A later commit on its files, inside the window, that says it fixes something. */
         fixedLater: Share;
@@ -56,7 +59,8 @@ export function outcomeMetrics(records: PrOutcome[], lessons: ReviewLesson[], re
         version: 1,
         records: { merged: records.length, settled: settled.length, unsettled: records.length - settled.length },
         settled: {
-            ciRegressed: share(settled.filter(r => r.ci === 'failure').length, settled.length),
+            ciRegressed: share(settled.filter(r => r.ci === 'failure').length, settled.filter(r => r.ci === 'success' || r.ci === 'failure').length),
+            ciUnknown: settled.filter(r => r.ci !== 'success' && r.ci !== 'failure').length,
             reverted: share(settled.filter(r => !!r.reverted).length, settled.length),
             fixedLater: share(settled.filter(fixed).length, settled.length),
             reviewed: { prs: inReview.length, fixedLater: share(inReview.filter(fixed).length, inReview.length) },

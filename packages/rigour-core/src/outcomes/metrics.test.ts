@@ -20,6 +20,14 @@ describe('the outcome numbers', () => {
         expect(m.settled.fixedLater).toMatchObject({ count: 1, of: 2, rate: null });
     });
 
+    it('counts CI regressions over records with a known CI result, and those without apart', () => {
+        const records = Array.from({ length: 10 }, (_, i) => record(i + 1, i === 0 ? { ci: 'failure' } : i < 3 ? { ci: 'unavailable' } : {}));
+        const m = outcomeMetrics(records, [], new Set());
+        expect(m.settled.ciRegressed).toEqual({ count: 1, of: 8, rate: null, reason: 'fewer than 10 records: a count, not a rate' });
+        expect(m.settled.ciUnknown).toBe(2);
+        expect(m.settled.fixedLater.of).toBe(10);
+    });
+
     it('gives a rate from ten records on', () => {
         const records = Array.from({ length: 10 }, (_, i) => record(i + 1, i < 3 ? { followUps: [fix] } : {}));
         expect(outcomeMetrics(records, [], new Set()).settled.fixedLater).toEqual({ count: 3, of: 10, rate: 0.3 });

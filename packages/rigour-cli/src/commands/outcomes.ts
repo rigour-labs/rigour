@@ -43,7 +43,7 @@ function metricLines(m: OutcomeMetrics): string[] {
     const share = (s: Share) => `${s.count} of ${s.of}${s.rate === null ? '' : ` (${Math.round(s.rate * 100)}%)`}`;
     return [
         `Numbers: ${m.records.merged} merged, ${m.records.settled} settled, ${m.records.unsettled} with the window still open.`,
-        `  Settled: CI regressed on the merge ${share(m.settled.ciRegressed)}, reverted ${share(m.settled.reverted)}, fixed later ${share(m.settled.fixedLater)}.`,
+        `  Settled: CI regressed on the merge ${share(m.settled.ciRegressed)}${m.settled.ciUnknown ? ` (${m.settled.ciUnknown} with no CI to read)` : ''}, reverted ${share(m.settled.reverted)}, fixed later ${share(m.settled.fixedLater)}.`,
         `  Reviewed by Rigour: ${m.settled.reviewed.prs} pull request(s), ${m.settled.reviewed.fixedLater.count} fixed later. Not reviewed: ${m.settled.notReviewed.prs}, ${m.settled.notReviewed.fixedLater.count} fixed later. (Teams choose what gets reviewed: not a comparison.)`,
         `  Lessons: ${m.lessons.awaitingDecision} waiting on a person, ${m.lessons.promotedFromEvidence} promoted from evidence, ${m.lessons.dismissed} dismissed, ${m.lessons.takenBack} taken back.`,
     ];

@@ -44,6 +44,7 @@ When this machine worked on the pull request's branch, its [thread](THREAD.md) g
   "records": { "merged": 0, "settled": 0, "unsettled": 0 },
   "settled": {
     "ciRegressed": { "count": 0, "of": 0, "rate": null, "reason": "fewer than 10 records: a count, not a rate" },
+    "ciUnknown": 0,
     "reverted": { "count": 0, "of": 0, "rate": null },
     "fixedLater": { "count": 0, "of": 0, "rate": null },
     "reviewed": { "prs": 0, "fixedLater": { "count": 0, "of": 0, "rate": null } },
@@ -55,6 +56,7 @@ When this machine worked on the pull request's branch, its [thread](THREAD.md) g
 
 - **Records:**
   - Everything under `settled` counts settled records only, because an open window can still change.
+  - `ciRegressed` counts over settled records whose CI passed or failed. Those with no CI to read are `ciUnknown`, so they never dilute it.
   - `fixedLater` means a later commit on the pull request's files, inside the window, says it fixes something.
   - `reviewed` covers the pull requests a review by Rigour ran on (from the threads); `notReviewed` covers the rest.
 - **Lessons:**
