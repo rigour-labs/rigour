@@ -47,7 +47,10 @@
     "mcpName": "io.github.rigour-labs/rigour",
     "files": [
         "dist",
-        "README.md"
+        "README.md",
+        "!dist/**/*.test.js",
+        "!dist/**/*.test.d.ts",
+        "!dist/**/*.test.js.map"
     ],
     "bin": {
         "rigour-mcp": "dist/bin.js"
