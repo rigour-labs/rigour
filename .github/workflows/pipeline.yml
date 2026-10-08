@@ -242,6 +242,13 @@ jobs:
               *) VERSION=$(npm view @rigour-labs/cli version) ;;
             esac
           fi
+          # `npm view <pkg> dist-tags.<tag>` prints nothing and succeeds when the tag does not exist yet (a new channel), so
+          # an empty version means nothing was ever released here: no version, nothing to verify, gate or promote. Only a
+          # release this push published must have one.
+          if [ -z "$VERSION" ] && [ "${{ steps.semantic_release.outputs.published }}" = "true" ]; then
+            echo "::error::semantic-release published on ${GITHUB_REF#refs/heads/}, but no version could be read."
+            exit 1
+          fi
           echo "cli_version=$VERSION" >> "$GITHUB_OUTPUT"
           # What the gates run on: a release candidate on next, and a stable version on main that is not yet `latest` (which
           # the promote job then moves). A re-run of a half-done release finds it here too, so it is finished, never left
@@ -249,7 +256,9 @@ jobs:
           LATEST=$(npm view @rigour-labs/cli dist-tags.latest 2>/dev/null || true)
           PROMOTABLE=false
           GATE=false
-          if [ "${GITHUB_REF}" = "refs/heads/main" ] && [ "${VERSION#*-}" = "$VERSION" ] && [ "$VERSION" != "$LATEST" ]; then
+          if [ -z "$VERSION" ]; then
+            :
+          elif [ "${GITHUB_REF}" = "refs/heads/main" ] && [ "${VERSION#*-}" = "$VERSION" ] && [ "$VERSION" != "$LATEST" ]; then
             PROMOTABLE=true
             GATE=true
           elif [ "${GITHUB_REF}" = "refs/heads/next" ] && [ "${VERSION#*-rc.}" != "$VERSION" ]; then
@@ -265,6 +274,7 @@ jobs:
           echo "gate=$GATE" >> "$GITHUB_OUTPUT"
 
       - name: Verify npm release is installable
+        if: steps.capture_version.outputs.cli_version != ''
         run: node scripts/npm-release-readiness.mjs "${{ steps.capture_version.outputs.cli_version }}"
 
       # Every step from here is safe to run again, and runs on a re-run too, for the version
@@ -289,8 +299,11 @@ jobs:
   distribution-smoke:
     name: Distribution Smoke (${{ matrix.os }}, Node ${{ matrix.node }})
     needs: release
-    # Smoke the exact stable or beta CLI version captured by the release job.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' || github.ref == 'refs/heads/dev') && needs.release.result == 'success'
+    # Smoke the exact version captured by the release job. `!cancelled()`: without it, a skipped Test & Build (the pull
+    # request already tested this tree) would skip this job too, and every job that needs it.
+    if: >-
+      !cancelled() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' || github.ref == 'refs/heads/dev')
+      && needs.release.result == 'success' && needs.release.outputs.cli_version != ''
     strategy:
       fail-fast: false
       matrix:
@@ -377,7 +390,7 @@ jobs:
   release-gates:
     name: Release Gates
     needs: release
-    if: needs.release.result == 'success' && needs.release.outputs.gate == 'true'
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.release.outputs.gate == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -393,7 +406,7 @@ jobs:
   promote:
     name: Promote to latest
     needs: [release, release-gates, distribution-smoke]
-    if: needs.release.outputs.promotable == 'true' && needs.release-gates.result == 'success' && needs.distribution-smoke.result == 'success'
+    if: ${{ !cancelled() && needs.release.outputs.promotable == 'true' && needs.release-gates.result == 'success' && needs.distribution-smoke.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -500,7 +513,7 @@ jobs:
   homebrew-smoke:
     name: Homebrew Smoke
     needs: [release, promote]
-    if: needs.promote.result == 'success'
+    if: ${{ !cancelled() && needs.promote.result == 'success' }}
     runs-on: macos-latest
     env:
       EXPECTED_CLI_VERSION: ${{ needs.release.outputs.cli_version }}
