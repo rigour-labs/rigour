@@ -25,7 +25,7 @@ Only sections the author writes on purpose. A heading can be markdown (`## Scope
 
 - **Scope** (also `In scope`, `Boundary`): the paths the change may touch, as folders, files or globs, in backticks or one bare path per bullet.
 - **Out of scope** (also `Not in scope`): paths it must not touch.
-- **Done when**: a checklist. An item that names a file, path or symbol in backticks is checkable; a prose item is not.
+- **Done when**: a checklist. An item that names a file, path or symbol in backticks is checkable (a file blocks, a symbol is a note); a prose item is not.
 - **Invariants**: recorded with the goal for the reviewer and later phases; not checked here.
 
 A description without these sections declares no goal, and the check says nothing about it.
@@ -36,9 +36,11 @@ A description without these sections declares no goal, and the check says nothin
 |:---|:---|:---|
 | Out of scope | `goal-scope` | A changed (or deleted) file matches an `Out of scope` path. |
 | Outside the scope | `goal-scope` | The description lists a `Scope`, and a changed file matches none of it. |
-| Done when, not done | `goal-done-when` | A `Done when` item names a file the change never touches, or a symbol that appears on no added or removed line (matched as a whole word). |
+| Done when, not done | `goal-done-when` | A `Done when` item names a file the change never touches. |
 
-Both block: the author declared them, so a break is a fact, not an opinion. Tests (`*.test.*`, `*.spec.*`, files under `test/`, `tests/`, `spec/`, `__tests__/`) and lockfiles never count as outside the scope: they follow the code they belong to. A file a `Done when` item names is part of the goal, whatever `Scope` lists. A finding can be dismissed like any other (`rigour dismiss <key>`).
+Both block: the author declared them, so a break is a fact, not an opinion. A `Done when` item that names a symbol (`parseGoal`, `session.leadId`) the change never touches on an added or removed line is a note, never a block: an item can state a property the change keeps ("`isCronRequest` is still the only Bearer check"). A backticked token is a file only when it has a `/`, a glob, or a known file extension, so member access such as `JSON.parse` is a symbol.
+
+Tests (`*.test.*`, `*.spec.*`, files under `test/`, `tests/`, `spec/`, `__tests__/`), snapshots (`__snapshots__/`, `*.snap`), lockfiles, changelogs (`CHANGELOG.md` and the like) and release notes (`releases/*.md`) never count as outside the scope: they follow the code they belong to. A file a `Done when` item names is part of the goal, whatever `Scope` lists. A finding can be dismissed like any other (`rigour dismiss <key>`).
 
 The fix is one of two: move the change, or correct the description. A goal that changed is fine; a description that no longer says what the change does is what a human reviewer would have caught.
 

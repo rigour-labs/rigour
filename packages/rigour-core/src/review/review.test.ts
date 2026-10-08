@@ -244,7 +244,8 @@ describe('git-backed review', () => {
         const result = await reviewChange({ cwd: repo, config, goalDescription: description });
 
         expect(result.status).toBe('FAIL');
-        expect(result.findings.map(f => [f.id, f.files?.[0]])).toEqual([['goal-scope', 'lib/other.ts'], ['goal-done-when', undefined]]);
+        expect(result.findings.map(f => [f.id, f.files?.[0]])).toEqual([['goal-scope', 'lib/other.ts']]);
+        expect(result.advisory.filter(f => f.id === 'goal-done-when')).toHaveLength(1); // a named symbol is a note, never a block
         expect(result.report?.summary.goal).toBe('FAIL');
         expect(result.goal?.scope).toEqual(['src/']);
         const without = await reviewChange({ cwd: repo, config });

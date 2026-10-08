@@ -83,12 +83,34 @@ describe('goalFailures', () => {
         expect(check('## Scope\n- `packages/core/src/goal/`', diff)).toEqual([]);
     });
 
-    it('blocks a done-when item whose named file or symbol the change never touches', () => {
+    it('blocks a done-when item whose named file the change never touches, and only notes a named symbol', () => {
         const failures = check(BODY, diffOf({ 'packages/core/src/goal/goal.ts': ['const unrelated = 1;'] })).filter(f => f.id === 'goal-done-when');
-        expect(failures.map(f => f.title)).toEqual([
-            '"Done when" names `parseGoal`, and the change never touches it',
-            '"Done when" names `docs/GOAL.md`, and the change never touches it',
+        expect(failures.map(f => [f.title, !!f.advisory])).toEqual([
+            ['`parseGoal` named in "Done when", not changed by this pull request: check it\'s met', true],
+            ['"Done when" names `docs/GOAL.md`, and the change never touches it', false],
         ]);
+    });
+
+    it('keeps an item stating a preserved property a note, never a block', () => {
+        for (const item of ['`isCronRequest` is still the only Bearer check', '`resolveReviewer` behaviour unchanged', '`attemptCounts` covers every writer', '`run` remains the only entry']) {
+            const failures = check(`## Done when\n- ${item}`, diffOf({ 'a.ts': ['x'] }));
+            expect(failures).toHaveLength(1);
+            expect(failures[0].advisory).toBe(true);
+        }
+    });
+
+    it('reads member access as a symbol, never a file the change must touch', () => {
+        for (const token of ['JSON.parse', 'Promise.all', 'window.location', 'res.status', 'session.leadId', 'user.email']) {
+            const goal = parseGoal(`## Done when\n- \`${token}\` reaches checkout`);
+            expect(goal.doneWhen[0]).toMatchObject({ paths: [], symbols: [token] });
+            expect(check(`## Done when\n- \`${token}\` reaches checkout`, diffOf({ 'src/checkout.ts': [`const x = ${token};`] }))).toEqual([]);
+        }
+        expect(parseGoal('## Done when\n- `package.json`, `events.manifest.sha256` and `src/` updated').doneWhen[0].paths).toEqual(['package.json', 'events.manifest.sha256', 'src/']);
+    });
+
+    it('never counts snapshots, changelogs or release notes as scope drift', () => {
+        const diff = diffOf({ 'src/a.ts': ['x'], 'src/__snapshots__/a.test.ts.snap': ['x'], 'ui/view.snap': ['x'], 'CHANGELOG.md': ['x'], 'docs/releases/6.9.0.md': ['x'] });
+        expect(check('## Scope\n- `src/`', diff)).toEqual([]);
     });
 
     it('matches a symbol as a whole word, on an added or a removed line', () => {

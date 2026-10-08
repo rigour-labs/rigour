@@ -10,9 +10,10 @@
  *
  * Only what the author declared is checked: a description without these headings has no goal to check against, and
  * nothing here ever blocks it. The checks are deterministic (no model): a changed file outside the declared scope, a
- * changed file inside the declared out-of-scope, and a "done when" item whose named files or symbols the change never
- * touches. Tests and lockfiles are exempt from the scope check: they follow the code they belong to, and so is a file a
- * "Done when" item names.
+ * changed file inside the declared out-of-scope, and a "done when" item whose named files the change never touches. A
+ * named symbol the change never touches is a note, never a block: an item can state a property the change keeps. Tests,
+ * snapshots, lockfiles, changelogs and release notes are exempt from the scope check (they follow the code they belong
+ * to), and so is a file a "Done when" item names.
  */
 import micromatch from 'micromatch';
 import type { Failure } from '../types/index.js';
@@ -55,9 +56,18 @@ function headingOf(line: string): Section | null | undefined {
 const ITEM = /^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.+?)\s*$/;
 const TICKED = /`([^`\n]+)`/g;
 
-/** A token that names a file or path: has a folder separator, a glob, or a file extension. */
+const FILE_EXTENSIONS = new Set(['ts', 'tsx', 'mts', 'cts', 'js', 'mjs', 'cjs', 'jsx', 'json', 'jsonc', 'md', 'mdx', 'yml', 'yaml', 'sql', 'py', 'go', 'rs', 'java', 'rb', 'kt', 'kts',
+    'swift', 'svelte', 'vue', 'css', 'scss', 'sass', 'less', 'html', 'htm', 'toml', 'lock', 'sh', 'bash', 'zsh', 'sha256', 'txt', 'csv', 'xml', 'graphql', 'gql', 'proto',
+    'ini', 'cfg', 'conf', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'php', 'scala', 'ex', 'exs', 'dart', 'lua', 'tf', 'hcl', 'snap']);
+
+/**
+ * A token that names a file or path: has a folder separator or a glob, or ends in a known file extension. Member
+ * access (`JSON.parse`, `session.leadId`, `res.status`) is a symbol, not a file.
+ */
 function isPath(token: string): boolean {
-    return /[/*]/.test(token) || /\.[A-Za-z0-9]{1,8}$/.test(token);
+    if (/[/*?[\]{}]/.test(token)) return true;
+    const extension = /\.([A-Za-z0-9]{1,8})$/.exec(token)?.[1];
+    return !!extension && FILE_EXTENSIONS.has(extension);
 }
 
 /** A token that names a symbol: an identifier, optionally dotted, optionally called. */
@@ -105,8 +115,9 @@ function covers(pattern: string, file: string): boolean {
     return file === folder || file.startsWith(`${folder}/`);
 }
 
-/** Tests and lockfiles follow the code they belong to: never scope drift on their own. */
-const EXEMPT = [/(^|\/)(__tests__|tests?|spec)\//, /\.(test|spec)\.[A-Za-z0-9]+$/, /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|go\.sum|Gemfile\.lock|composer\.lock|bun\.lockb)$/];
+/** Tests, snapshots, lockfiles, changelogs and release notes follow the code they belong to: never scope drift on their own. */
+const EXEMPT = [/(^|\/)(__tests__|tests?|spec|__snapshots__)\//, /\.(test|spec)\.[A-Za-z0-9]+$/, /\.snap$/,
+    /(^|\/)(CHANGELOG|CHANGES|HISTORY|RELEASE_NOTES)(\.md)?$/i, /(^|\/)(releases|release-notes)\/[^/]+\.md$/, /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|go\.sum|Gemfile\.lock|composer\.lock|bun\.lockb)$/];
 
 /**
  * The goal's deterministic findings for a change. `changedLines` is the review's changed lines per file (generated files
@@ -143,16 +154,25 @@ export function goalFailures(goal: Goal, changedLines: Record<string, Set<number
     for (const item of goal.doneWhen) {
         const missingPaths = item.paths.filter(p => !files.some(file => covers(p.replace(/^\.\//, ''), file) || file.endsWith(`/${p}`)));
         const missingSymbols = item.symbols.filter(symbol => !new RegExp(`(^|[^\\w$])${symbol.replace(/[.$]/g, m => `\\${m}`)}([^\\w$]|$)`, 'm').test(touched));
-        const missing = [...missingPaths, ...missingSymbols];
-        if (missing.length === 0) continue;
-        failures.push({
+        // A file the change never touches is proof the item is not done; a symbol is not: an item can name one it keeps as is ("still the only check").
+        if (missingPaths.length) failures.push({
             id: 'goal-done-when',
-            title: `"Done when" names ${missing.map(m => `\`${m}\``).join(', ')}, and the change never touches ${missing.length === 1 ? 'it' : 'them'}`,
+            title: `"Done when" names ${missingPaths.map(m => `\`${m}\``).join(', ')}, and the change never touches ${missingPaths.length === 1 ? 'it' : 'them'}`,
             details: `The description's "Done when" says: ${item.text}`,
             severity: 'high',
             provenance: 'ai-drift',
             files: [],
             hint: 'Make the change the item asks for, or correct the item if the goal changed.',
+        });
+        if (missingSymbols.length) failures.push({
+            id: 'goal-done-when',
+            title: `${missingSymbols.map(m => `\`${m}\``).join(', ')} named in "Done when", not changed by this pull request: check it's met`,
+            details: `The description's "Done when" says: ${item.text}`,
+            severity: 'medium',
+            provenance: 'ai-drift',
+            files: [],
+            advisory: true,
+            hint: 'If the item asks for a change, make it; if it states something the change keeps true, nothing to do.',
         });
     }
     return failures;
