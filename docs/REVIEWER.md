@@ -281,7 +281,7 @@ within the window (30 days). With the outcome loop on, evidence can also **take 
 a review of a later pull request found it repeating the lesson, and that pull request merged anyway and
 settled clean (CI passed, no fix on the lesson's file within the window, no revert), that is `against`
 evidence. `learning.outcomes.demote_after` such pull requests (default 2), from more than one author or
-week, make a lesson that an outcome or recurrence promoted a candidate again (`demoted`). A pull request
+merged at least a week apart, make a lesson that an outcome or recurrence promoted a candidate again (`demoted`). A pull request
 that followed the lesson, or that no review checked against it, never counts, and a lesson a person
 promoted or corrected into being is never taken back; a person promoting it again is final. `--reject <id>` makes an **anti-lesson**: judges are told this team decided
 against it, and it is never served as a lesson. Every piece of evidence stays on the lesson

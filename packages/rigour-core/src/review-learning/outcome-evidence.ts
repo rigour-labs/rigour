@@ -10,7 +10,7 @@
  * lesson warns against; the reviewer's lessons step, review event `lessons_applied`) and the pull request merged anyway
  * and settled clean: CI passed on the merge commit, no fix touched the lesson's file in the window, and no revert. A
  * pull request that followed the lesson, or that no review checked against it, never counts. `demote_after` such pull
- * requests, independent (more than one author, or more than one week), take back a lesson evidence promoted (by an
+ * requests, independent (more than one author, or merged at least a week apart), take back a lesson evidence promoted (by an
  * outcome or by recurrence): it is `demoted` to a candidate. A lesson a person promoted, or corrected into being, is not.
  */
 import type { PrOutcome } from '../outcomes/outcome.js';
@@ -54,8 +54,10 @@ export function applyOutcomeEvidence(lessons: ReviewLesson[], records: PrOutcome
             }
             const against = lesson.evidence.filter(e => e.kind === 'against');
             const authors = new Set(against.map(e => e.prAuthor).filter(Boolean)).size;
-            const weeks = new Set(against.map(e => Math.floor(Date.parse(e.at ?? '') / WEEK_MS))).size;
-            if (new Set(against.map(e => e.pr)).size >= demoteAfter && (authors > 1 || weeks > 1)) {
+            // Independent: more than one author, or merged at least a week apart (a span, never calendar buckets: two merges a day apart across a week boundary are not).
+            const times = against.map(e => Date.parse(e.at ?? '')).filter(Number.isFinite);
+            const apart = times.length > 1 && Math.max(...times) - Math.min(...times) >= WEEK_MS;
+            if (new Set(against.map(e => e.pr)).size >= demoteAfter && (authors > 1 || apart)) {
                 add({ kind: 'demoted', pr: against.at(-1)!.pr, comment: `demoted-${against.map(e => e.pr).sort((a, b) => a - b).join('-')}`, author: '', detail: `taken back: ${against.map(e => `#${e.pr}`).join(', ')} repeated it and settled clean`, at: new Date().toISOString() });
             }
         }

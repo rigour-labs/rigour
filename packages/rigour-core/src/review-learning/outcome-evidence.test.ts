@@ -90,6 +90,10 @@ describe('taking a lesson back', () => {
         const weeks = recurring();
         applyOutcomeEvidence([weeks], [record(50, { author: 'ana' }), record(51, { author: 'ana', mergedAt: '2026-09-20T00:00:00Z' })], applied(50, 51), 2);
         expect(weeks.state).toBe('candidate');
+        // A day apart, across a week bucket's edge (weeks counted from 1970 start on a Thursday): one author, not a week apart.
+        const edge = recurring();
+        applyOutcomeEvidence([edge], [record(50, { author: 'ana', mergedAt: '2026-09-09T12:00:00Z' }), record(51, { author: 'ana', mergedAt: '2026-09-10T12:00:00Z' })], applied(50, 51), 2);
+        expect(edge.state).toBe('verified');
         const three = recurring();
         applyOutcomeEvidence([three], [record(50), record(51)], applied(50, 51), 3);
         expect(three.state).toBe('verified');
