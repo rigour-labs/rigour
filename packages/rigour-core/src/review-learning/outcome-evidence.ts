@@ -13,8 +13,8 @@
  * lesson warns against; the reviewer's lessons step, review event `lessons_applied`) and the pull request merged anyway
  * and settled clean: CI passed on the merge commit, no fix touched the lesson's file in the window, and no revert. A
  * pull request that followed the lesson, or that no review checked against it, never counts. `demote_after` such pull
- * requests, independent (more than one author, or merged at least a week apart), take back a lesson evidence promoted
- * (by an outcome or by recurrence): it is `demoted` to a candidate. A lesson a person promoted, or corrected into being,
+ * requests, independent (more than one author, or merged at least a week apart), take back a lesson recurrence
+ * promoted: it is `demoted` to a candidate. A lesson a person promoted, or corrected into being,
  * is not.
  */
 import type { PrOutcome } from '../outcomes/outcome.js';
@@ -76,7 +76,7 @@ export function applyOutcomeEvidence(lessons: ReviewLesson[], records: PrOutcome
             }
         }
         // Against it: later pull requests a review found repeating it, merged anyway, settled clean.
-        if (lesson.state === 'verified' && (lesson.promotedBy === 'outcome' || lesson.promotedBy === 'recurrence')) {
+        if (lesson.state === 'verified' && lesson.promotedBy === 'recurrence') {
             for (const [pr, ids] of applied) {
                 const record = byPr.get(pr);
                 if (own.has(pr) || !ids.has(lesson.id) || !record || !settledClean(record, lesson.file)) continue;

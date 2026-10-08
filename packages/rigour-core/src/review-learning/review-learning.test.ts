@@ -75,13 +75,36 @@ describe('lessons', () => {
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob'), { kind: 'norule', pr: 1, comment: 'n', author: '' }))).toEqual({ state: 'candidate' }); // no rule in it: never promoted again
         const outcome: LessonEvidence = { kind: 'outcome', pr: 1, comment: 'o', author: '', detail: 'fixed later by abc' };
         const counter: LessonEvidence = { kind: 'counter', pr: 1, comment: 'k', author: '', detail: 'unchanged 40 days' };
-        expect(lessonState(lesson(point(1, 'ann', 'bot'), outcome))).toEqual({ state: 'verified', promotedBy: 'outcome' });
+        expect(lessonState(lesson(point(1, 'ann', 'bot'), outcome))).toEqual({ state: 'candidate' }); // an outcome is evidence for a person, never a promotion
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob'), counter))).toEqual({ state: 'candidate' }); // counter-evidence holds recurrence back
         const accepted: LessonEvidence = { kind: 'accepted', pr: 1, comment: 'y', author: 'lead@x' };
         const rejected: LessonEvidence = { kind: 'rejected', pr: 1, comment: 'n', author: 'lead@x' };
         expect(lessonState(lesson(point(1, 'ann'), outcome, rejected))).toEqual({ state: 'rejected' }); // a person's decision wins
         expect(lessonState(lesson(point(1, 'ann'), rejected, accepted))).toEqual({ state: 'verified', promotedBy: 'person' }); // the latest decision
         expect(lessonState({ ...lesson({ pr: 1, comment: 'old', author: 'r' }), state: 'verified' })).toEqual({ state: 'verified', promotedBy: 'legacy' }); // a record from before evidence keeps its state
+    });
+
+    it('takes a lesson an outcome alone promoted back to a candidate, once, with why, and leaves every other lesson as it was', () => {
+        const point = (pr: number, prAuthor: string, reviewer: string): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: reviewer, prAuthor });
+        const outcome: LessonEvidence = { kind: 'outcome', pr: 1, comment: 'outcome-abc', author: '', detail: 'fixed later by abc "fix: x"' };
+        const stored = (id: string, evidence: LessonEvidence[], promotedBy: ReviewLesson['promotedBy']): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy, evidence, createdAt: '', updatedAt: '' });
+        writeLessons(repo, [
+            stored('only-outcome', [point(1, 'ann', 'r1'), outcome], 'outcome'),
+            stored('also-recurs', [point(1, 'ann', 'r1'), point(2, 'bob', 'r2'), outcome], 'outcome'),
+            stored('person', [point(1, 'ann', 'r1'), outcome, { kind: 'accepted', pr: 1, comment: 'y', author: 'lead@x' }], 'person'),
+        ]);
+        const [only, recurs, person] = readLessons(repo);
+        expect(only).toMatchObject({ state: 'candidate', evidence: [point(1, 'ann', 'r1'), outcome, { kind: 'reclassified', comment: 'reclassified-only-outcome', detail: 'promoted by the exact-line rule, which no longer promotes on its own' }] });
+        expect(only.promotedBy).toBeUndefined();
+        expect(recurs).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
+        expect(recurs.evidence.some(e => e.kind === 'reclassified')).toBe(false);
+        expect(person).toMatchObject({ state: 'verified', promotedBy: 'person', evidence: [point(1, 'ann', 'r1'), outcome, { kind: 'accepted' }] });
+        // Kept by the next write, and never added twice.
+        writeLessons(repo, readLessons(repo));
+        expect(readLessons(repo)[0].evidence.filter(e => e.kind === 'reclassified')).toHaveLength(1);
+        // A person promoting it again is final.
+        decideLesson(repo, 'only-outcome', 'accepted', 'lead@x');
+        expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
     });
 
     it('records a person accepting or rejecting a lesson as evidence, with who and why', () => {
@@ -165,6 +188,54 @@ describe('outcome evidence from git', () => {
         expect(outcomeFor(gitIn(repo), point(2), pr, { mainRef: 'main', until: '2026-09-10T00:00:00Z' })).toBeUndefined(); // before the fix, within the window: no verdict yet
         expect(outcomeFor(gitIn(repo), point(3), pr, { mainRef: 'main' })).toMatchObject({ kind: 'counter' }); // `return n;` shipped and stayed, past the window
         expect(outcomeFor(gitIn(repo), point(2, true), pr, { mainRef: 'main' })).toBeUndefined(); // acted on in the PR: no outcome to read
+    });
+});
+
+describe('learning from merged pull requests, after the merge', () => {
+    /**
+     * main with src/orders.ts; pull request #7 from `feature`, merged with a merge commit; one inline point on its line 2
+     * that the pull request left alone; then `after` on main. GitHub is faked: the merged pull request and that comment.
+     */
+    async function learnAfter(after: (merge: string) => void): Promise<ReviewLesson> {
+        write('export function total(order) {\n  return order.items.length;\n}\n');
+        commit('base');
+        git('checkout', '-qb', 'feature');
+        write('export function total(order) {\n  const n = order.items.length;\n  return n;\n}\n');
+        const reviewed = commit('pr head');
+        git('checkout', '-q', 'main');
+        git('merge', '-q', '--no-ff', '--no-edit', 'feature');
+        const merge = git('rev-parse', 'HEAD');
+        after(merge);
+        const api = 'https://api.github.com/repos/acme/app';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 7, merged_at: '2026-09-01T00:00:00Z', merge_commit_sha: merge, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/7/comments?per_page=100`]: [{ id: 1, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, body: 'Guard a missing items list here.', user: { login: 'priya' } }],
+            [`${api}/pulls/7/reviews?per_page=100`]: [],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, mainRef: 'main' });
+        return readLessons(repo)[0];
+    }
+
+    it('records a later fix on the point\'s lines as evidence for a person, and the lesson stays a candidate', async () => {
+        const lesson = await learnAfter(() => {
+            write('// header\nexport function total(order) {\n  const n = order.items?.length ?? 0;\n  return n;\n}\n');
+            commit('fix: total crashes on an order with no items');
+        });
+        expect(lesson.state).toBe('candidate');
+        expect(lesson.evidence.map(e => e.kind)).toEqual(['point', 'lines']);
+        expect(lesson.evidence[1].detail).toContain('fix: total crashes on an order with no items');
+    });
+
+    it('records a revert of the pull request the same way, never a promotion', async () => {
+        const lesson = await learnAfter(merge => {
+            git('revert', '-m', '1', '--no-edit', merge);
+            git('commit', '-q', '--amend', '-m', `Revert "total" (#7)`);
+        });
+        expect(lesson.state).toBe('candidate');
+        expect(lesson.evidence.map(e => e.kind)).toEqual(['point', 'lines']);
+        expect(lesson.evidence[1].comment).toMatch(/^revert-/);
     });
 });
 

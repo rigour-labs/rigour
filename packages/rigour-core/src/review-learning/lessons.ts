@@ -50,12 +50,13 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *   lines     a later fix changed the point's own lines (outcome-evidence.ts): shown for a person to promote or dismiss,
  *             never a promotion on its own (a fix on the same lines is often unrelated work);
  *   dismissed a person looked at that evidence and set it aside: the lesson stays as it was;
+ *   reclassified  a lesson an outcome alone had promoted, back to a candidate when outcomes stopped promoting (once);
  *   against   a later pull request a review found repeating the lesson merged anyway and settled clean;
  *   demoted   enough independent `against` pull requests took back a lesson evidence had promoted: a candidate again,
  *             until a person promotes it.
  * A record from before evidence kinds has none: it is a `point`.
  */
-export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted';
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified';
 
 export interface LessonEvidence {
     kind?: EvidenceKind;
@@ -96,9 +97,9 @@ export interface ReviewLesson {
 }
 
 /**
- * A lesson's state from its evidence trail. A person's decision wins; then an outcome; counter-evidence
- * holds a candidate back; recurrence across pull requests and authors is enough only without it. A record
- * from before evidence kinds keeps the state it had.
+ * A lesson's state from its evidence trail. A person's decision wins; then a person's correction; counter-evidence
+ * holds a candidate back; recurrence across pull requests and authors is enough only without it. An outcome is
+ * evidence, never a promotion. A record from before evidence kinds keeps the state it had.
  */
 export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 'promotedBy'> {
     const kinds = new Set(lesson.evidence.map(e => e.kind));
@@ -111,7 +112,8 @@ export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 
     // Taken back by evidence (outcome-evidence.ts): a person's decision above is the only way back.
     if (kinds.has('demoted')) return { state: 'candidate' };
     if (kinds.has('correction')) return { state: 'verified', promotedBy: 'correction' };
-    if (kinds.has('outcome')) return { state: 'verified', promotedBy: 'outcome' };
+    // An outcome (a later fix on the point's lines, a revert) no longer promotes on its own: judged by a person against
+    // real history, it was most often unrelated work. It is shown in Studio for a person to promote.
     if (kinds.has('counter')) return { state: 'candidate' };
     const points = lesson.evidence.filter(e => (e.kind ?? 'point') === 'point');
     const prs = new Set(points.map(e => e.pr)).size;
@@ -284,10 +286,27 @@ export function lessonsPath(cwd: string): string {
 export function readLessons(cwd: string): ReviewLesson[] {
     try {
         const parsed = JSON.parse(fs.readFileSync(lessonsPath(cwd), 'utf8'));
-        return Array.isArray(parsed?.lessons) ? parsed.lessons : [];
+        return Array.isArray(parsed?.lessons) ? parsed.lessons.map(reclassified) : [];
     } catch {
         return [];
     }
+}
+
+/** Why a lesson an outcome alone had promoted is a candidate again. */
+const RECLASSIFIED = 'promoted by the exact-line rule, which no longer promotes on its own';
+
+/**
+ * A lesson stored as verified by an outcome (a later fix on its lines, or a revert), as every reader sees it now that
+ * outcomes no longer promote: its state worked out again from its evidence, and, when that leaves it a candidate, one
+ * `reclassified` record saying why. Never deleted, nothing else changed; the next write keeps it, and a lesson that
+ * already has the record is left as it is. Recurrence, a correction or a person's decision keeps a lesson verified.
+ */
+function reclassified(lesson: ReviewLesson): ReviewLesson {
+    if (lesson.state !== 'verified' || lesson.promotedBy !== 'outcome' || lesson.evidence.some(e => e.kind === 'reclassified')) return lesson;
+    const next = lessonState(lesson);
+    if (next.state === 'verified') return { ...lesson, ...next };
+    const at = new Date().toISOString();
+    return { ...lesson, state: 'candidate', promotedBy: undefined, evidence: [...lesson.evidence, { kind: 'reclassified', pr: lesson.evidence[0]?.pr ?? 0, comment: `reclassified-${lesson.id}`, author: '', detail: RECLASSIFIED, at }] };
 }
 
 export function writeLessons(cwd: string, lessons: ReviewLesson[]): void {

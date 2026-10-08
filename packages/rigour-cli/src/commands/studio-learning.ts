@@ -31,6 +31,8 @@ export interface LessonJourney {
     takenBack?: { detail: string; prs: number[]; at: string };
     /** A later fix changed the point's own lines (review-learning/outcome-evidence.ts): evidence for a person to promote or dismiss, never a promotion on its own. */
     suggested?: { detail: string; pr: number; at: string };
+    /** Back to a candidate when outcomes stopped promoting: why, and the evidence that had promoted it, for a person to promote again or dismiss. */
+    reclassified?: { detail: string; evidence: string[] };
 }
 
 export interface StudioLearning {
@@ -82,7 +84,8 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             reachedPr: null,
             ...decisionFor(l),
         })),
-    ].sort((a, b) => b.learnedAt.localeCompare(a.learnedAt))
+    // Lessons back to a candidate when outcomes stopped promoting come first: a person decides each once.
+    ].sort((a: LessonJourney, b: LessonJourney) => Number(!!b.reclassified) - Number(!!a.reclassified) || b.learnedAt.localeCompare(a.learnedAt))
         // The same lesson learned in several places (this repo and personal lessons from others) shows once.
         .filter((lesson, i, all) => all.findIndex(other => other.text === lesson.text) === i);
 
@@ -107,11 +110,13 @@ function learnedFromPoints(points: ReviewLesson['evidence']): string {
 
 /**
  * What a person can decide on a review lesson, from the last of its evidence and decisions: taken back by evidence
- * (promote it again, or drop it), or a candidate with a later fix on its lines (promote it, or dismiss the evidence).
+ * (promote it again, or drop it), back to a candidate when outcomes stopped promoting (promote it again, or dismiss),
+ * or a candidate with a later fix on its lines (promote it, or dismiss the evidence).
  */
-function decisionFor(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 'takenBack' | 'suggested'> {
+function decisionFor(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 'takenBack' | 'suggested' | 'reclassified'> {
     if (lesson.state !== 'candidate') return { canDecide: false };
-    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed').at(-1);
+    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'reclassified' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed').at(-1);
+    if (last?.kind === 'reclassified') return { canDecide: true, reclassified: { detail: last.detail ?? '', evidence: lesson.evidence.filter(e => e.kind === 'outcome' || e.kind === 'lines').map(e => e.detail ?? '').filter(Boolean) } };
     if (last?.kind === 'demoted') return { canDecide: true, takenBack: { detail: last.detail ?? '', prs: lesson.evidence.filter(e => e.kind === 'against').map(e => e.pr), at: last.at ?? '' } };
     if (last?.kind === 'lines') return { canDecide: true, suggested: { detail: last.detail ?? '', pr: last.pr, at: last.at ?? '' } };
     return { canDecide: false };
