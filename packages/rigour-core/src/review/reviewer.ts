@@ -339,9 +339,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? parseVerdict(answer.text, needsPriorPoints, name, answer) : undefined };
                 };
                 let first = await ask();
-                // An answer that is not a verdict is a slip, not a decision: asked once more, inside the caps, before the review is unavailable.
-                if (first.verdict && 'error' in first.verdict && !overBudget(store.spend(), settings, 1)) {
-                    progress(`Rigour reviewer: ${name} gave no valid verdict; asking once more`);
+                // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
+                if ((!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
+                    progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
                     first = await ask();
                 }
                 return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };

@@ -209,7 +209,7 @@ describe('the reviewer', () => {
 
     it('never passes without a verdict: a crash, a malformed answer, an unreadable pull request or no installed reviewer', async () => {
         const crashed = await runReviewer(repo, 'main', config, fakes(() => ({ exitCode: 1, stdout: '', stderr: 'API error' }), seenNow()), () => undefined);
-        expect(crashed).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('cursor: no answer (exit 1)'), mode: { degraded: expect.stringContaining('claude gave no verdict, cursor judged instead') } }); // the spare judge ran too, and failed too
+        expect(crashed).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('cursor: no answer (exit 1)'), mode: { degraded: expect.stringContaining('claude gave no verdict, cursor judged instead') } }); // asked twice, then the spare judge, which failed too
         const prose = await runReviewer(repo, 'main', config, fakes(() => 'Looks good to me!', seenNow()), () => undefined);
         expect(prose).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('no valid verdict') });
         const broken: Exec = async (command, args, options) => command === 'gh' && args[0] === 'pr' ? { exitCode: 1, stdout: '', stderr: 'HTTP 500' } : fakes(() => '', seenNow())(command, args, options);
@@ -314,6 +314,10 @@ describe('the reviewer', () => {
         const slipOnce = await runReviewer(repo, 'main', config, fakes(() => (++calls === 1 ? '{"prior_points":[], "findings":[{"class"' : JSON.stringify(EMPTY)), seen), () => undefined, { force: true });
         expect(slipOnce.outcome).toBe('passed');
         expect(seen.prompts).toHaveLength(2);
+        let crashes = 0;
+        const crashOnce = seenNow();
+        const recovered = await runReviewer(repo, 'main', config, fakes(() => (++crashes === 1 ? { exitCode: 1, stdout: '', stderr: 'API error' } : JSON.stringify(EMPTY)), crashOnce), () => undefined, { force: true });
+        expect(recovered.outcome).toBe('passed'); // a run that died is asked once more too
         const twice = seenNow();
         const slipTwice = await runReviewer(repo, 'main', config, fakes(() => 'not json', twice), () => undefined, { force: true });
         expect(slipTwice).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('no valid verdict') });
