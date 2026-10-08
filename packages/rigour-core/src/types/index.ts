@@ -383,6 +383,12 @@ export const ConfigSchema = z.object({
         include_heuristics: z.boolean().optional().default(false),
         /** Also report findings the base already had; by default only what the change introduced is (baseline.ts). */
         show_preexisting: z.boolean().optional().default(false),
+        /**
+         * Check the change against the goal its pull request's description declares (goal/goal.ts): a changed file
+         * outside the declared Scope or inside Out of scope, a "Done when" item naming a file or symbol the change never
+         * touches. Deterministic; a finding blocks. `required` stops a person, the environment or a flag turning it off.
+         */
+        goal: z.enum(['off', 'on', 'required']).optional().default('off'),
         /** The GitHub account whose token fetches the pull request's previous review (`gh auth token --user`). */
         github_account: z.string().optional(),
         /** The reviewer (review/reviewer.ts): the person's own coding-agent CLIs, headless and read-only. `enabled` runs it at push; `rigour review --reviewer` runs it on request. */

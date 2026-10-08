@@ -31,6 +31,7 @@ import { partialFixFailures } from './partial-fixes.js';
 import { partialWiringFailures } from './partial-wiring.js';
 import { isControlFile } from './trusted-state.js';
 import { baseCommit, baseFindings, splitIntroduced } from './baseline.js';
+import { goalFailures, hasCheckableGoal, parseGoal, type Goal } from '../goal/goal.js';
 
 export interface ReviewInput {
     cwd: string;
@@ -48,6 +49,8 @@ export interface ReviewInput {
     trustedRef?: string;
     /** Run the typed checks (review/typed): the project's TypeScript program takes seconds, so at push, in `rigour review` and in a backtest, not at every stop. */
     typed?: boolean;
+    /** The pull request's description, when the goal check is on (goal/settings.ts): the change is checked against the goal it declares. */
+    goalDescription?: string;
 }
 
 export interface ReviewResult {
@@ -78,6 +81,8 @@ export interface ReviewResult {
     hints: string[];
     /** Why the typed checks could not run on a TypeScript project (`gateErrors` then names `typed-checks-unavailable`). */
     typedError?: string;
+    /** The goal the description declared, when the goal check ran on one with something to check. */
+    goal?: Goal;
 }
 
 export interface ReviewFinding {
@@ -129,7 +134,12 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     else if (input.typed) reviewCheck('redundancy', 'redundancy', typed.failures);
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
     const deepError = deepAnalysisError(report);
-    const quiet = quietSplit(input.cwd, split.findings, input.config.review?.include_heuristics, input.trustedRef);
+    // The goal's findings are about the change as a whole (a file it should not touch, an item it never did), not a line, so they skip the changed-line split.
+    const goal = input.goalDescription !== undefined ? parseGoal(input.goalDescription) : undefined;
+    const checkedGoal = goal && hasCheckableGoal(goal) ? goal : undefined;
+    const goalFindings = checkedGoal ? goalFailures(checkedGoal, changedLines, diff) : [];
+    if (checkedGoal) report.summary.goal = goalFindings.length ? 'FAIL' : 'PASS';
+    const quiet = quietSplit(input.cwd, [...split.findings, ...goalFindings], input.config.review?.include_heuristics, input.trustedRef);
     rememberReported(input.cwd, [...quiet.speaking, ...quiet.advisory].map(f => ({ key: findingKey(f), check: checkId(f) })));
     const gateErrors = crashedGates(report);
     const provenCrashed = gateErrors.some(id => isProven({ id } as Failure));
@@ -152,6 +162,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         hints: typed.hints,
         ...(deepError ? { deepError } : {}),
         ...(typed.error ? { typedError: typed.error } : {}),
+        ...(checkedGoal ? { goal: checkedGoal } : {}),
     };
 }
 

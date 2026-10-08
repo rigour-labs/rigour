@@ -29,6 +29,8 @@ export { branchFailures, mergeConflicts, staleReferences } from './review/branch
 export { runReviewer, reviewerBlocks, itemLine, defaultExec, githubToken, type ReviewerOptions, type ReviewerResult, type ReviewerOutcome, type OpenItem } from './review/reviewer.js';
 export { startBackgroundReview, backgroundReview, reviewStatus, type ReviewStatus } from './review/reviewer/background.js';
 export { dismissReviewerFinding, REVIEW_DISMISSALS, reviewerInputs } from './review/reviewer/context.js';
+export { goalFailures, hasCheckableGoal, parseGoal, type DoneItem, type Goal } from './goal/goal.js';
+export { resolveGoal, type ResolvedGoal } from './goal/settings.js';
 export { resolveReviewer, saveUserReviewer, type ResolvedReviewer, type RunChoice, type UserReviewerPatch } from './review/reviewer/settings.js';
 export { reviewerAvailability } from './review/reviewer/adapters.js';
 export { branchBase, type BranchBase } from './gates/logic-drift-git-base.js';

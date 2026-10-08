@@ -284,6 +284,7 @@ export const UNIVERSAL_CONFIG: Config = {
     review: {
         include_heuristics: false,
         show_preexisting: false,
+        goal: 'off',
         reviewer: {
             enabled: false,
             on_push: 'background',

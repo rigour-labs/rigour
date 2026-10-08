@@ -231,4 +231,25 @@ describe('git-backed review', () => {
         const result = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1 }) });
         expect(result).toMatchObject({ status: 'PASS', findings: [], report: null });
     });
+    it('blocks a change that leaves the goal its description declares, and says nothing without a description', async () => {
+        write('src/a.ts', 'export const a = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/a.ts', 'export const a = 2;\n');
+        write('lib/other.ts', 'export const b = 1;\n');
+        git('add', '-A');
+        const config = ConfigSchema.parse({ version: 1, gates: NO_DEAD_CODE });
+        const description = 'Changes a.\n\n## Scope\n- `src/`\n\n## Done when\n- `renameA` is called';
+
+        const result = await reviewChange({ cwd: repo, config, goalDescription: description });
+
+        expect(result.status).toBe('FAIL');
+        expect(result.findings.map(f => [f.id, f.files?.[0]])).toEqual([['goal-scope', 'lib/other.ts'], ['goal-done-when', undefined]]);
+        expect(result.report?.summary.goal).toBe('FAIL');
+        expect(result.goal?.scope).toEqual(['src/']);
+        const without = await reviewChange({ cwd: repo, config });
+        expect(without.findings.filter(f => f.id.startsWith('goal-'))).toEqual([]);
+        expect(without.report?.summary).not.toHaveProperty('goal');
+        expect(without.goal).toBeUndefined();
+    });
 });
