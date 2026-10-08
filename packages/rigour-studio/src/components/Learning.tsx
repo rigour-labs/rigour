@@ -1,28 +1,14 @@
 import React from 'react';
 import { studioWrite } from '../studioWrite';
-import { useStudioJson, inlineCode } from './storyData';
+import { useStudioJson } from './storyData';
+import { LessonCard, type Journey } from './LearningParts';
 import './story.css';
 
-interface Journey {
-    id: string;
-    text: string;
-    origin: 'development' | 'pr' | 'memory';
-    learnedFrom: string;
-    state: string;
-    scope: string;
-    told: number;
-    stoppedInDevelopment: number | null;
-    reachedPr: number | null;
-    canDecide: boolean;
-}
 interface LearningData {
     lessons: Journey[];
     weeks: Array<{ from: string; stoppedInDevelopment: number; reachedPr: number | null }>;
     prRecorded: boolean;
 }
-
-/** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
-const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);
 
 /** "How it learns": each lesson's path across development and the PR, and whether repeats still reach a PR. */
 export const Learning: React.FC = () => {
@@ -31,6 +17,10 @@ export const Learning: React.FC = () => {
     if (!data) return <div className="st-page"><div className="st-sub">Loading…</div></div>;
     const decide = async (id: string, state: 'validated' | 'promoted' | 'rejected') => {
         const res = await studioWrite('/api/lessons', 'POST', JSON.stringify({ id, state }));
+        if (res.ok) reload();
+    };
+    const decideReview = async (id: string, decision: 'accepted' | 'rejected') => {
+        const res = await studioWrite('/api/review-lessons', 'POST', JSON.stringify({ id, decision }));
         if (res.ok) reload();
     };
     const peak = Math.max(1, ...data.weeks.map(w => Math.max(w.stoppedInDevelopment, w.reachedPr ?? 0)));
@@ -60,33 +50,11 @@ export const Learning: React.FC = () => {
 
             {data.lessons.length === 0
                 ? <div className="st-empty">No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</div>
-                : <div className="st-stack">{data.lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} />)}</div>}
+                : <div className="st-stack">{data.lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} onDecideReview={decideReview} />)}</div>}
             <OtherKnowledge />
         </div>
     );
 };
-
-export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void }> = ({ lesson, onDecide }) => (
-    <div className="st-card">
-        <div className="st-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{inlineCode(lesson.text)}</div>
-            <span className="st-chip">{lesson.scope === 'team' ? 'shared with team' : lesson.scope}</span>
-        </div>
-        <div className="st-journey">
-            <div style={{ background: 'var(--bg-surface)' }}><div className="st-sub">Learned</div><div style={{ fontSize: 14, marginTop: 4 }}>{lesson.learnedFrom}</div></div>
-            <div><div className="st-sub">Agents told</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.told)}</div></div>
-            <div><div className="st-sub">Stopped in development</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.stoppedInDevelopment, lesson.origin === 'development')}</div></div>
-            <div><div className="st-sub">Reached a PR again</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.reachedPr, lesson.origin === 'development')}</div></div>
-        </div>
-        {lesson.canDecide && (
-            <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">{lesson.scope === 'team' ? 'Shared by a teammate. Give it to everyone\'s agents?' : 'Seen once. Keep it so your agents get told?'}</span>
-                <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>
-                <button className="st-btn" onClick={() => onDecide(lesson.id, 'rejected')} type="button">Drop</button>
-            </div>
-        )}
-    </div>
-);
 
 interface LearnedRule { id: string; message: string; requirement: string; appliesTo: string }
 interface MemoryData { memories: Record<string, { value: string; timestamp?: string; source?: string }> }
