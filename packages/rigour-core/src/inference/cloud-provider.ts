@@ -130,7 +130,7 @@ export class CloudProvider implements InferenceProvider {
         const response = await this.client.messages.create({
             model: this.modelName,
             max_tokens: options?.maxTokens || 4096,
-            temperature: options?.temperature ?? 0.1,
+            ...claudeSampling(this.modelName, options?.temperature ?? 0.1),
             messages: cacheFirstPrompt(toAnthropicMessages(messages)),
             ...(tools.length ? { tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}),
             ...(tools.length && options?.toolChoice === 'none' ? { tool_choice: { type: 'none' } } : {}),
@@ -183,7 +183,7 @@ export class CloudProvider implements InferenceProvider {
         const response = await this.client.messages.create({
             model: this.modelName,
             max_tokens: options?.maxTokens || 2048,
-            temperature: options?.temperature || 0.1,
+            ...claudeSampling(this.modelName, options?.temperature || 0.1),
             messages: [
                 { role: 'user', content: prompt }
             ],
@@ -235,6 +235,18 @@ export class CloudProvider implements InferenceProvider {
     dispose(): void {
         this.client = null;
     }
+}
+
+/**
+ * Claude models that take no sampling parameters: Anthropic's model guide lists temperature, top_p and top_k as removed
+ * (a 400) on Fable, Mythos, Opus 5.5, Opus 5, Opus 4.8 and 4.7 and Sonnet 5, and non-default values as a 400 on Sonnet 5.5
+ * and Haiku 5.5; OpenRouter's model list marks temperature unsupported on them too. Older Claude models still take it.
+ */
+const CLAUDE_WITHOUT_SAMPLING = /claude-(?:fable|mythos|opus-5|opus-4-[78]|sonnet-5|haiku-5)/;
+
+/** The temperature to send a Claude model: none to one that rejects sampling parameters. */
+function claudeSampling(model: string, temperature: number): { temperature?: number } {
+    return CLAUDE_WITHOUT_SAMPLING.test(model) ? {} : { temperature };
 }
 
 /** The per-call timeout, honoured by both SDKs (their default is minutes, with retries). */
