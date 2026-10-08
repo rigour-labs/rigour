@@ -85,8 +85,42 @@ describe('a review lesson evidence took back', () => {
             const decision = readLessons(repo)[0].evidence.at(-1);
             expect(decision).toMatchObject({ kind: 'accepted', author: 'lead@team.example', detail: 'decided in Studio' });
             expect(() => decideReviewLesson(repo, { id: 'nope', decision: 'accepted' })).toThrow('12 hex characters');
-            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'validated' })).toThrow('accepted or rejected');
+            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'validated' })).toThrow('accepted, rejected or dismissed');
             expect(() => decideReviewLesson(repo, { id: 'ffffffffffff', decision: 'accepted' })).toThrow('no review lesson');
+        } finally {
+            fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('a candidate a later fix changed the lines of', () => {
+    const suggested = (extra: ReviewLesson['evidence'] = []): ReviewLesson => ({
+        id: 'b1b2c3d4e5f6', text: 'keep the composer scrollable', file: 'src/chat.ts', symbols: [], state: extra.some(e => e.kind === 'accepted') ? 'verified' : 'candidate', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+        evidence: [
+            { kind: 'point', pr: 4, comment: 'c4', author: 'r1', actedOn: false },
+            { kind: 'lines', pr: 4, comment: 'lines-4-abc', author: '', detail: 'fixed later by abc123def "fix: composer overflow"', at: '2026-09-05T00:00:00Z' },
+            ...extra,
+        ],
+    });
+
+    it('shows the fix for a person to promote or dismiss, and nothing once they have', () => {
+        const view = (l: ReviewLesson) => buildLearning({ now, lessons: [], reviewLessons: [l], stories: [], events: [] }).lessons[0];
+        expect(view(suggested())).toMatchObject({ canDecide: true, suggested: { detail: 'fixed later by abc123def "fix: composer overflow"', pr: 4 } });
+        const dismissed = view(suggested([{ kind: 'dismissed', pr: 4, comment: 'dismissed-x', author: 'lead@team' }]));
+        expect(dismissed.suggested).toBeUndefined();
+        expect(dismissed.state).toBe('candidate');
+        expect(view(suggested([{ kind: 'accepted', pr: 4, comment: 'accepted-x', author: 'lead@team' }])).suggested).toBeUndefined();
+    });
+
+    it('records a dismissal from Studio and leaves the lesson a candidate', () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-dismiss-'));
+        try {
+            execFileSync('git', ['-C', repo, 'init', '-q']);
+            execFileSync('git', ['-C', repo, 'config', 'user.email', 'lead@team.example']);
+            fs.mkdirSync(path.join(repo, '.rigour'));
+            fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [suggested()] }));
+            expect(decideReviewLesson(repo, { id: 'b1b2c3d4e5f6', decision: 'dismissed' })).toEqual({ id: 'b1b2c3d4e5f6', state: 'candidate' });
+            expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'dismissed', author: 'lead@team.example' });
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
         }

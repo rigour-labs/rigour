@@ -19,7 +19,7 @@ export const Learning: React.FC = () => {
         const res = await studioWrite('/api/lessons', 'POST', JSON.stringify({ id, state }));
         if (res.ok) reload();
     };
-    const decideReview = async (id: string, decision: 'accepted' | 'rejected') => {
+    const decideReview = async (id: string, decision: 'accepted' | 'rejected' | 'dismissed') => {
         const res = await studioWrite('/api/review-lessons', 'POST', JSON.stringify({ id, decision }));
         if (res.ok) reload();
     };

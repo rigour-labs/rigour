@@ -29,6 +29,8 @@ export interface LessonJourney {
     canDecide: boolean;
     /** A review lesson evidence took back (review-learning/outcome-evidence.ts): why, and the pull requests that did. A person may promote it again. */
     takenBack?: { detail: string; prs: number[]; at: string };
+    /** A later fix changed the point's own lines (review-learning/outcome-evidence.ts): evidence for a person to promote or dismiss, never a promotion on its own. */
+    suggested?: { detail: string; pr: number; at: string };
 }
 
 export interface StudioLearning {
@@ -78,7 +80,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             told: told(l.text),
             stoppedInDevelopment: null,
             reachedPr: null,
-            ...takenBackOf(l),
+            ...decisionFor(l),
         })),
     ].sort((a, b) => b.learnedAt.localeCompare(a.learnedAt))
         // The same lesson learned in several places (this repo and personal lessons from others) shows once.
@@ -103,19 +105,23 @@ function learnedFromPoints(points: ReviewLesson['evidence']): string {
     return `At PR ${[...new Set(points.map(e => `#${e.pr}`))].join(', ')}${authors.length ? `, from ${authors.join(', ')}` : ''}`;
 }
 
-/** Taken back by evidence and not promoted again since: the last of the `demoted` and decision records is a `demoted`. */
-function takenBackOf(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 'takenBack'> {
-    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'accepted' || e.kind === 'rejected').at(-1);
-    if (lesson.state !== 'candidate' || last?.kind !== 'demoted') return { canDecide: false };
-    const prs = lesson.evidence.filter(e => e.kind === 'against').map(e => e.pr);
-    return { canDecide: true, takenBack: { detail: last.detail ?? '', prs, at: last.at ?? '' } };
+/**
+ * What a person can decide on a review lesson, from the last of its evidence and decisions: taken back by evidence
+ * (promote it again, or drop it), or a candidate with a later fix on its lines (promote it, or dismiss the evidence).
+ */
+function decisionFor(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 'takenBack' | 'suggested'> {
+    if (lesson.state !== 'candidate') return { canDecide: false };
+    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed').at(-1);
+    if (last?.kind === 'demoted') return { canDecide: true, takenBack: { detail: last.detail ?? '', prs: lesson.evidence.filter(e => e.kind === 'against').map(e => e.pr), at: last.at ?? '' } };
+    if (last?.kind === 'lines') return { canDecide: true, suggested: { detail: last.detail ?? '', pr: last.pr, at: last.at ?? '' } };
+    return { canDecide: false };
 }
 
 /** A person's decision on a review lesson from Studio, recorded as `rigour learn-reviews --promote / --reject` records it: with their git email, and final. */
 export function decideReviewLesson(cwd: string, body: unknown): { id: string; state: string } {
     const { id, decision, why } = (body ?? {}) as { id?: unknown; decision?: unknown; why?: unknown };
     if (typeof id !== 'string' || !/^[0-9a-f]{12}$/.test(id)) throw new Error('a review lesson id (12 hex characters) is required');
-    if (decision !== 'accepted' && decision !== 'rejected') throw new Error('decision is accepted or rejected');
+    if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'dismissed') throw new Error('decision is accepted, rejected or dismissed');
     const lesson = decideLesson(cwd, id, decision, personOf(cwd), typeof why === 'string' && why.trim() ? why.trim() : 'decided in Studio');
     if (!lesson) throw new Error(`no review lesson ${id}`);
     return { id: lesson.id, state: lesson.state };

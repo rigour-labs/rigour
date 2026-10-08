@@ -16,12 +16,14 @@ export interface Journey {
     canDecide: boolean;
     /** Taken back by what happened after later merges; a person may promote it again. */
     takenBack?: { detail: string; prs: number[]; at: string };
+    /** A later fix changed the point's own lines: evidence for a person to promote or dismiss. */
+    suggested?: { detail: string; pr: number; at: string };
 }
 
 /** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
 const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);
 
-export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected') => void }> = ({ lesson, onDecide, onDecideReview }) => (
+export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed') => void }> = ({ lesson, onDecide, onDecideReview }) => (
     <div className="st-card">
         <div className="st-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{inlineCode(lesson.text)}</div>
@@ -43,7 +45,17 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
                 </div>
             </div>
         )}
-        {lesson.canDecide && !lesson.takenBack && (
+        {lesson.suggested && (
+            <div style={{ marginTop: 14 }}>
+                <div><span className="st-chip">a later fix changed these lines</span> <span className="st-sub">{lesson.suggested.detail}</span></div>
+                <div className="st-row" style={{ marginTop: 10 }}>
+                    <span className="st-sub">The pull request (#{lesson.suggested.pr}) left this point alone, and a later fix changed its lines. If that fix is about this point, the lesson was right.</span>
+                    <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
+                    <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'dismissed')} type="button">Dismiss</button>
+                </div>
+            </div>
+        )}
+        {lesson.canDecide && !lesson.takenBack && !lesson.suggested && (
             <div className="st-row" style={{ marginTop: 14 }}>
                 <span className="st-sub">{lesson.scope === 'team' ? 'Shared by a teammate. Give it to everyone\'s agents?' : 'Seen once. Keep it so your agents get told?'}</span>
                 <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>
