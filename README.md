@@ -39,7 +39,7 @@ One piece of work is one **task**, whatever agents and people touch it, and `rig
 | The reviewer | Off until enabled in Studio or `rigour.yml` | Your agent's own model and login, one long read per review; the record of each review shows its cost |
 | A panel of judges | Off; `mode: full` or `panel: on` | One judge's cost per judge, plus a short cross-examination of what they disagree on |
 | A judge through any OpenAI-compatible API | Off; `reviewers: [api]` | The provider's price for your key |
-| The briefing | Off; `rigour hooks init --brief` | No model; with the credential scan on, +20 ms per edit and +99 ms on a file's first edit (measured on Rigour's own repository) |
+| The briefing | Off; `rigour hooks init --brief` | No model; with the credential scan on, +22 ms per edit and +121 ms on a file's first edit (measured on Rigour's own repository) |
 | The task thread | On wherever the hooks run | A line per event in your git folder |
 
 ## How it works
