@@ -23,7 +23,8 @@ export interface ReviewRecord {
         rules: { served: number; followed: number; broken: number; not_applicable: number };
         /** The team's lessons served, and how many the judge found the change repeats. */
         lessons: { served: number; applied: number };
-        prior_points: { open: number; resolved: number; answer_in_reply: number };
+        /** `labelled`: points that took the review's own severity heading; `relabelled`: of those, the ones the judge had read otherwise. */
+        prior_points: { open: number; resolved: number; answer_in_reply: number; labelled?: number; relabelled?: number };
         unverified: number;
         notes: number;
         disputed: number;
@@ -63,7 +64,7 @@ export function buildRecord(input: RecordInput): ReviewRecord {
             should_fix: input.accounted.advisory,
             rules: { served: rules.length, followed: rules.filter(r => r.status === 'followed').length, broken: rules.filter(r => r.status === 'broken').length, not_applicable: rules.filter(r => r.status === 'not-applicable').length },
             lessons: { served: input.lessonsServed, applied: lessons.filter(l => l.applies === true).length },
-            prior_points: { open: input.accounted.open.filter(i => i.kind === 'prior').length, resolved: input.accounted.resolved.length, answer_in_reply: input.accounted.answerInReply.length },
+            prior_points: { open: input.accounted.open.filter(i => i.kind === 'prior').length, resolved: input.accounted.resolved.length, answer_in_reply: input.accounted.answerInReply.length, ...(input.accounted.labels?.served ? { labelled: input.accounted.labels.taken, relabelled: input.accounted.labels.disagreed } : {}) },
             unverified: input.accounted.unverified.length,
             notes: input.accounted.notes.length,
             disputed: input.accounted.disputed.length,
@@ -99,7 +100,7 @@ function canonical(value: unknown): string {
 export function recordLines(r: ReviewRecord, shouldFixShown = 5): string[] {
     const where = (i: OpenItem) => `${i.file ? `\`${i.file}${i.line ? `:${i.line}` : ''}\` ` : ''}${i.issue}${i.locations?.length ? ` (also ${i.locations.map(l => `\`${l.file}${l.line ? `:${l.line}` : ''}\``).join(', ')})` : ''}`;
     const v = r.verified;
-    const lines = [`**Review record** · ${v.blocking.length} blocking · ${v.should_fix.length} should-fix · rules ${v.rules.followed} followed, ${v.rules.broken} broken, ${v.rules.not_applicable} not applicable of ${v.rules.served} · lessons ${v.lessons.applied} of ${v.lessons.served} apply · prior points ${v.prior_points.open} open, ${v.prior_points.resolved} resolved`];
+    const lines = [`**Review record** · ${v.blocking.length} blocking · ${v.should_fix.length} should-fix · rules ${v.rules.followed} followed, ${v.rules.broken} broken, ${v.rules.not_applicable} not applicable of ${v.rules.served} · lessons ${v.lessons.applied} of ${v.lessons.served} apply · prior points ${v.prior_points.open} open, ${v.prior_points.resolved} resolved${v.prior_points.labelled !== undefined ? `, ${v.prior_points.labelled} by the review's own label (${v.prior_points.relabelled} relabelled)` : ''}`];
     for (const i of v.blocking) lines.push(`- **Blocking** ${where(i)}`);
     for (const i of v.should_fix.slice(0, shouldFixShown)) lines.push(`- Should fix: ${where(i)}`);
     if (v.should_fix.length > shouldFixShown) lines.push(`- …and ${v.should_fix.length - shouldFixShown} more should-fix in the record.`);

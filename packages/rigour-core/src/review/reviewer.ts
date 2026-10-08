@@ -196,7 +196,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const skip = skipReason(settings.on_push, branch, pr);
         if (skip) return none('skipped', skip, { reviewers, pr: pr?.number });
     }
-    let reviews: HumanReviews = { markdown: 'none\n', key: '', count: 0, approvals: [] };
+    let reviews: HumanReviews = { markdown: 'none\n', key: '', count: 0, approvals: [], labels: [] };
     if (gh && pr) {
         const read = await humanReviews(gh, pr, options.reviewsBefore);
         if (read.error) return none('unavailable', read.error, { reviewers, pr: pr.number });
@@ -267,7 +267,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const previousOpen = scope === 'delta' ? store.readJson<OpenItem[]>(store.openPath(previous!.verdict)) ?? [] : undefined;
 
     const verify = checkoutVerifier(cwd);
-    const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff) };
+    const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff), labels: reviews.labels };
     const modelFor = (name: ReviewerName) => settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
@@ -411,6 +411,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             verdict = { ...verdict, panel: { judgeItemIds: judgeItems.flat().map(item => item.id), items }, reviewers: [...(verdict.reviewers ?? []), ...cross] };
         }
         const accounted = decide(verdict, previousOpen, verify, prior, dismissals);
+        // Said every run where the reviews carry labels, so a matcher that takes none is visible rather than silent.
+        if (accounted.labels?.served) progress(`Rigour reviewer: ${accounted.labels.taken} of ${verdict.prior_points.length} prior point(s) took the review's own severity label (${accounted.labels.served} labelled line(s)); the judge read ${accounted.labels.disagreed} otherwise`);
         store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString() } });
         store.writeJson(openFile, accounted.open);
         store.writeJson(store.decidedPath(verdictFile), accounted);

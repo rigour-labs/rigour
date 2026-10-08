@@ -33,4 +33,13 @@ describe('the review record', () => {
         expect(lines.at(-2)).toBe('Also seen, never blocking: 2 working notes, 1 unverified, 1 dismissed.');
         expect(lines.at(-1)).toMatch(/^Judged by claude 2\.1\.0 \(opus\) \$1\.25 on `abcdef012` against `012345678` \(full\); 2 human review\(s\) seen\. Integrity `[0-9a-f]{16}`\.$/);
     });
+
+    it("counts the prior points that took the review's own severity label, and only when the reviews carry labels", () => {
+        const labelled = input();
+        labelled.accounted = { ...labelled.accounted, labels: { served: 4, taken: 2, disagreed: 1 } };
+        const record = buildRecord(labelled);
+        expect(record.verified.prior_points).toMatchObject({ labelled: 2, relabelled: 1 });
+        expect(recordLines(record).join('\n')).toContain("2 by the review's own label (1 relabelled)");
+        expect(buildRecord(input()).verified.prior_points).not.toHaveProperty('labelled');
+    });
 });

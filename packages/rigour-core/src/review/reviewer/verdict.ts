@@ -24,7 +24,37 @@ export interface Approval { login: string; at: string; commit?: string }
  * What an item is checked against besides its quote: who approved (a prior point), whether the checkout has what a
  * point calls missing, and which lines the change touched (a block must sit on one; unknown when absent).
  */
-export interface PriorChecks { approvals: Approval[]; inCheckout: (text: string) => string | undefined; changed?: ChangedLines }
+export interface PriorChecks { approvals: Approval[]; inCheckout: (text: string) => string | undefined; changed?: ChangedLines; labels?: LabelledPoint[] }
+
+/** A point under a severity heading the reviewer wrote ("Blocking", "Should fix", "Nits"): the reviewer's own label. */
+export interface LabelledPoint { login: string; at: string; severity: NonNullable<PriorPoint['severity']>; text: string }
+
+/** How alike a judge's prior point and a labelled line of the review must read to take the reviewer's label. */
+const LABEL_SIMILARITY = 0.4;
+
+/**
+ * The point with the severity its reviewer wrote, when the review labels it; the judge's reading otherwise. The reviewer
+ * is matched by login; the review by the date the judge names (judges write a timestamp, a date, or reformat it), and
+ * when no review of that reviewer has that date, by that reviewer's latest labelled review. A disagreement is said.
+ */
+function labelled(p: PriorPoint, labels: LabelledPoint[]): { point: PriorPoint; took: boolean; disagreed: boolean } {
+    const [login, ...rest] = (p.review ?? '').trim().split(/\s+/);
+    const day = /\d{4}-\d{2}-\d{2}/.exec(rest.join(' '))?.[0];
+    const theirs = login ? labels.filter(l => l.login === login) : [];
+    const sameDay = day ? theirs.filter(l => l.at.startsWith(day)) : [];
+    const latest = theirs.reduce((max, l) => (l.at > max ? l.at : max), '');
+    const candidates = sameDay.length ? sameDay : theirs.filter(l => l.at === latest);
+    const asItem = (issue: string): OpenItem => ({ id: '', kind: 'prior', class: 'prior point', issue });
+    let best: { label: LabelledPoint; score: number } | undefined;
+    for (const label of candidates) {
+        const score = textSimilarity(asItem(p.point), asItem(label.text));
+        if (score >= LABEL_SIMILARITY && (!best || score > best.score)) best = { label, score };
+    }
+    if (!best) return { point: p, took: false, disagreed: false };
+    if (best.label.severity === p.severity) return { point: p, took: true, disagreed: false };
+    const note = `the review labels it ${best.label.severity}${p.severity ? `; the judge read ${p.severity}` : ''}`;
+    return { point: { ...p, severity: best.label.severity, evidence: p.evidence ? `${p.evidence}; ${note}` : note }, took: true, disagreed: true };
+}
 const NO_PRIOR_CHECKS: PriorChecks = { approvals: [], inCheckout: () => undefined };
 
 /** The lines a change touched, per file: every line added, and the place of every deletion, in the new file's numbering. */
@@ -291,6 +321,8 @@ export interface Accounting {
     notes: OpenItem[];
     /** Should-fixes the judge could show (a verified quote): worth a person's time, never a block. */
     advisory: OpenItem[];
+    /** The reviews' own severity labels: how many there were, how many prior points took one, and how many the judge read otherwise. */
+    labels?: { served: number; taken: number; disagreed: number };
 }
 
 const id = (...parts: Array<string | number | undefined>) => createHash('sha1').update(parts.map(p => String(p ?? '')).join('|').toLowerCase().replace(/\s+/g, ' ')).digest('hex').slice(0, 10);
@@ -302,7 +334,10 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     const notes: OpenItem[] = [];
     const advisory: OpenItem[] = [];
     const seen = new Set<string>();
-    const accepted = verdict.prior_points.filter(p => p.severity === 'non-blocking');
+    // The reviewer's own label wins over the judge's reading of it: a judge that calls a blocker a should-fix would demote it silently.
+    const read = verdict.prior_points.map(p => labelled(p, prior.labels ?? []));
+    const points = read.map(r => r.point);
+    const accepted = points.filter(p => p.severity === 'non-blocking');
     // A should-fix is shown only when the judge could show it: a quote Rigour finds. One that cannot be checked is not a claim worth a person's time.
     const advise = (item: OpenItem) => {
         if (seen.has(item.id)) return;
@@ -327,7 +362,7 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         open.push(item);
     };
     const answerInReply: PriorPoint[] = [];
-    for (const p of verdict.prior_points) {
+    for (const p of points) {
         if (p.resolved) continue;
         if (p.severity === 'non-blocking') {
             answerInReply.push(p);
@@ -351,7 +386,9 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
             continue;
         }
         // Still open only where the judge quotes the code that keeps it open: a point a later commit already fixed never blocks.
-        add(item);
+        // A should-fix keeps the tier its reviewer gave it: shown with its quote, never a block, like a should-fix finding.
+        if (p.severity === 'should-fix') advise(item);
+        else add(item);
     }
     for (const r of verdict.redundant) {
         if (r.removed === false) add({ id: id('dead-code', r.file, r.what), kind: 'redundant', class: 'dead-code', file: r.file, line: r.line, issue: r.what, evidence: r.made_redundant_by ? `made redundant by ${r.made_redundant_by}` : undefined, reviewer: r.reviewer });
@@ -435,7 +472,7 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
             }
         }
     }
-    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory) };
+    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory), labels: { served: prior.labels?.length ?? 0, taken: read.filter(r => r.took).length, disagreed: read.filter(r => r.disagreed).length } };
 }
 
 /** How alike two items' words must be to be the same point made in two places; and, on the same lines, to be one point said two ways. */
@@ -450,9 +487,14 @@ const SAME_LINES = 3;
 function onePerRootCause(items: OpenItem[]): OpenItem[] {
     const kept: OpenItem[] = [];
     for (const item of items) {
-        // The same class in the same words anywhere, or any two non-human items on the same lines that read alike (a rule break and the finding it caused).
+        // The same class in the same words anywhere, or any two non-human items on the same lines that read alike (a rule break and
+        // the finding it caused). A human's point owns its lines: a rule break or finding there in like words is that point found
+        // again and folds into it; the human's words stay. One in other words is a different problem and stays its own item, so
+        // fixing the human's point does not leave it for the next round. Two human points never merge.
         const nearby = (k: OpenItem) => !!k.file && k.file === item.file && k.line !== undefined && item.line !== undefined && Math.abs(k.line - item.line) <= SAME_LINES;
-        const same = item.kind === 'prior' ? undefined : kept.find(k => k.kind !== 'prior' && ((k.class === item.class && textSimilarity(k, item) >= SAME_POINT) || (nearby(k) && textSimilarity(k, item) >= SAME_PLACE)));
+        const same = item.kind === 'prior' ? undefined : kept.find(k => k.kind === 'prior'
+            ? nearby(k) && textSimilarity(k, item) >= SAME_PLACE
+            : (k.class === item.class && textSimilarity(k, item) >= SAME_POINT) || (nearby(k) && textSimilarity(k, item) >= SAME_PLACE));
         if (!same) {
             kept.push(item);
             continue;
