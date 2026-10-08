@@ -53,10 +53,10 @@ review can be read against what the agent was told.
 ## Cost
 
 The edit briefing rides on the credential-scan hook that already runs before every tool call, so it starts no process
-of its own. Measured on a 3,000-file repository (median of 7 runs): the scan alone 337 ms; with the briefing, a file's
-first edit in a session 441 ms (+104 ms) and every later edit 358 ms (+21 ms, the check that the file was already
-briefed). With the credential scan switched off, the edit hook of its own starts a process (about 0.36 s per edit),
-which is one reason the briefing is opt-in.
+of its own. Measured on Rigour's own repository (1,023 files, median of 9 runs): the scan alone 329 ms; with the
+briefing, a file's first edit in a session 428 ms (+99 ms) and every later edit 349 ms (+20 ms, the check that the file
+was already briefed). With the credential scan switched off, the edit hook of its own starts a process, about as long
+as the scan alone, before every edit, which is one reason the briefing is opt-in.
 
 ## Off, and the kill switch
 
