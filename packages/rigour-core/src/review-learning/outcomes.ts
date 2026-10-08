@@ -20,6 +20,10 @@ export interface OutcomeOptions {
     until?: string;
     /** How long unchanged lines must ship before that counts against the point. */
     windowDays?: number;
+    /** Lines either side of the point's own that count as its lines (outcome-evidence.ts: 3). */
+    slack?: number;
+    /** A fixing commit that touches more files than this is a sweep, and says nothing about one point: no verdict. */
+    maxFiles?: number;
 }
 
 export interface MergedAt { number: number; mergeSha: string; mergedAt: string }
@@ -28,7 +32,8 @@ export interface MergedAt { number: number; mergeSha: string; mergedAt: string }
 export function outcomeFor(git: Git, lesson: ReviewLesson, pr: MergedAt, options: OutcomeOptions): LessonEvidence | undefined {
     const point = lesson.evidence.find(e => (e.kind ?? 'point') === 'point' && e.pr === pr.number);
     if (!point || point.actedOn || !lesson.at || !lesson.file || !pr.mergedAt) return undefined;
-    let range = shift(changedHunks(git, lesson.at.commit, pr.mergeSha, lesson.file), [lesson.at.start, lesson.at.end]);
+    const slack = options.slack ?? 0;
+    let range = shift(changedHunks(git, lesson.at.commit, pr.mergeSha, lesson.file), [Math.max(1, lesson.at.start - slack), lesson.at.end + slack]);
     if (!range) return undefined; // the pull request changed them after all
     const before = options.until ? [`--before=${options.until}`] : [];
     let commits: string[] = [];
@@ -45,8 +50,9 @@ export function outcomeFor(git: Git, lesson: ReviewLesson, pr: MergedAt, options
             continue;
         }
         const [subject, date] = git(['log', '-1', '--format=%s%x09%cI', sha]).trim().split('\t');
-        // Changed by a commit that says it fixed something: the point was right. Changed otherwise: no verdict.
-        return FIX.test(subject) ? { kind: 'outcome', pr: pr.number, comment: `outcome-${sha.slice(0, 12)}`, author: '', detail: `fixed later by ${sha.slice(0, 9)} "${subject}"`, at: date } : undefined;
+        // Changed by a commit that says it fixed something, and is not a sweep across the codebase: the point was right. Changed otherwise: no verdict.
+        const sweep = options.maxFiles !== undefined && git(['show', '--name-only', '--format=', sha]).split('\n').filter(Boolean).length > options.maxFiles;
+        return FIX.test(subject) && !sweep ? { kind: 'outcome', pr: pr.number, comment: `outcome-${sha.slice(0, 12)}`, author: '', detail: `fixed later by ${sha.slice(0, 9)} "${subject}"`, at: date } : undefined;
     }
     const now = options.until ? Date.parse(options.until) : Date.now();
     const days = Math.floor((now - Date.parse(pr.mergedAt)) / DAY_MS);

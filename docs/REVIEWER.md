@@ -263,9 +263,12 @@ those lines before merging, are recorded on the candidate and decide nothing: pe
 and agents apply review comments on their own. A candidate becomes a **lesson** only on evidence:
 
 - **outcome**: after the merge, a commit on the main branch changed the lines the point named and says
-  it fixed something, or the pull request was reverted. With the [outcome loop](OUTCOMES.md) on, also: a
-  fix on the point's file, when the merge commit's CI failed or the pull request was reverted (a fix on
-  the file alone is recorded as `followup`, never enough);
+  it fixed something, or the pull request was reverted. With the [outcome loop](OUTCOMES.md) on, the
+  point's lines are followed through every later commit as the code moves, within three lines either
+  side and inside the window; the commit that changes them must say it fixes something and touch at most
+  fifteen files (a broad sweep says nothing about one point). CI regressing on the merge commit or a
+  revert is recorded with it as context, never as the trigger. A fix that touched only the point's file
+  is recorded as `followup`, never enough;
 - **a person's correction**: they changed what an agent wrote. The after-edit hook keeps each file as
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the

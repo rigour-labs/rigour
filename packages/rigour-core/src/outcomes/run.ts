@@ -11,10 +11,13 @@ import { resolveSwitch, type ResolvedSwitch } from '../switches.js';
 import { checkRunsCi, readPrOutcomes, updatePrOutcomes, type PrOutcome } from './outcome.js';
 import { applyOutcomeEvidence, type OutcomeEvidenceResult } from '../review-learning/outcome-evidence.js';
 import { readLessons, writeLessons } from '../review-learning/lessons.js';
+import { gitIn } from '../review-learning/acted-on.js';
 import { eventsOfKind } from '../task/thread.js';
 
 /** How long one run may read before it stops and keeps what it has. */
 const READ_DEADLINE_MS = 2 * 60_000;
+/** How long one run may follow points' lines through history; the next run carries on. */
+const LESSON_DEADLINE_MS = 60_000;
 
 export interface OutcomesRun {
     switch: ResolvedSwitch;
@@ -43,12 +46,12 @@ export async function runOutcomes(cwd: string, config: Config, options: { flag?:
     });
     const incomplete = listed.incomplete ? 'the list of merged pull requests may be incomplete (gh listed too many updates to prove it)' : undefined;
     const stopped = [run.stopped, incomplete].filter(Boolean).join('; ');
-    const lessons = lessonEvidence(cwd, config.learning?.outcomes?.demote_after ?? 2);
+    const lessons = lessonEvidence(cwd, mainRef, config.learning?.outcomes?.demote_after ?? 2);
     return { switch: resolved, outcomes: run.outcomes, read: run.read, ...(lessons ? { lessons } : {}), ...(stopped ? { stopped } : {}) };
 }
 
 /** Every record kept (not only this run's) against the team's lessons, and the reviews that found a lesson repeated; written only when something changed. */
-function lessonEvidence(cwd: string, demoteAfter: number): OutcomeEvidenceResult | undefined {
+function lessonEvidence(cwd: string, mainRef: string, demoteAfter: number): OutcomeEvidenceResult | undefined {
     const lessons = readLessons(cwd);
     if (lessons.length === 0) return undefined;
     const applied = new Map<number, Set<string>>();
@@ -58,7 +61,7 @@ function lessonEvidence(cwd: string, demoteAfter: number): OutcomeEvidenceResult
         for (const id of e.lessons_applied) if (typeof id === 'string') ids.add(id);
         applied.set(e.pr, ids);
     }
-    const result = applyOutcomeEvidence(lessons, Object.values(readPrOutcomes(cwd).outcomes), applied, demoteAfter);
+    const result = applyOutcomeEvidence(lessons, Object.values(readPrOutcomes(cwd).outcomes), applied, { demoteAfter, git: gitIn(cwd), mainRef, deadline: Date.now() + LESSON_DEADLINE_MS });
     if (result.added) writeLessons(cwd, lessons);
     return result;
 }
