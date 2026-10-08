@@ -23,7 +23,7 @@ export const THREADS_DIR = 'rigour/threads';
 /** A ticket key in a branch name: `feat/proj-123-thing` → `PROJ-123`. */
 const TICKET = /(?:^|[^A-Za-z0-9])([A-Za-z][A-Za-z0-9]{1,9}-\d{1,7})(?=$|[^0-9])/;
 
-export type TaskEventKind = 'edit-check' | 'stop-review' | 'push' | 'review' | 'brief';
+export type TaskEventKind = 'edit-check' | 'stop-review' | 'push' | 'review' | 'brief' | 'goal';
 
 export interface TaskEvent {
     kind: TaskEventKind;
@@ -199,7 +199,8 @@ function describe(e: ThreadEvent): string {
         : e.kind === 'stop-review' ? (e.blocked ? `blocked: ${num(e.blocking)} to fix` : 'passed')
             : e.kind === 'push' ? (e.passed === false ? `blocked: ${num(e.failed)} check(s) failed` : 'passed')
                 : e.kind === 'review' ? `${String(e.outcome)}, ${num(e.blocking)} blocking, ${num(e.should_fix)} should-fix${e.pr ? ` on #${e.pr}` : ''}`
-                    : e.kind === 'brief' ? `${num(e.items)} item(s) briefed` : '';
+                    : e.kind === 'brief' ? `${num(e.items)} item(s) briefed`
+                        : e.kind === 'goal' ? `at ${String(e.moment)}: ${e.declared ? `${num(e.blocks)} goal block(s)` : 'the description declares no goal'}` : '';
     return [what, who ? `(${who})` : '', e.head ? `@${String(e.head).slice(0, 9)}` : ''].filter(Boolean).join(' ');
 }
 

@@ -66,7 +66,7 @@ In Studio, **Setup** shows the goal check as what runs and where that comes from
 
 ## Where the description comes from
 
-The check runs in `rigour review` (and so in CI). The stop hook and the push gate do not read a description yet.
+The check runs in `rigour review` (and so in CI), and before an agent stops and before a push. There the description is the branch's open pull request's, read with one `gh pr view` (as `review.github_account` when set), at most 5 seconds, once per branch and commit; with no open pull request, or when GitHub cannot answer, nothing is checked and nothing fails. A stop or a push runs only the deterministic checks, never a model, and records what it did on the task's thread (a `goal` event, [THREAD.md](THREAD.md)).
 
 `rigour review --pr-body <file>`, or, in a pull request's GitHub Actions job, the pull request in the event (`GITHUB_EVENT_PATH`). With the check on and no description, the review runs without it and says why in its JSON (`goal.reason`).
 

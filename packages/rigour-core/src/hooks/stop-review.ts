@@ -21,6 +21,7 @@ import { diffFromGit, type DiffSource } from '../review/git-diff.js';
 import { branchBase } from '../gates/logic-drift-git-base.js';
 import { branchFailures } from '../review/branch-checks.js';
 import { describeLesson, type LessonView } from '../review-learning/team-lessons.js';
+import { hookGoalDescription, recordGoal } from '../goal/hook.js';
 
 export const STOP_MAX_ATTEMPTS = 3;
 const MAX_LISTED = 8;
@@ -56,7 +57,9 @@ function stopSource(cwd: string, sessionBaseline?: string): { source: DiffSource
 export async function stopReview(cwd: string, config: Config, attempt: number, sessionBaseline?: string): Promise<StopDecision> {
     const { source, against } = stopSource(cwd, sessionBaseline);
     const diff = diffFromGit(cwd, source);
-    const result = await reviewChange({ cwd, config, diff, source });
+    const goalDescription = await hookGoalDescription(cwd, config);
+    const result = await reviewChange({ cwd, config, diff, source, ...(goalDescription !== undefined ? { goalDescription } : {}) });
+    recordGoal(cwd, 'stop', goalDescription, result);
     const branch = branchBase(cwd);
     const whole = branch && !branch.onMain ? branchFailures(cwd, branch.base, branch.mainRef, config) : [];
     // A check that could not run is never a pass; the attempt cap keeps a broken environment from looping forever.
