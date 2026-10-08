@@ -15,7 +15,7 @@ import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
 import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { threadCommand } from './commands/thread.js';
-import { briefCommand, hooksBriefCommand } from './commands/brief.js';
+import { briefCommand, hooksBriefCommand, hooksBriefFileCommand } from './commands/brief.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
 import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
@@ -494,7 +494,7 @@ hooksCmd
     .option('--dry-run', 'Show what files would be created without writing them')
     .option('-f, --force', 'Overwrite existing hook files')
     .option('--block', 'Configure hooks to block on failure (exit code 2)')
-    .option('--brief', 'Also brief Claude Code from each session\'s first prompt with the team\'s rules and lessons (off unless asked)')
+    .option('--brief', 'Also brief Claude Code with the team\'s rules and lessons: from each session\'s first prompt, and on the first edit of each file (off unless asked)')
     .addHelpText('after', `
 Examples:
   $ rigour hooks init                    # Auto-detect tools, generate hooks
@@ -514,6 +514,16 @@ hooksCmd
         const chunks: Buffer[] = [];
         if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
         const reply = await hooksBriefCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
+        if (reply) process.stdout.write(reply + '\n');
+    });
+
+hooksCmd
+    .command('brief-file')
+    .description('Edit hook: the team\'s word on a file the first time a session edits it (installed by rigour hooks init --brief); reads the hook payload on stdin')
+    .action(async () => {
+        const chunks: Buffer[] = [];
+        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
+        const reply = await hooksBriefFileCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
         if (reply) process.stdout.write(reply + '\n');
     });
 

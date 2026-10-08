@@ -167,9 +167,9 @@ function stopHookCommand(checker: CheckerCommandSpec, tool: 'claude' | 'cursor')
     return checkerToShellCommand({ command: checker.command, args: [...args, '--tool', tool] });
 }
 
-/** The briefing hook: the checker command with `brief` in place of `check`. */
-function briefHookCommand(checker: CheckerCommandSpec): string {
-    const args = checker.args[checker.args.length - 1] === 'check' ? [...checker.args.slice(0, -1), 'brief'] : [...checker.args, 'brief'];
+/** A briefing hook: the checker command with `brief` (or `brief-file`) in place of `check`. */
+function briefHookCommand(checker: CheckerCommandSpec, command: 'brief' | 'brief-file' = 'brief'): string {
+    const args = checker.args[checker.args.length - 1] === 'check' ? [...checker.args.slice(0, -1), command] : [...checker.args, command];
     return checkerToShellCommand({ command: checker.command, args });
 }
 
@@ -265,8 +265,12 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
     }
     hooks.PreToolUse = preToolUse;
 
-    // Opt-in: the team's briefing for the task, once per session, from the session's first prompt (rigour hooks brief).
-    if (brief) hooks.UserPromptSubmit = [{ hooks: [{ type: "command" as const, command: briefHookCommand(checker), timeout: BRIEF_HOOK_TIMEOUT_S }] }];
+    // Opt-in: the team's briefing for the task, once per session, from the session's first prompt (rigour hooks brief),
+    // and the team's word on each file the first time the session edits it (rigour hooks brief-file).
+    if (brief) {
+        hooks.UserPromptSubmit = [{ hooks: [{ type: "command" as const, command: briefHookCommand(checker), timeout: BRIEF_HOOK_TIMEOUT_S }] }];
+        preToolUse.push({ matcher: "Write|Edit|MultiEdit", hooks: [{ type: "command" as const, command: briefHookCommand(checker, 'brief-file'), timeout: BRIEF_HOOK_TIMEOUT_S }] });
+    }
 
     const settings = { hooks };
 

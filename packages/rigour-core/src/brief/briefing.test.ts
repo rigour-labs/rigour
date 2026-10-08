@@ -5,7 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeLessons, type ReviewLesson } from '../review-learning/lessons.js';
 import { readThread } from '../task/thread.js';
-import { BRIEFING_MAX_ITEMS, briefingText, briefTask, buildBriefing } from './briefing.js';
+import { BRIEFING_MAX_ITEMS, briefFile, briefingText, briefTask, buildBriefing, buildFileBriefing, fileBriefingText } from './briefing.js';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
@@ -93,5 +93,25 @@ describe('the briefing', () => {
         const briefing = briefTask(repo, { goal: 'retry', files: ['src/jobs/retry.ts'], session: 's1', agent: 'claude' });
         const [event] = readThread(repo)!.events;
         expect(event).toMatchObject({ kind: 'brief', session: 's1', agent: 'claude', items: briefing.items.length, ids: briefing.items.map(i => i.id), files: ['src/jobs/retry.ts'] });
+    });
+
+});
+
+describe("a file's briefing, on the agent's first edit of it", () => {
+    it("gives at most three items: the file's requirement rules, its lessons and settled points; never guidance or another file's", () => {
+        const briefing = buildFileBriefing(repo, 'src/jobs/retry.ts');
+        expect(briefing.items.map(i => [i.kind, i.cite])).toEqual([['rule', 'AGENTS.md'], ['lesson', 'learned in PR #12'], ['settled', 'learned in PR #14']]);
+        expect(briefing.items.some(i => i.text.includes('fetchWithTimeout'))).toBe(false); // guidance waits for review
+        expect(fileBriefingText(briefing).split('\n')[0]).toBe('Rigour, before you edit src/jobs/retry.ts: what this team asks of this file.');
+        expect(buildFileBriefing(repo, 'services/billing/charge.ts').items.map(i => i.cite)).toEqual(['services/billing/AGENTS.md, for services/billing/']);
+        expect(buildFileBriefing(repo, 'README.md').items).toEqual([]);
+        expect(fileBriefingText(buildFileBriefing(repo, 'README.md'))).toBe('');
+        expect(buildFileBriefing(repo, 'src/jobs/retry.ts', { lessons: 'all' }).items.length).toBe(3); // still three, with candidates in play
+    });
+
+    it('records the file it briefed on the thread', () => {
+        git('checkout', '-qb', 'feat/retry');
+        briefFile(repo, 'src/jobs/retry.ts', { session: 's9', agent: 'claude' });
+        expect(readThread(repo)!.events[0]).toMatchObject({ kind: 'brief', file: 'src/jobs/retry.ts', session: 's9', items: 3, files: ['src/jobs/retry.ts'] });
     });
 });

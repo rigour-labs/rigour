@@ -200,7 +200,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_brief",
-        description: "Call once before writing code for a task: this team's rules, verified lessons and settled points for the files it will touch, at most 10, each cited. A [must] your change breaks blocks at review.",
+        description: "Before writing: with goal, the team's rules, lessons and settled points for the task (max 10, cited); with only files, its word on each file you will edit. A [must] you break blocks at review.",
         inputSchema: {
             type: "object",
             properties: {
@@ -208,7 +208,7 @@ export const TOOL_DEFINITIONS = [
                 goal: { type: "string", description: "What the task is for: the request or the ticket summary." },
                 files: { type: "array", items: { type: "string" }, description: "Optional. Files the task will touch." },
             },
-            required: ["cwd", "goal"],
+            required: ["cwd"],
         },
         annotations: {
             title: "Brief Before Writing",

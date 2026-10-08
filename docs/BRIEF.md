@@ -12,6 +12,15 @@ Rigour briefing for PROJ-123: how this team builds the code this task will likel
 3. [settled] settled against, do not do or raise it: Wrap `retryJob` in a second try/catch. (learned in PR #14)
 ```
 
+## Two moments
+
+- **The first edit of a file** (the main one). The first time a session edits a file, the agent is told what the team
+  asks of that file: the requirement rules that name it or its folder, the lessons learned on it, the points settled
+  against on it. At most three, each cited; nothing when nothing applies. Once per file per session. This is when the
+  task's files are known, and so when a briefing can be specific.
+- **The start of a session.** From the session's first prompt, up to ten items for the task as a whole. At that moment
+  often only the goal's words are known, so this briefing is the thinner of the two.
+
 ## Order and limits
 
 1. Requirement rules for the task's files (worded as must, never, every, ...): a break of one blocks at review.
@@ -34,12 +43,18 @@ path names a word of the goal.
 
 | Agent | How |
 | --- | --- |
-| Claude Code | `rigour hooks init --brief` installs a prompt hook: the session's first prompt is the goal, the briefing is added to the agent's context once per session |
-| Any agent with MCP | `rigour_brief` with `goal` and optional `files` |
+| Claude Code | `rigour hooks init --brief` installs two hooks: an edit hook (`rigour hooks brief-file`, on Write, Edit and MultiEdit) for each file's first edit, and a prompt hook (`rigour hooks brief`) for the session's first prompt |
+| Any agent with MCP | `rigour_brief` with `files` and no `goal` before editing them (the team's word on each), or with a `goal` for the task as a whole |
 | A person, a script, any agent with a shell | `rigour brief [goal] [--files a,b] [--json]` |
 
 Every briefing is recorded on the [task thread](./THREAD.md) (`brief`: how many items, their ids, the files), so a later
 review can be read against what the agent was told.
+
+## Cost
+
+The edit hook runs before every edit: about 0.36 s per edit, nearly all of it starting node and the CLI (the after-edit
+check hook pays the same start-up), and about 0.1 s more on a file's first edit in a session; measured on a 3,000-file
+repository. This is part of why both hooks are opt-in.
 
 ## Off, and the kill switch
 

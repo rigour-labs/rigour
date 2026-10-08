@@ -7,7 +7,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import chalk from 'chalk';
-import { briefingText, briefTask, threadsDir, type Briefing } from '@rigour-labs/core';
+import { briefFile, briefingText, briefTask, fileBriefingText, threadsDir, type Briefing } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
 
 /** Whether briefings are switched off here: the team's rigour.yml or the person's environment. */
@@ -58,6 +58,44 @@ export async function hooksBriefCommand(stdin: string, fallbackCwd: string): Pro
     return text ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } }) : '';
 }
 
+/**
+ * Claude Code's PreToolUse hook on Edit, Write and MultiEdit: the first time a session edits a file, the team's word on
+ * that file (at most three items) is added to the agent's context. Once per file per session; the check for that comes
+ * first, so every later edit of the file costs one small file read. Prints nothing when off or when there is nothing.
+ */
+export async function hooksBriefFileCommand(stdin: string, fallbackCwd: string): Promise<string> {
+    let payload: { cwd?: string; session_id?: string; tool_input?: { file_path?: string } } = {};
+    try {
+        payload = JSON.parse(stdin);
+    } catch {
+        return '';
+    }
+    const session = payload.session_id;
+    const target = payload.tool_input?.file_path;
+    if (!session || typeof target !== 'string' || !target) return '';
+    const cwd = payload.cwd || fallbackCwd;
+    const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', timeout: 5000 }).stdout?.trim();
+    if (!root) return '';
+    // Both sides as the file system resolves them (a symlinked home or temp folder): a file being created resolves through its folder.
+    const abs = path.resolve(cwd, target);
+    const real = (p: string): string => {
+        try {
+            return fs.realpathSync(p);
+        } catch {
+            return path.dirname(p) === p ? p : path.join(real(path.dirname(p)), path.basename(p));
+        }
+    };
+    const file = path.relative(real(root), real(abs)).split(path.sep).join('/');
+    if (!file || file.startsWith('..')) return ''; // a file outside the repository is not the team's
+    const key = `${session}\u0000${file}`;
+    if (briefedAlready(root, key)) return '';
+    markBriefed(root, key); // first, so two quick edits of one file never brief twice
+    const { off, lessons } = await briefingOff(root);
+    if (off) return '';
+    const text = fileBriefingText(briefFile(root, file, { session, agent: 'claude', ...(lessons ? { lessons } : {}) }));
+    return text ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } }) : '';
+}
+
 /** The pull request's title and description as the goal, when gh can read one quickly; undefined otherwise. */
 function pullRequestGoal(cwd: string): string | undefined {
     const view = spawnSync('gh', ['pr', 'view', '--json', 'title,body'], { cwd, encoding: 'utf8', timeout: 5000 });
@@ -95,8 +133,8 @@ function markBriefed(cwd: string, session: string): void {
             // first briefing in this repository
         }
         all[session] = new Date().toISOString();
-        // Keep the newest 500 sessions: the file is a guard against repeating, not a history (the thread is).
-        const kept = Object.entries(all).sort((a, b) => (a[1] < b[1] ? 1 : -1)).slice(0, 500);
+        // Keep the newest 2,000 entries (sessions, and files within them): a guard against repeating, not a history (the thread is).
+        const kept = Object.entries(all).sort((a, b) => (a[1] < b[1] ? 1 : -1)).slice(0, 2000);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, JSON.stringify(Object.fromEntries(kept)));
     } catch {
