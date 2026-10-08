@@ -64,19 +64,30 @@ export function lostOrChanged(before, after, mayChange = []) {
   return Object.keys(before).filter(file => !mayChange.some(pattern => pattern.test(file)) && after[file] !== before[file]);
 }
 
-/** Every throwaway folder this run made: removed when it exits, pass or fail, so a local run leaves no install behind. */
+/**
+ * Every throwaway folder this run made: removed when it exits, pass or fail, and when it is interrupted (Ctrl-C, a CI
+ * cancel), which skips `exit` handlers on its own; so a run leaves no install behind.
+ */
 const sandboxes = [];
-process.on('exit', () => {
-  for (const root of sandboxes) {
+function removeSandboxes() {
+  for (const root of sandboxes.splice(0)) {
     try {
       rmSync(root, { recursive: true, force: true });
     } catch {
       // a folder the system holds open is left to the system's temp cleanup
     }
   }
-});
+}
+process.on('exit', removeSandboxes);
+for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+  process.on(signal, () => {
+    removeSandboxes();
+    process.exit(code);
+  });
+}
 
-function sandbox() {
+/** A throwaway folder with its own HOME, RIGOUR_HOME and npm cache, removed when this run ends however it ends. */
+export function sandbox() {
   const root = mkdtempSync(join(tmpdir(), 'rigour-gates-'));
   sandboxes.push(root);
   const home = join(root, 'home');
