@@ -102,23 +102,42 @@ describe('rigour backtest init', () => {
 });
 
 describe('the last N merged pull requests', () => {
-    it('lists by last update, over-fetches, and keeps the N most recently merged: a long-lived pull request merged last week is in', async () => {
-        const calls: string[][] = [];
-        const listed = [
-            { number: 7, mergedAt: '2026-04-01T00:00:00Z' }, // opened last, merged first
-            { number: 3, mergedAt: '2026-04-12T00:00:00Z' }, // opened months ago, reviewed for weeks, merged last
-            { number: 6, mergedAt: '2026-04-10T00:00:00Z' },
-            { number: 5, mergedAt: '2026-04-05T00:00:00Z' },
-        ];
+    const run = async (pages: (limit: number) => Array<{ number: number; mergedAt: string; updatedAt: string }>) => {
+        const limits: number[] = [];
         const exec: Exec = async (command, args, options) => {
-            calls.push([command, ...args]);
             if (command === 'gh' && args[0] === 'auth') return { exitCode: 0, stdout: 'token\n', stderr: '' };
-            if (command === 'gh' && args[0] === 'pr') return { exitCode: 0, stdout: JSON.stringify(listed), stderr: '' };
+            if (command === 'gh' && args[0] === 'pr') {
+                expect(args).toEqual(expect.arrayContaining(['--search', 'sort:updated-desc', '--json', 'number,mergedAt,updatedAt']));
+                const limit = Number(args[args.indexOf('--limit') + 1]);
+                limits.push(limit);
+                return { exitCode: 0, stdout: JSON.stringify(pages(limit).slice(0, limit)), stderr: '' };
+            }
             return fakeExec([])(command, args, options);
         };
-        const last = await mergedPrs(repo, 2, config, exec);
-        expect(last.map(p => p.number)).toEqual([3, 6]);
-        const list = calls.find(c => c[1] === 'pr')!;
-        expect(list.slice(1)).toEqual(['pr', 'list', '--state', 'merged', '--limit', '8', '--search', 'sort:updated-desc', '--json', 'number,mergedAt']);
+        return { ...(await mergedPrs(repo, 2, config, exec)), limits };
+    };
+    const pr = (number: number, mergedAt: string, updatedAt = mergedAt) => ({ number, mergedAt: `2026-04-${mergedAt}T00:00:00Z`, updatedAt: `2026-04-${updatedAt}T00:00:00Z` });
+
+    it('keeps the N most recently merged: a long-lived pull request merged last is in, one merged first is out', async () => {
+        const { prs, incomplete, limits } = await run(() => [pr(3, '12'), pr(6, '10'), pr(5, '05'), pr(7, '01')]);
+        expect(prs.map(p => p.number)).toEqual([3, 6]);
+        expect(incomplete).toBe(false);
+        expect(limits).toEqual([8]); // fewer listed than asked for: that is everything
+    });
+
+    it('lists more when old pull requests touched after merge crowd the window, until the result is provably complete', async () => {
+        // Eight old pull requests a bot touched on the 20th, then the two real latest merges.
+        const all = [...Array.from({ length: 8 }, (_, i) => pr(100 + i, '02', '20')), pr(3, '12'), pr(6, '10'), pr(5, '05')];
+        const { prs, incomplete, limits } = await run(() => all);
+        expect(limits).toEqual([8, 16]); // the first page held only crowding bots' touches: its oldest update (the 20th) is after the merges kept
+        expect(prs.map(p => p.number)).toEqual([3, 6]);
+        expect(incomplete).toBe(false);
+    });
+
+    it('stops at the cap and says the result may be incomplete', async () => {
+        const crowd = Array.from({ length: 200 }, (_, i) => pr(1000 + i, '01', '28'));
+        const { incomplete, limits } = await run(() => crowd);
+        expect(limits).toEqual([8, 16, 32, 64]);
+        expect(incomplete).toBe(true);
     });
 });

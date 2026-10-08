@@ -54,20 +54,32 @@ export async function roundsForPr(cwd: string, pr: number, config: Config, exec:
     return { rounds, ...(approved ? { approved } : {}) };
 }
 
-/** How many merged pull requests to list per one wanted: gh lists by creation date, and a long-lived pull request merged last week may have been opened months ago. */
+/** How many merged pull requests to list per one wanted, first: gh applies its limit before any sort of ours. */
 const MERGED_OVERFETCH = 4;
+/** The most merged pull requests listed per one wanted before Rigour stops and says the list may be incomplete. */
+const MERGED_OVERFETCH_MAX = 32;
 
-/** The last `n` merged pull requests, newest merge first. */
-export async function mergedPrs(cwd: string, n: number, config: Config, exec: Exec = defaultExec): Promise<Array<{ number: number; mergedAt: string }>> {
+/** The last `n` merged pull requests, newest merge first; `incomplete` when the listing could not prove it has them all. */
+export async function mergedPrs(cwd: string, n: number, config: Config, exec: Exec = defaultExec): Promise<{ prs: Array<{ number: number; mergedAt: string }>; incomplete: boolean }> {
     const env = await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec);
-    // Listed by last update, over-fetched, then sorted by merge date here: the limit is applied by gh before any sort,
-    // and in creation order it cuts off exactly the long-reviewed pull requests a backtest is for.
-    const list = await exec('gh', ['pr', 'list', '--state', 'merged', '--limit', String(n * MERGED_OVERFETCH), '--search', 'sort:updated-desc', '--json', 'number,mergedAt'], { cwd, timeoutMs: GH_TIMEOUT_MS, env });
-    if (list.exitCode !== 0) throw new Error(`could not list merged pull requests: ${list.stderr.trim() || 'is gh signed in?'}`);
-    try {
-        return (JSON.parse(list.stdout) as Array<{ number: number; mergedAt: string }>).sort((a, b) => (a.mergedAt < b.mergedAt ? 1 : -1)).slice(0, n);
-    } catch {
-        throw new Error('could not read the list of merged pull requests');
+    // Listed by last update and sorted by merge date here. A merged pull request is updated at or after its merge, so once the
+    // oldest update listed is no later than the Nth merge kept, nothing unlisted can be among the last N (its merge is no later
+    // than its update, which is no later than that). Until then the listing doubles: bots that touch old pull requests after
+    // merge (backports, labels, stale comments) can crowd a window.
+    for (let limit = n * MERGED_OVERFETCH; ; limit *= 2) {
+        const list = await exec('gh', ['pr', 'list', '--state', 'merged', '--limit', String(limit), '--search', 'sort:updated-desc', '--json', 'number,mergedAt,updatedAt'], { cwd, timeoutMs: GH_TIMEOUT_MS, env });
+        if (list.exitCode !== 0) throw new Error(`could not list merged pull requests: ${list.stderr.trim() || 'is gh signed in?'}`);
+        let listed: Array<{ number: number; mergedAt: string; updatedAt: string }>;
+        try {
+            listed = JSON.parse(list.stdout);
+        } catch {
+            throw new Error('could not read the list of merged pull requests');
+        }
+        const prs = [...listed].sort((a, b) => (a.mergedAt < b.mergedAt ? 1 : -1)).slice(0, n).map(({ number, mergedAt }) => ({ number, mergedAt }));
+        const oldestUpdate = listed.reduce((min, p) => (p.updatedAt < min ? p.updatedAt : min), listed[0]?.updatedAt ?? '');
+        const complete = listed.length < limit || (prs.length === n && oldestUpdate <= prs[n - 1].mergedAt);
+        if (complete) return { prs, incomplete: false };
+        if (limit >= n * MERGED_OVERFETCH_MAX) return { prs, incomplete: true };
     }
 }
 /** Lines either side of an inline comment that a finding for the same point may land on. */

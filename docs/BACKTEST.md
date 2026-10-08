@@ -14,6 +14,8 @@ approved, with no points), runs the review on each round with that review hidden
 keeps its approval: it closes the points raised before it), and reports the
 two numbers a team needs before trusting a reviewer:
 
+It lists merged pull requests by last update and keeps the N merged most recently. A merged pull request is updated at or after its merge, so the list is complete once its oldest update is no later than the Nth merge kept; until then it lists more, and if many old pull requests were touched after merge (backport or label bots) it stops at 32 per one asked for and warns that the result may miss recent ones.
+
 1. **Blocks on heads the seniors approved.** Every one is a block the team would have overridden.
    This number should be about zero, and when it is not, it is said first.
 2. **Points people raised in a later round that an earlier round had already blocked**, with how

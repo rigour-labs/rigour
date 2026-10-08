@@ -45,7 +45,8 @@ export interface LastOptions extends Pick<BacktestOptions, 'reviewer' | 'exec' |
 export async function backtestLast(cwd: string, config: Config, options: LastOptions): Promise<LastReport> {
     const exec = options.exec ?? defaultExec;
     const progress: Progress = options.progress ?? (() => undefined);
-    const prs = await mergedPrs(cwd, options.last, config, exec);
+    const { prs, incomplete } = await mergedPrs(cwd, options.last, config, exec);
+    if (incomplete) progress(`backtest: warning: the listing could not prove these are the last ${options.last} merged pull requests (many old pull requests were updated after merge); the result may miss recent ones`);
     const rounds: LedgerRound[] = [];
     const skipped: string[] = [];
     for (const pr of prs) {
