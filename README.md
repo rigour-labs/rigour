@@ -26,7 +26,8 @@ One piece of work is one **task**, whatever agents and people touch it, and `rig
 
 - **It learns only from evidence**: your rules files, review points that were acted on, people's corrections, and what happened after merge. A guess never becomes a rule.
 - **It shapes and checks the agent; it never changes the model.** No training, no fine-tuning. Any agent, any model.
-- **Concrete taste it captures well** ("bound the window at both ends", "regenerate the manifest after changing events"). Design taste stays with your people: anything Rigour cannot show in code is a should-fix at most, never a block.
+- **Concrete taste it captures well** ("bound the window at both ends", "rerun the code generator after changing the schema"). Design taste stays with your people: anything Rigour cannot show in code is a should-fix at most, never a block.
+- **One machine, many companies, nothing crosses.** Profiles keep each employer's or client's memory, lessons and team apart, chosen by the repository you're in. See [Profiles](docs/PROFILES.md).
 - **It starts from what you have written down.** On day one, the briefing and the reviewer carry your repository's own rules (AGENTS.md, CLAUDE.md, Cursor rules, Copilot instructions). Lessons join as your reviews give them evidence, so a team with little review history starts with little to brief, and the briefing is off until you turn it on.
 
 ## What runs by default, and what it costs
@@ -38,7 +39,7 @@ One piece of work is one **task**, whatever agents and people touch it, and `rig
 | The reviewer | Off until enabled in Studio or `rigour.yml` | Your agent's own model and login, one long read per review; the record of each review shows its cost |
 | A panel of judges | Off; `mode: full` or `panel: on` | One judge's cost per judge, plus a short cross-examination of what they disagree on |
 | A judge through any OpenAI-compatible API | Off; `reviewers: [api]` | The provider's price for your key |
-| The briefing | Off; `rigour hooks init --brief` | No model; with the credential scan on, +21 ms per edit and +104 ms on a file's first edit (measured on a 3,000-file repository) |
+| The briefing | Off; `rigour hooks init --brief` | No model; with the credential scan on, +20 ms per edit and +99 ms on a file's first edit (measured on Rigour's own repository) |
 | The task thread | On wherever the hooks run | A line per event in your git folder |
 
 ## How it works
