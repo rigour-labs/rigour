@@ -101,9 +101,12 @@ review:
     reasoning: { api: medium, codex: medium }   # reasoning effort where a judge takes one
 ```
 
-Rigour runs the loop itself: the model asks for a read-only tool (`read_file`, `search`, `list_dir`,
-a read-only `git`), Rigour runs it inside the checkout and the review's own input folder, and hands
-the result back until the model answers. The same prompt, the same evidence contract, the same
+Rigour runs the loop itself. The first message carries the review's inputs inline (the diff, the
+human reviews, the description, the team knowledge, the hints; a very large diff is cut with a note),
+so a model that never calls a tool still has what it needs; the tools (`read_file`, `search`,
+`list_dir`, a read-only `git`) are for exploring beyond them, inside the checkout and the review's
+own input folder. A judge that gives nothing, twice, is replaced by the next one installed in
+`reviewers`, and the verdict says so; a review is unavailable only when every judge failed. The same prompt, the same evidence contract, the same
 record and trace as a CLI judge; cost when the API reports it, tokens always. The judge is
 installed only when `api` is configured and the key it names is set.
 
