@@ -17,7 +17,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    branchBase, branchFailures, captureHumanEdits, diffFromGit, itemLine, mergeBaseOf, resolveReviewer, reviewChange, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
+    appendTaskEvent, branchBase, branchFailures, captureHumanEdits, diffFromGit, itemLine, mergeBaseOf, resolveReviewer, reviewChange, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
@@ -52,6 +52,7 @@ export async function pushGate(dir: string): Promise<PushGateResult> {
         // learning never blocks a push
     }
     const failures = await gates(repo, base, branch.mainRef, config);
+    appendTaskEvent(repo, { kind: 'push', passed: failures.lines.length === 0, failed: failures.lines.length });
     if (failures.lines.length === 0) return { exitCode: 0, message: await backgroundReviewNote(repo, branch.mainRef, config) };
     const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-push-')), 'gates.log');
     fs.writeFileSync(log, failures.log.join('\n\n'));

@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { recordSessionBaseline } from '@rigour-labs/core';
+import { readThread, recordSessionBaseline } from '@rigour-labs/core';
 import { hooksStopCommand } from './hooks-stop.js';
 
 // A credential header on a redirect-following request: a proven (verified) high finding.
@@ -39,6 +39,8 @@ describe('rigour hooks stop', () => {
         expect(first.decision).toBe('block');
         expect(first.reason).toContain('src/notify.ts:2');
         expect(first.reason).toContain('attempt 1 of 3');
+        // The task's thread keeps the blocked stop review, with the agent and its session.
+        expect(readThread(repo)?.events.map(e => [e.kind, e.agent, e.session, e.blocked])).toEqual([['stop-review', 'claude', 's1', true]]);
         for (const n of [1, 2]) {
             write('src/notify.ts', `${LEAKY}// attempt ${n}\n`); // the agent edits, still leaking
             await hooksStopCommand('claude', payload, '/');

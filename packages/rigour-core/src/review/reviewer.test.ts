@@ -10,6 +10,7 @@ import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
 import { account, attachServedRules, carryResolved, changedLinesOf, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type LabelledPoint, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { recordIntact, recordLines } from './reviewer/record.js';
+import { readThread } from '../task/thread.js';
 
 let repo: string;
 const config = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
@@ -826,5 +827,17 @@ describe('the judge Rigour launches', () => {
         current.versions = { [path.join(bins[0], 'claude')]: '2.1.285 (Claude Code)', [path.join(bins[0], 'claude.cmd')]: '2.1.285 (Claude Code)' };
         const verified = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), current, null), () => undefined, { trigger: 'review', force: true });
         expect(verified.record?.judges.map(j => j.outside_repo)).toEqual([undefined]);
+    });
+});
+
+describe("the review on the task's thread", () => {
+    it('appends each review of a branch to its task, and never a backtest replaying history', async () => {
+        const seen = seenNow();
+        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review' });
+        const thread = readThread(repo, 'feature');
+        expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking])).toEqual([['review', 'review', 'passed', 0]]);
+        expect(thread?.events[0].integrity).toEqual(expect.any(String));
+        await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seenNow()), () => undefined, { pr: 42, reviewsBefore: '2026-10-03', force: true });
+        expect(readThread(repo, 'feature')?.events).toHaveLength(1);
     });
 });

@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import {
     allowLastDLPBlock,
+    appendTaskEvent,
     createDLPAuditEntry,
     formatDLPAlert,
     generateDLPHookFiles,
@@ -818,6 +819,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
     let rawStdin = '';
     let cursorMode = false;
 
+    let hookSession: string | undefined;
     if (options.stdin) {
         rawStdin = await readStdin();
         // Detect Cursor/IDE hook payload format
@@ -828,7 +830,10 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             }
             // The session's first edit fixes the commit its stop review starts from (hooks-stop.ts).
             const session = payload.session_id || payload.conversation_id;
-            if (typeof session === 'string') recordSessionBaseline(cwd, session);
+            if (typeof session === 'string') {
+                recordSessionBaseline(cwd, session);
+                hookSession = session;
+            }
         } catch (parseErr: any) {
             // Not valid JSON — log for debugging (stderr only, stdout must stay clean)
             process.stderr.write(`[rigour-hook-debug] stdin JSON parse failed: ${parseErr?.message?.slice(0, 100)}\n`);
@@ -860,6 +865,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         const outcome = repoResult.status === 'pass' ? 'success' : repoResult.status === 'fail' ? 'rejected' : 'error';
         return [
             Promise.resolve().then(() => recordAgentWrites(root, repoFiles)), // as the agent left them: a person's later change is a lesson
+            Promise.resolve().then(() => appendTaskEvent(root, { kind: 'edit-check', ...(hookSession ? { session: hookSession } : {}), ...(agentId || cursorMode ? { agent: agentId || 'cursor' } : {}), files: repoFiles, findings: repoResult.failures.length, status: repoResult.status })),
             updateAutomaticIndexForFiles(root, repoFiles),
             recordEditCatches(root, repoResult, repoFiles),
             recordInteractionEvidence(root, {

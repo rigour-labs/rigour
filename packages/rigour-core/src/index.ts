@@ -172,3 +172,4 @@ export type { SemanticFinding } from './semantic/types.js';
 export type { ModelUsage } from './storage/index.js';
 export type { CheckpointMetric } from './storage/index.js';
 export type { CursorUsageSyncOptions } from './services/cursor-usage-client.js';
+export { appendTaskEvent, readThread, taskOf, threadText, threadsDir, THREADS_DIR, type TaskEvent, type TaskEventKind, type ThreadEvent } from './task/thread.js';

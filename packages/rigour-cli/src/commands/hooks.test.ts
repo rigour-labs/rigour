@@ -2,6 +2,8 @@
  * Tests for hooks init command.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'child_process';
+import { readThread } from '@rigour-labs/core';
 import { hooksInitCommand, hooksCheckCommand, parseStdinFiles } from './hooks.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -255,6 +257,14 @@ describe('hooksCheckCommand', () => {
 
         const output = stdoutSpy.mock.calls.map(call => String(call[0])).join('');
         expect(output).toContain('"status":"pass"');
+    });
+
+    it("keeps each edit check on the task's thread, with the files and the findings", async () => {
+        execFileSync('git', ['-C', testDir, 'init', '-q', '-b', 'feat/PROJ-21-thread']);
+        fs.writeFileSync(path.join(testDir, 'ok.ts'), 'export const x = 1;\n');
+        vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        await hooksCheckCommand(testDir, { files: 'ok.ts', agent: 'codex' });
+        expect(readThread(testDir, 'PROJ-21')?.events.map(e => [e.kind, e.agent, e.files, e.findings, e.status])).toEqual([['edit-check', 'codex', ['ok.ts'], 0, 'pass']]);
     });
 
     it('reports skipped, not pass, when the hook named no file', async () => {

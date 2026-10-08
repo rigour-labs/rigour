@@ -37,6 +37,7 @@ import { buildContext, dismissedAs, readReviewDismissals, relatedDocs, type Revi
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
+import { appendTaskEvent } from '../task/thread.js';
 
 export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
 export { itemLine, type OpenItem } from './reviewer/verdict.js';
@@ -142,7 +143,14 @@ const MAX_DELTA_LINES = 400;
 /** The reviewer, and one anonymous usage event for what it did (only when the person opted in to telemetry). */
 export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec, progress: Progress = message => process.stderr.write(`${message}\n`), options: ReviewerOptions = {}): Promise<ReviewerResult> {
     const result = await review(cwd, base, config, exec, progress, options);
-    await trackUsage('reviewer_completed', reviewerUsage(result, options.trigger ?? (options.reviewsBefore ? 'backtest' : 'review')));
+    const trigger = options.trigger ?? (options.reviewsBefore ? 'backtest' : 'review');
+    await trackUsage('reviewer_completed', reviewerUsage(result, trigger));
+    // On the task's thread, unless it replays history: a backtest's worktree is not anyone's task.
+    if (trigger !== 'backtest' && result.outcome !== 'skipped') appendTaskEvent(cwd, {
+        kind: 'review', trigger, outcome: result.outcome, blocking: result.items.length, should_fix: result.advisory.length,
+        ...(result.pr ? { pr: result.pr } : {}),
+        ...(result.record ? { integrity: result.record.integrity, cost_usd: result.record.judges.reduce((sum, j) => sum + (j.cost_usd ?? 0), 0), judges: result.record.judges.map(j => j.reviewer) } : {}),
+    });
     return result;
 }
 

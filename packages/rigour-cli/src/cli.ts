@@ -14,6 +14,7 @@ import { demoCommand } from './commands/demo.js';
 import { hooksInitCommand, hooksCheckCommand } from './commands/hooks.js';
 import { hooksStopCommand } from './commands/hooks-stop.js';
 import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
+import { threadCommand } from './commands/thread.js';
 import { hooksPushCommand } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
 import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
@@ -514,6 +515,14 @@ hooksCmd
         const tool = options.tool === 'cursor' ? 'cursor' : 'claude';
         const reply = await hooksStopCommand(tool, Buffer.concat(chunks).toString('utf8'), process.cwd());
         if (reply) process.stdout.write(reply + '\n');
+    });
+
+program
+    .command('thread [key]')
+    .description('The thread of an engineering task: what agents, checks, pushes and reviews did to it, in order. Key: a ticket (PROJ-123), a branch, or a pull request (#42); the checkout\'s own task by default')
+    .option('--json', 'Output the thread in JSON format')
+    .action((key: string | undefined, options: any) => {
+        process.exit(threadCommand(process.cwd(), key, options));
     });
 
 const backtestCmd = program
