@@ -95,6 +95,17 @@ describe('the API judge', () => {
         expect(seen[0].max_tokens).toBe(32000);
     });
 
+    it('gives the judge its inputs inline, smallest first, the diff cut with a note when the budget runs out', async () => {
+        const { fetchImpl, seen } = model([{ text: 'ok' }]);
+        const inputs = [{ path: '/w/full.diff', text: 'x'.repeat(300_000) }, { path: '/w/pr-description.md', text: 'the description' }, { path: '/w/previous-reviews.md', text: 'the reviews' }];
+        await runApiJudge('review this', options(fetchImpl, { inputs }));
+        const first = seen[0].messages[1].content as string;
+        expect(first.startsWith('review this\n\nThe inputs named above, inline')).toBe(true);
+        expect(first.indexOf('### /w/previous-reviews.md')).toBeLessThan(first.indexOf('### /w/full.diff')); // smallest first
+        expect(first).toContain('…[cut here: read /w/full.diff with read_file for the rest]');
+        expect(first.length).toBeLessThan(241_000);
+    });
+
     it('passes the reasoning effort when asked', async () => {
         const { fetchImpl, seen } = model([{ text: 'ok' }]);
         await runApiJudge('p', options(fetchImpl, { reasoning: 'low' }));

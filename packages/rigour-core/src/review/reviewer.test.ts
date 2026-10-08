@@ -176,7 +176,7 @@ describe('the reviewer', () => {
         expect(hidden.outcome).toBe('passed');
         const shown = await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seen), () => undefined, { pr: 42, reviewsBefore: '2026-10-04', force: true });
         expect(seen.files['previous-reviews.md']).toContain('Review by senior');
-        expect(shown).toMatchObject({ outcome: 'unavailable', reason: 'claude did not report on the human reviews' });
+        expect(shown).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('did not report on the human reviews') });
     });
 
     it('for a backtest, gives the description as it read at the review, never a later edit', async () => {
@@ -209,7 +209,7 @@ describe('the reviewer', () => {
 
     it('never passes without a verdict: a crash, a malformed answer, an unreadable pull request or no installed reviewer', async () => {
         const crashed = await runReviewer(repo, 'main', config, fakes(() => ({ exitCode: 1, stdout: '', stderr: 'API error' }), seenNow()), () => undefined);
-        expect(crashed).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('claude: no answer (exit 1)') });
+        expect(crashed).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('cursor: no answer (exit 1)'), mode: { degraded: expect.stringContaining('claude gave no verdict, cursor judged instead') } }); // the spare judge ran too, and failed too
         const prose = await runReviewer(repo, 'main', config, fakes(() => 'Looks good to me!', seenNow()), () => undefined);
         expect(prose).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('no valid verdict') });
         const broken: Exec = async (command, args, options) => command === 'gh' && args[0] === 'pr' ? { exitCode: 1, stdout: '', stderr: 'HTTP 500' } : fakes(() => '', seenNow())(command, args, options);
@@ -294,6 +294,20 @@ describe('the reviewer', () => {
         }
     });
 
+    it('replaces a judge that gives nothing with the next one installed, and says so', async () => {
+        const seen = seenNow();
+        const silent = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 0 } }), { status: 200 })) as unknown as typeof fetch;
+        const twoJudges = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['api', 'claude'], api: { url: 'https://example.test/v1', model: 'silent-model', key_env: 'TEST_JUDGE_KEY' } } } });
+        process.env.TEST_JUDGE_KEY = 'secret';
+        try {
+            const result = await runReviewer(repo, 'main', twoJudges, fakes(() => JSON.stringify(EMPTY), seen), () => undefined, { fetch: silent, force: true });
+            expect(result).toMatchObject({ outcome: 'passed', reviewers: ['claude'], mode: { degraded: expect.stringContaining('api gave no verdict, claude judged instead') } });
+            expect(seen.prompts).toHaveLength(1); // claude ran once, after the api judge's two empty answers
+        } finally {
+            delete process.env.TEST_JUDGE_KEY;
+        }
+    });
+
     it('asks a judge once more after an answer that is not a verdict, and is unavailable only when the second is not one either', async () => {
         const seen = seenNow();
         let calls = 0;
@@ -303,7 +317,7 @@ describe('the reviewer', () => {
         const twice = seenNow();
         const slipTwice = await runReviewer(repo, 'main', config, fakes(() => 'not json', twice), () => undefined, { force: true });
         expect(slipTwice).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('no valid verdict') });
-        expect(twice.prompts).toHaveLength(2); // once more, never a loop
+        expect(twice.prompts).toHaveLength(3); // once more, then the spare judge once: never a loop
     });
 
     it('says what was asked and that nothing ran when a review ends early, with why a judge is missing', async () => {

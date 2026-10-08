@@ -25,6 +25,8 @@ export interface ApiJudgeOptions {
     roots: string[];
     reasoning?: Reasoning;
     fetchImpl?: typeof fetch;
+    /** The review's input files, given inline in the first message: a model that never calls a tool still has what it needs. */
+    inputs?: Array<{ path: string; text: string }>;
 }
 
 export interface ApiJudgeRun { exitCode: number; stdout: string; stderr: string }
@@ -36,6 +38,8 @@ const SYSTEM = 'You review code with read-only tools. Read the files the task na
 const MAX_RESULT_CHARS = 60_000;
 /** Output tokens a turn may use, reasoning included: a review verdict is long, and a reasoning model's thinking counts against the default budget. */
 const MAX_OUTPUT_TOKENS = 32_000;
+/** Characters of the inputs given inline in the first message; the rest stays in the files, for the tools. */
+const MAX_INLINE_CHARS = 240_000;
 const GIT_ALLOWED = new Set(['log', 'show', 'diff', 'blame', 'grep', 'ls-files', 'rev-parse', 'merge-base']);
 /** Git options that write, or point git at another repository. */
 const GIT_REFUSED = /^(--output|-o$|--git-dir|--work-tree|-C$|--exec-path|-c$|--config-env)/;
@@ -52,7 +56,7 @@ const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 export async function runApiJudge(prompt: string, o: ApiJudgeOptions): Promise<ApiJudgeRun> {
     const fetchImpl = o.fetchImpl ?? fetch;
     const deadline = Date.now() + o.timeoutMs;
-    const messages: any[] = [{ role: 'system', content: SYSTEM }, { role: 'user', content: prompt }];
+    const messages: any[] = [{ role: 'system', content: SYSTEM }, { role: 'user', content: withInputs(prompt, o.inputs ?? []) }];
     const usage: RunTrace['usage'] = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
     const calls: RunTrace['calls'] = [];
     let cost: number | undefined;
@@ -110,6 +114,22 @@ export async function runApiJudge(prompt: string, o: ApiJudgeOptions): Promise<A
         }
     }
     return fail(`no answer within ${o.maxTurns} turns`);
+}
+
+/**
+ * The prompt with the inputs it names appended inline, smallest first so the diff takes what budget is left: a judge
+ * is fed, not left to decide whether to read. What does not fit is cut with a note naming the file to read.
+ */
+function withInputs(prompt: string, inputs: Array<{ path: string; text: string }>): string {
+    if (inputs.length === 0) return prompt;
+    const ordered = [...inputs].sort((a, b) => a.text.length - b.text.length);
+    let left = MAX_INLINE_CHARS;
+    const parts = ordered.map(input => {
+        const text = input.text.length > left ? `${input.text.slice(0, Math.max(0, left))}\n…[cut here: read ${input.path} with read_file for the rest]` : input.text;
+        left = Math.max(0, left - input.text.length);
+        return `### ${input.path}\n${text}`;
+    });
+    return `${prompt}\n\nThe inputs named above, inline (the files are also there for your tools):\n\n${parts.join('\n\n')}`;
 }
 
 /** One tool call, inside the allowed roots only; the trace names tools as the CLI judges do (Read, Grep, Glob, Bash). */

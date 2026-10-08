@@ -288,8 +288,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
+    let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
-        ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
+        ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
         : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env) });
     try {
         const file = (name: string, text: string) => {
@@ -303,6 +304,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const diffFile = file('full.diff', fullDiff);
         const contextFile = file('team-knowledge.md', context.text);
         const hintsFile = file('hints.txt', options.hints?.trim() || 'none\n');
+        inlineInputs = [[reviewsFile, reviews.markdown], [prBodyFile, body], [diffstatFile, await git(['diff', '--stat', `${baseSha}...HEAD`])], [diffFile, fullDiff], [contextFile, context.text], [hintsFile, options.hints?.trim() || 'none\n']].map(([p, text]) => ({ path: p, text }));
         let delta = '';
         // A reviewer must report on the human reviews, unless every point was settled by the previous verdict and is carried.
         let needsPriorPoints = reviews.count > 0;
@@ -344,6 +346,22 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 }
                 return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };
             }));
+            // A judge that gives nothing is replaced by the next one installed, so the boundary stays up: a review ends unavailable only when every judge failed.
+            const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
+            for (let i = 0; i < answers.length; i++) {
+                let answer = answers[i];
+                while ('error' in answer && spare.length && !overBudget(store.spend(), settings, 1)) {
+                    const next = spare.shift()!;
+                    progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
+                    modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
+                    reviewers[i] = next;
+                    const run = await runJudge(next, prompt, modelFor(next));
+                    const got = ADAPTERS[next].answer(run.stdout);
+                    store.addSpend(1, got.costUsd);
+                    answer = run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
+                }
+                answers[i] = answer;
+            }
             const failed = answers.find(a => 'error' in a);
             if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
             parts = answers.map(a => (a as { verdict: Verdict }).verdict);
