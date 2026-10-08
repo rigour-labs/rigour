@@ -5,7 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { ledgerProblems, loadLedger, LEDGER_PATH, LedgerSchema } from './backtest.js';
-import { scaffoldLedger } from './backtest-init.js';
+import { mergedPrs, scaffoldLedger } from './backtest-init.js';
 import type { Exec } from './reviewer.js';
 
 let repo: string;
@@ -98,5 +98,46 @@ describe('rigour backtest init', () => {
         await scaffoldLedger(repo, 212, config, fakeExec([]));
         const written = LedgerSchema.parse(JSON.parse(fs.readFileSync(path.join(repo, LEDGER_PATH), 'utf8')));
         expect(written.rounds.map(r => [r.id, r.commit])).toEqual([['pr7-r1', 'other00'], ['pr212-r1', 'c2c2c2c2c2']]);
+    });
+});
+
+describe('the last N merged pull requests', () => {
+    const run = async (pages: (limit: number) => Array<{ number: number; mergedAt: string; updatedAt: string }>) => {
+        const limits: number[] = [];
+        const exec: Exec = async (command, args, options) => {
+            if (command === 'gh' && args[0] === 'auth') return { exitCode: 0, stdout: 'token\n', stderr: '' };
+            if (command === 'gh' && args[0] === 'pr') {
+                expect(args).toEqual(expect.arrayContaining(['--search', 'sort:updated-desc', '--json', 'number,mergedAt,updatedAt']));
+                const limit = Number(args[args.indexOf('--limit') + 1]);
+                limits.push(limit);
+                return { exitCode: 0, stdout: JSON.stringify(pages(limit).slice(0, limit)), stderr: '' };
+            }
+            return fakeExec([])(command, args, options);
+        };
+        return { ...(await mergedPrs(repo, 2, config, exec)), limits };
+    };
+    const pr = (number: number, mergedAt: string, updatedAt = mergedAt) => ({ number, mergedAt: `2026-04-${mergedAt}T00:00:00Z`, updatedAt: `2026-04-${updatedAt}T00:00:00Z` });
+
+    it('keeps the N most recently merged: a long-lived pull request merged last is in, one merged first is out', async () => {
+        const { prs, incomplete, limits } = await run(() => [pr(3, '12'), pr(6, '10'), pr(5, '05'), pr(7, '01')]);
+        expect(prs.map(p => p.number)).toEqual([3, 6]);
+        expect(incomplete).toBe(false);
+        expect(limits).toEqual([8]); // fewer listed than asked for: that is everything
+    });
+
+    it('lists more when old pull requests touched after merge crowd the window, until the result is provably complete', async () => {
+        // Eight old pull requests a bot touched on the 20th, then the two real latest merges.
+        const all = [...Array.from({ length: 8 }, (_, i) => pr(100 + i, '02', '20')), pr(3, '12'), pr(6, '10'), pr(5, '05')];
+        const { prs, incomplete, limits } = await run(() => all);
+        expect(limits).toEqual([8, 16]); // the first page held only crowding bots' touches: its oldest update (the 20th) is after the merges kept
+        expect(prs.map(p => p.number)).toEqual([3, 6]);
+        expect(incomplete).toBe(false);
+    });
+
+    it('stops at the cap and says the result may be incomplete', async () => {
+        const crowd = Array.from({ length: 200 }, (_, i) => pr(1000 + i, '01', '28'));
+        const { incomplete, limits } = await run(() => crowd);
+        expect(limits).toEqual([8, 16, 32, 64]);
+        expect(incomplete).toBe(true);
     });
 });
