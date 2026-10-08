@@ -229,7 +229,9 @@ export interface ChangeShape {
  * apply to other files. A team standard (a lesson with no file) applies to every
  * change; the best-evidenced few follow the file lessons.
  */
-export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, options: { includeCandidates?: boolean; limit?: number; standards?: number } = {}): ReviewLesson[] {
+export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, options: { includeCandidates?: boolean; limit?: number; standards?: number; perFile?: number; excludePr?: number } = {}): ReviewLesson[] {
+    // A lesson whose only evidence is the pull request under review is already in front of the judge as the reviewer's own points.
+    if (options.excludePr !== undefined) lessons = lessons.filter(l => !l.evidence.length || l.evidence.some(e => e.pr !== options.excludePr));
     const dirs = new Set(change.files.map(f => path.posix.dirname(f)));
     const scored = lessons
         .filter(l => !!l.file && (l.state === 'verified' || (options.includeCandidates && l.state === 'candidate')) && !NOT_CODE.test(l.file))
@@ -250,7 +252,18 @@ export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, optio
         .sort((a, b) => b.shared - a.shared || b.lesson.evidence.length - a.lesson.evidence.length)
         .slice(0, options.standards ?? MAX_STANDARDS)
         .map(s => s.lesson);
-    return [...scored.slice(0, options.limit ?? 5).map(s => s.lesson), ...standards];
+    // On a large change, one file's many lessons must not crowd out another file's only one: a cap per file, then the total.
+    const perFile = options.perFile ?? Infinity;
+    const taken: ReviewLesson[] = [];
+    const perFileCount = new Map<string, number>();
+    for (const { lesson } of scored) {
+        if (taken.length >= (options.limit ?? 5)) break;
+        const n = perFileCount.get(lesson.file) ?? 0;
+        if (n >= perFile) continue;
+        perFileCount.set(lesson.file, n + 1);
+        taken.push(lesson);
+    }
+    return [...taken, ...standards];
 }
 
 /** RIGOUR_REVIEW_LESSONS points at a lessons file outside the clone (CI, or a team's shared copy). */

@@ -105,6 +105,15 @@ describe('lessons', () => {
         const change = { files: ['src/orders.ts'], symbols: new Set(['insert', 'insertOrder', 'orderId']) };
         expect(matchLessons(lessons, change).map(l => l.id)).toEqual(['2', '1']); // two specific shared names outrank a same-file lesson with only generic ones
         expect(matchLessons(lessons, change, { includeCandidates: true }).map(l => l.id)).toEqual(['2', '1', '3']);
+        // A lesson learned only from the pull request under review is its own reviews, already in front of the judge.
+        const own = { ...base, id: '7', text: 'from this very pull request', file: 'src/orders.ts', state: 'verified' as const, evidence: [{ pr: 42, comment: 'c', author: 'r' }] };
+        const also = { ...own, id: '8', text: 'from this and another', evidence: [{ pr: 42, comment: 'c', author: 'r' }, { pr: 3, comment: 'd', author: 'r' }] };
+        expect(matchLessons([...lessons, own, also], change, { excludePr: 42 }).map(l => l.id).sort()).toEqual(['1', '2', '8']); // '7' is left out; '8' has evidence elsewhere too
+        // One file's many lessons never crowd out another file's only one.
+        const many = Array.from({ length: 6 }, (_, i) => ({ ...base, id: `m${i}`, text: `orders lesson ${i}`, file: 'src/orders.ts', state: 'verified' as const, symbols: ['insertOrder', 'orderId'] }));
+        const lone = { ...base, id: 'lone', text: 'the only lesson about the manifest', file: 'src/manifest.sha', state: 'verified' as const };
+        const served = matchLessons([...many, lone], { files: ['src/orders.ts', 'src/manifest.sha'], symbols: new Set(['insertOrder', 'orderId']) }, { limit: 4, perFile: 3 });
+        expect(served.map(l => l.id)).toEqual(['m0', 'm1', 'm2', 'lone']);
     });
 });
 

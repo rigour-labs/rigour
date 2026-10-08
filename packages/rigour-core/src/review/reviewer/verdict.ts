@@ -292,7 +292,8 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     // breaks it (checked like any quote); guidance broken is shown. The rule's words and weight are Rigour's, not the judge's.
     for (const r of verdict.rules ?? []) {
         if (r.status !== 'broken' || !r.rule) continue;
-        const item: OpenItem = { id: id('repo-rule', r.file, r.id), kind: 'rule', class: 'repo-rule', file: r.file, line: r.line, issue: `breaks a rule this repository wrote for itself (${r.source}): ${r.rule}`, consequence: r.requirement ? 'the team wrote this rule as a requirement' : 'the team wrote this rule as guidance', ...(r.quote ? { quote: r.quote } : {}), evidence: r.evidence, reviewer: r.reviewer };
+        // The rule's own words are the issue, so the same point found as a finding reads alike; where it came from is the evidence.
+        const item: OpenItem = { id: id('repo-rule', r.file, r.id), kind: 'rule', class: 'repo-rule', file: r.file, line: r.line, issue: r.rule, consequence: r.requirement ? 'the team wrote this rule as a requirement' : 'the team wrote this rule as guidance', ...(r.quote ? { quote: r.quote } : {}), evidence: `breaks a rule this repository wrote for itself (${r.source})${r.evidence ? `: ${r.evidence}` : ''}`, reviewer: r.reviewer };
         if (r.requirement) add(item);
         else advise(item);
     }
@@ -332,8 +333,10 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory) };
 }
 
-/** How alike two items' words must be to be the same point made in two places. */
+/** How alike two items' words must be to be the same point made in two places; and, on the same lines, to be one point said two ways. */
 const SAME_POINT = 0.6;
+const SAME_PLACE = 0.3;
+const SAME_LINES = 3;
 
 /**
  * The same point found in several places is one item carrying every location, so a person reads one
@@ -342,7 +345,9 @@ const SAME_POINT = 0.6;
 function onePerRootCause(items: OpenItem[]): OpenItem[] {
     const kept: OpenItem[] = [];
     for (const item of items) {
-        const same = item.kind === 'prior' ? undefined : kept.find(k => k.kind !== 'prior' && k.class === item.class && textSimilarity(k, item) >= SAME_POINT);
+        // The same class in the same words anywhere, or any two non-human items on the same lines that read alike (a rule break and the finding it caused).
+        const nearby = (k: OpenItem) => !!k.file && k.file === item.file && k.line !== undefined && item.line !== undefined && Math.abs(k.line - item.line) <= SAME_LINES;
+        const same = item.kind === 'prior' ? undefined : kept.find(k => k.kind !== 'prior' && ((k.class === item.class && textSimilarity(k, item) >= SAME_POINT) || (nearby(k) && textSimilarity(k, item) >= SAME_PLACE)));
         if (!same) {
             kept.push(item);
             continue;

@@ -33,6 +33,9 @@ describe('repository rules', () => {
         expect(rules[1]).toMatchObject({ paths: ['src/lib/delivery.ts'], symbols: ['deliverOrder'] });
         expect(rules[0].paths).toEqual(['migrations/']);
         expect(rules.map(r => r.requirement)).toEqual([true, true, false]); // "never", "every"; "prefer" is guidance
+        // A section that only describes an exception, with no imperative, is guidance; one that ends in an imperative is a requirement.
+        const [exceptionOnly, withImperative] = splitRules('AGENTS.md', '- **One narrow exception:** the queue table is still literally named `study_jobs`, not renamed with the feature.\n\n- **One narrow exception:** the queue table is still literally named `study_jobs`. Import the `JOBS_TABLE` constant; do not inline the raw table name again.\n');
+        expect([exceptionOnly.requirement, withImperative.requirement]).toEqual([false, true]);
         expect(rules[0].id).toMatch(/^[0-9a-f]{10}$/);
         expect(splitRules('AGENTS.md', AGENTS)[0].id).toBe(rules[0].id); // stable across runs
     });

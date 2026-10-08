@@ -28,6 +28,9 @@ export const REVIEW_DISMISSALS = path.join('.rigour', 'dismissed-review-items.js
 const MAX_DOCS = 10;
 /** Team standards a judge is shown with the lessons about the changed files. */
 const JUDGE_STANDARDS = 15;
+/** File lessons a judge is shown: on a pull request touching a hundred files, enough for every file, at most this many per file. */
+const JUDGE_FILE_LESSONS = 30;
+const JUDGE_LESSONS_PER_FILE = 3;
 /** Rules from the repository's own rules files a judge is asked to answer, most relevant first. */
 const JUDGE_RULES = 15;
 const MAX_SETTLED = 40;
@@ -81,6 +84,8 @@ export interface ContextInput {
     router: RouterPolicy | undefined;
     /** Which of the team's review lessons the judges see (gates.deep.review_lessons): verified by default, all, or off. */
     lessons?: LessonMode;
+    /** The pull request under review: lessons learned only from it are its own reviews, which the judge already reads. */
+    pr?: number;
     /** The previous verdict's panel decisions, and the files changed since it. */
     previousPanel: PanelItem[] | undefined;
     touched: Set<string>;
@@ -105,7 +110,7 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
         task = undefined;
     }
     // A judge reads the whole pull request: more of what the team taught fits than an agent's one question at the stop.
-    const lessons = input.lessons === 'off' ? [] : lessonsForDiff(input.cwd, input.diff, input.lessons, JUDGE_STANDARDS).map(lessonView);
+    const lessons = input.lessons === 'off' ? [] : lessonsForDiff(input.cwd, input.diff, input.lessons, JUDGE_STANDARDS, JUDGE_FILE_LESSONS, JUDGE_LESSONS_PER_FILE, input.pr).map(lessonView);
     if (lessons.length) sections.push(`## Lessons this team taught on earlier reviews, for what this change touches (context: a lesson never blocks on its own; a finding still needs its quote)\n${lessons.map(l => `- ${describeLesson(l)}`).join('\n')}`);
     // The repository's own rules, always: the reviewer is the boundary, and what the team wrote is the standard it checks.
     const rules = rulesForDiff(input.cwd, input.diff, true, JUDGE_RULES).map((r): ServedRule => ({ id: r.id, source: r.source, text: r.text, requirement: r.requirement }));
