@@ -2,6 +2,33 @@
 
 This checklist is release-blocking for end-user readiness.
 
+## How a release reaches `latest`
+
+`next` is the release candidate; `main` is `latest`. Pull requests target `next`.
+
+1. **A merge to `next`** with a `feat:` or `fix:` commit: semantic-release publishes every package as a release
+   candidate (`6.9.0-rc.1`, `rc.2`, ...) under the `next` dist-tag. `npm install @rigour-labs/cli` is unaffected;
+   `npm install @rigour-labs/cli@next` gets the candidate.
+2. **Release Gates** run on the published candidate (automatic, `scripts/release-gates.mjs`, in throwaway folders with
+   their own HOME and npm cache):
+   - a clean install of every package from an empty cache, failing on any deprecation warning;
+   - the first commands a user runs: `init`, `check`, `review --base main --json` (it must say what it checked),
+     `brief --json`, `thread --json`;
+   - an upgrade from the current `latest`: a repository set up with it opens with the new version, nothing it wrote lost;
+   - no credential-shaped string in any published tarball.
+   **Distribution Smoke** installs the exact version with `npx` and `npm i -g` on Linux, macOS and Windows.
+3. **A pull request from `next` into `main`**, merged by a maintainer once the candidate's gates are green and any
+   private checks of their own pass, is the decision to release. On main, semantic-release publishes the final version
+   under `pending`, the same gates and smoke run on it, and only then does **Promote to latest** move `latest`, publish
+   the Homebrew formula and the MCP Registry entry. **Homebrew Smoke** then installs from the tap on macOS.
+4. After a release, merge `main` back into `next` so the next candidate starts from it.
+
+Run the gates by hand on any published version: `node scripts/release-gates.mjs <version> [previous]`.
+
+**Rollback:** point `latest` back at the previous version, package by package:
+`node scripts/promote-release.mjs <previous> latest`. A version left at `pending` or `next` is never installed by
+default; the next release supersedes it.
+
 ## Packaging
 - [ ] `npm view @rigour-labs/cli version` returns the target release version.
 - [ ] `npm view @rigour-labs/core version` matches CLI version.

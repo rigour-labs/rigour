@@ -2,9 +2,9 @@ name: Pipeline
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ main, next, dev ]
   pull_request:
-    branches: [ main, dev ]
+    branches: [ main, next, dev ]
 
 permissions:
   contents: write
@@ -100,7 +100,7 @@ jobs:
     needs: [already-tested, test]
     # Released only after the tests passed here, or the same tree passed in its pull request.
     if: >-
-      !cancelled() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      !cancelled() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' || github.ref == 'refs/heads/dev')
       && !contains(github.event.head_commit.message, '[skip ci]')
       && (needs.test.result == 'success' || (needs.test.result == 'skipped' && needs.already-tested.outputs.tested == 'true'))
     runs-on: ubuntu-latest
@@ -108,6 +108,8 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     outputs:
       cli_version: ${{ steps.capture_version.outputs.cli_version }}
+      promotable: ${{ steps.capture_version.outputs.promotable }}
+      gate: ${{ steps.capture_version.outputs.gate }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -154,11 +156,11 @@ jobs:
         run: |
           set -euo pipefail
           if printf '%s' "$HEAD_COMMIT_MESSAGE" | grep -q '\[skip release\]'; then
-            if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
-              VERSION=$(npm view @rigour-labs/cli dist-tags.beta 2>/dev/null || npm view @rigour-labs/cli version)
-            else
-              VERSION=$(npm view @rigour-labs/cli version)
-            fi
+            case "${GITHUB_REF}" in
+              refs/heads/dev) VERSION=$(npm view @rigour-labs/cli dist-tags.beta 2>/dev/null || npm view @rigour-labs/cli version) ;;
+              refs/heads/next) VERSION=$(npm view @rigour-labs/cli dist-tags.next 2>/dev/null || npm view @rigour-labs/cli version) ;;
+              *) VERSION=$(npm view @rigour-labs/cli version) ;;
+            esac
             echo "Commit requests [skip release]. Using published CLI ${VERSION}."
             echo "skip_release=true" >> "$GITHUB_OUTPUT"
             echo "existing_tag=v${VERSION}" >> "$GITHUB_OUTPUT"
@@ -166,6 +168,8 @@ jobs:
           fi
           if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
             TAG_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          elif [ "${GITHUB_REF}" = "refs/heads/next" ]; then
+            TAG_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$'
           else
             TAG_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$'
           fi
@@ -232,22 +236,30 @@ jobs:
           elif [ "${{ steps.semantic_release.outputs.published }}" = "true" ]; then
             VERSION=$(node -p "require('./packages/rigour-cli/package.json').version")
           else
-            if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
-              VERSION=$(npm view @rigour-labs/cli dist-tags.beta 2>/dev/null || npm view @rigour-labs/cli version)
-            else
-              VERSION=$(npm view @rigour-labs/cli version)
-            fi
+            case "${GITHUB_REF}" in
+              refs/heads/dev) VERSION=$(npm view @rigour-labs/cli dist-tags.beta 2>/dev/null || npm view @rigour-labs/cli version) ;;
+              refs/heads/next) VERSION=$(npm view @rigour-labs/cli dist-tags.next 2>/dev/null || npm view @rigour-labs/cli version) ;;
+              *) VERSION=$(npm view @rigour-labs/cli version) ;;
+            esac
           fi
           echo "cli_version=$VERSION" >> "$GITHUB_OUTPUT"
+          # What the gates run on: a release candidate on next, and a stable version on main that is not yet `latest` (which
+          # the promote job then moves). A re-run of a half-done release finds it here too, so it is finished, never left
+          # at `pending`.
+          LATEST=$(npm view @rigour-labs/cli dist-tags.latest 2>/dev/null || true)
+          PROMOTABLE=false
+          GATE=false
+          if [ "${GITHUB_REF}" = "refs/heads/main" ] && [ "${VERSION#*-}" = "$VERSION" ] && [ "$VERSION" != "$LATEST" ]; then
+            PROMOTABLE=true
+            GATE=true
+          elif [ "${GITHUB_REF}" = "refs/heads/next" ] && [ "${VERSION#*-rc.}" != "$VERSION" ]; then
+            GATE=true
+          fi
+          echo "promotable=$PROMOTABLE" >> "$GITHUB_OUTPUT"
+          echo "gate=$GATE" >> "$GITHUB_OUTPUT"
 
       - name: Verify npm release is installable
         run: node scripts/npm-release-readiness.mjs "${{ steps.capture_version.outputs.cli_version }}"
-
-      # A stable release is published under `pending`; only now that every package installs does
-      # `latest` move to it, so nobody is pointed at a version npm cannot serve yet. Safe to re-run.
-      - name: Promote the release to latest
-        if: success() && github.ref == 'refs/heads/main'
-        run: node scripts/promote-release.mjs "${{ steps.capture_version.outputs.cli_version }}" latest
 
       # Every step from here is safe to run again, and runs on a re-run too, for the version
       # this commit released: a release interrupted after npm publish is finished by re-running
@@ -268,100 +280,11 @@ jobs:
             echo "No tag v${VERSION} in this checkout: nothing to release here."
           fi
 
-      - name: Publish Homebrew Formula
-        if: success() && github.ref == 'refs/heads/main'
-        env:
-          HOMEBREW_TAP_GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GH_TOKEN }}
-          HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'rigour-labs/homebrew-tap' }}
-          VERSION: ${{ steps.capture_version.outputs.cli_version }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${HOMEBREW_TAP_GH_TOKEN:-}" ]; then
-            echo "HOMEBREW_TAP_GH_TOKEN is not set. Skipping Homebrew publish."
-            exit 0
-          fi
-
-          TARBALL_URL="https://registry.npmjs.org/@rigour-labs/cli/-/cli-${VERSION}.tgz"
-          TARBALL_PATH="/tmp/rigour-cli-${VERSION}.tgz"
-
-          echo "Preparing Homebrew formula for version ${VERSION}"
-          curl -fsSL "${TARBALL_URL}" -o "${TARBALL_PATH}"
-          SHA256=$(sha256sum "${TARBALL_PATH}" | awk '{print $1}')
-
-          TAP_DIR="/tmp/homebrew-tap"
-          rm -rf "${TAP_DIR}"
-          git clone "https://x-access-token:${HOMEBREW_TAP_GH_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" "${TAP_DIR}"
-
-          mkdir -p "${TAP_DIR}/Formula"
-          cat > "${TAP_DIR}/Formula/rigour.rb" <<EOF
-          class Rigour < Formula
-            desc "Rigour CLI quality gates for AI-generated code"
-            homepage "https://github.com/rigour-labs/rigour"
-            url "${TARBALL_URL}"
-            sha256 "${SHA256}"
-            license "MIT"
-
-            depends_on "node"
-
-            def install
-              # Fresh publishes must install immediately in CI / same-day brew installs.
-              # Homebrew/npm may otherwise enforce a min-release-age window (ETARGET).
-              system "npm", "install", *std_npm_args(prefix: libexec), "--min-release-age=0"
-              bin.install_symlink Dir["#{libexec}/bin/*"]
-            end
-
-            test do
-              system "#{bin}/rigour", "--version"
-            end
-          end
-          EOF
-
-          cd "${TAP_DIR}"
-          ruby -c Formula/rigour.rb
-          grep -q 'std_npm_args(prefix: libexec)' Formula/rigour.rb
-          if grep -q 'std_npm_args(libexec)' Formula/rigour.rb; then
-            echo "Invalid Homebrew formula: legacy std_npm_args(libexec) detected."
-            exit 1
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/rigour.rb
-          if git diff --cached --quiet; then
-            echo "Homebrew formula already up to date."
-            exit 0
-          fi
-          git commit -m "chore: bump rigour to v${VERSION}"
-          git push origin HEAD
-          echo "Homebrew formula updated in ${HOMEBREW_TAP_REPO}"
-
-      - name: Publish to MCP Registry
-        if: success() && github.ref == 'refs/heads/main'
-        working-directory: packages/rigour-mcp
-        env:
-          VERSION: ${{ steps.capture_version.outputs.cli_version }}
-        run: |
-          set -euo pipefail
-          NAME=$(jq -r .name server.json)
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.modelcontextprotocol.io/v0/servers/$(jq -rn --arg n "$NAME" '$n|@uri')/versions/${VERSION}")
-          if [ "$STATUS" = "200" ]; then
-            echo "MCP Registry already has ${NAME} ${VERSION}."
-            exit 0
-          fi
-          echo "Syncing server.json to version $VERSION"
-          jq ".version = \"$VERSION\" | .packages[0].version = \"$VERSION\"" server.json > server.json.tmp && mv server.json.tmp server.json
-          
-          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
-          chmod +x mcp-publisher
-          ./mcp-publisher login github-oidc
-          ./mcp-publisher publish
-
   distribution-smoke:
     name: Distribution Smoke (${{ matrix.os }}, Node ${{ matrix.node }})
     needs: release
     # Smoke the exact stable or beta CLI version captured by the release job.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && needs.release.result == 'success'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' || github.ref == 'refs/heads/dev') && needs.release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -441,8 +364,142 @@ jobs:
           cd "$smoke_dir"
           rigour hooks check --files sample.ts
 
+  # The gates every release candidate (next) and every stable release (main, under `pending`) passes, on the
+  # published packages: a clean install from an empty cache with no deprecation warning, the commands a user runs
+  # first, an upgrade from the current `latest` that keeps its state, and no credential-shaped string in a tarball
+  # (scripts/release-gates.mjs). Merging next into main is the decision to release; these gates are its evidence.
+  release-gates:
+    name: Release Gates
+    needs: release
+    if: needs.release.result == 'success' && needs.release.outputs.gate == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Gate the pending release
+        run: node scripts/release-gates.mjs "${{ needs.release.outputs.cli_version }}"
+
+  # On main, `latest` moves only after the gates and the cross-platform smoke pass on the version under `pending`.
+  # The decision to release was merging next into main, after the same gates passed on its release candidate.
+  # Rollback: node scripts/promote-release.mjs <previous> latest.
+  promote:
+    name: Promote to latest
+    needs: [release, release-gates, distribution-smoke]
+    if: needs.release.outputs.promotable == 'true' && needs.release-gates.result == 'success' && needs.distribution-smoke.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Safe to re-run: a package whose `latest` already points at the version is left alone.
+      - name: Promote the release to latest
+        run: node scripts/promote-release.mjs "${{ needs.release.outputs.cli_version }}" latest
+
+      - name: Publish Homebrew Formula
+        env:
+          HOMEBREW_TAP_GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GH_TOKEN }}
+          HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'rigour-labs/homebrew-tap' }}
+          VERSION: ${{ needs.release.outputs.cli_version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOMEBREW_TAP_GH_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_GH_TOKEN is not set. Skipping Homebrew publish."
+            exit 0
+          fi
+
+          TARBALL_URL="https://registry.npmjs.org/@rigour-labs/cli/-/cli-${VERSION}.tgz"
+          TARBALL_PATH="/tmp/rigour-cli-${VERSION}.tgz"
+
+          echo "Preparing Homebrew formula for version ${VERSION}"
+          curl -fsSL "${TARBALL_URL}" -o "${TARBALL_PATH}"
+          SHA256=$(sha256sum "${TARBALL_PATH}" | awk '{print $1}')
+
+          TAP_DIR="/tmp/homebrew-tap"
+          rm -rf "${TAP_DIR}"
+          git clone "https://x-access-token:${HOMEBREW_TAP_GH_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" "${TAP_DIR}"
+
+          mkdir -p "${TAP_DIR}/Formula"
+          cat > "${TAP_DIR}/Formula/rigour.rb" <<EOF
+          class Rigour < Formula
+            desc "Rigour CLI quality gates for AI-generated code"
+            homepage "https://github.com/rigour-labs/rigour"
+            url "${TARBALL_URL}"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            depends_on "node"
+
+            def install
+              # Fresh publishes must install immediately in CI / same-day brew installs.
+              # Homebrew/npm may otherwise enforce a min-release-age window (ETARGET).
+              system "npm", "install", *std_npm_args(prefix: libexec), "--min-release-age=0"
+              bin.install_symlink Dir["#{libexec}/bin/*"]
+            end
+
+            test do
+              system "#{bin}/rigour", "--version"
+            end
+          end
+          EOF
+
+          cd "${TAP_DIR}"
+          ruby -c Formula/rigour.rb
+          grep -q 'std_npm_args(prefix: libexec)' Formula/rigour.rb
+          if grep -q 'std_npm_args(libexec)' Formula/rigour.rb; then
+            echo "Invalid Homebrew formula: legacy std_npm_args(libexec) detected."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/rigour.rb
+          if git diff --cached --quiet; then
+            echo "Homebrew formula already up to date."
+            exit 0
+          fi
+          git commit -m "chore: bump rigour to v${VERSION}"
+          git push origin HEAD
+          echo "Homebrew formula updated in ${HOMEBREW_TAP_REPO}"
+
+      - name: Publish to MCP Registry
+        working-directory: packages/rigour-mcp
+        env:
+          VERSION: ${{ needs.release.outputs.cli_version }}
+        run: |
+          set -euo pipefail
+          NAME=$(jq -r .name server.json)
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.modelcontextprotocol.io/v0/servers/$(jq -rn --arg n "$NAME" '$n|@uri')/versions/${VERSION}")
+          if [ "$STATUS" = "200" ]; then
+            echo "MCP Registry already has ${NAME} ${VERSION}."
+            exit 0
+          fi
+          echo "Syncing server.json to version $VERSION"
+          jq ".version = \"$VERSION\" | .packages[0].version = \"$VERSION\"" server.json > server.json.tmp && mv server.json.tmp server.json
+          
+          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
+          chmod +x mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+
+  homebrew-smoke:
+    name: Homebrew Smoke
+    needs: [release, promote]
+    if: needs.promote.result == 'success'
+    runs-on: macos-latest
+    env:
+      EXPECTED_CLI_VERSION: ${{ needs.release.outputs.cli_version }}
+    steps:
       - name: Verify Homebrew install (macOS)
-        if: runner.os == 'macOS' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail

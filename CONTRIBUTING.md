@@ -59,14 +59,15 @@ To try your build on a repository: `node packages/rigour-cli/dist/bin.js review 
 
 ## Pull requests and releases
 
-Pull request titles follow [conventional commits](https://www.conventionalcommits.org) and decide the
-release: merging to `main` publishes to npm with semantic-release. A release is published under the
-`pending` dist-tag and becomes `latest` only once every package of it installs from npm.
+Open pull requests against `next`. Their titles follow [conventional commits](https://www.conventionalcommits.org)
+and decide the release: merging to `next` publishes a release candidate (`npm install @rigour-labs/cli@next`), and a
+maintainer releases it by merging `next` into `main`, which publishes under `pending` and moves `latest` once the release
+gates pass. See [the release checklist](RELEASE_CHECKLIST.md#how-a-release-reaches-latest).
 
 | Title | Release |
 | --- | --- |
-| `fix: …` | Patch. The default for most changes. |
-| `feat: …` | Minor. Only for something a user could not do before. |
+| `fix: …` | Patch. For a fix to something that shipped. |
+| `feat: …` | Minor. For something a user could not do before. |
 | `docs: …`, `test: …`, `chore: …`, `ci: …` | No release. |
 
 CI runs the build, every package's tests and the accuracy suite on Linux, macOS and Windows. Keep a pull
