@@ -5,7 +5,7 @@
  * team's rigour.yml (`review.goal`: off, on or required). `required` is the team's floor: a nearer layer that turns the
  * check off is refused, and the refusal is reported, never silent.
  */
-import { loadSettings } from '../settings.js';
+import { loadSettings, saveSettings } from '../settings.js';
 import type { Config } from '../types/index.js';
 import type { Source } from '../review/reviewer/settings.js';
 
@@ -29,4 +29,12 @@ export function resolveGoal(config: Config, flag?: boolean, user: boolean | unde
     if (near && !(required && near[1] === false)) return { enabled: near[1]!, source: near[0], required, refused };
     if (near) refused.push(`goal check off (${near[0]}) refused: rigour.yml sets review.goal: required`);
     return { enabled: team !== 'off', source: 'team', required, refused };
+}
+
+/** The person's own choice, from Studio: true or false sets it, `null` goes back to the team's. Returns what is stored. */
+export function saveUserGoal(value: unknown): boolean | undefined {
+    if (value !== null && typeof value !== 'boolean') throw new Error('goal is true, false, or null for the team\'s');
+    const { goal: _previous, ...settings } = loadSettings();
+    saveSettings(value === null ? settings : { ...settings, goal: value });
+    return value ?? undefined;
 }

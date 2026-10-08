@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { loadSettings, saveSettings } from '../settings.js';
 import { ConfigSchema } from '../types/index.js';
-import { resolveGoal } from './settings.js';
+import { resolveGoal, saveUserGoal } from './settings.js';
 
 const team = (goal?: 'off' | 'on' | 'required') => ConfigSchema.parse({ version: 1, ...(goal ? { review: { goal } } : {}) });
 
@@ -33,5 +37,29 @@ describe('resolveGoal', () => {
         const resolved = resolveGoal(team('on'), undefined, undefined, { RIGOUR_GOAL: 'maybe' });
         expect(resolved).toMatchObject({ enabled: true, source: 'team' });
         expect(resolved.refused).toEqual(['RIGOUR_GOAL=maybe ignored: use on or off']);
+    });
+});
+
+describe('saveUserGoal', () => {
+    let home: string;
+    const previous = process.env.RIGOUR_HOME;
+    beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-goal-home-')); process.env.RIGOUR_HOME = home; });
+    afterEach(() => {
+        if (previous === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = previous;
+        fs.rmSync(home, { recursive: true, force: true });
+    });
+
+    it('stores the person\'s choice, and null goes back to the team\'s, keeping their other settings', () => {
+        saveSettings({ reviewer: { mode: 'full' } });
+        saveUserGoal(true);
+        expect(loadSettings()).toEqual({ reviewer: { mode: 'full' }, goal: true });
+        expect(resolveGoal(team('off'), undefined, loadSettings().goal, {})).toMatchObject({ enabled: true, source: 'user' });
+        saveUserGoal(null);
+        expect(loadSettings()).toEqual({ reviewer: { mode: 'full' } });
+    });
+
+    it('refuses anything but true, false or null', () => {
+        expect(() => saveUserGoal('on')).toThrow('goal is true, false, or null');
+        expect(fs.existsSync(path.join(home, '.rigour', 'settings.json'))).toBe(false);
     });
 });

@@ -57,6 +57,8 @@ Four layers, the nearest wins, as for the [reviewer](REVIEWER.md):
 
 `required` is the team's floor: a nearer layer that turns the check off is refused, and the refusal is reported, never silent.
 
+In Studio, **Setup** shows the goal check as what runs and where that comes from, yours and the team's. You can change yours there, and the team's: Studio edits `rigour.yml` in your working tree, never commits it, and shows the diff to commit, as it does for the reviewer's settings. A refused choice shows as not applied.
+
 ## Where the description comes from
 
 The check runs in `rigour review` (and so in CI). The stop hook and the push gate do not read a description yet.

@@ -308,6 +308,16 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/goal' && (req.method === 'GET' || req.method === 'POST')) {
+        try {
+            const { loadStudioGoal, saveStudioGoal } = await import('./studio-goal.js');
+            sendJson(res, 200, req.method === 'GET' ? await loadStudioGoal(cwd) : await saveStudioGoal(cwd, JSON.parse((await readBody(req)) || '{}')));
+        } catch (e: any) {
+            sendJson(res, req.method === 'GET' ? 500 : 400, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/learning') {
         try {
             const { loadLearning } = await import('./studio-learning.js');

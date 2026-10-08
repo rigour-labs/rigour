@@ -10,12 +10,12 @@
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import YAML from 'yaml';
 import {
-    ConfigSchema, dismissReviewerFinding, loadSettings, resolveReviewer, reviewerAvailability, reviewStatus, saveUserReviewer,
+    dismissReviewerFinding, loadSettings, resolveReviewer, reviewerAvailability, reviewStatus, saveUserReviewer,
     type ReviewStatus, type UserReviewerPatch,
 } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
+import { writeTeamSettings } from './studio-team-settings.js';
 
 const TEAM_KEYS = ['enabled', 'mode', 'panel', 'mode_required', 'judges', 'escalate', 'reviewers', 'on_push', 'panel_max_items', 'dismissals'] as const;
 
@@ -91,29 +91,6 @@ export async function saveTeamReviewer(cwd: string, body: unknown): Promise<Stud
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('send the team settings to change as an object');
     const unknown = Object.keys(patch).find(key => !TEAM_WRITABLE.has(key));
     if (unknown) throw new Error(`not a team reviewer setting: ${unknown}`);
-    const file = path.join(cwd, 'rigour.yml');
-    const exists = fs.existsSync(file);
-    if (exists && fs.lstatSync(file).isSymbolicLink()) throw new Error('rigour.yml is a link: edit the file it points to directly');
-    if (!exists && create !== true) throw new Error('there is no rigour.yml: creating one makes this the team\'s setup, so confirm it (create: true)');
-    const doc = exists ? YAML.parseDocument(fs.readFileSync(file, 'utf8')) : new YAML.Document({});
-    if (doc.errors.length) throw new Error(`rigour.yml does not parse: ${doc.errors[0].message}`);
-    for (const [key, value] of Object.entries(patch)) {
-        if (value === null) doc.deleteIn(['review', 'reviewer', key]);
-        else doc.setIn(['review', 'reviewer', key], value);
-    }
-    const parsed = ConfigSchema.safeParse(doc.toJS());
-    if (!parsed.success) throw new Error(`that would not be a valid rigour.yml: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
-    fs.writeFileSync(file, String(doc));
-    return { ...(await loadStudioReviewer(cwd)), diff: diffOf(cwd, exists) };
-}
-
-/** What the person will commit: git's diff of rigour.yml, or the whole new file. */
-function diffOf(cwd: string, existed: boolean): string {
-    if (!existed) return fs.readFileSync(path.join(cwd, 'rigour.yml'), 'utf8').split('\n').filter(Boolean).map(line => `+${line}`).join('\n');
-    try {
-        return execFileSync('git', ['diff', '--no-color', '--unified=1', '--', 'rigour.yml'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-            .split('\n').filter(line => /^[+-](?![+-])/.test(line) || line.startsWith('@@')).join('\n');
-    } catch {
-        return '';
-    }
+    const diff = writeTeamSettings(cwd, Object.entries(patch).map(([key, value]) => [['review', 'reviewer', key], value]), create === true);
+    return { ...(await loadStudioReviewer(cwd)), diff };
 }
