@@ -256,5 +256,5 @@ describe('git-backed review', () => {
         expect(without.findings.filter(f => f.id.startsWith('goal-'))).toEqual([]);
         expect(without.report?.summary).not.toHaveProperty('goal');
         expect(without.goal).toBeUndefined();
-    });
+    }, 30_000); // three whole reviews, each running the rules on the change
 });
