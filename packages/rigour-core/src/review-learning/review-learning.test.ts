@@ -191,6 +191,54 @@ describe('outcome evidence from git', () => {
     });
 });
 
+describe('learning from merged pull requests, after the merge', () => {
+    /**
+     * main with src/orders.ts; pull request #7 from `feature`, merged with a merge commit; one inline point on its line 2
+     * that the pull request left alone; then `after` on main. GitHub is faked: the merged pull request and that comment.
+     */
+    async function learnAfter(after: (merge: string) => void): Promise<ReviewLesson> {
+        write('export function total(order) {\n  return order.items.length;\n}\n');
+        commit('base');
+        git('checkout', '-qb', 'feature');
+        write('export function total(order) {\n  const n = order.items.length;\n  return n;\n}\n');
+        const reviewed = commit('pr head');
+        git('checkout', '-q', 'main');
+        git('merge', '-q', '--no-ff', '--no-edit', 'feature');
+        const merge = git('rev-parse', 'HEAD');
+        after(merge);
+        const api = 'https://api.github.com/repos/acme/app';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 7, merged_at: '2026-09-01T00:00:00Z', merge_commit_sha: merge, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/7/comments?per_page=100`]: [{ id: 1, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, body: 'Guard a missing items list here.', user: { login: 'priya' } }],
+            [`${api}/pulls/7/reviews?per_page=100`]: [],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, mainRef: 'main' });
+        return readLessons(repo)[0];
+    }
+
+    it('records a later fix on the point\'s lines as evidence for a person, and the lesson stays a candidate', async () => {
+        const lesson = await learnAfter(() => {
+            write('// header\nexport function total(order) {\n  const n = order.items?.length ?? 0;\n  return n;\n}\n');
+            commit('fix: total crashes on an order with no items');
+        });
+        expect(lesson.state).toBe('candidate');
+        expect(lesson.evidence.map(e => e.kind)).toEqual(['point', 'lines']);
+        expect(lesson.evidence[1].detail).toContain('fix: total crashes on an order with no items');
+    });
+
+    it('records a revert of the pull request the same way, never a promotion', async () => {
+        const lesson = await learnAfter(merge => {
+            git('revert', '-m', '1', '--no-edit', merge);
+            git('commit', '-q', '--amend', '-m', `Revert "total" (#7)`);
+        });
+        expect(lesson.state).toBe('candidate');
+        expect(lesson.evidence.map(e => e.kind)).toEqual(['point', 'lines']);
+        expect(lesson.evidence[1].comment).toMatch(/^revert-/);
+    });
+});
+
 describe('team standards', () => {
     it('verifies a standard when the same point recurs in another author\'s PR, and serves it only to a change it is about', () => {
         const standard = (pr: number, text: string): ReviewLesson => ({ id: `s${pr}`, text, file: '', symbols: [], state: 'candidate', evidence: [{ kind: 'point', pr, comment: `r${pr}`, author: `reviewer${pr}`, prAuthor: `dev${pr}` }], createdAt: '', updatedAt: '' });
