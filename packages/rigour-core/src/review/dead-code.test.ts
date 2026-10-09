@@ -58,6 +58,16 @@ describe('unused exports', () => {
         expect(names).not.toContainEqual(['src/index.ts', 'Used']);
     });
 
+    it('counts an import through a barrel that re-exports the module with export *, a chain of them too', () => {
+        write('src/helpers/detect.ts', 'export function viaBarrel() { return 1; }\nexport function viaChain() { return 2; }\nexport function nobody() { return 3; }\n');
+        write('src/helpers/index.ts', "export * from './detect.js';\n");
+        write('src/all.ts', "export * from './helpers/index.js';\n");
+        write('src/gate.ts', "import { viaBarrel } from './helpers/index.js';\nviaBarrel();\n");
+        write('src/other.ts', "import { viaChain } from './all';\nviaChain();\n");
+        const names = unusedExportFailures(repo, diffFromGit(repo), config()).map(f => [f.files?.[0], f.details.match(/`([^`]+)`/)![1]]);
+        expect(names).toEqual([['src/helpers/detect.ts', 'nobody']]);
+    });
+
     it('never reports a type-test file as orphaned: tsd runs test-d/ and *.test-d.ts by itself', () => {
         write('test-d/types.ts', "import { start } from '../src/app';\nstart();\n");
         write('src/app.test-d.ts', "import { start } from './app';\nstart();\n");
