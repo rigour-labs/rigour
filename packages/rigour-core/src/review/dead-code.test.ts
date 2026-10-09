@@ -68,6 +68,13 @@ describe('unused exports', () => {
         expect(names).toEqual([['src/helpers/detect.ts', 'nobody']]);
     });
 
+    it('counts an import through a barrel that re-exports a folder by its name (export * from \'./b\', b/index.ts)', () => {
+        write('src/a/b/index.ts', 'export function inFolder() { return 1; }\n');
+        write('src/a/index.ts', "export * from './b';\n");
+        write('src/use-a.ts', "import { inFolder } from './a';\ninFolder();\n");
+        expect(unusedExportFailures(repo, diffFromGit(repo), config())).toEqual([]);
+    });
+
     it('never reports a type-test file as orphaned: tsd runs test-d/ and *.test-d.ts by itself', () => {
         write('test-d/types.ts', "import { start } from '../src/app';\nstart();\n");
         write('src/app.test-d.ts', "import { start } from './app';\nstart();\n");
