@@ -16,7 +16,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, resolveSwitch, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
+import { learningUsage, type Config, buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, resolveSwitch, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
 import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { goalReport, type GoalReport } from './review-goal.js';
 import { receiptFor } from './review-receipt.js';
@@ -98,7 +98,7 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
         }
-        await reportUsage(result, isDeep, options, Date.now() - started);
+        await reportUsage(result, isDeep, options, Date.now() - started, cwd, config);
         process.exit(reviewer && reviewerBlocks(reviewer) ? Math.max(exitCodeFor(result), EXIT_FAIL) : exitCodeFor(result));
     } catch (error: any) {
         fail(error, options);
@@ -275,7 +275,7 @@ function hintReviewTask(cwd: string, diff: string, router: Parameters<typeof bui
 }
 
 /** Anonymous usage (opt-in; TELEMETRY.md): counts and gate names only, never files or messages. */
-async function reportUsage(result: ReviewResult, isDeep: boolean, options: ReviewOptions, ms: number): Promise<void> {
+async function reportUsage(result: ReviewResult, isDeep: boolean, options: ReviewOptions, ms: number, cwd: string, config: Config): Promise<void> {
     const byGate = (findings: ReviewResult['findings']) => findings.reduce<Record<string, number>>((acc, f) => ({ ...acc, [f.id]: (acc[f.id] ?? 0) + 1 }), {});
     const deep = result.report?.stats.deep;
     await trackUsage('review_completed', {
@@ -292,7 +292,8 @@ async function reportUsage(result: ReviewResult, isDeep: boolean, options: Revie
         deep_cost_bucket: costBucket(deep?.cost_usd),
         duration: durationBucket(ms),
     }, { version: process.env.RIGOUR_CLI_VERSION });
-    await flushDailyUsage();
+    // Once a day, what this repository's learning loop did goes with the day's counts (TELEMETRY.md).
+    await flushDailyUsage({ daily: () => learningUsage(cwd, config) });
 }
 
 /** A deep run that did not happen overrides the changed-line verdict. */

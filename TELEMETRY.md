@@ -61,6 +61,8 @@ Code, file names, paths, repository names, git remotes, branch names, finding me
 | `os` | `darwin`, `linux` or `win32` |
 | `node_major` | The Node.js major version |
 | `ci` | Whether a CI variable was set |
+| `agent_host` | The agent Rigour ran under, one of `claude-code`, `cursor`, `cline`, `windsurf`, `codex`, `other` or `none`: the hook's own tool name when it is one of these; else whether `CLAUDECODE=1` (Claude Code), `CURSOR_TRACE_ID` (Cursor's terminal) or `CODEX_SANDBOX` (Codex) is set in the environment (only whether it is set; a variable's value is never read beyond that, and never sent); else `other` for an agent name not on the list, `none` without one. Cline and Windsurf are known only from their hooks |
+| `install_age_weeks` | How long ago you were first asked about telemetry, bucketed (below); absent before you were |
 | `version` | The Rigour CLI version, on events sent by the CLI command itself (`command_run`, `review_completed`, and `daily_usage` sent after a command). `reviewer_completed` and the `daily_usage` sent by `rigour review` or the MCP server do not carry it |
 
 ### Events
@@ -70,7 +72,7 @@ Code, file names, paths, repository names, git remotes, branch names, finding me
 | `command_run` | A CLI command finishes. Not sent for `rigour hooks ...` or `rigour telemetry` | `command` (the command's name, for example `review` or `learn`), `outcome` (`ok` or `fail`), `duration` (a bucket) |
 | `review_completed` | `rigour review` finishes | `status`; `surface` (`terminal`, `json`, `ci` or `github`); `changed_files` (count); `findings_by_gate`, `advisory_by_gate`, `dismissed_by_gate` (counts keyed by check id); `context_findings` (count); `deep_tier` (`none` without a model); `deep_routed`, `deep_tool_calls` (counts); `deep_cost_bucket`; `duration` (a bucket) |
 | `reviewer_completed` | The reviewer finishes, or ends without a verdict | `outcome` (`passed`, `findings`, `unavailable` or `skipped`); `trigger` (`push`, `review` or `backtest`); `scope` (`full` or `delta`); `asked` (`single`, `cross`, `full`, `panel` or `orchestrator`) and `ran` (the same, or `none` when no judge ran); `source` (`flag`, `env`, `user` or `team`); `degraded` (true or false); `escalation` (`one-judge` or `all-judges`); `refused`, `judges`, `confirmed`, `disputed`, `dropped`, `notes`, `dismissed`, `runs` (counts); `cached` (true or false); `cache` (`content` when the verdict was reused for the same content on another commit); `cost_bucket`. With the orchestrator: `parts` and `passes` (counts), `split`, `fallback` and `nothing_to_review` (true or false), `beyond_slice` (passes that read outside their slice, a count) |
-| `daily_usage` | At most once a day: the agent activity counted on your machine since the last one | One count per name that occurred: `hook_check`, `hook_finding:<check id>`, `stop_review`, `stop_block`, `stop_block_repeat`, `mcp:<tool>`, `mcp_error:<tool>` |
+| `daily_usage` | At most once a day: the agent activity counted on your machine since the last one | One count per name that occurred: `hook_check`, `hook_finding:<check id>`, `stop_review`, `stop_block`, `stop_block_repeat`, `mcp:<tool>`, `mcp_error:<tool>`; `agent_host:<host>` beside each count (the hosts above); and, per check id only (one of Rigour's own built-in checks, such as `semantic-bugs`, never a finding's title or text; a team's own check, from `commands:` or a plugin, is sent only as `custom`): `finding_fixed:<check id>` (an agent fixed a finding, as Studio counts it), `finding_dismissed:<check id>` (a person dismissed one as not a bug) and `finding_pushed:<check id>` (one reached a pull request's review). A finding closed because Rigour's checks changed (an upgrade) is counted as neither fixed nor dismissed. When sent after `rigour review`, it also carries the learning loop of the repository the review ran in, read from the switches and the outcome numbers ([OUTCOMES.md](docs/OUTCOMES.md#numbers)), never counted again: `switch_<goal\|outcomes\|orchestrator>` (`off`, `on` or `required`) and `switch_<name>_set_by` (`team`, `user`, `env` or `flag`); `outcomes_merged`, `outcomes_settled`, `outcomes_reviewed_prs`, `outcomes_not_reviewed_prs`; for `outcomes_ci_regressed`, `outcomes_reverted`, `outcomes_fixed_later`, `outcomes_reviewed_fixed_later` and `outcomes_not_reviewed_fixed_later`, a `_count` and an `_of`, and a `_rate` only from ten records; `lessons_awaiting_decision`, `lessons_promoted_from_evidence`, `lessons_dismissed`, `lessons_taken_back` (counts). Never a pull request number, a file or a lesson's text, never a dollar amount (the model reviewer's numbers in `rigour outcomes` stay on your machine), and read from local files only, with no network call |
 
 Buckets:
 
@@ -78,6 +80,7 @@ Buckets:
 | --- | --- |
 | `duration` | `<1s`, `1-5s`, `5-30s`, `30s-2m`, `>2m` |
 | `deep_cost_bucket`, `cost_bucket` | `<$0.10`, `$0.10-0.50`, `$0.50-2`, `>$2` |
+| `install_age_weeks` | `0`, `1`, `2-4`, `5-12`, `13+` |
 
 A property with no value is left out of the event.
 

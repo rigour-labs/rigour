@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { decideLesson, fixLessonPrefix, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { personOf } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
@@ -41,6 +41,8 @@ export interface StudioLearning {
     prRecorded: boolean;
     /** What happened after merges this checkout read (core outcomes/metrics.ts); absent before `rigour outcomes` has run. */
     outcomes?: OutcomeMetrics;
+    /** Lessons compiled into checks (core review-learning/compiled-lessons.ts), for a person to approve or take back; `suspended` says why one approved no longer runs. */
+    compiled?: Array<CompiledCheck & { suspended?: string }>;
 }
 
 interface Catch { at: string; prefix: string }
@@ -133,11 +135,33 @@ export function decideReviewLesson(cwd: string, body: unknown): { id: string; st
     return { id: lesson.id, state: lesson.state };
 }
 
+/**
+ * A person's decision on a compiled check from Studio, as `rigour learn-reviews --approve-check / --withdraw-check`
+ * records it: with their git email, committed with the check. With no git email set, it is refused.
+ */
+export function decideCompiledCheckFromStudio(cwd: string, body: unknown): CompiledCheck {
+    const { id, state } = (body ?? {}) as { id?: unknown; state?: unknown };
+    if (typeof id !== 'string' || !/^c-[\w-]+$/.test(id)) throw new Error('a compiled check id is required');
+    if (state !== 'active' && state !== 'withdrawn') throw new Error('state is active or withdrawn');
+    const by = personOf(cwd);
+    if (by === 'unknown') throw new Error('no git email is set in this checkout (git config user.email): who decides a compiled check is committed with it');
+    const check = decideCompiledCheck(cwd, id, state, by);
+    if (!check) throw new Error(`no compiled check ${id}`);
+    return check;
+}
+
+/** Proposes checks for the verified lessons a template fits, each backtested on the main branch's history. */
+export function proposeChecksFromStudio(cwd: string): { proposed: number } {
+    return { proposed: proposeCompiledChecks(cwd).length };
+}
+
 export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS): Promise<StudioLearning> {
     const roots = checkoutRoots(cwd);
     const learning = buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
     const outcomes = localOutcomeMetrics(cwd);
-    return outcomes ? { ...learning, outcomes } : learning;
+    const lessons = new Map(readLessons(cwd).map(l => [l.id, l]));
+    const withChecks = { ...learning, compiled: readCompiledChecks(cwd).map(c => ({ ...c, ...(suspension(c, lessons) ? { suspended: suspension(c, lessons) } : {}) })) };
+    return outcomes ? { ...withChecks, outcomes } : withChecks;
 }
 
 /**
