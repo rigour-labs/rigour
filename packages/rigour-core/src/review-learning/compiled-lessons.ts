@@ -10,14 +10,16 @@
  *
  * A compiled check is stored in .rigour/compiled-checks.json (committed and reviewed with the code) and runs only once a
  * person approved it (`active`). It keeps its lesson's id, never blocks unless the team turns `block` on, and a person
- * can take it back (`withdrawn`), which hands the lesson back to the model reviewer.
+ * can take it back (`withdrawn`), which hands the lesson back to the model reviewer. Every decision is kept, on the
+ * check and as evidence on its lesson. An approved check whose lesson no longer qualifies (rejected, taken back) is
+ * suspended: it does not run, and the lesson goes back to the model reviewer.
  */
 import fs from 'fs';
 import path from 'path';
 import micromatch from 'micromatch';
 import type { Config, Failure } from '../types/index.js';
 import { execFileSync } from 'child_process';
-import { lessonState, readLessons, type ReviewLesson } from './lessons.js';
+import { lessonState, readLessons, writeLessons, type ReviewLesson } from './lessons.js';
 import { branchBase } from '../gates/logic-drift-git-base.js';
 import { threadReviews } from '../outcomes/run.js';
 import { parseDiff } from '../utils/diff.js';
@@ -39,8 +41,11 @@ export interface CompiledCheck {
     message: string;
     /** Proposed by `compileLesson`; runs only once `active` (a person approved it); `withdrawn` when taken back. */
     state: 'proposed' | 'active' | 'withdrawn';
+    /** Who made the latest decision, and when (the full trail is `history`). */
     by?: string;
     at: string;
+    /** Every decision on it, oldest first: nothing a later decision overwrites is lost. */
+    history?: Array<{ state: 'active' | 'withdrawn'; by: string; at: string }>;
     /**
      * The check run over the main branch's history, for the person who approves it: on merged pull requests a review
      * found the lesson repeating in (it should fire), and on every other merged change to its files (each fire is a
@@ -58,12 +63,14 @@ const BACKTEST_DEADLINE_MS = 20_000;
 
 const FORBID = [
     /\b(?:use|prefer)\s+`([^`]+)`\s+(?:instead of|over|rather than)\s+`([^`]+)`/i, // the second is forbidden
-    /\b(?:never|avoid|don't|do not|must not|should not|no longer)\b[^.`]*`([^`]+)`/i,
+    // "never forget to call `x`" asks for `x`: a negation followed by one of these is not a ban.
+    /\b(?:never|avoid|don't|do not|must not|should not|no longer)\b(?!\s+(?:forget|remove|skip|miss|omit|drop|leave out|lose|stop)\b)[^.`]*`([^`]+)`/i,
 ];
 const REQUIRE = /\b(?:always|must|every|needs? to|has to)\b/i;
 
 /** Whether a lesson may be compiled: verified by a person, a correction or recurrence, never by an outcome alone. */
-function compilable(lesson: ReviewLesson): boolean {
+function compilable(lesson: ReviewLesson | undefined): boolean {
+    if (!lesson) return false;
     const { state, promotedBy } = lessonState(lesson);
     return state === 'verified' && (promotedBy === 'person' || promotedBy === 'correction' || promotedBy === 'recurrence') && !!lesson.file && lesson.symbols.length > 0;
 }
@@ -103,9 +110,36 @@ export function decideCompiledCheck(cwd: string, id: string, state: 'active' | '
     const checks = readCompiledChecks(cwd);
     const check = checks.find(c => c.id === id);
     if (!check) return undefined;
-    Object.assign(check, { state, by, at: new Date().toISOString() });
+    const lessons = readLessons(cwd);
+    const lesson = lessons.find(l => l.id === check.lessonId);
+    if (state === 'active' && !(lesson && compilable(lesson))) throw new Error(`lesson ${check.lessonId} no longer qualifies (rejected, taken back, or gone): its check cannot run`);
+    const at = new Date().toISOString();
+    check.history = [...(check.history ?? []), { state, by, at }];
+    Object.assign(check, { state, by, at });
     writeCompiledChecks(cwd, checks);
+    // The lesson keeps the decision too: what its check did is part of its trail.
+    if (lesson) {
+        lesson.evidence.push({ kind: 'compiled', pr: lesson.evidence[0]?.pr ?? 0, comment: `compiled-${check.id}-${at}`, author: by, detail: `${state === 'active' ? 'approved' : 'took back'} compiled check ${check.id}`, at });
+        writeLessons(cwd, lessons);
+    }
     return check;
+}
+
+/**
+ * The approved checks that run: an approved check whose lesson no longer qualifies (a person rejected it, evidence
+ * took it back, it is gone) is suspended, and its lesson goes back to the model reviewer.
+ */
+function runningChecks(cwd: string): CompiledCheck[] {
+    const lessons = new Map(readLessons(cwd).map(l => [l.id, l]));
+    return readCompiledChecks(cwd).filter(c => c.state === 'active' && compilable(lessons.get(c.lessonId)));
+}
+
+/** Whether an approved check is suspended, and why: its lesson no longer qualifies. */
+export function suspension(check: CompiledCheck, lessons: Map<string, ReviewLesson>): string | undefined {
+    if (check.state !== 'active') return undefined;
+    const lesson = lessons.get(check.lessonId);
+    if (!lesson) return `lesson ${check.lessonId} is gone`;
+    return compilable(lesson) ? undefined : `lesson ${check.lessonId} no longer qualifies (${lessonState(lesson).state}): suspended, the lesson is back with the model reviewer`;
 }
 
 export function readCompiledChecks(cwd: string): CompiledCheck[] {
@@ -133,7 +167,7 @@ function covers(check: CompiledCheck, file: string): boolean {
 export function compiledLessonFailures(cwd: string, changedLines: Record<string, Set<number>>, config: Config): Failure[] {
     const settings = config.gates.compiled_lessons;
     if (!settings?.enabled) return [];
-    const checks = readCompiledChecks(cwd).filter(c => c.state === 'active');
+    const checks = runningChecks(cwd);
     if (checks.length === 0) return [];
     const failures: Failure[] = [];
     for (const [file, lines] of Object.entries(changedLines)) {

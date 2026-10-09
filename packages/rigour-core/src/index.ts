@@ -44,7 +44,7 @@ export { rankChangedFunctions, scoreRisk, functionHash, findFunction, type Funct
 export { routeFiles, type RouterPolicy, type RouterStats } from './deep/router.js';
 export { appendDeepRun, readDeepRuns, summarizeDeepRuns, type DeepRun, type DeepRunSummary } from './review/deep-runs.js';
 export { learnFromReviews, type LearnFromReviewsOptions, type LearnFromReviewsResult } from './review-learning/learn-from-reviews.js';
-export { decideCompiledCheck, proposeCompiledChecks, RATE_MIN, readCompiledChecks, type CompiledCheck } from './review-learning/compiled-lessons.js';
+export { decideCompiledCheck, proposeCompiledChecks, RATE_MIN, readCompiledChecks, suspension, type CompiledCheck } from './review-learning/compiled-lessons.js';
 export { ruleWriterFor } from './review/reviewer/rule-writer.js';
 export { backtestLast, formatLast, scoreLast, LAST_LEDGER_PATH, type LastReport } from './review/backtest-last.js';
 export { buildRecord, recordLines, recordIntact, type ReviewRecord } from './review/reviewer/record.js';
