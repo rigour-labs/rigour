@@ -47,6 +47,15 @@ export interface RigourSettings {
   // The reviewer for this person's own runs; rigour.yml is the team's (review/reviewer/settings.ts).
   reviewer?: UserReviewerSettings;
 
+  // Check this person's reviews against the goal the pull request declares; rigour.yml's review.goal is the team's (switches.ts).
+  goal?: boolean;
+
+  // Learn from what happened after this person's pull requests merged; rigour.yml's learning.outcomes.mode is the team's (switches.ts).
+  outcomes?: boolean;
+
+  // Route the review through the orchestrator (only the parts a change needs, usually one pass); rigour.yml's review.reviewer.orchestrator is the team's (switches.ts).
+  orchestrator?: boolean;
+
   // Cursor Admin API credentials
   cursor?: {
     apiKey?: string;

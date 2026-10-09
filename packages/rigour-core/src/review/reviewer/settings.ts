@@ -57,7 +57,7 @@ const RANK: Record<Mode, number> = { single: 0, cross: 1, full: 2 };
 const NEAR: Record<Source, number> = { flag: 0, env: 1, user: 2, team: 3 };
 
 export function resolveReviewer(config: Config, choice: RunChoice = {}, user: UserReviewerSettings | undefined = loadSettings().reviewer, env: NodeJS.ProcessEnv = process.env): ResolvedReviewer {
-    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, dismissals: false, judges: 2 as const, escalate: 'always' as const, cross_models: {}, judge_env: {}, reasoning: {} };
+    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, dismissals: false, orchestrator: 'off' as const, judges: 2 as const, escalate: 'always' as const, cross_models: {}, judge_env: {}, reasoning: {} };
     const refused: string[] = [];
     const envMode = parseMode(env.RIGOUR_REVIEWER_MODE);
     const envPanel = parseSwitch(env.RIGOUR_REVIEWER_PANEL);

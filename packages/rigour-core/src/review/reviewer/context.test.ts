@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { buildContext, dismissedAs, type ReviewDismissal } from './context.js';
+import { buildContext, dismissedAs, lessonsApplied, type ReviewDismissal } from './context.js';
 import type { OpenItem } from './verdict.js';
 
 const dismissal: ReviewDismissal = { id: 'abcdef0123', file: 'src/x.ts', line: 40, class: 'correctness', issue: 'cache key built from user id may collide', reason: 'ids are unique per tenant', at: '2026-10-06' };
@@ -45,5 +45,22 @@ describe('what the judges are told the team knows', () => {
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
         }
+    });
+});
+
+describe('the lessons a judge said a change repeats', () => {
+    const served = [{ id: 'L1', listed: 'src/job.ts: take the lock before the first read (acted on in PR #4)' }, { id: 'L2', listed: 'team standard: bound every window at both ends' }];
+
+    it('maps each answer to the lesson it was listed as, by the line or its start, and ignores what was not served', () => {
+        expect(lessonsApplied([
+            { lesson: 'src/job.ts:  take the lock before the first read (acted on in PR #4)', applies: true },
+            { lesson: 'team standard: bound every window', applies: true },
+            { lesson: 'something the judge made up', applies: true },
+            { lesson: 'team standard: bound every window at both ends', applies: false },
+        ], served)).toEqual(['L1', 'L2']);
+    });
+
+    it('needs more than a few words to match by the start', () => {
+        expect(lessonsApplied([{ lesson: 'team', applies: true }], served)).toEqual([]);
     });
 });

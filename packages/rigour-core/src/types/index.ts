@@ -377,12 +377,30 @@ export const ConfigSchema = z.object({
         /** At most this many items, never more than 10. */
         max_items: z.number().int().min(1).max(10).optional().default(10),
     }).optional().default({}),
+    /** What Rigour learns from, beyond the reviews themselves. */
+    learning: z.object({
+        /** What happened after each pull request merged (outcomes/outcome.ts): CI on the merge commit, later commits on its files, a revert. */
+        outcomes: z.object({
+            /** off, on, or required (no person, environment variable or flag may turn it off). */
+            mode: z.enum(['off', 'on', 'required']).optional().default('off'),
+            /** How long after a merge later commits count, in days. */
+            window_days: z.number().int().min(7).max(90).optional().default(30),
+            /** How many later pull requests, independent and settled clean after a review found them repeating a lesson, demote it (review-learning/outcome-evidence.ts). */
+            demote_after: z.number().int().min(2).optional().default(2),
+        }).optional().default({}),
+    }).optional().default({}),
     /** rigour review / rigour_review / the PR bot / the stop hook. */
     review: z.object({
         /** Let heuristic gates decide the verdict too; by default only findings that prove a defect do (quiet.ts). */
         include_heuristics: z.boolean().optional().default(false),
         /** Also report findings the base already had; by default only what the change introduced is (baseline.ts). */
         show_preexisting: z.boolean().optional().default(false),
+        /**
+         * Check the change against the goal its pull request's description declares (goal/goal.ts): a changed file
+         * outside the declared Scope or inside Out of scope, a "Done when" item naming a file or symbol the change never
+         * touches. Deterministic; a finding blocks. `required` stops a person, the environment or a flag turning it off.
+         */
+        goal: z.enum(['off', 'on', 'required']).optional().default('off'),
         /** The GitHub account whose token fetches the pull request's previous review (`gh auth token --user`). */
         github_account: z.string().optional(),
         /** The reviewer (review/reviewer.ts): the person's own coding-agent CLIs, headless and read-only. `enabled` runs it at push; `rigour review --reviewer` runs it on request. */
@@ -416,6 +434,11 @@ export const ConfigSchema = z.object({
              * a wrong finding is fixed by improving the reviewer, a right one by fixing the code. A team decision only.
              */
             dismissals: z.boolean().optional().default(false),
+            /**
+             * Review only the parts a change needs, picked without a model, usually in one pass (reviewer/orchestrator.ts,
+             * triage.ts): off, on, or required (no person, environment variable or flag may turn it off). Experimental.
+             */
+            orchestrator: z.enum(['off', 'on', 'required']).optional().default('off'),
             /** Findings cross-examined per review at most; the rest are shown as disputed. */
             panel_max_items: z.number().int().positive().optional().default(20),
             /**

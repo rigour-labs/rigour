@@ -23,7 +23,7 @@ export const THREADS_DIR = 'rigour/threads';
 /** A ticket key in a branch name: `feat/proj-123-thing` → `PROJ-123`. */
 const TICKET = /(?:^|[^A-Za-z0-9])([A-Za-z][A-Za-z0-9]{1,9}-\d{1,7})(?=$|[^0-9])/;
 
-export type TaskEventKind = 'edit-check' | 'stop-review' | 'push' | 'review' | 'brief';
+export type TaskEventKind = 'edit-check' | 'stop-review' | 'push' | 'review' | 'brief' | 'goal' | 'merge' | 'outcome';
 
 export interface TaskEvent {
     kind: TaskEventKind;
@@ -119,6 +119,33 @@ export function appendTaskEvent(cwd: string, event: TaskEvent): ThreadEvent | un
     }
 }
 
+/** Every thread's events of one kind, oldest first: what the outcome loop reads across tasks (the reviews that found a lesson repeated). */
+export function eventsOfKind(cwd: string, kind: TaskEventKind): ThreadEvent[] {
+    const dir = threadsDir(cwd);
+    if (!dir) return [];
+    return listThreads(dir).flatMap(file => readEvents(path.join(dir, file))).filter(e => e.kind === kind).sort(byTime);
+}
+
+/**
+ * Appends one event to a named branch's thread, under the task its own events carry: what happened to a pull request
+ * after it merged, recorded from wherever the outcome was read. Only a thread that already exists is written: a branch
+ * this machine never worked on gets none. Best effort, like appendTaskEvent.
+ */
+export function appendBranchEvent(cwd: string, branch: string, event: TaskEvent): ThreadEvent | undefined {
+    try {
+        const dir = threadsDir(cwd);
+        if (!dir || !branch) return undefined;
+        const file = path.join(dir, branchFile(branch));
+        const last = readEvents(file).at(-1);
+        if (!last) return undefined;
+        const line: ThreadEvent = { at: new Date().toISOString(), task: last.task, branch, ...event };
+        fs.appendFileSync(file, JSON.stringify(line) + '\n');
+        return line;
+    } catch {
+        return undefined;
+    }
+}
+
 /**
  * The thread for a key, oldest first: a ticket (`PROJ-123`, every branch whose events carry it, from their first
  * event), a branch name, a pull request (`#42` or `42`: the branches a review of it ran on), or nothing for the
@@ -199,7 +226,10 @@ function describe(e: ThreadEvent): string {
         : e.kind === 'stop-review' ? (e.blocked ? `blocked: ${num(e.blocking)} to fix` : 'passed')
             : e.kind === 'push' ? (e.passed === false ? `blocked: ${num(e.failed)} check(s) failed` : 'passed')
                 : e.kind === 'review' ? `${String(e.outcome)}, ${num(e.blocking)} blocking, ${num(e.should_fix)} should-fix${e.pr ? ` on #${e.pr}` : ''}`
-                    : e.kind === 'brief' ? `${num(e.items)} item(s) briefed` : '';
+                    : e.kind === 'brief' ? `${num(e.items)} item(s) briefed`
+                        : e.kind === 'goal' ? `at ${String(e.moment)}: ${e.declared ? `${num(e.blocks)} goal block(s)` : 'the description declares no goal'}`
+                            : e.kind === 'merge' ? `#${num(e.pr)} merged as ${String(e.merge_sha).slice(0, 9)}`
+                                : e.kind === 'outcome' ? `#${num(e.pr)} settled: CI ${String(e.ci)}, ${num(e.fixes)} fix(es) in ${num(e.follow_ups)} later commit(s)${e.reverted ? ', reverted' : ''}` : '';
     return [what, who ? `(${who})` : '', e.head ? `@${String(e.head).slice(0, 9)}` : ''].filter(Boolean).join(' ');
 }
 

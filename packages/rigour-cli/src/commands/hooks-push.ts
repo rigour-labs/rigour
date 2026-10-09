@@ -17,7 +17,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    appendTaskEvent, branchBase, branchFailures, captureHumanEdits, diffFromGit, itemLine, mergeBaseOf, resolveReviewer, reviewChange, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
+    appendTaskEvent, branchBase, branchFailures, captureHumanEdits, diffFromGit, hookGoalDescription, itemLine, recordGoal, mergeBaseOf, resolveReviewer, reviewChange, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
@@ -68,7 +68,9 @@ async function gates(repo: string, base: string, mainRef: string, config: Config
     const log: string[] = [];
     const source = { mode: 'since' as const, commit: base };
     const diff = diffFromGit(repo, source);
-    const review = await reviewChange({ cwd: repo, config, diff, source, typed: true });
+    const goalDescription = await hookGoalDescription(repo, config);
+    const review = await reviewChange({ cwd: repo, config, diff, source, typed: true, ...(goalDescription !== undefined ? { goalDescription } : {}) });
+    recordGoal(repo, 'push', goalDescription, review);
     // What the review reports is what must be fixed (quiet.ts `mustFix`); the stop hook uses the same set.
     const mustFix = [...review.findings, ...branchFailures(repo, base, mainRef, config)];
     for (const f of mustFix) lines.push(`- ${finding(f)}`);

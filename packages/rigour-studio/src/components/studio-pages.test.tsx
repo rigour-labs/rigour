@@ -3,11 +3,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
 import { WeeklyTable } from './AgentContext';
-import { LessonCard } from './Learning';
+import { LessonCard, OutcomeCard } from './LearningParts';
 import { Trend } from './Progress';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
 import { Agents, Settings, Verdict } from './ReviewerParts';
+import { SwitchSettings, type SwitchData } from './SwitchParts';
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
@@ -119,6 +120,78 @@ describe('Studio pages', () => {
         const out = html(<Agents data={two} />);
         expect(out).toContain('Enough for two judges; a third vendor, listed in the reviewers, allows three.');
         expect(out).toContain('cursor-agent: not installed');
+    });
+});
+
+describe('the numbers after the merge, on the learning page', () => {
+    it('shows counts, a percentage only where there is one, and the two groups side by side without comparing them', () => {
+        const few = { count: 1, of: 4, rate: null };
+        const out = html(<OutcomeCard numbers={{ records: { merged: 12, settled: 11, unsettled: 1 }, settled: { ciRegressed: { count: 2, of: 11, rate: 0.18 }, ciUnknown: 0, reverted: { count: 0, of: 11, rate: 0 }, fixedLater: { count: 3, of: 11, rate: 0.27 }, reviewed: { prs: 4, fixedLater: few }, notReviewed: { prs: 7, fixedLater: { count: 2, of: 7, rate: null } } }, lessons: { awaitingDecision: 2, promotedFromEvidence: 1, dismissed: 0, takenBack: 1 } }} />);
+        expect(out).toContain('2 of 11 (18%)');
+        expect(out).toContain('4 pull requests, 1 fixed later');
+        expect(out).toContain('7 pull requests, 2 fixed later');
+        expect(out).toContain('this is not a comparison');
+        expect(out).not.toMatch(/fewer fixes|better|worse/);
+    });
+});
+
+describe('a lesson back to a candidate, on the learning page', () => {
+    it('says why, shows the old evidence and offers Promote and Dismiss', () => {
+        const out = html(<LessonCard lesson={{ id: 'd1d2c3d4e5f6', text: 'guard a missing items list', origin: 'pr', learnedFrom: 'At PR #7, from r', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true, reclassified: { detail: 'promoted by the exact-line rule, which no longer promotes on its own', evidence: ['fixed later by abc123def "fix: total crashes"'] } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(out).toContain('back to candidate</span> <span class="st-sub">promoted by the exact-line rule');
+        expect(out).toContain('fixed later by abc123def');
+        expect(out).toContain('>Promote<');
+        expect(out).toContain('>Dismiss<');
+        expect(out).not.toContain('Seen once');
+    });
+});
+
+describe('a candidate with a later fix on its lines, on the learning page', () => {
+    it('shows the fix and offers Promote and Dismiss', () => {
+        const out = html(<LessonCard lesson={{ id: 'b1b2c3d4e5f6', text: 'keep the composer scrollable', origin: 'pr', learnedFrom: 'At PR #4, from r1', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true, suggested: { detail: 'fixed later by abc123def "fix: composer overflow"', pr: 4, at: '2026-09-05T00:00:00Z' } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(out).toContain('a later fix changed these lines');
+        expect(out).toContain('The pull request (#4) left this point alone');
+        expect(out).toContain('>Promote<');
+        expect(out).toContain('>Dismiss<');
+        expect(out).not.toContain('Seen once');
+    });
+});
+
+describe('a lesson taken back on the learning page', () => {
+    it('says why and offers to promote it again', () => {
+        const out = html(<LessonCard lesson={{ id: 'a1b2c3d4e5f6', text: 'take the lock first', origin: 'pr', learnedFrom: 'At PR #1, from r1', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true, takenBack: { detail: 'taken back: #50, #51 repeated it and settled clean', prs: [50, 51], at: '2026-10-01T00:00:00Z' } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(out).toContain('taken back</span> <span class="st-sub">taken back: #50, #51 repeated it and settled clean');
+        expect(out).toContain('Promote again');
+        expect(out).not.toContain('Seen once');
+    });
+});
+
+describe('the goal check on the Setup page', () => {
+    const text = { title: 'The goal check', lead: 'Checks a change against its goal.', row: 'Check the goal', rowHelp: 'Required: no one may turn it off.', name: 'goal check' };
+    const goal = (over: Partial<SwitchData>): SwitchData => ({ effective: { enabled: false, source: 'team', required: false, refused: [] }, team: 'off', teamFile: false, user: null, ...over });
+    const draw = (data: SwitchData, canWrite = true, diff: string | null = null) => html(<SwitchSettings text={text} data={data} canWrite={canWrite} saving={false} problem={null} diff={diff} onSave={() => undefined} />);
+
+    it('shows what runs and where it comes from, your choice and the team\'s', () => {
+        const out = draw(goal({ effective: { enabled: true, source: 'user', required: false, refused: [] }, user: true }));
+        expect(out).toContain('The goal check');
+        expect(out).toContain('<span class="st-mono">on</span> <span class="st-sub">· yours</span>');
+        expect(out).toContain('aria-label="Your goal check"');
+        expect(out).toContain('aria-label="Team goal check"');
+        expect(out).toContain('setting the team&#x27;s value creates one');
+    });
+
+    it('locks under the team\'s floor and lists what was not applied, with the diff to commit', () => {
+        const out = draw(goal({ effective: { enabled: true, source: 'team', required: true, refused: ['goal check off (user) refused: rigour.yml sets review.goal: required'] }, team: 'required', teamFile: true, user: false }), true, '+  goal: required');
+        expect(out).toContain('aria-label="your team requires the goal check"');
+        expect(out).toContain('not applied</span> goal check off (user) refused');
+        expect(out).toContain('rigour.yml changed');
+        expect(out).not.toContain('creates one');
+    });
+
+    it('is read-only without the Studio key', () => {
+        const out = draw(goal({}), false);
+        expect(out).toContain('Open Studio from the link the terminal printed');
+        expect(out.match(/disabled=""/g)?.length).toBe(6); // yours: Team, on, off; the team's: off, on, required
     });
 });
 

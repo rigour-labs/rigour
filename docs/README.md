@@ -24,9 +24,12 @@ and only on what the change itself introduced.
 | A second opinion from your agents' own CLIs, from one judge up to a panel | [The reviewer](./REVIEWER.md) |
 | A model review with an API key, or a local model | [Model review](./MODEL_REVIEW.md) |
 | Measuring Rigour against your team's own past reviews | [Backtest](./BACKTEST.md) |
+| What changed in 6.9.0 | [Release notes](./releases/6.9.0.md) |
 | What changed in 6.8.1 | [Release notes](./releases/6.8.1.md) |
 | What changed in 6.8.0, upgrading, known limits and rollback | [Release notes](./releases/6.8.0.md) |
 | What an agent is told about the team before it writes | [The briefing](./BRIEF.md) |
+| Whether a change stays inside the goal its pull request declares | [The goal check](./GOAL.md) |
+| What happened after a pull request merged: CI, later fixes, reverts | [Outcomes](./OUTCOMES.md) |
 | What happened to one task, across agents, checks, pushes and reviews | [The task thread](./THREAD.md) |
 | The report and fix packet, for scripts and agents | [Fix packet and report](./FIX_PACKET.md) |
 

@@ -45,6 +45,10 @@ judge's own sense of severity) decides what blocks:
     (must, never, always, only, every, do not), broken with its quote verified, blocks; guidance broken is a
     should-fix. The rule's words and weight come from the file, never from the judge.
 11. **The diff as a person reads it.**
+12. **The declared goal**, only with the [goal check](GOAL.md) on and a description that declares one: each
+    "Done when" item that names no file, and each invariant, answered met, not met (with the code quoted)
+    or cannot tell. An item not met is a should-fix, never a block, whatever the judge says; the
+    deterministic goal check already blocks on what needs no model.
 
 Steps 2 to 10 are the judge's working notes: you see them, and they never block on their own, with one
 exception: a requirement rule shown broken with a verified quote. Otherwise only a
@@ -176,8 +180,8 @@ The nearest choice wins:
 
 | Setting | Who may set it |
 | --- | --- |
-| `enabled`, `mode`, `panel` (on or off), `judges`, `escalate`, `reviewers`, `models`, `max_runs_per_day`, `max_usd_per_day` | The team in `rigour.yml`, and each person for their own runs |
-| `panel: required`, `mode_required`, `dismissals`, `on_push`, `timeout_ms`, `panel_max_items`, `cross_models`, `model`, `judge_env` | The team only |
+| `enabled`, `mode`, `panel` (on or off), `judges`, `escalate`, `reviewers`, `models`, `max_runs_per_day`, `max_usd_per_day`, `orchestrator` (on or off, see [the orchestrator](#the-orchestrator)) | The team in `rigour.yml`, and each person for their own runs |
+| `panel: required`, `orchestrator: required`, `mode_required`, `dismissals`, `on_push`, `timeout_ms`, `panel_max_items`, `cross_models`, `model`, `judge_env` | The team only |
 
 Your own settings apply to your runs in every repository on your machine. The team can set a
 **floor** that no nearer choice goes below: `panel: required` and `mode_required: true`. Under a
@@ -243,6 +247,89 @@ Studio's Setup page show today's runs and spend against the caps.
 Every verdict records its agent runs, the tokens each judge used and, where the CLI reports it, its
 cost.
 
+## The orchestrator
+
+**Experimental, off by default.** One judge doing every step of a review spreads its attention thin.
+The orchestrator routes instead: a triage step, with no model, decides which parts of the review a
+change needs, and the judge is told to do only those, fully. It is a router, not a fan-out: on
+average it costs no more than one judge, and a change with nothing for a model to review costs
+nothing.
+
+### What triage picks
+
+Each hunk of the diff is read on its own:
+
+| Part | Picked for |
+| --- | --- |
+| Earlier human points | every reviewable hunk, when the pull request has human reviews |
+| Correctness | every file but the skipped ones, whatever its language |
+| Production cost | a read (queries in TS/JS, Python, Go and SQL), a loop that awaits on every turn, or a migration |
+| What the change leaves behind | a deletion, a new declaration or a new file |
+| Rules, lessons and the goal | prose, comments, or any change when the team has rules, lessons or a goal for it |
+
+Only lockfiles, snapshots, source maps, minified bundles and files a generator marks as its own
+(`__generated__/`, `.generated.`, protobuf output) are skipped. Prose is matched by extension, so
+code in a `docs/` folder is still code. A change made only of skipped files gets **no model run**,
+and the record says "nothing for the model reviewer to review".
+
+The five parts are fixed and versioned, so a backtest can pin them.
+
+### One pass, split only when it pays for itself
+
+The parts triage picked run as **one combined pass**: the same prompt and inputs as one judge,
+plus a focus block and the pass's slice of the diff (its hunks, and the one hunk defining each name
+they use).
+
+A pass is held to the judge's limit: half its context window, and no more diff than its timeout
+lets it read. The windows are defaults (200k tokens for the CLIs, 128k for the API judge), not
+measurements; every orchestrated review records the limit it used and the judge it came from.
+
+A split always costs more than one pass for that review, because each part re-reads the shared
+inputs. So a change over the limit is split only from **savings**:
+
+- **The savings ledger** sums, over the last 20 orchestrated reviews, what one judge would have
+  been given minus what every run was given. It counts in dollars once Rigour has a baseline (the
+  dollars per character of this repository's single reviews, frozen once at the first orchestrated
+  review), otherwise in characters.
+- **A split runs** only when the ledger covers its extra, by hunk, into at most three parts, each
+  within the limit.
+- **Otherwise it is one pass**, and the record says why ("over the judge's limit; ledger X, split
+  needs Y: one pass", or "needs N parts > 3: one pass"). With no history the ledger is empty, so
+  there is no split.
+
+Every fresh orchestrated review writes one row to the ledger (`costs.jsonl` beside the verdicts):
+what one judge would have been given, what was planned, and what every run was actually given and
+reported costing, failed passes and a fallback included. A review by one judge, asked for and run,
+writes the same row; those rows are what the baseline is frozen from.
+
+### When a pass fails
+
+- Every pass counts against the daily caps. When the caps leave one run but not every part, the
+  change runs as one combined pass.
+- At least half of the passes returned: the result stands, and the parts not reviewed are named.
+- Fewer than half: one judge reviews the change instead, **once**, with no retry and no spare
+  judge, if the caps allow a run; otherwise the review is unavailable.
+- A team floor on the panel or the mode wins over the orchestrator, and the refusal is recorded.
+
+What blocks is unchanged: findings merge through the same accounting, quote check and touched-lines
+rule as one judge's. The same point raised by two passes is one item.
+
+### Turning it on
+
+| Layer | Setting |
+| --- | --- |
+| This run | `rigour review --reviewer --orchestrator` / `--no-orchestrator` |
+| Environment | `RIGOUR_REVIEWER_ORCHESTRATOR=on` or `off` |
+| Yours | `orchestrator` in your settings, or Studio's Setup page |
+| The team's | `review.reviewer.orchestrator: off \| on \| required` in `rigour.yml` |
+
+`required` stops a nearer layer turning it off, and gives **no verdict unless every part
+returns**: never a partial review, and never one judge instead.
+
+The verdict's `mode.specialists` records the parts picked, the passes and their slices, whether
+each pass read beyond its slice (the signal for whether slicing works), the limit, the plan's
+reason and any fallback.
+
 ## How it learns
 
 Each judge starts from what your team already knows, written to a file it reads:
@@ -258,8 +345,6 @@ AI posting under a person's login, or a review bot. Who wrote it, and whether th
 those lines before merging, are recorded on the candidate and decide nothing: people paste AI text,
 and agents apply review comments on their own. A candidate becomes a **lesson** only on evidence:
 
-- **outcome**: after the merge, a commit on the main branch changed the lines the point named and says
-  it fixed something, or the pull request was reverted;
 - **a person's correction**: they changed what an agent wrote. The after-edit hook keeps each file as
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
@@ -270,8 +355,23 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   standard counts; a bot rewording its own point on every pull request does not). A point that is only
   a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
 
+**What happens after the merge never promotes on its own.** A later commit on the main branch that changes the lines a point named and says it fixed something, or a revert of the pull request, is recorded on the candidate (`rigour learn-reviews` records it as `lines`). Lessons an earlier version promoted on that alone are back to candidates, each with a `reclassified` record, listed first in Studio. The [outcome loop](OUTCOMES.md) goes further: It follows a point's lines
+through every later commit as the code moves (within three lines either side, inside the window); a
+commit that changes them, says it fixes something and touches at most fifteen files is recorded as
+`lines` evidence, with CI regressing on the merge commit or a revert as context, and a fix elsewhere in
+the file as `followup`. Studio shows that evidence on the candidate, with the fix commit, for a person
+to promote or dismiss; the decision is theirs and final. It is evidence and not a verdict because, read
+by a person against real history, a fix on the same lines was most often unrelated work: the same code
+changing for another reason.
+
 **Counter-evidence** holds a candidate back: its lines shipped unchanged and nothing needed fixing
-within the window (30 days). `--reject <id>` makes an **anti-lesson**: judges are told this team decided
+within the window (30 days). With the outcome loop on, evidence can also **take a lesson back**: when
+a review of a later pull request found it repeating the lesson, and that pull request merged anyway and
+settled clean (CI passed, no fix on the lesson's file within the window, no revert), that is `against`
+evidence. `learning.outcomes.demote_after` such pull requests (default 2), from more than one author or
+merged at least a week apart, make a lesson that recurrence promoted a candidate again (`demoted`). A pull request
+that followed the lesson, or that no review checked against it, never counts, and a lesson a person
+promoted or corrected into being is never taken back; a person promoting it again is final. `--reject <id>` makes an **anti-lesson**: judges are told this team decided
 against it, and it is never served as a lesson. Every piece of evidence stays on the lesson
 (`--list` shows what promoted each). With `--until <time>`, only history before it counts, so a
 measurement never sees the future. The pull request's author commenting on their own pull request is not

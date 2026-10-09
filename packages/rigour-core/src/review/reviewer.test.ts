@@ -10,6 +10,8 @@ import { reviewStatus } from './reviewer/background.js';
 import { selectReviewers, vendorsOf } from './reviewer/adapters.js';
 import { account, attachServedRules, carryResolved, changedLinesOf, checkoutSearch, checkoutVerifier, mergeVerdicts, parseVerdict, type LabelledPoint, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { recordIntact, recordLines } from './reviewer/record.js';
+import { BASELINE_MIN_SINGLES, ledger, passLimit } from './reviewer/orchestrator.js';
+import { VerdictStore } from './reviewer/store.js';
 import { readThread } from '../task/thread.js';
 
 let repo: string;
@@ -57,7 +59,7 @@ function fakes(answer: (reviewer: string) => string | { exitCode: number; stdout
         const prompt = binary === 'claude' ? args[args.indexOf('-p') + 1] : args[args.length - 1];
         seen.prompts.push(prompt);
         // Paths as the prompt names them, on either separator (Windows writes `D:\...`).
-        for (const match of prompt.matchAll(/(\S+(?:previous-reviews\.md|pr-description\.md|full\.diff|hints\.txt|previous-open\.json|delta\.diff|previous-resolved\.json|team-knowledge\.md))/g)) {
+        for (const match of prompt.matchAll(/(\S+(?:previous-reviews\.md|pr-description\.md|full\.diff|hints\.txt|previous-open\.json|delta\.diff|previous-resolved\.json|team-knowledge\.md|declared-goal\.md))/g)) {
             seen.files[path.basename(match[1])] = fs.readFileSync(match[1], 'utf8');
         }
         const reply = answer(name);
@@ -256,6 +258,30 @@ describe('the reviewer', () => {
         expect(result.rules).toEqual({ checked: 1, followed: 0, broken: 1, notApplicable: 0 });
     });
 
+    it('asks the judge about the goal the description declares, with the goal check on, and never blocks on it', async () => {
+        const body = 'Adds the job.\n\n## Done when\n- `src/job.ts` exists\n- the job takes the lock before it reads\n\n## Invariants\n- a second run never sends twice';
+        const goalConfig = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', goal: 'on', reviewer: { enabled: true, reviewers: ['claude'] } } });
+        const seen = seenNow();
+        const answer = () => JSON.stringify({ ...EMPTY, goal: [
+            { item: 'the job takes the lock before it reads', met: false, file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'no lock at all' },
+            { item: 'a second run never sends twice', met: false, file: 'src/job.ts', line: 2, quote: 'not in the file', evidence: 'cannot show' },
+            { item: 'something met', met: true, file: 'src/job.ts', line: 1 },
+        ] });
+        const result = await runReviewer(repo, 'main', goalConfig, fakes(answer, seen, { ...PR, body }), () => undefined, { force: true });
+        // Only what a model must judge: the item naming a file is the deterministic check's.
+        expect(seen.files['declared-goal.md']).toBe('- [done] the job takes the lock before it reads\n- [invariant] a second run never sends twice\n');
+        expect(seen.prompts[0]).toContain('12. The declared goal.');
+        expect(seen.prompts[0]).toContain('"goal":[{"item"');
+        expect(result.items).toEqual([]);
+        expect(result.advisory.map(i => [i.class, i.issue])).toEqual([['goal', 'the description\'s goal is not met: the job takes the lock before it reads']]);
+        expect(result.unverified.map(i => i.class)).toEqual(['goal']); // a quote that is not in the file is never shown as a should-fix
+
+        const off = seenNow();
+        await runReviewer(repo, 'main', goalConfig, fakes(() => JSON.stringify(EMPTY), off, { ...PR, body }), () => undefined, { force: true, goal: false });
+        expect(off.prompts[0]).not.toContain('The declared goal');
+        expect(off.files['declared-goal.md']).toBeUndefined();
+    });
+
     it('writes the record of the review beside the verdict, intact, and returns the same record on a cached read', async () => {
         const seen = seenNow();
         const answer = JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' }] });
@@ -348,6 +374,221 @@ describe('the reviewer', () => {
     });
 });
 
+describe('the orchestrator', () => {
+    const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' };
+    /** Which pass a prompt is: its part file for an orchestrated pass, 'single' for one judge's whole review. */
+    const passOf = (prompt: string) => /Your part of the diff is in\n(\S+)/.exec(prompt)?.[1]?.split(/[\\/]/).pop() ?? 'single';
+    /** Answers by pass: a reply, 'fail' for a run that gives no answer, or 'fail-paid' for one that reports $0.70 and no answer. */
+    const judge = (seen: Seen, replies: Record<string, string>) => () => {
+        const reply = replies[passOf(seen.prompts.at(-1)!)] ?? JSON.stringify(EMPTY);
+        if (reply === 'fail') return { exitCode: 1, stdout: '', stderr: 'crashed' };
+        if (reply === 'fail-paid') return { exitCode: 1, stdout: JSON.stringify({ result: '', total_cost_usd: 0.7 }), stderr: 'crashed' };
+        return reply;
+    };
+    /** A one-minute timeout holds a claude pass to 30,000 characters (passLimit), so a modest change is over it. */
+    const TIMEOUT = 60_000;
+    const orch = (extra: Record<string, unknown> = {}) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], timeout_ms: TIMEOUT, ...extra } } });
+    const store = async () => (await VerdictStore.open(repo, fakes(() => '', seenNow())))!;
+    /** About 2,800 characters of reads in each of `files` new files, each name its own: 24 is over the limit and splits in three parts of whole files. */
+    function bigChange(files = 24) {
+        for (let f = 0; f < files; f++) {
+            fs.writeFileSync(path.join(repo, `src/load${f}.ts`), `${Array.from({ length: 30 }, (_, i) => `export async function load${f}x${i}(db) { return db.query('select * from orders${f} where id = ${i}'); }`).join('\n')}\n`);
+        }
+        git('add', '-A');
+        git('commit', '-qm', 'big');
+    }
+    /** What the plan said a split needs, from a review's record. */
+    const needsOf = (result: ReviewerResult) => Number(/split needs (\d+) chars/.exec(result.mode?.specialists?.plan ?? '')?.[1]);
+    /** Credit the ledger by `chars`: one orchestrated review that gave its runs that much less than one judge would have had. */
+    const credit = async (chars: number) => (await store()).recordCost({ at: new Date().toISOString(), mode: 'orchestrator', lines: 1, projectedSingleChars: chars, actualChars: 0, actualUsd: 0, runs: 0 });
+
+    it('reviews a small change in one combined pass, with only the parts triage picked and its slice of the diff', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff']);
+        expect(seen.prompts[0]).toContain('you do these: earlier human review points; correctness: merge impact');
+        expect(seen.prompts[0]).not.toContain('production cost: every read');
+        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'orchestrator', specialists: { selected: ['prior-points', 'correctness', 'cleanup'], missing: [], passes: [{ specialists: ['prior-points', 'correctness', 'cleanup'] }] } });
+        expect((await store()).costs().at(-1)).toMatchObject({ mode: 'orchestrator', runs: 1, actualUsd: 1.5 });
+    });
+
+    it('runs no model on a change with nothing for it to review: no run, no spend, and the review credits the ledger', async () => {
+        git('checkout', '-q', 'main');
+        git('checkout', '-qb', 'locks');
+        fs.writeFileSync(path.join(repo, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+        git('add', '-A');
+        git('commit', '-qm', 'locks');
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, {}), seen, null), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts).toEqual([]);
+        expect(result).toMatchObject({ outcome: 'passed', mode: { ran: 'orchestrator', specialists: { selected: [], passes: [], none: 'nothing for the model reviewer to review' } } });
+        expect(result.record).toBeDefined();
+        const kept = await store();
+        expect(kept.spend().runs).toBe(0);
+        expect(kept.costs().at(-1)).toMatchObject({ mode: 'orchestrator', runs: 0, actualChars: 0, actualUsd: 0, projectedChars: 0 });
+        expect(kept.costs().at(-1)!.projectedSingleChars).toBeGreaterThan(0);
+    });
+
+    it('keeps a change over the judge\'s limit one pass with an empty ledger, and says what a split would need', async () => {
+        bigChange();
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', orch(), fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff']);
+        expect(result.mode?.specialists?.plan).toMatch(/^over the judge's limit; ledger 0 chars, split needs \d+ chars: one pass$/);
+        expect(result.mode?.specialists?.limit).toEqual({ judge: 'claude', chars: passLimit('claude', TIMEOUT) });
+    });
+
+    it('runs one pass, whatever the ledger holds, for a change that would need more than three parts', async () => {
+        bigChange(40);
+        await credit(10_000_000);
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', orch(), fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff']);
+        const needs = Number(/^over the judge's limit; needs (\d+) parts > 3: one pass$/.exec(result.mode?.specialists?.plan ?? '')?.[1]);
+        expect(needs).toBeGreaterThan(3);
+    });
+
+    it('records whether each pass read beyond its slice: true outside it, false inside it, null without a trace', async () => {
+        fs.writeFileSync(path.join(repo, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'); // changed, and in no slice: no model reviews a lockfile
+        git('add', '-A');
+        git('commit', '-qm', 'lock');
+        const tracing = (file: string | undefined): Exec => {
+            const base = fakes(() => JSON.stringify(EMPTY), seenNow());
+            return async (command, args, options) => {
+                if (path.basename(command).replace(/\.(cmd|exe)$/, '') !== 'claude' || args[0] === '--version' || file === undefined) return base(command, args, options);
+                const read = { type: 'assistant', message: { id: 'm-1', usage: {}, content: [{ type: 'tool_use', id: '1', name: 'Read', input: { file_path: path.join(repo, file) } }] } };
+                return { exitCode: 0, stdout: [read, { type: 'result', result: JSON.stringify(EMPTY), total_cost_usd: 0.1 }].map(e => JSON.stringify(e)).join('\n'), stderr: '' };
+            };
+        };
+        const beyond = async (file: string | undefined) => (await runReviewer(repo, 'main', config, tracing(file), () => undefined, { orchestrator: true, force: true })).mode?.specialists?.passes[0].readBeyondSlice;
+        expect(await beyond('pnpm-lock.yaml')).toBe(true);
+        expect(await beyond('src/job.ts')).toBe(false);
+        expect(await beyond(undefined)).toBeNull();
+    });
+
+    it('splits by hunk only when the ledger covers it: one unit short is one pass; covered, every part within the limit, and a point two parts raise is one item', async () => {
+        bigChange();
+        const first = await runReviewer(repo, 'main', orch(), fakes(judge(seenNow(), {}), seenNow()), () => undefined, { orchestrator: true, force: true });
+        const needs = needsOf(first);
+        const held = ledger((await store()).costs(), undefined).credit;
+        await credit(needs - 1 - held);
+        const short = seenNow();
+        const one = await runReviewer(repo, 'main', orch(), fakes(judge(short, {}), short), () => undefined, { orchestrator: true, force: true });
+        expect(short.prompts).toHaveLength(1);
+        expect(one.mode?.specialists?.plan).toContain(`ledger ${needs - 1} chars, split needs ${needs} chars: one pass`);
+        await credit(1 - ledger((await store()).costs(), undefined).credit + (needs - 1));
+        const seen = seenNow();
+        const both = JSON.stringify({ ...EMPTY, findings: [finding] });
+        const result = await runReviewer(repo, 'main', orch(), fakes(judge(seen, { 'part-1.diff': both, 'part-2.diff': both }), seen), () => undefined, { orchestrator: true, force: true });
+        const passes = result.mode!.specialists!.passes;
+        expect(passes.length).toBeGreaterThan(1);
+        for (const pass of passes) expect(pass.chars).toBeLessThanOrEqual(passLimit('claude', TIMEOUT));
+        expect(seen.prompts.map(passOf).sort()).toEqual(passes.map((_, i) => `part-${i + 1}.diff`).sort());
+        expect(result.items).toHaveLength(1); // the same point from two parts is one item
+    });
+
+    it('runs one combined pass, not one judge, when the caps leave one run but not every part', async () => {
+        bigChange();
+        await credit(10_000_000);
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', orch({ max_runs_per_day: 2 }), fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff']);
+        expect(result.mode).toMatchObject({ ran: 'orchestrator', specialists: { plan: expect.stringMatching(/^the caps leave one run, not \d+: one pass$/) } });
+    });
+
+    it('falls back to one judge when the pass gives no verdict, and records one cost row with both runs, the failed one\'s dollars included', async () => {
+        const seen = seenNow();
+        const before = (await store()).costs().length;
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { 'part-1.diff': 'fail-paid' }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff', 'single']);
+        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'single', specialists: { fallback: '0 of 1 passes returned' } });
+        expect(result.outcome).toBe('passed');
+        const rows = (await store()).costs();
+        expect(rows).toHaveLength(before + 1);
+        expect(rows.at(-1)).toMatchObject({ mode: 'orchestrator', runs: 2, actualUsd: 2.2 });
+        expect(rows.at(-1)!.actualChars).toBeGreaterThan(rows.at(-1)!.projectedSingleChars); // the failed pass lowers the ledger
+    });
+
+    it('runs the fallback once: no retry and no spare judge', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { 'part-1.diff': 'fail', single: 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff', 'single']);
+        expect(result.outcome).toBe('unavailable');
+        expect((await store()).costs().at(-1)).toMatchObject({ mode: 'orchestrator', runs: 2 });
+    });
+
+    it('is unavailable when the pass gives no verdict and the caps leave no run for one judge', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', orch({ max_runs_per_day: 1 }), fakes(judge(seen, { 'part-1.diff': 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts).toHaveLength(1);
+        expect(result.outcome).toBe('unavailable');
+        expect(result.reason).toContain('0 of 1 passes returned, and the caps leave no run for one judge');
+    });
+
+    it('freezes the baseline once: later reviews of any kind never move it', async () => {
+        const kept = await store();
+        for (let i = 0; i < 20; i++) kept.recordCost({ at: '', mode: 'single', lines: 10, projectedSingleChars: 1000, actualChars: 1000, actualUsd: 1, runs: 1 });
+        const frozen = kept.freezeBaseline(BASELINE_MIN_SINGLES);
+        expect(frozen).toMatchObject({ usdPerChar: 0.001, singles: 20 });
+        for (let i = 0; i < 250; i++) kept.recordCost({ at: '', mode: 'orchestrator', lines: 10, projectedSingleChars: 1000, actualChars: 10, actualUsd: 0.5, runs: 1 });
+        expect(kept.costs().some(c => c.mode === 'single')).toBe(false);
+        expect(kept.freezeBaseline(BASELINE_MIN_SINGLES)).toEqual(frozen);
+    });
+
+    it('runs when the team turns it on, with no flag, and keeps a required one on against --no-orchestrator, unavailable when the caps are reached', async () => {
+        const team = (orchestrator: 'on' | 'required', extra = {}) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], orchestrator, ...extra } } });
+        const on = seenNow();
+        expect((await runReviewer(repo, 'main', team('on'), fakes(judge(on, {}), on), () => undefined, { force: true })).mode).toMatchObject({ asked: 'orchestrator', source: 'team' });
+        const required = seenNow();
+        const kept = await runReviewer(repo, 'main', team('required'), fakes(judge(required, {}), required), () => undefined, { force: true, orchestrator: false });
+        expect(kept.mode).toMatchObject({ ran: 'orchestrator' });
+        expect(kept.mode?.refused).toContain('review orchestrator off (flag) refused: rigour.yml sets review.reviewer.orchestrator: required');
+        // Required, and the caps already spent: unavailable, never a quieter review.
+        const first = seenNow();
+        await runReviewer(repo, 'main', team('required', { max_runs_per_day: 1 }), fakes(judge(first, {}), first), () => undefined, { force: true });
+        const spent = seenNow();
+        const none = await runReviewer(repo, 'main', team('required', { max_runs_per_day: 1 }), fakes(judge(spent, {}), spent), () => undefined, { force: true });
+        expect(none.outcome).toBe('unavailable');
+        expect(spent.prompts).toEqual([]);
+        // Required, and the pass gives no verdict: unavailable, no single-judge fallback run.
+        const few = seenNow();
+        const short = await runReviewer(repo, 'main', team('required'), fakes(judge(few, { 'part-1.diff': 'fail' }), few), () => undefined, { force: true });
+        expect(short.outcome).toBe('unavailable');
+        expect(short.reason).toBe('0 of 1 passes returned, and rigour.yml requires the orchestrator: every part or no verdict (not reviewed: prior-points, correctness, cleanup)');
+        expect(few.prompts).toHaveLength(1);
+    });
+
+    it('under required, reviews every part or gives no verdict, and runs one combined pass when the caps leave one run', async () => {
+        const required = (extra = {}) => orch({ orchestrator: 'required', ...extra });
+        bigChange();
+        await credit(10_000_000);
+        // The split runs; one part of several gives no verdict: unavailable, not a partial review.
+        const split = seenNow();
+        const partial = await runReviewer(repo, 'main', required(), fakes(judge(split, { 'part-2.diff': 'fail' }), split), () => undefined, { force: true });
+        expect(split.prompts.length).toBeGreaterThan(2);
+        expect(partial.outcome).toBe('unavailable');
+        expect(partial.reason).toMatch(/requires the orchestrator: every part or no verdict \(not reviewed: part 2: /);
+        // The caps leave one run, not every part: one combined pass, never unavailable for that.
+        const capped = seenNow();
+        const one = await runReviewer(repo, 'main', required({ max_runs_per_day: 100 }), fakes(judge(capped, {}), capped), () => undefined, { force: true });
+        expect(one.outcome).toBe('passed');
+        const spentSoFar = (await store()).spend().runs;
+        const last = seenNow();
+        const combined = await runReviewer(repo, 'main', required({ max_runs_per_day: spentSoFar + 1 }), fakes(judge(last, {}), last), () => undefined, { force: true });
+        expect(last.prompts.map(passOf)).toEqual(['part-1.diff']);
+        expect(combined.outcome).toBe('passed');
+        expect(combined.mode?.specialists?.plan).toMatch(/^the caps leave one run, not \d+: one pass$/);
+    });
+
+    it('gives way to a team floor on the panel or the mode, and says so', async () => {
+        const seen = seenNow();
+        const floor = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], mode: 'full', mode_required: true } } });
+        const result = await runReviewer(repo, 'main', floor, fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['single', 'single']);
+        expect(result.mode?.refused).toContain('orchestrator refused: rigour.yml requires the panel or the mode');
+    });
+});
+
 describe('choosing reviewers', () => {
     it('runs the newest installed copy of a CLI, not the first on PATH', async () => {
         const seen = seenNow();
@@ -409,6 +650,17 @@ describe('verdicts', () => {
         delete cached.journey; delete cached.siblings; delete cached.claims;
         expect(account(cached as Verdict, undefined, () => true).open).toEqual([]);
         expect(mergeVerdicts([cached as Verdict, { ...verdict, reviewer: 'codex' } as Verdict]).claims).toHaveLength(2);
+    });
+
+    it('keeps a goal item one should-fix across judges, even when two judges both say it is not met', () => {
+        const goal = (reviewer: string) => ({ ...EMPTY, reviewer, goal: [{ item: 'runs once a day', met: false, file: 'src/job.ts', line: 2, quote: 'return 1;' }] }) as Verdict;
+        const merged = mergeVerdicts([goal('claude'), goal('codex')]);
+        expect(merged.goal).toHaveLength(2);
+        const { open, advisory } = account(merged, undefined, checkoutVerifier(repo));
+        expect(open).toEqual([]);
+        expect(advisory.map(i => [i.kind, i.reviewer])).toEqual([['goal', 'claude+codex']]); // one item, naming both judges
+        const cached = { ...EMPTY } as Verdict; // a verdict from before the goal step has none
+        expect(account(cached, undefined, () => true).advisory).toEqual([]);
     });
 
     it('blocks on a finding only when the code it quotes is at the line it names, and never carries an old working note as a block', () => {
@@ -833,11 +1085,15 @@ describe('the judge Rigour launches', () => {
 describe("the review on the task's thread", () => {
     it('appends each review of a branch to its task, and never a backtest replaying history', async () => {
         const seen = seenNow();
-        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review' });
+        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review', checks: ['src/a.ts:1 an unused export'] });
         const thread = readThread(repo, 'feature');
-        expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking])).toEqual([['review', 'review', 'passed', 0]]);
+        expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking, e.checks])).toEqual([['review', 'review', 'passed', 0, 1]]);
         expect(thread?.events[0].integrity).toEqual(expect.any(String));
+        expect(thread?.events[0]).toMatchObject({ cost_usd: 1.5, cost_basis: 'runs' }); // every run this review made: the same dollars as its cost row
+        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
+        expect(readThread(repo, 'feature')?.events[1]).not.toHaveProperty('cost_usd'); // a cached verdict spent nothing
+        expect(readThread(repo, 'feature')?.events).toHaveLength(2);
         await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seenNow()), () => undefined, { pr: 42, reviewsBefore: '2026-10-03', force: true });
-        expect(readThread(repo, 'feature')?.events).toHaveLength(1);
+        expect(readThread(repo, 'feature')?.events).toHaveLength(2);
     });
 });

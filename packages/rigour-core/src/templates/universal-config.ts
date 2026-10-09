@@ -281,9 +281,13 @@ export const UNIVERSAL_CONFIG: Config = {
         enabled: true,
         max_items: 10,
     },
+    learning: {
+        outcomes: { mode: 'off', window_days: 30, demote_after: 2 },
+    },
     review: {
         include_heuristics: false,
         show_preexisting: false,
+        goal: 'off',
         reviewer: {
             enabled: false,
             on_push: 'background',
@@ -295,6 +299,7 @@ export const UNIVERSAL_CONFIG: Config = {
             mode_required: false,
             panel_max_items: 20,
             dismissals: false,
+            orchestrator: 'off',
             judges: 2,
             escalate: 'always',
             cross_models: {},

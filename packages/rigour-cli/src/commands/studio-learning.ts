@@ -7,7 +7,8 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { fixLessonPrefix, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { decideLesson, fixLessonPrefix, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { personOf } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -26,12 +27,20 @@ export interface LessonJourney {
     stoppedInDevelopment: number | null;
     reachedPr: number | null;
     canDecide: boolean;
+    /** A review lesson evidence took back (review-learning/outcome-evidence.ts): why, and the pull requests that did. A person may promote it again. */
+    takenBack?: { detail: string; prs: number[]; at: string };
+    /** A later fix changed the point's own lines (review-learning/outcome-evidence.ts): evidence for a person to promote or dismiss, never a promotion on its own. */
+    suggested?: { detail: string; pr: number; at: string };
+    /** Back to a candidate when outcomes stopped promoting: why, and the evidence that had promoted it, for a person to promote again or dismiss. */
+    reclassified?: { detail: string; evidence: string[] };
 }
 
 export interface StudioLearning {
     lessons: LessonJourney[];
     weeks: Array<{ from: string; stoppedInDevelopment: number; reachedPr: number | null }>;
     prRecorded: boolean;
+    /** What happened after merges this checkout read (core outcomes/metrics.ts); absent before `rigour outcomes` has run. */
+    outcomes?: OutcomeMetrics;
 }
 
 interface Catch { at: string; prefix: string }
@@ -67,16 +76,18 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             id: l.id,
             text: l.text,
             origin: 'pr' as const,
-            learnedFrom: `At PR ${[...new Set(l.evidence.map(e => `#${e.pr}`))].join(', ')}, from ${[...new Set(l.evidence.map(e => e.author))].join(', ')}`,
+            // Where it was learned: the review points, not the outcome or decision evidence added since.
+            learnedFrom: learnedFromPoints(l.evidence.filter(e => (e.kind ?? 'point') === 'point')),
             learnedAt: l.createdAt,
             state: l.state,
             scope: 'this repo' as const,
             told: told(l.text),
             stoppedInDevelopment: null,
             reachedPr: null,
-            canDecide: false,
+            ...decisionFor(l),
         })),
-    ].sort((a, b) => b.learnedAt.localeCompare(a.learnedAt))
+    // Lessons back to a candidate when outcomes stopped promoting come first: a person decides each once.
+    ].sort((a: LessonJourney, b: LessonJourney) => Number(!!b.reclassified) - Number(!!a.reclassified) || b.learnedAt.localeCompare(a.learnedAt))
         // The same lesson learned in several places (this repo and personal lessons from others) shows once.
         .filter((lesson, i, all) => all.findIndex(other => other.text === lesson.text) === i);
 
@@ -94,9 +105,39 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
     return { lessons, weeks, prRecorded };
 }
 
+function learnedFromPoints(points: ReviewLesson['evidence']): string {
+    const authors = [...new Set(points.map(e => e.author).filter(Boolean))];
+    return `At PR ${[...new Set(points.map(e => `#${e.pr}`))].join(', ')}${authors.length ? `, from ${authors.join(', ')}` : ''}`;
+}
+
+/**
+ * What a person can decide on a review lesson, from the last of its evidence and decisions: taken back by evidence
+ * (promote it again, or drop it), back to a candidate when outcomes stopped promoting (promote it again, or dismiss),
+ * or a candidate with a later fix on its lines (promote it, or dismiss the evidence).
+ */
+function decisionFor(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 'takenBack' | 'suggested' | 'reclassified'> {
+    const last = pendingDecision(lesson);
+    if (last?.kind === 'reclassified') return { canDecide: true, reclassified: { detail: last.detail ?? '', evidence: lesson.evidence.filter(e => e.kind === 'outcome' || e.kind === 'lines').map(e => e.detail ?? '').filter(Boolean) } };
+    if (last?.kind === 'demoted') return { canDecide: true, takenBack: { detail: last.detail ?? '', prs: lesson.evidence.filter(e => e.kind === 'against').map(e => e.pr), at: last.at ?? '' } };
+    if (last?.kind === 'lines') return { canDecide: true, suggested: { detail: last.detail ?? '', pr: last.pr, at: last.at ?? '' } };
+    return { canDecide: false };
+}
+
+/** A person's decision on a review lesson from Studio, recorded as `rigour learn-reviews --promote / --reject` records it: with their git email, and final. */
+export function decideReviewLesson(cwd: string, body: unknown): { id: string; state: string } {
+    const { id, decision, why } = (body ?? {}) as { id?: unknown; decision?: unknown; why?: unknown };
+    if (typeof id !== 'string' || !/^[0-9a-f]{12}$/.test(id)) throw new Error('a review lesson id (12 hex characters) is required');
+    if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'dismissed') throw new Error('decision is accepted, rejected or dismissed');
+    const lesson = decideLesson(cwd, id, decision, personOf(cwd), typeof why === 'string' && why.trim() ? why.trim() : 'decided in Studio');
+    if (!lesson) throw new Error(`no review lesson ${id}`);
+    return { id: lesson.id, state: lesson.state };
+}
+
 export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS): Promise<StudioLearning> {
     const roots = checkoutRoots(cwd);
-    return buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
+    const learning = buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
+    const outcomes = localOutcomeMetrics(cwd);
+    return outcomes ? { ...learning, outcomes } : learning;
 }
 
 /**

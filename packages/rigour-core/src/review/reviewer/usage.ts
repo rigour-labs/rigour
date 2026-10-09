@@ -26,5 +26,19 @@ export function reviewerUsage(result: ReviewerResult, trigger: string): Record<s
         dismissed: result.dismissed.length,
         runs: result.runs,
         cost_bucket: costBucket(result.costUsd),
+        ...orchestrated(mode?.specialists),
+    };
+}
+
+/** With the orchestrator: how many parts triage picked, how many passes ran, whether it split, fell back or had nothing to review, and how many passes read beyond their slice. */
+function orchestrated(specialists: NonNullable<ReviewerResult['mode']>['specialists']): Record<string, unknown> {
+    if (!specialists) return {};
+    return {
+        parts: specialists.selected.length,
+        passes: specialists.passes.length,
+        split: specialists.passes.length > 1,
+        fallback: !!specialists.fallback,
+        nothing_to_review: !!specialists.none,
+        beyond_slice: specialists.passes.filter(p => p.readBeyondSlice === true).length,
     };
 }

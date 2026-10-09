@@ -92,13 +92,14 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
         const byNumber = new Map(prs.filter(pr => pr.mergedAt).map(pr => [pr.number, pr]));
         const reverts = new Map([...byNumber.values()].map(pr => [pr.number, revertOf(git, pr, { mainRef: options.mainRef!, until: options.until })]));
         for (const lesson of merged.lessons) {
-            if (lesson.state !== 'candidate' || lesson.evidence.some(e => e.kind === 'outcome' || e.kind === 'counter')) continue;
+            if (lesson.state !== 'candidate' || lesson.evidence.some(e => e.kind === 'outcome' || e.kind === 'lines' || e.kind === 'counter')) continue;
             for (const point of lesson.evidence.filter(e => (e.kind ?? 'point') === 'point')) {
                 const pr = byNumber.get(point.pr);
                 if (!pr) continue;
                 const found = (point.actedOn === false ? reverts.get(pr.number) : undefined) ?? outcomeFor(git, lesson, pr, { mainRef: options.mainRef, until: options.until, windowDays: options.windowDays });
                 if (found) {
-                    lesson.evidence.push(found);
+                    // A fix on the point's lines, or a revert, is evidence for a person to promote in Studio, never a promotion (lessonState).
+                    lesson.evidence.push(found.kind === 'outcome' ? { ...found, kind: 'lines' } : found);
                     break;
                 }
             }

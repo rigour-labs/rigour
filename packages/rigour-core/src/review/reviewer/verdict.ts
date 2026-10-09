@@ -106,6 +106,8 @@ interface Sibling { changed: string; sibling: string; needs_same_change: boolean
 interface Claim { source: 'comment' | 'description'; claim: string; file?: string; line?: number; holds: boolean; evidence?: string; reviewer?: string }
 /** The judge's answer for one team lesson it was shown: does this change repeat it. */
 interface LessonCheck { lesson: string; applies: boolean; file?: string; line?: number; evidence?: string; reviewer?: string }
+/** The judge's answer for one item of the goal the description declares (prompt.ts goalStep). */
+interface GoalCheck { item: string; met: boolean | null; file?: string; line?: number; quote?: string; evidence?: string; reviewer?: string }
 /** A rule Rigour served to the judge from the repository's own rules files, by id. */
 export interface ServedRule { id: string; source: string; text: string; requirement: boolean }
 /**
@@ -127,6 +129,7 @@ export interface Verdict {
     claims?: Claim[];
     lessons?: LessonCheck[];
     rules?: RuleCheck[];
+    goal?: GoalCheck[];
     findings: Finding[];
     carried: string[];
     resolved_previous: Array<{ id: string; evidence: string }>;
@@ -142,7 +145,7 @@ export interface Verdict {
 
 export interface OpenItem {
     id: string;
-    kind: 'prior' | 'redundant' | 'read' | 'scan' | 'merge' | 'journey' | 'sibling' | 'claim' | 'lesson' | 'rule' | 'finding';
+    kind: 'prior' | 'redundant' | 'read' | 'scan' | 'merge' | 'journey' | 'sibling' | 'claim' | 'lesson' | 'rule' | 'goal' | 'finding';
     class: string;
     file?: string;
     line?: number;
@@ -228,7 +231,7 @@ const ACCEPTED_SIMILARITY = 0.4;
 const WORKING_NOTES = new Set<OpenItem['kind']>(['redundant', 'read', 'scan', 'merge', 'journey', 'sibling', 'claim', 'lesson']);
 
 const SHAPE: Array<keyof Verdict> = ['prior_points', 'reads', 'findings'];
-const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'journey', 'siblings', 'claims', 'lessons', 'rules', 'carried', 'resolved_previous'];
+const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'journey', 'siblings', 'claims', 'lessons', 'rules', 'goal', 'carried', 'resolved_previous'];
 
 /** The verdict in a reviewer's answer, or why it is not one. `needsPriorPoints`: a human review exists and none of its points is carried. */
 export function parseVerdict(text: string, needsPriorPoints: boolean, reviewer: string, spend: Spend): { verdict: Verdict } | { error: string } {
@@ -282,6 +285,7 @@ export function mergeVerdicts(parts: Verdict[]): Verdict {
         claims: tagged(part => part.claims ?? []),
         lessons: tagged(part => part.lessons ?? []),
         rules: tagged(part => part.rules ?? []),
+        goal: tagged(part => part.goal ?? []),
         findings: tagged(part => part.findings),
         carried: parts.flatMap(part => part.carried),
         resolved_previous: parts.length === 1 ? parts[0].resolved_previous : parts[0].resolved_previous.filter(x => parts.every(part => part.resolved_previous.some(y => y.id === x.id))),
@@ -334,32 +338,42 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     const notes: OpenItem[] = [];
     const advisory: OpenItem[] = [];
     const seen = new Set<string>();
+    // Every item kept, by id: the same item from a second judge or specialist names it too instead of vanishing.
+    const kept = new Map<string, OpenItem>();
+    const again = (item: OpenItem) => {
+        const first = kept.get(item.id);
+        if (first) first.reviewer = bothReviewers(first.reviewer, item.reviewer);
+    };
+    const keep = (list: OpenItem[], item: OpenItem) => {
+        list.push(item);
+        kept.set(item.id, item);
+    };
     // The reviewer's own label wins over the judge's reading of it: a judge that calls a blocker a should-fix would demote it silently.
     const read = verdict.prior_points.map(p => labelled(p, prior.labels ?? []));
     const points = read.map(r => r.point);
     const accepted = points.filter(p => p.severity === 'non-blocking');
     // A should-fix is shown only when the judge could show it: a quote Rigour finds. One that cannot be checked is not a claim worth a person's time.
     const advise = (item: OpenItem) => {
-        if (seen.has(item.id)) return;
+        if (seen.has(item.id)) return void again(item);
         seen.add(item.id);
-        (!!item.file && !!item.quote?.trim() && verify(item.file, item.line, item.quote) ? advisory : unverified).push(item);
+        keep(!!item.file && !!item.quote?.trim() && verify(item.file, item.line, item.quote) ? advisory : unverified, item);
     };
     // A prior point is the human's and needs no file. A finding blocks only when the code it quotes is at the line it
     // names: any model's claim is checked, never trusted. What the working steps turned up is a note: the reasoning,
     // shown, and a block only when the judge also makes it a finding it can quote.
     const add = (item: OpenItem) => {
-        if (seen.has(item.id)) return;
+        if (seen.has(item.id)) return void again(item);
         seen.add(item.id);
-        if (WORKING_NOTES.has(item.kind)) return void notes.push(item);
+        if (WORKING_NOTES.has(item.kind)) return void keep(notes, item);
         const placed = !!item.file && !!item.quote?.trim() && verify(item.file, item.line, item.quote);
-        if (!placed) return void unverified.push(item);
+        if (!placed) return void keep(unverified, item);
         // A block is about this change. A finding or rule break in a touched file but on lines the change did not touch is
         // what the code already had: shown as a note, never a block on this change. A human's point is about the change by
         // definition. Without the diff (a judge's own items for a panel, a test) nothing is known and nothing is moved.
         if (item.kind !== 'prior' && prior.changed && (item.line === undefined || !nearChanged(prior.changed, item.file!, item.line))) {
-            return void notes.push({ ...item, evidence: `${item.evidence ? `${item.evidence}; ` : ''}${item.line === undefined ? 'names no line' : 'on a line this change did not touch'}: what the code already had, never a block on this change` });
+            return void keep(notes, { ...item, evidence: `${item.evidence ? `${item.evidence}; ` : ''}${item.line === undefined ? 'names no line' : 'on a line this change did not touch'}: what the code already had, never a block on this change` });
         }
-        open.push(item);
+        keep(open, item);
     };
     const answerInReply: PriorPoint[] = [];
     for (const p of points) {
@@ -439,6 +453,11 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         if (r.requirement) add(item);
         else advise(item);
     }
+    // An item of the goal the description declares, not met: a should-fix with its quote, never a block, whatever the judge says.
+    for (const g of verdict.goal ?? []) {
+        if (g.met !== false || !g.item?.trim()) continue;
+        advise({ id: id('goal', g.item), kind: 'goal', class: 'goal', ...(g.file ? { file: g.file } : {}), ...(g.line ? { line: g.line } : {}), issue: `the description's goal is not met: ${g.item.trim()}`, ...(g.quote ? { quote: g.quote } : {}), ...(g.evidence ? { evidence: g.evidence } : {}), reviewer: g.reviewer });
+    }
     const stillOpen = new Set((previousOpen ?? []).map(item => item.id));
     for (const f of verdict.findings) {
         const item: OpenItem = { id: id(f.class, f.file, f.issue), kind: 'finding', class: f.class, file: f.file, line: f.line, issue: f.issue, evidence: f.why, ...(f.consequence?.trim() ? { consequence: f.consequence.trim() } : {}), ...(f.input?.trim() ? { input: f.input.trim() } : {}), ...(f.quote?.trim() ? { quote: f.quote } : {}), reviewer: f.reviewer };
@@ -499,9 +518,16 @@ function onePerRootCause(items: OpenItem[]): OpenItem[] {
             kept.push(item);
             continue;
         }
+        same.reviewer = bothReviewers(same.reviewer, item.reviewer);
         if (item.file) (same.locations ??= []).push({ file: item.file, ...(item.line ? { line: item.line } : {}) });
     }
     return kept;
+}
+
+/** Who found an item, each once: `claude:correctness+claude:cleanup`, as the panel tags `claude+codex`. */
+function bothReviewers(a: string | undefined, b: string | undefined): string | undefined {
+    const names = [...new Set([...(a ?? '').split('+'), ...(b ?? '').split('+')].filter(Boolean))];
+    return names.length ? names.join('+') : undefined;
 }
 
 export function itemLine(item: OpenItem): string {
