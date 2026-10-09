@@ -53,6 +53,9 @@ export interface RigourSettings {
   // Learn from what happened after this person's pull requests merged; rigour.yml's learning.outcomes.mode is the team's (switches.ts).
   outcomes?: boolean;
 
+  // Review with specialist judges; rigour.yml's review.reviewer.orchestrator is the team's (switches.ts).
+  orchestrator?: boolean;
+
   // Cursor Admin API credentials
   cursor?: {
     apiKey?: string;

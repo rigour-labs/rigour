@@ -299,6 +299,7 @@ export const UNIVERSAL_CONFIG: Config = {
             mode_required: false,
             panel_max_items: 20,
             dismissals: false,
+            orchestrator: 'off',
             judges: 2,
             escalate: 'always',
             cross_models: {},

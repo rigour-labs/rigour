@@ -74,7 +74,7 @@ export interface ReviewerOptions {
     branch?: string;
     /** This run's choice for the goal check (`--goal` / `--no-goal`), the nearest layer of switches.ts. */
     goal?: boolean;
-    /** Review with the specialist judges instead of one (reviewer/orchestrator.ts): opt-in, experimental. */
+    /** This run's choice for the orchestrator (`--orchestrator` / `--no-orchestrator`), the nearest layer of switches.ts. */
     orchestrator?: boolean;
 }
 
@@ -211,14 +211,16 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         return none('unavailable', `rigour.yml requires two reviewers from different vendors, and ${modeRecord.degraded}`, { reviewers, mode: modeRecord });
     }
     // The orchestrator runs the specialists on the first judge. A team floor on the panel or the mode wins over it.
-    let orchestrate = options.orchestrator === true;
+    const orchestrator = resolveSwitch('orchestrator', config, options.orchestrator);
+    let orchestrate = orchestrator.enabled;
+    if (orchestrator.refused.length) modeRecord = { ...modeRecord, refused: [...(modeRecord.refused ?? []), ...orchestrator.refused] };
     if (orchestrate && (settings.required.panel || settings.required.mode)) {
         orchestrate = false;
         modeRecord = { ...modeRecord, refused: [...(modeRecord.refused ?? []), 'orchestrator refused: rigour.yml requires the panel or the mode'] };
     }
     if (orchestrate) {
         reviewers = reviewers.slice(0, 1);
-        modeRecord = { ...modeRecord, asked: 'orchestrator', ran: 'orchestrator' };
+        modeRecord = { ...modeRecord, asked: 'orchestrator', ran: 'orchestrator', source: orchestrator.source };
     }
 
     const gh = options.blind ? undefined : ghFor(cwd, exec, await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec));
@@ -326,16 +328,18 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     }
 
     // The daily caps, before any judge starts: a cached or reused verdict above cost nothing and never reaches here.
-    // Every specialist is a run: when the caps leave room for one run but not all of them, it is one judge, said so.
+    // Every specialist is a run: when the caps leave room for one run but not all of them, it is one judge, said so; a team
+    // that requires the orchestrator gets no quieter review, so then the review is unavailable.
     if (orchestrate) {
         const short = overBudget(store.spend(), settings, SPECIALISTS.length);
-        if (short && !overBudget(store.spend(), settings, 1)) {
+        if (short && !orchestrator.required && !overBudget(store.spend(), settings, 1)) {
             orchestrate = false;
             modeRecord = { ...modeRecord, ran: 'single', specialists: { asked: SPECIALISTS.length, returned: [], missing: [], fallback: `not started: ${short}` } };
         }
     }
     const over = overBudget(store.spend(), settings, orchestrate ? SPECIALISTS.length : reviewers.length);
-    if (over) return none(settings.required.panel || settings.required.mode ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
+    // A team that requires the reviewer, or the orchestrator, gets no quieter review when the caps are reached: unavailable.
+    if (over) return none(settings.required.panel || settings.required.mode || orchestrator.required ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
@@ -397,10 +401,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     parts = run.parts;
                     modeRecord = { ...modeRecord, specialists, ...(run.missing.length ? { degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}not reviewed: ${run.missing.join(', ')} (no verdict)` } : {}) };
                 } else {
-                    // Fewer than half came back: one judge instead, only if the caps still allow a run; the fallback counts too.
-                    const short = overBudget(store.spend(), settings, 1);
+                    // Fewer than half came back: one judge instead, only if the caps still allow a run (the fallback counts too)
+                    // and the team does not require the orchestrator (a required review is never a quieter one).
                     const fallback = `${run.returned.length} of ${SPECIALISTS.length} specialists returned`;
-                    if (short) return none('unavailable', `${fallback}, and the caps leave no run for one judge: ${short}`, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                    const short = overBudget(store.spend(), settings, 1);
+                    const reason = orchestrator.required ? `${fallback}, and rigour.yml requires the orchestrator: no single-judge fallback` : short ? `${fallback}, and the caps leave no run for one judge: ${short}` : undefined;
+                    if (reason) return none('unavailable', reason, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
                     progress(`Rigour reviewer: ${fallback}; one judge reviews instead`);
                     modeRecord = { ...modeRecord, ran: 'single', specialists: { ...specialists, fallback } };
                 }

@@ -434,6 +434,11 @@ export const ConfigSchema = z.object({
              * a wrong finding is fixed by improving the reviewer, a right one by fixing the code. A team decision only.
              */
             dismissals: z.boolean().optional().default(false),
+            /**
+             * Review with specialist judges, each on its part of the review (reviewer/orchestrator.ts): off, on, or required
+             * (no person, environment variable or flag may turn it off). Experimental; about five times the agent runs.
+             */
+            orchestrator: z.enum(['off', 'on', 'required']).optional().default('off'),
             /** Findings cross-examined per review at most; the rest are shown as disputed. */
             panel_max_items: z.number().int().positive().optional().default(20),
             /**

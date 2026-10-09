@@ -428,6 +428,27 @@ describe('the orchestrator', () => {
         expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'single', specialists: { fallback: expect.stringContaining('not started: the daily run cap is reached') } });
     });
 
+    it('runs when the team turns it on, with no flag, and keeps a required one on against --no-orchestrator, unavailable when the caps are reached', async () => {
+        const team = (orchestrator: 'on' | 'required', extra = {}) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], orchestrator, ...extra } } });
+        const on = seenNow();
+        expect((await runReviewer(repo, 'main', team('on'), fakes(judge(on, {}), on), () => undefined, { force: true })).mode).toMatchObject({ asked: 'orchestrator', source: 'team' });
+        const required = seenNow();
+        const kept = await runReviewer(repo, 'main', team('required'), fakes(judge(required, {}), required), () => undefined, { force: true, orchestrator: false });
+        expect(kept.mode).toMatchObject({ ran: 'orchestrator' });
+        expect(kept.mode?.refused).toContain('review orchestrator off (flag) refused: rigour.yml sets review.reviewer.orchestrator: required');
+        // Required, and the caps leave room for one run but not five: unavailable, never a quieter single review.
+        const spent = seenNow();
+        const none = await runReviewer(repo, 'main', team('required', { max_runs_per_day: 1 }), fakes(judge(spent, {}), spent), () => undefined, { force: true });
+        expect(none.outcome).toBe('unavailable');
+        expect(spent.prompts).toEqual([]);
+        // Required, and fewer than half returned: unavailable, no fallback run.
+        const few = seenNow();
+        const short = await runReviewer(repo, 'main', team('required'), fakes(judge(few, { correctness: 'fail', 'production cost': 'fail', claims: 'fail' }), few), () => undefined, { force: true });
+        expect(short.outcome).toBe('unavailable');
+        expect(short.reason).toBe('2 of 5 specialists returned, and rigour.yml requires the orchestrator: no single-judge fallback');
+        expect(few.prompts).toHaveLength(5);
+    });
+
     it('gives way to a team floor on the panel or the mode, and says so', async () => {
         const seen = seenNow();
         const floor = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], mode: 'full', mode_required: true } } });

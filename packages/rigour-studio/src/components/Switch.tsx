@@ -6,7 +6,7 @@ import { SwitchSettings, type SwitchData, type SwitchText } from './SwitchParts'
 import './story.css';
 
 /** Each switch's words, by the name its API route takes. */
-const TEXT: Record<'goal' | 'outcomes', SwitchText> = {
+const TEXT: Record<'goal' | 'outcomes' | 'orchestrator', SwitchText> = {
     goal: {
         title: 'The goal check',
         lead: <>Checks a change against what its pull request says it is for: files outside its <span className="st-mono">Scope</span> or inside <span className="st-mono">Out of scope</span>, and{' '}
@@ -22,6 +22,15 @@ const TEXT: Record<'goal' | 'outcomes', SwitchText> = {
         row: 'Read outcomes',
         rowHelp: <>Required: no person, environment variable or flag may turn it off. <span className="st-mono">--outcomes</span> and <span className="st-mono">--no-outcomes</span> choose for one run.</>,
         name: 'outcome loop',
+    },
+    orchestrator: {
+        title: 'The review orchestrator',
+        lead: <>Experimental. Instead of one judge doing the whole review, five specialists each do their part: earlier human points,
+            correctness, production cost, what the change leaves behind, and rules, lessons and the goal. It takes about five times the
+            agent runs of one judge; the daily caps (<span className="st-mono">max_runs_per_day</span>, <span className="st-mono">max_usd_per_day</span>) are the brake. What blocks is unchanged.</>,
+        row: 'Use the orchestrator',
+        rowHelp: <>Required: no person, environment variable or flag may turn it off. <span className="st-mono">--orchestrator</span> and <span className="st-mono">--no-orchestrator</span> choose for one run.</>,
+        name: 'review orchestrator',
     },
 };
 

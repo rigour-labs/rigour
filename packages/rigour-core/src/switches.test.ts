@@ -49,6 +49,15 @@ describe('resolveSwitch, for the outcome loop', () => {
     });
 });
 
+describe('resolveSwitch, for the review orchestrator', () => {
+    it('reads the team\'s from review.reviewer.orchestrator and the environment from RIGOUR_REVIEWER_ORCHESTRATOR, off by default, with the floor', () => {
+        const team = (orchestrator?: 'off' | 'on' | 'required') => ConfigSchema.parse({ version: 1, ...(orchestrator ? { review: { reviewer: { orchestrator } } } : {}) });
+        expect(resolveSwitch('orchestrator', team(), undefined, undefined, {})).toMatchObject({ enabled: false, source: 'team' });
+        expect(resolveSwitch('orchestrator', team('off'), undefined, true, { RIGOUR_REVIEWER_ORCHESTRATOR: 'on' })).toMatchObject({ enabled: true, source: 'env' });
+        expect(resolveSwitch('orchestrator', team('required'), false, undefined, {}).refused).toEqual(['review orchestrator off (flag) refused: rigour.yml sets review.reviewer.orchestrator: required']);
+    });
+});
+
 describe('saveUserSwitch, for the goal check', () => {
     let home: string;
     const previous = process.env.RIGOUR_HOME;
