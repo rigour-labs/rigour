@@ -298,6 +298,7 @@ export class StyleDriftGate extends Gate {
                 ? extractComparableJsNames(content, filePath)
                 : adapter.extractNamingPatterns(content);
             for (const pattern of namingPatterns) {
+                if (pattern.convention === 'ambiguous') continue; // a one-word name says nothing about the casing
                 if (pattern.kind === 'function' || pattern.kind === 'method') {
                     fp.naming.functions[pattern.convention]++;
                 } else if (pattern.kind === 'variable' || pattern.kind === 'constant') {

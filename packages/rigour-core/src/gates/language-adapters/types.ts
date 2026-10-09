@@ -66,7 +66,9 @@ export type NamingConvention =
     | 'snake_case'
     | 'SCREAMING_SNAKE'
     | 'kebab-case'
-    | 'other';
+    | 'other'
+    /** One lowercase word (`run`, `data`): camelCase and snake_case alike, so evidence of neither. */
+    | 'ambiguous';
 
 /**
  * Classify a name into its casing convention.
@@ -74,6 +76,7 @@ export type NamingConvention =
 export function classifyCasing(name: string): NamingConvention {
     if (/^[A-Z][A-Z0-9_]*$/.test(name)) return 'SCREAMING_SNAKE';
     if (/^[A-Z][a-zA-Z0-9]*$/.test(name)) return 'PascalCase';
+    if (/^[a-z][a-z0-9]*$/.test(name)) return 'ambiguous';
     if (/^[a-z][a-zA-Z0-9]*$/.test(name)) return 'camelCase';
     if (/^[a-z][a-z0-9_]*$/.test(name)) return 'snake_case';
     if (/^[a-z][a-z0-9-]*$/.test(name)) return 'kebab-case';
