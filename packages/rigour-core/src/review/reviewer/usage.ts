@@ -20,6 +20,7 @@ export function reviewerUsage(result: ReviewerResult, trigger: string): Record<s
         judges: result.reviewers.length,
         cached: result.cached,
         ...(result.cache ? { cache: result.cache } : {}),
+        ...(mode?.tier ? { tier: mode.tier.tier, tier_disabled: !!mode.tier.disabled, tier_escalated: !!mode.tier.escalated } : {}),
         confirmed: result.items.length,
         disputed: result.disputed.length,
         dropped: result.dropped.length,

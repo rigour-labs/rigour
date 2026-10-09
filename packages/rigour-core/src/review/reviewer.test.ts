@@ -642,6 +642,40 @@ describe('the content cache', () => {
     });
 });
 
+describe('cheap-model-first tiering', () => {
+    const tiered = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'], tiers: { cheap: { claude: 'cheap-model' } } } } });
+    const modelArg = (seen: Seen, i: number) => { const args = seen.args![i]; const at = args.indexOf('--model'); return at >= 0 ? args[at + 1] : undefined; };
+
+    it('runs the cheap model on a change with no risk signal, and records the tier on the review and its cost row', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', tiered, fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { force: true });
+        expect(result.mode?.tier).toMatchObject({ tier: 'cheap', model: 'cheap-model' });
+        expect(modelArg(seen, 0)).toBe('cheap-model');
+        expect((await (await VerdictStore.open(repo, fakes(() => '', seenNow())))!.costs()).at(-1)).toMatchObject({ tier: 'cheap', runs: 1 });
+    });
+
+    it('runs the team\'s model when the pull request has human reviews to check', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', tiered, fakes(() => JSON.stringify(EMPTY), seen), () => undefined, { force: true });
+        expect(result.mode?.tier).toMatchObject({ tier: 'strong', why: expect.stringContaining('human review') });
+        expect(modelArg(seen, 0)).toBeUndefined();
+    });
+
+    it('retries a cheap model\'s answer that is not a verdict on the team\'s model, and says so', async () => {
+        const seen = seenNow();
+        let calls = 0;
+        const result = await runReviewer(repo, 'main', tiered, fakes(() => (calls++ === 0 ? 'not json' : JSON.stringify(EMPTY)), seen, null), () => undefined, { force: true });
+        expect([modelArg(seen, 0), modelArg(seen, 1)]).toEqual(['cheap-model', undefined]);
+        expect(result.outcome).toBe('passed');
+        expect(result.mode?.tier?.escalated).toContain('retried on the team');
+    });
+
+    it('is off without a cheap model', async () => {
+        const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { force: true });
+        expect(result.mode?.tier).toBeUndefined();
+    });
+});
+
 describe('choosing reviewers', () => {
     it('runs the newest installed copy of a CLI, not the first on PATH', async () => {
         const seen = seenNow();

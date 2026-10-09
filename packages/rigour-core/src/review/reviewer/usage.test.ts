@@ -21,6 +21,7 @@ describe('reviewer usage telemetry', () => {
         const usage = reviewerUsage(result, 'review');
         expect(usage).toMatchObject({ asked: 'orchestrator', parts: 2, passes: 2, split: true, fallback: false, nothing_to_review: false, beyond_slice: 1 });
         expect(reviewerUsage({ ...result, cached: true, cache: 'content' }, 'review')).toMatchObject({ cached: true, cache: 'content' });
+        expect(reviewerUsage({ ...result, mode: { ...result.mode!, tier: { tier: 'strong', why: 'x', disabled: 'y' } } }, 'review')).toMatchObject({ tier: 'strong', tier_disabled: true, tier_escalated: false });
         expect(JSON.stringify(usage)).not.toMatch(/correctness|ledger/);
     });
 });
