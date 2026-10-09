@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
-import { cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
+import { cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, legacyStateNote, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
 import { selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 import { semanticStatusLine } from './semantic.js';
@@ -135,7 +135,10 @@ export async function doctorCommand(options: { cleanCache?: boolean } = {}, cwd 
         console.log(chalk.dim('\n  Local bootstrap command: rigour deep pull   (add --pro for the full model)'));
     }
 
-    console.log(chalk.dim(`  Rigour home: ${rigourUserDir()}${process.env.RIGOUR_PROFILE ? ` (profile ${process.env.RIGOUR_PROFILE})` : ''}\n`));
+    console.log(chalk.dim(`  Rigour home: ${rigourUserDir()}${process.env.RIGOUR_PROFILE ? ` (profile ${process.env.RIGOUR_PROFILE})` : ''}`));
+    const legacy = legacyStateNote();
+    if (legacy) console.log(chalk.yellow(`  ${legacy}`));
+    console.log('');
 
     console.log(chalk.bold('Recommended Baseline'));
     console.log(chalk.dim('  1) rigour doctor'));
