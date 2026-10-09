@@ -13,6 +13,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { telemetryCheckId } from '../telemetry/check-ids.js';
 import { countUsage } from '../telemetry/telemetry.js';
 import { readStateFile } from './trusted-state.js';
 
@@ -62,8 +63,8 @@ export function recordOutcome(cwd: string, check: string, kind: keyof CheckOutco
     const current = outcomes[check] ?? { fixed: 0, dismissed: 0 };
     outcomes[check] = { ...current, [kind]: current[kind] + 1 };
     writeJson(path.join(cwd, OUTCOMES_FILE), outcomes);
-    // The same outcome, counted for opt-in telemetry by the check's gate id only: never its title or finding text.
-    countUsage(`finding_${kind}:${gateOf(check)}`);
+    // The same outcome, counted for opt-in telemetry by the check's gate id only, and only if it is one of Rigour's own.
+    countUsage(`finding_${kind}:${telemetryCheckId(gateOf(check))}`);
 }
 
 /** A check id's gate: `semantic-bugs` of `semantic-bugs: Credential header follows redirects`. */

@@ -114,10 +114,11 @@ describe('telemetry A: the agent host, the install age, and what happened to eac
             Object.assign(process.env, { RIGOUR_MIXPANEL_TOKEN: 'tok', RIGOUR_TELEMETRY: '1' });
             recordOutcome(repo, 'semantic-bugs: Credential header follows redirects', 'fixed');
             recordOutcome(repo, 'unused-export: Unused export `x`', 'dismissed');
+            recordOutcome(repo, 'acme-billing-guard: Billing totals must match', 'fixed'); // a team's own check, named in its config
             recordPrCatches(repo, [{ id: 'security-patterns', title: 'Hardcoded secret in src/secret.ts', details: 'd', severity: 'high', files: ['src/secret.ts'] } as never]);
             const counts = counters();
-            expect(counts).toMatchObject({ 'finding_fixed:semantic-bugs': 1, 'finding_dismissed:unused-export': 1, 'finding_pushed:security-patterns': 1 });
-            expect(JSON.stringify(counts)).not.toMatch(/Credential|Unused export|secret\.ts|src\//);
+            expect(counts).toMatchObject({ 'finding_fixed:semantic-bugs': 1, 'finding_dismissed:unused-export': 1, 'finding_pushed:security-patterns': 1, 'finding_fixed:custom': 1 });
+            expect(JSON.stringify(counts)).not.toMatch(/Credential|Unused export|secret\.ts|src\/|acme|Billing/);
         } finally {
             process.env = saved;
             fs.rmSync(repo, { recursive: true, force: true });
