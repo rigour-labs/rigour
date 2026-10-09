@@ -1089,7 +1089,7 @@ describe("the review on the task's thread", () => {
         const thread = readThread(repo, 'feature');
         expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking, e.checks])).toEqual([['review', 'review', 'passed', 0, 1]]);
         expect(thread?.events[0].integrity).toEqual(expect.any(String));
-        expect(thread?.events[0].cost_usd).toBe(1.5); // every run this review made: the same dollars as its cost row
+        expect(thread?.events[0]).toMatchObject({ cost_usd: 1.5, cost_basis: 'runs' }); // every run this review made: the same dollars as its cost row
         await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
         expect(readThread(repo, 'feature')?.events[1]).not.toHaveProperty('cost_usd'); // a cached verdict spent nothing
         expect(readThread(repo, 'feature')?.events).toHaveLength(2);

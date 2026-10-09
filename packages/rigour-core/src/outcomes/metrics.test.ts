@@ -34,7 +34,7 @@ describe('the outcome numbers', () => {
     });
 
     it('counts pull requests a review by Rigour saw and the rest side by side, each with its own number', () => {
-        const m = outcomeMetrics([record(1, { followUps: [fix] }), record(2), record(3, { followUps: [fix] }), record(4, { settled: false })], [], new Map([1, 2, 4].map(pr => [pr, { usd: 0 }])));
+        const m = outcomeMetrics([record(1, { followUps: [fix] }), record(2), record(3, { followUps: [fix] }), record(4, { settled: false })], [], new Map([1, 2, 4].map(pr => [pr, { usd: 0, earlierBasis: false }])));
         expect(m.settled.reviewed).toEqual({ prs: 2, fixedLater: { count: 1, of: 2, rate: null, reason: expect.any(String) } });
         expect(m.settled.notReviewed).toEqual({ prs: 1, fixedLater: { count: 1, of: 1, rate: null, reason: expect.any(String) } });
     });
@@ -42,19 +42,28 @@ describe('the outcome numbers', () => {
     it('counts the model reviewer\'s findings against the checks\' at each first review, and its dollars per pull request', () => {
         const records = [record(1), record(2), record(3), record(4, { settled: false })];
         const m = outcomeMetrics(records, [], new Map([
-            [1, { first: { model: 2, checks: 1 }, usd: 1.5 }],
-            [2, { usd: 0.5 }],
-            [4, { first: { model: 9, checks: 0 }, usd: 9 }],
+            [1, { first: { model: 2, checks: 1 }, usd: 1.5, earlierBasis: false }],
+            [2, { usd: 0.5, earlierBasis: false }],
+            [4, { first: { model: 9, checks: 0 }, usd: 9, earlierBasis: false }],
         ]));
         expect(m.model.share).toEqual({ model: 2, checks: 1, prs: 1, rate: null, reason: 'fewer than 10 pull requests: a count, not a rate' });
-        expect(m.model.costPerPr).toEqual({ prs: 2, totalUsd: 2, medianUsd: null, reason: 'fewer than 10 pull requests: a count, not a rate' });
+        expect(m.model.costPerPr).toEqual({ prs: 2, totalUsd: 2, medianUsd: null, reason: 'fewer than 10 pull requests: a count, not a rate', prsEarlierBasis: 0 });
     });
 
     it('gives the model share and the median cost from ten reviewed pull requests on', () => {
         const records = Array.from({ length: 10 }, (_, i) => record(i + 1));
-        const m = outcomeMetrics(records, [], new Map(records.map((r, i) => [r.pr, { first: { model: i < 3 ? 1 : 0, checks: 1 }, usd: i + 1 }])));
+        const m = outcomeMetrics(records, [], new Map(records.map((r, i) => [r.pr, { first: { model: i < 3 ? 1 : 0, checks: 1 }, usd: i + 1, earlierBasis: false }])));
         expect(m.model.share).toEqual({ model: 3, checks: 10, prs: 10, rate: 0.23 });
-        expect(m.model.costPerPr).toEqual({ prs: 10, totalUsd: 55, medianUsd: 5.5 });
+        expect(m.model.costPerPr).toEqual({ prs: 10, totalUsd: 55, medianUsd: 5.5, prsEarlierBasis: 0 });
+    });
+
+    it('never pools dollars on the earlier basis: a pull request with an earlier review event is counted apart', () => {
+        const m = outcomeMetrics([record(1), record(2), record(3)], [], new Map([
+            [1, { usd: 4, earlierBasis: true }], // an event from before every run was counted, and a new one
+            [2, { usd: 1, earlierBasis: false }],
+            [3, { usd: 2, earlierBasis: false }],
+        ]));
+        expect(m.model.costPerPr).toMatchObject({ prs: 2, totalUsd: 3, prsEarlierBasis: 1 });
     });
 
     it('counts the lessons waiting on a person, promoted from evidence, dismissed and taken back', () => {

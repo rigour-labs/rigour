@@ -70,8 +70,9 @@ function reviews(cwd: string): { applied: Map<number, Set<string>>; reviewed: Ma
     const count = (v: unknown) => typeof v === 'number' ? v : 0;
     for (const e of eventsOfKind(cwd, 'review')) {
         if (typeof e.pr !== 'number') continue;
-        const pr = reviewed.get(e.pr) ?? { usd: 0 };
+        const pr = reviewed.get(e.pr) ?? { usd: 0, earlierBasis: false };
         pr.usd += count(e.cost_usd);
+        if (e.cost_basis !== 'runs') pr.earlierBasis = true;
         if (!pr.first && typeof e.checks === 'number') pr.first = { model: count(e.blocking) + count(e.should_fix), checks: e.checks };
         reviewed.set(e.pr, pr);
         if (!Array.isArray(e.lessons_applied)) continue;

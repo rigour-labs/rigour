@@ -46,8 +46,12 @@ export interface OutcomeMetrics {
          * only from MIN_FOR_RATE such pull requests.
          */
         share: { model: number; checks: number; prs: number; rate: number | null; reason?: string };
-        /** Dollars of every review round on a pull request, summed per pull request. Median only from MIN_FOR_RATE. */
-        costPerPr: { prs: number; totalUsd: number; medianUsd: number | null; reason?: string };
+        /**
+         * Dollars of every review round on a pull request, summed per pull request, over pull requests whose every review
+         * event counts every run. Median only from MIN_FOR_RATE. Pull requests with an earlier event are counted apart in
+         * `prsEarlierBasis`, never pooled: their dollars are on another basis.
+         */
+        costPerPr: { prs: number; totalUsd: number; medianUsd: number | null; reason?: string; prsEarlierBasis: number };
     };
     lessons: {
         /** Candidates waiting on a person: a later fix on their lines, back to candidate, or taken back. */
@@ -66,6 +70,8 @@ export interface PrReviews {
     first?: { model: number; checks: number };
     /** Every review round's dollars, summed. */
     usd: number;
+    /** A review event from before cost_usd counted every run (no `cost_basis: 'runs'`): its dollars are on another basis. */
+    earlierBasis: boolean;
 }
 
 /** `reviewed`: the pull requests a review by Rigour ran on, each with its reviews (the threads' review events). */
@@ -100,7 +106,7 @@ function modelNumbers(prs: PrReviews[]): OutcomeMetrics['model'] {
     const model = firsts.reduce((n, f) => n + f.model, 0);
     const checks = firsts.reduce((n, f) => n + f.checks, 0);
     const few = (n: number) => n < MIN_FOR_RATE ? { reason: `fewer than ${MIN_FOR_RATE} pull requests: a count, not a rate` } : {};
-    const usd = prs.map(p => p.usd).sort((a, b) => a - b);
+    const usd = prs.filter(p => !p.earlierBasis).map(p => p.usd).sort((a, b) => a - b);
     const mid = usd.length >> 1;
     return {
         share: { model, checks, prs: firsts.length, rate: firsts.length >= MIN_FOR_RATE && model + checks > 0 ? Math.round((model / (model + checks)) * 100) / 100 : null, ...few(firsts.length) },
@@ -109,6 +115,7 @@ function modelNumbers(prs: PrReviews[]): OutcomeMetrics['model'] {
             totalUsd: Math.round(usd.reduce((a, b) => a + b, 0) * 100) / 100,
             medianUsd: usd.length >= MIN_FOR_RATE ? Math.round((usd.length % 2 ? usd[mid] : (usd[mid - 1] + usd[mid]) / 2) * 100) / 100 : null,
             ...few(usd.length),
+            prsEarlierBasis: prs.filter(p => p.earlierBasis).length,
         },
     };
 }
