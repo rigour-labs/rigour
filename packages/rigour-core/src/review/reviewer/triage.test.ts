@@ -94,15 +94,26 @@ describe('the pass plan', () => {
     });
 
     it('splits a change over the limit by hunk, every part within the limit, every picked hunk in exactly one part', () => {
-        const limit = 20_000;
         const hunks = parseHunks(many(12, 5_000));
         const picked = triage(hunks, none);
+        const total = planPasses(hunks, picked, SPECIALISTS, Infinity).combined!.diff.length;
+        const limit = Math.ceil(total / 3) + Math.max(...hunks.map(h => h.text.length)); // at most three parts
         const plan = planPasses(hunks, picked, SPECIALISTS, limit);
         expect(plan.combined!.diff.length).toBeGreaterThan(limit);
         expect(plan.split!.length).toBeGreaterThan(1);
+        expect(plan.split!.length).toBeLessThanOrEqual(3);
         for (const pass of plan.split!) expect(pass.diff.length).toBeLessThanOrEqual(limit);
         expect(plan.split!.flatMap(p => p.hunks)).toEqual(plan.combined!.hunks);
         expect(plan.split!.reduce((sum, p) => sum + p.diff.length, 0)).toBe(plan.combined!.diff.length);
+    });
+
+    it('never splits into more than three parts: a change that needs four is one pass, with the parts it needed', () => {
+        const hunks = parseHunks(many(12, 5_000));
+        const picked = triage(hunks, none);
+        const total = planPasses(hunks, picked, SPECIALISTS, Infinity).combined!.diff.length;
+        const plan = planPasses(hunks, picked, SPECIALISTS, Math.floor(total / 4));
+        expect(plan.split).toBeUndefined();
+        expect(plan.needsParts).toBeGreaterThanOrEqual(4);
     });
 
     it('holds a pass to the judge in use: one diff, two judges with different limits, two plans', () => {
