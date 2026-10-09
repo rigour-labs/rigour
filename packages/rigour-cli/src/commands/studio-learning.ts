@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { acceptSuggestedText, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { personOf } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
@@ -33,6 +33,8 @@ export interface LessonJourney {
     suggested?: { detail: string; pr: number; at: string };
     /** Back to a candidate when outcomes stopped promoting: why, and the evidence that had promoted it, for a person to promote again or dismiss. */
     reclassified?: { detail: string; evidence: string[] };
+    /** A corrected wording for a review lesson a person decided, waiting for them (core acceptSuggestedText). */
+    suggestedText?: { text: string; why: string };
 }
 
 export interface StudioLearning {
@@ -87,6 +89,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             stoppedInDevelopment: null,
             reachedPr: null,
             ...decisionFor(l),
+            ...(l.suggestedText ? { suggestedText: { text: l.suggestedText, why: l.suggestedWhy ?? 'reworded' } } : {}),
         })),
     // Lessons back to a candidate when outcomes stopped promoting come first: a person decides each once.
     ].sort((a: LessonJourney, b: LessonJourney) => Number(!!b.reclassified) - Number(!!a.reclassified) || b.learnedAt.localeCompare(a.learnedAt))
@@ -129,9 +132,17 @@ function decisionFor(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 't
 export function decideReviewLesson(cwd: string, body: unknown): { id: string; state: string } {
     const { id, decision, why } = (body ?? {}) as { id?: unknown; decision?: unknown; why?: unknown };
     if (typeof id !== 'string' || !/^[0-9a-f]{12}$/.test(id)) throw new Error('a review lesson id (12 hex characters) is required');
-    if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'dismissed') throw new Error('decision is accepted, rejected or dismissed');
+    if (decision === 'reworded') return rewordFromStudio(cwd, id);
+    if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'dismissed') throw new Error('decision is accepted, rejected, dismissed or reworded');
     const lesson = decideLesson(cwd, id, decision, personOf(cwd), typeof why === 'string' && why.trim() ? why.trim() : 'decided in Studio');
     if (!lesson) throw new Error(`no review lesson ${id}`);
+    return { id: lesson.id, state: lesson.state };
+}
+
+/** A person takes a decided lesson's suggested wording from Studio, recorded as `--use-wording` records it. */
+function rewordFromStudio(cwd: string, id: string): { id: string; state: string } {
+    const lesson = acceptSuggestedText(cwd, id, personOf(cwd));
+    if (!lesson) throw new Error(`no review lesson ${id} with a suggested wording`);
     return { id: lesson.id, state: lesson.state };
 }
 

@@ -16,7 +16,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
-import { bodyPoints } from './review-points.js';
+import { bodyPoints, withoutEmphasis } from './review-points.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
 const MAX_TEXT = 220;
@@ -56,7 +56,7 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *             until a person promotes it.
  * A record from before evidence kinds has none: it is a `point`.
  */
-export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled';
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled' | 'reworded';
 
 export interface LessonEvidence {
     kind?: EvidenceKind;
@@ -90,6 +90,13 @@ export interface ReviewLesson {
     /** Which evidence made it a lesson. */
     promotedBy?: 'outcome' | 'correction' | 'person' | 'recurrence' | 'legacy';
     evidence: LessonEvidence[];
+    /**
+     * A corrected wording a newer version derived from the lesson's own comment, waiting for a person. A lesson
+     * a person decided keeps the wording they decided on until they take this one (acceptSuggestedText).
+     */
+    suggestedText?: string;
+    /** Why there is a suggestion: `parser fix`, a newer version reading the comment better. */
+    suggestedWhy?: string;
     /** Where the point sits in the commit it was made on, for outcome evidence (inline comments only). */
     at?: { commit: string; start: number; end: number };
     createdAt: string;
@@ -125,7 +132,13 @@ export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 
     return prs >= RECUR_PRS && authors >= RECUR_AUTHORS && independent ? { state: 'verified', promotedBy: 'recurrence' } : { state: 'candidate' };
 }
 
-/** The point of a review comment: its bold title, else its first sentence, without tool output or markup. */
+/** A sentence that tells the author what to do, not only what is wrong. */
+const INSTRUCTION = /^(?:please\s+)?(?:use|pick|avoid|don'?t|do not|never|always|make|keep|move|read|filter|check|change|drop|add|remove|pass|split|prefer|replace|rename|derive|select|return|validate|extract|bound|lock)\b|\b(?:should|must|instead)\b/i;
+
+/**
+ * The point of a review comment: its bold title, else its first sentence and, when that only says what is
+ * wrong, the first later sentence that says what to do. Without tool output or markup.
+ */
 export function lessonText(body: string): string {
     const cleaned = body
         .replace(/<!--[\s\S]*?-->/g, '')
@@ -136,8 +149,10 @@ export function lessonText(body: string): string {
         .filter(line => !/^\s*#*\s*\**\s*(low|medium|high|critical)\s+severity\s*\**\s*$/i.test(line))
         .join('\n');
     const bold = /\*\*(.+?)\*\*/.exec(cleaned)?.[1]?.trim();
-    const text = bold || cleaned.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0] || '';
-    return pointText(text.replace(/[*_]/g, '')).slice(0, MAX_TEXT).trim();
+    const sentences = cleaned.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/);
+    const instruction = INSTRUCTION.test(sentences[0] ?? '') ? undefined : sentences.slice(1).find(s => INSTRUCTION.test(s));
+    const text = bold || [sentences[0] ?? '', instruction ?? ''].filter(Boolean).join(' ');
+    return pointText(withoutEmphasis(text)).slice(0, MAX_TEXT).trim();
 }
 
 /**
@@ -186,7 +201,7 @@ export function lessonFromComment(git: Git, comment: ReviewComment, at = new Dat
  */
 export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString()): ReviewLesson[] {
     return bodyPoints(review.body).flatMap((point, i) => {
-        const text = pointText(point.replace(/[*_]/g, '')).slice(0, MAX_TEXT).trim();
+        const text = pointText(withoutEmphasis(point)).slice(0, MAX_TEXT).trim();
         if (text.length < 12) return [];
         const named = /(?:^|[\s`(])((?:[\w.-]+\/)+[\w.-]+\.\w+)/.exec(point)?.[1];
         const file = named ?? changedAfter.find(f => text.includes(path.posix.basename(f))) ?? '';
@@ -199,24 +214,22 @@ export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at
 }
 
 /**
- * Add lessons to the store. The same lesson again (same text, or the same
- * file with two shared symbols) adds evidence; acted on in enough PRs, it is
+ * Add lessons to the store. The same lesson again (isSameLesson: the same text, the same review
+ * comment, or the same file with two shared symbols) adds evidence; acted on in enough PRs, it is
  * verified.
  */
 export function mergeLessons(existing: ReviewLesson[], incoming: ReviewLesson[]): { lessons: ReviewLesson[]; added: number; verified: number } {
     const lessons = existing.map(l => ({ ...l, evidence: [...l.evidence] }));
     let added = 0;
     for (const lesson of incoming) {
-        // Shared names find the same point made again on another pull request; two points on one pull request are two points.
-        const otherPr = (l: ReviewLesson) => !l.evidence.some(e => lesson.evidence.some(x => x.pr === e.pr));
-        const same = lessons.find(l => l.id === lesson.id || (l.file === lesson.file && shared(l.symbols, lesson.symbols) >= 2 && otherPr(l))
-            || (!l.file && !lesson.file && sameWords(l.text, lesson.text)));
+        const same = lessons.find(l => isSameLesson(l, lesson));
         if (!same) {
             lessons.push({ ...lesson, evidence: [...lesson.evidence] });
             added++;
             continue;
         }
         for (const e of lesson.evidence) if (!same.evidence.some(x => x.comment === e.comment && x.kind === e.kind)) same.evidence.push(e);
+        refreshText(same, lesson);
         same.updatedAt = lesson.updatedAt;
     }
     let verified = 0;
@@ -226,6 +239,46 @@ export function mergeLessons(existing: ReviewLesson[], incoming: ReviewLesson[])
         if (lesson.state === 'verified' && before !== 'verified') verified++;
     }
     return { lessons, added, verified };
+}
+
+/** Whether a lesson carries the review point `point` (the same comment on the same pull request). */
+function hasPoint(lesson: ReviewLesson, point: LessonEvidence): boolean {
+    return lesson.evidence.some(x => x.kind === 'point' && x.pr === point.pr && x.comment === point.comment);
+}
+
+/** A person accepted, rejected or dismissed it, or approved or took back a check compiled from it. */
+function decidedByPerson(lesson: ReviewLesson): boolean {
+    return lesson.evidence.some(e => e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed' || e.kind === 'compiled');
+}
+
+/**
+ * Re-read from the comment it was learned from, an undecided lesson takes the text this version derives; its id
+ * and evidence stay. One a person decided keeps the wording they decided on, and the new one waits as a
+ * suggestion for them. A later comment merged into a lesson never rewrites it.
+ */
+function refreshText(stored: ReviewLesson, lesson: ReviewLesson): void {
+    const origin = stored.evidence.find(e => e.kind === 'point');
+    if (stored.id === lesson.id || !origin || !hasPoint(lesson, origin)) return;
+    if (lesson.text === stored.text) {
+        delete stored.suggestedText;
+        delete stored.suggestedWhy;
+    } else if (decidedByPerson(stored)) {
+        stored.suggestedText = lesson.text;
+        stored.suggestedWhy = 'parser fix';
+    } else stored.text = lesson.text;
+}
+
+/**
+ * The same lesson: the same id; the same review comment read again, whatever text an earlier version took from it;
+ * shared names on another pull request (two points on one pull request are two points); or a team standard in the
+ * same words.
+ */
+function isSameLesson(stored: ReviewLesson, lesson: ReviewLesson): boolean {
+    if (stored.id === lesson.id) return true;
+    if (stored.evidence.some(e => e.kind === 'point' && hasPoint(lesson, e))) return true;
+    const otherPr = !stored.evidence.some(e => lesson.evidence.some(x => x.pr === e.pr));
+    if (stored.file === lesson.file && shared(stored.symbols, lesson.symbols) >= 2 && otherPr) return true;
+    return !stored.file && !lesson.file && sameWords(stored.text, lesson.text);
 }
 
 export interface ChangeShape {
@@ -334,6 +387,21 @@ export function decideLesson(cwd: string, id: string, decision: 'accepted' | 're
     const at = new Date().toISOString();
     lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
     Object.assign(lesson, lessonState(lesson), { updatedAt: at });
+    writeLessons(cwd, lessons);
+    return lesson;
+}
+
+/** A person takes a decided lesson's suggested wording; who and the wording it replaced are kept as evidence. */
+export function acceptSuggestedText(cwd: string, id: string, by: string): ReviewLesson | undefined {
+    const lessons = readLessons(cwd);
+    const lesson = lessons.find(l => l.id === id);
+    if (!lesson?.suggestedText) return undefined;
+    const at = new Date().toISOString();
+    lesson.evidence.push({ kind: 'reworded', pr: lesson.evidence[0]?.pr ?? 0, comment: `reworded-${at}`, author: by, detail: `${lesson.suggestedWhy ?? 'reworded'}; was: ${lesson.text}`, at });
+    lesson.text = lesson.suggestedText;
+    delete lesson.suggestedText;
+    delete lesson.suggestedWhy;
+    lesson.updatedAt = at;
     writeLessons(cwd, lessons);
     return lesson;
 }
