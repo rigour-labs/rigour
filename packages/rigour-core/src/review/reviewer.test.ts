@@ -85,12 +85,17 @@ function installFake(dir: string, name: string): string {
  * process, slow to start on Windows, and the same two commits were made again for every test.
  */
 let fixture: string;
+/** A copy skips git's transient files (locks, temporary objects), which may vanish while it reads them. */
+const notTransient = (source: string) => !/\.lock$|[\\/]tmp_[^\\/]*$/.test(source);
 beforeAll(() => {
     repo = fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-fixture-'));
     git('init', '-q', '-b', 'main');
     git('config', 'user.email', 't@example.com');
     git('config', 'user.name', 't');
     git('config', 'commit.gpgsign', 'false');
+    // No background gc or maintenance after a commit: it writes and deletes files under .git while a test copies it.
+    git('config', 'gc.auto', '0');
+    git('config', 'maintenance.auto', 'false');
     fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 1;\n');
     git('add', '-A');
     git('commit', '-qm', 'init');
@@ -106,7 +111,7 @@ beforeEach(() => {
     for (const name of ['claude', 'cursor-agent']) installFake(bins[0], name);
     process.env.PATH = [...bins, originalPath ?? ''].join(path.delimiter);
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-'));
-    fs.cpSync(fixture, repo, { recursive: true });
+    fs.cpSync(fixture, repo, { recursive: true, filter: notTransient });
 });
 afterEach(() => {
     process.env.PATH = originalPath;

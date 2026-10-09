@@ -26,6 +26,8 @@ function commit(file: string, text: string, subject: string, at: string): string
  * slow to start on Windows, and the same history was built again for every test. A copy keeps each test's repository its own.
  */
 let fixtures: string;
+/** A copy skips git's transient files (locks, temporary objects), which may vanish while it reads them. */
+const notTransient = (source: string) => !/\.lock$|[\\/]tmp_[^\\/]*$/.test(source);
 const built = new Map<'merge' | 'squash', { mergeSha: string; mergedAt: string }>();
 
 /** main with a.ts and b.ts; a pull request on `feature` that changes a.ts, merged on day 0 by `strategy`; then later commits on main. */
@@ -34,11 +36,11 @@ function history(strategy: 'merge' | 'squash'): { mergeSha: string; mergedAt: st
     const done = built.get(strategy);
     if (done) {
         fs.rmSync(repo, { recursive: true, force: true });
-        fs.cpSync(copy, repo, { recursive: true });
+        fs.cpSync(copy, repo, { recursive: true, filter: notTransient });
         return done;
     }
     const result = buildHistory(strategy);
-    fs.cpSync(repo, copy, { recursive: true });
+    fs.cpSync(repo, copy, { recursive: true, filter: notTransient });
     built.set(strategy, result);
     return result;
 }
@@ -83,11 +85,14 @@ beforeAll(() => {
     git(['config', 'user.email', 't@example.com']);
     git(['config', 'user.name', 't']);
     git(['config', 'commit.gpgsign', 'false']);
+    // No background gc or maintenance after a commit: it writes and deletes files under .git while a test copies it.
+    git(['config', 'gc.auto', '0']);
+    git(['config', 'maintenance.auto', 'false']);
 });
 afterAll(() => { fs.rmSync(fixtures, { recursive: true, force: true }); });
 beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'outcomes-'));
-    fs.cpSync(path.join(fixtures, 'empty'), repo, { recursive: true });
+    fs.cpSync(path.join(fixtures, 'empty'), repo, { recursive: true, filter: notTransient });
 });
 afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
 
