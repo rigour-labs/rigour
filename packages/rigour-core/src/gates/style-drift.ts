@@ -301,7 +301,8 @@ export class StyleDriftGate extends Gate {
                 if (pattern.convention === 'ambiguous') continue; // a one-word name says nothing about the casing
                 if (pattern.kind === 'function' || pattern.kind === 'method') {
                     fp.naming.functions[pattern.convention]++;
-                } else if (pattern.kind === 'variable' || pattern.kind === 'constant') {
+                } else if (pattern.kind === 'variable') {
+                    // A constant follows the constant convention (`MAX_ROWS`), never the variables': it is not compared.
                     fp.naming.variables[pattern.convention]++;
                 }
             }
