@@ -21,7 +21,7 @@ describe('Studio pages', () => {
     it('summarises a session and lists only what mattered until asked', () => {
         const out = html(<SessionCard session={{
             start: '2026-10-02T08:16:00Z', end: '2026-10-02T10:32:00Z',
-            counts: { stopped: 1, fixed: 0, checked: 26, reviewed: 15, taught: 0, pr: 0, reviewedFixed: 3 },
+            counts: { stopped: 1, reported: 0, fixed: 0, checked: 26, reviewed: 15, taught: 0, pr: 0, reviewedFixed: 3 },
             highlights: [{ at: '2026-10-02T10:00:00Z', kind: 'reviewed', text: 'Fixed `api` in scripts/a.mjs', detail: 'redirect: "error" now' }],
             rest: [{ at: '2026-10-02T09:00:00Z', kind: 'checked', text: 'Checked an edit to src/a.ts: nothing found' }],
         }} />);
@@ -281,5 +281,19 @@ describe('how lessons reach an agent, on the learning page', () => {
         expect(html).toContain('An agent gets the lessons when it asks for a brief (the <code>rigour_brief</code> tool, or <code>rigour brief</code>).');
         expect(html).toContain('In Claude Code, <code>rigour hooks init --brief</code> hands them over by itself');
         expect(html).not.toMatch(/told before they write/);
+    });
+});
+
+describe('an edit check that ran without --block, on the activity page', () => {
+    it('reads as reported, never as blocked', () => {
+        const out = renderToStaticMarkup(<SessionCard session={{
+            start: '2026-10-02T08:16:00Z', end: '2026-10-02T08:16:00Z',
+            counts: { stopped: 0, reported: 2, fixed: 0, checked: 0, reviewed: 0, taught: 0, pr: 0, reviewedFixed: 0 },
+            highlights: [{ at: '2026-10-02T08:16:00Z', kind: 'reported', text: 'Reported on an edit to src/a.ts: Import not found' }],
+            rest: [],
+        }} />);
+        expect(out).toContain('2 edits reported on');
+        expect(out).toContain('>reported<');
+        expect(out).not.toMatch(/blocked|Stopped/);
     });
 });
