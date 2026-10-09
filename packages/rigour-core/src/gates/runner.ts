@@ -36,7 +36,7 @@ import { DeprecatedDependenciesGate } from './deprecated-dependencies.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 import { FileSystemCache } from '../services/filesystem-cache.js';
-import { settledChecks } from '../review/settled-checks.js';
+import { onChangedLines, settledChecks } from '../review/settled-checks.js';
 
 export class GateRunner {
     private gates: Gate[] = [];
@@ -396,11 +396,3 @@ export function dedupeFailures(failures: Failure[]): Failure[] {
     });
 }
 
-/** The findings on a change's lines; every finding when there is no change to scope to. */
-function onChangedLines(failures: Failure[], focusLines: Record<string, number[]> | undefined): Failure[] {
-    if (!focusLines) return failures;
-    return failures.filter(f => {
-        const lines = focusLines[f.files?.[0] ?? ''];
-        return !!lines && (f.line === undefined || lines.includes(f.line));
-    });
-}

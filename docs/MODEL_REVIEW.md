@@ -140,8 +140,9 @@ qwen2.5-coder:7b` reviews with the model your Ollama server runs, on this machin
    repository and refuse `.git/`, `.env*`, key and certificate files, `.npmrc`, `.netrc` and
    credentials files. The budget is 24 tool calls over 14 turns, then the model must answer.
 4. **It reports at most five findings**, each anchored on a line the change added or changed. A
-   finding on a line where one of Rigour's checks already reports something is dropped: the check
-   stands, and the same defect is not reported twice.
+   finding of the same kind as a check's (a security finding on the line a security check flags)
+   is that check's finding said again, and is dropped. A different problem on a line a check also
+   flags is kept, and says which check flags the line too.
 
 With `agentic: false`, or with `rigour check <paths> --deep` (no diff), the cloud model reviews
 file by file instead, four files at a time: with tools (12 calls, 8 turns per file) when

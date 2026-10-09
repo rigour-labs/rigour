@@ -302,7 +302,7 @@ export class DeepAnalysisGate extends Gate {
 
     private toFailure(finding: VerifiedFinding): Failure {
         const failure = this.createFailure(
-            finding.description,
+            finding.alsoAt ? `${finding.description} (Rigour's checks also flag this line, for another reason: ${finding.alsoAt}.)` : finding.description,
             [finding.file],
             finding.suggestion,
             `[${finding.category}] ${finding.description.substring(0, 80)}`,

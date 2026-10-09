@@ -16,7 +16,7 @@ import { REVIEW_CATEGORIES } from './code-review-prompt.js';
 import { parseFindings } from './parse-findings.js';
 import { diffSections } from './pr-diff.js';
 import { runToolLoop } from './tool-loop.js';
-import { settledLine, settledSection, type SettledCheck } from '../review/settled-checks.js';
+import { againstSettled, settledLine, settledSection, type SettledCheck } from '../review/settled-checks.js';
 import type { RelatedChange } from './related-changes.js';
 
 const BUDGET = { maxToolCalls: 24, maxTurns: 14 };
@@ -43,7 +43,7 @@ export interface PrReviewInput {
     /** The repository's own rules that apply to this change, already rendered. */
     rules?: string;
     prBody?: string;
-    /** What Rigour's checks already found on the change: listed as settled, and a finding at one of their lines is dropped. */
+    /** What Rigour's checks already found on the change: listed as settled; a finding of the same kind at one of their lines is dropped. */
     settled?: SettledCheck[];
 }
 
@@ -57,9 +57,12 @@ export interface PrReviewResult {
 export async function reviewPullRequest(provider: InferenceProvider, input: PrReviewInput, inference: InferenceOptions): Promise<PrReviewResult> {
     const { prompt, sentDiff } = buildPrPrompt(input);
     const loop = await runToolLoop(provider, prompt, input.cwd, inference, BUDGET);
-    // A check already reports what sits at its line: the model's finding there is the same one, said again.
-    const taken = new Set((input.settled ?? []).filter(c => c.line).map(c => `${c.file}:${c.line}`));
-    const findings = parseFindings(loop.text).filter(f => !taken.has(`${f.file}:${f.line}`)).slice(0, MAX_FINDINGS);
+    // A model finding of the same kind as a check's, on its line, is that check's finding said again: dropped. Anything
+    // else there is a different problem on a line a check also flags: kept, and it says so.
+    const findings = parseFindings(loop.text).flatMap(f => {
+        const against = againstSettled(f, input.settled ?? []);
+        return against.same ? [] : [against.alsoAt.length ? { ...f, alsoAt: against.alsoAt.join('; ') } : f];
+    }).slice(0, MAX_FINDINGS);
     const files = new Set([...diffSections(input.diff).map(s => s.file), ...loop.toolbox.reads.keys(), ...findings.map(f => f.file)]);
     const shown = `${sentDiff}\n${loop.toolbox.readText}`;
     return { findings, contexts: [...files].flatMap(file => wholeFile(input.cwd, file, shown)), toolCalls: loop.toolCalls };

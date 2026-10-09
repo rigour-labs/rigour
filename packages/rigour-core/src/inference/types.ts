@@ -98,6 +98,8 @@ export interface DeepFinding {
     suggestion: string;
     /** LLM confidence score 0.0-1.0 */
     confidence: number;
+    /** The titles of Rigour's checks that also flag this line, for a different problem (deep/pr-review.ts). */
+    alsoAt?: string;
 }
 
 /**
