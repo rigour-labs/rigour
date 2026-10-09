@@ -463,18 +463,22 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     return verdict;
                 });
                 const specialists = { selected, returned: run.returned, missing: run.missing, passes: ran, ...(planNote ? { plan: planNote } : {}) };
+                if (orchestrator.required && run.missing.length) {
+                    // A required orchestrator reviews every part or gives no verdict: a partial review, or one judge instead, is a quieter one.
+                    recordReviewCost();
+                    const fallback = `${run.returned.length} of ${passes.length} passes returned`;
+                    return none('unavailable', `${fallback}, and rigour.yml requires the orchestrator: every part or no verdict (not reviewed: ${run.missing.join('; ')})`, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                }
                 if (run.stands) {
                     parts = run.parts;
                     modeRecord = { ...modeRecord, specialists, ...(run.missing.length ? { degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}not reviewed: ${run.missing.join('; ')} (no verdict)` } : {}) };
                 } else {
-                    // Fewer than half of the passes came back: one judge instead, once, only if the caps still allow a run (it counts
-                    // too) and the team does not require the orchestrator (a required review is never a quieter one).
-                    const fallback = `${run.returned.length} of ${passes.length} passes returned`;
+                    // Fewer than half of the passes came back: one judge instead, once, only if the caps still allow a run; it counts too.
                     const short = overBudget(store.spend(), settings, 1);
-                    const reason = orchestrator.required ? `${fallback}, and rigour.yml requires the orchestrator: no single-judge fallback` : short ? `${fallback}, and the caps leave no run for one judge: ${short}` : undefined;
-                    if (reason) {
+                    const fallback = `${run.returned.length} of ${passes.length} passes returned`;
+                    if (short) {
                         recordReviewCost();
-                        return none('unavailable', reason, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                        return none('unavailable', `${fallback}, and the caps leave no run for one judge: ${short}`, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
                     }
                     progress(`Rigour reviewer: ${fallback}; one judge reviews instead`);
                     modeRecord = { ...modeRecord, ran: 'single', specialists: { ...specialists, fallback } };

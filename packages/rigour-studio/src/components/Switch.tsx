@@ -27,8 +27,8 @@ const TEXT: Record<'goal' | 'outcomes' | 'orchestrator', SwitchText> = {
         title: 'The review orchestrator',
         lead: <>Experimental. Triage, without a model, picks which parts of a review each change needs (earlier human points,
             correctness, production cost, what the change leaves behind, rules, lessons and the goal), and the judge does only those,
-            in one pass: the same runs as one judge. A change one pass cannot hold is split, only while it costs no more per changed
-            line than one judge has here. A change with nothing for a model to review gets no run. The daily caps
+            in one pass: the same runs as one judge. A change over the judge's limit is split only with what the router has already
+            saved over its last 20 reviews, so on average it never costs more than one judge. A change with nothing for a model to review gets no run. Under required, every part returns or there is no verdict. The daily caps
             (<span className="st-mono">max_runs_per_day</span>, <span className="st-mono">max_usd_per_day</span>) count every pass. What blocks is unchanged.</>,
         row: 'Use the orchestrator',
         rowHelp: <>Required: no person, environment variable or flag may turn it off. <span className="st-mono">--orchestrator</span> and <span className="st-mono">--no-orchestrator</span> choose for one run.</>,

@@ -525,8 +525,30 @@ describe('the orchestrator', () => {
         const few = seenNow();
         const short = await runReviewer(repo, 'main', team('required'), fakes(judge(few, { 'part-1.diff': 'fail' }), few), () => undefined, { force: true });
         expect(short.outcome).toBe('unavailable');
-        expect(short.reason).toBe('0 of 1 passes returned, and rigour.yml requires the orchestrator: no single-judge fallback');
+        expect(short.reason).toBe('0 of 1 passes returned, and rigour.yml requires the orchestrator: every part or no verdict (not reviewed: prior-points, correctness, cleanup)');
         expect(few.prompts).toHaveLength(1);
+    });
+
+    it('under required, reviews every part or gives no verdict, and runs one combined pass when the caps leave one run', async () => {
+        const required = (extra = {}) => orch({ orchestrator: 'required', ...extra });
+        bigChange();
+        await credit(10_000_000);
+        // The split runs; one part of several gives no verdict: unavailable, not a partial review.
+        const split = seenNow();
+        const partial = await runReviewer(repo, 'main', required(), fakes(judge(split, { 'part-2.diff': 'fail' }), split), () => undefined, { force: true });
+        expect(split.prompts.length).toBeGreaterThan(2);
+        expect(partial.outcome).toBe('unavailable');
+        expect(partial.reason).toMatch(/requires the orchestrator: every part or no verdict \(not reviewed: part 2: /);
+        // The caps leave one run, not every part: one combined pass, never unavailable for that.
+        const capped = seenNow();
+        const one = await runReviewer(repo, 'main', required({ max_runs_per_day: 100 }), fakes(judge(capped, {}), capped), () => undefined, { force: true });
+        expect(one.outcome).toBe('passed');
+        const spentSoFar = (await store()).spend().runs;
+        const last = seenNow();
+        const combined = await runReviewer(repo, 'main', required({ max_runs_per_day: spentSoFar + 1 }), fakes(judge(last, {}), last), () => undefined, { force: true });
+        expect(last.prompts.map(passOf)).toEqual(['part-1.diff']);
+        expect(combined.outcome).toBe('passed');
+        expect(combined.mode?.specialists?.plan).toMatch(/^the caps leave one run, not \d+: one pass$/);
     });
 
     it('gives way to a team floor on the panel or the mode, and says so', async () => {
