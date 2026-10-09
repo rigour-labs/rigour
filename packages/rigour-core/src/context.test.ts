@@ -175,6 +175,49 @@ describe('Context Awareness Engine', () => {
     });
 });
 
+describe('class names in the context gate', () => {
+    const cwd = path.join(os.tmpdir(), 'rigour-temp-test-context-class-' + process.pid);
+    beforeAll(async () => { await fs.ensureDir(cwd); });
+    afterAll(async () => { await fs.remove(cwd); });
+
+    it('reads no class name out of a word ending in "class" followed by a line break (a dataclass import then a from-import)', async () => {
+        await fs.writeFile(path.join(cwd, 'models.py'), 'from dataclasses import dataclass\nfrom typing import List\n\n@dataclass\nclass OrderLine:\n    sku: str\n');
+        await fs.writeFile(path.join(cwd, 'shop.py'), 'from dataclasses import dataclass\nfrom typing import Optional\n\nclass ShopConfig:\n    name: str\n\nclass CartItem:\n    qty: int\n');
+        const config = { version: 1, commands: {}, gates: { context: { enabled: true, sensitivity: 0.8, mining_depth: 10, ignored_patterns: [], cross_file_patterns: true, naming_consistency: true, import_relationships: true, max_cross_file_depth: 50 } }, output: { report_path: 'rigour-report.json' } };
+        const report = await new GateRunner(config as any).run(cwd);
+        expect(report.failures.filter(f => f.id === 'context-drift' && /class/i.test(`${f.title} ${f.details}`))).toEqual([]);
+    });
+
+    const classDrift = async (files: Record<string, string>) => {
+        await fs.emptyDir(cwd);
+        for (const [name, body] of Object.entries(files)) await fs.writeFile(path.join(cwd, name), body);
+        const config = { version: 1, commands: {}, gates: { context: { enabled: true, sensitivity: 0.8, mining_depth: 10, ignored_patterns: [], cross_file_patterns: true, naming_consistency: true, import_relationships: true, max_cross_file_depth: 50 } }, output: { report_path: 'rigour-report.json' } };
+        const report = await new GateRunner(config as any).run(cwd);
+        return report.failures.filter(f => f.id === 'context-drift' && /class names/.test(f.details ?? ''));
+    };
+
+    it('reads no class name out of the word in a comment or a string', async () => {
+        expect(await classDrift({
+            'errors.py': '# this class of errors is retried\nclass RetryError(Exception):\n    pass\n\nclass TimeoutError(Exception):\n    """Raised for the class of inputs that never answer."""\n',
+            'wrap.ts': '// a class that wraps the client\nexport class ClientWrapper {}\nexport abstract class BaseClient {}\n',
+        })).toEqual([]);
+    });
+
+    it('still reads C# partial and Kotlin enum classes: a camelCase one among PascalCase ones is drift', async () => {
+        const pascal = { 'a.ts': 'export class OrderLine {}\nexport class CartItem {}\nexport class ShopConfig {}\nexport class PriceRule {}\n' };
+        for (const [file, body] of [['b.cs', 'public partial class orderView {}\n'], ['c.kt', 'enum class orderState { OPEN }\n'], ['d.kt', 'inner class orderLine\n']]) {
+            expect(await classDrift({ ...pascal, [file]: body }), file).toHaveLength(1);
+        }
+    });
+
+    it('still reports real camelCase classes among PascalCase ones', async () => {
+        expect(await classDrift({
+            'a.ts': 'export class OrderLine {}\nexport class CartItem {}\nexport class ShopConfig {}\n',
+            'b.ts': 'export class orderHelper {}\n',
+        })).toHaveLength(1);
+    });
+});
+
 /**
  * Direct unit tests for detectCasing logic
  */
