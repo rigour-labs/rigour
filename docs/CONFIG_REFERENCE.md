@@ -759,7 +759,7 @@ Reports timers never cleared, spawned processes without lifecycle handling, I/O 
 
 `gates.style_drift`
 
-Builds a per-language baseline of naming and error-handling conventions on the first full scan, then reports files that deviate from it. Teams tune the deviation threshold or move the baseline file.
+In a Git checkout, compares each changed or new file with the naming and error-handling conventions of its language in the code committed on the main branch, read fresh on every run; nothing is cached. Outside Git, builds a per-language baseline file on the first full scan and compares against it. Teams tune the deviation threshold, the sample size or (outside Git) the baseline file.
 
 **Blocks:** Advisory: never blocks
 
@@ -767,8 +767,8 @@ Builds a per-language baseline of naming and error-handling conventions on the f
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Turns the style-drift check on or off. |
 | `deviation_threshold` | number | `0.25` | Fraction, from 0 to 1, by which a file's naming or error-handling style must differ from the project baseline to be reported; raise it to report only larger deviations. |
-| `sample_size` | number | `100` | Maximum number of files per language sampled when the style baseline is first built. |
-| `baseline_path` | string | `".rigour/style-baseline.json"` | Path, relative to the repository root, where the style baseline is stored and read; delete the file to rebuild the baseline on the next full scan. |
+| `sample_size` | number | `100` | Maximum number of files per language the conventions are read from: committed files on the main branch in a Git checkout, else those of the first full scan. |
+| `baseline_path` | string | `".rigour/style-baseline.json"` | Outside Git only: path, relative to the repository root, where the style baseline is stored and read; delete the file to rebuild the baseline on the next full scan. In a Git checkout it is never read or written. |
 
 ## Logic changes in edited functions
 

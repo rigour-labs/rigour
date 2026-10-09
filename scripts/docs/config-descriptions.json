@@ -177,7 +177,7 @@
         },
         "gates.style_drift": {
             "title": "Style drift from project conventions",
-            "summary": "Builds a per-language baseline of naming and error-handling conventions on the first full scan, then reports files that deviate from it. Teams tune the deviation threshold or move the baseline file.",
+            "summary": "In a Git checkout, compares each changed or new file with the naming and error-handling conventions of its language in the code committed on the main branch, read fresh on every run; nothing is cached. Outside Git, builds a per-language baseline file on the first full scan and compares against it. Teams tune the deviation threshold, the sample size or (outside Git) the baseline file.",
             "blocks": "Advisory: never blocks"
         },
         "gates.logic_drift": {
@@ -366,8 +366,8 @@
         "gates.side_effect_analysis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
         "gates.style_drift.enabled": "Turns the style-drift check on or off.",
         "gates.style_drift.deviation_threshold": "Fraction, from 0 to 1, by which a file's naming or error-handling style must differ from the project baseline to be reported; raise it to report only larger deviations.",
-        "gates.style_drift.sample_size": "Maximum number of files per language sampled when the style baseline is first built.",
-        "gates.style_drift.baseline_path": "Path, relative to the repository root, where the style baseline is stored and read; delete the file to rebuild the baseline on the next full scan.",
+        "gates.style_drift.sample_size": "Maximum number of files per language the conventions are read from: committed files on the main branch in a Git checkout, else those of the first full scan.",
+        "gates.style_drift.baseline_path": "Outside Git only: path, relative to the repository root, where the style baseline is stored and read; delete the file to rebuild the baseline on the next full scan. In a Git checkout it is never read or written.",
         "gates.logic_drift.enabled": "Turns the logic-drift check on or off.",
         "gates.logic_drift.baseline_path": "Path, relative to the repository root, of the local function baseline used only when the project is not a Git repository.",
         "gates.logic_drift.track_operators": "Reports changes to comparison operators in an edited function, such as >= becoming >.",
