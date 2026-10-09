@@ -415,7 +415,9 @@ fifteen for a judge reading the whole pull request.
 standard for the whole repository: it reaches every change, whatever its files or words, in the
 briefing, the briefing on a file's first edit and the judge's context. Up to ten such standards are
 served, the most-raised first. `--to folder` reaches every change in the lesson's folder; `--to file`
-takes it back to its own file. Each is recorded with your git email and `--why`; a scope says how far a
+takes it back to its own file. Studio's lesson card does the same (**Make team standard**, **Folder only**,
+**This file only**) and shows how far each lesson reaches. Each is recorded with your git email and `--why`
+(refused in Studio without one); a scope says how far a
 lesson reaches, never whether it is right, so only a lesson (not a candidate) is served. `--list` shows
 each scope.
 
