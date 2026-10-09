@@ -31,12 +31,14 @@ export interface Journey {
     reclassified?: { detail: string; evidence: string[] };
     /** A corrected wording for a lesson a person decided; it changes only when they take it. */
     suggestedText?: { text: string; why: string };
+    /** How far a review lesson reaches: its file, its folder, or every change (a team standard). */
+    reach?: { scope: 'file' | 'folder' | 'repo'; hasFile: boolean };
 }
 
 /** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
 const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);
 
-export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'reworded') => void }> = ({ lesson, onDecide, onDecideReview }) => (
+export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'reworded') => void; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void }> = ({ lesson, onDecide, onDecideReview, onScope }) => (
     <div className="st-card">
         <div className="st-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{inlineCode(lesson.text)}</div>
@@ -79,6 +81,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
                 </div>
             </div>
         )}
+        {lesson.reach && <Reach lesson={lesson} reach={lesson.reach} onScope={onScope} />}
         {lesson.suggestedText && (
             <div style={{ marginTop: 14 }}>
                 <div><span className="st-chip">corrected wording ({lesson.suggestedText.why})</span> <span style={{ fontSize: 15 }}>{inlineCode(lesson.suggestedText.text)}</span></div>
@@ -97,6 +100,20 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         )}
     </div>
 );
+
+const REACH_LABEL: Record<'file' | 'folder' | 'repo', string> = { file: 'its file', folder: 'its folder', repo: 'team standard' };
+
+/** How far a review lesson reaches, and a person's choice to widen or narrow it (recorded with their git email). */
+const Reach: React.FC<{ lesson: Journey; reach: NonNullable<Journey['reach']>; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void }> = ({ lesson, reach, onScope }) => {
+    const choices: Array<['file' | 'folder' | 'repo', string]> = ([['repo', 'Make team standard'], ['folder', 'Folder only'], ['file', 'This file only']] as Array<['file' | 'folder' | 'repo', string]>)
+        .filter(([to]) => to !== reach.scope && (reach.hasFile || to === 'repo'));
+    return (
+        <div className="st-row" style={{ marginTop: 12, flexWrap: 'wrap', gap: 8 }}>
+            <span className="st-chip">reaches: {reach.hasFile || reach.scope === 'repo' ? REACH_LABEL[reach.scope] : 'changes it is about'}</span>
+            {choices.map(([to, label]) => <button key={to} className="st-btn" onClick={() => onScope?.(lesson.id, to)} type="button">{label}</button>)}
+        </div>
+    );
+};
 
 interface Share { count: number; of: number; rate: number | null }
 /** The outcome numbers (core outcomes/metrics.ts), as Studio shows them. */
