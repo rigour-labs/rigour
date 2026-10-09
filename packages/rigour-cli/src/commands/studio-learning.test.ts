@@ -3,8 +3,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
-import { buildLearning, decideReviewLesson, readableFixLesson } from './studio-learning.js';
+import { readCompiledChecks, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { buildLearning, decideCompiledCheckFromStudio, decideReviewLesson, proposeChecksFromStudio, readableFixLesson } from './studio-learning.js';
 
 const now = new Date('2026-10-09T12:00:00Z');
 const lesson: LessonRecord = {
@@ -141,4 +141,24 @@ describe('a lesson back to a candidate when outcomes stopped promoting', () => {
         const decided = buildLearning({ now, lessons: [], reviewLessons: [{ ...back, evidence: [...back.evidence, { kind: 'dismissed', pr: 7, comment: 'dismissed-x', author: 'lead@team' }] }], stories: [], events: [] }).lessons[0];
         expect(decided.reclassified).toBeUndefined();
     });
+
+    it('proposes compiled checks from Studio, and records a decision with the person\'s git email or refuses without one', () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-compiled-'));
+        try {
+            execFileSync('git', ['-C', repo, 'init', '-q']);
+            execFileSync('git', ['-C', repo, 'config', 'user.email', 'lead@team.example']);
+            fs.mkdirSync(path.join(repo, '.rigour'));
+            fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{ id: 'L1', text: 'Never call `fetchAll` here.', file: 'src/load.ts', symbols: ['fetchAll'], state: 'verified', createdAt: '', updatedAt: '', evidence: [{ kind: 'point', pr: 1, comment: 'p', author: 'r' }, { kind: 'accepted', pr: 1, comment: 'a', author: 'lead@team.example' }] }] }));
+            expect(proposeChecksFromStudio(repo)).toEqual({ proposed: 1 });
+            expect(decideCompiledCheckFromStudio(repo, { id: 'c-L1', state: 'active' })).toMatchObject({ state: 'active', by: 'lead@team.example' });
+            expect(() => decideCompiledCheckFromStudio(repo, { id: 'c-L1', state: 'proposed' })).toThrow('active or withdrawn');
+            expect(() => decideCompiledCheckFromStudio(repo, { id: 'c-nope', state: 'withdrawn' })).toThrow('no compiled check');
+            execFileSync('git', ['-C', repo, 'config', 'user.email', '']);
+            expect(() => decideCompiledCheckFromStudio(repo, { id: 'c-L1', state: 'withdrawn' })).toThrow('no git email');
+            expect(readCompiledChecks(repo)[0].state).toBe('active');
+        } finally {
+            fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
 });
+

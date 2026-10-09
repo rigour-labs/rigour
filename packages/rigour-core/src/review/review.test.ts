@@ -156,6 +156,32 @@ describe('git-backed review', () => {
         expect((await reviewChange({ cwd: repo, config, diff: git('diff'), source: { mode: 'working' } })).baseUnknown).toBeUndefined();
     });
 
+    it('tells the deep review what the compiled checks found and which lessons they covered, only where they ran', async () => {
+        write('src/load.ts', 'export const ok = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        fs.mkdirSync(path.join(repo, '.rigour'), { recursive: true });
+        fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{ id: 'L1', text: 'Never call `fetchAll` here.', file: 'src/load.ts', symbols: ['fetchAll'], state: 'verified', createdAt: '', updatedAt: '', evidence: [{ kind: 'point', pr: 1, comment: 'p', author: 'r' }, { kind: 'accepted', pr: 1, comment: 'a', author: 'lead' }] }] }));
+        fs.writeFileSync(path.join(repo, '.rigour', 'compiled-checks.json'), JSON.stringify({ version: 1, checks: [{ id: 'c-L1', lessonId: 'L1', files: 'src/load.ts', kind: 'forbid', symbol: 'fetchAll', message: 'Never call `fetchAll` here.', state: 'active', at: '' }] }));
+        const seenDeep: Array<{ settled?: unknown[]; covered?: unknown[] } | undefined> = [];
+        vi.spyOn(GateRunner.prototype, 'run').mockImplementation(async (_cwd, _targets, deep) => {
+            seenDeep.push(deep as never);
+            return { status: 'PASS', summary: {}, failures: [], stats: { duration_ms: 0 } } as never;
+        });
+        const deep = { enabled: true } as never;
+        write('src/load.ts', 'export const ok = 1;\nconst rows = fetchAll(db);\n');
+        const touched = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1 }), deep });
+        expect(touched.covered).toEqual([{ checkId: 'c-L1', lessonId: 'L1', message: 'Never call `fetchAll` here.' }]);
+        expect(seenDeep[0]).toMatchObject({ settled: [{ file: 'src/load.ts', line: 2, kind: 'compiled-lesson' }], covered: [{ lessonId: 'L1' }] });
+        // A change that does not touch the check's files: it did not run, so nothing is covered.
+        git('checkout', '--', 'src/load.ts');
+        write('src/other.ts', 'export const other = 1;\n');
+        const elsewhere = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1 }), deep });
+        expect(elsewhere.covered).toEqual([]);
+        expect(seenDeep[1]).toMatchObject({ settled: [], covered: [] });
+        vi.restoreAllMocks();
+    });
+
     it("names every check it ran in the summary, the review's own beside the gates", async () => {
         write('src/a.ts', 'export const a = 1;\n');
         git('add', '-A');

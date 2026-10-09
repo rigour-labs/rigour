@@ -220,6 +220,10 @@ export const UNIVERSAL_CONFIG: Config = {
             allow: [],
             block: false,
         },
+        compiled_lessons: {
+            enabled: true,
+            block: false,
+        },
         query_patterns: {
             enabled: true,
         },

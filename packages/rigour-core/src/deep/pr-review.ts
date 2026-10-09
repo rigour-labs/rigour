@@ -16,7 +16,7 @@ import { REVIEW_CATEGORIES } from './code-review-prompt.js';
 import { parseFindings } from './parse-findings.js';
 import { diffSections } from './pr-diff.js';
 import { runToolLoop } from './tool-loop.js';
-import { againstSettled, settledLine, settledSection, type SettledCheck } from '../review/settled-checks.js';
+import { againstSettled, coveredSection, settledLine, settledSection, type CoveredLesson, type SettledCheck } from '../review/settled-checks.js';
 import type { RelatedChange } from './related-changes.js';
 
 const BUDGET = { maxToolCalls: 24, maxTurns: 14 };
@@ -45,6 +45,8 @@ export interface PrReviewInput {
     prBody?: string;
     /** What Rigour's checks already found on the change: listed as settled; a finding of the same kind at one of their lines is dropped. */
     settled?: SettledCheck[];
+    /** Lessons the team's compiled checks covered on this change, left out of `lessons`: the prompt says so. */
+    covered?: CoveredLesson[];
 }
 
 export interface PrReviewResult {
@@ -102,6 +104,7 @@ export function buildPrPrompt(input: PrReviewInput): { prompt: string; sentDiff:
         input.prBody ? `PR DESCRIPTION (what the author intended):\n${input.prBody.slice(0, PR_BODY_CHARS)}` : '',
         input.rules ?? '',
         input.lessons ?? '',
+        coveredSection(input.covered ?? []),
         settledSection((input.settled ?? []).map(settledLine)),
         contracts ? `BOTH SIDES OF A CALL CHANGED (check these contracts first):\n${contracts}` : '',
         focus ? `LOOK FIRST (riskiest changed functions, and what to check):\n${focus}` : '',

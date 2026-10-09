@@ -85,7 +85,10 @@ describe('reviewPullRequest', () => {
 
     it('tells the model what the checks already found; drops its finding of the same kind there, and keeps a different one, tagged', async () => {
         const settled = [{ file: 'src/invoice.ts', line: 11, title: 'Security: XSS', kind: 'security-patterns' }];
-        expect(buildPrPrompt({ cwd: repo, diff: DIFF, focus: [], settled }).prompt).toContain("## Already found by Rigour's checks: they block on their own, so do not report them again\n- src/invoice.ts:11 Security: XSS");
+        expect(buildPrPrompt({ cwd: repo, diff: DIFF, focus: [], settled }).prompt).toContain("## Already found by Rigour's checks on this change: do not report them again\n- src/invoice.ts:11 Security: XSS");
+        const covered = [{ checkId: 'c-L1', lessonId: 'L1', message: 'never hard-code a currency' }];
+        expect(buildPrPrompt({ cwd: repo, diff: DIFF, focus: [], covered }).prompt).toContain('- covered by compiled check c-L1 for lesson L1: never hard-code a currency');
+        expect(buildPrPrompt({ cwd: repo, diff: DIFF, focus: [] }).prompt).not.toContain('covered by compiled check');
         const provider: InferenceProvider = {
             name: 'fake', isAvailable: async () => true, setup: async () => {}, dispose: () => {}, analyze: async () => '',
             chat: async () => ({ text: JSON.stringify({ findings: [

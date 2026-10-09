@@ -21,6 +21,8 @@ import { checkId, rememberReported } from './check-outcomes.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
 import { diffTestFailures } from './diff-test-findings.js';
 import { migrationOrderFailures } from './migration-order.js';
+import { compiledChecksOn } from '../review-learning/compiled-lessons.js';
+import { settledChecks, type CoveredLesson } from './settled-checks.js';
 import { orphanFileFailures } from './orphan-files.js';
 import { unusedExportFailures } from './unused-exports.js';
 import { queryPatternFailures } from './query-patterns.js';
@@ -86,6 +88,8 @@ export interface ReviewResult {
     typedError?: string;
     /** The goal the description declared, when the goal check ran on one with something to check. */
     goal?: Goal;
+    /** The lessons the team's compiled checks covered on this change: a model reviewer is told so instead of the lesson. */
+    covered: CoveredLesson[];
 }
 
 export interface ReviewFinding {
@@ -108,9 +112,11 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [] };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [], covered: [] };
     }
-    const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
+    // The team's compiled checks run before the deep review, so it is told what they found and which lessons they covered.
+    const compiled = compiledChecksOn(input.cwd, changedLines, input.config);
+    const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff, settled: settledChecks(compiled.failures), covered: compiled.covered } : undefined;
     // The team's `commands:` run at push (toolchain.ts), where a failure blocks; here they would only cost time.
     const report = await new GateRunner({ ...input.config, commands: {} }).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     const { preexisting, baseUnknown } = await dropPreexisting(input, report, targets);
@@ -124,6 +130,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     reviewCheck('migration-order', 'migration_order', migrationOrderFailures(input.cwd, diff, input.source, input.config));
     reviewCheck('unused-exports', 'unused_exports', unusedExportFailures(input.cwd, diff, input.config));
     reviewCheck('orphan-files', 'orphan_files', orphanFileFailures(input.cwd, diff, input.config));
+    reviewCheck('compiled-lessons', 'compiled_lessons', compiled.failures);
     reviewCheck('query-patterns', 'query_patterns', queryPatternFailures(input.cwd, changedLines, input.config));
     reviewCheck('optional-params', 'optional_params', optionalParamFailures(input.cwd, changedLines, input.config));
     reviewCheck('duplicate-functions', 'duplicate_functions', duplicateFunctionFailures(input.cwd, changedLines, input.config));
@@ -164,6 +171,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         gateErrors,
         controlFilesChanged: controlFiles(diff),
         hints: typed.hints,
+        covered: compiled.covered,
         ...(deepError ? { deepError } : {}),
         ...(typed.error ? { typedError: typed.error } : {}),
         ...(checkedGoal ? { goal: checkedGoal } : {}),

@@ -284,6 +284,11 @@ export const GatesSchema = z.object({
         // Block on them. Off by default, like unused_exports.block: a team whose reviewers block on dead files turns it on.
         block: z.boolean().optional().default(false),
     }).optional().default({}),
+    /** Verified lessons a person compiled into checks (review-learning/compiled-lessons.ts): notes unless `block`. */
+    compiled_lessons: z.object({
+        enabled: z.boolean().optional().default(true),
+        block: z.boolean().optional().default(false),
+    }).optional().default({}),
     migration_order: z.object({
         enabled: z.boolean().optional().default(false),
         dirs: z.array(z.string()).optional().default(['**/supabase/migrations']),
@@ -616,6 +621,8 @@ export interface DeepOptions {
     independent?: boolean;
     /** The change's unified diff (from reviewChange): a cloud agentic review reads the PR as a whole. */
     diff?: string;
-    /** What Rigour's checks already found on the change's lines (the runner fills it): settled, never reported again. */
-    settled?: Array<{ file: string; line?: number; title: string }>;
+    /** What Rigour's checks already found on the change's lines (the review and the runner fill it): settled, never reported again. */
+    settled?: Array<{ file: string; line?: number; title: string; kind?: string }>;
+    /** The lessons the team's compiled checks covered on this change: the deep review is told so instead of the lesson. */
+    covered?: Array<{ checkId: string; lessonId: string; message: string }>;
 }
