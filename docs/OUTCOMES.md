@@ -34,6 +34,42 @@ Records are kept in `.rigour/outcomes.json`, keyed by merge commit. A settled on
 
 When this machine worked on the pull request's branch, its [thread](THREAD.md) gets a `merge` event the first time the record is read and an `outcome` event when it settles.
 
+## Numbers
+
+`rigour outcomes` prints them, `rigour outcomes --json` carries them as `metrics`, and Studio's **How it learns** shows them. All three read one function (`outcomeMetrics`), and so will anything else that reports them. Its shape is stable:
+
+```json
+{
+  "version": 1,
+  "records": { "merged": 0, "settled": 0, "unsettled": 0 },
+  "settled": {
+    "ciRegressed": { "count": 0, "of": 0, "rate": null, "reason": "fewer than 10 records: a count, not a rate" },
+    "ciUnknown": 0,
+    "reverted": { "count": 0, "of": 0, "rate": null },
+    "fixedLater": { "count": 0, "of": 0, "rate": null },
+    "reviewed": { "prs": 0, "fixedLater": { "count": 0, "of": 0, "rate": null } },
+    "notReviewed": { "prs": 0, "fixedLater": { "count": 0, "of": 0, "rate": null } }
+  },
+  "lessons": { "awaitingDecision": 0, "promotedFromEvidence": 0, "dismissed": 0, "takenBack": 0 }
+}
+```
+
+- **Records:**
+  - Everything under `settled` counts settled records only, because an open window can still change.
+  - `ciRegressed` counts over settled records whose CI passed or failed. Those with no CI to read are `ciUnknown`, so they never dilute it. A record whose CI GitHub could not read never settles, so in practice `ciUnknown` counts merges that had no check runs.
+  - `fixedLater` means a later commit on the pull request's files, inside the window, says it fixes something.
+  - `reviewed` covers the pull requests a review by Rigour ran on (from the threads); `notReviewed` covers the rest.
+- **Lessons:**
+  - `awaitingDecision`: candidates waiting on a person (a later fix on their lines, back to candidate, or taken back).
+  - `promotedFromEvidence`: lessons a person promoted after such evidence.
+  - `takenBack`: lessons taken back and not promoted again since.
+- **Rates:** a rate is given only when at least 10 records are behind it. Below that, `rate` is `null` with a reason, and Studio and the CLI show the count alone.
+
+Read them with care:
+- **Small and local.** They count only what this machine read, and a team's numbers are usually small.
+- **Not a comparison.** Reviewed and not reviewed are shown side by side, never as a difference: teams choose which pull requests get reviewed, so the two groups differ, and a gap between them is not Rigour's effect.
+- **Trends only.** Use them for trends within one repository over time.
+
 ## Turning it on
 
 Four layers, the nearest wins, as for the [goal check](GOAL.md):

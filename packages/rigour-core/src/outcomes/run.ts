@@ -13,6 +13,7 @@ import { applyOutcomeEvidence, type OutcomeEvidenceResult } from '../review-lear
 import { readLessons, writeLessons } from '../review-learning/lessons.js';
 import { gitIn } from '../review-learning/acted-on.js';
 import { eventsOfKind } from '../task/thread.js';
+import { outcomeMetrics, type OutcomeMetrics } from './metrics.js';
 
 /** How long one run may read before it stops and keeps what it has. */
 const READ_DEADLINE_MS = 2 * 60_000;
@@ -28,6 +29,8 @@ export interface OutcomesRun {
     stopped?: string;
     /** What the records did to the team's review lessons (review-learning/outcome-evidence.ts). */
     lessons?: OutcomeEvidenceResult;
+    /** The outcome numbers over every record kept (metrics.ts). */
+    metrics?: OutcomeMetrics;
 }
 
 export async function runOutcomes(cwd: string, config: Config, options: { flag?: boolean; pr?: number; last?: number; exec?: Exec }): Promise<OutcomesRun> {
@@ -47,23 +50,38 @@ export async function runOutcomes(cwd: string, config: Config, options: { flag?:
     const incomplete = listed.incomplete ? 'the list of merged pull requests may be incomplete (gh listed too many updates to prove it)' : undefined;
     const stopped = [run.stopped, incomplete].filter(Boolean).join('; ');
     const lessons = lessonEvidence(cwd, mainRef, config.learning?.outcomes?.demote_after ?? 2);
-    return { switch: resolved, outcomes: run.outcomes, read: run.read, ...(lessons ? { lessons } : {}), ...(stopped ? { stopped } : {}) };
+    const metrics = localOutcomeMetrics(cwd);
+    return { switch: resolved, outcomes: run.outcomes, read: run.read, ...(lessons ? { lessons } : {}), ...(metrics ? { metrics } : {}), ...(stopped ? { stopped } : {}) };
 }
 
 /** Every record kept (not only this run's) against the team's lessons, and the reviews that found a lesson repeated; written only when something changed. */
 function lessonEvidence(cwd: string, mainRef: string, demoteAfter: number): OutcomeEvidenceResult | undefined {
     const lessons = readLessons(cwd);
     if (lessons.length === 0) return undefined;
+    const result = applyOutcomeEvidence(lessons, Object.values(readPrOutcomes(cwd).outcomes), reviews(cwd).applied, { demoteAfter, git: gitIn(cwd), mainRef, deadline: Date.now() + LESSON_DEADLINE_MS });
+    if (result.added) writeLessons(cwd, lessons);
+    return result;
+}
+
+/** Per pull request, the lessons a review of it recorded as applying, and every pull request a review by Rigour ran on: from the threads. */
+function reviews(cwd: string): { applied: Map<number, Set<string>>; reviewed: Set<number> } {
     const applied = new Map<number, Set<string>>();
+    const reviewed = new Set<number>();
     for (const e of eventsOfKind(cwd, 'review')) {
-        if (typeof e.pr !== 'number' || !Array.isArray(e.lessons_applied)) continue;
+        if (typeof e.pr !== 'number') continue;
+        reviewed.add(e.pr);
+        if (!Array.isArray(e.lessons_applied)) continue;
         const ids = applied.get(e.pr) ?? new Set<string>();
         for (const id of e.lessons_applied) if (typeof id === 'string') ids.add(id);
         applied.set(e.pr, ids);
     }
-    const result = applyOutcomeEvidence(lessons, Object.values(readPrOutcomes(cwd).outcomes), applied, { demoteAfter, git: gitIn(cwd), mainRef, deadline: Date.now() + LESSON_DEADLINE_MS });
-    if (result.added) writeLessons(cwd, lessons);
-    return result;
+    return { applied, reviewed };
+}
+
+/** The outcome numbers for this checkout (metrics.ts), over every record it keeps; undefined when it keeps none. Read-only. */
+export function localOutcomeMetrics(cwd: string): OutcomeMetrics | undefined {
+    const records = Object.values(readPrOutcomes(cwd).outcomes);
+    return records.length ? outcomeMetrics(records, readLessons(cwd), reviews(cwd).reviewed) : undefined;
 }
 
 async function onePr(cwd: string, pr: number, exec: Exec, env: Record<string, string> | undefined): Promise<{ prs: MergedPr[]; incomplete: boolean }> {

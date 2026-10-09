@@ -77,3 +77,32 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         )}
     </div>
 );
+
+interface Share { count: number; of: number; rate: number | null }
+/** The outcome numbers (core outcomes/metrics.ts), as Studio shows them. */
+export interface OutcomeNumbers {
+    records: { merged: number; settled: number; unsettled: number };
+    settled: { ciRegressed: Share; ciUnknown: number; reverted: Share; fixedLater: Share; reviewed: { prs: number; fixedLater: Share }; notReviewed: { prs: number; fixedLater: Share } };
+    lessons: { awaitingDecision: number; promotedFromEvidence: number; dismissed: number; takenBack: number };
+}
+
+/** A count, with a percentage only where there are enough records for one. */
+const shareText = (s: Share) => `${s.count} of ${s.of}${s.rate === null ? '' : ` (${Math.round(s.rate * 100)}%)`}`;
+
+/** What happened after merges: counts only. Reviewed and not reviewed side by side, never compared. */
+export const OutcomeCard: React.FC<{ numbers: OutcomeNumbers }> = ({ numbers: m }) => (
+    <section className="st-card" style={{ margin: '0 0 24px' }}>
+        <strong>After the merge</strong>
+        <div className="st-sub" style={{ marginTop: 4 }}>{m.records.merged} merged pull requests read on this machine; {m.records.settled} settled, {m.records.unsettled} with the window still open.</div>
+        <div className="st-journey" style={{ marginTop: 10 }}>
+            <div><div className="st-sub">CI regressed on the merge</div><div style={{ fontSize: 14, marginTop: 4 }}>{shareText(m.settled.ciRegressed)}{m.settled.ciUnknown ? `, ${m.settled.ciUnknown} with no CI to read` : ''}</div></div>
+            <div><div className="st-sub">Reverted</div><div style={{ fontSize: 14, marginTop: 4 }}>{shareText(m.settled.reverted)}</div></div>
+            <div><div className="st-sub">Reviewed by Rigour</div><div style={{ fontSize: 14, marginTop: 4 }}>{m.settled.reviewed.prs} pull requests, {m.settled.reviewed.fixedLater.count} fixed later</div></div>
+            <div><div className="st-sub">Not reviewed</div><div style={{ fontSize: 14, marginTop: 4 }}>{m.settled.notReviewed.prs} pull requests, {m.settled.notReviewed.fixedLater.count} fixed later</div></div>
+        </div>
+        <div className="st-sub" style={{ marginTop: 10, lineHeight: 1.6 }}>
+            Lessons: {m.lessons.awaitingDecision} waiting on you, {m.lessons.promotedFromEvidence} promoted from evidence, {m.lessons.dismissed} dismissed, {m.lessons.takenBack} taken back.
+            {' '}Teams choose which pull requests get reviewed, so the two groups differ: this is not a comparison.
+        </div>
+    </section>
+);
