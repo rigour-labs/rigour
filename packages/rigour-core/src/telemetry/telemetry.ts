@@ -44,6 +44,8 @@ export interface TelemetryDeps {
     now?: number;
     /** The agent a hook ran for, when the hook knows (its own tool name): wins over the environment. */
     agent?: string;
+    /** More of the daily event, read only when it is sent (learning-usage.ts): the learning loop of the repository the command ran in. */
+    daily?: () => Record<string, unknown>;
 }
 
 /** The agent hosts telemetry names, and nothing else: anything unknown is `other`, no agent is `none`. */
@@ -200,9 +202,17 @@ export async function flushDailyUsage(deps: TelemetryDeps = {}): Promise<boolean
     const home = deps.home ?? rigourHome();
     const now = deps.now ?? Date.now();
     const counters = readCounters(home, now);
-    if (now - counters.since < DAY_MS || Object.keys(counters.counts).length === 0) return false;
+    // The day starts the first time anything could be sent, so a day with no counts still ends.
+    if (deps.daily && !fs.existsSync(file(home, 'telemetry-counters.json'))) writeJson(file(home, 'telemetry-counters.json'), counters);
+    if (now - counters.since < DAY_MS || (Object.keys(counters.counts).length === 0 && !deps.daily)) return false;
     writeJson(file(home, 'telemetry-counters.json'), { since: now, counts: {} });
-    await trackUsage('daily_usage', { ...counters.counts }, deps);
+    let daily: Record<string, unknown> = {};
+    try {
+        daily = deps.daily?.() ?? {};
+    } catch {
+        // What the learning loop did is extra: the day's counts go out without it.
+    }
+    await trackUsage('daily_usage', { ...counters.counts, ...daily }, deps);
     return true;
 }
 
