@@ -107,7 +107,7 @@ export function decideCompiledCheck(cwd: string, id: string, state: 'active' | '
  * The approved checks that run: an approved check whose lesson no longer qualifies (a person rejected it, evidence
  * took it back, it is gone) is suspended, and its lesson goes back to the model reviewer.
  */
-export function runningChecks(cwd: string): CompiledCheck[] {
+function runningChecks(cwd: string): CompiledCheck[] {
     const lessons = new Map(readLessons(cwd).map(l => [l.id, l]));
     return readCompiledChecks(cwd).filter(c => c.state === 'active' && compilable(lessons.get(c.lessonId)));
 }
