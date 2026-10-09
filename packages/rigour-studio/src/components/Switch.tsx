@@ -25,9 +25,11 @@ const TEXT: Record<'goal' | 'outcomes' | 'orchestrator', SwitchText> = {
     },
     orchestrator: {
         title: 'The review orchestrator',
-        lead: <>Experimental. Instead of one judge doing the whole review, five specialists each do their part: earlier human points,
-            correctness, production cost, what the change leaves behind, and rules, lessons and the goal. It takes about five times the
-            agent runs of one judge; the daily caps (<span className="st-mono">max_runs_per_day</span>, <span className="st-mono">max_usd_per_day</span>) are the brake. What blocks is unchanged.</>,
+        lead: <>Experimental. Triage, without a model, picks which parts of a review each change needs (earlier human points,
+            correctness, production cost, what the change leaves behind, rules, lessons and the goal), and the judge does only those,
+            in one pass: the same runs as one judge. A change one pass cannot hold is split, only while it costs no more per changed
+            line than one judge has here. A change with nothing for a model to review gets no run. The daily caps
+            (<span className="st-mono">max_runs_per_day</span>, <span className="st-mono">max_usd_per_day</span>) count every pass. What blocks is unchanged.</>,
         row: 'Use the orchestrator',
         rowHelp: <>Required: no person, environment variable or flag may turn it off. <span className="st-mono">--orchestrator</span> and <span className="st-mono">--no-orchestrator</span> choose for one run.</>,
         name: 'review orchestrator',

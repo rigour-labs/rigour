@@ -435,8 +435,8 @@ export const ConfigSchema = z.object({
              */
             dismissals: z.boolean().optional().default(false),
             /**
-             * Review with specialist judges, each on its part of the review (reviewer/orchestrator.ts): off, on, or required
-             * (no person, environment variable or flag may turn it off). Experimental; about five times the agent runs.
+             * Review only the parts a change needs, picked without a model, usually in one pass (reviewer/orchestrator.ts,
+             * triage.ts): off, on, or required (no person, environment variable or flag may turn it off). Experimental.
              */
             orchestrator: z.enum(['off', 'on', 'required']).optional().default('off'),
             /** Findings cross-examined per review at most; the rest are shown as disputed. */

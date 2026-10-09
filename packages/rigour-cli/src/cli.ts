@@ -288,7 +288,7 @@ program
     .option('--single', 'With --reviewer: one judge for this run, whatever your settings say (a team floor still applies)')
     .option('--panel', 'With --reviewer: a panel of judges for this run; only what a majority confirms blocks')
     .option('--no-panel', 'With --reviewer: no panel for this run (a team that requires one refuses this)')
-    .option('--orchestrator', 'With --reviewer: specialist judges, each on its part of the review, for this run (experimental; about 5x the agent runs, bounded by the daily caps)')
+    .option('--orchestrator', 'With --reviewer: only the parts of the review this change needs, picked without a model, usually in one pass (experimental)')
     .option('--no-orchestrator', 'With --reviewer: one judge for the whole review, for this run (a team that requires the orchestrator refuses this)')
     .option('--status', 'What the background reviewer has done for this branch: running, last verdict, open items')
     .option('--all', 'Show every finding, not the first five')
