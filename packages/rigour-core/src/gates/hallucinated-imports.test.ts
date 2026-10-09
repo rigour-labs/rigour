@@ -162,9 +162,11 @@ func main() {}
             return goFileContent;
         });
         mockPathExists.mockResolvedValue(false);
-        mockPathExistsSync.mockImplementation((p: string) => p === `${testCwd}/go.mod`); // one go.mod, at the root
+        // Compared as native paths, as the gate asks for them (Windows: a drive and backslashes).
+        const at = (...parts: string[]) => path.resolve(testCwd, ...parts);
+        mockPathExistsSync.mockImplementation((p: string) => path.resolve(p) === at('go.mod')); // one go.mod, at the root
         mockReadFileSync.mockReturnValue(goMod);
-        mockReaddirSync.mockImplementation((dir: string) => (dir === `${testCwd}/pkg/realmodule` ? ['handler.go'] : []));
+        mockReaddirSync.mockImplementation((dir: string) => (path.resolve(dir) === at('pkg', 'realmodule') ? ['handler.go'] : []));
 
         const failures = await gate.run(context);
         expect(failures).toHaveLength(1);

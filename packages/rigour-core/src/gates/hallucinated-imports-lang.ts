@@ -116,7 +116,7 @@ export function checkGoImports(
             const relPath = importPath.slice(modulePath.length + 1);
             const packageDir = moduleDir ? `${moduleDir}/${relPath}` : relPath;
             // On disk, not in the scanned file list: that list leaves out folders like `build/` that a Go package may be.
-            const hasMatchingFile = goPackageExists(path.join(rootDir, packageDir));
+            const hasMatchingFile = goPackageExists(path.join(rootDir, ...packageDir.split('/')));
             if (!hasMatchingFile) {
                 hallucinated.push({
                     file, line: i + 1, importPath, type: 'go',
