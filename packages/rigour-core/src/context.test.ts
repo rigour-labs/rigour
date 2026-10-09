@@ -175,6 +175,20 @@ describe('Context Awareness Engine', () => {
     });
 });
 
+describe('class names in the context gate', () => {
+    const cwd = path.join(os.tmpdir(), 'rigour-temp-test-context-class-' + process.pid);
+    beforeAll(async () => { await fs.ensureDir(cwd); });
+    afterAll(async () => { await fs.remove(cwd); });
+
+    it('reads no class name out of a word ending in "class" followed by a line break (a dataclass import then a from-import)', async () => {
+        await fs.writeFile(path.join(cwd, 'models.py'), 'from dataclasses import dataclass\nfrom typing import List\n\n@dataclass\nclass OrderLine:\n    sku: str\n');
+        await fs.writeFile(path.join(cwd, 'shop.py'), 'from dataclasses import dataclass\nfrom typing import Optional\n\nclass ShopConfig:\n    name: str\n\nclass CartItem:\n    qty: int\n');
+        const config = { version: 1, commands: {}, gates: { context: { enabled: true, sensitivity: 0.8, mining_depth: 10, ignored_patterns: [], cross_file_patterns: true, naming_consistency: true, import_relationships: true, max_cross_file_depth: 50 } }, output: { report_path: 'rigour-report.json' } };
+        const report = await new GateRunner(config as any).run(cwd);
+        expect(report.failures.filter(f => f.id === 'context-drift' && /class/i.test(`${f.title} ${f.details}`))).toEqual([]);
+    });
+});
+
 /**
  * Direct unit tests for detectCasing logic
  */

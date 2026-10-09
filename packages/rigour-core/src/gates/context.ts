@@ -131,8 +131,8 @@ export class ContextGate extends Gate {
             this.addPattern(patterns, 'function', { casing, file, count: 1 });
         }
 
-        // Class declarations
-        const classMatches = content.matchAll(/class\s+([A-Za-z_$][A-Za-z0-9_$]*)/g);
+        // Class declarations: the word `class` on its own (not the end of `dataclass`), its name on the same line
+        const classMatches = content.matchAll(/\bclass[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)/g);
         for (const match of classMatches) {
             const casing = this.detectCasing(match[1]);
             this.addPattern(patterns, 'class', { casing, file, count: 1 });
