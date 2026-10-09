@@ -4,7 +4,10 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GateRunner } from './runner.js';
 import { DeepAnalysisGate, type DeepRunOutcome } from './deep-analysis.js';
-import type { Failure } from '../types/index.js';
+import { ConfigSchema, type Failure } from '../types/index.js';
+import { execFileSync } from 'child_process';
+import { renderFullReport } from '../services/terminal-renderer.js';
+import { NO_GIT_BASE } from './logic-drift-git-base.js';
 
 function mockDeep(outcome: Partial<DeepRunOutcome>, failures: Failure[] = []) {
     vi.spyOn(DeepAnalysisGate.prototype, 'run').mockResolvedValue(failures);
@@ -95,4 +98,31 @@ describe('GateRunner deep stats execution mode', () => {
         expect(report.summary['deep-analysis']).toBe('PASS');
         expect(report.stats.deep).toMatchObject({ status: 'partial', chunks_total: 4, chunks_failed: 1 });
     });
+});
+
+describe('a check that cannot compare', () => {
+    it('reports SKIP with its reason, in the summary, the JSON and the rendered report, never PASS', async () => {
+        const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'rigour-runner-skip-'));
+        const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+        try {
+            git('init', '-q', '-b', 'dev'); // no main or master: nothing to compare with
+            git('config', 'user.email', 't@example.com');
+            git('config', 'user.name', 't');
+            git('config', 'commit.gpgsign', 'false');
+            await fs.writeFile(path.join(repo, 'a.py'), 'def load_rows():\n    return []\n');
+            git('add', '-A');
+            git('commit', '-qm', 'x');
+            const report = await new GateRunner(ConfigSchema.parse({ version: 1 })).run(repo);
+            expect([report.summary['style-drift'], report.summary['logic-drift']]).toEqual(['SKIP', 'SKIP']);
+            expect(report.skips).toEqual({ 'style-drift': NO_GIT_BASE, 'logic-drift': NO_GIT_BASE });
+            expect(JSON.parse(JSON.stringify(report)).skips['logic-drift']).toContain('nothing to compare with');
+            expect(renderFullReport(report)).toContain(`logic-drift skipped: ${NO_GIT_BASE}`);
+
+            git('branch', 'main'); // with a main branch they compare, and pass
+            const compared = await new GateRunner(ConfigSchema.parse({ version: 1 })).run(repo);
+            expect([compared.summary['style-drift'], compared.summary['logic-drift'], compared.skips]).toEqual(['PASS', 'PASS', undefined]);
+        } finally {
+            await fs.remove(repo);
+        }
+    }, 60_000);
 });

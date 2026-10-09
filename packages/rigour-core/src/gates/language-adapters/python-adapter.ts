@@ -126,7 +126,8 @@ class PythonAdapter implements LanguageAdapter {
             if (match && !line.includes('def') && !line.includes('class')) {
                 const name = match[1];
                 // Distinguish constants from regular variables
-                const kind = /^[A-Z][A-Z0-9_]*$/.test(name) ? 'constant' : 'variable';
+                // A private constant (`_RETRY_DELAYS`) is a constant too: the same reading classifyCasing gives it.
+                const kind = classifyCasing(name) === 'SCREAMING_SNAKE' ? 'constant' : 'variable';
                 patterns.push({
                     name, kind,
                     convention: classifyCasing(name),

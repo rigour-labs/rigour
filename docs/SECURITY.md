@@ -11,7 +11,7 @@ This page is for the person who approves Rigour. It lists every network connecti
 
 ## Every outbound connection
 
-Rigour's home is `~/.rigour`, or `$RIGOUR_HOME/.rigour` when `RIGOUR_HOME` is set (a profile sets it; see [Several organizations on one machine](./PROFILES.md)). Paths below use `~/.rigour` for short.
+Rigour's home is `~/.rigour`, or `$RIGOUR_HOME/.rigour` when `RIGOUR_HOME` is set (`$RIGOUR_HOME` itself when it ends in `.rigour`) (a profile sets it; see [Several organizations on one machine](./PROFILES.md)). Paths below use `~/.rigour` for short.
 
 ### Model review
 
