@@ -84,7 +84,22 @@ export interface OutcomeNumbers {
     records: { merged: number; settled: number; unsettled: number };
     settled: { ciRegressed: Share; ciUnknown: number; reverted: Share; fixedLater: Share; reviewed: { prs: number; fixedLater: Share }; notReviewed: { prs: number; fixedLater: Share } };
     lessons: { awaitingDecision: number; promotedFromEvidence: number; dismissed: number; takenBack: number };
+    /** The model reviewer's share of findings and its dollars per pull request (core outcomes/metrics.ts); absent from older numbers. */
+    model?: {
+        share: { model: number; checks: number; prs: number; rate: number | null };
+        costPerPr: { prs: number; totalUsd: number; medianUsd: number | null; prsEarlierBasis: number };
+    };
 }
+
+/** What the model reviewer added beside the free checks, and what it cost: counts, a percentage and a median only from ten. */
+const ModelNumbers: React.FC<{ model: NonNullable<OutcomeNumbers['model']> }> = ({ model: { share, costPerPr } }) => (
+    <div className="st-sub" style={{ marginTop: 10, lineHeight: 1.6 }}>
+        The model reviewer: {share.model} of {share.model + share.checks} findings at first review on {share.prs} pull request{share.prs === 1 ? '' : 's'}
+        {share.rate === null ? '' : ` (${Math.round(share.rate * 100)}%)`}, the rest from the free checks.
+        {' '}It cost ${costPerPr.totalUsd.toFixed(2)} over {costPerPr.prs} pull request{costPerPr.prs === 1 ? '' : 's'}{costPerPr.medianUsd === null ? '' : `, $${costPerPr.medianUsd.toFixed(2)} each at the median`}.
+        {costPerPr.prsEarlierBasis ? ` ${costPerPr.prsEarlierBasis} more reviewed before every run was counted, left out.` : ''}
+    </div>
+);
 
 /** A count, with a percentage only where there are enough records for one. */
 const shareText = (s: Share) => `${s.count} of ${s.of}${s.rate === null ? '' : ` (${Math.round(s.rate * 100)}%)`}`;
@@ -104,5 +119,6 @@ export const OutcomeCard: React.FC<{ numbers: OutcomeNumbers }> = ({ numbers: m 
             Lessons: {m.lessons.awaitingDecision} waiting on you, {m.lessons.promotedFromEvidence} promoted from evidence, {m.lessons.dismissed} dismissed, {m.lessons.takenBack} taken back.
             {' '}Teams choose which pull requests get reviewed, so the two groups differ: this is not a comparison.
         </div>
+        {m.model && <ModelNumbers model={m.model} />}
     </section>
 );
