@@ -56,7 +56,7 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *             until a person promotes it.
  * A record from before evidence kinds has none: it is a `point`.
  */
-export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified';
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled';
 
 export interface LessonEvidence {
     kind?: EvidenceKind;

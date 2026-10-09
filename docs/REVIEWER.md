@@ -437,9 +437,13 @@ others (a false fire, or a catch the review missed). These are counts, with a pe
 ten. A proposed check runs only once a person approves it (`--approve-check <id>`, or **Approve** in
 Studio), and `--withdraw-check <id>` (**Take back**) takes it back.
 
-Once a check is approved, its lesson leaves the model reviewer's prompt: the check reports it on every
-review for free, and the judge is told what the checks found, as settled. Taking the check back
-returns the lesson to the prompt. Agents' briefings keep the lesson either way. Checks live in `.rigour/compiled-checks.json`: commit it, so the team reviews
+Where an approved check ran on a change (the change touched its files), its lesson leaves the judge's
+and the deep PR review's prompt, and the prompt says instead that the lesson is covered by that check,
+with the check's findings on the change listed as already found. Where it did not run (`rigour check
+--deep`, a change elsewhere), the lesson stays. Every decision is kept, on the check and as evidence
+on its lesson. An approved check whose lesson a person later rejects, or evidence takes back, is
+suspended: it stops running, Studio shows why, and the lesson goes back to the model reviewer.
+Agents' briefings keep the lesson either way. Checks live in `.rigour/compiled-checks.json`: commit it, so the team reviews
 them like code. Who approved or took back each check, by git email, is committed with it; without a
 git email set in the checkout, the decision is refused. Each finding names its lesson. A compiled check is a note unless
 `gates.compiled_lessons.block` is on.

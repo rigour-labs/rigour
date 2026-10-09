@@ -10,14 +10,17 @@
  *
  * A compiled check is stored in .rigour/compiled-checks.json (committed and reviewed with the code) and runs only once a
  * person approved it (`active`). It keeps its lesson's id, never blocks unless the team turns `block` on, and a person
- * can take it back (`withdrawn`), which hands the lesson back to the model reviewer.
+ * can take it back (`withdrawn`), which hands the lesson back to the model reviewer. Every decision is kept, on the
+ * check and as evidence on its lesson. An approved check whose lesson no longer qualifies (rejected, taken back) is
+ * suspended: it does not run, and the lesson goes back to the model reviewer.
  */
 import fs from 'fs';
 import path from 'path';
 import micromatch from 'micromatch';
 import type { Config, Failure } from '../types/index.js';
 import { execFileSync } from 'child_process';
-import { lessonState, readLessons, type ReviewLesson } from './lessons.js';
+import { lessonState, readLessons, writeLessons, type ReviewLesson } from './lessons.js';
+import type { CoveredLesson } from '../review/settled-checks.js';
 import { branchBase } from '../gates/logic-drift-git-base.js';
 import { threadReviews } from '../outcomes/run.js';
 import { parseDiff } from '../utils/diff.js';
@@ -39,31 +42,41 @@ export interface CompiledCheck {
     message: string;
     /** Proposed by `compileLesson`; runs only once `active` (a person approved it); `withdrawn` when taken back. */
     state: 'proposed' | 'active' | 'withdrawn';
+    /** Who made the latest decision, and when (the full trail is `history`). */
     by?: string;
     at: string;
+    /** Every decision on it, oldest first: nothing a later decision overwrites is lost. */
+    history?: Array<{ state: 'active' | 'withdrawn'; by: string; at: string }>;
     /**
      * The check run over the main branch's history, for the person who approves it: on merged pull requests a review
      * found the lesson repeating in (it should fire), and on every other merged change to its files (each fire is a
      * false one, or a catch the review missed). Counts, never a rate below RATE_MIN.
      */
-    backtest?: { repeating: { fired: number; n: number }; other: { fired: number; n: number }; commits: number; at: string };
+    backtest?: { repeating: BacktestShare; other: BacktestShare; commits: number; at: string };
 }
 
 /** Fewer than this: a count, never a rate. */
-export const RATE_MIN = 10;
+const RATE_MIN = 10;
+
+/** Fires out of n, with the rate computed here, the one place RATE_MIN applies: null below it. */
+export interface BacktestShare { fired: number; n: number; rate: number | null }
 /** Merged changes to a check's files read back, newest first. */
 const BACKTEST_COMMITS = 100;
 /** Each backtest stops here and keeps what it counted. */
 const BACKTEST_DEADLINE_MS = 20_000;
+/** All of one proposal round's backtests stop here; a check not reached is proposed without its counts. */
+const PROPOSE_DEADLINE_MS = 30_000;
 
 const FORBID = [
     /\b(?:use|prefer)\s+`([^`]+)`\s+(?:instead of|over|rather than)\s+`([^`]+)`/i, // the second is forbidden
-    /\b(?:never|avoid|don't|do not|must not|should not|no longer)\b[^.`]*`([^`]+)`/i,
+    // "never forget to call `x`" asks for `x`: a negation followed by one of these is not a ban.
+    /\b(?:never|avoid|don't|do not|must not|should not|no longer)\b(?!\s+(?:forget|remove|skip|miss|omit|drop|leave out|lose|stop)\b)[^.`]*`([^`]+)`/i,
 ];
 const REQUIRE = /\b(?:always|must|every|needs? to|has to)\b/i;
 
 /** Whether a lesson may be compiled: verified by a person, a correction or recurrence, never by an outcome alone. */
-function compilable(lesson: ReviewLesson): boolean {
+function compilable(lesson: ReviewLesson | undefined): boolean {
+    if (!lesson) return false;
     const { state, promotedBy } = lessonState(lesson);
     return state === 'verified' && (promotedBy === 'person' || promotedBy === 'correction' || promotedBy === 'recurrence') && !!lesson.file && lesson.symbols.length > 0;
 }
@@ -84,16 +97,16 @@ function compileLesson(lesson: ReviewLesson, at = new Date().toISOString()): Com
 }
 
 /**
- * Proposes a check for every compilable lesson that has none yet, and backtests every check still proposed against the
- * main branch's history; returns the new proposals. A decided check is never re-proposed.
+ * Proposes a check for every compilable lesson that has none yet, each backtested against the main branch's history
+ * (new proposals only); returns them. A decided check is never re-proposed.
  */
 export function proposeCompiledChecks(cwd: string): CompiledCheck[] {
     const checks = readCompiledChecks(cwd);
     const known = new Set(checks.map(c => c.lessonId));
     const proposed = readLessons(cwd).filter(l => !known.has(l.id)).map(l => compileLesson(l)).filter((c): c is CompiledCheck => !!c);
-    const all = [...checks, ...proposed];
-    withBacktests(cwd, all);
-    if (all.length) writeCompiledChecks(cwd, all);
+    if (proposed.length === 0) return [];
+    withBacktests(cwd, proposed); // only the new ones: a decided or earlier proposal keeps the counts it was shown with
+    writeCompiledChecks(cwd, [...checks, ...proposed]);
     return proposed;
 }
 
@@ -103,19 +116,36 @@ export function decideCompiledCheck(cwd: string, id: string, state: 'active' | '
     const checks = readCompiledChecks(cwd);
     const check = checks.find(c => c.id === id);
     if (!check) return undefined;
-    Object.assign(check, { state, by, at: new Date().toISOString() });
+    const lessons = readLessons(cwd);
+    const lesson = lessons.find(l => l.id === check.lessonId);
+    if (state === 'active' && !(lesson && compilable(lesson))) throw new Error(`lesson ${check.lessonId} no longer qualifies (rejected, taken back, or gone): its check cannot run`);
+    const at = new Date().toISOString();
+    check.history = [...(check.history ?? []), { state, by, at }];
+    Object.assign(check, { state, by, at });
     writeCompiledChecks(cwd, checks);
+    // The lesson keeps the decision too: what its check did is part of its trail.
+    if (lesson) {
+        lesson.evidence.push({ kind: 'compiled', pr: lesson.evidence[0]?.pr ?? 0, comment: `compiled-${check.id}-${at}`, author: by, detail: `${state === 'active' ? 'approved' : 'took back'} compiled check ${check.id}`, at });
+        writeLessons(cwd, lessons);
+    }
     return check;
 }
 
 /**
- * The lessons left for a model reviewer: those with an approved compiled check are left out, since the check reports
- * them on every review for free (and a model is told what the checks found, as settled). Taking the check back
- * returns the lesson to the prompt.
+ * The approved checks that run: an approved check whose lesson no longer qualifies (a person rejected it, evidence
+ * took it back, it is gone) is suspended, and its lesson goes back to the model reviewer.
  */
-export function withoutCompiled<L extends { id: string }>(cwd: string, lessons: L[]): L[] {
-    const compiled = new Set(readCompiledChecks(cwd).filter(c => c.state === 'active').map(c => c.lessonId));
-    return compiled.size ? lessons.filter(l => !compiled.has(l.id)) : lessons;
+function runningChecks(cwd: string): CompiledCheck[] {
+    const lessons = new Map(readLessons(cwd).map(l => [l.id, l]));
+    return readCompiledChecks(cwd).filter(c => c.state === 'active' && compilable(lessons.get(c.lessonId)));
+}
+
+/** Whether an approved check is suspended, and why: its lesson no longer qualifies. */
+export function suspension(check: CompiledCheck, lessons: Map<string, ReviewLesson>): string | undefined {
+    if (check.state !== 'active') return undefined;
+    const lesson = lessons.get(check.lessonId);
+    if (!lesson) return `lesson ${check.lessonId} is gone`;
+    return compilable(lesson) ? undefined : `lesson ${check.lessonId} no longer qualifies (${lessonState(lesson).state}): suspended, the lesson is back with the model reviewer`;
 }
 
 export function readCompiledChecks(cwd: string): CompiledCheck[] {
@@ -139,16 +169,22 @@ function covers(check: CompiledCheck, file: string): boolean {
     return /[*?[\]{}]/.test(check.files) ? micromatch.isMatch(file, check.files, { dot: true }) : check.files === file;
 }
 
-/** The active compiled checks' findings on the change's lines: notes unless the team blocks on them. */
-export function compiledLessonFailures(cwd: string, changedLines: Record<string, Set<number>>, config: Config): Failure[] {
+/**
+ * The running compiled checks on a change: their findings on its changed lines (notes unless the team blocks), and the
+ * lessons they covered (each check whose files the change touched, whether or not it found anything). A model reviewer
+ * may leave a covered lesson out of its prompt; nothing else.
+ */
+export function compiledChecksOn(cwd: string, changedLines: Record<string, Set<number>>, config: Config): { failures: Failure[]; covered: CoveredLesson[] } {
     const settings = config.gates.compiled_lessons;
-    if (!settings?.enabled) return [];
-    const checks = readCompiledChecks(cwd).filter(c => c.state === 'active');
-    if (checks.length === 0) return [];
+    if (!settings?.enabled) return { failures: [], covered: [] };
+    const checks = runningChecks(cwd);
+    if (checks.length === 0) return { failures: [], covered: [] };
     const failures: Failure[] = [];
+    const ran = new Set<CompiledCheck>();
     for (const [file, lines] of Object.entries(changedLines)) {
         const applying = checks.filter(c => covers(c, file));
         if (applying.length === 0) continue;
+        applying.forEach(c => ran.add(c));
         let text: string[];
         try {
             text = fs.readFileSync(path.join(cwd, file), 'utf8').split('\n');
@@ -171,7 +207,7 @@ export function compiledLessonFailures(cwd: string, changedLines: Record<string,
             }
         }
     }
-    return failures;
+    return { failures, covered: [...ran].map(c => ({ checkId: c.id, lessonId: c.lessonId, message: c.message })) };
 }
 
 /** The changed lines a check fires on, in a file's text. */
@@ -191,13 +227,13 @@ function firesOn(check: CompiledCheck, text: string[], lines: Iterable<number>):
 function backtestCheck(cwd: string, check: CompiledCheck, mainRef: string, applied: Map<number, Set<string>>): NonNullable<CompiledCheck['backtest']> {
     const git = (args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 10_000 });
     const spec = /[*?[\]{}]/.test(check.files) ? `:(glob)${check.files}` : check.files;
-    const result = { repeating: { fired: 0, n: 0 }, other: { fired: 0, n: 0 }, commits: 0, at: new Date().toISOString() };
+    const result = { repeating: { fired: 0, n: 0, rate: null as number | null }, other: { fired: 0, n: 0, rate: null as number | null }, commits: 0, at: new Date().toISOString() };
     const deadline = Date.now() + BACKTEST_DEADLINE_MS;
     let log = '';
     try {
         log = git(['log', '--first-parent', '-n', String(BACKTEST_COMMITS), '--format=%H %s', mainRef, '--', spec]);
     } catch {
-        return result;
+        return withRates(result);
     }
     for (const entry of log.split('\n').filter(Boolean)) {
         if (Date.now() > deadline) break;
@@ -216,13 +252,22 @@ function backtestCheck(cwd: string, check: CompiledCheck, mainRef: string, appli
         if (fired) bucket.fired++;
         result.commits++;
     }
+    return withRates(result);
+}
+
+function withRates(result: NonNullable<CompiledCheck['backtest']>): NonNullable<CompiledCheck['backtest']> {
+    for (const share of [result.repeating, result.other]) share.rate = share.n >= RATE_MIN ? Math.round((share.fired / share.n) * 100) / 100 : null;
     return result;
 }
 
-/** Re-runs the backtest of every check still proposed: what the person approving it reads. */
+/** Backtests new proposals, all within PROPOSE_DEADLINE_MS: what the person approving each one reads. */
 function withBacktests(cwd: string, checks: CompiledCheck[]): void {
     const mainRef = branchBase(cwd)?.mainRef;
     if (!mainRef) return;
     const { applied } = threadReviews(cwd);
-    for (const check of checks) if (check.state === 'proposed') check.backtest = backtestCheck(cwd, check, mainRef, applied);
+    const deadline = Date.now() + PROPOSE_DEADLINE_MS;
+    for (const check of checks) {
+        if (Date.now() > deadline) break;
+        check.backtest = backtestCheck(cwd, check, mainRef, applied);
+    }
 }

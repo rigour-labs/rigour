@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, type CompiledCheck, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { personOf } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
@@ -41,8 +41,8 @@ export interface StudioLearning {
     prRecorded: boolean;
     /** What happened after merges this checkout read (core outcomes/metrics.ts); absent before `rigour outcomes` has run. */
     outcomes?: OutcomeMetrics;
-    /** Lessons compiled into checks (core review-learning/compiled-lessons.ts), for a person to approve or take back. */
-    compiled?: CompiledCheck[];
+    /** Lessons compiled into checks (core review-learning/compiled-lessons.ts), for a person to approve or take back; `suspended` says why one approved no longer runs. */
+    compiled?: Array<CompiledCheck & { suspended?: string }>;
 }
 
 interface Catch { at: string; prefix: string }
@@ -159,7 +159,8 @@ export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS)
     const roots = checkoutRoots(cwd);
     const learning = buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
     const outcomes = localOutcomeMetrics(cwd);
-    const withChecks = { ...learning, compiled: readCompiledChecks(cwd) };
+    const lessons = new Map(readLessons(cwd).map(l => [l.id, l]));
+    const withChecks = { ...learning, compiled: readCompiledChecks(cwd).map(c => ({ ...c, ...(suspension(c, lessons) ? { suspended: suspension(c, lessons) } : {}) })) };
     return outcomes ? { ...withChecks, outcomes } : withChecks;
 }
 

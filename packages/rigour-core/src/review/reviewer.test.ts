@@ -920,7 +920,26 @@ describe('what the team already knows', () => {
         expect(seen.files['team-knowledge.md']).toContain('docs/jobs.md (names src/job.ts');
         const told = seenNow();
         await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify(EMPTY), told), () => undefined, { force: true, checks: ['src/job.ts:1 Unused export `job`'] });
-        expect(told.files['team-knowledge.md']).toContain("## Already found by Rigour's checks: they block on their own, so do not report them again\n- src/job.ts:1 Unused export `job`");
+        expect(told.files['team-knowledge.md']).toContain("## Already found by Rigour's checks on this change: do not report them again\n- src/job.ts:1 Unused export `job`");
+    });
+
+    it('leaves a lesson out only where its compiled check ran on the change, and then says it is covered', async () => {
+        fs.mkdirSync(path.join(repo, '.rigour'), { recursive: true });
+        fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{
+            id: 'aa11bb22cc33', text: 'job must take the lock before its first read', file: 'src/job.ts', symbols: ['job'], state: 'verified', createdAt: '', updatedAt: '',
+            evidence: [{ kind: 'point', pr: 1, comment: 'p', author: 'r' }, { kind: 'accepted', pr: 1, comment: 'a', author: 'lead@team' }],
+        }] }));
+        const covered = [{ checkId: 'c-aa11bb22cc33', lessonId: 'aa11bb22cc33', message: 'job must take the lock before its first read' }];
+        const ran = seenNow();
+        await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify(EMPTY), ran), () => undefined, { force: true, covered, checks: ['src/job.ts:1 `job`: the team\'s lesson says not to'] });
+        expect(ran.files['team-knowledge.md']).toContain('- covered by compiled check c-aa11bb22cc33 for lesson aa11bb22cc33: job must take the lock before its first read');
+        expect(ran.files['team-knowledge.md']).toContain("- src/job.ts:1 `job`: the team's lesson says not to");
+        expect(ran.files['team-knowledge.md']).not.toMatch(/Lessons this team taught[^#]*take the lock/);
+        // The check did not run on this path: the lesson stays with the judge.
+        const notRan = seenNow();
+        await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify(EMPTY), notRan), () => undefined, { force: true });
+        expect(notRan.files['team-knowledge.md']).toMatch(/Lessons this team taught[^#]*take the lock/);
+        expect(notRan.files['team-knowledge.md']).not.toContain('covered by compiled check');
     });
 
     it('fails closed: a finding whose judge left out the consequence still blocks', async () => {

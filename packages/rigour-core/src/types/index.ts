@@ -616,6 +616,8 @@ export interface DeepOptions {
     independent?: boolean;
     /** The change's unified diff (from reviewChange): a cloud agentic review reads the PR as a whole. */
     diff?: string;
-    /** What Rigour's checks already found on the change's lines (the runner fills it): settled, never reported again. */
-    settled?: Array<{ file: string; line?: number; title: string }>;
+    /** What Rigour's checks already found on the change's lines (the review and the runner fill it): settled, never reported again. */
+    settled?: Array<{ file: string; line?: number; title: string; kind?: string }>;
+    /** The lessons the team's compiled checks covered on this change: the deep review is told so instead of the lesson. */
+    covered?: Array<{ checkId: string; lessonId: string; message: string }>;
 }

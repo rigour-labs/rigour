@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
-import { compiledLessonFailures, decideCompiledCheck, proposeCompiledChecks, readCompiledChecks, withoutCompiled } from './compiled-lessons.js';
+import { compiledChecksOn, decideCompiledCheck, proposeCompiledChecks, readCompiledChecks, suspension } from './compiled-lessons.js';
 import type { ReviewLesson } from './lessons.js';
 import { execFileSync } from 'child_process';
 import { appendTaskEvent } from '../task/thread.js';
@@ -21,6 +21,7 @@ const lessons = (list: ReviewLesson[]) => {
     fs.mkdirSync(path.join(cwd, '.rigour'), { recursive: true });
     fs.writeFileSync(path.join(cwd, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: list }));
 };
+const compiledLessonFailures = (cwd: string, changed: Record<string, Set<number>>, config: ReturnType<typeof ConfigSchema.parse>) => compiledChecksOn(cwd, changed, config).failures;
 const config = (block = false) => ConfigSchema.parse({ version: 1, gates: { compiled_lessons: { block } } });
 
 describe('compiled lessons', () => {
@@ -87,17 +88,45 @@ describe('compiled lessons', () => {
         appendTaskEvent(cwd, { kind: 'review', pr: 1, outcome: 'findings', lessons_applied: ['L1'] });
         lessons([lesson('L1', 'Never call `fetchAll` in a request handler.', ['fetchAll'], ['accepted'])]);
         const [proposed] = proposeCompiledChecks(cwd);
-        expect(readCompiledChecks(cwd).find(c => c.id === proposed.id)?.backtest).toMatchObject({ repeating: { fired: 1, n: 1 }, other: { fired: 1, n: 2 }, commits: 3 });
+        expect(readCompiledChecks(cwd).find(c => c.id === proposed.id)?.backtest).toMatchObject({ repeating: { fired: 1, n: 1, rate: null }, other: { fired: 1, n: 2, rate: null }, commits: 3 }); // a rate only from ten
     });
 
-    it('leaves an approved check\'s lesson out of a model\'s prompt, and puts it back when the check is taken back', () => {
-        const list = [lesson('L1', 'Never call `fetchAll` here.', ['fetchAll'], ['accepted']), lesson('L2', 'Think about `x`.', ['x'], ['accepted'])];
-        lessons(list);
-        proposeCompiledChecks(cwd);
-        expect(withoutCompiled(cwd, list).map(l => l.id)).toEqual(['L1', 'L2']); // proposed: still the model's
-        decideCompiledCheck(cwd, 'c-L1', 'active', 'ana@example.com');
-        expect(withoutCompiled(cwd, list).map(l => l.id)).toEqual(['L2']);
-        decideCompiledCheck(cwd, 'c-L1', 'withdrawn', 'ana@example.com');
-        expect(withoutCompiled(cwd, list).map(l => l.id)).toEqual(['L1', 'L2']);
+    it('compiles no lesson a reclassification sent back to candidate, no legacy one, and never inverts "never forget"', () => {
+        lessons([
+            lesson('R1', 'Never call `fetchAll` here.', ['fetchAll'], ['lines', 'reclassified']),
+            { ...lesson('G1', 'Never call `fetchAll` here.', ['fetchAll'], []), state: 'verified', evidence: [{ pr: 1, comment: 'old', author: 'r' }] } as ReviewLesson, // legacy: no evidence kinds
+            lesson('F1', 'Never forget to call `flush` before returning.', ['flush'], ['accepted']),
+            lesson('F2', "Don't skip `validate` on input.", ['validate'], ['accepted']),
+        ]);
+        expect(proposeCompiledChecks(cwd)).toEqual([]);
     });
+
+    it('keeps every decision, on the check and on its lesson', () => {
+        lessons([lesson('L1', 'Never call `fetchAll` here.', ['fetchAll'], ['accepted'])]);
+        proposeCompiledChecks(cwd);
+        decideCompiledCheck(cwd, 'c-L1', 'active', 'ana@example.com');
+        decideCompiledCheck(cwd, 'c-L1', 'withdrawn', 'bo@example.com');
+        expect(readCompiledChecks(cwd)[0].history?.map(h => [h.state, h.by])).toEqual([['active', 'ana@example.com'], ['withdrawn', 'bo@example.com']]);
+        const trail = JSON.parse(fs.readFileSync(path.join(cwd, '.rigour', 'review-lessons.json'), 'utf8')).lessons[0].evidence.filter((e: { kind: string }) => e.kind === 'compiled');
+        expect(trail.map((e: { author: string; detail: string }) => [e.author, e.detail])).toEqual([['ana@example.com', 'approved compiled check c-L1'], ['bo@example.com', 'took back compiled check c-L1']]);
+    });
+
+    it('suspends an approved check whose lesson a person later rejected, and refuses to approve one', () => {
+        lessons([lesson('L1', 'Never call `fetchAll` here.', ['fetchAll'], ['accepted'])]);
+        proposeCompiledChecks(cwd);
+        decideCompiledCheck(cwd, 'c-L1', 'active', 'ana@example.com');
+        fs.mkdirSync(path.join(cwd, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(cwd, 'src/load.ts'), 'const rows = fetchAll(db);\n');
+        expect(compiledLessonFailures(cwd, { 'src/load.ts': new Set([1]) }, config())).toHaveLength(1);
+        const file = path.join(cwd, '.rigour', 'review-lessons.json');
+        const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        data.lessons[0].evidence.push({ kind: 'rejected', pr: 1, comment: 'r', author: 'bo@example.com' });
+        fs.writeFileSync(file, JSON.stringify(data));
+        expect(compiledLessonFailures(cwd, { 'src/load.ts': new Set([1]) }, config())).toEqual([]);
+        const check = readCompiledChecks(cwd)[0];
+        expect(suspension(check, new Map([[data.lessons[0].id, data.lessons[0]]]))).toContain('no longer qualifies (rejected)');
+        decideCompiledCheck(cwd, 'c-L1', 'withdrawn', 'bo@example.com');
+        expect(() => decideCompiledCheck(cwd, 'c-L1', 'active', 'ana@example.com')).toThrow('no longer qualifies');
+    });
+
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { againstSettled, onChangedLines, settledChecks } from './settled-checks.js';
+import { againstSettled, coveredSection, onChangedLines, settledChecks, withoutCovered } from './settled-checks.js';
+import { reviewerInputs } from './reviewer/context.js';
 
 describe('settled checks', () => {
     it('settles what the checks found on the change\'s lines, and everything without a change to scope to', () => {
@@ -21,5 +22,19 @@ describe('settled checks', () => {
         expect(againstSettled({ file: 'src/a.ts', line: 3, category: 'correctness' }, settled)).toEqual({ same: false, alsoAt: ['Security: XSS'] });
         expect(againstSettled({ file: 'src/a.ts', line: 5, category: 'security' }, settled)).toEqual({ same: false, alsoAt: ['A new check'] });
         expect(againstSettled({ file: 'src/a.ts', line: 7, category: 'security' }, settled)).toEqual({ same: false, alsoAt: [] });
+    });
+
+    it('leaves out only the lessons a compiled check covered, and says which', () => {
+        const covered = [{ checkId: 'c-L1', lessonId: 'L1', message: 'never fetchAll' }];
+        expect(withoutCovered([{ id: 'L1' }, { id: 'L2' }], covered).map(l => l.id)).toEqual(['L2']);
+        expect(withoutCovered([{ id: 'L1' }], [])).toEqual([{ id: 'L1' }]);
+        expect(coveredSection(covered)).toContain('- covered by compiled check c-L1 for lesson L1: never fetchAll');
+        expect(coveredSection([])).toBe('');
+    });
+
+    it('hands the judge a compiled check\'s notes as settled, with the lessons it covered', () => {
+        const inputs = reviewerInputs({ hints: [], findings: [], advisory: [{ id: 'compiled-lesson', files: ['src/a.ts'], line: 3, title: 'no fetchAll' }, { id: 'unused-export', files: ['src/b.ts'], line: 1, title: 'a note' }], covered: [{ checkId: 'c-L1', lessonId: 'L1', message: 'm' }] });
+        expect(inputs.checks).toEqual(['src/a.ts:3 no fetchAll']);
+        expect(inputs.covered).toEqual([{ checkId: 'c-L1', lessonId: 'L1', message: 'm' }]);
     });
 });

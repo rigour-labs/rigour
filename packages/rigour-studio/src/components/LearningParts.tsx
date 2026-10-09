@@ -117,12 +117,14 @@ export interface CompiledCheck {
     message: string;
     state: 'proposed' | 'active' | 'withdrawn';
     by?: string;
-    backtest?: { repeating: { fired: number; n: number }; other: { fired: number; n: number }; commits: number };
+    /** Why an approved check no longer runs: its lesson no longer qualifies. */
+    suspended?: string;
+    /** The rate is computed by core, by its one RATE_MIN: null means a count only. */
+    backtest?: { repeating: BacktestShare; other: BacktestShare; commits: number };
 }
 
-/** Fewer than this: a count, never a rate (core compiled-lessons.ts RATE_MIN). */
-const RATE_MIN = 10;
-const share = (s: { fired: number; n: number }) => `${s.fired} of ${s.n}${s.n >= RATE_MIN ? ` (${Math.round((s.fired / s.n) * 100)}%)` : ''}`;
+interface BacktestShare { fired: number; n: number; rate: number | null }
+const share = (s: BacktestShare) => `${s.fired} of ${s.n}${s.rate === null ? '' : ` (${Math.round(s.rate * 100)}%)`}`;
 
 /** Lessons compiled into checks that run without a model: what each reports, how it fired on history, and a person's decision. */
 export const CompiledChecks: React.FC<{ checks: CompiledCheck[]; onDecide: (id: string, state: 'active' | 'withdrawn') => void; onPropose: () => void }> = ({ checks, onDecide, onPropose }) => (
@@ -140,11 +142,12 @@ export const CompiledChecks: React.FC<{ checks: CompiledCheck[]; onDecide: (id: 
             : <div className="st-stack" style={{ marginTop: 12 }}>{checks.map(c => (
                 <div key={c.id} className="st-need">
                     <div className="st-row" style={{ justifyContent: 'space-between' }}>
-                        <span className={`st-chip ${c.state === 'active' ? 'ok' : c.state === 'proposed' ? 'warn' : ''}`}>{c.state}</span>
+                        <span className={`st-chip ${c.suspended ? 'bad' : c.state === 'active' ? 'ok' : c.state === 'proposed' ? 'warn' : ''}`}>{c.suspended ? 'suspended' : c.state}</span>
                         <span className="st-sub st-mono">{c.files}</span>
                     </div>
                     <div style={{ marginTop: 8 }}>{c.kind === 'forbid' ? <>Reports <code>{c.symbol}</code> on a changed line.</> : <>Reports <code>{c.symbol}</code> with no <code>{c.with}</code> within three lines.</>}</div>
                     <div className="st-sub" style={{ marginTop: 4 }}>{inlineCode(c.message)} · lesson {c.lessonId}{c.by ? ` · ${c.state === 'withdrawn' ? 'taken back' : 'approved'} by ${c.by}` : ''}</div>
+                    {c.suspended && <div className="st-sub" style={{ marginTop: 6 }}>{c.suspended}</div>}
                     {c.backtest && (
                         <div className="st-sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
                             On the last {c.backtest.commits} merged changes to its files: fires on {share(c.backtest.repeating)} where a review found the lesson repeating, and on {share(c.backtest.other)} others (each a false fire, or a catch the review missed).

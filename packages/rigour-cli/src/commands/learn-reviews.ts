@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, RATE_MIN, readCompiledChecks, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -78,8 +78,11 @@ function compile(cwd: string, json?: boolean): void {
     const checks = readCompiledChecks(cwd);
     if (json) return void console.log(JSON.stringify({ proposed: proposed.map(c => c.id), checks }, null, 2));
     const label = { proposed: chalk.yellow('proposed '), active: chalk.green('active   '), withdrawn: chalk.dim('withdrawn') };
+    const lessons = new Map(readLessons(cwd).map(l => [l.id, l]));
     for (const c of checks) {
-        console.log(`${label[c.state]} ${chalk.dim(c.id)} ${c.files}: ${c.kind === 'forbid' ? `no \`${c.symbol}\`` : `\`${c.symbol}\` needs \`${c.with}\``} (${c.message})`);
+        const suspended = suspension(c, lessons);
+        console.log(`${suspended ? chalk.red('suspended') : label[c.state]} ${chalk.dim(c.id)} ${c.files}: ${c.kind === 'forbid' ? `no \`${c.symbol}\`` : `\`${c.symbol}\` needs \`${c.with}\``} (${c.message})`);
+        if (suspended) console.log(chalk.dim(`          ${suspended}`));
         if (c.state === 'proposed' && c.backtest) console.log(chalk.dim(`          ${backtestLine(c.backtest)}`));
     }
     if (checks.length === 0) console.log('No verified lesson fits a check yet: a lesson compiles when it names its file and its symbols in backticks and says never, avoid, instead of, always or must.');
@@ -88,11 +91,20 @@ function compile(cwd: string, json?: boolean): void {
 
 /** What the history says about a proposed check: counts, and a rate only from RATE_MIN. */
 function backtestLine(b: NonNullable<CompiledCheck['backtest']>): string {
-    const share = (s: { fired: number; n: number }) => `${s.fired} of ${s.n}${s.n >= RATE_MIN ? ` (${Math.round((s.fired / s.n) * 100)}%)` : ''}`;
+    const share = (s: { fired: number; n: number; rate: number | null }) => `${s.fired} of ${s.n}${s.rate === null ? '' : ` (${Math.round(s.rate * 100)}%)`}`;
     return `fires on ${share(b.repeating)} merged pull request(s) a review found the lesson repeating in; on ${share(b.other)} other merged change(s) to its files`;
 }
 
 function decideCheck(cwd: string, id: string, state: 'active' | 'withdrawn'): void {
+    try {
+        decideCheckOrThrow(cwd, id, state);
+    } catch (error) {
+        console.error(chalk.red((error as Error).message));
+        process.exitCode = 1;
+    }
+}
+
+function decideCheckOrThrow(cwd: string, id: string, state: 'active' | 'withdrawn'): void {
     // Who decided is committed with the check: a decision with no one to name is refused, never recorded empty.
     const by = personOf(cwd);
     if (by === 'unknown') {

@@ -169,7 +169,8 @@ describe('a lesson taken back on the learning page', () => {
 describe('lessons compiled into checks, on the learning page', () => {
     it('shows what a check reports, its history as counts with a rate only from ten, who approved it, and the decision a person can make', () => {
         const out = html(<CompiledChecks checks={[
-            { id: 'c-L1', lessonId: 'L1', files: 'src/load.ts', kind: 'forbid', symbol: 'fetchAll', message: 'Never call `fetchAll` here.', state: 'proposed', backtest: { repeating: { fired: 3, n: 4 }, other: { fired: 1, n: 12 }, commits: 16 } },
+            { id: 'c-L1', lessonId: 'L1', files: 'src/load.ts', kind: 'forbid', symbol: 'fetchAll', message: 'Never call `fetchAll` here.', state: 'proposed', backtest: { repeating: { fired: 3, n: 4, rate: null }, other: { fired: 1, n: 12, rate: 0.08 }, commits: 16 } },
+            { id: 'c-L2', lessonId: 'L2', files: 'src/x.ts', kind: 'forbid', symbol: 'y', message: 'Never y.', state: 'active', by: 'bo@example.com', suspended: 'lesson L2 no longer qualifies (rejected): suspended, the lesson is back with the model reviewer' },
             { id: 'c-L3', lessonId: 'L3', files: 'src/page.ts', kind: 'require', symbol: 'preloadData', with: 'resolve', message: 'Always wrap it.', state: 'active', by: 'ana@example.com' },
         ]} onDecide={() => undefined} onPropose={() => undefined} />);
         expect(out).toContain('fires on 3 of 4 where a review found the lesson repeating, and on 1 of 12 (8%) others');
@@ -177,6 +178,8 @@ describe('lessons compiled into checks, on the learning page', () => {
         expect(out).toContain('>Approve<');
         expect(out).toContain('>Take back<');
         expect(out).toContain('committed with it');
+        expect(out).toContain('>suspended</span>');
+        expect(out).toContain('lesson L2 no longer qualifies (rejected)');
     });
 });
 
