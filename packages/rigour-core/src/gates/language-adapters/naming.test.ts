@@ -62,3 +62,13 @@ describe('a name\'s casing', () => {
         expect(patterns.map(p => [p.name, p.convention])).toEqual([['run', 'ambiguous'], ['loadRows', 'camelCase']]);
     });
 });
+
+describe('a Python module constant', () => {
+    it('is a constant, private or not, never a variable', () => {
+        const patterns = languageAdapters.getAdapter('a.py')!.extractNamingPatterns('MAX_ROWS = 100\n_RETRY_DELAYS = (1, 2)\nrow_count = 0\n_cache = {}\n');
+        expect(patterns.map(p => [p.name, p.kind, p.convention])).toEqual([
+            ['MAX_ROWS', 'constant', 'SCREAMING_SNAKE'], ['_RETRY_DELAYS', 'constant', 'SCREAMING_SNAKE'],
+            ['row_count', 'variable', 'snake_case'], ['_cache', 'variable', 'ambiguous'],
+        ]);
+    });
+});
