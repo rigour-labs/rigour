@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { compiledLessonFailures, decideCompiledCheck, proposeCompiledChecks, readCompiledChecks } from './compiled-lessons.js';
 import type { ReviewLesson } from './lessons.js';
+import { execFileSync } from 'child_process';
+import { appendTaskEvent } from '../task/thread.js';
 
 let cwd: string;
 beforeEach(() => { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'compiled-lessons-')); });
@@ -64,5 +66,27 @@ describe('compiled lessons', () => {
         fs.mkdirSync(path.join(cwd, 'src'), { recursive: true });
         fs.writeFileSync(path.join(cwd, 'src/load.ts'), 'const a = preloadData(x);\n\n\n\n\n\nconst b = resolve(y);\n');
         expect(compiledLessonFailures(cwd, { 'src/load.ts': new Set([1]) }, config()).map(f => f.title)).toEqual(['`preloadData` without `resolve`: the team\'s lesson says to pair them']);
+    });
+
+    it('backtests a proposal over the main branch: fires where a review found the lesson repeating, and counts every other fire', () => {
+        const git = (...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+        git('init', '-q', '-b', 'main');
+        git('config', 'user.email', 't@example.com');
+        git('config', 'user.name', 't');
+        git('config', 'commit.gpgsign', 'false');
+        const commit = (body: string, subject: string) => {
+            fs.mkdirSync(path.join(cwd, 'src'), { recursive: true });
+            fs.writeFileSync(path.join(cwd, 'src/load.ts'), body);
+            git('add', 'src/load.ts');
+            git('commit', '-qm', subject);
+        };
+        commit('export const a = 1;\n', 'init');
+        commit('export const a = 1;\nconst rows = fetchAll(db);\n', 'load every row (#1)');
+        commit('export const a = 1;\nconst rows = loadPage(db);\n', 'page it (#2)');
+        commit('export const a = 1;\nconst rows = loadPage(db);\nconst all = fetchAll(db);\n', 'export all (#3)');
+        appendTaskEvent(cwd, { kind: 'review', pr: 1, outcome: 'findings', lessons_applied: ['L1'] });
+        lessons([lesson('L1', 'Never call `fetchAll` in a request handler.', ['fetchAll'], ['accepted'])]);
+        const [proposed] = proposeCompiledChecks(cwd);
+        expect(readCompiledChecks(cwd).find(c => c.id === proposed.id)?.backtest).toMatchObject({ repeating: { fired: 1, n: 1 }, other: { fired: 1, n: 2 }, commits: 3 });
     });
 });
