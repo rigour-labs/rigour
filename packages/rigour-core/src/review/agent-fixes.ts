@@ -86,17 +86,14 @@ export interface FixCapture {
 export function recordReviewOutcome(cwd: string, findings: Failure[], reviewedFiles: string[], stage: CatchStage = 'review'): FixCapture {
     const open = readOpen(cwd);
     const current = new Map(findings.flatMap(f => (f.files?.[0] ? [[`${f.id}:${f.files[0]}`, f] as const] : [])));
-    const { resolved: fixes, checkerChanged } = resolveGone(cwd, open, current, new Set(reviewedFiles));
-    for (const fix of fixes) {
-        appendStory(cwd, { at: fix.resolvedAt, openedAt: fix.openedAt, stage: fix.stage ?? stage, file: fix.file, rule: fix.rule, title: fix.title ?? fix.rule, details: fix.details, diff: compactDiff(fix.before, fix.after) });
-    }
+    const { resolved: fixes, checkerChanged } = resolveGone(cwd, open, current, new Set(reviewedFiles), stage);
     const opened = openNew(cwd, open, current, stage);
     writeOpen(cwd, open);
     return { opened, resolved: fixes.length, fixes, checkerChanged };
 }
 
 /** Open findings this review no longer reports: resolved when their file was reviewed and changed. */
-function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>, reviewed: Set<string>): { resolved: ResolvedFix[]; checkerChanged: number } {
+function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>, reviewed: Set<string>, stage: CatchStage): { resolved: ResolvedFix[]; checkerChanged: number } {
     const resolved: ResolvedFix[] = [];
     let checkerChanged = 0;
     const dismissed = dismissedKeys(cwd);
@@ -118,37 +115,52 @@ function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Ma
             checkerChanged++;
             continue;
         }
-        const after = readSmall(cwd, entry.file);
-        if (after !== null && after !== entry.before) {
-            resolved.push(writeResolved(cwd, entry, after));
-            recordOutcome(cwd, checkId({ rule: entry.rule, title: entry.title }), 'fixed');
-        }
+        const fix = creditFix(cwd, entry, stage);
+        if (fix) resolved.push(fix);
         delete open[key];
     }
     return { resolved, checkerChanged };
 }
 
 /**
- * Re-checks, in place, the findings another version of the checks opened at `stage` (with `all`, every one open at
- * it), with `check` (this version's, for that stage): what it still reports stays open, now as its own; the rest
- * closes. Nothing is credited as a fix. Does nothing, and runs nothing, when no such finding is open.
+ * A finding these checks reported and no longer do, in a file that changed since: the agent's fix, kept with its before
+ * and after, a story credited to the stage that first reported it, and a `fixed` outcome. A file unchanged since is no
+ * fix (the finding vanished without an edit): undefined.
  */
-export async function recheckOpenFindings(cwd: string, stage: CatchStage, check: (files: string[]) => Promise<Failure[]>, all = false): Promise<{ closed: number; kept: number }> {
+function creditFix(cwd: string, entry: OpenFinding, stage: CatchStage): ResolvedFix | undefined {
+    const after = readSmall(cwd, entry.file);
+    if (after === null || after === entry.before) return undefined;
+    const fix = writeResolved(cwd, entry, after);
+    recordOutcome(cwd, checkId({ rule: entry.rule, title: entry.title }), 'fixed');
+    appendStory(cwd, { at: fix.resolvedAt, openedAt: fix.openedAt, stage: fix.stage ?? stage, file: fix.file, rule: fix.rule, title: fix.title ?? fix.rule, details: fix.details, diff: compactDiff(fix.before, fix.after) });
+    return fix;
+}
+
+/**
+ * Re-checks, in place, the findings another version of the checks opened at `stage` (with `all`, every one open at
+ * it), with `check` (this version's, for that stage): what it still reports stays open, now as its own. What it no
+ * longer reports closes: one another version opened as checker-changed, never a fix; one this version opened the way
+ * any review resolves it (a fix when its file changed since, creditFix). Runs nothing when no such finding is open.
+ */
+export async function recheckOpenFindings(cwd: string, stage: CatchStage, check: (files: string[]) => Promise<Failure[]>, all = false): Promise<{ closed: number; kept: number; fixed: number }> {
     const open = readOpen(cwd);
     const old = Object.entries(open).filter(([, entry]) => (all || stale(entry)) && entry.stage === stage);
-    if (old.length === 0) return { closed: 0, kept: 0 };
+    if (old.length === 0) return { closed: 0, kept: 0, fixed: 0 };
     const files = [...new Set(old.map(([, entry]) => entry.file))].filter(file => fs.existsSync(path.join(cwd, file)));
     const reported = new Set((await check(files)).flatMap(f => (f.files?.[0] ? [`${f.id}:${f.files[0]}`] : [])));
     let closed = 0;
+    let fixed = 0;
     for (const [key, entry] of old) {
-        if (reported.has(key)) entry.checker = CHECKER_VERSION;
-        else {
-            delete open[key];
-            closed++;
+        if (reported.has(key)) {
+            entry.checker = CHECKER_VERSION;
+            continue;
         }
+        if (!stale(entry) && creditFix(cwd, entry, stage)) fixed++;
+        else closed++;
+        delete open[key];
     }
     writeOpen(cwd, open);
-    return { closed, kept: old.length - closed };
+    return { closed, kept: old.length - closed - fixed, fixed };
 }
 
 function openNew(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>, stage: CatchStage): number {

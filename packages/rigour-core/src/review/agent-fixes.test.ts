@@ -63,10 +63,23 @@ describe('recordReviewOutcome', () => {
         fromOlderChecks();
         const checked: string[][] = [];
         const result = await recheckOpenFindings(cwd, 'edit', async files => { checked.push(files); return [finding('b.ts')]; });
-        expect(result).toEqual({ closed: 1, kept: 1 });
+        expect(result).toEqual({ closed: 1, kept: 1, fixed: 0 });
         expect(checked).toEqual([['a.ts', 'b.ts']]);
         expect(listOpenFindings(cwd).map(f => f.file)).toEqual(['b.ts']);
         expect(listResolvedFixes(cwd)).toEqual([]);
-        expect(await recheckOpenFindings(cwd, 'edit', async () => { throw new Error('nothing old is left to check'); })).toEqual({ closed: 0, kept: 0 });
+        expect(await recheckOpenFindings(cwd, 'edit', async () => { throw new Error('nothing old is left to check'); })).toEqual({ closed: 0, kept: 0, fixed: 0 });
+    });
+
+    it('checks every open finding again on request: a stale false one closes without credit, a fix the agent made is credited', async () => {
+        fs.writeFileSync(path.join(cwd, 'b.ts'), 'wrong\n');
+        recordReviewOutcome(cwd, [{ ...finding('a.ts'), id: 'hallucinated-imports' }], ['a.ts'], 'edit');
+        fromOlderChecks();
+        recordReviewOutcome(cwd, [finding('b.ts')], ['b.ts'], 'edit'); // this version's finding
+        fs.writeFileSync(path.join(cwd, 'a.ts'), 'edited\n');
+        fs.writeFileSync(path.join(cwd, 'b.ts'), 'fixed by the agent\n');
+        expect(await recheckOpenFindings(cwd, 'edit', async () => [], true)).toEqual({ closed: 1, kept: 0, fixed: 1 });
+        expect(listResolvedFixes(cwd).map(f => [f.file, f.after])).toEqual([['b.ts', 'fixed by the agent\n']]);
+        expect(readStories(cwd).map(s => s.file)).toEqual(['b.ts']);
+        expect(readOutcomes(cwd)['hallucinated-imports']?.fixed ?? 0).toBe(0);
     });
 });
