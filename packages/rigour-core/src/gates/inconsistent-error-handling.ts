@@ -11,6 +11,9 @@
  * 3. Compare handling strategies within each cluster
  * 4. Flag types with >2 distinct handling patterns across files
  *
+ * A handler that only hands the error to a helper (`return handle_value_error(e)`) is no strategy of its own: the
+ * helper holds the handling, so it is counted as neither consistent nor not.
+ *
  * Examples of inconsistency:
  * - File A: catch(e) { console.log(e) }
  * - File B: catch(e) { throw new AppError(e) }
@@ -40,6 +43,14 @@ export interface InconsistentErrorHandlingConfig {
     max_strategies_per_type?: number;  // Flag if more than N strategies, default 2
     min_occurrences?: number;          // Minimum catch blocks to analyze, default 3
     ignore_empty_catches?: boolean;    // Whether to count empty catches as a strategy
+}
+
+const DELEGATE = 'delegate';
+/** One call and nothing else, returned or awaited or not: `return handle(e)`, `report.failed(x, e);`, `{ await retry(e) }`. */
+const DELEGATION = /^(?:return\s+)?(?:await\s+)?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\([^\n]*\)\s*;?$/;
+
+function delegates(body: string): boolean {
+    return DELEGATION.test(body.trim().replace(/^\{\s*/, '').replace(/\s*\}$/, '').trim());
 }
 
 export class InconsistentErrorHandlingGate extends Gate {
@@ -88,7 +99,7 @@ export class InconsistentErrorHandlingGate extends Gate {
                         file,
                         line: fact.startLine,
                         errorType: fact.type,
-                        strategy: fact.strategy,
+                        strategy: fact.strategy === 'other' && delegates(fact.body) ? DELEGATE : fact.strategy,
                         rawPattern: fact.body.split('\n')[0]?.trim() || '',
                     });
                 }
@@ -114,6 +125,7 @@ export class InconsistentErrorHandlingGate extends Gate {
             // Count unique strategies
             const strategies = new Map<string, ErrorHandler[]>();
             for (const handler of typeHandlers) {
+                if (handler.strategy === DELEGATE) continue;
                 const existing = strategies.get(handler.strategy) || [];
                 existing.push(handler);
                 strategies.set(handler.strategy, existing);
