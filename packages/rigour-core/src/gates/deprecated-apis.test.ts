@@ -20,6 +20,19 @@ vi.mock('fs-extra', () => ({
 
 import { DeprecatedApisGate } from './deprecated-apis.js';
 
+describe('DeprecatedApisGate — a call written in a string or a comment', () => {
+    beforeEach(() => { vi.clearAllMocks(); });
+
+    it('is no use of the API; the call itself still is', async () => {
+        mockFindFiles.mockResolvedValue(['app/fixtures.py']);
+        mockReadFile.mockResolvedValue('MSG = "pickle.loads(x)"\nREASON = "subprocess.call(cmd, shell=True)"\ny = 2  # os.system(cmd)\n');
+        expect(await new DeprecatedApisGate().run({ cwd: '/project' })).toEqual([]);
+        mockReadFile.mockResolvedValue('import pickle\ndata = pickle.loads(x)\n');
+        const failures = await new DeprecatedApisGate().run({ cwd: '/project' });
+        expect(failures.map(f => f.details).join('\n')).toContain('pickle');
+    });
+});
+
 describe('DeprecatedApisGate — Node.js Security', () => {
     let gate: DeprecatedApisGate;
 

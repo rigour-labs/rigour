@@ -5,7 +5,7 @@ describe('buildActivity', () => {
     it('turns the record into sentences, newest first, and leaves raw tool traffic out', () => {
         const items = buildActivity({
             events: [
-                { type: 'hook_check', timestamp: '2026-10-09T10:00:00Z', files: ['src/pay.ts'], findings: [{ message: 'Stripe API key detected in code' }] } as any,
+                { type: 'hook_check', timestamp: '2026-10-09T10:00:00Z', blocked: true, files: ['src/pay.ts'], findings: [{ message: 'Stripe API key detected in code' }] } as any,
                 { type: 'tool_call', timestamp: '2026-10-09T10:01:00Z', tool: 'rigour_recall' },
                 { type: 'stop_review', timestamp: '2026-10-09T10:03:00Z', blocked: true, blocking: 1 },
                 { type: 'lessons_served', timestamp: '2026-10-09T10:04:00Z', via: 'recall', lessons: ['Amounts are cents'] },
@@ -20,6 +20,15 @@ describe('buildActivity', () => {
             'Fixed: Stripe API key detected in code',
             'Stopped an edit to src/pay.ts: Stripe API key detected in code',
         ]);
+    });
+
+    it('never says an edit was stopped when the hook ran without --block, or did not record it', () => {
+        const check = (blocked?: boolean) => ({ type: 'hook_check', timestamp: '2026-10-09T10:00:00Z', ...(blocked === undefined ? {} : { blocked }), files: ['src/a.ts'], findings: [{ message: 'Import not found' }] }) as any;
+        for (const event of [check(false), check()]) {
+            const [item] = buildActivity({ events: [event], ledger: [], stories: [] });
+            expect([item.kind, item.text]).toEqual(['reported', 'Reported on an edit to src/a.ts: Import not found']);
+        }
+        expect(groupSessions(buildActivity({ events: [check()], ledger: [], stories: [] }))[0]).toMatchObject({ counts: { reported: 1, stopped: 0 }, rest: [] });
     });
 
     it('names unnamed functions the way people do', () => {

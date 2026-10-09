@@ -294,15 +294,6 @@ header {
     color: var(--text-vibrant);
 }
 
-.project-path {
-    font-size: 11px;
-    color: var(--text-dim);
-    font-family: 'JetBrains Mono', monospace;
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
 
 .connection-status {
     display: flex;
@@ -525,6 +516,9 @@ header {
 
 .overview-banner strong { display: block; margin-bottom: 2px; }
 .overview-banner p { color: var(--text-dim); }
+.readonly-note { align-items: center; padding: 8px 12px; }
+.readonly-note span { flex: 1; }
+.readonly-note-close { background: none; border: 0; color: var(--text-dim); cursor: pointer; display: flex; padding: 2px; }
 @keyframes blob-drift {
     from { transform: translate3d(0, 0, 0) scale(1); }
     to { transform: translate3d(40px, 24px, 0) scale(1.08); }
@@ -594,6 +588,5 @@ textarea:focus-visible {
     .main-content > header { gap: 8px; padding: 0 14px; }
     .project-identity { min-width: 0; gap: 8px; }
     .project-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .project-path { display: none; }
     .header-right { gap: 8px; }
 }

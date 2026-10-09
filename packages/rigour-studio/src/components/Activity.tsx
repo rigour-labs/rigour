@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { plural, useStudioJson, inlineCode } from './storyData';
 import './story.css';
 
-type Kind = 'stopped' | 'fixed' | 'checked' | 'reviewed' | 'taught' | 'pr';
+type Kind = 'stopped' | 'reported' | 'fixed' | 'checked' | 'reviewed' | 'taught' | 'pr';
 interface Item { at: string; kind: Kind; text: string; detail?: string }
 interface Session {
     start: string;
@@ -14,6 +14,7 @@ interface Session {
 
 const CHIP: Record<Kind, { label: string; cls: string }> = {
     stopped: { label: 'blocked', cls: 'warn' },
+    reported: { label: 'reported', cls: 'warn' },
     fixed: { label: 'fixed', cls: 'ok' },
     checked: { label: 'checked', cls: '' },
     reviewed: { label: 'reviewed', cls: '' },
@@ -32,7 +33,7 @@ export const Activity: React.FC = () => {
     return (
         <div className="st-page">
             <h1 className="st-h1">Activity</h1>
-            <p className="st-lead">Each block is one stretch of agent work. What Rigour blocked or got fixed is listed; routine checks fold away.</p>
+            <p className="st-lead">Each block is one stretch of agent work. What Rigour blocked, reported or got fixed is listed; routine checks fold away.</p>
             {data.sessions.length === 0
                 ? <div className="st-empty" style={{ marginTop: 24 }}>Nothing yet. Activity appears as agents edit code, ask for reviews and finish their work.</div>
                 : <div className="st-stack" style={{ marginTop: 24, gap: 16 }}>{data.sessions.map(s => <SessionCard key={s.start} session={s} />)}</div>}
@@ -47,6 +48,7 @@ export const SessionCard: React.FC<{ session: Session }> = ({ session }) => {
     const summary = [
         fixed && `${plural(fixed, 'problem')} fixed`,
         c.stopped && `${plural(c.stopped, 'edit')} blocked`,
+        c.reported && `${plural(c.reported, 'edit')} reported on`,
         c.pr && `${plural(c.pr, 'branch review')} with findings`,
         c.reviewed && `${plural(c.reviewed, 'risky function')} reviewed${c.reviewed - c.reviewedFixed ? ` (${c.reviewed - c.reviewedFixed} fine)` : ''}`,
         c.checked && `${plural(c.checked, 'edit')} checked clean`,

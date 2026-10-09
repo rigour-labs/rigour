@@ -20,6 +20,7 @@ describe('reviewer usage telemetry', () => {
                 passes: [{ specialists: ['correctness'], hunks: 3, chars: 100, readBeyondSlice: true }, { specialists: ['correctness', 'cleanup'], hunks: 2, chars: 90, readBeyondSlice: null }] } } };
         const usage = reviewerUsage(result, 'review');
         expect(usage).toMatchObject({ asked: 'orchestrator', parts: 2, passes: 2, split: true, fallback: false, nothing_to_review: false, beyond_slice: 1 });
+        expect(reviewerUsage({ ...result, cached: true, cache: 'content' }, 'review')).toMatchObject({ cached: true, cache: 'content' });
         expect(JSON.stringify(usage)).not.toMatch(/correctness|ledger/);
     });
 });

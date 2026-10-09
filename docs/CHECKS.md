@@ -112,11 +112,11 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Security patterns | SQL injection, XSS, path traversal, hardcoded secrets, insecure randomness, command injection and more. Only findings at or above `block_on_severity` (default `high`) are reported. | JS/TS, Python; secret patterns also Java and Go | `security-patterns` | On | Yes |
+| Security patterns | SQL injection, XSS, path traversal, hardcoded secrets, insecure randomness, command injection and more. Only findings at or above `block_on_severity` (default `high`) are reported. A call written in a string literal or a comment (`MSG = "subprocess.call(cmd, shell=True)"`) is not a call; patterns about a string's contents (secrets, keys, header values) still match inside strings. Code inside a string interpolation (`f"{…}"`, `${…}`) counts as string, and a string spanning lines is read as code past its first line. | JS/TS, Python; secret patterns also Java and Go | `security-patterns` | On | Yes |
 | Frontend secret exposure | A server secret referenced from a file that ships to the browser (`process.env.X` / `import.meta.env.X` without a public prefix), or a live key literal in source. Only `critical` and `high` are reported by default. | JS/TS, Vue, Svelte | `frontend-secret-exposure` | On | Yes |
 | Prototype pollution | `__proto__` access, unsafe bracket writes, `Object.assign({}, …)` merges. | JS/TS | `ast-analysis` (`SECURITY_PROTOTYPE_POLLUTION`, `…_MERGE`) | On | Yes |
 | Unsafe call | A dangerous execution sink found from the syntax tree. | Go, Java, Rust, C#, C++ | `ast-analysis` (`SME_SECURITY_SINK`) | On | Yes |
-| Security-deprecated API | An API deprecated for security reasons (`new Buffer()`, weak hashes and similar). Critical while `block_security_deprecated` is true (default); high, and a note, when it is false. | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Yes |
+| Security-deprecated API | An API deprecated for security reasons (`new Buffer()`, weak hashes and similar), used in code: the same text in a string literal or a comment is not a use. Critical while `block_security_deprecated` is true (default); high, and a note, when it is false. | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Yes |
 
 ### Mistakes coding agents make
 
@@ -195,6 +195,7 @@ The checks with gate ids `duplicate-null-filter`, `nullable-filtered-column`, `n
 
 - If the project is TypeScript and the program cannot be built (dependencies not installed, generated config missing), the review reports `typed-checks-unavailable` and blocks. A checkout that cannot prove the change is never a pass.
 - `wire_contracts` lists files whose types another service reads, so their members are never reported as write-only.
+- An optional member every host supplies is only a hint when values of the type are also read back from JSON as that type (`JSON.parse`, `readJson`, a response's `.json()`, through an `as`, an annotated variable, a type argument or the declared return type). Data written before the member existed lacks it, so it stays optional until that data is migrated.
 - `schema_migrations` lists folders of SQL migrations (default `supabase/migrations`; relative, absolute or `~/`; another repository is fine, read only). Rigour replays them to learn which columns are NOT NULL. Missing folders are skipped.
 - A function that scans a collection and is called once per item of another is a hint for the reviewer. Hints are listed with `rigour review --notes`.
 
