@@ -13,6 +13,7 @@
  * - Command Injection
  */
 
+import { codeOffsets } from '../utils/code-mask.js';
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
@@ -187,6 +188,8 @@ export class SecurityPatternsGate extends Gate {
             }
         }
 
+        // A call written in a message or a comment is not a call: a pattern of that kind counts only from code.
+        const isCode = codeOffsets(content, ext);
         for (const pattern of VULNERABILITY_PATTERNS) {
             // Check if pattern applies to this file type
             if (!pattern.languages.includes('*') && !pattern.languages.includes(ext)) {
@@ -198,6 +201,7 @@ export class SecurityPatternsGate extends Gate {
 
             let match;
             while ((match = pattern.regex.exec(content)) !== null) {
+                if (pattern.where !== 'anywhere' && !isCode(match.index)) continue;
                 // For hardcoded_secrets: filter out placeholder/dummy values and env var names
                 if (pattern.type === 'hardcoded_secrets' && this.isDummySecretValue(match[0])) {
                     continue;

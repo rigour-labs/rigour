@@ -111,11 +111,11 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Security patterns | SQL injection, XSS, path traversal, hardcoded secrets, insecure randomness, command injection and more. Only findings at or above `block_on_severity` (default `high`) are reported. | JS/TS, Python; secret patterns also Java and Go | `security-patterns` | On | Yes |
+| Security patterns | SQL injection, XSS, path traversal, hardcoded secrets, insecure randomness, command injection and more. Only findings at or above `block_on_severity` (default `high`) are reported. A call written in a string literal or a comment (`MSG = "subprocess.call(cmd, shell=True)"`) is not a call; patterns about a string's contents (secrets, keys, header values) still match inside strings. Code inside a string interpolation (`f"{…}"`, `${…}`) counts as string, and a string spanning lines is read as code past its first line. | JS/TS, Python; secret patterns also Java and Go | `security-patterns` | On | Yes |
 | Frontend secret exposure | A server secret referenced from a file that ships to the browser (`process.env.X` / `import.meta.env.X` without a public prefix), or a live key literal in source. Only `critical` and `high` are reported by default. | JS/TS, Vue, Svelte | `frontend-secret-exposure` | On | Yes |
 | Prototype pollution | `__proto__` access, unsafe bracket writes, `Object.assign({}, …)` merges. | JS/TS | `ast-analysis` (`SECURITY_PROTOTYPE_POLLUTION`, `…_MERGE`) | On | Yes |
 | Unsafe call | A dangerous execution sink found from the syntax tree. | Go, Java, Rust, C#, C++ | `ast-analysis` (`SME_SECURITY_SINK`) | On | Yes |
-| Security-deprecated API | An API deprecated for security reasons (`new Buffer()`, weak hashes and similar). Critical while `block_security_deprecated` is true (default); high, and a note, when it is false. | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Yes |
+| Security-deprecated API | An API deprecated for security reasons (`new Buffer()`, weak hashes and similar), used in code: the same text in a string literal or a comment is not a use. Critical while `block_security_deprecated` is true (default); high, and a note, when it is false. | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Yes |
 
 ### Mistakes coding agents make
 
