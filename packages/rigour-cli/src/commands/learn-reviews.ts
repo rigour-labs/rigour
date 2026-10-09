@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { branchBase, decideLesson, defaultExec, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -26,12 +26,20 @@ export interface LearnReviewsOptions {
     /** Rewrite each new point as the rule behind it with the team's reviewer CLI (memory, never training). */
     rules?: boolean;
     pr?: string;
+    /** Propose a deterministic check for every verified lesson a template fits, and list the compiled checks. */
+    compile?: boolean;
+    /** A person's decision on a compiled check: it runs (approve) or stops (withdraw). */
+    approveCheck?: string;
+    withdrawCheck?: string;
 }
 
 export async function learnReviewsCommand(cwd: string, options: LearnReviewsOptions): Promise<void> {
     if (options.promote) return decide(cwd, options.promote, 'accepted', options.why);
     if (options.reject) return decide(cwd, options.reject, 'rejected', options.why);
     if (options.list) return list(cwd, options.json);
+    if (options.compile) return compile(cwd, options.json);
+    if (options.approveCheck) return decideCheck(cwd, options.approveCheck, 'active');
+    if (options.withdrawCheck) return decideCheck(cwd, options.withdrawCheck, 'withdrawn');
     try {
         const config = await teamConfig(cwd);
         const writeRules = options.rules ? await ruleWriterFor(cwd, config, defaultExec, line => console.error(chalk.yellow(line))) : undefined;
@@ -62,6 +70,27 @@ function list(cwd: string, json?: boolean): void {
         console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(team standard)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
     }
     if (lessons.length === 0) console.log('No review lessons yet. Run `rigour learn-reviews`.');
+}
+
+/** Proposes checks for the verified lessons a template fits, then lists every compiled check and its state. */
+function compile(cwd: string, json?: boolean): void {
+    const proposed = proposeCompiledChecks(cwd);
+    const checks = readCompiledChecks(cwd);
+    if (json) return void console.log(JSON.stringify({ proposed: proposed.map(c => c.id), checks }, null, 2));
+    const label = { proposed: chalk.yellow('proposed '), active: chalk.green('active   '), withdrawn: chalk.dim('withdrawn') };
+    for (const c of checks) console.log(`${label[c.state]} ${chalk.dim(c.id)} ${c.files}: ${c.kind === 'forbid' ? `no \`${c.symbol}\`` : `\`${c.symbol}\` needs \`${c.with}\``} (${c.message})`);
+    if (checks.length === 0) console.log('No verified lesson fits a check yet: a lesson compiles when it names its file and its symbols in backticks and says never, avoid, instead of, always or must.');
+    else if (proposed.length) console.log(`\n${proposed.length} new proposal(s). A proposed check runs only once a person approves it: rigour learn-reviews --approve-check <id>`);
+}
+
+function decideCheck(cwd: string, id: string, state: 'active' | 'withdrawn'): void {
+    const check = decideCompiledCheck(cwd, id, state, personOf(cwd));
+    if (!check) {
+        console.error(chalk.red(`No compiled check ${id}.`));
+        process.exitCode = 1;
+        return;
+    }
+    console.log(state === 'active' ? chalk.green(`✔ Runs from now on (a note unless gates.compiled_lessons.block): ${check.message}`) : chalk.yellow(`✔ Taken back: ${check.message}`));
 }
 
 /** A person's decision, kept as evidence with who made it (their git email) and why. */

@@ -417,6 +417,25 @@ words. A different bug nearby is never covered by it. Every later judge is told,
 review included. Commit `.rigour/dismissed-review-items.json` so the record is reviewed and shared.
 When a team turns dismissals off again, the recorded ones stop counting.
 
+
+### Lessons compiled into checks
+
+A verified lesson can become a check that runs without a model, on every review, for free. Only a lesson
+a person confirmed (promoted or corrected) or that recurred across pull requests qualifies; one an
+outcome alone suggested never does. Compilation is a template, not a model: the lesson must name its
+file and its symbols in backticks and say what is wrong in so many words:
+
+| The lesson says | The check reports |
+| --- | --- |
+| never, avoid, do not use `` `a` ``; use `` `b` `` instead of `` `a` `` | `a` on a changed line of the lesson's file |
+| always, must, every … `` `a` `` … `` `b` `` | `a` on a changed line with no `b` within three lines |
+
+`rigour learn-reviews --compile` proposes a check for every lesson a template fits and lists them all.
+A proposed check runs only once a person approves it (`--approve-check <id>`), and `--withdraw-check
+<id>` takes it back. Checks live in `.rigour/compiled-checks.json`: commit it, so the team reviews
+them like code. Each finding names its lesson. A compiled check is a note unless
+`gates.compiled_lessons.block` is on.
+
 ## Where you see it
 
 - `rigour review --reviewer`: the verdict, what ran and why, and each finding with its id. What is

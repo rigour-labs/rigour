@@ -431,6 +431,9 @@ program
     .option('--promote <id>', 'Accept a candidate as a lesson (recorded as your decision)')
     .option('--reject <id>', 'Reject a candidate or lesson: the judges are told this team decided against it')
     .option('--why <text>', 'Why, recorded with --promote or --reject')
+    .option('--compile', 'Propose a deterministic check for each verified lesson a template fits, and list the compiled checks')
+    .option('--approve-check <id>', 'Approve a compiled check: it runs on every review (a note unless gates.compiled_lessons.block)')
+    .option('--withdraw-check <id>', 'Take a compiled check back: it stops running')
     .option('--json', 'Output as JSON')
     .action(async (options: any) => {
         await learnReviewsCommand(process.cwd(), options);

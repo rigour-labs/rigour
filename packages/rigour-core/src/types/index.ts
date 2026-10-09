@@ -284,6 +284,11 @@ export const GatesSchema = z.object({
         // Block on them. Off by default, like unused_exports.block: a team whose reviewers block on dead files turns it on.
         block: z.boolean().optional().default(false),
     }).optional().default({}),
+    /** Verified lessons a person compiled into checks (review-learning/compiled-lessons.ts): notes unless `block`. */
+    compiled_lessons: z.object({
+        enabled: z.boolean().optional().default(true),
+        block: z.boolean().optional().default(false),
+    }).optional().default({}),
     migration_order: z.object({
         enabled: z.boolean().optional().default(false),
         dirs: z.array(z.string()).optional().default(['**/supabase/migrations']),

@@ -21,6 +21,7 @@ import { checkId, rememberReported } from './check-outcomes.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
 import { diffTestFailures } from './diff-test-findings.js';
 import { migrationOrderFailures } from './migration-order.js';
+import { compiledLessonFailures } from '../review-learning/compiled-lessons.js';
 import { orphanFileFailures } from './orphan-files.js';
 import { unusedExportFailures } from './unused-exports.js';
 import { queryPatternFailures } from './query-patterns.js';
@@ -124,6 +125,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     reviewCheck('migration-order', 'migration_order', migrationOrderFailures(input.cwd, diff, input.source, input.config));
     reviewCheck('unused-exports', 'unused_exports', unusedExportFailures(input.cwd, diff, input.config));
     reviewCheck('orphan-files', 'orphan_files', orphanFileFailures(input.cwd, diff, input.config));
+    reviewCheck('compiled-lessons', 'compiled_lessons', compiledLessonFailures(input.cwd, changedLines, input.config));
     reviewCheck('query-patterns', 'query_patterns', queryPatternFailures(input.cwd, changedLines, input.config));
     reviewCheck('optional-params', 'optional_params', optionalParamFailures(input.cwd, changedLines, input.config));
     reviewCheck('duplicate-functions', 'duplicate_functions', duplicateFunctionFailures(input.cwd, changedLines, input.config));
