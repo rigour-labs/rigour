@@ -37,6 +37,8 @@ export interface HallucinatedImport {
     importPath: string;
     type: 'relative' | 'package' | 'python' | 'go' | 'ruby' | 'csharp' | 'rust' | 'java' | 'kotlin';
     reason: string;
+    /** The resolver could not read what the file may import (no manifest found): a note, never a block. */
+    uncertain?: boolean;
 }
 
 export interface HallucinatedImportsConfig {
@@ -149,16 +151,33 @@ export class HallucinatedImportsGate extends Gate {
             } catch (e) { }
         }
 
+        // One finding per file; an import the resolver could not check against a manifest is a separate note.
         const byFile = new Map<string, HallucinatedImport[]>();
         for (const h of hallucinated) {
-            const existing = byFile.get(h.file) || [];
+            const key = `${h.uncertain ? 'note' : 'block'}\u0000${h.file}`;
+            const existing = byFile.get(key) || [];
             existing.push(h);
-            byFile.set(h.file, existing);
+            byFile.set(key, existing);
         }
 
-        for (const [file, imports] of byFile) {
+        for (const imports of byFile.values()) {
+            const file = imports[0].file;
             const details = imports.map(i => `  L${i.line}: import '${i.importPath}' — ${i.reason}`).join('\n');
-
+            if (imports[0].uncertain) {
+                failures.push({
+                    ...this.createFailure(
+                        `Imports that could not be checked in ${file} (no manifest found for it):\n${details}`,
+                        [file],
+                        'Rigour found no manifest (Cargo.toml) for this file, so it cannot tell whether these are declared. Check them, or add the manifest.',
+                        'Hallucinated Imports',
+                        imports[0].line,
+                        undefined,
+                        'low'
+                    ),
+                    advisory: true,
+                });
+                continue;
+            }
             failures.push(this.createFailure(
                 `Hallucinated imports in ${file}:\n${details}`,
                 [file],
