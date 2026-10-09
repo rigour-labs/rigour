@@ -88,8 +88,9 @@ const Recheck: React.FC<{ onDone: () => void }> = ({ onDone }) => {
     const recheck = async () => {
         const res = await studioWrite('/api/recheck', 'POST', '{}');
         if (!res.ok) return setSaid('Could not check again.');
-        const { closed } = await res.json() as { closed: number };
-        setSaid(closed ? `${plural(closed, 'finding')} no longer reported, closed (not counted as fixes).` : 'Every one is still reported.');
+        const { closed, fixed } = await res.json() as { closed: number; fixed: number };
+        const said = [fixed ? `${plural(fixed, 'fix')} by the agent recorded` : '', closed ? `${plural(closed, 'finding')} no longer reported, closed (not counted as fixes)` : ''].filter(Boolean).join('; ');
+        setSaid(said ? `${said}.` : 'Every one is still reported.');
         onDone();
     };
     return <div className="st-row" style={{ marginTop: 10, gap: 12 }}><button className="st-btn" onClick={recheck} type="button">Check these again</button>{said && <span className="st-sub">{said}</span>}</div>;
