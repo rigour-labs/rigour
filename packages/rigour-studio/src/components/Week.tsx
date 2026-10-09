@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { studioWrite } from '../studioWrite';
+import { HowItWorks } from './HowItWorks';
 import { groupNeeds, NeedGroupCard, needsHeading, type OpenNeed } from './NeedGroups';
 import { ago, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story, inlineCode } from './storyData';
 import './story.css';
@@ -68,20 +69,6 @@ export const Week: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNaviga
         </div>
     );
 };
-
-const HowItWorks: React.FC<{ onHide: () => void }> = ({ onHide }) => (
-    <section className="st-card" style={{ marginBottom: 28 }}>
-        <div className="st-row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-            <strong>How Rigour works</strong>
-            <button className="st-btn" onClick={onHide} type="button">Got it</button>
-        </div>
-        <div className="st-steps">
-            <div className="st-step"><span className="st-num">1</span><div>Your AI agent writes code<div className="st-sub">Claude Code, Cursor, any agent.</div></div></div>
-            <div className="st-step"><span className="st-num">2</span><div>Rigour checks every change<div className="st-sub">It stops the agent only on problems it can prove; the agent fixes them.</div></div></div>
-            <div className="st-step"><span className="st-num">3</span><div>Your PR arrives clean<div className="st-sub">A short PR review catches the rest. Every fix teaches Rigour your code.</div></div></div>
-        </div>
-    </section>
-);
 
 /** Checks every open finding again against the code as it is now: what the checks no longer report closes, never as a fix. */
 const Recheck: React.FC<{ onDone: () => void }> = ({ onDone }) => {

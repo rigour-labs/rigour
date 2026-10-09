@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
 import { WeeklyTable } from './AgentContext';
+import { HowItWorks } from './HowItWorks';
 import { CompiledChecks, LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
 import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
@@ -325,5 +326,15 @@ describe('an edit check that ran without --block, on the activity page', () => {
         expect(out).toContain('2 edits reported on');
         expect(out).toContain('>reported<');
         expect(out).not.toMatch(/blocked|Stopped/);
+    });
+});
+
+describe('how Rigour works, on the home page', () => {
+    it('names the agents checked as they edit, every agent at push, and lessons only with learning on', () => {
+        const html = renderToStaticMarkup(<HowItWorks onHide={() => {}} />);
+        expect(html).toContain('Claude Code, Cursor, Cline or Windsurf are checked as they edit; any agent at push.');
+        expect(html).toContain('It stops the agent only on problems it can prove.');
+        expect(html).toContain('A short review catches the rest; with learning on, fixes become lessons.');
+        expect(html).not.toMatch(/any agent\.|checks every change|Every fix teaches/);
     });
 });
