@@ -29,8 +29,8 @@ import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBas
 import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
-import { costGuard, focusBlock, runPasses, SPECIALISTS, SPECIALISTS_KEY } from './reviewer/orchestrator.js';
-import { parseHunks, planPasses, triage } from './reviewer/triage.js';
+import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
+import { parseHunks, planPasses, reviewable, triage, type Pass } from './reviewer/triage.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
@@ -135,14 +135,15 @@ export interface ModeRecord {
     /** `none` when the review ended before any judge ran (unavailable or skipped); `degraded` or the reason says why. */
     ran: 'single' | 'cross' | 'full' | 'panel' | 'orchestrator' | 'none';
     /**
-     * With the orchestrator: the specialists triage picked, which returned and which did not, each pass (its parts, its
-     * slice, whether it read beyond the slice: null without a trace), the cost guard's call, why it fell back to one
-     * judge if it did, and `none` when there was nothing for a model to review.
+     * With the orchestrator: the specialists triage picked, the passes that returned and those that did not (by label),
+     * each pass (its parts, its slice, whether it read beyond the slice: null without a trace), why the plan is what it
+     * is when the change was over the judge's limit or the caps, why it fell back to one judge if it did, and `none`
+     * when there was nothing for a model to review.
      */
     specialists?: {
         selected: string[]; returned: string[]; missing: string[];
         passes: Array<{ specialists: string[]; hunks: number; chars: number; readBeyondSlice: boolean | null }>;
-        guard?: string; fallback?: string; none?: string;
+        plan?: string; fallback?: string; none?: string;
     };
     source: Source;
     /** Why fewer judges ran than were asked for. */
@@ -336,22 +337,34 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         return withRecord(decide(verdict, previousOpen, verify, prior, dismissals), verdict, true);
     }
 
-    // The orchestrator's plan: which specialists the change needs, hunk by hunk, as one combined pass unless one pass
-    // would not fit the judge and the cost guard allows a split. Nothing for a model to review: no pass at all.
-    const hunks = orchestrate ? parseHunks(fullDiff) : [];
+    // What one judge would be given: the shared input files and the reviewable diff. Both modes' cost rows measure this.
+    const hunks = parseHunks(fullDiff);
+    const size = reviewable(hunks);
+    const shared = reviews.markdown.length + body.length + context.text.length + (options.hints?.trim() || 'none\n').length + (goalText?.length ?? 0);
+    const projectedSingle = shared + size.chars;
+    // The orchestrator's plan: which specialists the change needs, hunk by hunk, as one combined pass. A change over the
+    // judge's limit is split by hunk only when the savings ledger covers the split's extra. Nothing to review: no pass.
     const picked = orchestrate ? triage(hunks, { humanReviews: reviews.count, rulesAndLessons: context.rules.length + context.lessons, goal: goalItems.length > 0 }) : new Map<string, number[]>();
-    const guard = orchestrate ? costGuard(store.costs()) : undefined;
-    let passes = orchestrate ? planPasses(hunks, picked, SPECIALISTS, guard!.combinedOnly) : [];
     const selected = SPECIALISTS.map(s => s.id).filter(id => picked.has(id));
-    // The daily caps, before any judge starts: a cached or reused verdict above cost nothing and never reaches here.
-    // Every pass is a run: when the caps leave room for one run but not every pass, it is one judge, said so; a team
-    // that requires the orchestrator gets no quieter review, so then the review is unavailable.
-    if (orchestrate && passes.length > 1) {
-        const short = overBudget(store.spend(), settings, passes.length);
-        if (short && !orchestrator.required && !overBudget(store.spend(), settings, 1)) {
-            orchestrate = false;
-            passes = [];
-            modeRecord = { ...modeRecord, ran: 'single', specialists: { selected, returned: [], missing: [], passes: [], fallback: `not started: ${short}` } };
+    let passes: Pass[] = [];
+    let planNote: string | undefined;
+    if (orchestrate) {
+        const baseline = store.freezeBaseline(BASELINE_MIN_SINGLES);
+        const plan = planPasses(hunks, picked, SPECIALISTS, passLimit(reviewers[0], settings.timeout_ms));
+        passes = plan.combined ? [plan.combined] : [];
+        if (plan.split) {
+            const book = ledger(store.costs(), baseline);
+            const needs = splitNeeds(plan.split.reduce((sum, pass) => sum + shared + pass.diff.length, 0), projectedSingle, book.unit, baseline);
+            const said = `ledger ${formatLedger(book.credit, book.unit)}, split needs ${formatLedger(needs, book.unit)}`;
+            if (book.credit > 0 && book.credit >= needs) {
+                passes = plan.split;
+                planNote = `over the judge's limit; ${said}: ${plan.split.length} parts`;
+            } else planNote = `over the judge's limit; ${said}: one pass`;
+        }
+        // The daily caps, before any judge starts: room for one run but not every part is one combined pass.
+        if (passes.length > 1 && overBudget(store.spend(), settings, passes.length) && !overBudget(store.spend(), settings, 1)) {
+            planNote = `the caps leave one run, not ${passes.length}: one pass`;
+            passes = [plan.combined!];
         }
     }
     const over = orchestrate && passes.length === 0 ? undefined : overBudget(store.spend(), settings, orchestrate ? passes.length : reviewers.length);
@@ -359,6 +372,24 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     if (over) return none(settings.required.panel || settings.required.mode || orchestrator.required ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
+    // Every run this review makes, failed ones included: the caps count each, and the review's cost row sums them.
+    const tally = { runs: 0, chars: 0, usd: 0 };
+    const spent = (usd: number | undefined, chars: number) => {
+        store.addSpend(1, usd);
+        tally.runs++;
+        tally.chars += chars;
+        tally.usd += usd ?? 0;
+    };
+    // One row per fresh review, for the savings ledger: one judge asked for and run, or orchestrated with everything it ran.
+    const recordReviewCost = () => {
+        const orchestrated = modeRecord.asked === 'orchestrator';
+        if (!orchestrated && !(modeRecord.asked === 'single' && modeRecord.ran === 'single')) return;
+        store.recordCost({
+            at: new Date().toISOString(), mode: orchestrated ? 'orchestrator' : 'single', lines: size.lines, projectedSingleChars: projectedSingle,
+            ...(orchestrated ? { projectedChars: passes.reduce((sum, pass) => sum + shared + pass.diff.length, 0) } : {}),
+            actualChars: tally.chars, actualUsd: Math.round(tally.usd * 10_000) / 10_000, runs: tally.runs,
+        });
+    };
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
     let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
@@ -402,10 +433,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
         let parts: Verdict[] | undefined;
         try {
+            // The single-judge fallback runs once: no retry, no spare judge.
+            let once = false;
             if (orchestrate && passes.length === 0) {
-                // Nothing for a model to review (a lockfile, generated files): no run, and that is the verdict.
+                // Nothing for a model to review (only lockfiles, generated files): no run, and that is the verdict.
                 parts = [];
-                modeRecord = { ...modeRecord, specialists: { selected: [], returned: [], missing: [], passes: [], none: 'nothing for the model reviewer to review', guard: guard!.why } };
+                modeRecord = { ...modeRecord, specialists: { selected: [], returned: [], missing: [], passes: [], none: 'nothing for the model reviewer to review' } };
             } else if (orchestrate) {
                 const judge = reviewers[0];
                 const ran: NonNullable<ModeRecord['specialists']>['passes'] = [];
@@ -413,31 +446,39 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     const assigned = pass.specialists.map(id => SPECIALISTS.find(s => s.id === id)!);
                     const result = await runJudge(judge, `${prompt}${focusBlock(assigned, pass.file)}`, modelFor(judge));
                     const answer = ADAPTERS[judge].answer(result.stdout);
-                    store.addSpend(1, answer.costUsd); // every pass counts against the caps, an answer or not
+                    spent(answer.costUsd, shared + pass.diff.length); // every pass counts against the caps and the ledger, an answer or not
                     progress(`Rigour reviewer: ${judge} (${pass.specialists.join(', ')}) finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${result.exitCode})`);
                     const verdict = result.exitCode === 0 || answer.text.trim()
                         ? parseVerdict(answer.text, needsPriorPoints && pass.specialists.includes('prior-points'), judge, answer)
                         : { error: `${judge} (${pass.specialists.join(', ')}): no answer (exit ${result.exitCode})` };
-                    // Whether slicing held: a pass that read the full diff, or a changed file outside its slice, read beyond it.
-                    const sliceFiles = new Set(pass.hunks.map(i => hunks[i].file));
+                    // Whether slicing held: a pass that read the full diff, or read, searched or printed a changed file outside its slice.
+                    const sliceFiles = new Set(pass.sliced.map(i => hunks[i].file));
+                    const outside = changedFiles.filter(f => !sliceFiles.has(f));
                     const trace = 'verdict' in verdict ? verdict.verdict.trace : undefined;
-                    const beyond = trace ? trace.calls.some(c => c.target.replace(/\\/g, '/').endsWith('/full.diff') || (c.tool === 'Read' && changedFiles.some(f => !sliceFiles.has(f) && c.target.replace(/\\/g, '/').endsWith(`/${f}`)))) : null;
+                    const beyond = trace ? trace.calls.some(c => {
+                        const target = c.target.replace(/\\/g, '/');
+                        return target.endsWith('/full.diff') || outside.some(f => names(target, f));
+                    }) : null;
                     ran.push({ specialists: pass.specialists, hunks: pass.hunks.length, chars: pass.diff.length, readBeyondSlice: beyond });
                     return verdict;
                 });
-                const specialists = { selected, returned: run.returned, missing: run.missing, passes: ran, guard: guard!.why };
+                const specialists = { selected, returned: run.returned, missing: run.missing, passes: ran, ...(planNote ? { plan: planNote } : {}) };
                 if (run.stands) {
                     parts = run.parts;
-                    modeRecord = { ...modeRecord, specialists, ...(run.missing.length ? { degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}not reviewed: ${run.missing.join(', ')} (no verdict)` } : {}) };
+                    modeRecord = { ...modeRecord, specialists, ...(run.missing.length ? { degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}not reviewed: ${run.missing.join('; ')} (no verdict)` } : {}) };
                 } else {
-                    // Fewer than half of the picked specialists came back: one judge instead, only if the caps still allow a run (the
-                    // fallback counts too) and the team does not require the orchestrator (a required review is never a quieter one).
-                    const fallback = `${run.returned.length} of ${selected.length} specialists returned`;
+                    // Fewer than half of the passes came back: one judge instead, once, only if the caps still allow a run (it counts
+                    // too) and the team does not require the orchestrator (a required review is never a quieter one).
+                    const fallback = `${run.returned.length} of ${passes.length} passes returned`;
                     const short = overBudget(store.spend(), settings, 1);
                     const reason = orchestrator.required ? `${fallback}, and rigour.yml requires the orchestrator: no single-judge fallback` : short ? `${fallback}, and the caps leave no run for one judge: ${short}` : undefined;
-                    if (reason) return none('unavailable', reason, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                    if (reason) {
+                        recordReviewCost();
+                        return none('unavailable', reason, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                    }
                     progress(`Rigour reviewer: ${fallback}; one judge reviews instead`);
                     modeRecord = { ...modeRecord, ran: 'single', specialists: { ...specialists, fallback } };
+                    once = true;
                 }
             }
             if (!parts) {
@@ -447,12 +488,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                         const run = await runJudge(name, prompt, modelFor(name));
                         progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
                         const answer = adapter.answer(run.stdout);
-                        store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
+                        spent(answer.costUsd, projectedSingle); // every run counts against the caps, an answer or not
                         return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? parseVerdict(answer.text, needsPriorPoints, name, answer) : undefined };
                     };
                     let first = await ask();
                     // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
-                    if ((!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
+                    if (!once && (!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
                         progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
                         first = await ask();
                     }
@@ -462,20 +503,23 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
                 for (let i = 0; i < answers.length; i++) {
                     let answer = answers[i];
-                    while ('error' in answer && spare.length && !overBudget(store.spend(), settings, 1)) {
+                    while (!once && 'error' in answer && spare.length && !overBudget(store.spend(), settings, 1)) {
                         const next = spare.shift()!;
                         progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
                         modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
                         reviewers[i] = next;
                         const run = await runJudge(next, prompt, modelFor(next));
                         const got = ADAPTERS[next].answer(run.stdout);
-                        store.addSpend(1, got.costUsd);
+                        spent(got.costUsd, projectedSingle);
                         answer = run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
                     }
                     answers[i] = answer;
                 }
                 const failed = answers.find(a => 'error' in a);
-                if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
+                if (failed && 'error' in failed) {
+                    if (once) recordReviewCost();
+                    return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
+                }
                 parts = answers.map(a => (a as { verdict: Verdict }).verdict);
             }
             for (const part of parts) {
@@ -529,11 +573,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString() } });
         store.writeJson(openFile, accounted.open);
         store.writeJson(store.decidedPath(verdictFile), accounted);
-        // What this review cost per changed line, for the orchestrator's cost guard: one judge or orchestrated only (several judges compare with neither).
-        if (modeRecord.ran === 'single' || modeRecord.ran === 'orchestrator') {
-            const lines = fullDiff.split('\n').filter(line => /^[+-]/.test(line) && !/^(\+\+\+|---) /.test(line)).length;
-            store.recordCost({ at: new Date().toISOString(), mode: modeRecord.ran, lines, usd: (verdict.reviewers ?? []).reduce((sum, r) => sum + (r.cost_usd ?? 0), 0), runs: parts.length });
-        }
+        recordReviewCost();
         if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key, inputsKey });
         return withRecord(accounted, verdict, false);
     } finally {
@@ -661,4 +701,13 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         ...(pr ? { pr: pr.number } : {}),
         ...(pr?.title ? { prTitle: pr.title } : {}),
     };
+}
+
+/** Whether a tool call's target (a path, a glob, a shell command) names a repository file. */
+function names(target: string, file: string): boolean {
+    const at = target.indexOf(file);
+    if (at < 0) return false;
+    const before = target[at - 1];
+    const after = target[at + file.length];
+    return (before === undefined || /[\s/'"=]/.test(before)) && (after === undefined || /[\s'":)]/.test(after));
 }

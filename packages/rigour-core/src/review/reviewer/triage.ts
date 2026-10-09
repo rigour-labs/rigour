@@ -1,8 +1,8 @@
 /**
- * The orchestrator's router: which specialists a change needs, hunk by hunk, decided without a model, and how many
- * passes that takes. One combined pass is the default at every size; a change is split only when one pass would not
- * fit the judge (MAX_PASS_DIFF_CHARS), and never into more than MAX_PASSES. A change with nothing for a model to review
- * (a lockfile, generated files) gets no pass at all: the deterministic checks are for that.
+ * The orchestrator's router: which specialists a change needs, hunk by hunk, decided without a model, and the passes
+ * that takes. One combined pass is the plan at every size; a change over the judge's limit (orchestrator.ts passLimit)
+ * also gets a split by hunk, each part within the limit, which runs only when the savings ledger covers it. A change
+ * with nothing for a model to review (only lockfiles, generated files) gets no pass at all.
  */
 import type { Specialist } from './orchestrator.js';
 
@@ -19,30 +19,38 @@ export interface Hunk {
     references: Set<string>;
 }
 
-/** The most diff one pass is given: past this a judge's context runs out before it has read its part, so the change is split. */
-const MAX_PASS_DIFF_CHARS = 120_000;
-/** The most passes one review runs, split or not. */
-const MAX_PASSES = 3;
-
-const TEST = /(^|\/)(__tests__|tests?|spec)\/|\.(test|spec)\.[A-Za-z0-9]+$/;
-const DOC = /\.(md|mdx|txt|rst|adoc)$|(^|\/)docs?\//i;
-const LOCK = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|go\.sum|Gemfile\.lock|composer\.lock|bun\.lockb)$/;
-const GENERATED = /(\.|-|_)(gen|generated|pb)\.[cm]?[jt]sx?$|\.d\.ts\.map$|(^|\/)(__generated__|generated|gen)\/|\.min\.[cm]?js$|\.snap$/i;
-const CODE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|go|rs|java|rb|kt|kts|swift|svelte|vue|sql|php|cs|scala|dart)$/;
-const MIGRATION = /(^|\/)(migrations?|db\/migrate|schema)\/|\.sql$|(^|\/)schema\.prisma$/i;
-
-/** Lines that read data: queries in TS/JS, Python, Go and SQL, pagination, and a loop that awaits on every turn. */
-const READS = [
-    /\b(select|insert|update|delete)\b[\s\S]{0,80}\b(from|into|set|where)\b/i,
-    /\.(query|queryRaw|find|findMany|findFirst|findOne|findAll|findUnique|aggregate|count|select|from|where|rpc)\s*\(/,
-    /\bfetch\s*\(/,
-    /\b(offset|limit|range|cursor|page_size|pageSize|per_page)\b/,
-    /\.(execute|executemany|fetchall|fetchone|filter|all|get)\s*\(|\bsession\.query\b|\bobjects\.(filter|all|get|exclude)\b|\bcursor\./,
-    /\.(Query|QueryRow|QueryContext|QueryRowContext|Exec|ExecContext|Select|Find|Get)\s*\(|\brows\.Next\s*\(/,
-    /\bcreate\s+(unique\s+)?index\b|\balter\s+table\b|\bcreate\s+table\b/i,
+/** Prose: its own words are for the rules and the goal, never a correctness pass. Matched by extension only: a `docs/` folder holds code too. */
+const PROSE = /\.(md|mdx|txt|rst|adoc)$/i;
+/**
+ * The only files no model reviews: lockfiles, snapshots, source maps, minified bundles and files a generator marks
+ * as its own (`__generated__/`, `.generated.`, protobuf output). Everything else gets a correctness pass, whatever
+ * its language: a missed skip costs a little, a wrong one leaves code unreviewed.
+ */
+const SKIP = [
+    /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|Pipfile\.lock|uv\.lock|go\.sum|Gemfile\.lock|composer\.lock|bun\.lockb?)$/,
+    /\.snap$/, /\.(js|css|d\.ts)\.map$/, /\.min\.(js|css)$/,
+    /(^|\/)__generated__\//, /\.generated\.[A-Za-z0-9]+$/, /\.pb\.go$/, /_pb2(_grpc)?\.pyi?$/, /_pb\.(js|ts|d\.ts)$/,
 ];
-const LOOP = /\b(for|while)\b|\.(forEach|map|flatMap|reduce)\s*\(\s*async\b|\basync\s+for\b/;
+const MIGRATION = /(^|\/)(migrations?|db\/migrate)\/|\.sql$|(^|\/)schema\.prisma$/i;
+
+/**
+ * Lines that read data, per language. Each names a query API, not a word any code uses: `Array.from`, `map.get`,
+ * `items.filter` and a `limit` variable are not reads.
+ */
+const READS = [
+    // SQL, in a .sql file or a string
+    /\bselect\s[\s\S]{0,80}?\bfrom\s+[A-Za-z_"`[]|\binsert\s+into\b|\bupdate\s+[A-Za-z_"`.]+\s+set\b|\bdelete\s+from\b|\bcreate\s+(unique\s+)?index\b|\balter\s+table\b|\bcreate\s+table\b|\blimit\s+\d+|\boffset\s+\d+/i,
+    // TS/JS: ORMs, query builders, Supabase, fetch
+    /\.(query|queryRaw|\$queryRaw|\$executeRaw|findMany|findFirst|findUnique|findOne|findAll|aggregate|groupBy|rpc)\s*\(|\.from\(\s*['"`]|\bfetch\s*\(|\.(range|limit|offset)\s*\(\s*\d/,
+    // Python: DB-API, SQLAlchemy, Django
+    /\.(execute|executemany|fetchall|fetchone|fetchmany)\s*\(|\bsession\.(query|execute|scalars)\s*\(|\.objects\.(filter|all|get|exclude|raw)\s*\(/,
+    // Go: database/sql, sqlx, GORM on a db/tx/conn value
+    /\.(Query|QueryRow|QueryContext|QueryRowContext|Exec|ExecContext)\s*\(|\b(db|tx|conn)\.(Get|Select|Find|First|Where)\s*\(|\brows\.Next\s*\(/,
+];
+/** A loop, and an await within the next few lines of it: one read per turn. */
+const LOOP = /\b(for|while)\b\s*[(\w]|\.(forEach|map|flatMap|reduce)\s*\(\s*async\b|\basync\s+for\b/;
 const AWAIT = /\bawait\b/;
+const LOOP_REACH = 3;
 const DEFINES = /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\*?|const|let|var|class|interface|type|enum|def|func)\s+(?:\([^)]*\)\s*)?([A-Za-z_$][\w$]*)/;
 const DECLARES = /^\s*(export\s|(async\s+)?function\s|def\s|func\s|class\s)/;
 const COMMENT = /^\s*(\/\/|#|\/\*|\*|<!--)/;
@@ -84,53 +92,95 @@ export function triage(hunks: Hunk[], context: TriageContext): Map<string, numbe
     const picked = new Map<string, number[]>();
     const pick = (id: string, index: number) => picked.set(id, [...(picked.get(id) ?? []), index]);
     hunks.forEach((hunk, i) => {
-        const skipped = LOCK.test(hunk.file) || GENERATED.test(hunk.file);
-        if (skipped) return;
+        if (skipped(hunk.file)) return;
+        const prose = PROSE.test(hunk.file);
         const lines = [...hunk.added, ...hunk.removed];
-        const code = CODE.test(hunk.file) && !TEST.test(hunk.file) && !DOC.test(hunk.file);
-        if (code) pick('correctness', i);
-        const reads = READS.some(pattern => lines.some(line => pattern.test(line))) || (lines.some(l => LOOP.test(l)) && lines.some(l => AWAIT.test(l)));
-        if ((code || MIGRATION.test(hunk.file)) && (reads || MIGRATION.test(hunk.file))) pick('production-cost', i);
-        if (code && (hunk.removed.length > 0 || hunk.newFile || hunk.added.some(l => DECLARES.test(l)))) pick('cleanup', i);
-        if (DOC.test(hunk.file) || hunk.added.some(l => COMMENT.test(l)) || ((code || DOC.test(hunk.file)) && (context.rulesAndLessons > 0 || context.goal))) pick('rules-and-goal', i);
+        if (!prose) pick('correctness', i);
+        if (!prose && (MIGRATION.test(hunk.file) || READS.some(pattern => lines.some(line => pattern.test(line))) || awaitsInLoop(hunk.added))) pick('production-cost', i);
+        if (!prose && (hunk.removed.length > 0 || hunk.newFile || hunk.added.some(l => DECLARES.test(l)))) pick('cleanup', i);
+        if (prose || hunk.added.some(l => COMMENT.test(l)) || context.rulesAndLessons > 0 || context.goal) pick('rules-and-goal', i);
     });
-    if (context.humanReviews > 0) picked.set('prior-points', hunks.map((_, i) => i).filter(i => !LOCK.test(hunks[i].file) && !GENERATED.test(hunks[i].file)));
+    if (context.humanReviews > 0) picked.set('prior-points', hunks.map((_, i) => i).filter(i => !skipped(hunks[i].file)));
     return picked;
 }
 
-/** A pass's part of the diff: its hunks, and every other hunk that defines a name they use. */
-export function slice(hunks: Hunk[], indices: number[]): string {
-    const chosen = new Set(indices);
-    const referenced = new Set(indices.flatMap(i => [...hunks[i].references]));
-    hunks.forEach((hunk, i) => {
-        if (!chosen.has(i) && [...hunk.defines].some(name => referenced.has(name))) chosen.add(i);
-    });
-    return [...chosen].sort((a, b) => a - b).map(i => hunks[i].text).join('');
+/** Whether no model reviews this file (SKIP). */
+export function skipped(file: string): boolean {
+    return SKIP.some(pattern => pattern.test(file));
 }
 
-export interface Pass { specialists: string[]; hunks: number[]; diff: string }
+function awaitsInLoop(lines: string[]): boolean {
+    return lines.some((line, i) => LOOP.test(line) && lines.slice(i, i + LOOP_REACH + 1).some(l => AWAIT.test(l)));
+}
 
 /**
- * The passes for what triage picked: one combined pass with every picked specialist, unless its part of the diff
- * passes MAX_PASS_DIFF_CHARS; then the specialists are grouped, largest part first, into at most MAX_PASSES passes.
- * `combinedOnly` (the cost guard) keeps it one pass whatever the size.
+ * A pass's part of the diff: its hunks, and the hunk defining each name they use, in diff order. Only a name exactly one
+ * hunk defines is followed (a local `result` defined in ten files is no one definition), and a definition is added only
+ * while the part stays within `limit`.
  */
-export function planPasses(hunks: Hunk[], picked: Map<string, number[]>, order: readonly Specialist[], combinedOnly = false): Pass[] {
-    const ids = order.map(s => s.id).filter(id => picked.has(id));
-    if (ids.length === 0) return [];
-    const union = [...new Set(ids.flatMap(id => picked.get(id)!))].sort((a, b) => a - b);
-    const whole: Pass = { specialists: ids, hunks: union, diff: slice(hunks, union) };
-    if (combinedOnly || whole.diff.length <= MAX_PASS_DIFF_CHARS || ids.length === 1) return [whole];
-    const groups: Array<{ specialists: string[]; hunks: Set<number> }> = [];
-    for (const id of [...ids].sort((a, b) => picked.get(b)!.length - picked.get(a)!.length)) {
-        const target = groups.length < MAX_PASSES ? undefined : groups.reduce((small, g) => (g.hunks.size < small.hunks.size ? g : small));
-        if (target) {
-            target.specialists.push(id);
-            picked.get(id)!.forEach(i => target.hunks.add(i));
-        } else groups.push({ specialists: [id], hunks: new Set(picked.get(id)!) });
+function sliceOf(hunks: Hunk[], definedIn: Map<string, number[]>, indices: number[], limit: number): number[] {
+    const chosen = new Set(indices);
+    let size = indices.reduce((sum, i) => sum + hunks[i].text.length, 0);
+    const referenced = new Set(indices.flatMap(i => [...hunks[i].references]));
+    for (const name of referenced) {
+        const at = definedIn.get(name);
+        if (at?.length !== 1 || chosen.has(at[0]) || size + hunks[at[0]].text.length > limit) continue;
+        chosen.add(at[0]);
+        size += hunks[at[0]].text.length;
     }
-    return groups.map(g => {
-        const indices = [...g.hunks].sort((a, b) => a - b);
-        return { specialists: order.map(s => s.id).filter(id => g.specialists.includes(id)), hunks: indices, diff: slice(hunks, indices) };
-    });
+    return [...chosen].sort((a, b) => a - b);
+}
+
+export interface Pass {
+    specialists: string[];
+    /** The hunks triage picked for it. */
+    hunks: number[];
+    /** What it is given: its hunks and the hunks defining what they use. */
+    sliced: number[];
+    diff: string;
+}
+
+export interface Plan {
+    /** One pass with every picked specialist; undefined when triage picked nothing. */
+    combined?: Pass;
+    /** Present only when the combined pass is over `limit`: the picked hunks in parts, each within it where one hunk allows. */
+    split?: Pass[];
+}
+
+/**
+ * The passes for what triage picked. A split is by hunk, in diff order: each part takes the next hunks while they stay
+ * within `limit`, and runs every specialist that picked any of them. A single hunk over the limit is a part of its own.
+ */
+export function planPasses(hunks: Hunk[], picked: Map<string, number[]>, order: readonly Specialist[], limit: number): Plan {
+    const ids = order.map(s => s.id).filter(id => picked.has(id));
+    if (ids.length === 0) return {};
+    const definedIn = new Map<string, number[]>();
+    hunks.forEach((hunk, i) => hunk.defines.forEach(name => definedIn.set(name, [...(definedIn.get(name) ?? []), i])));
+    const pickedBy = new Map(ids.map(id => [id, new Set(picked.get(id)!)]));
+    const pass = (indices: number[]): Pass => {
+        const sliced = sliceOf(hunks, definedIn, indices, limit);
+        return { specialists: ids.filter(id => indices.some(i => pickedBy.get(id)!.has(i))), hunks: indices, sliced, diff: sliced.map(i => hunks[i].text).join('') };
+    };
+    const union = [...new Set(ids.flatMap(id => picked.get(id)!))].sort((a, b) => a - b);
+    const combined = pass(union);
+    if (combined.diff.length <= limit || union.length === 1) return { combined };
+    // By the hunks' own size: definitions join a part only within the limit (sliceOf), so they never push it over.
+    const parts: number[][] = [[]];
+    let size = 0;
+    for (const index of union) {
+        const length = hunks[index].text.length;
+        if (parts.at(-1)!.length && size + length > limit) {
+            parts.push([]);
+            size = 0;
+        }
+        parts.at(-1)!.push(index);
+        size += length;
+    }
+    return parts.length > 1 ? { combined, split: parts.map(pass) } : { combined };
+}
+
+/** Characters of the reviewable diff (no lockfiles or generated files) and its changed lines: both modes are measured on this. */
+export function reviewable(hunks: Hunk[]): { chars: number; lines: number } {
+    const kept = hunks.filter(h => !skipped(h.file));
+    return { chars: kept.reduce((sum, h) => sum + h.text.length, 0), lines: kept.reduce((sum, h) => sum + h.added.length + h.removed.length, 0) };
 }
