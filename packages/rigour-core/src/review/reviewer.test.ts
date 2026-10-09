@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { reviewerBlocks, runReviewer, type Exec, type ReviewerResult } from './reviewer.js';
 import { dismissReviewerFinding } from './reviewer/context.js';
@@ -80,11 +80,13 @@ function installFake(dir: string, name: string): string {
     return file;
 }
 
-beforeEach(() => {
-    bins = [fs.mkdtempSync(path.join(os.tmpdir(), 'bin-a-')), fs.mkdtempSync(path.join(os.tmpdir(), 'bin-b-'))];
-    for (const name of ['claude', 'cursor-agent']) installFake(bins[0], name);
-    process.env.PATH = [...bins, originalPath ?? ''].join(path.delimiter);
-    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-'));
+/**
+ * The repository is built once for the file and copied into each test's own folder: every git command is a
+ * process, slow to start on Windows, and the same two commits were made again for every test.
+ */
+let fixture: string;
+beforeAll(() => {
+    repo = fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-fixture-'));
     git('init', '-q', '-b', 'main');
     git('config', 'user.email', 't@example.com');
     git('config', 'user.name', 't');
@@ -97,6 +99,14 @@ beforeEach(() => {
     fs.writeFileSync(path.join(repo, 'src/job.ts'), 'export function job() {\n    return 1;\n}\n');
     git('add', '-A');
     git('commit', '-qm', 'job');
+});
+afterAll(() => { fs.rmSync(fixture, { recursive: true, force: true }); });
+beforeEach(() => {
+    bins = [fs.mkdtempSync(path.join(os.tmpdir(), 'bin-a-')), fs.mkdtempSync(path.join(os.tmpdir(), 'bin-b-'))];
+    for (const name of ['claude', 'cursor-agent']) installFake(bins[0], name);
+    process.env.PATH = [...bins, originalPath ?? ''].join(path.delimiter);
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-'));
+    fs.cpSync(fixture, repo, { recursive: true });
 });
 afterEach(() => {
     process.env.PATH = originalPath;
