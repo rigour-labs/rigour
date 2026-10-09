@@ -7,9 +7,11 @@
  * a string. Every line starts as code: nothing carries to the next line, so a regex literal holding a quote (`/"/`) or
  * an unclosed quote affects only its own line and can never hide a real call below it.
  *
+ * In the C family, a line that starts with `/*` or `*` is a block comment's line (the JSDoc shape) and is all comment.
+ *
  * Two limits, both narrowing a false positive and never losing a match the gates made before:
- * - a string or a block comment spanning lines (a Python `"""` docstring, a multi-line template literal, `/* … *\/`)
- *   is read as code past its first line, as before;
+ * - a string or a block comment spanning lines (a Python `"""` docstring, a multi-line template literal, a block
+ *   comment whose lines do not start with `*`) is read as code past its first line, as before;
  * - code inside a string interpolation (Python `f"{…}"`, JS `${…}`, Ruby `#{…}`) is string, so a call written inside
  *   one does not count as a call.
  */
@@ -25,6 +27,7 @@ const HASH_COMMENTS = new Set(['py', 'rb', 'sh', 'bash', 'zsh', 'yml', 'yaml', '
 /** For one line, whether column `col` is code. `ext` is the file's extension, which decides the comment marker. */
 export function codeColumns(line: string, ext: string): (col: number) => boolean {
     const hash = HASH_COMMENTS.has(ext.toLowerCase());
+    if (!hash && /^\s*(\/\*|\*)/.test(line)) return () => false;
     const masked = new Uint8Array(line.length);
     for (let i = 0; i < line.length; i++) {
         const c = line[i];

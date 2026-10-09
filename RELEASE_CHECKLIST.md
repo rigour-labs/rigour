@@ -25,6 +25,11 @@ This checklist is release-blocking for end-user readiness.
    the Homebrew formula and the MCP Registry entry. **Homebrew Smoke** then installs from the tap on macOS.
 4. After a release, merge `main` back into `next` so the next candidate starts from it.
 
+A pull request's title is its release intent, and every commit on its branch must release no more than the title
+(`feat:` a minor, `fix:` or `perf:` a patch): pull requests merge with a merge commit, which keeps the branch's commits,
+and semantic-release reads them all. The **Commit types within the title's release** check fails a pull request where one
+does not. Give the commit the title's type, or change the title if the release really is bigger.
+
 Run the gates by hand on any published version: `node scripts/release-gates.mjs <version> [previous]`.
 
 **Rollback:** point `latest` back at the previous version, package by package:

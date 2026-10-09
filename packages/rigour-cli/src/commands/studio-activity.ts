@@ -9,7 +9,7 @@ import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.j
 
 const LIMIT = 200;
 
-export type ActivityKind = 'stopped' | 'fixed' | 'checked' | 'reviewed' | 'taught' | 'pr';
+export type ActivityKind = 'stopped' | 'reported' | 'fixed' | 'checked' | 'reviewed' | 'taught' | 'pr';
 
 export interface ActivityItem {
     at: string;
@@ -44,13 +44,13 @@ export function readableFunction(name: string, file: string): string {
 
 /** A gap this long between two things Rigour did starts a new session. */
 const SESSION_GAP_MS = 45 * 60 * 1000;
-const IMPORTANT: ActivityKind[] = ['stopped', 'fixed', 'pr'];
+const IMPORTANT: ActivityKind[] = ['stopped', 'reported', 'fixed', 'pr'];
 
 export interface ActivitySession {
     start: string;
     end: string;
     counts: Record<ActivityKind, number> & { reviewedFixed: number };
-    /** What a person should see: blocks, fixes, PR catches, fixes found in review. */
+    /** What a person should see: blocks, findings reported on an edit, fixes, PR catches, fixes found in review. */
     highlights: ActivityItem[];
     /** The routine rest, shown on request. */
     rest: ActivityItem[];
@@ -66,7 +66,7 @@ export function groupSessions(items: ActivityItem[]): ActivitySession[] {
         else sessions.push([item]);
     }
     return sessions.map(list => {
-        const counts = { stopped: 0, fixed: 0, checked: 0, reviewed: 0, taught: 0, pr: 0, reviewedFixed: 0 };
+        const counts = { stopped: 0, reported: 0, fixed: 0, checked: 0, reviewed: 0, taught: 0, pr: 0, reviewedFixed: 0 };
         for (const item of list) {
             counts[item.kind]++;
             if (item.kind === 'reviewed' && item.text.startsWith('Fixed ')) counts.reviewedFixed++;
@@ -84,7 +84,11 @@ function fromEvent(event: AgentEvent): ActivityItem[] {
             const findings = (raw.findings ?? []) as HookFinding[];
             const files = (raw.files ?? []).join(', ');
             if (findings.length === 0) return [{ at, kind: 'checked', text: `Checked an edit to ${files || 'a file'}: nothing found` }];
-            return [{ at, kind: 'stopped', text: `Stopped an edit to ${files}: ${findings.map(f => f.message).filter(Boolean).join('; ')}` }];
+            const found = findings.map(f => f.message).filter(Boolean).join('; ');
+            // Stopped only when the hook ran with --block and said so; an event without the flag never claims a block.
+            return [event.blocked
+                ? { at, kind: 'stopped', text: `Stopped an edit to ${files}: ${found}` }
+                : { at, kind: 'reported', text: `Reported on an edit to ${files}: ${found}` }];
         }
         case 'stop_review':
             return [event.blocked
