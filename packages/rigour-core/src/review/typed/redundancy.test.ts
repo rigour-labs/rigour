@@ -92,6 +92,42 @@ export async function scan(since: string): Promise<Row[]> {
         expect(sent.hints[1]).toContain('leaves only through JSON.stringify() at src/send.ts:2');
     }, 60_000);
 
+    it('keeps a member optional, as a hint, when values of the type are read back from JSON written before it existed', async () => {
+        write('src/store.ts', `import fs from 'fs';
+interface Entry { file: string; stamp?: string }
+export function record(file: string): Entry { return { file, stamp: 'v2' }; }
+export function again(file: string): Entry { return { file, stamp: 'v2' }; }
+export function load(): Record<string, Entry> {
+    return JSON.parse(fs.readFileSync('open.json', 'utf8'));
+}
+export const stamps = Object.values(load()).map(e => e.stamp ?? 'v1').concat(record('a').file, again('b').file);
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'store');
+        const result = await review();
+        expect(result.findings.map(f => f.id)).not.toContain('optional-always-supplied');
+        expect(result.hints).toContainEqual(expect.stringMatching(/^optional-always-supplied src\/store\.ts:2: `Entry\.stamp` is optional but every host supplies it .* read back from JSON at src\/store\.ts:6/));
+
+        // The same through an assertion and an annotated variable; without any JSON read, the finding still blocks.
+        write('src/store.ts', `import fs from 'fs';
+interface Entry { file: string; stamp?: string }
+export function record(file: string): Entry { return { file, stamp: 'v2' }; }
+export function again(file: string): Entry { return { file, stamp: 'v2' }; }
+export const all = (fs.readFileSync('a.jsonl', 'utf8').split('\\n').map(line => JSON.parse(line) as Entry)).map(e => e.stamp ?? 'v1').concat(record('a').file, again('b').file);
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'as');
+        expect((await review()).findings.map(f => f.id)).not.toContain('optional-always-supplied');
+        write('src/store.ts', `interface Entry { file: string; stamp?: string }
+export function record(file: string): Entry { return { file, stamp: 'v2' }; }
+export function again(file: string): Entry { return { file, stamp: 'v2' }; }
+export const all = [record('a'), again('b')].map(e => e.stamp ?? 'v1' + e.file);
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'no json');
+        expect((await review()).findings.map(f => f.id)).toContain('optional-always-supplied');
+    }, 60_000);
+
     it('in a library, an exported type has consumers the program cannot see: its members are hints, a local type still blocks', async () => {
         write('tsconfig.json', '{"compilerOptions":{"strict":true,"declaration":true,"module":"esnext","target":"es2022","moduleResolution":"bundler","skipLibCheck":true},"include":["src"]}\n');
         write('src/types.ts', 'export interface Result { items?: string[]; cached: boolean }\ninterface Local { note: string }\nexport const local: Local = { note: "n" };\n');
