@@ -21,6 +21,7 @@ export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest
 export { scaffoldLedger } from './review/backtest-init.js';
 export type { CiResult, FollowUp, PrOutcome } from './outcomes/outcome.js';
 export { localOutcomeMetrics, runOutcomes, type OutcomesRun } from './outcomes/run.js';
+export { learningUsage } from './telemetry/learning-usage.js';
 export type { OutcomeMetrics, Share } from './outcomes/metrics.js';
 export { fixScope, type FixScope } from './review/fix-scope.js';
 export { isGeneratedFile } from './review/generated-files.js';

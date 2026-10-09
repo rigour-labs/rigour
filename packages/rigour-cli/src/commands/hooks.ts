@@ -885,8 +885,9 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
     })));
     const result = mergeHookResults(runs.map(r => r.result));
 
-    countUsage('hook_check');
-    for (const failure of result.failures) countUsage(`hook_finding:${failure.gate}`);
+    const counted = { agent: cursorMode ? 'cursor' : agentId };
+    countUsage('hook_check', 1, counted);
+    for (const failure of result.failures) countUsage(`hook_finding:${failure.gate}`, 1, counted);
     await Promise.allSettled(runs.flatMap(({ root, files: repoFiles, result: repoResult }) => {
         const requestId = randomUUID();
         const outcome = repoResult.status === 'pass' ? 'success' : repoResult.status === 'fail' ? 'rejected' : 'error';
