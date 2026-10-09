@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readThread, recordSessionBaseline } from '@rigour-labs/core';
 import { hooksStopCommand } from './hooks-stop.js';
 
@@ -19,10 +19,8 @@ describe('rigour hooks stop', () => {
         fs.writeFileSync(path.join(repo, rel), body);
     };
 
-    // Built once and copied into each test's own folder: every git command is a process, slow to start on Windows.
-    let fixture: string;
-    beforeAll(() => {
-        repo = fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'stop-hook-fixture-'));
+    beforeEach(() => {
+        repo = fs.mkdtempSync(path.join(os.tmpdir(), 'stop-hook-'));
         git('init', '-q', '-b', 'main');
         git('config', 'user.email', 't@example.com');
         git('config', 'user.name', 't');
@@ -31,11 +29,6 @@ describe('rigour hooks stop', () => {
         write('.gitignore', '.rigour/\n');
         git('add', '-A');
         git('commit', '-qm', 'init');
-    });
-    afterAll(() => { fs.rmSync(fixture, { recursive: true, force: true }); });
-    beforeEach(() => {
-        repo = fs.mkdtempSync(path.join(os.tmpdir(), 'stop-hook-'));
-        fs.cpSync(fixture, repo, { recursive: true });
     });
     afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); vi.restoreAllMocks(); });
 
