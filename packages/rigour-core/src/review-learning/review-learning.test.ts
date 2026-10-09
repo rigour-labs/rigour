@@ -58,8 +58,31 @@ describe('lessons', () => {
     it('keeps the point of a review comment and drops tool output and markup', () => {
         const body = '_⚠️ Potential issue_ | _🟠 Major_\n\n**Use an upsert keyed on `id`.**\n\n<details>\n<summary>🏁 Script executed</summary>\nrg -n insert\n</details>';
         expect(lessonText(body)).toBe('Use an upsert keyed on `id`.');
-        expect(lessonText('Callers retry on timeout, so this insert duplicates orders. Please use upsert.')).toBe('Callers retry on timeout, so this insert duplicates orders.');
+        expect(lessonText('Callers retry on timeout, so this insert duplicates orders. Please use upsert.')).toBe('Callers retry on timeout, so this insert duplicates orders. Please use upsert.');
         expect(lessonText('### Medium Severity\n\nThe retry loop never resets `attempt`, so a second failure gives up at once.')).toBe('The retry loop never resets `attempt`, so a second failure gives up at once.');
+    });
+
+    it('keeps what the reviewer asked for, not only what was wrong, and an identifier as written', () => {
+        expect(lessonText('`config.tenant` is a nested config object and it carries `apiKey`. Pick the fields you need explicitly. It also goes to the response.'))
+            .toBe('`config.tenant` is a nested config object and it carries `apiKey`. Pick the fields you need explicitly.');
+        expect(lessonText('Never log `config.tenant` whole. It carries the key.')).toBe('Never log `config.tenant` whole.'); // already an instruction
+        expect(lessonText('RESTOCK_CHUNK mirrors restock_batch_size, so raising one leaves the other stale. Change them together.'))
+            .toBe('RESTOCK_CHUNK mirrors restock_batch_size, so raising one leaves the other stale. Change them together.');
+        expect(lessonText('The _second_ read of `invoice_lines` is __the same rows__ as the first.')).toBe('The second read of `invoice_lines` is the same rows as the first.');
+        expect(lessonsFromReview({ id: 9, prNumber: 4, author: 'r', body: '- `MAX_LABELS_PER_CALL` must follow `labels_per_request`.', submittedAt: '', commit: 'c' } as any, [])[0].text)
+            .toBe('`MAX_LABELS_PER_CALL` must follow `labels_per_request`.');
+    });
+
+    it('reads the same review comment again as the same lesson: its text updates, nothing is duplicated, its decision stays', () => {
+        // A different text gets a different id, as the real hash does.
+        const point = (text: string, pr = 1, comment = 'c1'): ReviewLesson => ({ id: `id-${text.length}`, text, file: 'src/a.ts', symbols: ['loadRows', 'status'], state: 'candidate', evidence: [{ kind: 'point', pr, comment, author: 'r', text, at: '' }], createdAt: '', updatedAt: '' });
+        const stored = mergeLessons([], [point('This reads every row.')]).lessons;
+        stored[0].evidence.push({ kind: 'accepted', pr: 1, comment: 'accepted-1', author: 'p@example.com', detail: 'right', at: '' }); // as decideLesson records it
+        const again = mergeLessons(stored, [point('This reads every row. Filter in the query.')]);
+        expect(again.added).toBe(0);
+        expect(again.lessons.map(l => [l.id, l.text, l.state])).toEqual([[stored[0].id, 'This reads every row. Filter in the query.', 'verified']]);
+        const later = mergeLessons(again.lessons, [point('Same scan here, filter it in SQL.', 2, 'c9')]);
+        expect(later.lessons[0].text).toBe('This reads every row. Filter in the query.'); // another comment adds evidence, never rewrites
     });
 
     it('makes a candidate a lesson only on evidence, and keeps every piece of it', () => {

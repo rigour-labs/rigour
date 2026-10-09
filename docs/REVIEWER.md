@@ -363,7 +363,10 @@ Each judge starts from what your team already knows, written to a file it reads:
 
 **Where the lessons come from: evidence, not who wrote it.** `rigour learn-reviews` reads the
 repository's merged pull requests. Every review point is a **candidate**, whoever wrote it: a person, an
-AI posting under a person's login, or a review bot. Who wrote it, and whether the pull request changed
+AI posting under a person's login, or a review bot. It keeps the point's own words: its bold title, else
+its first sentence and, when that only says what is wrong, the first sentence that says what to do, with
+identifiers as written. Read again by a later version, a point updates its own lesson's text and never
+adds a second one. Who wrote it, and whether the pull request changed
 those lines before merging, are recorded on the candidate and decide nothing: people paste AI text,
 and agents apply review comments on their own. A candidate becomes a **lesson** only on evidence:
 

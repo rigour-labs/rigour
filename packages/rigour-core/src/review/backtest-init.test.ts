@@ -80,7 +80,7 @@ describe('rigour backtest init', () => {
             { id: 'R1-1', point: 'The export reads every line item for ids.', file: 'src/lib/server/invoices\\.ts', lines: [30, 50] },
             { id: 'R1-2', point: 'Drops the currency', file: 'src/checkout/total\\.ts', needs: 'a line window or a text pattern (the comment has no line)' },
             { id: 'R1-B1', point: 'A retry posts the invoice twice.', file: '', needs: 'a file pattern and a text pattern (this point was made in the review body, not on a line)' },
-            { id: 'R1-B2', point: 'Quadratic scan in latestPayment.', file: '', needs: 'a file pattern and a text pattern (this point was made in the review body, not on a line)' },
+            { id: 'R1-B2', point: 'Quadratic scan in `latestPayment`.', file: '', needs: 'a file pattern and a text pattern (this point was made in the review body, not on a line)' },
         ]);
         expect(incomplete).toBe(3);
         expect(calls.find(c => c[0] === 'gh' && c[1] === 'pr')).toContain('212');
