@@ -187,6 +187,28 @@ describe('class names in the context gate', () => {
         const report = await new GateRunner(config as any).run(cwd);
         expect(report.failures.filter(f => f.id === 'context-drift' && /class/i.test(`${f.title} ${f.details}`))).toEqual([]);
     });
+
+    const classDrift = async (files: Record<string, string>) => {
+        await fs.emptyDir(cwd);
+        for (const [name, body] of Object.entries(files)) await fs.writeFile(path.join(cwd, name), body);
+        const config = { version: 1, commands: {}, gates: { context: { enabled: true, sensitivity: 0.8, mining_depth: 10, ignored_patterns: [], cross_file_patterns: true, naming_consistency: true, import_relationships: true, max_cross_file_depth: 50 } }, output: { report_path: 'rigour-report.json' } };
+        const report = await new GateRunner(config as any).run(cwd);
+        return report.failures.filter(f => f.id === 'context-drift' && /class names/.test(f.details ?? ''));
+    };
+
+    it('reads no class name out of the word in a comment or a string', async () => {
+        expect(await classDrift({
+            'errors.py': '# this class of errors is retried\nclass RetryError(Exception):\n    pass\n\nclass TimeoutError(Exception):\n    """Raised for the class of inputs that never answer."""\n',
+            'wrap.ts': '// a class that wraps the client\nexport class ClientWrapper {}\nexport abstract class BaseClient {}\n',
+        })).toEqual([]);
+    });
+
+    it('still reports real camelCase classes among PascalCase ones', async () => {
+        expect(await classDrift({
+            'a.ts': 'export class OrderLine {}\nexport class CartItem {}\nexport class ShopConfig {}\n',
+            'b.ts': 'export class orderHelper {}\n',
+        })).toHaveLength(1);
+    });
 });
 
 /**
