@@ -185,6 +185,16 @@ describe('a lesson taken back on the learning page', () => {
     });
 });
 
+describe('a corrected wording, on the learning page', () => {
+    it('shows the wording a newer version suggests beside the one a person decided, and offers to take it', () => {
+        const out = html(<LessonCard lesson={{ id: 'c1b2c3d4e5f6', text: 'This reads every row.', origin: 'pr', learnedFrom: 'At PR #3, from r1', state: 'verified', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: false, suggestedText: { text: 'This reads every row. Filter in the query.', why: 'parser fix' } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(out).toContain('corrected wording (parser fix)');
+        expect(out).toContain('This reads every row. Filter in the query.');
+        expect(out).toContain('Use this wording');
+        expect(out).toContain('the lesson changes only if you take it');
+    });
+});
+
 describe('lessons compiled into checks, on the learning page', () => {
     it('shows what a check reports, its history as counts with a rate only from ten, who approved it, and the decision a person can make', () => {
         const out = html(<CompiledChecks checks={[

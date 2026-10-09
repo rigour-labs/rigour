@@ -365,8 +365,11 @@ Each judge starts from what your team already knows, written to a file it reads:
 repository's merged pull requests. Every review point is a **candidate**, whoever wrote it: a person, an
 AI posting under a person's login, or a review bot. It keeps the point's own words: its bold title, else
 its first sentence and, when that only says what is wrong, the first sentence that says what to do, with
-identifiers as written. Read again by a later version, a point updates its own lesson's text and never
-adds a second one. Who wrote it, and whether the pull request changed
+identifiers as written. Read again by a later version, a point never adds a second lesson: an undecided
+one takes the text that version reads; one a person decided (promoted, rejected, dismissed, or with a
+compiled check) keeps the wording they decided on, and the new one waits beside it in Studio and in
+`rigour learn-reviews --list` until they take it with **Use this wording** or `--use-wording <id>` (the old
+wording is kept as evidence). Who wrote it, and whether the pull request changed
 those lines before merging, are recorded on the candidate and decide nothing: people paste AI text,
 and agents apply review comments on their own. A candidate becomes a **lesson** only on evidence:
 

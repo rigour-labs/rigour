@@ -56,7 +56,7 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *             until a person promotes it.
  * A record from before evidence kinds has none: it is a `point`.
  */
-export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled';
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled' | 'reworded';
 
 export interface LessonEvidence {
     kind?: EvidenceKind;
@@ -90,6 +90,13 @@ export interface ReviewLesson {
     /** Which evidence made it a lesson. */
     promotedBy?: 'outcome' | 'correction' | 'person' | 'recurrence' | 'legacy';
     evidence: LessonEvidence[];
+    /**
+     * A corrected wording a newer version derived from the lesson's own comment, waiting for a person. A lesson
+     * a person decided keeps the wording they decided on until they take this one (acceptSuggestedText).
+     */
+    suggestedText?: string;
+    /** Why there is a suggestion: `parser fix`, a newer version reading the comment better. */
+    suggestedWhy?: string;
     /** Where the point sits in the commit it was made on, for outcome evidence (inline comments only). */
     at?: { commit: string; start: number; end: number };
     createdAt: string;
@@ -239,13 +246,26 @@ function hasPoint(lesson: ReviewLesson, point: LessonEvidence): boolean {
     return lesson.evidence.some(x => x.kind === 'point' && x.pr === point.pr && x.comment === point.comment);
 }
 
+/** A person accepted, rejected or dismissed it, or approved or took back a check compiled from it. */
+function decidedByPerson(lesson: ReviewLesson): boolean {
+    return lesson.evidence.some(e => e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed' || e.kind === 'compiled');
+}
+
 /**
- * Re-read from the comment it was learned from, a lesson takes the text this version derives; its id, evidence
- * and decisions stay. A later comment merged into it never rewrites it.
+ * Re-read from the comment it was learned from, an undecided lesson takes the text this version derives; its id
+ * and evidence stay. One a person decided keeps the wording they decided on, and the new one waits as a
+ * suggestion for them. A later comment merged into a lesson never rewrites it.
  */
 function refreshText(stored: ReviewLesson, lesson: ReviewLesson): void {
     const origin = stored.evidence.find(e => e.kind === 'point');
-    if (stored.id !== lesson.id && origin && hasPoint(lesson, origin)) stored.text = lesson.text;
+    if (stored.id === lesson.id || !origin || !hasPoint(lesson, origin)) return;
+    if (lesson.text === stored.text) {
+        delete stored.suggestedText;
+        delete stored.suggestedWhy;
+    } else if (decidedByPerson(stored)) {
+        stored.suggestedText = lesson.text;
+        stored.suggestedWhy = 'parser fix';
+    } else stored.text = lesson.text;
 }
 
 /**
@@ -367,6 +387,21 @@ export function decideLesson(cwd: string, id: string, decision: 'accepted' | 're
     const at = new Date().toISOString();
     lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
     Object.assign(lesson, lessonState(lesson), { updatedAt: at });
+    writeLessons(cwd, lessons);
+    return lesson;
+}
+
+/** A person takes a decided lesson's suggested wording; who and the wording it replaced are kept as evidence. */
+export function acceptSuggestedText(cwd: string, id: string, by: string): ReviewLesson | undefined {
+    const lessons = readLessons(cwd);
+    const lesson = lessons.find(l => l.id === id);
+    if (!lesson?.suggestedText) return undefined;
+    const at = new Date().toISOString();
+    lesson.evidence.push({ kind: 'reworded', pr: lesson.evidence[0]?.pr ?? 0, comment: `reworded-${at}`, author: by, detail: `${lesson.suggestedWhy ?? 'reworded'}; was: ${lesson.text}`, at });
+    lesson.text = lesson.suggestedText;
+    delete lesson.suggestedText;
+    delete lesson.suggestedWhy;
+    lesson.updatedAt = at;
     writeLessons(cwd, lessons);
     return lesson;
 }

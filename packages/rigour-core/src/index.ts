@@ -49,7 +49,7 @@ export { decideCompiledCheck, proposeCompiledChecks, readCompiledChecks, suspens
 export { ruleWriterFor } from './review/reviewer/rule-writer.js';
 export { backtestLast, formatLast, scoreLast, LAST_LEDGER_PATH, type LastReport } from './review/backtest-last.js';
 export { buildRecord, recordLines, recordIntact, type ReviewRecord } from './review/reviewer/record.js';
-export { readLessons, writeLessons, decideLesson, lessonState, pendingDecision, matchLessons, lessonText, lessonsPath, type ReviewLesson, type LessonEvidence } from './review-learning/lessons.js';
+export { readLessons, writeLessons, decideLesson, acceptSuggestedText, lessonState, pendingDecision, matchLessons, lessonText, lessonsPath, type ReviewLesson, type LessonEvidence } from './review-learning/lessons.js';
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
 export { recordAgentWrites, captureHumanEdits } from './review-learning/human-edits.js';
 export { readRepoRules, rulesForDiff, rulesSection, splitRules, type RepoRule } from './review-learning/repo-rules.js';

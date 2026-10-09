@@ -85,7 +85,8 @@ describe('a review lesson evidence took back', () => {
             const decision = readLessons(repo)[0].evidence.at(-1);
             expect(decision).toMatchObject({ kind: 'accepted', author: 'lead@team.example', detail: 'decided in Studio' });
             expect(() => decideReviewLesson(repo, { id: 'nope', decision: 'accepted' })).toThrow('12 hex characters');
-            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'validated' })).toThrow('accepted, rejected or dismissed');
+            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'validated' })).toThrow('accepted, rejected, dismissed or reworded');
+            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'reworded' })).toThrow('with a suggested wording');
             expect(() => decideReviewLesson(repo, { id: 'ffffffffffff', decision: 'accepted' })).toThrow('no review lesson');
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
@@ -162,3 +163,27 @@ describe('a lesson back to a candidate when outcomes stopped promoting', () => {
     });
 });
 
+
+describe('a corrected wording for a lesson a person decided', () => {
+    it('is shown beside the lesson, and taken from Studio only on the person\'s word, recorded', () => {
+        const decided: ReviewLesson = {
+            id: 'c1b2c3d4e5f6', text: 'This reads every row.', file: 'src/a.ts', symbols: [], state: 'verified', promotedBy: 'person', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+            suggestedText: 'This reads every row. Filter in the query.', suggestedWhy: 'parser fix',
+            evidence: [{ kind: 'point', pr: 3, comment: 'c3', author: 'r1' }, { kind: 'accepted', pr: 3, comment: 'accepted-1', author: 'lead@team' }],
+        };
+        const [journey] = buildLearning({ now, lessons: [], reviewLessons: [decided], stories: [], events: [] }).lessons;
+        expect([journey.text, journey.suggestedText]).toEqual(['This reads every row.', { text: 'This reads every row. Filter in the query.', why: 'parser fix' }]);
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-reworded-'));
+        try {
+            execFileSync('git', ['-C', repo, 'init', '-q']);
+            execFileSync('git', ['-C', repo, 'config', 'user.email', 'lead@team.example']);
+            fs.mkdirSync(path.join(repo, '.rigour'));
+            fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [decided] }));
+            expect(decideReviewLesson(repo, { id: 'c1b2c3d4e5f6', decision: 'reworded' })).toEqual({ id: 'c1b2c3d4e5f6', state: 'verified' });
+            expect(readLessons(repo)[0]).toMatchObject({ text: 'This reads every row. Filter in the query.' });
+            expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'reworded', author: 'lead@team.example', detail: 'parser fix; was: This reads every row.' });
+        } finally {
+            fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
+});

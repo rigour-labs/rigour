@@ -8,7 +8,7 @@ import { learnFromReviews } from './learn-from-reviews.js';
 import { outcomeFor } from './outcomes.js';
 import { rulesFromReviews } from './rules-from-reviews.js';
 import { describeLesson, lessonView } from './team-lessons.js';
-import { decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
+import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
 import { lessonsForDiff, lessonsSection } from './team-lessons.js';
 
 let repo: string;
@@ -73,16 +73,42 @@ describe('lessons', () => {
             .toBe('`MAX_LABELS_PER_CALL` must follow `labels_per_request`.');
     });
 
-    it('reads the same review comment again as the same lesson: its text updates, nothing is duplicated, its decision stays', () => {
+    it('reads the same review comment again as the same lesson: an undecided one takes the new text, nothing is duplicated', () => {
         // A different text gets a different id, as the real hash does.
         const point = (text: string, pr = 1, comment = 'c1'): ReviewLesson => ({ id: `id-${text.length}`, text, file: 'src/a.ts', symbols: ['loadRows', 'status'], state: 'candidate', evidence: [{ kind: 'point', pr, comment, author: 'r', text, at: '' }], createdAt: '', updatedAt: '' });
         const stored = mergeLessons([], [point('This reads every row.')]).lessons;
-        stored[0].evidence.push({ kind: 'accepted', pr: 1, comment: 'accepted-1', author: 'p@example.com', detail: 'right', at: '' }); // as decideLesson records it
         const again = mergeLessons(stored, [point('This reads every row. Filter in the query.')]);
         expect(again.added).toBe(0);
-        expect(again.lessons.map(l => [l.id, l.text, l.state])).toEqual([[stored[0].id, 'This reads every row. Filter in the query.', 'verified']]);
+        expect(again.lessons.map(l => [l.id, l.text, l.state, l.suggestedText])).toEqual([[stored[0].id, 'This reads every row. Filter in the query.', 'candidate', undefined]]);
+        const twice = mergeLessons(again.lessons, [point('This reads every row. Filter in the query.')]);
+        expect(twice.lessons).toEqual(again.lessons.map(l => ({ ...l, updatedAt: twice.lessons[0].updatedAt })));
         const later = mergeLessons(again.lessons, [point('Same scan here, filter it in SQL.', 2, 'c9')]);
         expect(later.lessons[0].text).toBe('This reads every row. Filter in the query.'); // another comment adds evidence, never rewrites
+    });
+
+    it('never rewrites a lesson a person decided: the new wording waits for them, and taking it is recorded', () => {
+        const point = (text: string): ReviewLesson => ({ id: `id-${text.length}`, text, file: 'src/a.ts', symbols: ['loadRows', 'status'], state: 'candidate', evidence: [{ kind: 'point', pr: 1, comment: 'c1', author: 'r', text, at: '' }], createdAt: '', updatedAt: '' });
+        for (const decision of ['accepted', 'rejected', 'dismissed', 'compiled'] as const) {
+            const stored = mergeLessons([], [point('This reads every row.')]).lessons;
+            stored[0].evidence.push({ kind: decision, pr: 1, comment: `${decision}-1`, author: 'p@example.com', detail: 'decided', at: '' });
+            const again = mergeLessons(stored, [point('This reads every row. Filter in the query.')]);
+            expect(again.lessons.map(l => [l.text, l.suggestedText, l.suggestedWhy])).toEqual([['This reads every row.', 'This reads every row. Filter in the query.', 'parser fix']]);
+            expect(mergeLessons(again.lessons, [point('This reads every row. Filter in the query.')]).lessons.map(l => [l.text, l.suggestedText])).toEqual([['This reads every row.', 'This reads every row. Filter in the query.']]);
+        }
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reworded-'));
+        try {
+            const stored = mergeLessons([], [point('This reads every row.')]).lessons;
+            stored[0].evidence.push({ kind: 'accepted', pr: 1, comment: 'accepted-1', author: 'p@example.com', at: '' });
+            writeLessons(dir, mergeLessons(stored, [point('This reads every row. Filter in the query.')]).lessons);
+            const taken = acceptSuggestedText(dir, stored[0].id, 'p@example.com');
+            expect([taken?.text, taken?.suggestedText, taken?.state]).toEqual(['This reads every row. Filter in the query.', undefined, 'verified']);
+            expect(taken?.evidence.at(-1)).toMatchObject({ kind: 'reworded', author: 'p@example.com', detail: 'parser fix; was: This reads every row.' });
+            const reread = mergeLessons(readLessons(dir), [point('This reads every row. Filter in the query.')]).lessons;
+            expect([reread[0].text, reread[0].suggestedText]).toEqual(['This reads every row. Filter in the query.', undefined]); // nothing left to suggest
+            expect(acceptSuggestedText(dir, stored[0].id, 'p@example.com')).toBeUndefined();
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 
     it('makes a candidate a lesson only on evidence, and keeps every piece of it', () => {

@@ -29,12 +29,14 @@ export interface Journey {
     suggested?: { detail: string; pr: number; at: string };
     /** Back to a candidate when outcomes stopped promoting, with the evidence that had promoted it. */
     reclassified?: { detail: string; evidence: string[] };
+    /** A corrected wording for a lesson a person decided; it changes only when they take it. */
+    suggestedText?: { text: string; why: string };
 }
 
 /** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
 const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);
 
-export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed') => void }> = ({ lesson, onDecide, onDecideReview }) => (
+export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'reworded') => void }> = ({ lesson, onDecide, onDecideReview }) => (
     <div className="st-card">
         <div className="st-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{inlineCode(lesson.text)}</div>
@@ -74,6 +76,15 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
                     <span className="st-sub">The pull request (#{lesson.suggested.pr}) left this point alone, and a later fix changed its lines. If that fix is about this point, the lesson was right.</span>
                     <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
                     <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'dismissed')} type="button">Dismiss</button>
+                </div>
+            </div>
+        )}
+        {lesson.suggestedText && (
+            <div style={{ marginTop: 14 }}>
+                <div><span className="st-chip">corrected wording ({lesson.suggestedText.why})</span> <span style={{ fontSize: 15 }}>{inlineCode(lesson.suggestedText.text)}</span></div>
+                <div className="st-row" style={{ marginTop: 10 }}>
+                    <span className="st-sub">You decided on this lesson as it reads above. A newer version reads its comment better; the lesson changes only if you take it.</span>
+                    <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'reworded')} type="button">Use this wording</button>
                 </div>
             </div>
         )}
