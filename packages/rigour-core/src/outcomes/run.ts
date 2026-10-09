@@ -58,13 +58,13 @@ export async function runOutcomes(cwd: string, config: Config, options: { flag?:
 function lessonEvidence(cwd: string, mainRef: string, demoteAfter: number): OutcomeEvidenceResult | undefined {
     const lessons = readLessons(cwd);
     if (lessons.length === 0) return undefined;
-    const result = applyOutcomeEvidence(lessons, Object.values(readPrOutcomes(cwd).outcomes), reviews(cwd).applied, { demoteAfter, git: gitIn(cwd), mainRef, deadline: Date.now() + LESSON_DEADLINE_MS });
+    const result = applyOutcomeEvidence(lessons, Object.values(readPrOutcomes(cwd).outcomes), threadReviews(cwd).applied, { demoteAfter, git: gitIn(cwd), mainRef, deadline: Date.now() + LESSON_DEADLINE_MS });
     if (result.added) writeLessons(cwd, lessons);
     return result;
 }
 
 /** Per pull request, the lessons a review of it recorded as applying, and every pull request a review by Rigour ran on with its rounds' dollars and its first review's findings: from the threads. */
-function reviews(cwd: string): { applied: Map<number, Set<string>>; reviewed: Map<number, PrReviews> } {
+export function threadReviews(cwd: string): { applied: Map<number, Set<string>>; reviewed: Map<number, PrReviews> } {
     const applied = new Map<number, Set<string>>();
     const reviewed = new Map<number, PrReviews>();
     const count = (v: unknown) => typeof v === 'number' ? v : 0;
@@ -86,7 +86,7 @@ function reviews(cwd: string): { applied: Map<number, Set<string>>; reviewed: Ma
 /** The outcome numbers for this checkout (metrics.ts), over every record it keeps; undefined when it keeps none. Read-only. */
 export function localOutcomeMetrics(cwd: string): OutcomeMetrics | undefined {
     const records = Object.values(readPrOutcomes(cwd).outcomes);
-    return records.length ? outcomeMetrics(records, readLessons(cwd), reviews(cwd).reviewed) : undefined;
+    return records.length ? outcomeMetrics(records, readLessons(cwd), threadReviews(cwd).reviewed) : undefined;
 }
 
 async function onePr(cwd: string, pr: number, exec: Exec, env: Record<string, string> | undefined): Promise<{ prs: MergedPr[]; incomplete: boolean }> {

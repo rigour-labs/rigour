@@ -58,8 +58,8 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
         appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(nothing ? { nothing_to_review: true } : {}) });
         appendTaskEvent(cwd, { kind: 'stop-review', agent: tool, session, blocked: decision.block, blocking: decision.blocking, files: decision.reviewedFiles });
         if (nothing) process.stderr.write(`Rigour stop review: nothing to review against ${decision.against}.\n`);
-        countUsage('stop_review');
-        if (decision.block) countUsage(attempt > 1 ? 'stop_block_repeat' : 'stop_block');
+        countUsage('stop_review', 1, { agent: tool });
+        if (decision.block) countUsage(attempt > 1 ? 'stop_block_repeat' : 'stop_block', 1, { agent: tool });
         recordReviewed(cwd, session, fingerprint);
         const capture = recordReviewOutcome(cwd, decision.findings, decision.reviewedFiles, 'stop');
         await recordFixLessons(cwd, capture.fixes).catch(() => undefined); // learning never blocks the agent

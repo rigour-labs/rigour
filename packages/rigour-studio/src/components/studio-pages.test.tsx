@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
 import { WeeklyTable } from './AgentContext';
-import { LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
+import { HowItWorks } from './HowItWorks';
+import { CompiledChecks, LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
 import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { ReadOnlyNote } from './ReadOnlyNote';
@@ -138,6 +139,19 @@ describe('the numbers after the merge, on the learning page', () => {
         expect(out).toContain('this is not a comparison');
         expect(out).not.toMatch(/fewer fixes|better|worse/);
     });
+
+    it('shows the model reviewer\'s share and cost: counts, a percentage and a median only from ten, and what was left out', () => {
+        const base = { records: { merged: 1, settled: 1, unsettled: 0 }, settled: { ciRegressed: { count: 0, of: 1, rate: null }, ciUnknown: 0, reverted: { count: 0, of: 1, rate: null }, fixedLater: { count: 0, of: 1, rate: null }, reviewed: { prs: 1, fixedLater: { count: 0, of: 1, rate: null } }, notReviewed: { prs: 0, fixedLater: { count: 0, of: 0, rate: null } } }, lessons: { awaitingDecision: 0, promotedFromEvidence: 0, dismissed: 0, takenBack: 0 } };
+        const few = html(<OutcomeCard numbers={{ ...base, model: { share: { model: 2, checks: 3, prs: 4, rate: null }, costPerPr: { prs: 4, totalUsd: 3.5, medianUsd: null, prsEarlierBasis: 2 } } }} />);
+        expect(few).toContain('2 of 5 findings at first review on 4 pull requests, the rest');
+        expect(few).toContain('$3.50 over 4 pull requests.');
+        expect(few).toContain('2 more reviewed before every run was counted, left out.');
+        expect(few).not.toContain('%');
+        const many = html(<OutcomeCard numbers={{ ...base, model: { share: { model: 3, checks: 10, prs: 10, rate: 0.23 }, costPerPr: { prs: 10, totalUsd: 55, medianUsd: 5.5, prsEarlierBasis: 0 } } }} />);
+        expect(many).toContain('(23%)');
+        expect(many).toContain('$5.50 each at the median');
+        expect(html(<OutcomeCard numbers={base} />)).not.toContain('The model reviewer');
+    });
 });
 
 describe('a lesson back to a candidate, on the learning page', () => {
@@ -168,6 +182,23 @@ describe('a lesson taken back on the learning page', () => {
         expect(out).toContain('taken back</span> <span class="st-sub">taken back: #50, #51 repeated it and settled clean');
         expect(out).toContain('Promote again');
         expect(out).not.toContain('Seen once');
+    });
+});
+
+describe('lessons compiled into checks, on the learning page', () => {
+    it('shows what a check reports, its history as counts with a rate only from ten, who approved it, and the decision a person can make', () => {
+        const out = html(<CompiledChecks checks={[
+            { id: 'c-L1', lessonId: 'L1', files: 'src/load.ts', kind: 'forbid', symbol: 'fetchAll', message: 'Never call `fetchAll` here.', state: 'proposed', backtest: { repeating: { fired: 3, n: 4, rate: null }, other: { fired: 1, n: 12, rate: 0.08 }, commits: 16 } },
+            { id: 'c-L2', lessonId: 'L2', files: 'src/x.ts', kind: 'forbid', symbol: 'y', message: 'Never y.', state: 'active', by: 'bo@example.com', suspended: 'lesson L2 no longer qualifies (rejected): suspended, the lesson is back with the model reviewer' },
+            { id: 'c-L3', lessonId: 'L3', files: 'src/page.ts', kind: 'require', symbol: 'preloadData', with: 'resolve', message: 'Always wrap it.', state: 'active', by: 'ana@example.com' },
+        ]} onDecide={() => undefined} onPropose={() => undefined} />);
+        expect(out).toContain('fires on 3 of 4 where a review found the lesson repeating, and on 1 of 12 (8%) others');
+        expect(out).toContain('approved by ana@example.com');
+        expect(out).toContain('>Approve<');
+        expect(out).toContain('>Take back<');
+        expect(out).toContain('committed with it');
+        expect(out).toContain('>suspended</span>');
+        expect(out).toContain('lesson L2 no longer qualifies (rejected)');
     });
 });
 
@@ -295,5 +326,15 @@ describe('an edit check that ran without --block, on the activity page', () => {
         expect(out).toContain('2 edits reported on');
         expect(out).toContain('>reported<');
         expect(out).not.toMatch(/blocked|Stopped/);
+    });
+});
+
+describe('how Rigour works, on the home page', () => {
+    it('names the agents checked as they edit, every agent at push, and lessons only with learning on', () => {
+        const html = renderToStaticMarkup(<HowItWorks onHide={() => {}} />);
+        expect(html).toContain('Claude Code, Cursor, Cline or Windsurf are checked as they edit; any agent at push.');
+        expect(html).toContain('It stops the agent only on problems it can prove.');
+        expect(html).toContain('A short review catches the rest; with learning on, fixes become lessons.');
+        expect(html).not.toMatch(/any agent\.|checks every change|Every fix teaches/);
     });
 });

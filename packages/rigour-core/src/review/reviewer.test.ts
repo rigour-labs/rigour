@@ -85,12 +85,17 @@ function installFake(dir: string, name: string): string {
  * process, slow to start on Windows, and the same two commits were made again for every test.
  */
 let fixture: string;
+/** A copy skips git's transient files (locks, temporary objects), which may vanish while it reads them. */
+const notTransient = (source: string) => !/\.lock$|[\\/]tmp_[^\\/]*$/.test(source);
 beforeAll(() => {
     repo = fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-fixture-'));
     git('init', '-q', '-b', 'main');
     git('config', 'user.email', 't@example.com');
     git('config', 'user.name', 't');
     git('config', 'commit.gpgsign', 'false');
+    // No background gc or maintenance after a commit: it writes and deletes files under .git while a test copies it.
+    git('config', 'gc.auto', '0');
+    git('config', 'maintenance.auto', 'false');
     fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 1;\n');
     git('add', '-A');
     git('commit', '-qm', 'init');
@@ -106,7 +111,7 @@ beforeEach(() => {
     for (const name of ['claude', 'cursor-agent']) installFake(bins[0], name);
     process.env.PATH = [...bins, originalPath ?? ''].join(path.delimiter);
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-'));
-    fs.cpSync(fixture, repo, { recursive: true });
+    fs.cpSync(fixture, repo, { recursive: true, filter: notTransient });
 });
 afterEach(() => {
     process.env.PATH = originalPath;
@@ -642,6 +647,40 @@ describe('the content cache', () => {
     });
 });
 
+describe('cheap-model-first tiering', () => {
+    const tiered = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'], tiers: { cheap: { claude: 'cheap-model' } } } } });
+    const modelArg = (seen: Seen, i: number) => { const args = seen.args![i]; const at = args.indexOf('--model'); return at >= 0 ? args[at + 1] : undefined; };
+
+    it('runs the cheap model on a change with no risk signal, and records the tier on the review and its cost row', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', tiered, fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { force: true });
+        expect(result.mode?.tier).toMatchObject({ tier: 'cheap', model: 'cheap-model' });
+        expect(modelArg(seen, 0)).toBe('cheap-model');
+        expect((await (await VerdictStore.open(repo, fakes(() => '', seenNow())))!.costs()).at(-1)).toMatchObject({ tier: 'cheap', runs: 1 });
+    });
+
+    it('runs the team\'s model when the pull request has human reviews to check', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', tiered, fakes(() => JSON.stringify(EMPTY), seen), () => undefined, { force: true });
+        expect(result.mode?.tier).toMatchObject({ tier: 'strong', why: expect.stringContaining('human review') });
+        expect(modelArg(seen, 0)).toBeUndefined();
+    });
+
+    it('retries a cheap model\'s answer that is not a verdict on the team\'s model, and says so', async () => {
+        const seen = seenNow();
+        let calls = 0;
+        const result = await runReviewer(repo, 'main', tiered, fakes(() => (calls++ === 0 ? 'not json' : JSON.stringify(EMPTY)), seen, null), () => undefined, { force: true });
+        expect([modelArg(seen, 0), modelArg(seen, 1)]).toEqual(['cheap-model', undefined]);
+        expect(result.outcome).toBe('passed');
+        expect(result.mode?.tier?.escalated).toContain('retried on the team');
+    });
+
+    it('is off without a cheap model', async () => {
+        const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { force: true });
+        expect(result.mode?.tier).toBeUndefined();
+    });
+});
+
 describe('choosing reviewers', () => {
     it('runs the newest installed copy of a CLI, not the first on PATH', async () => {
         const seen = seenNow();
@@ -972,7 +1011,26 @@ describe('what the team already knows', () => {
         expect(seen.files['team-knowledge.md']).toContain('docs/jobs.md (names src/job.ts');
         const told = seenNow();
         await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify(EMPTY), told), () => undefined, { force: true, checks: ['src/job.ts:1 Unused export `job`'] });
-        expect(told.files['team-knowledge.md']).toContain("## Already found by Rigour's checks: they block on their own, so do not report them again\n- src/job.ts:1 Unused export `job`");
+        expect(told.files['team-knowledge.md']).toContain("## Already found by Rigour's checks on this change: do not report them again\n- src/job.ts:1 Unused export `job`");
+    });
+
+    it('leaves a lesson out only where its compiled check ran on the change, and then says it is covered', async () => {
+        fs.mkdirSync(path.join(repo, '.rigour'), { recursive: true });
+        fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{
+            id: 'aa11bb22cc33', text: 'job must take the lock before its first read', file: 'src/job.ts', symbols: ['job'], state: 'verified', createdAt: '', updatedAt: '',
+            evidence: [{ kind: 'point', pr: 1, comment: 'p', author: 'r' }, { kind: 'accepted', pr: 1, comment: 'a', author: 'lead@team' }],
+        }] }));
+        const covered = [{ checkId: 'c-aa11bb22cc33', lessonId: 'aa11bb22cc33', message: 'job must take the lock before its first read' }];
+        const ran = seenNow();
+        await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify(EMPTY), ran), () => undefined, { force: true, covered, checks: ['src/job.ts:1 `job`: the team\'s lesson says not to'] });
+        expect(ran.files['team-knowledge.md']).toContain('- covered by compiled check c-aa11bb22cc33 for lesson aa11bb22cc33: job must take the lock before its first read');
+        expect(ran.files['team-knowledge.md']).toContain("- src/job.ts:1 `job`: the team's lesson says not to");
+        expect(ran.files['team-knowledge.md']).not.toMatch(/Lessons this team taught[^#]*take the lock/);
+        // The check did not run on this path: the lesson stays with the judge.
+        const notRan = seenNow();
+        await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify(EMPTY), notRan), () => undefined, { force: true });
+        expect(notRan.files['team-knowledge.md']).toMatch(/Lessons this team taught[^#]*take the lock/);
+        expect(notRan.files['team-knowledge.md']).not.toContain('covered by compiled check');
     });
 
     it('fails closed: a finding whose judge left out the consequence still blocks', async () => {

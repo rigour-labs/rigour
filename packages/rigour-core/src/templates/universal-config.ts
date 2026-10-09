@@ -220,6 +220,10 @@ export const UNIVERSAL_CONFIG: Config = {
             allow: [],
             block: false,
         },
+        compiled_lessons: {
+            enabled: true,
+            block: false,
+        },
         query_patterns: {
             enabled: true,
         },
@@ -303,6 +307,7 @@ export const UNIVERSAL_CONFIG: Config = {
             judges: 2,
             escalate: 'always',
             cross_models: {},
+            tiers: { cheap: {} },
             judge_env: {},
             reasoning: {},
         },

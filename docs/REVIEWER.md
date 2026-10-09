@@ -232,6 +232,18 @@ step, because it turns a personal install into the team's.
 - **A push nobody will read costs nothing:** before checking anything out, the background review
   asks whether the branch has an open, ready pull request; if not, it stops and says why.
 
+- **Cheap-model-first, experimental and off by default** (`review.reviewer.tiers.cheap: { claude: <model> }`).
+  Which model reviews a change is decided before any run, from facts about the change, never by a
+  model: a required floor, human reviews, open items carried from the last verdict, a migration, a
+  security finding from the checks, a declared goal, or a risky changed function gets the team's
+  model; anything else gets the cheap one. The only escalation after a run is an answer that is not
+  a valid verdict, retried on the team's model. What blocks is unchanged. Tiering turns itself off
+  when its last 20 reviews cost more, on average, than one judge would have, and the review record
+  and telemetry say so. That comparison is in dollars once Rigour has frozen a dollar
+  baseline from this repository's single reviews; before that it compares characters given to the
+  model, which cannot see a cheap model's lower price, only the extra runs an escalation adds. Don't rely on it until a backtest on your own history shows what the cheap
+  model misses.
+
 **Daily caps**, per repository, unset by default:
 
 ```yaml
@@ -423,6 +435,37 @@ does the same finding re-worded: the same file and class, within a few lines, in
 words. A different bug nearby is never covered by it. Every later judge is told, the background
 review included. Commit `.rigour/dismissed-review-items.json` so the record is reviewed and shared.
 When a team turns dismissals off again, the recorded ones stop counting.
+
+
+### Lessons compiled into checks
+
+A verified lesson can become a check that runs without a model, on every review, for free. Only a lesson
+a person confirmed (promoted or corrected) or that recurred across pull requests qualifies; one an
+outcome alone suggested never does. Compilation is a template, not a model: the lesson must name its
+file and its symbols in backticks and say what is wrong in so many words:
+
+| The lesson says | The check reports |
+| --- | --- |
+| never, avoid, do not use `` `a` ``; use `` `b` `` instead of `` `a` `` | `a` on a changed line of the lesson's file |
+| always, must, every … `` `a` `` … `` `b` `` | `a` on a changed line with no `b` within three lines |
+
+`rigour learn-reviews --compile` (or **Propose checks** on Studio's learning page) proposes a check for
+every lesson a template fits and lists them all, each with how it fired on the main branch's last 100
+changes to its files: on merged pull requests a review found the lesson repeating in, and on the
+others (a false fire, or a catch the review missed). These are counts, with a percentage only from
+ten. A proposed check runs only once a person approves it (`--approve-check <id>`, or **Approve** in
+Studio), and `--withdraw-check <id>` (**Take back**) takes it back.
+
+Where an approved check ran on a change (the change touched its files), its lesson leaves the judge's
+and the deep PR review's prompt, and the prompt says instead that the lesson is covered by that check,
+with the check's findings on the change listed as already found. Where it did not run (`rigour check
+--deep`, a change elsewhere), the lesson stays. Every decision is kept, on the check and as evidence
+on its lesson. An approved check whose lesson a person later rejects, or evidence takes back, is
+suspended: it stops running, Studio shows why, and the lesson goes back to the model reviewer.
+Agents' briefings keep the lesson either way. Checks live in `.rigour/compiled-checks.json`: commit it, so the team reviews
+them like code. Who approved or took back each check, by git email, is committed with it; without a
+git email set in the checkout, the decision is refused. Each finding names its lesson. A compiled check is a note unless
+`gates.compiled_lessons.block` is on.
 
 ## Where you see it
 

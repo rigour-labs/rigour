@@ -1,6 +1,5 @@
 /**
- * What Rigour's checks already found on a change, as a model reviewer is told it: settled, blocking on their own, never
- * to be reported again. The judge (reviewer/context.ts) and the deep PR review (deep/pr-review.ts) both say it this way,
+ * What Rigour's checks already found on a change, as a model reviewer is told it: settled, never to be reported again. The judge (reviewer/context.ts) and the deep PR review (deep/pr-review.ts) both say it this way,
  * so neither spends a model's turn on what a free check proves.
  */
 
@@ -52,5 +51,19 @@ export function settledLine(check: SettledCheck): string {
 
 /** The prompt section; empty when there is nothing settled. */
 export function settledSection(lines: string[]): string {
-    return lines.length ? `## Already found by Rigour's checks: they block on their own, so do not report them again\n${lines.slice(0, MAX_SETTLED).map(c => `- ${c}`).join('\n')}` : '';
+    return lines.length ? `## Already found by Rigour's checks on this change: do not report them again\n${lines.slice(0, MAX_SETTLED).map(c => `- ${c}`).join('\n')}` : '';
+}
+
+/** A lesson a compiled check covered on this change: the check ran on its files, and its findings are settled. */
+export interface CoveredLesson { checkId: string; lessonId: string; message: string }
+
+/** A model reviewer's lessons without those a compiled check covered on this change: the check said them for free. */
+export function withoutCovered<L extends { id: string }>(lessons: L[], covered: CoveredLesson[]): L[] {
+    const ids = new Set(covered.map(c => c.lessonId));
+    return ids.size ? lessons.filter(l => !ids.has(l.id)) : lessons;
+}
+
+/** The prompt section saying which lessons a compiled check covered instead; empty when none did. */
+export function coveredSection(covered: CoveredLesson[]): string {
+    return covered.length ? `## Lessons the team's compiled checks covered on this change (their findings are listed as already found)\n${covered.map(c => `- covered by compiled check ${c.checkId} for lesson ${c.lessonId}: ${c.message}`).join('\n')}` : '';
 }

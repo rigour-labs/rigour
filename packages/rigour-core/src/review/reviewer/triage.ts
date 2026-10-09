@@ -106,6 +106,11 @@ export function triage(hunks: Hunk[], context: TriageContext): Map<string, numbe
     return picked;
 }
 
+/** Whether a file is a migration or a schema (a change a cheaper model may miss the cost of). */
+export function isMigration(file: string): boolean {
+    return MIGRATION.test(file);
+}
+
 /** Whether no model reviews this file (SKIP). */
 export function skipped(file: string): boolean {
     return SKIP.some(pattern => pattern.test(file));
