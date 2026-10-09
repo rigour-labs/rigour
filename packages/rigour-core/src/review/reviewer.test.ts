@@ -590,6 +590,48 @@ describe('the orchestrator', () => {
     });
 });
 
+describe('the content cache', () => {
+    it('reuses a verdict for the same content on another commit, and reviews again when the base under a file it cites moved', async () => {
+        // The judge cites a.ts (on the base, not in the change) and src/job.ts (the change).
+        const reply = JSON.stringify({ ...EMPTY, findings: [
+            { class: 'correctness', file: 'a.ts', line: 1, issue: 'a is exported twice', input: 'x', consequence: 'y', quote: 'export const a = 1;', severity: 'should-fix' },
+            { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' },
+        ] });
+        const run = async () => {
+            const seen = seenNow();
+            const result = await runReviewer(repo, 'main', config, fakes(() => reply, seen), () => undefined);
+            return { result, runs: seen.prompts.length };
+        };
+        const store = async () => (await VerdictStore.open(repo, fakes(() => '', seenNow())))!;
+        expect((await run()).runs).toBe(1);
+        // An amend: a new commit, the same content.
+        git('commit', '-q', '--amend', '-m', 'job, reworded');
+        const amended = await run();
+        expect(amended.runs).toBe(0);
+        expect(amended.result).toMatchObject({ cached: true, cache: 'content', why: expect.stringMatching(/^same content as the verdict on [0-9a-f]{9}$/) });
+        expect(amended.result.items.map(i => i.file)).toEqual(['src/job.ts']);
+        expect((await store()).costs().at(-1)).toMatchObject({ runs: 0, actualUsd: 0, cache: 'content' });
+        // The base moves under a file nothing cites: still the same review.
+        git('checkout', '-q', 'main');
+        fs.writeFileSync(path.join(repo, 'b.ts'), 'export const b = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'b');
+        git('checkout', '-q', 'feature');
+        git('rebase', '-q', 'main');
+        expect((await run()).runs).toBe(0);
+        // The base moves under a.ts, which the verdict cites: reviewed again.
+        git('checkout', '-q', 'main');
+        fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 2;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'a changed');
+        git('checkout', '-q', 'feature');
+        git('rebase', '-q', 'main');
+        const moved = await run();
+        expect(moved.runs).toBe(1);
+        expect(moved.result.cache).toBeUndefined();
+    });
+});
+
 describe('choosing reviewers', () => {
     it('runs the newest installed copy of a CLI, not the first on PATH', async () => {
         const seen = seenNow();
