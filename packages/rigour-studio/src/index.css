@@ -516,6 +516,9 @@ header {
 
 .overview-banner strong { display: block; margin-bottom: 2px; }
 .overview-banner p { color: var(--text-dim); }
+.readonly-note { align-items: center; padding: 8px 12px; }
+.readonly-note span { flex: 1; }
+.readonly-note-close { background: none; border: 0; color: var(--text-dim); cursor: pointer; display: flex; padding: 2px; }
 @keyframes blob-drift {
     from { transform: translate3d(0, 0, 0) scale(1); }
     to { transform: translate3d(40px, 24px, 0) scale(1.08); }

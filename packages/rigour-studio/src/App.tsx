@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Activity as ActivityIcon, Compass, GraduationCap, Inbox, ListChecks, Lock, Moon, ShieldCheck, Sun, TrendingUp, Trophy, Wrench, X } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProjectIdentity } from './components/ProjectIdentity';
+import { ReadOnlyNote } from './components/ReadOnlyNote';
 import { SystemHealth, type HealthData } from './components/SystemHealth';
 import { Week } from './components/Week';
 import { Progress } from './components/Progress';
@@ -134,9 +135,7 @@ function App() {
                     </div>
                 )}
                 <div className="view-container">
-                    {!hasStudioKey() && (
-                        <div className="overview-banner" role="note"><Lock size={18} /><div><strong>Read-only</strong><p>Open Studio from the link printed in your terminal to dismiss findings, keep lessons or answer an approval.</p></div></div>
-                    )}
+                    {!hasStudioKey() && <ReadOnlyNote />}
                     <ErrorBoundary resetKey={current.id}>
                         <div className="full-view">{current.page(setActive)}</div>
                     </ErrorBoundary>

@@ -8,6 +8,7 @@ import { WeeklyTable } from './AgentContext';
 import { LessonCard, OutcomeCard } from './LearningParts';
 import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
+import { ReadOnlyNote } from './ReadOnlyNote';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
 import { groupNeeds, NeedGroupCard, needsHeading } from './NeedGroups';
@@ -262,5 +263,14 @@ describe('open findings on the home page', () => {
         const html = renderToStaticMarkup(<NeedGroupCard group={groupNeeds(needs)[0]} onDone={() => {}} />);
         expect(html).toContain('Function is 120 lines long');
         expect(html).toContain('Copy for my agent');
+    });
+});
+
+describe('a read-only tab', () => {
+    it('says in one line that the printed link gives edit rights, and can be hidden', () => {
+        const html = renderToStaticMarkup(<ReadOnlyNote />);
+        expect(html).toContain('Read-only. Open the link <code>rigour studio</code> printed in your terminal: it gives this tab edit rights.');
+        expect(html).toContain('aria-label="Hide this note"');
+        expect(html).not.toContain('<p>');
     });
 });
