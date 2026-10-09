@@ -155,6 +155,11 @@
             "summary": "Reports code files a change adds that nothing imports, runs or names in package.json, CI or config. Teams list globs for files a tool loads by path.",
             "blocks": "Blocks on changed lines"
         },
+        "gates.compiled_lessons": {
+            "title": "The team's lessons, compiled into checks",
+            "summary": "Runs the checks a person compiled from verified review lessons (rigour learn-reviews --compile, then --approve-check): a symbol a lesson forbids, or one it requires a partner for, on a changed line. Only person-approved checks run.",
+            "blocks": "Never by default; block: true makes them block"
+        },
         "gates.migration_order": {
             "title": "Migrations added out of order",
             "summary": "Reports a SQL migration a change adds that sorts before the newest migration already on the base in the same directory. Off by default; teams whose migration runner applies files in name order turn it on.",
@@ -343,6 +348,8 @@
         "gates.orphan_files.enabled": "Turns the unused-new-file check on or off.",
         "gates.orphan_files.allow": "Glob patterns for files that are never reported because a tool loads them by path.",
         "gates.orphan_files.block": "Make an orphaned file block. Off by default: it is reported as a note.",
+        "gates.compiled_lessons.enabled": "Turns the compiled-lesson checks on or off.",
+        "gates.compiled_lessons.block": "Make a compiled lesson's finding block. Off by default: it is reported as a note.",
         "gates.migration_order.enabled": "Turns the out-of-order migration check on or off.",
         "gates.migration_order.dirs": "Glob patterns matched against the directory of each added .sql file; only migrations in matching directories are checked.",
         "gates.semantic_bugs.enabled": "Turns the proven semantic-bug rules on or off.",

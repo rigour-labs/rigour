@@ -34,6 +34,7 @@ import { checkLocalPatterns } from '../storage/local-memory.js';
 import { isScoped } from '../utils/scope.js';
 import { Logger } from '../utils/logger.js';
 import path from 'path';
+import { withoutCovered } from '../review/settled-checks.js';
 
 /** Cloud setup (API connection) must not hang a check. Local setup is bounded by download stall timeouts instead. */
 const CLOUD_SETUP_TIMEOUT_MS = 120_000;
@@ -219,7 +220,7 @@ export class DeepAnalysisGate extends Gate {
         const related = relatedChanges(cwd, changedFiles, rankChangedFunctions(cwd, options.focusLines ?? {}, options.removedLines));
         this.config.onProgress?.(`  Reviewing the PR as a whole (${focus.length} risky function(s) first)...`);
         try {
-            const result = await reviewPullRequest(this.provider!, { cwd, diff: options.diff!, focus, related, lessons: lessonsSection(lessonsForDiff(cwd, options.diff!, this.config.reviewLessons)),
+            const result = await reviewPullRequest(this.provider!, { cwd, diff: options.diff!, focus, related, lessons: lessonsSection(withoutCovered(lessonsForDiff(cwd, options.diff!, this.config.reviewLessons), options.covered ?? [])), covered: options.covered,
                 rules: rulesSection(rulesForDiff(cwd, options.diff!, this.config.repoRules)), prBody: options.prBody, settled: options.settled }, inferenceOptions(this.config));
             this.recordPass({ findings: [], chunksTotal: 1, chunksFailed: 0 });
             this.outcome.findingsProposed = result.findings.length;

@@ -246,7 +246,7 @@ export class GateRunner {
         let deepStats: Report['stats']['deep'] = undefined;
         if (deepOptions?.enabled) {
             // What the checks found on the change's lines is settled: the model is told so and never reports it again.
-            const deep = await runDeepAnalysis(this.config, { cwd, ignore, patterns }, { ...deepOptions, settled: settledChecks(onChangedLines(failures, deepOptions.focusLines)) });
+            const deep = await runDeepAnalysis(this.config, { cwd, ignore, patterns }, { ...deepOptions, settled: [...(deepOptions.settled ?? []), ...settledChecks(onChangedLines(failures, deepOptions.focusLines))] });
             failures.push(...deep.failures);
             summary['deep-analysis'] = deep.summary;
             deepStats = deep.stats;

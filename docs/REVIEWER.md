@@ -424,6 +424,37 @@ words. A different bug nearby is never covered by it. Every later judge is told,
 review included. Commit `.rigour/dismissed-review-items.json` so the record is reviewed and shared.
 When a team turns dismissals off again, the recorded ones stop counting.
 
+
+### Lessons compiled into checks
+
+A verified lesson can become a check that runs without a model, on every review, for free. Only a lesson
+a person confirmed (promoted or corrected) or that recurred across pull requests qualifies; one an
+outcome alone suggested never does. Compilation is a template, not a model: the lesson must name its
+file and its symbols in backticks and say what is wrong in so many words:
+
+| The lesson says | The check reports |
+| --- | --- |
+| never, avoid, do not use `` `a` ``; use `` `b` `` instead of `` `a` `` | `a` on a changed line of the lesson's file |
+| always, must, every … `` `a` `` … `` `b` `` | `a` on a changed line with no `b` within three lines |
+
+`rigour learn-reviews --compile` (or **Propose checks** on Studio's learning page) proposes a check for
+every lesson a template fits and lists them all, each with how it fired on the main branch's last 100
+changes to its files: on merged pull requests a review found the lesson repeating in, and on the
+others (a false fire, or a catch the review missed). These are counts, with a percentage only from
+ten. A proposed check runs only once a person approves it (`--approve-check <id>`, or **Approve** in
+Studio), and `--withdraw-check <id>` (**Take back**) takes it back.
+
+Where an approved check ran on a change (the change touched its files), its lesson leaves the judge's
+and the deep PR review's prompt, and the prompt says instead that the lesson is covered by that check,
+with the check's findings on the change listed as already found. Where it did not run (`rigour check
+--deep`, a change elsewhere), the lesson stays. Every decision is kept, on the check and as evidence
+on its lesson. An approved check whose lesson a person later rejects, or evidence takes back, is
+suspended: it stops running, Studio shows why, and the lesson goes back to the model reviewer.
+Agents' briefings keep the lesson either way. Checks live in `.rigour/compiled-checks.json`: commit it, so the team reviews
+them like code. Who approved or took back each check, by git email, is committed with it; without a
+git email set in the checkout, the decision is refused. Each finding names its lesson. A compiled check is a note unless
+`gates.compiled_lessons.block` is on.
+
 ## Where you see it
 
 - `rigour review --reviewer`: the verdict, what ran and why, and each finding with its id. What is

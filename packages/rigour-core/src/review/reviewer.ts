@@ -42,6 +42,7 @@ import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
 import { appendTaskEvent } from '../task/thread.js';
+import type { CoveredLesson } from './settled-checks.js';
 
 export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
 export { itemLine, type OpenItem } from './reviewer/verdict.js';
@@ -69,6 +70,8 @@ export interface ReviewerOptions {
     hints?: string;
     /** What Rigour's checks already found on this change: settled, so no judge spends a turn finding it again. */
     checks?: string[];
+    /** Lessons the team's compiled checks covered on this change (review.ts): left out of the judge's lessons, and said so. */
+    covered?: CoveredLesson[];
     /** Where the team's state lives (.rigour: dismissals, reviewed functions) when cwd is a worktree that lacks it. */
     stateRoot?: string;
     /** The branch the commit was pushed from, when reviewing it in a detached worktree (background.ts). */
@@ -288,7 +291,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const sincePrevious = previousIsAncestor ? new Set((await git(['diff', '--name-only', `${previous!.head}..HEAD`])).split('\n').filter(Boolean)) : new Set<string>();
     const changedFiles = [...fullDiff.matchAll(/^diff --git a\/.* b\/(.*)$/gm)].map(m => m[1]);
     const context = buildContext({
-        cwd, stateRoot, dismissals, diff: fullDiff, router: config.gates.deep?.router, lessons: config.gates.deep?.review_lessons, ...(pr ? { pr: pr.number } : {}), touched: sincePrevious, checks: options.checks ?? [],
+        cwd, stateRoot, dismissals, diff: fullDiff, router: config.gates.deep?.router, lessons: config.gates.deep?.review_lessons, ...(pr ? { pr: pr.number } : {}), touched: sincePrevious, checks: options.checks ?? [], covered: options.covered ?? [],
         previousPanel: previousIsAncestor ? store.readJson<Verdict>(previous!.verdict)?.panel?.items : undefined,
         docs: await relatedDocs(cwd, changedFiles, exec),
     });

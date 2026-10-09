@@ -131,3 +131,58 @@ export const OutcomeCard: React.FC<{ numbers: OutcomeNumbers }> = ({ numbers: m 
         {m.model && <ModelNumbers model={m.model} />}
     </section>
 );
+
+export interface CompiledCheck {
+    id: string;
+    lessonId: string;
+    files: string;
+    kind: 'forbid' | 'require';
+    symbol: string;
+    with?: string;
+    message: string;
+    state: 'proposed' | 'active' | 'withdrawn';
+    by?: string;
+    /** Why an approved check no longer runs: its lesson no longer qualifies. */
+    suspended?: string;
+    /** The rate is computed by core, by its one RATE_MIN: null means a count only. */
+    backtest?: { repeating: BacktestShare; other: BacktestShare; commits: number };
+}
+
+interface BacktestShare { fired: number; n: number; rate: number | null }
+const share = (s: BacktestShare) => `${s.fired} of ${s.n}${s.rate === null ? '' : ` (${Math.round(s.rate * 100)}%)`}`;
+
+/** Lessons compiled into checks that run without a model: what each reports, how it fired on history, and a person's decision. */
+export const CompiledChecks: React.FC<{ checks: CompiledCheck[]; onDecide: (id: string, state: 'active' | 'withdrawn') => void; onPropose: () => void }> = ({ checks, onDecide, onPropose }) => (
+    <section className="st-card" style={{ margin: '24px 0' }}>
+        <div className="st-row" style={{ justifyContent: 'space-between' }}>
+            <strong>Lessons compiled into checks</strong>
+            <button className="st-btn" type="button" onClick={onPropose}>Propose checks</button>
+        </div>
+        <div className="st-sub" style={{ marginTop: 4, lineHeight: 1.6 }}>
+            A verified lesson that names its file and symbols becomes a check that runs on every review, for free; the model reviewer stops spending prompt on it.
+            A proposed check runs only once you approve it. Who approved it, by git email, is committed with it in <span className="st-mono">.rigour/compiled-checks.json</span>.
+        </div>
+        {checks.length === 0
+            ? <div className="st-sub" style={{ marginTop: 10 }}>None yet. Propose checks once a lesson says never, avoid, instead of, always or must about a symbol in backticks.</div>
+            : <div className="st-stack" style={{ marginTop: 12 }}>{checks.map(c => (
+                <div key={c.id} className="st-need">
+                    <div className="st-row" style={{ justifyContent: 'space-between' }}>
+                        <span className={`st-chip ${c.suspended ? 'bad' : c.state === 'active' ? 'ok' : c.state === 'proposed' ? 'warn' : ''}`}>{c.suspended ? 'suspended' : c.state}</span>
+                        <span className="st-sub st-mono">{c.files}</span>
+                    </div>
+                    <div style={{ marginTop: 8 }}>{c.kind === 'forbid' ? <>Reports <code>{c.symbol}</code> on a changed line.</> : <>Reports <code>{c.symbol}</code> with no <code>{c.with}</code> within three lines.</>}</div>
+                    <div className="st-sub" style={{ marginTop: 4 }}>{inlineCode(c.message)} · lesson {c.lessonId}{c.by ? ` · ${c.state === 'withdrawn' ? 'taken back' : 'approved'} by ${c.by}` : ''}</div>
+                    {c.suspended && <div className="st-sub" style={{ marginTop: 6 }}>{c.suspended}</div>}
+                    {c.backtest && (
+                        <div className="st-sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
+                            On the last {c.backtest.commits} merged changes to its files: fires on {share(c.backtest.repeating)} where a review found the lesson repeating, and on {share(c.backtest.other)} others (each a false fire, or a catch the review missed).
+                        </div>
+                    )}
+                    <div className="st-row" style={{ marginTop: 10, gap: 8 }}>
+                        {c.state !== 'active' && <button className="st-btn" type="button" onClick={() => onDecide(c.id, 'active')}>Approve</button>}
+                        {c.state === 'active' && <button className="st-btn" type="button" onClick={() => onDecide(c.id, 'withdrawn')}>Take back</button>}
+                    </div>
+                </div>
+            ))}</div>}
+    </section>
+);
