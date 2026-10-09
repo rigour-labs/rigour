@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
 import { WeeklyTable } from './AgentContext';
 import { LessonCard, OutcomeCard } from './LearningParts';
+import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
@@ -212,3 +213,12 @@ describe('the browser tab', () => {
     });
 });
 
+
+describe('the header', () => {
+    it('names the repository and its branch, never a path or a package version', () => {
+        const html = renderToStaticMarkup(<ProjectIdentity name="payments" branch="main" />);
+        expect(html).toContain('>payments<');
+        expect(html).toContain('>main<');
+        expect(html).not.toMatch(/\/Users\/|\/home\/|v\d+\.\d+/);
+    });
+});

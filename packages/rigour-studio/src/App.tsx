@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity as ActivityIcon, Compass, GraduationCap, Inbox, ListChecks, Lock, Moon, ShieldCheck, Sun, TrendingUp, Trophy, Wrench, X, Folder } from 'lucide-react';
+import { Activity as ActivityIcon, Compass, GraduationCap, Inbox, ListChecks, Lock, Moon, ShieldCheck, Sun, TrendingUp, Trophy, Wrench, X } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ProjectIdentity } from './components/ProjectIdentity';
 import { SystemHealth, type HealthData } from './components/SystemHealth';
 import { Week } from './components/Week';
 import { Progress } from './components/Progress';
@@ -18,8 +19,6 @@ const THEME_KEY = 'rigour-theme-v2';
 
 interface ProjectInfo {
     projectName?: string;
-    projectPath?: string;
-    projectVersion?: string | null;
     branch?: string | null;
     teamSync?: boolean;
     studioVersion?: string;
@@ -114,15 +113,7 @@ function App() {
             <main className="main-content">
                 <header className="glass-shell">
                     <div className="header-left">
-                        {projectInfo && (
-                            <div className="project-identity">
-                                <Folder size={14} className="folder-icon" />
-                                <span className="project-name">{projectInfo.projectName}</span>
-                                {projectInfo.projectVersion && <span className="project-version-pill">v{projectInfo.projectVersion}</span>}
-                                {projectInfo.branch && <span className="project-version-pill" title="Current branch">{projectInfo.branch}</span>}
-                                <span className="project-path">{projectInfo.projectPath}</span>
-                            </div>
-                        )}
+                        {projectInfo && <ProjectIdentity name={projectInfo.projectName} branch={projectInfo.branch} />}
                     </div>
                     <div className="header-right">
                         <button type="button" className="connection-status" onClick={() => { setHealthOpen(open => !open); void fetchHealth(); }} aria-expanded={healthOpen} title="Studio receives Rigour's events live">
