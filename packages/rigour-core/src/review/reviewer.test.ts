@@ -506,6 +506,7 @@ describe('the orchestrator', () => {
         const rows = (await store()).costs();
         expect(rows).toHaveLength(before + 1);
         expect(rows.at(-1)).toMatchObject({ mode: 'orchestrator', runs: 2, actualUsd: 2.2 });
+        expect(result.spentUsd).toBe(2.2); // what --json reports as spent_usd: the failed pass and the fallback
         expect(rows.at(-1)!.actualChars).toBeGreaterThan(rows.at(-1)!.projectedSingleChars); // the failed pass lowers the ledger
     });
 
@@ -1090,7 +1091,9 @@ describe("the review on the task's thread", () => {
         expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking, e.checks])).toEqual([['review', 'review', 'passed', 0, 1]]);
         expect(thread?.events[0].integrity).toEqual(expect.any(String));
         expect(thread?.events[0]).toMatchObject({ cost_usd: 1.5, cost_basis: 'runs' }); // every run this review made: the same dollars as its cost row
-        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
+        const cached = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
+        expect(cached.cached).toBe(true);
+        expect(cached.spentUsd).toBeUndefined(); // --json reports spent_usd 0
         expect(readThread(repo, 'feature')?.events[1]).not.toHaveProperty('cost_usd'); // a cached verdict spent nothing
         expect(readThread(repo, 'feature')?.events).toHaveLength(2);
         await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seenNow()), () => undefined, { pr: 42, reviewsBefore: '2026-10-03', force: true });
