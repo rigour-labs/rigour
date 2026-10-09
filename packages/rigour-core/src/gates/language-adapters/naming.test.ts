@@ -10,6 +10,31 @@ describe('a name\'s casing', () => {
             .toEqual(['camelCase', 'snake_case', 'PascalCase', 'SCREAMING_SNAKE', 'SCREAMING_SNAKE', 'kebab-case']);
     });
 
+    it('reads a private name by what follows its underscores, and a dunder as ambiguous', () => {
+        expect(['_load_rows', '__load_rows', '_loadRows', '_Private', '_MAX_ROWS', '_run'].map(classifyCasing))
+            .toEqual(['snake_case', 'snake_case', 'camelCase', 'PascalCase', 'SCREAMING_SNAKE', 'ambiguous']);
+        expect(['__init__', '__name__', '__all__'].map(classifyCasing)).toEqual(Array(3).fill('ambiguous'));
+        expect(classifyCasing('_')).toBe('other');
+    });
+
+    // Private names per adapter: the underscore never makes a name 'other'.
+    const privates: Array<[string, string, Array<[string, string]>]> = [
+        ['a.py', 'class A:\n    def __init__(self):\n        pass\n\ndef _load_rows():\n    pass\n\ndef _Helper():\n    pass\n', [['__init__', 'ambiguous'], ['_load_rows', 'snake_case'], ['_Helper', 'PascalCase']]],
+        ['a.rb', 'def _load_rows\nend\n', [['_load_rows', 'snake_case']]],
+        ['a.go', 'func _loadRows() {}\n', [['_loadRows', 'camelCase']]],
+    ];
+    for (const [file, source, expected] of privates) {
+        it(`reads private names in ${file.split('.').pop()} by their casing, not as other`, () => {
+            const patterns = languageAdapters.getAdapter(file)!.extractNamingPatterns(source);
+            expect(expected.map(([name]) => [name, patterns.find(p => p.name === name)?.convention])).toEqual(expected);
+        });
+    }
+
+    it('reads private names in TypeScript by their casing, not as other', () => {
+        const patterns = extractComparableJsNames('function _loadRows() { return 1; }\nexport const _row_limit = 5;\n_loadRows();\n', 'a.ts');
+        expect(patterns.map(p => [p.name, p.convention])).toEqual([['_loadRows', 'camelCase'], ['_row_limit', 'snake_case']]);
+    });
+
     // One source per adapter: a one-word name is ambiguous, a multi-word one keeps its casing.
     const sources: Array<[string, string, string, string]> = [
         ['a.py', 'def run():\n    pass\n\ndef load_rows():\n    pass\n', 'run', 'load_rows'],
