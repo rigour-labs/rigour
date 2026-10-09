@@ -12,6 +12,8 @@ import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
 import { ConfigSchema, Config } from '../types/index.js';
+import { codeOffsets } from '../utils/code-mask.js';
+import { resolveTsPathTarget } from '../gates/hallucinated-imports/ts-path-target.js';
 import type { HookCheckerResult } from './types.js';
 import { scanInputForCredentials } from './input-validator.js';
 import { evaluateWriteScope, loadAgentScopesFromDisk } from '../firewall/scope-enforcement.js';
@@ -74,7 +76,7 @@ async function resolveFile(filePath: string, cwd: string): Promise<{ absPath: st
 /**
  * Run all fast gates on a single file's content.
  */
-function checkFile(content: string, relPath: string, cwd: string, config: Config): FailureEntry[] {
+async function checkFile(content: string, relPath: string, cwd: string, config: Config): Promise<FailureEntry[]> {
     const failures: FailureEntry[] = [];
     const lines = content.split('\n');
 
@@ -99,7 +101,7 @@ function checkFile(content: string, relPath: string, cwd: string, config: Config
 
     // Gate 2: Hallucinated imports (JS/TS only)
     if (isJsTs) {
-        checkHallucinatedImports(content, relPath, cwd, failures);
+        await checkHallucinatedImports(content, relPath, cwd, failures);
     }
 
     // Gate 3: Promise safety (JS/TS only)
@@ -165,7 +167,7 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
                 }
             }
 
-            const fileFailures = checkFile(resolved.content, resolved.relPath, cwd, config);
+            const fileFailures = await checkFile(resolved.content, resolved.relPath, cwd, config);
             failures.push(...fileFailures);
         }
 
@@ -200,36 +202,30 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
 }
 
 /**
- * Check for imports of non-existent relative files.
+ * Check for imports of non-existent relative files, resolved by the same rule as the review's hallucinated-imports gate
+ * (ts-path-target.ts): an extensionless path with any source extension or as a folder's index, and a TypeScript ESM
+ * specifier naming the emitted file (`./b.js` for `b.ts` or `b.tsx`, `.mjs` for `.mts`, `.cjs` for `.cts`).
  */
-function checkHallucinatedImports(
+async function checkHallucinatedImports(
     content: string,
     relPath: string,
     cwd: string,
     failures: FailureEntry[]
-): void {
+): Promise<void> {
     const importRegex = /(?:import\s+.*\s+from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+    // An import written inside a string (a template, a fixture) or a comment is text, not an import.
+    const isCode = codeOffsets(content, path.extname(relPath).slice(1));
     let match: RegExpExecArray | null;
 
     while ((match = importRegex.exec(content)) !== null) {
+        if (!isCode(match.index)) continue;
         const specifier = match[1] || match[2];
         if (!specifier || !specifier.startsWith('.')) {
             continue;
         }
 
         const dir = path.dirname(path.join(cwd, relPath));
-        const resolved = path.resolve(dir, specifier);
-
-        const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs', '/index.ts', '/index.js'];
-        const exists = extensions.some(ext => {
-            try {
-                return fs.existsSync(resolved + ext);
-            } catch {
-                return false;
-            }
-        });
-
-        if (!exists) {
+        if (!await resolveTsPathTarget(dir, specifier, cwd, new Set())) {
             const lineNum = content.substring(0, match.index).split('\n').length;
             failures.push({
                 gate: 'hallucinated-imports',
