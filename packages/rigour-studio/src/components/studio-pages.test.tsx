@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -202,3 +204,11 @@ function reviewerData(over: Record<string, unknown>): any {
         ...over,
     };
 }
+
+describe('the browser tab', () => {
+    it('is titled Rigour Studio, and nothing else', () => {
+        const page = fs.readFileSync(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
+        expect(/<title>([^<]*)<\/title>/.exec(page)?.[1]).toBe('Rigour Studio');
+    });
+});
+
