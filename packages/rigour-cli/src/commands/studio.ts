@@ -252,7 +252,20 @@ async function handleApiRequest(
     if (url.pathname === '/api/week') {
         try {
             const { loadWeek } = await import('./studio-week.js');
+            // What an older version of the checks opened is checked again before it is listed (a no-op once done).
+            const { recheckEditFindings } = await import('./hooks-check-repos.js');
+            await recheckEditFindings(cwd).catch(() => undefined);
             sendJson(res, 200, loadWeek(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/recheck' && req.method === 'POST') {
+        try {
+            const { recheckEditFindings } = await import('./hooks-check-repos.js');
+            sendJson(res, 200, await recheckEditFindings(cwd, true));
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });
         }
