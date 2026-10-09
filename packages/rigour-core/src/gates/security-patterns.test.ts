@@ -52,6 +52,20 @@ describe('SecurityPatternsGate', () => {
         });
     });
 
+    describe('a secret under a quoted key', () => {
+        it('is found in JSON, a Python dict and a JS object; a key that only starts with the word is not one', async () => {
+            const scan = async (name: string, body: string) => {
+                const filePath = path.join(testDir, name);
+                fs.writeFileSync(filePath, body);
+                return (await checkSecurityPatterns(filePath)).filter(v => v.type === 'hardcoded_secrets').map(v => v.line);
+            };
+            expect(await scan('creds.ts', 'export const creds = {"password": "Xk9pQ2vL8mZr4Tw7"};\n')).toEqual([1]);
+            expect(await scan('settings.py', "SETTINGS = {'api_key': 'Xk9pQ2vL8mZr4Tw7'}\n")).toEqual([1]);
+            expect(await scan('client.js', 'const auth = { "access_token": "Xk9pQ2vL8mZr4Tw7" };\n')).toEqual([1]);
+            expect(await scan('form.ts', 'const labels = { password_hint: "Xk9pQ2vL8mZr4Tw7" };\n')).toEqual([]);
+        });
+    });
+
     describe('SQL injection detection', () => {
         it('should detect string concatenation in queries', async () => {
             const filePath = path.join(testDir, 'db.ts');

@@ -82,7 +82,7 @@ export const VULNERABILITY_PATTERNS: {
     {
         type: 'hardcoded_secrets',
         // A secret literal has no whitespace: `hidePassword: 'Hide password'` is a UI label, not a credential.
-        regex: /(?:password|secret|api_key|apikey|auth_token|access_token|private_key)\s*[:=]\s*['"][^'"\s]{8,}['"]/gi,
+        regex: /(?:password|secret|api_key|apikey|auth_token|access_token|private_key)['"]?\s*[:=]\s*['"][^'"\s]{8,}['"]/gi, // a key may be quoted: JSON, a Python dict, a JS object
         where: 'anywhere',
         severity: 'critical',
         description: 'Hardcoded secret detected in code',
