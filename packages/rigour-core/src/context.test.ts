@@ -203,6 +203,13 @@ describe('class names in the context gate', () => {
         })).toEqual([]);
     });
 
+    it('still reads C# partial and Kotlin enum classes: a camelCase one among PascalCase ones is drift', async () => {
+        const pascal = { 'a.ts': 'export class OrderLine {}\nexport class CartItem {}\nexport class ShopConfig {}\nexport class PriceRule {}\n' };
+        for (const [file, body] of [['b.cs', 'public partial class orderView {}\n'], ['c.kt', 'enum class orderState { OPEN }\n'], ['d.kt', 'inner class orderLine\n']]) {
+            expect(await classDrift({ ...pascal, [file]: body }), file).toHaveLength(1);
+        }
+    });
+
     it('still reports real camelCase classes among PascalCase ones', async () => {
         expect(await classDrift({
             'a.ts': 'export class OrderLine {}\nexport class CartItem {}\nexport class ShopConfig {}\n',
