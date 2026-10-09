@@ -32,6 +32,8 @@ export interface TelemetryState {
     /** undefined until the person has been asked. */
     enabled?: boolean;
     installId: string;
+    /** When the person was first asked (ms): how old the install is, bucketed. Absent in files written before it was kept. */
+    firstAt?: number;
 }
 
 export interface TelemetryDeps {
@@ -40,6 +42,48 @@ export interface TelemetryDeps {
     fetch?: Fetch;
     version?: string;
     now?: number;
+    /** The agent a hook ran for, when the hook knows (its own tool name): wins over the environment. */
+    agent?: string;
+}
+
+/** The agent hosts telemetry names, and nothing else: anything unknown is `other`, no agent is `none`. */
+export type AgentHost = 'claude-code' | 'cursor' | 'cline' | 'windsurf' | 'codex' | 'other' | 'none';
+
+const HOOK_TOOLS: Record<string, AgentHost> = { claude: 'claude-code', 'claude-code': 'claude-code', cursor: 'cursor', cline: 'cline', windsurf: 'windsurf', codex: 'codex' };
+
+/**
+ * Which agent Rigour ran under: the hook's own tool name when it is one of the known; else the variable each sets in
+ * the processes it starts (CLAUDECODE=1 for Claude Code, CURSOR_TRACE_ID for Cursor's terminal, CODEX_SANDBOX for
+ * Codex); else `other` for a hint naming an agent not on the list, `none` without one. Cline and Windsurf are known
+ * only from their hooks.
+ */
+function agentHost(env: Env, hint?: string): AgentHost {
+    const known = hint ? HOOK_TOOLS[hint.toLowerCase()] : undefined;
+    if (known) return known;
+    if (env.CLAUDECODE === '1') return 'claude-code';
+    if (env.CURSOR_TRACE_ID) return 'cursor';
+    if (env.CODEX_SANDBOX) return 'codex';
+    return hint ? 'other' : 'none';
+}
+
+const WEEK_MS = 7 * DAY_MS;
+
+/** When telemetry.json was first written, for a file from before `firstAt` was kept: its creation time, else its last write. */
+function firstWritten(home: string): number | undefined {
+    try {
+        const stat = fs.statSync(file(home, 'telemetry.json'));
+        return stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs;
+    } catch {
+        return undefined;
+    }
+}
+
+/** How long ago the person was first asked, bucketed: 0, 1, 2-4, 5-12 or 13+ weeks; undefined before they were. */
+function installAgeWeeks(home: string, now: number): string | undefined {
+    const first = readTelemetryState(home).firstAt ?? firstWritten(home);
+    if (first === undefined) return undefined;
+    const weeks = Math.floor(Math.max(0, now - first) / WEEK_MS);
+    return weeks === 0 ? '0' : weeks === 1 ? '1' : weeks <= 4 ? '2-4' : weeks <= 12 ? '5-12' : '13+';
 }
 
 export function telemetryToken(env: Env = process.env): string {
@@ -53,7 +97,7 @@ function file(home: string, name: string): string {
 export function readTelemetryState(home = rigourHome()): TelemetryState {
     try {
         const parsed = JSON.parse(fs.readFileSync(file(home, 'telemetry.json'), 'utf8'));
-        if (typeof parsed?.installId === 'string') return { installId: parsed.installId, enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined };
+        if (typeof parsed?.installId === 'string') return { installId: parsed.installId, enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined, ...(typeof parsed.firstAt === 'number' ? { firstAt: parsed.firstAt } : {}) };
     } catch {
         // Not asked yet.
     }
@@ -61,7 +105,8 @@ export function readTelemetryState(home = rigourHome()): TelemetryState {
 }
 
 export function setTelemetryEnabled(enabled: boolean, home = rigourHome()): TelemetryState {
-    const state = { ...readTelemetryState(home), enabled };
+    const current = readTelemetryState(home);
+    const state = { ...current, enabled, firstAt: current.firstAt ?? firstWritten(home) ?? Date.now() };
     writeJson(file(home, 'telemetry.json'), state);
     return state;
 }
@@ -111,6 +156,8 @@ export async function trackUsage(event: string, properties: Record<string, unkno
             os: process.platform,
             node_major: Number(process.versions.node.split('.')[0]),
             ci: isCi(env),
+            agent_host: agentHost(env, deps.agent),
+            install_age_weeks: installAgeWeeks(deps.home ?? rigourHome(), deps.now ?? Date.now()),
             ...properties,
         },
     }];
@@ -138,6 +185,9 @@ export function countUsage(name: string, by = 1, deps: TelemetryDeps = {}): void
         const home = deps.home ?? rigourHome();
         const counters = readCounters(home, deps.now ?? Date.now());
         counters.counts[name] = (counters.counts[name] ?? 0) + by;
+        // What each agent drives: one count per agent host, beside the thing counted.
+        const host = `agent_host:${agentHost(deps.env ?? process.env, deps.agent)}`;
+        counters.counts[host] = (counters.counts[host] ?? 0) + by;
         writeJson(file(home, 'telemetry-counters.json'), counters);
     } catch {
         // Counting never affects the agent.

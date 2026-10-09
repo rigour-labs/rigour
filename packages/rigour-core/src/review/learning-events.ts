@@ -6,6 +6,7 @@
  */
 import type { Failure } from '../types/index.js';
 import { appendAgentEvent } from './effectiveness.js';
+import { countUsage } from '../telemetry/telemetry.js';
 
 export type LessonChannel = 'recall' | 'context' | 'review';
 const MAX_LISTED = 20;
@@ -19,6 +20,8 @@ export function recordLessonsServed(cwd: string, via: LessonChannel, subjects: s
 /** Findings a review of a whole branch (what a PR contains) reported. Nothing is written when clean. */
 export function recordPrCatches(cwd: string, findings: Failure[]): void {
     if (findings.length === 0) return;
+    // A finding that reached a pull request's review: counted for opt-in telemetry by its gate id only.
+    for (const finding of findings) countUsage(`finding_pushed:${finding.id}`);
     appendAgentEvent(cwd, {
         type: 'pr_catches',
         findings: findings.slice(0, MAX_LISTED).map(f => ({ rule: f.id, title: f.title, file: f.files?.[0] ?? '' })),
