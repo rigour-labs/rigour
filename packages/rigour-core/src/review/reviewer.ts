@@ -57,7 +57,7 @@ export interface ReviewerOptions {
     pr?: number;
     /** ISO time: a review or comment posted from then on is not shown to the reviewer (a backtest). */
     reviewsBefore?: string;
-    /** No pull request at all: the commit is reviewed alone, with no human review or description, and GitHub is never asked (a backtest round that names no pull request). */
+    /** No pull request at all: the commit is reviewed alone, with no human review or description, and GitHub is never asked (`rigour review --reviewer --blind`, or a backtest round that names no pull request). */
     blind?: boolean;
     /** At push the ready-pull-request rule applies; a review command or a backtest always reviews. */
     trigger?: 'push' | 'review' | 'backtest';
@@ -107,6 +107,8 @@ export interface ReviewerResult {
     panel?: PanelItem[];
     /** Why there is no verdict (unavailable) or why none was sought (skipped). */
     reason?: string;
+    /** Reviewed without pull request context: no pull request lookup, description or human reviews (`--blind`). */
+    blind?: boolean;
     reviewers: ReviewerName[];
     scope?: 'full' | 'delta';
     why?: string;
@@ -177,7 +179,7 @@ const MAX_DELTA_LINES = 400;
 
 /** The reviewer, and one anonymous usage event for what it did (only when the person opted in to telemetry). */
 export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec, progress: Progress = message => process.stderr.write(`${message}\n`), options: ReviewerOptions = {}): Promise<ReviewerResult> {
-    const result = await review(cwd, base, config, exec, progress, options);
+    const result = withoutPrMarked(await review(cwd, base, config, exec, progress, options), options);
     const trigger = options.trigger ?? (options.reviewsBefore ? 'backtest' : 'review');
     await trackUsage('reviewer_completed', reviewerUsage(result, trigger));
     // On the task's thread, unless it replays history: a backtest's worktree is not anyone's task.
@@ -194,6 +196,11 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
         cost_basis: 'runs',
     });
     return result;
+}
+
+/** A blind review says so on its result, whatever the outcome: no pull request context was read. */
+function withoutPrMarked(result: ReviewerResult, options: ReviewerOptions): ReviewerResult {
+    return options.blind ? { ...result, blind: true } : result;
 }
 
 async function review(cwd: string, base: string, config: Config, exec: Exec, progress: Progress, options: ReviewerOptions): Promise<ReviewerResult> {
@@ -353,7 +360,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const res = result(accounted, verdict, reviewers, scope, why, cached, reviews, pr, modeRecord, settings.dismissals);
         const judges = (verdict.reviewers ?? []).map(r => ({ reviewer: r.reviewer, ...(installed.get(r.reviewer as ReviewerName)?.version ? { version: installed.get(r.reviewer as ReviewerName)!.version } : {}), ...(modelFor(r.reviewer as ReviewerName) ? { model: modelFor(r.reviewer as ReviewerName) } : {}), ...(typeof r.cost_usd === 'number' ? { cost_usd: r.cost_usd } : {}), ...(r.trace?.turns ? { turns: r.trace.turns } : {}), ...outsideOf(r.reviewer) }));
         const recordPath = store.recordPath(verdictFile);
-        const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count });
+        const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count, blind: options.blind });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
         const applied = lessonsApplied(verdict.lessons ?? [], context.servedLessons);
         return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}) };

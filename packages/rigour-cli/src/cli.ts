@@ -290,6 +290,7 @@ program
     .option('--no-panel', 'With --reviewer: no panel for this run (a team that requires one refuses this)')
     .option('--orchestrator', 'With --reviewer: only the parts of the review this change needs, picked without a model, usually in one pass (experimental)')
     .option('--no-orchestrator', 'With --reviewer: one judge for the whole review, for this run (a team that requires the orchestrator refuses this)')
+    .option('--blind', 'With --reviewer: review the change alone, with no pull request lookup, description or human reviews (no GitHub CLI needed; also RIGOUR_REVIEWER_BLIND=1)')
     .option('--status', 'What the background reviewer has done for this branch: running, last verdict, open items')
     .option('--all', 'Show every finding, not the first five')
     .option('--notes', 'List the notes that never block')
