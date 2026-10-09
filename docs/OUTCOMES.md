@@ -52,7 +52,7 @@ When this machine worked on the pull request's branch, its [thread](THREAD.md) g
   },
   "model": {
     "share": { "model": 0, "checks": 0, "prs": 0, "rate": null, "reason": "fewer than 10 pull requests: a count, not a rate" },
-    "costPerPr": { "prs": 0, "totalUsd": 0, "medianUsd": null }
+    "costPerPr": { "prs": 0, "totalUsd": 0, "medianUsd": null, "prsEarlierBasis": 0 }
   },
   "lessons": { "awaitingDecision": 0, "promotedFromEvidence": 0, "dismissed": 0, "takenBack": 0 }
 }
@@ -65,7 +65,7 @@ When this machine worked on the pull request's branch, its [thread](THREAD.md) g
   - `reviewed` covers the pull requests a review by Rigour ran on (from the threads); `notReviewed` covers the rest.
 - **The model reviewer**, over settled pull requests a review by Rigour ran on:
   - `share`: the model's findings (blocking and should-fix) out of all findings, the deterministic checks' included, at each pull request's first review that recorded both, before the review's own points changed the code. Below 10 such pull requests, counts only.
-  - `costPerPr`: the dollars of every review round on a pull request, summed per pull request, with the total and the median. Every run counts, a failed one included: the same dollars as the review's row in the [savings ledger](REVIEWER.md#the-orchestrator). A cached verdict spent nothing. Below 10 pull requests, no median.
+  - `costPerPr`: the dollars of every review round on a pull request, summed per pull request, with the total and the median. Every run counts, a failed one included: the same dollars as the review's row in the [savings ledger](REVIEWER.md#the-orchestrator). A cached verdict spent nothing. Below 10 pull requests, no median. A pull request with any review from before 6.9.0, when the dollars missed failed runs and repeated a cached verdict's, is left out and counted in `prsEarlierBasis`, never pooled: the two bases are not comparable.
 - **Lessons:**
   - `awaitingDecision`: candidates waiting on a person (a later fix on their lines, back to candidate, or taken back).
   - `promotedFromEvidence`: lessons a person promoted after such evidence.

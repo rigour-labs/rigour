@@ -182,6 +182,8 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
         ...(result.record ? { integrity: result.record.integrity, judges: result.record.judges.map(j => j.reviewer) } : {}),
         // Every run this review made, failed ones included: the same dollars as its cost row (the savings ledger).
         ...(result.spentUsd !== undefined ? { cost_usd: result.spentUsd } : {}),
+        // Marks that cost_usd is on that basis: an earlier event's cost_usd missed failed runs and repeated a cached verdict's.
+        cost_basis: 'runs',
     });
     return result;
 }
