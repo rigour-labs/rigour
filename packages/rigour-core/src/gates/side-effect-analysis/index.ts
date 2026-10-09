@@ -67,6 +67,7 @@ import {
     hasRetryLimit,
     hasCatchWithContinue,
     hasBaseCase,
+    selfCallPattern,
     hasDepthParameter,
     // Variable binding
     extractVariableBinding,
@@ -599,9 +600,7 @@ export class SideEffectAnalysisGate extends Gate {
             const body = bodyLines.join('\n');
 
             // Check if function calls itself
-            const escaped = func.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const selfCallPat = new RegExp(`\\b${escaped}\\s*\\(`);
-            if (!selfCallPat.test(body)) continue;
+            if (!selfCallPattern(func.name).test(body)) continue;
 
             // Check for depth/limit parameter in function signature
             if (hasDepthParameter(func.params)) continue;

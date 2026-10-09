@@ -173,6 +173,15 @@ function getFuncDefPatterns(lang: SideEffectLang): RegExp[] {
 }
 
 /**
+ * A call of the function by its own name: bare (`walk(`), or on `self`, `cls` or `this` (`self.crawl(`). A call of
+ * another object's method that shares the name (`subprocess.run(` inside `def run`) is not one.
+ */
+export function selfCallPattern(funcName: string): RegExp {
+    const escaped = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:(?<![\\w$.])|(?<=\\b(?:self|cls|this)\\.))${escaped}\\s*\\(`);
+}
+
+/**
  * Check if a function has a base case (return/break before recursive call).
  * Smart: actually checks that the base case comes BEFORE the recursive call,
  * not just that both exist somewhere in the body.
@@ -180,8 +189,7 @@ function getFuncDefPatterns(lang: SideEffectLang): RegExp[] {
 export function hasBaseCase(
     bodyLines: string[], funcName: string,
 ): boolean {
-    const escapedName = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const selfCallPat = new RegExp(`\\b${escapedName}\\s*\\(`);
+    const selfCallPat = selfCallPattern(funcName);
 
     let foundBaseReturn = false;
 

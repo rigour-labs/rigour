@@ -28,6 +28,28 @@ describe('SideEffectAnalysisGate', () => {
             expect(titles).not.toContain('Side-Effect: Unbounded Recursion');
         });
 
+        it('reads a call to another object\'s method of the same name as no recursion (subprocess.run inside def run)', async () => {
+            const titles = await titlesFor('tools/build.py', [
+                'import subprocess',
+                '',
+                'def run(cmd):',
+                '    print(cmd)',
+                '    return subprocess.run(cmd, check=True)',
+            ].join('\n'));
+            expect(titles).not.toContain('Side-Effect: Unbounded Recursion');
+        });
+
+        it('still flags a method that calls itself through self with I/O and no base case', async () => {
+            const titles = await titlesFor('tools/crawl.py', [
+                'class Crawler:',
+                '    def crawl(self, url):',
+                '        print(url)',
+                '        for link in self.links(url):',
+                '            self.crawl(link)',
+            ].join('\n'));
+            expect(titles).toContain('Side-Effect: Unbounded Recursion');
+        });
+
         it('still flags a block-bodied arrow that recurses with I/O and no base case', async () => {
             const titles = await titlesFor('src/walk.ts', [
                 "import fs from 'fs';",
