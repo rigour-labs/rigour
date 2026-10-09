@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { acceptSuggestedText, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -31,12 +31,15 @@ export interface LearnReviewsOptions {
     /** A person's decision on a compiled check: it runs (approve) or stops (withdraw). */
     approveCheck?: string;
     withdrawCheck?: string;
+    /** A person takes the corrected wording a newer version suggested for a lesson they decided. */
+    useWording?: string;
 }
 
 export async function learnReviewsCommand(cwd: string, options: LearnReviewsOptions): Promise<void> {
     if (options.promote) return decide(cwd, options.promote, 'accepted', options.why);
     if (options.reject) return decide(cwd, options.reject, 'rejected', options.why);
     if (options.list) return list(cwd, options.json);
+    if (options.useWording) return useWording(cwd, options.useWording);
     if (options.compile) return compile(cwd, options.json);
     if (options.approveCheck) return decideCheck(cwd, options.approveCheck, 'active');
     if (options.withdrawCheck) return decideCheck(cwd, options.withdrawCheck, 'withdrawn');
@@ -68,6 +71,7 @@ function list(cwd: string, json?: boolean): void {
         const prs = [...new Set(l.evidence.map(e => `#${e.pr}`))].join(', ');
         const by = l.promotedBy ? chalk.dim(` [${l.promotedBy}]`) : '';
         console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(team standard)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
+        if (l.suggestedText) console.log(chalk.cyan(`          corrected wording (${l.suggestedWhy ?? 'reworded'}): ${l.suggestedText}`) + chalk.dim(`  take it: rigour learn-reviews --use-wording ${l.id}`));
     }
     if (lessons.length === 0) console.log('No review lessons yet. Run `rigour learn-reviews`.');
 }
@@ -119,6 +123,17 @@ function decideCheckOrThrow(cwd: string, id: string, state: 'active' | 'withdraw
         return;
     }
     console.log(state === 'active' ? chalk.green(`✔ Runs from now on (a note unless gates.compiled_lessons.block): ${check.message}`) : chalk.yellow(`✔ Taken back: ${check.message}`));
+}
+
+/** A person takes the suggested wording of a lesson they decided; the old wording is kept as evidence. */
+function useWording(cwd: string, id: string): void {
+    const lesson = acceptSuggestedText(cwd, id, personOf(cwd));
+    if (!lesson) {
+        console.error(chalk.red(`No lesson ${id} with a suggested wording.`));
+        process.exitCode = 1;
+        return;
+    }
+    console.log(chalk.green(`✔ Now reads: ${lesson.text}`));
 }
 
 /** A person's decision, kept as evidence with who made it (their git email) and why. */

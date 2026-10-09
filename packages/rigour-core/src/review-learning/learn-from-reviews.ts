@@ -85,8 +85,9 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
     }
     const known = new Set(readLessons(cwd).flatMap(l => l.evidence.map(e => e.comment)));
     const points = lessons.flatMap(l => l.evidence).filter(e => e.kind === 'point' && !known.has(e.comment));
-    const fresh = lessons.filter(l => !l.evidence.every(e => known.has(e.comment)));
-    const merged = mergeLessons(readLessons(cwd), fresh);
+    // Comments read before go through too: each lands on its own lesson (mergeLessons matches the comment), which
+    // takes the text this version derives from it. Nothing is added twice.
+    const merged = mergeLessons(readLessons(cwd), lessons);
     // Outcomes accrue after the merge: every candidate whose pull request was read this run is checked again.
     if (options.mainRef) {
         const byNumber = new Map(prs.filter(pr => pr.mergedAt).map(pr => [pr.number, pr]));
