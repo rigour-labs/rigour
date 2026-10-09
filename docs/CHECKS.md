@@ -122,7 +122,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Hallucinated import | An import of a package, file or module that does not exist in the project, its manifests or the standard library. | JS/TS, Python, Go, Ruby, C#, Rust, Java, Kotlin | `hallucinated-imports` | On | Yes |
+| Hallucinated import | An import of a package, file or module that does not exist in the project, its manifests or the standard library. A Rust file is checked against its own crate's Cargo.toml and its workspace; a Go file against go.mod, including the modules it requires. With no manifest found, an unresolved import is a note, not a block. | JS/TS, Python, Go, Ruby, C#, Rust, Java, Kotlin | `hallucinated-imports` | On | Yes |
 | Phantom API | A call to a method that does not exist on a known standard-library module (`fs.readFileAsync`, `path.combine`). | JS/TS, Python, Go, C#, Java, Kotlin | `phantom-apis` | On | Note |
 | Deprecated API | A removed or superseded API (not the security ones above). | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Note |
 | Context window artifacts | A long file whose quality falls from top to bottom: fewer comments, shorter names, sparser error handling. | Languages with an adapter | `context-window-artifacts` | On | Note |
