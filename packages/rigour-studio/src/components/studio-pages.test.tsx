@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
 import { WeeklyTable } from './AgentContext';
-import { LessonCard, OutcomeCard } from './LearningParts';
+import { LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
 import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { ReadOnlyNote } from './ReadOnlyNote';
@@ -272,5 +272,14 @@ describe('a read-only tab', () => {
         expect(html).toContain('Read-only. Open the link <code>rigour studio</code> printed in your terminal: it gives this tab edit rights.');
         expect(html).toContain('aria-label="Hide this note"');
         expect(html).not.toContain('<p>');
+    });
+});
+
+describe('how lessons reach an agent, on the learning page', () => {
+    it('says agents get them on request, and in Claude Code by itself only with the brief hooks', () => {
+        const html = renderToStaticMarkup(<LearnsLead />).replace(/\s+/g, ' ');
+        expect(html).toContain('An agent gets the lessons when it asks for a brief (the <code>rigour_brief</code> tool, or <code>rigour brief</code>).');
+        expect(html).toContain('In Claude Code, <code>rigour hooks init --brief</code> hands them over by itself');
+        expect(html).not.toMatch(/told before they write/);
     });
 });
