@@ -82,7 +82,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Unused export | An export on an added line that no other file imports from its module. A test is not a consumer. Framework route and hook exports are skipped. | JS/TS, Svelte | `unused-export` | On | Note; `block: true` makes it block |
+| Unused export | An export on an added line that no other file imports from its module, or from a barrel that re-exports the module with `export * from` (a chain of them too). A test is not a consumer. Framework route and hook exports are skipped. | JS/TS, Svelte | `unused-export` | On | Note; `block: true` makes it block |
 | Orphaned file | A new code file that nothing imports or runs. Routes, hooks, tests, migrations and config files are skipped. A folder of new files that only import each other is reported as a whole. | JS/TS, Svelte | `orphan-file` | On | Note; `block: true` makes it block |
 | Duplicate function | A changed function whose body is the same, line for line, as another function in the touched files (comments and layout ignored; at least 4 statements and 6 lines). | JS/TS, Svelte | `duplicate-function` | On | Yes |
 | Optional member every host supplies | An optional property that every object providing it sets. | TypeScript | `optional-always-supplied` | On (`redundancy`) | Yes |
