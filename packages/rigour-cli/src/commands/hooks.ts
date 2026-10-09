@@ -903,6 +903,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             }),
             logStudioEvent(root, {
                 type: 'hook_check', requestId, outcome, status: repoResult.status, agentId,
+                // Only a --block hook stops the edit; without it the findings are reported and the agent carries on.
+                blocked: !!options.block && repoResult.status === 'fail',
                 files: repoFiles, summary: `${repoFiles.length} file(s), ${repoResult.failures.length} finding(s)`,
                 findings: repoResult.failures.slice(0, 10).map(f => ({ gate: f.gate, file: f.file, line: f.line, message: f.message, severity: f.severity })),
             }),

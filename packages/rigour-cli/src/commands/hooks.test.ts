@@ -291,6 +291,19 @@ describe('hooksCheckCommand', () => {
         process.exitCode = originalExitCode;
     });
 
+    it('records a block on the edit check only when the hook ran with --block', async () => {
+        fs.writeFileSync(path.join(testDir, 'bad.ts'), "const password = 'abcdefghijklmnopqrstuvwxyz12345';\n");
+        vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const originalExitCode = process.exitCode;
+        await hooksCheckCommand(testDir, { files: 'bad.ts' });
+        await hooksCheckCommand(testDir, { files: 'bad.ts', block: true });
+        process.exitCode = originalExitCode;
+        const checks = fs.readFileSync(path.join(testDir, '.rigour', 'events.jsonl'), 'utf8').trim().split('\n')
+            .map(line => JSON.parse(line)).filter(e => e.type === 'hook_check');
+        expect(checks.map(e => [e.status, e.blocked])).toEqual([['fail', false], ['fail', true]]);
+    });
+
     it('should warn and continue for DLP detections by default', async () => {
         const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
         const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
