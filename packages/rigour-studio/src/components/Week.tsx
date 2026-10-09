@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { studioWrite } from '../studioWrite';
+import { groupNeeds, NeedGroupCard, type OpenNeed } from './NeedGroups';
 import { ago, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story, inlineCode } from './storyData';
 import './story.css';
 
-interface Need { key?: string; file: string; rule: string; title: string; openedAt: string; stage?: CatchStage }
 interface WeekData {
     recordingSince: string | null;
-    needs: Need[];
+    needs: OpenNeed[];
     stories: Story[];
     stopped: { total: number; byStage: Record<CatchStage, number> };
     agentSaidDone: number;
@@ -26,16 +25,17 @@ export const Week: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNaviga
 
     const hideIntro = () => { try { localStorage.setItem(INTRO_KEY, '1'); } catch { /* not remembered */ } setIntro(false); };
     const needs = data.needs;
+    const groups = groupNeeds(needs);
     return (
         <div className="st-page">
             {intro && <HowItWorks onHide={hideIntro} />}
-            <h1 className="st-h1">{needs.length === 0 ? 'Nothing needs you.' : `${plural(needs.length, 'thing needs', 'things need')} you.`}</h1>
+            <h1 className="st-h1">{groups.length === 0 ? 'Nothing needs you.' : `${plural(groups.length, 'thing needs', 'things need')} you.`}</h1>
             <p className="st-lead">
                 {data.stopped.total > 0
                     ? `${plural(data.stopped.total, 'problem')} stopped and fixed before a pull request this week.`
                     : data.recordingSince ? 'Nothing was stopped this week.' : 'Rigour has not recorded any agent work in this repository yet.'}
             </p>
-            {needs.length > 0 && <div className="st-stack" style={{ marginTop: 18 }}>{needs.map(n => <NeedCard key={`${n.rule}:${n.file}`} need={n} onDone={reload} />)}</div>}
+            {groups.length > 0 && <div className="st-stack" style={{ marginTop: 18 }}>{groups.map(g => <NeedGroupCard key={`${g.rule}:${g.pattern}`} group={g} onDone={reload} />)}</div>}
             <div className="st-grid">
                 <section>
                     <h2 style={{ margin: '0 0 14px', fontSize: 18, fontWeight: 600 }}>What Rigour stopped this week</h2>
@@ -80,34 +80,6 @@ const HowItWorks: React.FC<{ onHide: () => void }> = ({ onHide }) => (
         </div>
     </section>
 );
-
-export const NeedCard: React.FC<{ need: Need; onDone: () => void }> = ({ need, onDone }) => {
-    const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
-    const dismiss = async () => {
-        const reason = window.prompt('Why is this not a bug? Rigour keeps the reason with the dismissal.');
-        if (!reason?.trim() || !need.key) return;
-        const res = await studioWrite('/api/dismiss', 'POST', JSON.stringify({ key: need.key, reason }));
-        if (res.ok) onDone(); else setState('failed');
-    };
-    const copy = async () => {
-        try {
-            await navigator.clipboard.writeText(`Rigour found a problem you introduced: ${need.title} in ${need.file}. Fix it, then run rigour review.`);
-            setState('copied');
-        } catch { setState('failed'); }
-    };
-    return (
-        <div className="st-need">
-            <div className="st-row"><span className="st-chip warn">open</span><span className="st-sub">found {need.stage ? STAGE_WORDS[need.stage] : ''} · {ago(need.openedAt)}</span></div>
-            <div style={{ fontSize: 17, marginTop: 10, lineHeight: 1.5 }}>{need.title}</div>
-            <div className="st-mono st-sub" style={{ marginTop: 6 }}>{need.file}</div>
-            <div className="st-row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
-                <button className="st-btn primary" onClick={copy} type="button">{state === 'copied' ? 'Copied: paste it to your agent' : 'Copy for my agent'}</button>
-                {need.key && <button className="st-btn" onClick={dismiss} type="button">It's fine, not a bug</button>}
-                {state === 'failed' && <span className="st-sub">That didn't work. Open Studio from the link in your terminal and try again.</span>}
-            </div>
-        </div>
-    );
-};
 
 export const StoryCard: React.FC<{ story: Story; open: boolean; onToggle: () => void }> = ({ story, open, onToggle }) => (
     <div>

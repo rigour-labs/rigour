@@ -10,6 +10,7 @@ import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
+import { groupNeeds, NeedGroupCard } from './NeedGroups';
 import { Agents, Settings, Verdict } from './ReviewerParts';
 import { SwitchSettings, type SwitchData } from './SwitchParts';
 
@@ -220,5 +221,37 @@ describe('the header', () => {
         expect(html).toContain('>payments<');
         expect(html).toContain('>main<');
         expect(html).not.toMatch(/\/Users\/|\/home\/|v\d+\.\d+/);
+    });
+});
+
+describe('open findings on the home page', () => {
+    const need = (file: string, title: string, openedAt: string, rule = 'hallucinated-imports') => ({ file, rule, title, openedAt });
+    const needs = [
+        need('src/a.ts', "Import 'left-pad' not found", '2026-10-01T00:00:00Z'),
+        need('src/b.ts', "Import 'lodash/fp' not found", '2026-10-03T00:00:00Z'),
+        need('src/a.ts', "Import 'zod' not found", '2026-10-02T00:00:00Z'),
+        need('src/c.ts', 'Function is 120 lines long', '2026-10-04T00:00:00Z', 'file-size'),
+    ];
+
+    it('group by check and message pattern, newest first', () => {
+        const groups = groupNeeds(needs);
+        expect(groups.map(g => [g.rule, g.pattern, g.needs.length, g.files])).toEqual([
+            ['file-size', 'Function is N lines long', 1, 1],
+            ['hallucinated-imports', 'Import … not found', 3, 2],
+        ]);
+        expect(groups[1].needs.map(n => n.file)).toEqual(['src/b.ts', 'src/a.ts', 'src/a.ts']);
+    });
+
+    it('show a repeated problem once, as a count in its files, closed until opened', () => {
+        const html = renderToStaticMarkup(<NeedGroupCard group={groupNeeds(needs)[1]} onDone={() => {}} />);
+        expect(html).toContain('3 × Import … not found, in 2 files');
+        expect(html).toContain('aria-expanded="false"');
+        expect(html).not.toContain('left-pad');
+    });
+
+    it('show a single finding as its own card', () => {
+        const html = renderToStaticMarkup(<NeedGroupCard group={groupNeeds(needs)[0]} onDone={() => {}} />);
+        expect(html).toContain('Function is 120 lines long');
+        expect(html).toContain('Copy for my agent');
     });
 });
