@@ -9,6 +9,10 @@
  *
  * A finding only counts as resolved when its file was part of the review that
  * no longer reports it: a file committed out of the working tree was not fixed.
+ *
+ * Nor is a finding an older version of Rigour's checks reported: when the checks change (an upgrade), a finding they
+ * no longer report closes as "checker changed", never as a fix, with no story and no outcome. Otherwise a false
+ * finding the old checks made would be credited to the agent the first time it edited the file.
  */
 import crypto from 'crypto';
 import fs from 'fs';
@@ -34,7 +38,23 @@ interface OpenFinding {
     stage?: CatchStage;
     /** Its dismissal key (quiet.ts): a finding someone dismissed was not fixed. */
     key?: string;
+    /** The version of the checks that reported it (CHECKER_VERSION); absent in entries captured before it was kept. */
+    checker?: string;
 }
+
+/** The version of Rigour's checks: the core package's own. A finding another version opened is never credited as a fix. */
+const CHECKER_VERSION = coreVersion();
+
+function coreVersion(): string {
+    try {
+        return JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version ?? 'unknown';
+    } catch {
+        return 'unknown';
+    }
+}
+
+/** Whether another version of the checks opened it. */
+const stale = (entry: OpenFinding) => entry.checker !== CHECKER_VERSION;
 
 export interface ResolvedFix {
     id: string;
@@ -55,6 +75,8 @@ export interface FixCapture {
     resolved: number;
     /** The fixes this review resolved, for turning into lessons (storage/fix-lessons.ts). */
     fixes: ResolvedFix[];
+    /** Findings another version of the checks opened that this one no longer reports: closed, never credited as fixes. */
+    checkerChanged: number;
 }
 
 /**
@@ -64,27 +86,36 @@ export interface FixCapture {
 export function recordReviewOutcome(cwd: string, findings: Failure[], reviewedFiles: string[], stage: CatchStage = 'review'): FixCapture {
     const open = readOpen(cwd);
     const current = new Map(findings.flatMap(f => (f.files?.[0] ? [[`${f.id}:${f.files[0]}`, f] as const] : [])));
-    const fixes = resolveGone(cwd, open, current, new Set(reviewedFiles));
+    const { resolved: fixes, checkerChanged } = resolveGone(cwd, open, current, new Set(reviewedFiles));
     for (const fix of fixes) {
         appendStory(cwd, { at: fix.resolvedAt, openedAt: fix.openedAt, stage: fix.stage ?? stage, file: fix.file, rule: fix.rule, title: fix.title ?? fix.rule, details: fix.details, diff: compactDiff(fix.before, fix.after) });
     }
     const opened = openNew(cwd, open, current, stage);
     writeOpen(cwd, open);
-    return { opened, resolved: fixes.length, fixes };
+    return { opened, resolved: fixes.length, fixes, checkerChanged };
 }
 
 /** Open findings this review no longer reports: resolved when their file was reviewed and changed. */
-function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>, reviewed: Set<string>): ResolvedFix[] {
+function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>, reviewed: Set<string>): { resolved: ResolvedFix[]; checkerChanged: number } {
     const resolved: ResolvedFix[] = [];
+    let checkerChanged = 0;
     const dismissed = dismissedKeys(cwd);
     for (const [key, entry] of Object.entries(open)) {
-        if (current.has(key)) continue;
+        if (current.has(key)) {
+            entry.checker = CHECKER_VERSION; // still reported by these checks: theirs now
+            continue;
+        }
         if (entry.key && dismissed.has(entry.key)) {
             delete open[key]; // gone because a person dismissed it, not because anyone fixed it
             continue;
         }
         if (!reviewed.has(entry.file)) {
             if (Date.now() - Date.parse(entry.openedAt) > OPEN_TTL_MS) delete open[key];
+            continue;
+        }
+        if (stale(entry)) {
+            delete open[key]; // the checks changed, not the code: no fix, no story, no outcome
+            checkerChanged++;
             continue;
         }
         const after = readSmall(cwd, entry.file);
@@ -94,7 +125,30 @@ function resolveGone(cwd: string, open: Record<string, OpenFinding>, current: Ma
         }
         delete open[key];
     }
-    return resolved;
+    return { resolved, checkerChanged };
+}
+
+/**
+ * Re-checks, in place, the findings another version of the checks opened at `stage` (with `all`, every one open at
+ * it), with `check` (this version's, for that stage): what it still reports stays open, now as its own; the rest
+ * closes. Nothing is credited as a fix. Does nothing, and runs nothing, when no such finding is open.
+ */
+export async function recheckOpenFindings(cwd: string, stage: CatchStage, check: (files: string[]) => Promise<Failure[]>, all = false): Promise<{ closed: number; kept: number }> {
+    const open = readOpen(cwd);
+    const old = Object.entries(open).filter(([, entry]) => (all || stale(entry)) && entry.stage === stage);
+    if (old.length === 0) return { closed: 0, kept: 0 };
+    const files = [...new Set(old.map(([, entry]) => entry.file))].filter(file => fs.existsSync(path.join(cwd, file)));
+    const reported = new Set((await check(files)).flatMap(f => (f.files?.[0] ? [`${f.id}:${f.files[0]}`] : [])));
+    let closed = 0;
+    for (const [key, entry] of old) {
+        if (reported.has(key)) entry.checker = CHECKER_VERSION;
+        else {
+            delete open[key];
+            closed++;
+        }
+    }
+    writeOpen(cwd, open);
+    return { closed, kept: old.length - closed };
 }
 
 function openNew(cwd: string, open: Record<string, OpenFinding>, current: Map<string, Failure>, stage: CatchStage): number {
@@ -104,7 +158,7 @@ function openNew(cwd: string, open: Record<string, OpenFinding>, current: Map<st
         const file = finding.files![0];
         const before = readSmall(cwd, file);
         if (before === null) continue;
-        open[key] = { file, rule: finding.id, title: finding.title, details: finding.details, before, openedAt: new Date().toISOString(), stage, key: findingKey(finding) };
+        open[key] = { file, rule: finding.id, title: finding.title, details: finding.details, before, openedAt: new Date().toISOString(), stage, key: findingKey(finding), checker: CHECKER_VERSION };
         opened++;
     }
     return opened;
