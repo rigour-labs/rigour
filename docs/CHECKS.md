@@ -66,7 +66,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 | Logic drift | A comparison operator changed in a function (`>=` became `>`) compared with the main branch. Return and branch count changes are opt-in (`track_returns`, `track_branches`). | Languages with an adapter (see below) | `logic-drift` | On | Note |
 | Async and error safety | Unhandled promises, unsafe `fetch`, async functions that never await, `.Result`/`.Wait()` deadlock risks, and similar. | JS/TS, Python, Go, Ruby, C# | `promise-safety` | On | Note |
 | Side effects | Timers never cleared, spawned processes never reaped, infinite loops doing I/O, retries without a limit, file watchers that trigger themselves, leaked resources, unbounded recursion, restart loops. | JS/TS, Python, Go, Rust, C#, Java, Ruby | `side-effect-analysis` | On | Infinite I/O loops, self-triggering watchers and restart loops (critical) block; the rest are notes |
-| Inconsistent error handling | The same error type handled in more than `max_strategies_per_type` ways across files. | Languages with an adapter | `inconsistent-error-handling` | On | Note |
+| Inconsistent error handling | The same error type handled in more than `max_strategies_per_type` ways across files. A handler that only hands the error to a helper (`return handle(e)`) is no way of its own. | Languages with an adapter | `inconsistent-error-handling` | On | Note |
 | Model review | Findings from a model that read the changed code. Only when you ask for one. | Any | `deep-analysis` | On request | Yes |
 
 "Languages with an adapter" means JS/TS, Python, Go, Ruby, C#, Java, Kotlin and Rust.
@@ -82,7 +82,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Unused export | An export on an added line that no other file imports from its module. A test is not a consumer. Framework route and hook exports are skipped. | JS/TS, Svelte | `unused-export` | On | Note; `block: true` makes it block |
+| Unused export | An export on an added line that no other file imports from its module, or from a barrel that re-exports the module with `export * from` (a chain of them too). A test is not a consumer. Framework route and hook exports are skipped. | JS/TS, Svelte | `unused-export` | On | Note; `block: true` makes it block |
 | Orphaned file | A new code file that nothing imports or runs. Routes, hooks, tests, migrations and config files are skipped. A folder of new files that only import each other is reported as a whole. | JS/TS, Svelte | `orphan-file` | On | Note; `block: true` makes it block |
 | Duplicate function | A changed function whose body is the same, line for line, as another function in the touched files (comments and layout ignored; at least 4 statements and 6 lines). | JS/TS, Svelte | `duplicate-function` | On | Yes |
 | Optional member every host supplies | An optional property that every object providing it sets. | TypeScript | `optional-always-supplied` | On (`redundancy`) | Yes |
@@ -111,11 +111,11 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Security patterns | SQL injection, XSS, path traversal, hardcoded secrets, insecure randomness, command injection and more. Only findings at or above `block_on_severity` (default `high`) are reported. | JS/TS, Python; secret patterns also Java and Go | `security-patterns` | On | Yes |
+| Security patterns | SQL injection, XSS, path traversal, hardcoded secrets, insecure randomness, command injection and more. Only findings at or above `block_on_severity` (default `high`) are reported. A call written in a string literal or a comment (`MSG = "subprocess.call(cmd, shell=True)"`) is not a call; patterns about a string's contents (secrets, keys, header values) still match inside strings. Code inside a string interpolation (`f"{…}"`, `${…}`) counts as string, and a string spanning lines is read as code past its first line. | JS/TS, Python; secret patterns also Java and Go | `security-patterns` | On | Yes |
 | Frontend secret exposure | A server secret referenced from a file that ships to the browser (`process.env.X` / `import.meta.env.X` without a public prefix), or a live key literal in source. Only `critical` and `high` are reported by default. | JS/TS, Vue, Svelte | `frontend-secret-exposure` | On | Yes |
 | Prototype pollution | `__proto__` access, unsafe bracket writes, `Object.assign({}, …)` merges. | JS/TS | `ast-analysis` (`SECURITY_PROTOTYPE_POLLUTION`, `…_MERGE`) | On | Yes |
 | Unsafe call | A dangerous execution sink found from the syntax tree. | Go, Java, Rust, C#, C++ | `ast-analysis` (`SME_SECURITY_SINK`) | On | Yes |
-| Security-deprecated API | An API deprecated for security reasons (`new Buffer()`, weak hashes and similar). Critical while `block_security_deprecated` is true (default); high, and a note, when it is false. | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Yes |
+| Security-deprecated API | An API deprecated for security reasons (`new Buffer()`, weak hashes and similar), used in code: the same text in a string literal or a comment is not a use. Critical while `block_security_deprecated` is true (default); high, and a note, when it is false. | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Yes |
 
 ### Mistakes coding agents make
 

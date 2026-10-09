@@ -44,6 +44,8 @@ describe('the reviewer as the CLI prints it', () => {
     });
 
     it('returns every decision in JSON', () => {
+        expect(reviewerJson({ ...base, spentUsd: 2.2 })).toMatchObject({ cost_usd: 0.42, spent_usd: 2.2 }); // every run, a failed one included
+        expect(reviewerJson({ ...base, cached: true })).toMatchObject({ spent_usd: 0 }); // a cached verdict ran nothing
         expect(reviewerJson({ ...base, mode: { asked: 'panel', ran: 'panel', source: 'team' } })).toMatchObject({ blocks: true, mode: { ran: 'panel' }, disputed: [{ id: 'd1' }], notes: [{ id: 'n1' }], shown: { blocking: 1, should_fix: 0 }, dropped: [{ id: 'x1' }] });
     });
 

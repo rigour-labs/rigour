@@ -71,6 +71,8 @@ export interface ReviewResult {
     excludedOutsideChangedLines: number;
     /** Findings the base already had: counted, not reported (baseline.ts). */
     preexisting: number;
+    /** A diff given with no base whose change HEAD already holds (committed work): nothing was compared, so nothing was dropped as the base's. */
+    baseUnknown?: boolean;
     changedLines: Record<string, Set<number>>;
     report: Report | null;
     deepError?: string;
@@ -111,7 +113,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff } : undefined;
     // The team's `commands:` run at push (toolchain.ts), where a failure blocks; here they would only cost time.
     const report = await new GateRunner({ ...input.config, commands: {} }).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
-    const preexisting = await dropPreexisting(input, report, targets);
+    const { preexisting, baseUnknown } = await dropPreexisting(input, report, targets);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     // The review's own checks, each recorded in the summary beside the gates, so a report says everything that ran.
     const reviewCheck = (id: string, key: keyof Config['gates'], failures: Failure[]) => {
@@ -156,6 +158,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         unlocated: split.unlocated,
         excludedOutsideChangedLines: split.outside,
         preexisting,
+        ...(baseUnknown ? { baseUnknown } : {}),
         changedLines,
         report,
         gateErrors,
@@ -167,20 +170,41 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     };
 }
 
-/** Drop the rules' findings the base already had; returns how many. Model findings stay: the model reviews only the change. */
-async function dropPreexisting(input: ReviewInput, report: Report, targets: string[]): Promise<number> {
-    if (input.config.review?.show_preexisting) return 0;
+/**
+ * Drop the rules' findings the base already had; returns how many. Model findings stay: the model reviews only the change.
+ * A diff given with no `--base` is compared with HEAD, which is right for uncommitted work. When HEAD already holds the
+ * change (a diff of committed work), HEAD is no base: every finding would look like the base's, so none is dropped and
+ * `baseUnknown` says why.
+ */
+async function dropPreexisting(input: ReviewInput, report: Report, targets: string[]): Promise<{ preexisting: number; baseUnknown?: boolean }> {
+    if (input.config.review?.show_preexisting) return { preexisting: 0 };
+    if (input.diff !== undefined && input.source?.mode !== 'base' && input.source?.mode !== 'since' && headHolds(input.cwd, input.diff)) return { preexisting: 0, baseUnknown: true };
     const commit = baseCommit(input.cwd, input.source ?? (input.diff ? undefined : { mode: 'working' }));
     const rules = report.failures.filter(f => f.provenance !== 'deep-analysis');
-    if (!commit || rules.length === 0) return 0;
+    if (!commit || rules.length === 0) return { preexisting: 0 };
     try {
         const { preexisting } = splitIntroduced(rules, await baseFindings(input.cwd, input.config, commit, targets));
         const old = new Set(preexisting);
         report.failures = report.failures.filter(f => !old.has(f));
-        return old.size;
+        return { preexisting: old.size };
     } catch {
-        return 0; // the comparison is a courtesy; it never fails a review
+        return { preexisting: 0 }; // the comparison is a courtesy; it never fails a review
     }
+}
+
+/** Whether HEAD already has a file as the diff leaves it (its `index <before>..<after>` blob), read in one `git ls-tree`. */
+function headHolds(cwd: string, diff: string): boolean {
+    const after = new Map<string, string>();
+    for (const m of diff.matchAll(/^diff --git a\/.+? b\/(.+)\n(?:(?!diff --git ).*\n)*?index [0-9a-f]+\.\.([0-9a-f]+)/gm)) {
+        if (!/^0+$/.test(m[2])) after.set(m[1], m[2]);
+    }
+    if (after.size === 0) return false;
+    const tree = spawnSync('git', ['ls-tree', '-z', 'HEAD', '--', ...after.keys()], { cwd, encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 * 1024 });
+    if (tree.status !== 0) return false;
+    return tree.stdout.split('\0').some(line => {
+        const m = /^\d+ blob ([0-9a-f]+)\t(.+)$/.exec(line);
+        return !!m && !!after.get(m[2]) && m[1].startsWith(after.get(m[2])!);
+    });
 }
 
 /** Every path the diff touches (including deletions, which parseDiff drops) that steers Rigour itself. */

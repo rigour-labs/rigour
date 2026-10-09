@@ -58,7 +58,9 @@ export function printReviewer(result: ReviewerResult, options: { notes?: boolean
     if (result.rules?.checked) console.log(chalk.dim(`  repository rules answered: ${result.rules.checked} (${result.rules.broken} broken, ${result.rules.followed} followed, ${result.rules.notApplicable} not applicable)`));
     if (result.record && result.recordPath) console.log(chalk.dim(`  record: ${result.recordPath} (integrity ${result.record.integrity.slice(0, 16)})`));
     const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens` : '';
-    const cost = `${result.costUsd !== undefined ? `, $${result.costUsd.toFixed(2)}` : ''}${tokens}`;
+    // What every run of this review cost, failed ones included (the verdict's judges alone would under-count it).
+    const spent = result.spentUsd ?? result.costUsd;
+    const cost = `${spent !== undefined ? `, $${spent.toFixed(2)}` : ''}${tokens}`;
     console.log(`  ${result.items.length} open item(s)${result.cached ? chalk.dim(' (cached for this commit)') : cost}\n`);
 }
 
@@ -92,7 +94,9 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         dismissed: result.dismissed,
         mode: result.mode ?? null,
         panel: result.panel ?? null,
+        // The verdict's judges, as reported; kept for compatibility. spent_usd is every run, and 0 for a cached verdict.
         cost_usd: result.costUsd ?? null,
+        spent_usd: result.spentUsd ?? 0,
         tokens: result.tokens ?? null,
         cached: result.cached,
         previous_review: result.previousReview ?? null,

@@ -132,6 +132,30 @@ describe('git-backed review', () => {
         expect(toReviewFinding(semantic[0])).toMatchObject({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2, severity: 'high' });
     });
 
+    it('finds the same in a diff of committed work as in --base: HEAD already holds the change, so it is no base to drop findings against', async () => {
+        write('src/old.ts', 'export const ok = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        git('checkout', '-q', '-b', 'feature');
+        write('src/notify.ts', LEAKY);
+        git('add', '-A');
+        git('commit', '-qm', 'feature');
+        const config = ConfigSchema.parse({ version: 1, gates: { semantic_bugs: { enabled: true } } });
+        const ids = (r: Awaited<ReturnType<typeof reviewChange>>) => r.findings.map(f => [f.id, f.files?.[0], f.line]);
+
+        const base = await reviewChange({ cwd: repo, config, source: { mode: 'base', base: 'main' } });
+        const file = await reviewChange({ cwd: repo, config, diff: git('diff', 'main...HEAD'), source: { mode: 'working' } });
+
+        expect(base.status).toBe('FAIL');
+        expect(file.status).toBe('FAIL');
+        expect(ids(file)).toEqual(ids(base));
+        expect(file.baseUnknown).toBe(true);
+        // Uncommitted work piped in is still compared with HEAD, which does not hold it.
+        write('src/more.ts', LEAKY);
+        git('add', '-N', 'src/more.ts');
+        expect((await reviewChange({ cwd: repo, config, diff: git('diff'), source: { mode: 'working' } })).baseUnknown).toBeUndefined();
+    });
+
     it("names every check it ran in the summary, the review's own beside the gates", async () => {
         write('src/a.ts', 'export const a = 1;\n');
         git('add', '-A');

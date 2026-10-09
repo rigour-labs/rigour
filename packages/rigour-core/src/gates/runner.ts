@@ -36,6 +36,7 @@ import { DeprecatedDependenciesGate } from './deprecated-dependencies.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
 import { FileSystemCache } from '../services/filesystem-cache.js';
+import { onChangedLines, settledChecks } from '../review/settled-checks.js';
 
 export class GateRunner {
     private gates: Gate[] = [];
@@ -244,7 +245,8 @@ export class GateRunner {
         // 3. Run Deep Analysis (if enabled)
         let deepStats: Report['stats']['deep'] = undefined;
         if (deepOptions?.enabled) {
-            const deep = await runDeepAnalysis(this.config, { cwd, ignore, patterns }, deepOptions);
+            // What the checks found on the change's lines is settled: the model is told so and never reports it again.
+            const deep = await runDeepAnalysis(this.config, { cwd, ignore, patterns }, { ...deepOptions, settled: settledChecks(onChangedLines(failures, deepOptions.focusLines)) });
             failures.push(...deep.failures);
             summary['deep-analysis'] = deep.summary;
             deepStats = deep.stats;
@@ -393,3 +395,4 @@ export function dedupeFailures(failures: Failure[]): Failure[] {
         return true;
     });
 }
+

@@ -506,6 +506,7 @@ describe('the orchestrator', () => {
         const rows = (await store()).costs();
         expect(rows).toHaveLength(before + 1);
         expect(rows.at(-1)).toMatchObject({ mode: 'orchestrator', runs: 2, actualUsd: 2.2 });
+        expect(result.spentUsd).toBe(2.2); // what --json reports as spent_usd: the failed pass and the fallback
         expect(rows.at(-1)!.actualChars).toBeGreaterThan(rows.at(-1)!.projectedSingleChars); // the failed pass lowers the ledger
     });
 
@@ -586,6 +587,48 @@ describe('the orchestrator', () => {
         const result = await runReviewer(repo, 'main', floor, fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
         expect(seen.prompts.map(passOf)).toEqual(['single', 'single']);
         expect(result.mode?.refused).toContain('orchestrator refused: rigour.yml requires the panel or the mode');
+    });
+});
+
+describe('the content cache', () => {
+    it('reuses a verdict for the same content on another commit, and reviews again when the base under a file it cites moved', async () => {
+        // The judge cites a.ts (on the base, not in the change) and src/job.ts (the change).
+        const reply = JSON.stringify({ ...EMPTY, findings: [
+            { class: 'correctness', file: 'a.ts', line: 1, issue: 'a is exported twice', input: 'x', consequence: 'y', quote: 'export const a = 1;', severity: 'should-fix' },
+            { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' },
+        ] });
+        const run = async () => {
+            const seen = seenNow();
+            const result = await runReviewer(repo, 'main', config, fakes(() => reply, seen), () => undefined);
+            return { result, runs: seen.prompts.length };
+        };
+        const store = async () => (await VerdictStore.open(repo, fakes(() => '', seenNow())))!;
+        expect((await run()).runs).toBe(1);
+        // An amend: a new commit, the same content.
+        git('commit', '-q', '--amend', '-m', 'job, reworded');
+        const amended = await run();
+        expect(amended.runs).toBe(0);
+        expect(amended.result).toMatchObject({ cached: true, cache: 'content', why: expect.stringMatching(/^same content as the verdict on [0-9a-f]{9}$/) });
+        expect(amended.result.items.map(i => i.file)).toEqual(['src/job.ts']);
+        expect((await store()).costs().at(-1)).toMatchObject({ runs: 0, actualUsd: 0, cache: 'content' });
+        // The base moves under a file nothing cites: still the same review.
+        git('checkout', '-q', 'main');
+        fs.writeFileSync(path.join(repo, 'b.ts'), 'export const b = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'b');
+        git('checkout', '-q', 'feature');
+        git('rebase', '-q', 'main');
+        expect((await run()).runs).toBe(0);
+        // The base moves under a.ts, which the verdict cites: reviewed again.
+        git('checkout', '-q', 'main');
+        fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 2;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'a changed');
+        git('checkout', '-q', 'feature');
+        git('rebase', '-q', 'main');
+        const moved = await run();
+        expect(moved.runs).toBe(1);
+        expect(moved.result.cache).toBeUndefined();
     });
 });
 
@@ -1090,7 +1133,9 @@ describe("the review on the task's thread", () => {
         expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking, e.checks])).toEqual([['review', 'review', 'passed', 0, 1]]);
         expect(thread?.events[0].integrity).toEqual(expect.any(String));
         expect(thread?.events[0]).toMatchObject({ cost_usd: 1.5, cost_basis: 'runs' }); // every run this review made: the same dollars as its cost row
-        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
+        const cached = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
+        expect(cached.cached).toBe(true);
+        expect(cached.spentUsd).toBeUndefined(); // --json reports spent_usd 0
         expect(readThread(repo, 'feature')?.events[1]).not.toHaveProperty('cost_usd'); // a cached verdict spent nothing
         expect(readThread(repo, 'feature')?.events).toHaveLength(2);
         await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seenNow()), () => undefined, { pr: 42, reviewsBefore: '2026-10-03', force: true });

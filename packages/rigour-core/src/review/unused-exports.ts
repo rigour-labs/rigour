@@ -5,7 +5,7 @@
  * dead exports pile up in agent-written code. Only exports on added lines are checked. Another
  * file uses an export when it names the symbol as a whole word AND points at the module: an import,
  * re-export, dynamic import or mock whose specifier ends in the module's name (its folder's, for an
- * index file). A same-named word elsewhere, such as an unrelated route parameter, is not a use, and
+ * index file), or the name of a barrel that re-exports the module with `export * from` (a chain of them too). A same-named word elsewhere, such as an unrelated route parameter, is not a use, and
  * neither is a test: an export only its tests import is dead in production, and exporting a thing
  * for its test is the habit that keeps it so. What a framework calls by convention (SvelteKit and
  * Next.js route modules, hooks, serverless functions) is never reported.
@@ -124,9 +124,49 @@ export function unusedExportFailures(cwd: string, diff: string, config: Config):
     const users = filesNaming(cwd, [...new Set(candidates.map(exp => exp.name))], ownOutputs(config));
     if (!users) return []; // git could not answer: say nothing rather than guess
     const points = pointsAtCache(cwd);
+    const barrels = barrelsOf(cwd);
     return candidates
-        .filter(exp => ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && !isTestFile(user) && points(user, exp.file)))
+        .filter(exp => {
+            const modules = [exp.file, ...reExporters(exp.file, barrels)];
+            return ![...(users.get(exp.name) ?? [])].some(user => !isOwnFile(user, exp) && !isTestFile(user) && modules.some(module => points(user, module)));
+        })
         .map(exp => unused(exp, !settings.block));
+}
+
+const STAR_EXPORT = /^\s*export\s*\*\s*from\s*['"](\.{1,2}\/[^'"]+)['"]/gm;
+
+/** Per module (path without extension), the barrel files that re-export all of it with `export * from './module'`: one git grep. */
+function barrelsOf(cwd: string): Map<string, string[]> {
+    const barrels = new Map<string, string[]>();
+    const found = spawnSync('git', ['grep', '--untracked', '-l', '-E', 'export[[:space:]]*\\*[[:space:]]*from', '--', '.'], { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
+    if (found.status !== 0) return barrels;
+    for (const barrel of found.stdout.split('\n').filter(file => CODE.test(file))) {
+        let text = '';
+        try {
+            text = fs.readFileSync(path.join(cwd, barrel), 'utf8');
+        } catch {
+            continue;
+        }
+        for (const match of text.matchAll(STAR_EXPORT)) {
+            const module = withoutExtension(path.posix.join(path.posix.dirname(barrel), match[1]));
+            barrels.set(module, [...(barrels.get(module) ?? []), barrel]);
+        }
+    }
+    return barrels;
+}
+
+/** Every barrel that re-exports `file`, directly or through other barrels. */
+function reExporters(file: string, barrels: Map<string, string[]>): string[] {
+    const seen = new Set<string>();
+    const queue = [withoutExtension(file)];
+    while (queue.length) {
+        for (const barrel of barrels.get(queue.shift()!) ?? []) {
+            if (seen.has(barrel)) continue;
+            seen.add(barrel);
+            queue.push(withoutExtension(barrel));
+        }
+    }
+    return [...seen];
 }
 
 /**

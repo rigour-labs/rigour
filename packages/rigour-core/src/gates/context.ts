@@ -131,8 +131,10 @@ export class ContextGate extends Gate {
             this.addPattern(patterns, 'function', { casing, file, count: 1 });
         }
 
-        // Class declarations
-        const classMatches = content.matchAll(/class\s+([A-Za-z_$][A-Za-z0-9_$]*)/g);
+        // Class declarations: `class` opening a line (after modifiers: C# partial, Kotlin enum/inner/value/annotation
+        // and the rest), its name on the same line. Not the end of
+        // `dataclass`, and not the word in a comment or a string ("# this class of errors").
+        const classMatches = content.matchAll(/^[ \t]*(?:(?:export|default|abstract|public|private|protected|internal|final|sealed|static|data|open|partial|enum|inner|value|annotation)[ \t]+)*class[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)/gm);
         for (const match of classMatches) {
             const casing = this.detectCasing(match[1]);
             this.addPattern(patterns, 'class', { casing, file, count: 1 });
