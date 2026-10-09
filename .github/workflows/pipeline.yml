@@ -57,6 +57,23 @@ jobs:
           done
           echo "tested=$tested" >> "$GITHUB_OUTPUT"
 
+  # A merge commit brings every branch commit onto the base, and semantic-release reads them all: a commit whose type
+  # releases more than the pull request's title would change the version the release gets. The back-merge of main into
+  # next carries only commits already released, so it is not checked.
+  commit-types:
+    name: Commit types within the title's release
+    if: github.event_name == 'pull_request' && github.head_ref != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/commit-types.mjs "$TITLE" "$BASE" "$HEAD"
+
   test:
     name: Test & Build
     needs: already-tested
