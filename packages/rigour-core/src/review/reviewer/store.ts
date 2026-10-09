@@ -32,6 +32,10 @@ export interface BranchState {
     at: string;
 }
 
+/** A finished review's cost, for the orchestrator's guard: `single` (one judge) or `orchestrator`. */
+export interface ReviewCost { at: string; mode: 'single' | 'orchestrator'; lines: number; usd: number; runs: number }
+const COSTS_KEPT = 200;
+
 export class VerdictStore {
     private constructor(private readonly dir: string) {}
 
@@ -95,6 +99,30 @@ export class VerdictStore {
     addSpend(runs: number, usd: number | undefined, day = localDay()): void {
         fs.mkdirSync(path.join(this.dir, 'spend'), { recursive: true });
         fs.appendFileSync(this.spendFile(day), `${JSON.stringify({ runs, ...(usd ? { usd } : {}), at: new Date().toISOString() })}\n`);
+    }
+
+    /** One line per finished review: how it ran, the lines it covered and what its runs reported costing (the orchestrator's cost guard reads it). */
+    recordCost(entry: ReviewCost): void {
+        fs.mkdirSync(this.dir, { recursive: true });
+        fs.appendFileSync(path.join(this.dir, 'costs.jsonl'), `${JSON.stringify(entry)}\n`);
+    }
+
+    /** The last `n` reviews' costs, oldest first; lines that do not parse are skipped. */
+    costs(n = COSTS_KEPT): ReviewCost[] {
+        let text = '';
+        try {
+            text = fs.readFileSync(path.join(this.dir, 'costs.jsonl'), 'utf8');
+        } catch {
+            return [];
+        }
+        return text.split('\n').flatMap(line => {
+            try {
+                const entry = JSON.parse(line);
+                return entry && typeof entry.usd === 'number' && typeof entry.lines === 'number' ? [entry as ReviewCost] : [];
+            } catch {
+                return [];
+            }
+        }).slice(-n);
     }
 
     private spendFile(day: string): string {

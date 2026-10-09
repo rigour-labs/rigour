@@ -374,57 +374,95 @@ describe('the reviewer', () => {
 
 describe('the orchestrator', () => {
     const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' };
-    /** Which specialist a prompt is for, from its focus block ('none' for the single review). */
-    const partOf = (prompt: string) => /Your part:\n(earlier human|correctness|production cost|what the change leaves|claims)/.exec(prompt)?.[1] ?? 'none';
-    /** Answers by specialist: a reply, or 'fail' for a run that gives no answer. */
+    /** Which pass a prompt is: its part file for an orchestrated pass, 'single' for one judge's whole review. */
+    const passOf = (prompt: string) => /Your part of the diff is in\n(\S+)/.exec(prompt)?.[1]?.split(/[\\/]/).pop() ?? 'single';
+    /** Answers by pass: a reply, or 'fail' for a run that gives no answer. */
     const judge = (seen: Seen, replies: Record<string, string | 'fail'>) => () => {
-        const reply = replies[partOf(seen.prompts.at(-1)!)] ?? JSON.stringify(EMPTY);
+        const reply = replies[passOf(seen.prompts.at(-1)!)] ?? JSON.stringify(EMPTY);
         return reply === 'fail' ? { exitCode: 1, stdout: '', stderr: 'crashed' } : reply;
     };
     const capped = (runs: number) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], max_runs_per_day: runs } } });
+    /** A change past one pass's size: queries in code, and a long doc, so triage picks four parts across two kinds of hunk. */
+    function bigChange() {
+        const code = Array.from({ length: 900 }, (_, i) => `export async function load${i}(db) { return db.query('select * from orders where id = ${i}'); }`).join('\n');
+        fs.writeFileSync(path.join(repo, 'src/load.ts'), `${code}\n`);
+        fs.mkdirSync(path.join(repo, 'docs'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'docs/guide.md'), `${Array.from({ length: 1200 }, (_, i) => `The loader reads order ${i} once, never twice, and pages by cursor.`).join('\n')}\n`);
+        git('add', '-A');
+        git('commit', '-qm', 'big');
+    }
+    /** One judge's review first, so the cost guard has a single-review baseline to compare against. */
+    async function baseline() {
+        const seen = seenNow();
+        await runReviewer(repo, 'main', config, fakes(() => JSON.stringify(EMPTY), seen), () => undefined, { force: true });
+    }
 
-    it('asks every specialist once, from the same inputs, and merges the same point from two of them into one item naming both', async () => {
+    it('reviews a small change in one combined pass, with only the parts triage picked and its slice of the diff', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff']);
+        expect(seen.prompts[0]).toContain('you do these: earlier human review points; correctness: merge impact');
+        expect(seen.prompts[0]).not.toContain('production cost: every read');
+        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'orchestrator', specialists: { selected: ['prior-points', 'correctness', 'cleanup'], missing: [], passes: [{ specialists: ['prior-points', 'correctness', 'cleanup'] }] } });
+    });
+
+    it('runs no model on a change with nothing for it to review, and records that as the verdict', async () => {
+        git('checkout', '-q', 'main');
+        git('checkout', '-qb', 'locks');
+        fs.writeFileSync(path.join(repo, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+        git('add', '-A');
+        git('commit', '-qm', 'locks');
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, {}), seen, null), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts).toEqual([]);
+        expect(result).toMatchObject({ outcome: 'passed', mode: { ran: 'orchestrator', specialists: { selected: [], passes: [], none: 'nothing for the model reviewer to review' } } });
+        expect(result.record).toBeDefined();
+    });
+
+    it('splits a change one pass cannot hold into at most three passes, never more than it picked, and folds a point two passes raise into one item naming both', async () => {
+        await baseline();
+        bigChange();
         const seen = seenNow();
         const both = JSON.stringify({ ...EMPTY, findings: [finding] });
-        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { correctness: both, 'what the change leaves': both }), seen), () => undefined, { orchestrator: true, force: true });
-        expect(seen.prompts.map(partOf).sort()).toEqual(['claims', 'correctness', 'earlier human', 'production cost', 'what the change leaves']);
-        expect(seen.ran.every(command => path.basename(command).startsWith('claude'))).toBe(true); // one judge, the first
-        // Built once: every specialist reads the same diff file.
-        const diffs = new Set(seen.prompts.map(prompt => /(\S+full\.diff)/.exec(prompt)?.[1]));
-        expect(diffs.size).toBe(1);
-        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'orchestrator', specialists: { asked: 5, missing: [] } });
-        expect(result.items.map(i => [i.class, i.reviewer])).toEqual([['correctness', 'claude:correctness+claude:cleanup']]);
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { 'part-1.diff': both, 'part-2.diff': both }), seen), () => undefined, { orchestrator: true, force: true });
+        const specialists = result.mode!.specialists!;
+        expect(specialists.passes.length).toBeGreaterThan(1);
+        expect(specialists.passes.length).toBeLessThanOrEqual(Math.min(3, specialists.selected.length));
+        expect(seen.prompts.map(passOf).sort()).toEqual(specialists.passes.map((_, i) => `part-${i + 1}.diff`));
+        expect(result.items.map(i => i.reviewer)).toHaveLength(1);
+        expect(result.items[0].reviewer!.split('+')).toHaveLength(2);
     });
 
-    it('stands with at least half the specialists back, naming the parts not reviewed', async () => {
+    it('keeps a big change one pass when there is no single-review cost to compare with, and says why', async () => {
+        bigChange();
         const seen = seenNow();
-        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { correctness: 'fail', 'production cost': 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
-        expect(result.mode).toMatchObject({ ran: 'orchestrator', specialists: { returned: ['prior-points', 'cleanup', 'rules-and-goal'], missing: ['correctness', 'production-cost'] } });
-        expect(result.mode?.degraded).toContain('not reviewed: correctness, production-cost');
-        expect(seen.prompts).toHaveLength(5); // no retry, no fallback
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts).toHaveLength(1);
+        expect(result.mode?.specialists?.guard).toContain('no single-review cost in this repository yet');
     });
 
-    it('falls back to one judge when fewer than half return, and counts that run too', async () => {
+    it('falls back to one judge when the pass gives no verdict, and counts that run too', async () => {
         const seen = seenNow();
-        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { correctness: 'fail', 'production cost': 'fail', claims: 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
-        expect(seen.prompts.map(partOf)).toContain('none'); // the single review's prompt
-        expect(seen.prompts).toHaveLength(6);
-        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'single', specialists: { fallback: '2 of 5 specialists returned' } });
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { 'part-1.diff': 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff', 'single']);
+        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'single', specialists: { fallback: '0 of 3 specialists returned' } });
         expect(result.outcome).toBe('passed');
     });
 
-    it('is unavailable when fewer than half return and the caps leave no run for one judge', async () => {
+    it('is unavailable when the pass gives no verdict and the caps leave no run for one judge', async () => {
         const seen = seenNow();
-        const result = await runReviewer(repo, 'main', capped(5), fakes(judge(seen, { correctness: 'fail', 'production cost': 'fail', claims: 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
-        expect(seen.prompts).toHaveLength(5);
+        const result = await runReviewer(repo, 'main', capped(1), fakes(judge(seen, { 'part-1.diff': 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts).toHaveLength(1);
         expect(result.outcome).toBe('unavailable');
-        expect(result.reason).toContain('2 of 5 specialists returned, and the caps leave no run for one judge');
+        expect(result.reason).toContain('0 of 3 specialists returned, and the caps leave no run for one judge');
     });
 
-    it('starts as one judge, said so, when the caps leave room for one run but not every specialist', async () => {
+    it('starts as one judge, said so, when the caps leave room for one run but not every pass of a split', async () => {
+        await baseline();
+        bigChange();
         const seen = seenNow();
-        const result = await runReviewer(repo, 'main', capped(3), fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
-        expect(seen.prompts.map(partOf)).toEqual(['none']);
+        const result = await runReviewer(repo, 'main', capped(2), fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['single']);
         expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'single', specialists: { fallback: expect.stringContaining('not started: the daily run cap is reached') } });
     });
 
@@ -436,24 +474,26 @@ describe('the orchestrator', () => {
         const kept = await runReviewer(repo, 'main', team('required'), fakes(judge(required, {}), required), () => undefined, { force: true, orchestrator: false });
         expect(kept.mode).toMatchObject({ ran: 'orchestrator' });
         expect(kept.mode?.refused).toContain('review orchestrator off (flag) refused: rigour.yml sets review.reviewer.orchestrator: required');
-        // Required, and the caps leave room for one run but not five: unavailable, never a quieter single review.
+        // Required, and the caps already spent: unavailable, never a quieter review.
+        const first = seenNow();
+        await runReviewer(repo, 'main', team('required', { max_runs_per_day: 1 }), fakes(judge(first, {}), first), () => undefined, { force: true });
         const spent = seenNow();
         const none = await runReviewer(repo, 'main', team('required', { max_runs_per_day: 1 }), fakes(judge(spent, {}), spent), () => undefined, { force: true });
         expect(none.outcome).toBe('unavailable');
         expect(spent.prompts).toEqual([]);
-        // Required, and fewer than half returned: unavailable, no fallback run.
+        // Required, and the pass gives no verdict: unavailable, no single-judge fallback run.
         const few = seenNow();
-        const short = await runReviewer(repo, 'main', team('required'), fakes(judge(few, { correctness: 'fail', 'production cost': 'fail', claims: 'fail' }), few), () => undefined, { force: true });
+        const short = await runReviewer(repo, 'main', team('required'), fakes(judge(few, { 'part-1.diff': 'fail' }), few), () => undefined, { force: true });
         expect(short.outcome).toBe('unavailable');
-        expect(short.reason).toBe('2 of 5 specialists returned, and rigour.yml requires the orchestrator: no single-judge fallback');
-        expect(few.prompts).toHaveLength(5);
+        expect(short.reason).toBe('0 of 3 specialists returned, and rigour.yml requires the orchestrator: no single-judge fallback');
+        expect(few.prompts).toHaveLength(1);
     });
 
     it('gives way to a team floor on the panel or the mode, and says so', async () => {
         const seen = seenNow();
         const floor = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], mode: 'full', mode_required: true } } });
         const result = await runReviewer(repo, 'main', floor, fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
-        expect(seen.prompts.map(partOf)).toEqual(['none', 'none']);
+        expect(seen.prompts.map(passOf)).toEqual(['single', 'single']);
         expect(result.mode?.refused).toContain('orchestrator refused: rigour.yml requires the panel or the mode');
     });
 });
