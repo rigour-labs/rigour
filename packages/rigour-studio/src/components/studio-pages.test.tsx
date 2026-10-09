@@ -1,12 +1,17 @@
+import fs from 'fs';
+import path from 'path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
 import { WeeklyTable } from './AgentContext';
-import { CompiledChecks, LessonCard, OutcomeCard } from './LearningParts';
+import { CompiledChecks, LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
+import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
+import { ReadOnlyNote } from './ReadOnlyNote';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
+import { groupNeeds, NeedGroupCard, needsHeading } from './NeedGroups';
 import { Agents, Settings, Verdict } from './ReviewerParts';
 import { SwitchSettings, type SwitchData } from './SwitchParts';
 
@@ -16,7 +21,7 @@ describe('Studio pages', () => {
     it('summarises a session and lists only what mattered until asked', () => {
         const out = html(<SessionCard session={{
             start: '2026-10-02T08:16:00Z', end: '2026-10-02T10:32:00Z',
-            counts: { stopped: 1, fixed: 0, checked: 26, reviewed: 15, taught: 0, pr: 0, reviewedFixed: 3 },
+            counts: { stopped: 1, reported: 0, fixed: 0, checked: 26, reviewed: 15, taught: 0, pr: 0, reviewedFixed: 3 },
             highlights: [{ at: '2026-10-02T10:00:00Z', kind: 'reviewed', text: 'Fixed `api` in scripts/a.mjs', detail: 'redirect: "error" now' }],
             rest: [{ at: '2026-10-02T09:00:00Z', kind: 'checked', text: 'Checked an edit to src/a.ts: nothing found' }],
         }} />);
@@ -219,3 +224,93 @@ function reviewerData(over: Record<string, unknown>): any {
         ...over,
     };
 }
+
+describe('the browser tab', () => {
+    it('is titled Rigour Studio, and nothing else', () => {
+        const page = fs.readFileSync(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
+        expect(/<title>([^<]*)<\/title>/.exec(page)?.[1]).toBe('Rigour Studio');
+    });
+});
+
+
+describe('the header', () => {
+    it('names the repository and its branch, never a path or a package version', () => {
+        const html = renderToStaticMarkup(<ProjectIdentity name="payments" branch="main" />);
+        expect(html).toContain('>payments<');
+        expect(html).toContain('>main<');
+        expect(html).not.toMatch(/\/Users\/|\/home\/|v\d+\.\d+/);
+    });
+});
+
+describe('open findings on the home page', () => {
+    const need = (file: string, title: string, openedAt: string, rule = 'hallucinated-imports') => ({ file, rule, title, openedAt });
+    const needs = [
+        need('src/a.ts', "Import 'left-pad' not found", '2026-10-01T00:00:00Z'),
+        need('src/b.ts', "Import 'lodash/fp' not found", '2026-10-03T00:00:00Z'),
+        need('src/a.ts', "Import 'zod' not found", '2026-10-02T00:00:00Z'),
+        need('src/c.ts', 'Function is 120 lines long', '2026-10-04T00:00:00Z', 'file-size'),
+    ];
+
+    it('group by check and message pattern, newest first', () => {
+        const groups = groupNeeds(needs);
+        expect(groups.map(g => [g.rule, g.pattern, g.needs.length, g.files])).toEqual([
+            ['file-size', 'Function is N lines long', 1, 1],
+            ['hallucinated-imports', 'Import … not found', 3, 2],
+        ]);
+        expect(groups[1].needs.map(n => n.file)).toEqual(['src/b.ts', 'src/a.ts', 'src/a.ts']);
+    });
+
+    it('show a repeated problem once, as a count in its files, closed until opened', () => {
+        const html = renderToStaticMarkup(<NeedGroupCard group={groupNeeds(needs)[1]} onDone={() => {}} />);
+        expect(html).toContain('3 × Import … not found, in 2 files');
+        expect(html).toContain('aria-expanded="false"');
+        expect(html).not.toContain('left-pad');
+    });
+
+    it('are counted in the heading as findings, with their kinds when a kind repeats', () => {
+        const many = Array.from({ length: 61 }, (_, i) => need(`src/f${i % 7}.ts`, `Problem of kind ${i % 5 === 0 ? "'a'" : i % 5}`, '2026-10-01T00:00:00Z', `check-${i % 5}`));
+        expect(needsHeading(groupNeeds(many))).toBe('61 findings need you, of 5 kinds.');
+        expect(needsHeading(groupNeeds(needs.slice(0, 2)))).toBe('2 findings need you, of 1 kind.');
+        expect(needsHeading(groupNeeds([needs[0], needs[3]]))).toBe('2 findings need you.');
+        expect(needsHeading(groupNeeds([needs[3]]))).toBe('1 finding needs you.');
+        expect(needsHeading([])).toBe('Nothing needs you.');
+    });
+
+    it('show a single finding as its own card', () => {
+        const html = renderToStaticMarkup(<NeedGroupCard group={groupNeeds(needs)[0]} onDone={() => {}} />);
+        expect(html).toContain('Function is 120 lines long');
+        expect(html).toContain('Copy for my agent');
+    });
+});
+
+describe('a read-only tab', () => {
+    it('says in one line that the printed link gives edit rights, and can be hidden', () => {
+        const html = renderToStaticMarkup(<ReadOnlyNote />);
+        expect(html).toContain('Read-only. Open the link <code>rigour studio</code> printed in your terminal: it gives this tab edit rights.');
+        expect(html).toContain('aria-label="Hide this note"');
+        expect(html).not.toContain('<p>');
+    });
+});
+
+describe('how lessons reach an agent, on the learning page', () => {
+    it('says agents get them on request, and in Claude Code by itself only with the brief hooks', () => {
+        const html = renderToStaticMarkup(<LearnsLead />).replace(/\s+/g, ' ');
+        expect(html).toContain('An agent gets the lessons when it asks for a brief (the <code>rigour_brief</code> tool, or <code>rigour brief</code>).');
+        expect(html).toContain('In Claude Code, <code>rigour hooks init --brief</code> hands them over by itself');
+        expect(html).not.toMatch(/told before they write/);
+    });
+});
+
+describe('an edit check that ran without --block, on the activity page', () => {
+    it('reads as reported, never as blocked', () => {
+        const out = renderToStaticMarkup(<SessionCard session={{
+            start: '2026-10-02T08:16:00Z', end: '2026-10-02T08:16:00Z',
+            counts: { stopped: 0, reported: 2, fixed: 0, checked: 0, reviewed: 0, taught: 0, pr: 0, reviewedFixed: 0 },
+            highlights: [{ at: '2026-10-02T08:16:00Z', kind: 'reported', text: 'Reported on an edit to src/a.ts: Import not found' }],
+            rest: [],
+        }} />);
+        expect(out).toContain('2 edits reported on');
+        expect(out).toContain('>reported<');
+        expect(out).not.toMatch(/blocked|Stopped/);
+    });
+});

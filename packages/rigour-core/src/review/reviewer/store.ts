@@ -52,7 +52,20 @@ export interface ReviewCost {
     /** What every run reported costing; a judge that reports no dollars adds none. */
     actualUsd: number;
     runs: number;
+    /** A verdict reused instead of run: for the same content on another commit (`content`). Runs and actual cost are 0. */
+    cache?: 'content';
 }
+
+/**
+ * A verdict, findable by the content it reviewed rather than its commit: a rebase, an amend, a cherry-pick or the same
+ * change on another branch reads it instead of paying again. `cited` is the merge-base blob of every file its items cite:
+ * a later base under one of them makes the entry stale.
+ */
+export interface ContentEntry { verdict: string; head: string; at: string; cited: Record<string, string> }
+/** Content entries kept, newest first; older ones are removed when a new one is written. */
+const CONTENT_KEPT = 500;
+/** A content entry older than this is not reused. */
+const CONTENT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** What one judge cost per character here, frozen once, at the orchestrator's first review: `null` without enough single reviews. */
 export interface CostBaseline { at: string; usdPerChar: number | null; singles: number }
@@ -67,6 +80,24 @@ export class VerdictStore {
         const dir = path.join(common, 'rigour-reviewer');
         fs.mkdirSync(path.join(dir, 'branches'), { recursive: true });
         return new VerdictStore(dir);
+    }
+
+    /** The verdict reviewed under this content key, unless it is older than CONTENT_TTL_MS or its verdict is gone. */
+    contentEntry(key: string): ContentEntry | undefined {
+        const entry = this.readJson<ContentEntry>(path.join(this.dir, 'content', `${key}.json`));
+        if (!entry || Date.now() - Date.parse(entry.at) > CONTENT_TTL_MS || !fs.existsSync(entry.verdict)) return undefined;
+        return entry;
+    }
+
+    /** Keeps a content entry; past CONTENT_KEPT, the oldest are removed. */
+    recordContent(key: string, entry: ContentEntry): void {
+        const dir = path.join(this.dir, 'content');
+        fs.mkdirSync(dir, { recursive: true });
+        this.writeJson(path.join(dir, `${key}.json`), entry);
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+        if (files.length <= CONTENT_KEPT) return;
+        const byAge = files.map(f => ({ f, at: fs.statSync(path.join(dir, f)).mtimeMs })).sort((a, b) => a.at - b.at);
+        for (const { f } of byAge.slice(0, files.length - CONTENT_KEPT)) fs.rmSync(path.join(dir, f), { force: true });
     }
 
     verdictPath(head: string, fingerprint: string): string {

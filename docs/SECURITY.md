@@ -81,7 +81,7 @@ review:
 | Any git URL you give | `rigour demo --repo <url>` clones it (`git clone --depth 1`) | A git clone | Do not use `--repo` |
 | Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | Your browser, when it opens Rigour Studio | What a browser sends for a font request | The page falls back to system fonts when they cannot load |
 
-Rigour Studio itself listens on `127.0.0.1` only. It answers requests whose `Host` header names its own loopback ports, and every write needs a per-launch key that is printed in the terminal link (in the URL fragment, which browsers do not send to a server).
+Rigour Studio itself listens on `127.0.0.1` only. It answers requests whose `Host` header names its own loopback ports, and every write needs a per-launch key that is printed in the terminal link (in the URL fragment, which browsers do not send to a server). A tab opened without that link is read-only and says so in one line; opening the printed link gives that tab edit rights.
 
 At push, Rigour also runs your repository's own formatter, linter, type checker and related tests. Any network use by those tools is theirs.
 

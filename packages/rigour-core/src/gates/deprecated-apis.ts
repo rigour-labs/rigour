@@ -19,6 +19,7 @@
  *
  */
 
+import { codeColumns } from '../utils/code-mask.js';
 import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
@@ -204,7 +205,7 @@ export class DeprecatedApisGate extends Gate {
             if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
 
             for (const rule of NODE_DEPRECATED_RULES) {
-                if (rule.pattern.test(line)) {
+                if (callIn(line, rule.pattern, file)) {
                     deprecated.push({
                         file, line: i + 1,
                         api: rule.api,
@@ -226,7 +227,7 @@ export class DeprecatedApisGate extends Gate {
             if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
 
             for (const rule of WEB_DEPRECATED_RULES) {
-                if (rule.pattern.test(line)) {
+                if (callIn(line, rule.pattern, file)) {
                     deprecated.push({
                         file, line: i + 1,
                         api: rule.api,
@@ -248,7 +249,7 @@ export class DeprecatedApisGate extends Gate {
             if (trimmed.startsWith('#')) continue;
 
             for (const rule of PYTHON_DEPRECATED_RULES) {
-                if (rule.pattern.test(line)) {
+                if (callIn(line, rule.pattern, file)) {
                     deprecated.push({
                         file, line: i + 1,
                         api: rule.api,
@@ -268,7 +269,7 @@ export class DeprecatedApisGate extends Gate {
             const trimmed = line.trim();
             if (trimmed.startsWith('//')) continue;
             for (const rule of GO_DEPRECATED_RULES) {
-                if (rule.pattern.test(line)) {
+                if (callIn(line, rule.pattern, file)) {
                     deprecated.push({
                         file, line: i + 1,
                         api: rule.api, reason: rule.reason,
@@ -286,7 +287,7 @@ export class DeprecatedApisGate extends Gate {
             const trimmed = line.trim();
             if (trimmed.startsWith('//') || trimmed.startsWith('/*')) continue;
             for (const rule of CSHARP_DEPRECATED_RULES) {
-                if (rule.pattern.test(line)) {
+                if (callIn(line, rule.pattern, file)) {
                     deprecated.push({
                         file, line: i + 1,
                         api: rule.api, reason: rule.reason,
@@ -304,7 +305,7 @@ export class DeprecatedApisGate extends Gate {
             const trimmed = line.trim();
             if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
             for (const rule of JAVA_DEPRECATED_RULES) {
-                if (rule.pattern.test(line)) {
+                if (callIn(line, rule.pattern, file)) {
                     deprecated.push({
                         file, line: i + 1,
                         api: rule.api, reason: rule.reason,
@@ -314,4 +315,16 @@ export class DeprecatedApisGate extends Gate {
             }
         }
     }
+}
+
+/**
+ * Whether a rule matches this line where it is code: every match is tried, and one that starts in a string literal or a
+ * comment (utils/code-mask.ts) is not a use of the API. Every rule here is a call or an import.
+ */
+function callIn(line: string, pattern: RegExp, file: string): boolean {
+    if (!pattern.test(line)) return false;
+    const isCode = codeColumns(line, path.extname(file).slice(1));
+    const every = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`);
+    for (const m of line.matchAll(every)) if (isCode(m.index ?? 0)) return true;
+    return false;
 }

@@ -176,6 +176,33 @@ describe('runHookChecker', () => {
         expect(result.failures.some(f => f.gate === 'hallucinated-imports')).toBe(true);
     });
 
+    it('resolves a TypeScript ESM import the way NodeNext and bundlers do: .js to .ts or .tsx, a folder to its index; a missing file still flags', async () => {
+        fs.mkdirSync(path.join(testDir, 'src', 'lib'), { recursive: true });
+        fs.writeFileSync(path.join(testDir, 'package.json'), '{"type":"module"}\n');
+        fs.writeFileSync(path.join(testDir, 'src', 'b.ts'), 'export const b = 1;\n');
+        fs.writeFileSync(path.join(testDir, 'src', 'view.tsx'), 'export const view = 1;\n');
+        fs.writeFileSync(path.join(testDir, 'src', 'lib', 'index.ts'), 'export const lib = 1;\n');
+        const filePath = path.join(testDir, 'src', 'a.ts');
+        fs.writeFileSync(filePath, "import { b } from './b.js';\nimport { view } from './view.js';\nimport { lib } from './lib';\nimport { nope } from './nope.js';\n");
+        const result = await runHookChecker({ cwd: testDir, files: [filePath] });
+        expect(result.failures.filter(f => f.gate === 'hallucinated-imports').map(f => f.message)).toEqual(["Import './nope.js' does not resolve to an existing file"]);
+    });
+
+    it('reads an import written in a string or a comment as text, not an import', async () => {
+        const filePath = path.join(testDir, 'templates.ts');
+        fs.writeFileSync(filePath, [
+            '/**',
+            " * Gates import from here: `import { adapters } from './language-adapters/index.js'`",
+            ' */',
+            "export const hook = `const { run } = require('./node_modules/@rigour-labs/core/dist/hooks/checker.js');`;",
+            "export const fixture = \"import { used } from './util';\";",
+            "// import { gone } from './gone.js';",
+            "import { real } from './missing.js';",
+        ].join('\n'));
+        const result = await runHookChecker({ cwd: testDir, files: [filePath] });
+        expect(result.failures.filter(f => f.gate === 'hallucinated-imports').map(f => f.line)).toEqual([7]);
+    });
+
     it('should not flag existing relative imports', async () => {
         const helperPath = path.join(testDir, 'helper.ts');
         fs.writeFileSync(helperPath, 'export const help = true;\n');

@@ -144,8 +144,6 @@ async function handleApiRequest(
 
     if (url.pathname === '/api/info') {
         try {
-            const pkgPath = path.join(cwd, 'package.json');
-            const pkg = (await fs.pathExists(pkgPath)) ? await fs.readJson(pkgPath) : {};
             const __dirname = path.dirname(new URL(import.meta.url).pathname);
             const cliPkgPath = path.join(__dirname, '../../package.json');
             const mcpPkgCandidates = [
@@ -162,14 +160,10 @@ async function handleApiRequest(
                 }
             }
             const studioVersion = resolveStudioVersion(cliPkg.version, mcpVersion);
+            const { repoName } = await import('./studio-info.js');
+            // The repository's name only: never its path (the person's username in every screenshot), never a package's.
             sendJson(res, 200, {
-                name: pkg.name || path.basename(cwd),
-                projectName: pkg.name || path.basename(cwd),
-                path: cwd,
-                projectPath: cwd,
-                // null, not a made-up 0.0.0, when the project declares no version
-                version: pkg.version || null,
-                projectVersion: pkg.version || null,
+                projectName: repoName(cwd),
                 branch: currentBranch(cwd),
                 teamSync: Boolean(await (await import('@rigour-labs/core')).loadTeamConfiguration()),
                 studioVersion,
@@ -258,7 +252,20 @@ async function handleApiRequest(
     if (url.pathname === '/api/week') {
         try {
             const { loadWeek } = await import('./studio-week.js');
+            // What an older version of the checks opened is checked again before it is listed (a no-op once done).
+            const { recheckEditFindings } = await import('./hooks-check-repos.js');
+            await recheckEditFindings(cwd).catch(() => undefined);
             sendJson(res, 200, loadWeek(cwd));
+        } catch (e: any) {
+            sendJson(res, 500, { error: e.message });
+        }
+        return true;
+    }
+
+    if (url.pathname === '/api/recheck' && req.method === 'POST') {
+        try {
+            const { recheckEditFindings } = await import('./hooks-check-repos.js');
+            sendJson(res, 200, await recheckEditFindings(cwd, true));
         } catch (e: any) {
             sendJson(res, 500, { error: e.message });
         }

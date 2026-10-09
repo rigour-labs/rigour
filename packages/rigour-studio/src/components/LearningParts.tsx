@@ -3,6 +3,15 @@ import React from 'react';
 import { inlineCode } from './storyData';
 import './story.css';
 
+/** How a lesson reaches an agent, as it actually does: on request, or by itself in Claude Code with the brief hooks. */
+export const LearnsLead: React.FC = () => (
+    <p className="st-lead">
+        Every mistake fixed in development or caught at a PR becomes a lesson. An agent gets the lessons when it asks for a brief
+        (the <code>rigour_brief</code> tool, or <code>rigour brief</code>). In Claude Code, <code>rigour hooks init --brief</code> hands
+        them over by itself: at a session's first prompt and on each file's first edit.
+    </p>
+);
+
 export interface Journey {
     id: string;
     text: string;

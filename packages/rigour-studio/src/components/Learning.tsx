@@ -1,7 +1,7 @@
 import React from 'react';
 import { studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
-import { CompiledChecks, LessonCard, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
+import { CompiledChecks, LearnsLead, LessonCard, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
 import './story.css';
 
 interface LearningData {
@@ -37,7 +37,7 @@ export const Learning: React.FC = () => {
     return (
         <div className="st-page">
             <h1 className="st-h1">How Rigour learns your codebase</h1>
-            <p className="st-lead">Every mistake fixed in development or caught at a PR becomes a lesson. Your agents are told before they write similar code, so the same mistake is stopped earlier next time.</p>
+            <LearnsLead />
 
             <section className="st-card" style={{ margin: '24px 0' }}>
                 <div className="st-row" style={{ justifyContent: 'space-between' }}>

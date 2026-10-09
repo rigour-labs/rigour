@@ -54,7 +54,7 @@ export { recordAgentWrites, captureHumanEdits } from './review-learning/human-ed
 export { readRepoRules, rulesForDiff, rulesSection, splitRules, type RepoRule } from './review-learning/repo-rules.js';
 export { diffFromGit, GitDiffError, type DiffSource } from './review/git-diff.js';
 export { checkPrecisions, checkId, precisionOf, isMuted, readOutcomes, MUTE_MIN_OUTCOMES, MUTE_BELOW, type CheckPrecision, type CheckOutcome } from './review/check-outcomes.js';
-export { recordReviewOutcome, listResolvedFixes, removeResolvedFix, openFindingCount, listOpenFindings, type ResolvedFix, type FixCapture } from './review/agent-fixes.js';
+export { recordReviewOutcome, recheckOpenFindings, listResolvedFixes, removeResolvedFix, openFindingCount, listOpenFindings, type ResolvedFix, type FixCapture } from './review/agent-fixes.js';
 export { appendStory, readStories, compactDiff, STORIES_FILE, type Story, type CatchStage } from './review/stories.js';
 export { recordLessonsServed, recordPrCatches, recordReuseSuggested, type LessonChannel } from './review/learning-events.js';
 export { computeEffectiveness, readAgentEvents, appendAgentEvent, findingKeys, type AgentEvent, type ReviewEffectiveness } from './review/effectiveness.js';
