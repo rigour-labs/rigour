@@ -5,7 +5,7 @@
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { recordFixLessons, recordReviewOutcome, type Failure, type HookCheckerResult } from '@rigour-labs/core';
+import { recheckOpenFindings, recordFixLessons, recordReviewOutcome, runHookChecker, type Failure, type HookCheckerResult } from '@rigour-labs/core';
 
 /** Findings about the write or the file's size, not a defect in the code: never stories. */
 const NOT_CODE = new Set(['file-guard', 'agent-scope', 'hook-timeout', 'file-size']);
@@ -38,8 +38,15 @@ export function hookFindings(result: HookCheckerResult): Failure[] {
 
 /** Open what this edit introduced and resolve what it fixed; fixes become stories and lessons. */
 export async function recordEditCatches(root: string, result: HookCheckerResult, files: string[]): Promise<void> {
+    // After an upgrade, what the old checks reported on earlier edits is checked again by these: never credited as a fix.
+    await recheckEditFindings(root).catch(() => undefined);
     const capture = recordReviewOutcome(root, hookFindings(result), files, 'edit');
     await recordFixLessons(root, capture.fixes).catch(() => undefined); // learning never blocks an edit
+}
+
+/** Re-checks the per-edit findings another version of the checks opened (with `all`, every open one), with this version's checks (agent-fixes.ts). */
+export function recheckEditFindings(root: string, all = false): Promise<{ closed: number; kept: number }> {
+    return recheckOpenFindings(root, 'edit', async files => hookFindings(await runHookChecker({ cwd: root, files: files.map(f => path.join(root, f)) })), all);
 }
 
 /** The directory's real, long-form path; the path as given when it cannot be resolved (deleted, for example). */
