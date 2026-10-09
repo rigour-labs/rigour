@@ -77,6 +77,7 @@ export function proposeCompiledChecks(cwd: string): CompiledCheck[] {
 
 /** A person's decision on a compiled check: approve it (it runs) or take it back (it stops). Undefined when there is no such check. */
 export function decideCompiledCheck(cwd: string, id: string, state: 'active' | 'withdrawn', by: string): CompiledCheck | undefined {
+    if (!by.trim()) throw new Error('a compiled check is decided by a named person: their git email is committed with it');
     const checks = readCompiledChecks(cwd);
     const check = checks.find(c => c.id === id);
     if (!check) return undefined;

@@ -433,7 +433,8 @@ file and its symbols in backticks and say what is wrong in so many words:
 `rigour learn-reviews --compile` proposes a check for every lesson a template fits and lists them all.
 A proposed check runs only once a person approves it (`--approve-check <id>`), and `--withdraw-check
 <id>` takes it back. Checks live in `.rigour/compiled-checks.json`: commit it, so the team reviews
-them like code. Each finding names its lesson. A compiled check is a note unless
+them like code. Who approved or took back each check, by git email, is committed with it; without a
+git email set in the checkout, the decision is refused. Each finding names its lesson. A compiled check is a note unless
 `gates.compiled_lessons.block` is on.
 
 ## Where you see it

@@ -84,7 +84,14 @@ function compile(cwd: string, json?: boolean): void {
 }
 
 function decideCheck(cwd: string, id: string, state: 'active' | 'withdrawn'): void {
-    const check = decideCompiledCheck(cwd, id, state, personOf(cwd));
+    // Who decided is committed with the check: a decision with no one to name is refused, never recorded empty.
+    const by = personOf(cwd);
+    if (by === 'unknown') {
+        console.error(chalk.red('No git email is set in this checkout (git config user.email): who approves or takes back a compiled check is committed with it.'));
+        process.exitCode = 1;
+        return;
+    }
+    const check = decideCompiledCheck(cwd, id, state, by);
     if (!check) {
         console.error(chalk.red(`No compiled check ${id}.`));
         process.exitCode = 1;

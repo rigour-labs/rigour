@@ -30,4 +30,15 @@ describe('rigour learn-reviews --compile', () => {
         await learnReviewsCommand(repo, { withdrawCheck: 'c-L1' });
         expect(readCompiledChecks(repo)[0]).toMatchObject({ state: 'withdrawn' });
     });
+
+    it('refuses a decision when no git email names who made it', async () => {
+        execFileSync('git', ['-C', repo, 'config', 'user.email', '']);
+        const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { compile: true });
+        await learnReviewsCommand(repo, { approveCheck: 'c-L1' });
+        expect(err.mock.calls.flat().join('\n')).toContain('No git email is set');
+        expect(readCompiledChecks(repo)[0].state).toBe('proposed');
+        process.exitCode = 0;
+    });
 });
