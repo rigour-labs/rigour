@@ -26,6 +26,14 @@ describe('gates on a scoped run', () => {
         expect(scoped.every(f => f.files?.includes('src/a.ts'))).toBe(true);
     });
 
+    it('context-drift reads Scala classes, case classes and qualified modifiers included', async () => {
+        for (const name of ['Alpha', 'Beta', 'Gamma']) await fs.outputFile(path.join(cwd, `src/${name}.ts`), `export class ${name} {}\n`);
+        await fs.outputFile(path.join(cwd, 'src/Rows.scala'), 'final case class deltaRow(id: Long)\nprivate[core] class epsilonRow\n');
+        const gate = new ContextGate({ context: { enabled: true } } as any);
+        const found = await gate.run({ cwd, record: { anchors: [] } as any });
+        expect(found.map(f => [f.details, f.files])).toEqual([['Cross-file naming inconsistency: class names use camelCase in 2 places (dominant is PascalCase)', ['src/Rows.scala']]]);
+    });
+
     it('dependency-guardian checks the manifest only when package.json is in scope', async () => {
         await fs.outputJson(path.join(cwd, 'package.json'), { dependencies: { 'left-pad': '1.0.0' } });
         await fs.outputFile(path.join(cwd, 'src/a.ts'), "import pad from 'left-pad';\n");
