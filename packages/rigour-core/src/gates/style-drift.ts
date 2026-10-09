@@ -27,6 +27,7 @@ import { Logger } from '../utils/logger.js';
 import { languageAdapters } from './language-adapters/index.js';
 import { extractComparableJsNames } from './js-style-context.js';
 import { isScoped } from '../utils/scope.js';
+import { filesAtCommit, isGitWorktree, readManyAtCommit, resolveGitLogicBase, untrackedFiles, type GitLogicBase } from './logic-drift-git-base.js';
 import {
     TRY_CATCH_PATTERN, CATCH_PATTERN, RESULT_TYPE_PATTERN,
     NAMED_IMPORT_PATTERN, WILDCARD_IMPORT_PATTERN, SIDE_EFFECT_IMPORT_PATTERN, DEFAULT_IMPORT_PATTERN,
@@ -101,17 +102,27 @@ export class StyleDriftGate extends Gate {
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) return [];
 
-        const failures: Failure[] = [];
         const baselinePath = path.join(context.cwd, this.config.baseline_path);
 
         // Find source files
+        const ignore = [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/*.test.*', '**/*.spec.*', '**/*.d.ts'];
         const files = await FileScanner.findFiles({
             cwd: context.cwd,
             patterns: context.patterns || languageAdapters.getScanPatterns(),
-            ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/*.test.*', '**/*.spec.*', '**/*.d.ts'],
+            ignore,
         });
 
         if (files.length === 0) return [];
+
+        // In a git checkout the project's style is the code committed at the base, read fresh on every run, and
+        // only the files that differ from it are compared. Nothing is cached, so no earlier run on a dirty tree
+        // can change a verdict, and a .rigour/style-baseline.json left by an older version is never read.
+        const gitBase = resolveGitLogicBase(context.cwd);
+        if (!gitBase && isGitWorktree(context.cwd)) {
+            Logger.info('Style Drift: no main reference available; comparison unavailable');
+            return [];
+        }
+        if (gitBase) return this.againstGitBase(context, files, ignore, gitBase);
 
         // Group files by language
         const filesByLang = new Map<string, string[]>();
@@ -155,6 +166,38 @@ export class StyleDriftGate extends Gate {
         }
 
         // Subsequent scan: compare each file against its own language's baseline
+        return this.compare(context, files, baseline);
+    }
+
+    /**
+     * The changed and untracked files, each against a fingerprint of its language's files committed at the base.
+     * On the base branch with a clean tree nothing differs, so nothing is compared.
+     */
+    private async againstGitBase(context: GateContext, files: string[], ignore: string[], gitBase: GitLogicBase): Promise<Failure[]> {
+        const changed = new Set([...gitBase.changedFiles, ...untrackedFiles(context.cwd)]);
+        const compared = files.filter(file => changed.has(file));
+        if (compared.length === 0) return [];
+
+        const languages = new Set(compared.map(file => languageAdapters.getAdapter(file)?.id));
+        const sampled = new Map<string, string[]>();
+        for (const file of FileScanner.filterPaths(filesAtCommit(context.cwd, gitBase.base), { patterns: languageAdapters.getScanPatterns(), ignore })) {
+            const id = languageAdapters.getAdapter(file)?.id;
+            if (!id || !languages.has(id)) continue;
+            const list = sampled.get(id) ?? [];
+            if (list.length < this.config.sample_size) list.push(file);
+            sampled.set(id, list);
+        }
+        const atBase = readManyAtCommit(context.cwd, gitBase.base, [...sampled.values()].flat());
+        const baseline: PerLanguageBaseline = { languages: {}, createdAt: '', version: 3 };
+        for (const [id, list] of sampled) {
+            baseline.languages[id] = this.fingerprintOf(new Map(list.flatMap(file => atBase.has(file) ? [[file, atBase.get(file)!] as [string, string]] : [])));
+        }
+        return this.compare(context, compared, baseline);
+    }
+
+    /** Each file against its own language's fingerprint. */
+    private async compare(context: GateContext, files: string[], baseline: PerLanguageBaseline): Promise<Failure[]> {
+        const failures: Failure[] = [];
         const contents = await FileScanner.readFiles(context.cwd, files, context.fileCache);
 
         for (const [file, content] of contents) {
@@ -213,9 +256,11 @@ export class StyleDriftGate extends Gate {
     }
 
     private async computeFingerprint(context: GateContext, files: string[]): Promise<StyleFingerprint> {
-        const fingerprint = this.emptyFingerprint();
+        return this.fingerprintOf(await FileScanner.readFiles(context.cwd, files, context.fileCache));
+    }
 
-        const contents = await FileScanner.readFiles(context.cwd, files, context.fileCache);
+    private fingerprintOf(contents: Map<string, string>): StyleFingerprint {
+        const fingerprint = this.emptyFingerprint();
 
         for (const [file, content] of contents) {
             const fileAnalysis = this.analyzeFile(content, file);

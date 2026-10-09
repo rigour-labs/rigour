@@ -1,4 +1,5 @@
 import { globby } from 'globby';
+import micromatch from 'micromatch';
 import fs from 'fs-extra';
 import path from 'path';
 import type { FileSystemCache } from '../services/filesystem-cache.js';
@@ -51,6 +52,13 @@ export class FileScanner {
             expandDirectories: false,
         });
         return files.sort();
+    }
+
+    /** The selection findFiles makes, over paths listed elsewhere (a commit's files) instead of the disk. */
+    static filterPaths(paths: string[], options: Omit<ScannerOptions, 'cwd'>): string[] {
+        const patterns = (options.patterns || this.DEFAULT_PATTERNS).map(toGlobSeparators);
+        const ignore = withDirectoryForms([...new Set([...this.DEFAULT_IGNORE, ...(options.ignore || [])])].map(toGlobSeparators));
+        return paths.filter(file => micromatch.isMatch(file, patterns, { ignore })).sort();
     }
 
     /**
