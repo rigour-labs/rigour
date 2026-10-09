@@ -27,7 +27,7 @@ import { Logger } from '../utils/logger.js';
 import { languageAdapters } from './language-adapters/index.js';
 import { extractComparableJsNames } from './js-style-context.js';
 import { isScoped } from '../utils/scope.js';
-import { filesAtCommit, isGitWorktree, readManyAtCommit, resolveGitLogicBase, untrackedFiles, type GitLogicBase } from './logic-drift-git-base.js';
+import { filesAtCommit, isGitWorktree, NO_GIT_BASE, readManyAtCommit, resolveGitLogicBase, untrackedFiles, type GitLogicBase } from './logic-drift-git-base.js';
 import {
     TRY_CATCH_PATTERN, CATCH_PATTERN, RESULT_TYPE_PATTERN,
     NAMED_IMPORT_PATTERN, WILDCARD_IMPORT_PATTERN, SIDE_EFFECT_IMPORT_PATTERN, DEFAULT_IMPORT_PATTERN,
@@ -119,7 +119,7 @@ export class StyleDriftGate extends Gate {
         // can change a verdict, and a .rigour/style-baseline.json left by an older version is never read.
         const gitBase = resolveGitLogicBase(context.cwd);
         if (!gitBase && isGitWorktree(context.cwd)) {
-            Logger.info('Style Drift: no main reference available; comparison unavailable');
+            context.skip?.(NO_GIT_BASE);
             return [];
         }
         if (gitBase) return this.againstGitBase(context, files, ignore, gitBase);
@@ -298,9 +298,11 @@ export class StyleDriftGate extends Gate {
                 ? extractComparableJsNames(content, filePath)
                 : adapter.extractNamingPatterns(content);
             for (const pattern of namingPatterns) {
+                if (pattern.convention === 'ambiguous') continue; // a one-word name says nothing about the casing
                 if (pattern.kind === 'function' || pattern.kind === 'method') {
                     fp.naming.functions[pattern.convention]++;
-                } else if (pattern.kind === 'variable' || pattern.kind === 'constant') {
+                } else if (pattern.kind === 'variable') {
+                    // A constant follows the constant convention (`MAX_ROWS`), never the variables': it is not compared.
                     fp.naming.variables[pattern.convention]++;
                 }
             }

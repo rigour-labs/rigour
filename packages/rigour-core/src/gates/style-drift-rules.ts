@@ -5,23 +5,6 @@
  */
 
 /**
- * Casing classification rules
- */
-export function classifyCasing(name: string): 'camelCase' | 'snake_case' | 'PascalCase' | 'SCREAMING_SNAKE' | null {
-    if (name.startsWith('_') || name.length <= 1) return null;
-
-    if (/^[A-Z][A-Z0-9_]+$/.test(name)) {
-        return 'SCREAMING_SNAKE';
-    } else if (/^[A-Z]/.test(name)) {
-        return 'PascalCase';
-    } else if (name.includes('_')) {
-        return 'snake_case';
-    } else {
-        return 'camelCase';
-    }
-}
-
-/**
  * Function name pattern for JavaScript
  */
 export const JS_FUNCTION_PATTERN = /(?:function|async\s+function)\s+(\w+)/;

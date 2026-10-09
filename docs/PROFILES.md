@@ -18,7 +18,7 @@ rigour profile list
 ```
 
 - `--match`: path prefixes or origin remotes (`github.com/acme/*` for every repository under an owner, or an exact `github.com/acme/api`). The first profile that matches wins.
-- `--home`: where this profile's `.rigour/` lives: memory, lessons, settings and keys, telemetry, review state.
+- `--home`: where this profile's `.rigour/` lives: memory, lessons, settings and keys, telemetry, review state. A path ending in `.rigour` is that folder itself.
 - Team settings come from the profile only. Any `RIGOUR_TEAM_*` or `RIGOUR_ORGANIZATION_ID` inherited from your shell is cleared, so another organization's team can never apply. `--database-url-command` prints the database URL when Rigour needs it (from a keychain or a vault); the URL is never written to the file.
 - `--github-account`: the account whose token fetches a pull request's previous review for the reviewer (`gh auth token --user`).
 

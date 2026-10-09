@@ -27,7 +27,7 @@ rigour telemetry on
 rigour telemetry off
 ```
 
-The answer is stored in `telemetry.json` in Rigour's home: `~/.rigour/telemetry.json`, or `$RIGOUR_HOME/.rigour/telemetry.json` when `RIGOUR_HOME` is set. A profile sets `RIGOUR_HOME`, so each profile keeps its own answer and its own install id (see [Several organizations on one machine](docs/PROFILES.md)).
+The answer is stored in `telemetry.json` in Rigour's home: `~/.rigour/telemetry.json`, or `$RIGOUR_HOME/.rigour/telemetry.json` when `RIGOUR_HOME` is set (`$RIGOUR_HOME/telemetry.json` when it ends in `.rigour`). A profile sets `RIGOUR_HOME`, so each profile keeps its own answer and its own install id (see [Several organizations on one machine](docs/PROFILES.md)).
 
 ### Environment variables
 

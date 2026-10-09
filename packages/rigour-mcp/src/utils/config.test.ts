@@ -2,7 +2,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadConfig, resolveCwd } from './config.js';
+import { rigourUserDir } from '@rigour-labs/core';
+import { getMemoryPath, loadConfig, resolveCwd } from './config.js';
 
 describe('loadConfig', () => {
     let dir: string | undefined;
@@ -34,5 +35,20 @@ describe('resolveCwd', () => {
         expect(resolveCwd({ cwd: 42 })).toBe('/repos/configured');
         delete process.env.RIGOUR_CWD;
         expect(resolveCwd(undefined)).toBe(process.cwd());
+    });
+});
+
+describe('user-scope memory', () => {
+    it("lives in the CLI's state directory: a RIGOUR_HOME ending in .rigour is that directory itself", async () => {
+        const set = process.env.RIGOUR_HOME;
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-home-'));
+        try {
+            process.env.RIGOUR_HOME = path.join(home, '.rigour');
+            expect(await getMemoryPath(home, 'user')).toBe(path.join(home, '.rigour', 'memory.json'));
+            expect(path.dirname(await getMemoryPath(home, 'user'))).toBe(rigourUserDir());
+        } finally {
+            if (set === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = set;
+            fs.rmSync(home, { recursive: true, force: true });
+        }
     });
 });

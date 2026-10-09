@@ -78,6 +78,27 @@ describe('StyleDriftGate in a git checkout', () => {
         expect(await flagged()).toEqual([]);
     });
 
+    it('never reads a snake_case project whose names are mostly one word as camelCase', async () => {
+        // run, main, load, data, rows, size are camelCase and snake_case alike; only parse_line_N says which this project uses.
+        for (let i = 0; i < 6; i++) write(`svc_${i}.py`, `def run():\n    pass\n\ndef main():\n    pass\n\ndef load():\n    pass\n\ndef parse_line_${i}(text):\n    return text\n\ndata = 1\nrows = []\nsize = 3\nrow_limit_${i} = 5\n`);
+        fs.rmSync(path.join(cwd, 'legacy.py'));
+        git('add', '-A');
+        git('commit', '-qm', 'one-word names');
+        git('checkout', '-qb', 'reports');
+        write('reports.py', snake(9));
+        expect(await new StyleDriftGate().run({ cwd })).toEqual([]);
+    });
+
+    it('compares variables with variables: module constants in SCREAMING_SNAKE are not the project\'s variable casing', async () => {
+        for (let i = 0; i < 6; i++) write(`settings_${i}.py`, `MAX_ROWS_${i} = 100\nDATA_PATH_${i} = 'data.csv'\nRETRY_LIMIT_${i} = 3\nTIMEOUT_SECONDS_${i} = 30\nrow_count_${i} = 0\n\ndef load_rows_${i}(file_path):\n    return []\n`);
+        fs.rmSync(path.join(cwd, 'legacy.py'));
+        git('add', '-A');
+        git('commit', '-qm', 'settings');
+        git('checkout', '-qb', 'notebook');
+        write('notebook.py', `row_limit = 5\nfile_name = 'a.csv'\nbatch_size = 10\n\ndef read_rows(file_path):\n    return []\n`);
+        expect(await new StyleDriftGate().run({ cwd })).toEqual([]);
+    });
+
     it('on the base branch itself, compares only uncommitted changes: a clean tree has nothing to compare', async () => {
         git('checkout', '-q', 'main');
         expect(await flagged()).toEqual([]);

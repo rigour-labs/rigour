@@ -171,7 +171,8 @@ The schema is `ReportSchema` in `packages/rigour-core/src/types/index.ts`, expor
 | Field | Type | Required | Meaning |
 |:---|:---|:---|:---|
 | `status` | `PASS` \| `FAIL` \| `SKIP` \| `ERROR` | Required | `FAIL` when there is at least one finding, else `PASS`. The check writes only these two values here. |
-| `summary` | object: gate id to status | Required | One entry per gate that ran. A gate is `PASS` or `FAIL`; `ERROR` when it crashed (the crash is also listed as a finding, titled `Gate Error: ...`, so the run is `FAIL`). Each key of `rigour.yml`'s `commands` section appears too: `SKIP` when the command is empty, else `PASS` or `FAIL`. Model review, when it ran, is under `deep-analysis`. |
+| `summary` | object: gate id to status | Required | One entry per gate that ran. A gate is `PASS` or `FAIL`; `SKIP` when it could not check (its reason is in `skips`, for example style-drift and logic-drift with no main branch to compare with); `ERROR` when it crashed (the crash is also listed as a finding, titled `Gate Error: ...`, so the run is `FAIL`). Each key of `rigour.yml`'s `commands` section appears too: `SKIP` when the command is empty, else `PASS` or `FAIL`. Model review, when it ran, is under `deep-analysis`. |
+| `skips` | object: gate id to reason | Optional | Why each `SKIP` gate could not check. Absent when none skipped. |
 | `failures` | object[] | Required | Every finding, with duplicates of the same rule on the same file and line removed. |
 | `stats` | object | Required | Timing, scores and counts. |
 
@@ -286,7 +287,7 @@ a verdict, or to compare a review on a laptop with the one CI ran.
 | `head_sha` | string \| null | `HEAD` when the review ran. |
 | `uncommitted` | boolean | Tracked files differed from `HEAD`, so the review covered work that is not committed. |
 | `config` | string | The settings read: a path such as `rigour.yml`, `rigour.yml at <commit>` for an independent review, or `defaults` when there is none. |
-| `checks` | object | Every check the run reached, by id: `PASS`, `FAIL`, `SKIP` (switched off) or `ERROR` (could not run). The review's own checks (`unused-exports`, `migration-order` and the rest) are listed beside the gates. |
+| `checks` | object | Every check the run reached, by id: `PASS`, `FAIL`, `SKIP` (switched off, or could not check: the report's `skips` says why) or `ERROR` (could not run). The review's own checks (`unused-exports`, `migration-order` and the rest) are listed beside the gates. |
 
 ### A finding in `rigour review --json`
 

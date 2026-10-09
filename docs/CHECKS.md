@@ -122,7 +122,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Hallucinated import | An import of a package, file or module that does not exist in the project, its manifests or the standard library. | JS/TS, Python, Go, Ruby, C#, Rust, Java, Kotlin | `hallucinated-imports` | On | Yes |
+| Hallucinated import | An import of a package, file or module that does not exist in the project, its manifests or the standard library. A Rust file is checked against its own crate's Cargo.toml and its workspace; a Go file against go.mod, including the modules it requires. With no manifest found, an unresolved import is a note, not a block. | JS/TS, Python, Go, Ruby, C#, Rust, Java, Kotlin | `hallucinated-imports` | On | Yes |
 | Phantom API | A call to a method that does not exist on a known standard-library module (`fs.readFileAsync`, `path.combine`). | JS/TS, Python, Go, C#, Java, Kotlin | `phantom-apis` | On | Note |
 | Deprecated API | A removed or superseded API (not the security ones above). | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Note |
 | Context window artifacts | A long file whose quality falls from top to bottom: fewer comments, shorter names, sparser error handling. | Languages with an adapter | `context-window-artifacts` | On | Note |
@@ -149,7 +149,7 @@ At push, the tests that import changed files also run; see the toolchain below.
 | Complexity, size of classes and signatures | A function over `ast.complexity` (10), a class over `ast.max_methods` (10), a function over `ast.max_params` (5). Python needs a `python3` or `python` on the path. | JS/TS, Python; cognitive load for Go, Java, Rust, C#, C++ | `ast-analysis` (`AST_COMPLEXITY`, `AST_MAX_METHODS`, `AST_MAX_PARAMS`, `SME_COGNITIVE_LOAD`) | On | Note |
 | Architecture boundary | An import that a `gates.architecture.boundaries` rule denies. | JS/TS | `ast-analysis` (`ARCH_BOUNDARY`) | On when rules exist | Note |
 | Outdated syntax | `var`, `require()`, `arguments` and similar, per `staleness.rules`. | JS/TS | `ast-analysis` (`STALENESS_*`) | Off | Note |
-| Style drift | A changed or new file whose naming or error-handling style deviates by more than 25% from its language's code committed on the main branch (outside Git, a baseline file built on the first full scan). | Languages with an adapter | `style-drift` | On | Note |
+| Style drift | A changed or new file whose naming or error-handling style deviates by more than 25% from its language's code committed on the main branch (outside Git, a baseline file built on the first full scan). A one-word lowercase name (`run`, `data`) or a dunder (`__init__`) counts as neither camelCase nor snake_case; a private name is read without its leading underscores (`_load_rows` is snake_case). | Languages with an adapter | `style-drift` | On | Note |
 | File size | Files over `max_file_lines` (500). | Any | `file-size` | On | Note |
 | Forbidden markers | `TODO` and `FIXME` comments (`forbid_todos`, `forbid_fixme`). | Code, shell, YAML, JSON | `content-check` | On | Note |
 | Required files | Files in `required_files` that do not exist. | Any | `structure-check` | On | Note |
