@@ -611,4 +611,6 @@ export interface DeepOptions {
     independent?: boolean;
     /** The change's unified diff (from reviewChange): a cloud agentic review reads the PR as a whole. */
     diff?: string;
+    /** What Rigour's checks already found on the change's lines (the runner fills it): settled, never reported again. */
+    settled?: Array<{ file: string; line?: number; title: string }>;
 }

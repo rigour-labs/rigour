@@ -23,6 +23,7 @@ import type { PanelItem } from './panel.js';
 import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
 import { VerdictStore } from './store.js';
 import type { OpenItem, ServedRule } from './verdict.js';
+import { MAX_SETTLED, settledChecks, settledLine, settledSection } from '../settled-checks.js';
 
 export const REVIEW_DISMISSALS = path.join('.rigour', 'dismissed-review-items.json');
 const MAX_DOCS = 10;
@@ -33,7 +34,6 @@ const JUDGE_FILE_LESSONS = 30;
 const JUDGE_LESSONS_PER_FILE = 3;
 /** Rules from the repository's own rules files a judge is asked to answer, most relevant first. */
 const JUDGE_RULES = 15;
-const MAX_SETTLED = 40;
 
 export interface ReviewDismissal { id: string; file?: string; line?: number; class: string; issue: string; reason: string; at: string; by?: string }
 
@@ -97,7 +97,7 @@ export interface ContextInput {
 
 /** A review's result as the reviewer's inputs: its hints, and what its checks found, as settled. */
 export function reviewerInputs(review: { hints: string[]; findings: Array<{ files?: string[]; line?: number; title: string }> }): { hints: string; checks: string[] } {
-    return { hints: review.hints.join('\n'), checks: review.findings.map(f => `${f.files?.[0] ?? '?'}${f.line ? `:${f.line}` : ''} ${f.title}`) };
+    return { hints: review.hints.join('\n'), checks: settledChecks(review.findings).map(settledLine) };
 }
 
 /** A lesson as the judge was shown it: its id, and the line it was listed as (the judge answers by that line). */
@@ -126,7 +126,7 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
     const rules = rulesForDiff(input.cwd, input.diff, true, JUDGE_RULES).map((r): ServedRule => ({ id: r.id, source: r.source, text: r.text, requirement: r.requirement }));
     if (rules.length) sections.push(`## Rules this repository wrote for itself that apply to this change (answer every one in rules, by id)\n${rules.map(r => `- [${r.id}] (${r.source}, ${r.requirement ? 'requirement' : 'guidance'}) ${r.text}`).join('\n')}`);
 
-    if (input.checks.length) sections.push(`## Already found by Rigour's checks: they block on their own, so do not report them again\n${input.checks.slice(0, MAX_SETTLED).map(c => `- ${c}`).join('\n')}`);
+    if (input.checks.length) sections.push(settledSection(input.checks));
     const rejected = input.lessons === 'off' ? [] : rejectedForDiff(input.cwd, input.diff).map(l => {
         const no = l.evidence.filter(e => e.kind === 'rejected').at(-1);
         return `- this team decided against: ${l.text}${no?.author ? ` (rejected by ${no.author}${no.detail ? `: ${no.detail}` : ''})` : ''}`;
