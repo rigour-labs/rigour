@@ -15,6 +15,14 @@ function messagePattern(title: string): string {
         .trim();
 }
 
+/** "61 findings need you, of 5 kinds"; the kinds only when some kind repeats. */
+export function needsHeading(groups: NeedGroup[]): string {
+    const findings = groups.reduce((n, g) => n + g.needs.length, 0);
+    if (findings === 0) return 'Nothing needs you.';
+    const need = `${plural(findings, 'finding needs', 'findings need')} you`;
+    return findings === groups.length ? `${need}.` : `${need}, of ${plural(groups.length, 'kind')}.`;
+}
+
 /** Groups newest first by their newest finding; each group's findings newest first. */
 export function groupNeeds(needs: OpenNeed[]): NeedGroup[] {
     const groups = new Map<string, NeedGroup>();

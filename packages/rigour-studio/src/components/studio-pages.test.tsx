@@ -10,7 +10,7 @@ import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
-import { groupNeeds, NeedGroupCard } from './NeedGroups';
+import { groupNeeds, NeedGroupCard, needsHeading } from './NeedGroups';
 import { Agents, Settings, Verdict } from './ReviewerParts';
 import { SwitchSettings, type SwitchData } from './SwitchParts';
 
@@ -247,6 +247,15 @@ describe('open findings on the home page', () => {
         expect(html).toContain('3 × Import … not found, in 2 files');
         expect(html).toContain('aria-expanded="false"');
         expect(html).not.toContain('left-pad');
+    });
+
+    it('are counted in the heading as findings, with their kinds when a kind repeats', () => {
+        const many = Array.from({ length: 61 }, (_, i) => need(`src/f${i % 7}.ts`, `Problem of kind ${i % 5 === 0 ? "'a'" : i % 5}`, '2026-10-01T00:00:00Z', `check-${i % 5}`));
+        expect(needsHeading(groupNeeds(many))).toBe('61 findings need you, of 5 kinds.');
+        expect(needsHeading(groupNeeds(needs.slice(0, 2)))).toBe('2 findings need you, of 1 kind.');
+        expect(needsHeading(groupNeeds([needs[0], needs[3]]))).toBe('2 findings need you.');
+        expect(needsHeading(groupNeeds([needs[3]]))).toBe('1 finding needs you.');
+        expect(needsHeading([])).toBe('Nothing needs you.');
     });
 
     it('show a single finding as its own card', () => {

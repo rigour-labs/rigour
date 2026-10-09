@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { groupNeeds, NeedGroupCard, type OpenNeed } from './NeedGroups';
+import { groupNeeds, NeedGroupCard, needsHeading, type OpenNeed } from './NeedGroups';
 import { ago, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story, inlineCode } from './storyData';
 import './story.css';
 
@@ -29,7 +29,7 @@ export const Week: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNaviga
     return (
         <div className="st-page">
             {intro && <HowItWorks onHide={hideIntro} />}
-            <h1 className="st-h1">{groups.length === 0 ? 'Nothing needs you.' : `${plural(groups.length, 'thing needs', 'things need')} you.`}</h1>
+            <h1 className="st-h1">{needsHeading(groups)}</h1>
             <p className="st-lead">
                 {data.stopped.total > 0
                     ? `${plural(data.stopped.total, 'problem')} stopped and fixed before a pull request this week.`
