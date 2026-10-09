@@ -12,6 +12,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
 import { ConfigSchema, Config } from '../types/index.js';
+import { codeOffsets } from '../utils/code-mask.js';
 import { resolveTsPathTarget } from '../gates/hallucinated-imports/ts-path-target.js';
 import type { HookCheckerResult } from './types.js';
 import { scanInputForCredentials } from './input-validator.js';
@@ -212,9 +213,12 @@ async function checkHallucinatedImports(
     failures: FailureEntry[]
 ): Promise<void> {
     const importRegex = /(?:import\s+.*\s+from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+    // An import written inside a string (a template, a fixture) or a comment is text, not an import.
+    const isCode = codeOffsets(content, path.extname(relPath).slice(1));
     let match: RegExpExecArray | null;
 
     while ((match = importRegex.exec(content)) !== null) {
+        if (!isCode(match.index)) continue;
         const specifier = match[1] || match[2];
         if (!specifier || !specifier.startsWith('.')) {
             continue;

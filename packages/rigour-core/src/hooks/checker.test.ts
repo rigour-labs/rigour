@@ -188,6 +188,21 @@ describe('runHookChecker', () => {
         expect(result.failures.filter(f => f.gate === 'hallucinated-imports').map(f => f.message)).toEqual(["Import './nope.js' does not resolve to an existing file"]);
     });
 
+    it('reads an import written in a string or a comment as text, not an import', async () => {
+        const filePath = path.join(testDir, 'templates.ts');
+        fs.writeFileSync(filePath, [
+            '/**',
+            " * Gates import from here: `import { adapters } from './language-adapters/index.js'`",
+            ' */',
+            "export const hook = `const { run } = require('./node_modules/@rigour-labs/core/dist/hooks/checker.js');`;",
+            "export const fixture = \"import { used } from './util';\";",
+            "// import { gone } from './gone.js';",
+            "import { real } from './missing.js';",
+        ].join('\n'));
+        const result = await runHookChecker({ cwd: testDir, files: [filePath] });
+        expect(result.failures.filter(f => f.gate === 'hallucinated-imports').map(f => f.line)).toEqual([7]);
+    });
+
     it('should not flag existing relative imports', async () => {
         const helperPath = path.join(testDir, 'helper.ts');
         fs.writeFileSync(helperPath, 'export const help = true;\n');
