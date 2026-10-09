@@ -139,6 +139,19 @@ describe('the numbers after the merge, on the learning page', () => {
         expect(out).toContain('this is not a comparison');
         expect(out).not.toMatch(/fewer fixes|better|worse/);
     });
+
+    it('shows the model reviewer\'s share and cost: counts, a percentage and a median only from ten, and what was left out', () => {
+        const base = { records: { merged: 1, settled: 1, unsettled: 0 }, settled: { ciRegressed: { count: 0, of: 1, rate: null }, ciUnknown: 0, reverted: { count: 0, of: 1, rate: null }, fixedLater: { count: 0, of: 1, rate: null }, reviewed: { prs: 1, fixedLater: { count: 0, of: 1, rate: null } }, notReviewed: { prs: 0, fixedLater: { count: 0, of: 0, rate: null } } }, lessons: { awaitingDecision: 0, promotedFromEvidence: 0, dismissed: 0, takenBack: 0 } };
+        const few = html(<OutcomeCard numbers={{ ...base, model: { share: { model: 2, checks: 3, prs: 4, rate: null }, costPerPr: { prs: 4, totalUsd: 3.5, medianUsd: null, prsEarlierBasis: 2 } } }} />);
+        expect(few).toContain('2 of 5 findings at first review on 4 pull requests, the rest');
+        expect(few).toContain('$3.50 over 4 pull requests.');
+        expect(few).toContain('2 more reviewed before every run was counted, left out.');
+        expect(few).not.toContain('%');
+        const many = html(<OutcomeCard numbers={{ ...base, model: { share: { model: 3, checks: 10, prs: 10, rate: 0.23 }, costPerPr: { prs: 10, totalUsd: 55, medianUsd: 5.5, prsEarlierBasis: 0 } } }} />);
+        expect(many).toContain('(23%)');
+        expect(many).toContain('$5.50 each at the median');
+        expect(html(<OutcomeCard numbers={base} />)).not.toContain('The model reviewer');
+    });
 });
 
 describe('a lesson back to a candidate, on the learning page', () => {

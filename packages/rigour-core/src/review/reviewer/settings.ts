@@ -38,6 +38,8 @@ export interface ResolvedReviewer {
     judges: 2 | 3;
     escalate: 'always' | 'risk';
     cross_models: Record<string, string>;
+    /** The cheap model per reviewer name for cheap-model-first tiering; empty when it is off (team only). */
+    tiers: Record<string, string>;
     /** Reasoning effort per reviewer name (codex, api). */
     reasoning: Record<string, 'low' | 'medium' | 'high'>;
     /** The API judge, when the team configured one (review.reviewer.api). */
@@ -57,7 +59,7 @@ const RANK: Record<Mode, number> = { single: 0, cross: 1, full: 2 };
 const NEAR: Record<Source, number> = { flag: 0, env: 1, user: 2, team: 3 };
 
 export function resolveReviewer(config: Config, choice: RunChoice = {}, user: UserReviewerSettings | undefined = loadSettings().reviewer, env: NodeJS.ProcessEnv = process.env): ResolvedReviewer {
-    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, dismissals: false, orchestrator: 'off' as const, judges: 2 as const, escalate: 'always' as const, cross_models: {}, judge_env: {}, reasoning: {} };
+    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, dismissals: false, orchestrator: 'off' as const, judges: 2 as const, escalate: 'always' as const, cross_models: {}, tiers: { cheap: {} }, judge_env: {}, reasoning: {} };
     const refused: string[] = [];
     const envMode = parseMode(env.RIGOUR_REVIEWER_MODE);
     const envPanel = parseSwitch(env.RIGOUR_REVIEWER_PANEL);
@@ -115,6 +117,7 @@ export function resolveReviewer(config: Config, choice: RunChoice = {}, user: Us
         judges: floor ? Math.max(team.judges, user?.judges ?? team.judges) as 2 | 3 : user?.judges ?? team.judges,
         escalate: requiredEscalation(team, user, refused),
         cross_models: team.cross_models,
+        tiers: team.tiers?.cheap ?? {},
         judge_env: team.judge_env ?? {},
         reasoning: team.reasoning ?? {},
         ...(team.api ? { api: team.api } : {}),

@@ -232,6 +232,18 @@ step, because it turns a personal install into the team's.
 - **A push nobody will read costs nothing:** before checking anything out, the background review
   asks whether the branch has an open, ready pull request; if not, it stops and says why.
 
+- **Cheap-model-first, experimental and off by default** (`review.reviewer.tiers.cheap: { claude: <model> }`).
+  Which model reviews a change is decided before any run, from facts about the change, never by a
+  model: a required floor, human reviews, open items carried from the last verdict, a migration, a
+  security finding from the checks, a declared goal, or a risky changed function gets the team's
+  model; anything else gets the cheap one. The only escalation after a run is an answer that is not
+  a valid verdict, retried on the team's model. What blocks is unchanged. Tiering turns itself off
+  when its last 20 reviews cost more, on average, than one judge would have, and the review record
+  and telemetry say so. That comparison is in dollars once Rigour has frozen a dollar
+  baseline from this repository's single reviews; before that it compares characters given to the
+  model, which cannot see a cheap model's lower price, only the extra runs an escalation adds. Don't rely on it until a backtest on your own history shows what the cheap
+  model misses.
+
 **Daily caps**, per repository, unset by default:
 
 ```yaml

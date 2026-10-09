@@ -307,6 +307,7 @@ export const UNIVERSAL_CONFIG: Config = {
             judges: 2,
             escalate: 'always',
             cross_models: {},
+            tiers: { cheap: {} },
             judge_env: {},
             reasoning: {},
         },
