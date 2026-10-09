@@ -29,6 +29,8 @@ import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBas
 import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
+import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
+import { MAX_PARTS, parseHunks, planPasses, reviewable, triage, type Pass } from './reviewer/triage.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
@@ -73,6 +75,8 @@ export interface ReviewerOptions {
     branch?: string;
     /** This run's choice for the goal check (`--goal` / `--no-goal`), the nearest layer of switches.ts. */
     goal?: boolean;
+    /** This run's choice for the orchestrator (`--orchestrator` / `--no-orchestrator`), the nearest layer of switches.ts. */
+    orchestrator?: boolean;
 }
 
 export interface ReviewerResult {
@@ -103,6 +107,8 @@ export interface ReviewerResult {
     scope?: 'full' | 'delta';
     why?: string;
     costUsd?: number;
+    /** What every run of this fresh review reported costing, failed runs included: the number its cost row and its thread event carry. */
+    spentUsd?: number;
     /** The repository's own rules the judge answered, and how. */
     rules?: { checked: number; followed: number; broken: number; notApplicable: number };
     /** The record of this review (record.ts) and where it is kept, beside the verdict. */
@@ -127,9 +133,22 @@ export interface ReviewerResult {
 }
 
 export interface ModeRecord {
-    asked: 'single' | 'cross' | 'full' | 'panel';
+    asked: 'single' | 'cross' | 'full' | 'panel' | 'orchestrator';
     /** `none` when the review ended before any judge ran (unavailable or skipped); `degraded` or the reason says why. */
-    ran: 'single' | 'cross' | 'full' | 'panel' | 'none';
+    ran: 'single' | 'cross' | 'full' | 'panel' | 'orchestrator' | 'none';
+    /**
+     * With the orchestrator: the specialists triage picked, the passes that returned and those that did not (by label),
+     * each pass (its parts, its slice, whether it read beyond the slice: null without a trace), why the plan is what it
+     * is when the change was over the judge's limit or the caps, why it fell back to one judge if it did, and `none`
+     * when there was nothing for a model to review.
+     */
+    specialists?: {
+        selected: string[]; returned: string[]; missing: string[];
+        passes: Array<{ specialists: string[]; hunks: number; chars: number; readBeyondSlice: boolean | null }>;
+        /** The most diff one pass could be given, and the judge it came from (orchestrator.ts passLimit). */
+        limit: { judge: ReviewerName; chars: number };
+        plan?: string; fallback?: string; none?: string;
+    };
     source: Source;
     /** Why fewer judges ran than were asked for. */
     degraded?: string;
@@ -156,10 +175,13 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     // On the task's thread, unless it replays history: a backtest's worktree is not anyone's task.
     if (trigger !== 'backtest' && result.outcome !== 'skipped') appendTaskEvent(cwd, {
         kind: 'review', trigger, outcome: result.outcome, blocking: result.items.length, should_fix: result.advisory.length,
+        ...(options.checks ? { checks: options.checks.length } : {}),
         ...(result.pr ? { pr: result.pr } : {}),
         ...(result.prTitle ? { pr_title: result.prTitle } : {}),
         ...(result.lessonsApplied ? { lessons_applied: result.lessonsApplied } : {}),
-        ...(result.record ? { integrity: result.record.integrity, cost_usd: result.record.judges.reduce((sum, j) => sum + (j.cost_usd ?? 0), 0), judges: result.record.judges.map(j => j.reviewer) } : {}),
+        ...(result.record ? { integrity: result.record.integrity, judges: result.record.judges.map(j => j.reviewer) } : {}),
+        // Every run this review made, failed ones included: the same dollars as its cost row (the savings ledger).
+        ...(result.spentUsd !== undefined ? { cost_usd: result.spentUsd } : {}),
     });
     return result;
 }
@@ -205,6 +227,18 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     if (reviewers.length < 2 && mode === 'full' && (settings.required.panel || settings.required.mode)) {
         return none('unavailable', `rigour.yml requires two reviewers from different vendors, and ${modeRecord.degraded}`, { reviewers, mode: modeRecord });
     }
+    // The orchestrator runs the specialists on the first judge. A team floor on the panel or the mode wins over it.
+    const orchestrator = resolveSwitch('orchestrator', config, options.orchestrator);
+    let orchestrate = orchestrator.enabled;
+    if (orchestrator.refused.length) modeRecord = { ...modeRecord, refused: [...(modeRecord.refused ?? []), ...orchestrator.refused] };
+    if (orchestrate && (settings.required.panel || settings.required.mode)) {
+        orchestrate = false;
+        modeRecord = { ...modeRecord, refused: [...(modeRecord.refused ?? []), 'orchestrator refused: rigour.yml requires the panel or the mode'] };
+    }
+    if (orchestrate) {
+        reviewers = reviewers.slice(0, 1);
+        modeRecord = { ...modeRecord, asked: 'orchestrator', ran: 'orchestrator', source: orchestrator.source };
+    }
 
     const gh = options.blind ? undefined : ghFor(cwd, exec, await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec));
     const found = gh ? await findPullRequest(gh, branch, head, options.pr) : {};
@@ -233,7 +267,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
-    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates]), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
+    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
     if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
@@ -310,11 +344,62 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         return withRecord(decide(verdict, previousOpen, verify, prior, dismissals), verdict, true);
     }
 
-    // The daily caps, before any judge starts: a cached or reused verdict above cost nothing and never reaches here.
-    const over = overBudget(store.spend(), settings, reviewers.length);
-    if (over) return none(settings.required.panel || settings.required.mode ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
+    // What one judge would be given: the shared input files and the reviewable diff. Both modes' cost rows measure this.
+    const hunks = parseHunks(fullDiff);
+    const size = reviewable(hunks);
+    const shared = reviews.markdown.length + body.length + context.text.length + (options.hints?.trim() || 'none\n').length + (goalText?.length ?? 0);
+    const projectedSingle = shared + size.chars;
+    // The orchestrator's plan: which specialists the change needs, hunk by hunk, as one combined pass. A change over the
+    // judge's limit is split by hunk only when the savings ledger covers the split's extra. Nothing to review: no pass.
+    const picked = orchestrate ? triage(hunks, { humanReviews: reviews.count, rulesAndLessons: context.rules.length + context.lessons, goal: goalItems.length > 0 }) : new Map<string, number[]>();
+    const selected = SPECIALISTS.map(s => s.id).filter(id => picked.has(id));
+    let passes: Pass[] = [];
+    let planNote: string | undefined;
+    const limit = { judge: reviewers[0], chars: passLimit(reviewers[0], settings.timeout_ms) };
+    if (orchestrate) {
+        const baseline = store.freezeBaseline(BASELINE_MIN_SINGLES);
+        const plan = planPasses(hunks, picked, SPECIALISTS, limit.chars);
+        passes = plan.combined ? [plan.combined] : [];
+        if (plan.needsParts) planNote = `over the judge's limit; needs ${plan.needsParts} parts > ${MAX_PARTS}: one pass`;
+        if (plan.split) {
+            const book = ledger(store.costs(), baseline);
+            const needs = splitNeeds(plan.split.reduce((sum, pass) => sum + shared + pass.diff.length, 0), projectedSingle, book.unit, baseline);
+            const said = `ledger ${formatLedger(book.credit, book.unit)}, split needs ${formatLedger(needs, book.unit)}`;
+            if (book.credit > 0 && book.credit >= needs) {
+                passes = plan.split;
+                planNote = `over the judge's limit; ${said}: ${plan.split.length} parts`;
+            } else planNote = `over the judge's limit; ${said}: one pass`;
+        }
+        // The daily caps, before any judge starts: room for one run but not every part is one combined pass.
+        if (passes.length > 1 && overBudget(store.spend(), settings, passes.length) && !overBudget(store.spend(), settings, 1)) {
+            planNote = `the caps leave one run, not ${passes.length}: one pass`;
+            passes = [plan.combined!];
+        }
+    }
+    const over = orchestrate && passes.length === 0 ? undefined : overBudget(store.spend(), settings, orchestrate ? passes.length : reviewers.length);
+    // A team that requires the reviewer, or the orchestrator, gets no quieter review when the caps are reached: unavailable.
+    if (over) return none(settings.required.panel || settings.required.mode || orchestrator.required ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
+    // Every run this review makes, failed ones included: the caps count each, and the review's cost row sums them.
+    const tally = { runs: 0, chars: 0, usd: 0 };
+    const spent = (usd: number | undefined, chars: number) => {
+        store.addSpend(1, usd);
+        tally.runs++;
+        tally.chars += chars;
+        tally.usd += usd ?? 0;
+    };
+    const spentUsd = () => Math.round(tally.usd * 10_000) / 10_000;
+    // One row per fresh review, for the savings ledger: one judge asked for and run, or orchestrated with everything it ran.
+    const recordReviewCost = () => {
+        const orchestrated = modeRecord.asked === 'orchestrator';
+        if (!orchestrated && !(modeRecord.asked === 'single' && modeRecord.ran === 'single')) return;
+        store.recordCost({
+            at: new Date().toISOString(), mode: orchestrated ? 'orchestrator' : 'single', lines: size.lines, projectedSingleChars: projectedSingle,
+            ...(orchestrated ? { projectedChars: passes.reduce((sum, pass) => sum + shared + pass.diff.length, 0) } : {}),
+            actualChars: tally.chars, actualUsd: spentUsd(), runs: tally.runs,
+        });
+    };
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
     let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
@@ -356,44 +441,101 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         progress(`Rigour reviewer: reviewing ${head.slice(0, 9)} against ${base} (${scope}: ${why}; ${reviews.count} human review(s), written by ${[...authors].join(', ') || 'a person'}) with ${reviewers.join(', ')}`);
         const started = Date.now();
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
-        let parts: Verdict[];
+        let parts: Verdict[] | undefined;
         try {
-            const answers = await Promise.all(reviewers.map(async name => {
-                const adapter = ADAPTERS[name];
-                const ask = async () => {
-                    const run = await runJudge(name, prompt, modelFor(name));
-                    progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
-                    const answer = adapter.answer(run.stdout);
-                    store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
-                    return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? parseVerdict(answer.text, needsPriorPoints, name, answer) : undefined };
-                };
-                let first = await ask();
-                // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
-                if ((!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
-                    progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
-                    first = await ask();
+            // The single-judge fallback runs once: no retry, no spare judge.
+            let once = false;
+            if (orchestrate && passes.length === 0) {
+                // Nothing for a model to review (only lockfiles, generated files): no run, and that is the verdict.
+                parts = [];
+                modeRecord = { ...modeRecord, specialists: { selected: [], returned: [], missing: [], passes: [], limit, none: 'nothing for the model reviewer to review' } };
+            } else if (orchestrate) {
+                const judge = reviewers[0];
+                const ran: NonNullable<ModeRecord['specialists']>['passes'] = [];
+                const run = await runPasses(judge, passes.map((pass, i) => ({ ...pass, file: file(`part-${i + 1}.diff`, pass.diff) })), async pass => {
+                    const assigned = pass.specialists.map(id => SPECIALISTS.find(s => s.id === id)!);
+                    const result = await runJudge(judge, `${prompt}${focusBlock(assigned, pass.file)}`, modelFor(judge));
+                    const answer = ADAPTERS[judge].answer(result.stdout);
+                    spent(answer.costUsd, shared + pass.diff.length); // every pass counts against the caps and the ledger, an answer or not
+                    progress(`Rigour reviewer: ${judge} (${pass.specialists.join(', ')}) finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${result.exitCode})`);
+                    const verdict = result.exitCode === 0 || answer.text.trim()
+                        ? parseVerdict(answer.text, needsPriorPoints && pass.specialists.includes('prior-points'), judge, answer)
+                        : { error: `${judge} (${pass.specialists.join(', ')}): no answer (exit ${result.exitCode})` };
+                    // Whether slicing held: a pass that read the full diff, or read, searched or printed a changed file outside its slice.
+                    const sliceFiles = new Set(pass.sliced.map(i => hunks[i].file));
+                    const outside = changedFiles.filter(f => !sliceFiles.has(f));
+                    const trace = 'verdict' in verdict ? verdict.verdict.trace : undefined;
+                    const beyond = trace ? trace.calls.some(c => {
+                        const target = c.target.replace(/\\/g, '/');
+                        return target.endsWith('/full.diff') || outside.some(f => names(target, f));
+                    }) : null;
+                    ran.push({ specialists: pass.specialists, hunks: pass.hunks.length, chars: pass.diff.length, readBeyondSlice: beyond });
+                    return verdict;
+                });
+                const specialists = { selected, returned: run.returned, missing: run.missing, passes: ran, limit, ...(planNote ? { plan: planNote } : {}) };
+                if (orchestrator.required && run.missing.length) {
+                    // A required orchestrator reviews every part or gives no verdict: a partial review, or one judge instead, is a quieter one.
+                    recordReviewCost();
+                    const fallback = `${run.returned.length} of ${passes.length} passes returned`;
+                    return none('unavailable', `${fallback}, and rigour.yml requires the orchestrator: every part or no verdict (not reviewed: ${run.missing.join('; ')})`, { reviewers, scope, why, pr: pr?.number, spentUsd: spentUsd(), mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
                 }
-                return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };
-            }));
-            // A judge that gives nothing is replaced by the next one installed, so the boundary stays up: a review ends unavailable only when every judge failed.
-            const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
-            for (let i = 0; i < answers.length; i++) {
-                let answer = answers[i];
-                while ('error' in answer && spare.length && !overBudget(store.spend(), settings, 1)) {
-                    const next = spare.shift()!;
-                    progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
-                    modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
-                    reviewers[i] = next;
-                    const run = await runJudge(next, prompt, modelFor(next));
-                    const got = ADAPTERS[next].answer(run.stdout);
-                    store.addSpend(1, got.costUsd);
-                    answer = run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
+                if (run.stands) {
+                    parts = run.parts;
+                    modeRecord = { ...modeRecord, specialists, ...(run.missing.length ? { degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}not reviewed: ${run.missing.join('; ')} (no verdict)` } : {}) };
+                } else {
+                    // Fewer than half of the passes came back: one judge instead, once, only if the caps still allow a run; it counts too.
+                    const short = overBudget(store.spend(), settings, 1);
+                    const fallback = `${run.returned.length} of ${passes.length} passes returned`;
+                    if (short) {
+                        recordReviewCost();
+                        return none('unavailable', `${fallback}, and the caps leave no run for one judge: ${short}`, { reviewers, scope, why, pr: pr?.number, spentUsd: spentUsd(), mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                    }
+                    progress(`Rigour reviewer: ${fallback}; one judge reviews instead`);
+                    modeRecord = { ...modeRecord, ran: 'single', specialists: { ...specialists, fallback } };
+                    once = true;
                 }
-                answers[i] = answer;
             }
-            const failed = answers.find(a => 'error' in a);
-            if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
-            parts = answers.map(a => (a as { verdict: Verdict }).verdict);
+            if (!parts) {
+                const answers = await Promise.all(reviewers.map(async name => {
+                    const adapter = ADAPTERS[name];
+                    const ask = async () => {
+                        const run = await runJudge(name, prompt, modelFor(name));
+                        progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
+                        const answer = adapter.answer(run.stdout);
+                        spent(answer.costUsd, projectedSingle); // every run counts against the caps, an answer or not
+                        return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? parseVerdict(answer.text, needsPriorPoints, name, answer) : undefined };
+                    };
+                    let first = await ask();
+                    // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
+                    if (!once && (!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
+                        progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
+                        first = await ask();
+                    }
+                    return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };
+                }));
+                // A judge that gives nothing is replaced by the next one installed, so the boundary stays up: a review ends unavailable only when every judge failed.
+                const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
+                for (let i = 0; i < answers.length; i++) {
+                    let answer = answers[i];
+                    while (!once && 'error' in answer && spare.length && !overBudget(store.spend(), settings, 1)) {
+                        const next = spare.shift()!;
+                        progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
+                        modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
+                        reviewers[i] = next;
+                        const run = await runJudge(next, prompt, modelFor(next));
+                        const got = ADAPTERS[next].answer(run.stdout);
+                        spent(got.costUsd, projectedSingle);
+                        answer = run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
+                    }
+                    answers[i] = answer;
+                }
+                const failed = answers.find(a => 'error' in a);
+                if (failed && 'error' in failed) {
+                    if (once) recordReviewCost();
+                    return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number, spentUsd: spentUsd() });
+                }
+                parts = answers.map(a => (a as { verdict: Verdict }).verdict);
+            }
             for (const part of parts) {
                 if (part.trace) labelReads(part.trace, work, changedFiles);
                 attachServedRules(part, context.rules);
@@ -401,7 +543,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         } finally {
             clearInterval(ticker);
         }
-        const merged = mergeVerdicts(parts); // one part too: every item is tagged with who found it
+        // One part too: every item is tagged with who found it. No part (nothing for a model to review): an empty verdict.
+        const merged = parts.length ? mergeVerdicts(parts) : { prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [], reviewers: [] };
         const touched = scope === 'delta' ? sincePrevious : new Set<string>();
         let verdict = scope === 'delta' ? carryResolved(merged, store.readJson<Verdict>(previous!.verdict), touched) : merged;
         if (modeRecord.ran === 'panel' && parts.length > 1) {
@@ -427,9 +570,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 },
                 ask: async (judge, asked) => {
                     const name = judge as ReviewerName;
-                    const run = await runJudge(name, crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked), settings.cross_models[name] ?? modelFor(name));
+                    const examPrompt = crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked);
+                    const run = await runJudge(name, examPrompt, settings.cross_models[name] ?? modelFor(name));
                     const answer = ADAPTERS[name].answer(run.stdout);
-                    store.addSpend(1, answer.costUsd);
+                    spent(answer.costUsd, examPrompt.length);
                     reserved--;
                     cross.push({ reviewer: `${name} cross-exam`, ...(answer.costUsd !== undefined ? { cost_usd: answer.costUsd } : {}), ...(answer.tokens ? { tokens: answer.tokens } : {}) });
                     progress(`Rigour reviewer: ${name} cross-examined ${asked.length} finding(s) (exit ${run.exitCode})`);
@@ -444,8 +588,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString() } });
         store.writeJson(openFile, accounted.open);
         store.writeJson(store.decidedPath(verdictFile), accounted);
+        recordReviewCost();
         if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key, inputsKey });
-        return withRecord(accounted, verdict, false);
+        return { ...withRecord(accounted, verdict, false), spentUsd: spentUsd() };
     } finally {
         fs.rmSync(work, { recursive: true, force: true });
     }
@@ -571,4 +716,13 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         ...(pr ? { pr: pr.number } : {}),
         ...(pr?.title ? { prTitle: pr.title } : {}),
     };
+}
+
+/** Whether a tool call's target (a path, a glob, a shell command) names a repository file. */
+function names(target: string, file: string): boolean {
+    const at = target.indexOf(file);
+    if (at < 0) return false;
+    const before = target[at - 1];
+    const after = target[at + file.length];
+    return (before === undefined || /[\s/'"=]/.test(before)) && (after === undefined || /[\s'":)]/.test(after));
 }

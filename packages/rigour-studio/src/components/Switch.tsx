@@ -6,7 +6,7 @@ import { SwitchSettings, type SwitchData, type SwitchText } from './SwitchParts'
 import './story.css';
 
 /** Each switch's words, by the name its API route takes. */
-const TEXT: Record<'goal' | 'outcomes', SwitchText> = {
+const TEXT: Record<'goal' | 'outcomes' | 'orchestrator', SwitchText> = {
     goal: {
         title: 'The goal check',
         lead: <>Checks a change against what its pull request says it is for: files outside its <span className="st-mono">Scope</span> or inside <span className="st-mono">Out of scope</span>, and{' '}
@@ -22,6 +22,17 @@ const TEXT: Record<'goal' | 'outcomes', SwitchText> = {
         row: 'Read outcomes',
         rowHelp: <>Required: no person, environment variable or flag may turn it off. <span className="st-mono">--outcomes</span> and <span className="st-mono">--no-outcomes</span> choose for one run.</>,
         name: 'outcome loop',
+    },
+    orchestrator: {
+        title: 'The review orchestrator',
+        lead: <>Experimental. Triage, without a model, picks which parts of a review each change needs (earlier human points,
+            correctness, production cost, what the change leaves behind, rules, lessons and the goal), and the judge does only those,
+            in one pass: the same runs as one judge. A change over the judge's limit is split only with what the router has already
+            saved over its last 20 reviews, so on average it never costs more than one judge. A change with nothing for a model to review gets no run. Under required, every part returns or there is no verdict. The daily caps
+            (<span className="st-mono">max_runs_per_day</span>, <span className="st-mono">max_usd_per_day</span>) count every pass. What blocks is unchanged.</>,
+        row: 'Use the orchestrator',
+        rowHelp: <>Required: no person, environment variable or flag may turn it off. <span className="st-mono">--orchestrator</span> and <span className="st-mono">--no-orchestrator</span> choose for one run.</>,
+        name: 'review orchestrator',
     },
 };
 

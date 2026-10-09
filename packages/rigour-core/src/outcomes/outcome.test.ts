@@ -220,7 +220,11 @@ describe('rigour outcomes', () => {
             if (args[0] === 'pr') return { exitCode: 0, stdout: JSON.stringify({ number: 7, mergedAt, mergeCommit: { oid: mergeSha }, headRefName: 'feature', author: { login: 'ana' }, state: 'MERGED' }), stderr: '' };
             return { exitCode: 0, stdout: JSON.stringify([{ status: 'completed', conclusion: 'success' }]), stderr: '' };
         };
+        // Two review rounds on the pull request: the first one's findings, and both rounds' dollars.
+        appendTaskEvent(repo, { kind: 'review', pr: 7, outcome: 'findings', blocking: 1, should_fix: 1, checks: 2, cost_usd: 0.5 });
+        appendTaskEvent(repo, { kind: 'review', pr: 7, outcome: 'passed', blocking: 0, should_fix: 0, checks: 0, cost_usd: 0.25 });
         const run = await runOutcomes(repo, ConfigSchema.parse({ version: 1 }), { flag: true, pr: 7, exec });
+        expect(run.metrics?.model).toMatchObject({ share: { model: 2, checks: 2, prs: 1, rate: null }, costPerPr: { prs: 1, totalUsd: 0.75, medianUsd: null } });
         // The fix on day 3 changed the point's own line.
         expect(run.lessons).toMatchObject({ added: 1, suggested: ['L1'] });
         expect(run.metrics).toMatchObject({ version: 1, records: { merged: 1, settled: 1 }, lessons: { awaitingDecision: 1 } });

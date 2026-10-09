@@ -32,6 +32,32 @@ export interface BranchState {
     at: string;
 }
 
+/**
+ * A finished review's cost, for the orchestrator's savings ledger (orchestrator.ts). Sizes are characters of what the
+ * judge is given: `shared` (the input files every run reads, the diff left out) plus the reviewable diff (lockfiles and
+ * generated files left out), counted the same way in both modes.
+ */
+export interface ReviewCost {
+    at: string;
+    /** `single`: one judge, asked for and run (never an orchestrator's fallback). `orchestrator`: every run it made, its fallback included. */
+    mode: 'single' | 'orchestrator';
+    /** Changed lines in the reviewable diff. */
+    lines: number;
+    /** What one judge would be given for this change: shared inputs + the reviewable diff. */
+    projectedSingleChars: number;
+    /** What the orchestrator planned: per pass, shared inputs + its slice (0 when no pass). Orchestrator rows only. */
+    projectedChars?: number;
+    /** What every run was given, a failed pass, a fallback and a retry included. */
+    actualChars: number;
+    /** What every run reported costing; a judge that reports no dollars adds none. */
+    actualUsd: number;
+    runs: number;
+}
+
+/** What one judge cost per character here, frozen once, at the orchestrator's first review: `null` without enough single reviews. */
+export interface CostBaseline { at: string; usdPerChar: number | null; singles: number }
+const COSTS_KEPT = 200;
+
 export class VerdictStore {
     private constructor(private readonly dir: string) {}
 
@@ -95,6 +121,47 @@ export class VerdictStore {
     addSpend(runs: number, usd: number | undefined, day = localDay()): void {
         fs.mkdirSync(path.join(this.dir, 'spend'), { recursive: true });
         fs.appendFileSync(this.spendFile(day), `${JSON.stringify({ runs, ...(usd ? { usd } : {}), at: new Date().toISOString() })}\n`);
+    }
+
+    /** One line per finished review: how it ran, what one judge would have been given and what every run was (the savings ledger reads it). */
+    recordCost(entry: ReviewCost): void {
+        fs.mkdirSync(this.dir, { recursive: true });
+        fs.appendFileSync(path.join(this.dir, 'costs.jsonl'), `${JSON.stringify(entry)}\n`);
+    }
+
+    /** The last `n` reviews' costs, oldest first; lines that do not parse are skipped. */
+    costs(n = COSTS_KEPT): ReviewCost[] {
+        let text = '';
+        try {
+            text = fs.readFileSync(path.join(this.dir, 'costs.jsonl'), 'utf8');
+        } catch {
+            return [];
+        }
+        return text.split('\n').flatMap(line => {
+            try {
+                const entry = JSON.parse(line);
+                return entry && typeof entry.actualChars === 'number' && typeof entry.projectedSingleChars === 'number' ? [entry as ReviewCost] : [];
+            } catch {
+                return [];
+            }
+        }).slice(-n);
+    }
+
+    /** The frozen baseline; written by `freezeBaseline` once, and never again. */
+    baseline(): CostBaseline | undefined {
+        return this.readJson<CostBaseline>(path.join(this.dir, 'cost-baseline.json'));
+    }
+
+    /** Freezes the baseline from the single reviews kept so far, unless it is already frozen; returns the frozen one. */
+    freezeBaseline(minSingles: number): CostBaseline {
+        const frozen = this.baseline();
+        if (frozen) return frozen;
+        const singles = this.costs().filter(c => c.mode === 'single' && c.actualUsd > 0 && c.actualChars > 0);
+        const chars = singles.reduce((sum, c) => sum + c.actualChars, 0);
+        const usd = singles.reduce((sum, c) => sum + c.actualUsd, 0);
+        const baseline: CostBaseline = { at: new Date().toISOString(), usdPerChar: singles.length >= minSingles ? usd / chars : null, singles: singles.length };
+        this.writeJson(path.join(this.dir, 'cost-baseline.json'), baseline);
+        return baseline;
     }
 
     private spendFile(day: string): string {

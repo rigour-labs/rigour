@@ -14,9 +14,9 @@ export function reviewerBase(cwd: string, named: string | undefined): string | u
     return named ?? branchBase(cwd)?.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '');
 }
 
-export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult, goal?: boolean): Promise<ReviewerResult> {
+export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult, goal?: boolean, orchestrator?: boolean): Promise<ReviewerResult> {
     if (!base) return { outcome: 'unavailable', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason: 'no base to review against: pass --base, or fetch the main branch', reviewers: [], cached: false };
-    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...(goal !== undefined ? { goal } : {}), ...reviewerInputs(review) });
+    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...(goal !== undefined ? { goal } : {}), ...(orchestrator !== undefined ? { orchestrator } : {}), ...reviewerInputs(review) });
 }
 
 /** Verified should-fixes shown in full before the rest fold into a count. */
@@ -67,7 +67,7 @@ function printMode(result: ReviewerResult): void {
     const mode = result.mode;
     if (!mode) return;
     if (mode.asked !== mode.ran || mode.degraded || mode.escalation) {
-        const why = [mode.degraded, mode.escalation].filter(Boolean).join('; ');
+        const why = [mode.degraded, mode.escalation, mode.specialists?.fallback].filter(Boolean).join('; ');
         console.log(chalk.yellow(`  ${mode.asked} asked (${mode.source}), ${mode.ran} ran${why ? `: ${why}` : ''}`));
     }
     for (const line of mode.refused ?? []) console.log(chalk.yellow(`  ${line}`));
