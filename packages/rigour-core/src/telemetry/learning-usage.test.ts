@@ -2,6 +2,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// No network at send time: any process the read would start, gh among them, fails the test.
+const started = vi.hoisted(() => [] as string[]);
+vi.mock('child_process', async original => {
+    const actual = await original<typeof import('child_process')>();
+    const watch = <F extends (...args: any[]) => any>(fn: F) => ((command: string, ...rest: any[]) => { started.push(command); return fn(command, ...rest); }) as unknown as F;
+    return { ...actual, default: actual, execFileSync: watch(actual.execFileSync), spawnSync: watch(actual.spawnSync), execFile: watch(actual.execFile), spawn: watch(actual.spawn) };
+});
 import { ConfigSchema } from '../types/index.js';
 import { learningUsage } from './learning-usage.js';
 import { flushDailyUsage, setTelemetryEnabled } from './telemetry.js';
@@ -47,5 +55,17 @@ describe('what the learning loop did, for opt-in telemetry', () => {
         } finally {
             fs.rmSync(home, { recursive: true, force: true });
         }
+    });
+
+    it('sends no dollars and makes no network call: the model reviewer\'s numbers stay on the machine', () => {
+        outcomes(10);
+        fs.mkdirSync(path.join(cwd, '.rigour'), { recursive: true });
+        const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('no network at send time'); });
+        started.length = 0;
+        const usage = learningUsage(cwd, ConfigSchema.parse({ version: 1 }));
+        expect(fetch).not.toHaveBeenCalled();
+        expect(started.filter(command => command !== 'git')).toEqual([]); // git only to find the local threads, never gh or anything that leaves the machine
+        expect(Object.keys(usage).filter(key => /usd|dollar|cost|model/i.test(key))).toEqual([]);
+        fetch.mockRestore();
     });
 });
