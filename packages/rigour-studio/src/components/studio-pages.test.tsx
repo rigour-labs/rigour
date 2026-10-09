@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
 import { WeeklyTable } from './AgentContext';
-import { LessonCard, OutcomeCard } from './LearningParts';
+import { CompiledChecks, LessonCard, OutcomeCard } from './LearningParts';
 import { Trend } from './Progress';
 import { inlineCode, plural } from './storyData';
 import { StoryCard } from './Week';
@@ -163,6 +163,20 @@ describe('a lesson taken back on the learning page', () => {
         expect(out).toContain('taken back</span> <span class="st-sub">taken back: #50, #51 repeated it and settled clean');
         expect(out).toContain('Promote again');
         expect(out).not.toContain('Seen once');
+    });
+});
+
+describe('lessons compiled into checks, on the learning page', () => {
+    it('shows what a check reports, its history as counts with a rate only from ten, who approved it, and the decision a person can make', () => {
+        const out = html(<CompiledChecks checks={[
+            { id: 'c-L1', lessonId: 'L1', files: 'src/load.ts', kind: 'forbid', symbol: 'fetchAll', message: 'Never call `fetchAll` here.', state: 'proposed', backtest: { repeating: { fired: 3, n: 4 }, other: { fired: 1, n: 12 }, commits: 16 } },
+            { id: 'c-L3', lessonId: 'L3', files: 'src/page.ts', kind: 'require', symbol: 'preloadData', with: 'resolve', message: 'Always wrap it.', state: 'active', by: 'ana@example.com' },
+        ]} onDecide={() => undefined} onPropose={() => undefined} />);
+        expect(out).toContain('fires on 3 of 4 where a review found the lesson repeating, and on 1 of 12 (8%) others');
+        expect(out).toContain('approved by ana@example.com');
+        expect(out).toContain('>Approve<');
+        expect(out).toContain('>Take back<');
+        expect(out).toContain('committed with it');
     });
 });
 

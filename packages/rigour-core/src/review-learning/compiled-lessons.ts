@@ -108,6 +108,16 @@ export function decideCompiledCheck(cwd: string, id: string, state: 'active' | '
     return check;
 }
 
+/**
+ * The lessons left for a model reviewer: those with an approved compiled check are left out, since the check reports
+ * them on every review for free (and a model is told what the checks found, as settled). Taking the check back
+ * returns the lesson to the prompt.
+ */
+export function withoutCompiled<L extends { id: string }>(cwd: string, lessons: L[]): L[] {
+    const compiled = new Set(readCompiledChecks(cwd).filter(c => c.state === 'active').map(c => c.lessonId));
+    return compiled.size ? lessons.filter(l => !compiled.has(l.id)) : lessons;
+}
+
 export function readCompiledChecks(cwd: string): CompiledCheck[] {
     try {
         const data = JSON.parse(fs.readFileSync(path.join(cwd, STORE), 'utf8'));

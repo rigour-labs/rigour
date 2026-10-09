@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
-import { compiledLessonFailures, decideCompiledCheck, proposeCompiledChecks, readCompiledChecks } from './compiled-lessons.js';
+import { compiledLessonFailures, decideCompiledCheck, proposeCompiledChecks, readCompiledChecks, withoutCompiled } from './compiled-lessons.js';
 import type { ReviewLesson } from './lessons.js';
 import { execFileSync } from 'child_process';
 import { appendTaskEvent } from '../task/thread.js';
@@ -88,5 +88,16 @@ describe('compiled lessons', () => {
         lessons([lesson('L1', 'Never call `fetchAll` in a request handler.', ['fetchAll'], ['accepted'])]);
         const [proposed] = proposeCompiledChecks(cwd);
         expect(readCompiledChecks(cwd).find(c => c.id === proposed.id)?.backtest).toMatchObject({ repeating: { fired: 1, n: 1 }, other: { fired: 1, n: 2 }, commits: 3 });
+    });
+
+    it('leaves an approved check\'s lesson out of a model\'s prompt, and puts it back when the check is taken back', () => {
+        const list = [lesson('L1', 'Never call `fetchAll` here.', ['fetchAll'], ['accepted']), lesson('L2', 'Think about `x`.', ['x'], ['accepted'])];
+        lessons(list);
+        proposeCompiledChecks(cwd);
+        expect(withoutCompiled(cwd, list).map(l => l.id)).toEqual(['L1', 'L2']); // proposed: still the model's
+        decideCompiledCheck(cwd, 'c-L1', 'active', 'ana@example.com');
+        expect(withoutCompiled(cwd, list).map(l => l.id)).toEqual(['L2']);
+        decideCompiledCheck(cwd, 'c-L1', 'withdrawn', 'ana@example.com');
+        expect(withoutCompiled(cwd, list).map(l => l.id)).toEqual(['L1', 'L2']);
     });
 });

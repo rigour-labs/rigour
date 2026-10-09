@@ -24,6 +24,7 @@ import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
 import { VerdictStore } from './store.js';
 import type { OpenItem, ServedRule } from './verdict.js';
 import { MAX_SETTLED, settledChecks, settledLine, settledSection } from '../settled-checks.js';
+import { withoutCompiled } from '../../review-learning/compiled-lessons.js';
 
 export const REVIEW_DISMISSALS = path.join('.rigour', 'dismissed-review-items.json');
 const MAX_DOCS = 10;
@@ -120,7 +121,7 @@ export function buildContext(input: ContextInput): { text: string; key: string; 
         task = undefined;
     }
     // A judge reads the whole pull request: more of what the team taught fits than an agent's one question at the stop.
-    const servedLessons: ServedLesson[] = input.lessons === 'off' ? [] : lessonsForDiff(input.cwd, input.diff, input.lessons, JUDGE_STANDARDS, JUDGE_FILE_LESSONS, JUDGE_LESSONS_PER_FILE, input.pr).map(l => ({ id: l.id, listed: describeLesson(lessonView(l)) }));
+    const servedLessons: ServedLesson[] = input.lessons === 'off' ? [] : withoutCompiled(input.cwd, lessonsForDiff(input.cwd, input.diff, input.lessons, JUDGE_STANDARDS, JUDGE_FILE_LESSONS, JUDGE_LESSONS_PER_FILE, input.pr)).map(l => ({ id: l.id, listed: describeLesson(lessonView(l)) }));
     if (servedLessons.length) sections.push(`## Lessons this team taught on earlier reviews, for what this change touches (context: a lesson never blocks on its own; a finding still needs its quote)\n${servedLessons.map(l => `- ${l.listed}`).join('\n')}`);
     // The repository's own rules, always: the reviewer is the boundary, and what the team wrote is the standard it checks.
     const rules = rulesForDiff(input.cwd, input.diff, true, JUDGE_RULES).map((r): ServedRule => ({ id: r.id, source: r.source, text: r.text, requirement: r.requirement }));

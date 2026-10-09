@@ -430,9 +430,16 @@ file and its symbols in backticks and say what is wrong in so many words:
 | never, avoid, do not use `` `a` ``; use `` `b` `` instead of `` `a` `` | `a` on a changed line of the lesson's file |
 | always, must, every … `` `a` `` … `` `b` `` | `a` on a changed line with no `b` within three lines |
 
-`rigour learn-reviews --compile` proposes a check for every lesson a template fits and lists them all.
-A proposed check runs only once a person approves it (`--approve-check <id>`), and `--withdraw-check
-<id>` takes it back. Checks live in `.rigour/compiled-checks.json`: commit it, so the team reviews
+`rigour learn-reviews --compile` (or **Propose checks** on Studio's learning page) proposes a check for
+every lesson a template fits and lists them all, each with how it fired on the main branch's last 100
+changes to its files: on merged pull requests a review found the lesson repeating in, and on the
+others (a false fire, or a catch the review missed). These are counts, with a percentage only from
+ten. A proposed check runs only once a person approves it (`--approve-check <id>`, or **Approve** in
+Studio), and `--withdraw-check <id>` (**Take back**) takes it back.
+
+Once a check is approved, its lesson leaves the model reviewer's prompt: the check reports it on every
+review for free, and the judge is told what the checks found, as settled. Taking the check back
+returns the lesson to the prompt. Agents' briefings keep the lesson either way. Checks live in `.rigour/compiled-checks.json`: commit it, so the team reviews
 them like code. Who approved or took back each check, by git email, is committed with it; without a
 git email set in the checkout, the decision is refused. Each finding names its lesson. A compiled check is a note unless
 `gates.compiled_lessons.block` is on.
