@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, RATE_MIN, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -91,7 +91,7 @@ function compile(cwd: string, json?: boolean): void {
 
 /** What the history says about a proposed check: counts, and a rate only from RATE_MIN. */
 function backtestLine(b: NonNullable<CompiledCheck['backtest']>): string {
-    const share = (s: { fired: number; n: number }) => `${s.fired} of ${s.n}${s.n >= RATE_MIN ? ` (${Math.round((s.fired / s.n) * 100)}%)` : ''}`;
+    const share = (s: { fired: number; n: number; rate: number | null }) => `${s.fired} of ${s.n}${s.rate === null ? '' : ` (${Math.round(s.rate * 100)}%)`}`;
     return `fires on ${share(b.repeating)} merged pull request(s) a review found the lesson repeating in; on ${share(b.other)} other merged change(s) to its files`;
 }
 

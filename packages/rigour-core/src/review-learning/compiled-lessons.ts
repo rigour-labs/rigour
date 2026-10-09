@@ -51,15 +51,20 @@ export interface CompiledCheck {
      * found the lesson repeating in (it should fire), and on every other merged change to its files (each fire is a
      * false one, or a catch the review missed). Counts, never a rate below RATE_MIN.
      */
-    backtest?: { repeating: { fired: number; n: number }; other: { fired: number; n: number }; commits: number; at: string };
+    backtest?: { repeating: BacktestShare; other: BacktestShare; commits: number; at: string };
 }
 
 /** Fewer than this: a count, never a rate. */
-export const RATE_MIN = 10;
+const RATE_MIN = 10;
+
+/** Fires out of n, with the rate computed here, the one place RATE_MIN applies: null below it. */
+export interface BacktestShare { fired: number; n: number; rate: number | null }
 /** Merged changes to a check's files read back, newest first. */
 const BACKTEST_COMMITS = 100;
 /** Each backtest stops here and keeps what it counted. */
 const BACKTEST_DEADLINE_MS = 20_000;
+/** All of one proposal round's backtests stop here; a check not reached is proposed without its counts. */
+const PROPOSE_DEADLINE_MS = 30_000;
 
 const FORBID = [
     /\b(?:use|prefer)\s+`([^`]+)`\s+(?:instead of|over|rather than)\s+`([^`]+)`/i, // the second is forbidden
@@ -91,16 +96,16 @@ function compileLesson(lesson: ReviewLesson, at = new Date().toISOString()): Com
 }
 
 /**
- * Proposes a check for every compilable lesson that has none yet, and backtests every check still proposed against the
- * main branch's history; returns the new proposals. A decided check is never re-proposed.
+ * Proposes a check for every compilable lesson that has none yet, each backtested against the main branch's history
+ * (new proposals only); returns them. A decided check is never re-proposed.
  */
 export function proposeCompiledChecks(cwd: string): CompiledCheck[] {
     const checks = readCompiledChecks(cwd);
     const known = new Set(checks.map(c => c.lessonId));
     const proposed = readLessons(cwd).filter(l => !known.has(l.id)).map(l => compileLesson(l)).filter((c): c is CompiledCheck => !!c);
-    const all = [...checks, ...proposed];
-    withBacktests(cwd, all);
-    if (all.length) writeCompiledChecks(cwd, all);
+    if (proposed.length === 0) return [];
+    withBacktests(cwd, proposed); // only the new ones: a decided or earlier proposal keeps the counts it was shown with
+    writeCompiledChecks(cwd, [...checks, ...proposed]);
     return proposed;
 }
 
@@ -215,13 +220,13 @@ function firesOn(check: CompiledCheck, text: string[], lines: Iterable<number>):
 function backtestCheck(cwd: string, check: CompiledCheck, mainRef: string, applied: Map<number, Set<string>>): NonNullable<CompiledCheck['backtest']> {
     const git = (args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 10_000 });
     const spec = /[*?[\]{}]/.test(check.files) ? `:(glob)${check.files}` : check.files;
-    const result = { repeating: { fired: 0, n: 0 }, other: { fired: 0, n: 0 }, commits: 0, at: new Date().toISOString() };
+    const result = { repeating: { fired: 0, n: 0, rate: null as number | null }, other: { fired: 0, n: 0, rate: null as number | null }, commits: 0, at: new Date().toISOString() };
     const deadline = Date.now() + BACKTEST_DEADLINE_MS;
     let log = '';
     try {
         log = git(['log', '--first-parent', '-n', String(BACKTEST_COMMITS), '--format=%H %s', mainRef, '--', spec]);
     } catch {
-        return result;
+        return withRates(result);
     }
     for (const entry of log.split('\n').filter(Boolean)) {
         if (Date.now() > deadline) break;
@@ -240,13 +245,22 @@ function backtestCheck(cwd: string, check: CompiledCheck, mainRef: string, appli
         if (fired) bucket.fired++;
         result.commits++;
     }
+    return withRates(result);
+}
+
+function withRates(result: NonNullable<CompiledCheck['backtest']>): NonNullable<CompiledCheck['backtest']> {
+    for (const share of [result.repeating, result.other]) share.rate = share.n >= RATE_MIN ? Math.round((share.fired / share.n) * 100) / 100 : null;
     return result;
 }
 
-/** Re-runs the backtest of every check still proposed: what the person approving it reads. */
+/** Backtests new proposals, all within PROPOSE_DEADLINE_MS: what the person approving each one reads. */
 function withBacktests(cwd: string, checks: CompiledCheck[]): void {
     const mainRef = branchBase(cwd)?.mainRef;
     if (!mainRef) return;
     const { applied } = threadReviews(cwd);
-    for (const check of checks) if (check.state === 'proposed') check.backtest = backtestCheck(cwd, check, mainRef, applied);
+    const deadline = Date.now() + PROPOSE_DEADLINE_MS;
+    for (const check of checks) {
+        if (Date.now() > deadline) break;
+        check.backtest = backtestCheck(cwd, check, mainRef, applied);
+    }
 }

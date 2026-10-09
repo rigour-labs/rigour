@@ -87,7 +87,7 @@ describe('compiled lessons', () => {
         appendTaskEvent(cwd, { kind: 'review', pr: 1, outcome: 'findings', lessons_applied: ['L1'] });
         lessons([lesson('L1', 'Never call `fetchAll` in a request handler.', ['fetchAll'], ['accepted'])]);
         const [proposed] = proposeCompiledChecks(cwd);
-        expect(readCompiledChecks(cwd).find(c => c.id === proposed.id)?.backtest).toMatchObject({ repeating: { fired: 1, n: 1 }, other: { fired: 1, n: 2 }, commits: 3 });
+        expect(readCompiledChecks(cwd).find(c => c.id === proposed.id)?.backtest).toMatchObject({ repeating: { fired: 1, n: 1, rate: null }, other: { fired: 1, n: 2, rate: null }, commits: 3 }); // a rate only from ten
     });
 
     it('compiles no lesson a reclassification sent back to candidate, no legacy one, and never inverts "never forget"', () => {
