@@ -19,6 +19,7 @@ export function reviewerUsage(result: ReviewerResult, trigger: string): Record<s
         refused: mode?.refused?.length ?? 0,
         judges: result.reviewers.length,
         cached: result.cached,
+        ...(result.cache ? { cache: result.cache } : {}),
         confirmed: result.items.length,
         disputed: result.disputed.length,
         dropped: result.dropped.length,

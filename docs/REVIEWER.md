@@ -222,6 +222,13 @@ step, because it turns a personal install into the team's.
 - **Nothing is paid for twice:** the same commit asked again with the same settings and reviews
   reuses its verdict (a dismissal still applies at once), later pushes get a delta review of the new
   commits only, and human points already settled are not judged again.
+- **The same content is not reviewed again on another commit.** A rebase, an amend, a cherry-pick or
+  the same change on another branch reuses the verdict of a full review with the same inputs (rules,
+  lessons, human reviews, goal, judges and models) and the same reviewable diff, read file by file as
+  before and after blobs. Before reuse, Rigour checks that the base has not moved under any file the
+  verdict cites; if it has, the change is reviewed again. A reused verdict goes through the same
+  quote check against the checkout and the same dismissals as a fresh one. Entries are kept for 30
+  days, the newest 500.
 - **A push nobody will read costs nothing:** before checking anything out, the background review
   asks whether the branch has an open, ready pull request; if not, it stops and says why.
 

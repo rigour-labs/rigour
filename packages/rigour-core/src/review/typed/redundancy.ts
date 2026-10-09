@@ -5,7 +5,8 @@
  *                             equals on `col` (SQL excludes NULL there);
  *   nullable-filtered-column  the query filters `col` non-null, the row type still says `| null`,
  *                             so every guard on it is dead;
- *   optional-always-supplied  an optional property every host object supplies;
+ *   optional-always-supplied  an optional property every host object supplies (unless values of the type are
+ *                             also read back from JSON, where data written before the member existed lacks it);
  *   write-only-property       a property the hosts set and nothing reads. When the value only
  *                             leaves through serialisation to a callee the program does not declare
  *                             (a wire payload), that is a hint for the reviewer, not a block.
@@ -260,6 +261,41 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
         return found;
     };
 
+    // Values of the type read back from JSON (JSON.parse, readJson, a response's .json()) as the type: an assertion,
+    // an annotated variable, a type argument, or the declared return of the function that returns them. Data written
+    // before a member existed lacks it, so the member stays optional however every host in the code supplies it now.
+    const holdsType = (t: Declared, ty: TS.Type | undefined): boolean => {
+        if (!ty) return false;
+        const awaited = checker.getAwaitedType(ty) ?? ty;
+        return mentionsType(t, awaited) || checker.getIndexInfosOfType(awaited).some(info => mentionsType(t, info.type));
+    };
+    const JSON_READ = /(?:^|\.)(?:JSON\.parse|readJson|readJsonSync|json)$/;
+    const persistedMemo = new Map<TS.Symbol, string | undefined>();
+    const readFromJson = (t: Declared): string | undefined => {
+        if (persistedMemo.has(t.sym)) return persistedMemo.get(t.sym);
+        let found: string | undefined;
+        for (const sf of typed.appSources) {
+            if (found) break;
+            if (!/JSON\.parse|readJson|\.json\(/.test(sf.text)) continue;
+            walk(sf, node => {
+                if (found || !ts.isCallExpression(node) || !JSON_READ.test(node.expression.getText())) return;
+                if (node.typeArguments?.some(a => holdsType(t, checker.getTypeFromTypeNode(a)))) { found = at(node); return; }
+                let site: TS.Node = node;
+                while (ts.isParenthesizedExpression(site.parent) || ts.isAwaitExpression(site.parent) || ts.isNonNullExpression(site.parent)) site = site.parent;
+                const p = site.parent;
+                const target = ts.isAsExpression(p) || ts.isTypeAssertionExpression(p) || ts.isSatisfiesExpression(p) ? p.type
+                    : ts.isVariableDeclaration(p) && p.initializer === site ? p.type
+                    : undefined;
+                if (target && holdsType(t, checker.getTypeFromTypeNode(target))) { found = at(node); return; }
+                const fn = ts.isReturnStatement(p) ? ts.findAncestor(p, ts.isFunctionLike) : ts.isArrowFunction(p) && p.body === site ? p : undefined;
+                const signature = fn && checker.getSignatureFromDeclaration(fn as TS.SignatureDeclaration);
+                if (fn?.type && signature && holdsType(t, checker.getReturnTypeOfSignature(signature))) found = at(node);
+            });
+        }
+        persistedMemo.set(t.sym, found);
+        return found;
+    };
+
     // A property is read when any non-test file accesses or destructures it; a spread only passes it on.
     const isWriteTarget = (access: TS.PropertyAccessExpression) => ts.isBinaryExpression(access.parent) && access.parent.left === access && access.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
     const isRead = (t: Declared, name: string): string | undefined => {
@@ -306,7 +342,9 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
                 const all = hosts.length + outside.length;
                 if (all > 0 && supplied.length === hosts.length && outside.every(s => supplyRe(name).test(s.text))) {
                     const text = `${member} is optional but every host supplies it (${all} host(s), e.g. ${hosts[0] ? at(hosts[0]) : outside[0].file}).`;
-                    if (published) publish('optional-always-supplied', m, text);
+                    const stored = readFromJson(t);
+                    if (stored) hints.push(`optional-always-supplied ${at(m)}: ${text} Values of it are read back from JSON at ${stored}, where data written before the member existed lacks it: keep it optional unless that data is migrated`);
+                    else if (published) publish('optional-always-supplied', m, text);
                     else report('optional-always-supplied', 'Optional member every host supplies', anchor, text, 'Make it required and drop the `?.` and the fallbacks on it.');
                 }
             }

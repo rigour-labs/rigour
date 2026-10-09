@@ -12,6 +12,12 @@ export const VULNERABILITY_PATTERNS: {
     description: string;
     cwe: string;
     languages: string[];
+    /**
+     * `anywhere` for a pattern about a string's contents (a secret in a literal, a header value, a template): it matches
+     * inside strings. Every other pattern is an API used as a call or a statement, and counts only when its match starts
+     * in code, not in a string literal or a comment (utils/code-mask.ts).
+     */
+    where?: 'anywhere';
 }[] = [
     // SQL Injection
     {
@@ -76,7 +82,8 @@ export const VULNERABILITY_PATTERNS: {
     {
         type: 'hardcoded_secrets',
         // A secret literal has no whitespace: `hidePassword: 'Hide password'` is a UI label, not a credential.
-        regex: /(?:password|secret|api_key|apikey|auth_token|access_token|private_key)\s*[:=]\s*['"][^'"\s]{8,}['"]/gi,
+        regex: /(?:password|secret|api_key|apikey|auth_token|access_token|private_key)['"]?\s*[:=]\s*['"][^'"\s]{8,}['"]/gi, // a key may be quoted: JSON, a Python dict, a JS object
+        where: 'anywhere',
         severity: 'critical',
         description: 'Hardcoded secret detected in code',
         cwe: 'CWE-798',
@@ -85,6 +92,7 @@ export const VULNERABILITY_PATTERNS: {
     {
         type: 'hardcoded_secrets',
         regex: /(?:sk-|pk-|rk-|ghp_|gho_|ghu_|ghs_|ghr_)[a-zA-Z0-9]{20,}/g,
+        where: 'anywhere',
         severity: 'critical',
         description: 'API key pattern detected (OpenAI, GitHub, etc.)',
         cwe: 'CWE-798',
@@ -93,6 +101,7 @@ export const VULNERABILITY_PATTERNS: {
     {
         type: 'hardcoded_secrets',
         regex: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
+        where: 'anywhere',
         severity: 'critical',
         description: 'Private key embedded in source code',
         cwe: 'CWE-798',
@@ -146,6 +155,7 @@ export const VULNERABILITY_PATTERNS: {
     {
         type: 'redos',
         regex: /\(\?:[^)]*\+[^)]*\)\+|\([^)]*\*[^)]*\)\+|\(\.\*\)\{/g,
+        where: 'anywhere',
         severity: 'medium',
         description: 'Regex with nested quantifiers — potential ReDoS',
         cwe: 'CWE-1333',
@@ -179,6 +189,7 @@ export const VULNERABILITY_PATTERNS: {
     {
         type: 'overly_permissive',
         regex: /(?:Access-Control-Allow-Origin|x-powered-by)['"`,\s:]+\*/gi,
+        where: 'anywhere',
         severity: 'high',
         description: 'Wildcard Access-Control-Allow-Origin header',
         cwe: 'CWE-942',
@@ -196,6 +207,7 @@ export const VULNERABILITY_PATTERNS: {
     {
         type: 'unsafe_output',
         regex: /\$\{[^}]*(?:req\.|params|query|body|input|user)[^}]*\}.*(?:html|template|render)/gi,
+        where: 'anywhere',
         severity: 'high',
         description: 'User input interpolated into template/HTML output',
         cwe: 'CWE-79',

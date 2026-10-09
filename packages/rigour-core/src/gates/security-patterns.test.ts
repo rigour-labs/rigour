@@ -29,6 +29,43 @@ describe('SecurityPatternsGate', () => {
         });
     });
 
+    describe('a call written in a string or a comment', () => {
+        const scan = async (name: string, body: string) => {
+            const filePath = path.join(testDir, name);
+            fs.writeFileSync(filePath, body);
+            return (await checkSecurityPatterns(filePath)).map(v => [v.type, v.line]);
+        };
+
+        it('is no call: a message, a JS string and a trailing comment give no finding', async () => {
+            expect(await scan('fixtures.py', 'MSG = "subprocess.call(cmd, shell=True)"\nOTHER = "eval(user_input)"\nx = 1  # subprocess.call(c, shell=True)\n')).toEqual([]);
+            expect(await scan('msg.ts', 'const msg = "eval(req.body)";\nconst note = `res.send(req.query.q)`; // eval(input)\n')).toEqual([]);
+        });
+
+        it('still flags the real calls, on the line after a regex literal holding a quote', async () => {
+            expect(await scan('run.py', 'import subprocess\nsubprocess.call(cmd, shell=True)\n')).toEqual([['command_injection', 2]]);
+            expect(await scan('handler.ts', 'const q = /"/;\neval(req.body);\n')).toEqual([['unsafe_output', 2]]);
+        });
+
+        it('still flags what is about strings: a secret in a literal, one written inside a string, a bare token', async () => {
+            const found = await scan('config.py', 'api_key = "sk-abcdefghijklmnopqrstuvwxyz123456"\nENV = "api_key=\'Xk9pQ2vL8mZr4Tw7\'"\nTOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"\n');
+            expect(found.filter(([type]) => type === 'hardcoded_secrets').map(([, line]) => line).sort()).toEqual([1, 1, 2, 3]);
+        });
+    });
+
+    describe('a secret under a quoted key', () => {
+        it('is found in JSON, a Python dict and a JS object; a key that only starts with the word is not one', async () => {
+            const scan = async (name: string, body: string) => {
+                const filePath = path.join(testDir, name);
+                fs.writeFileSync(filePath, body);
+                return (await checkSecurityPatterns(filePath)).filter(v => v.type === 'hardcoded_secrets').map(v => v.line);
+            };
+            expect(await scan('creds.ts', 'export const creds = {"password": "Xk9pQ2vL8mZr4Tw7"};\n')).toEqual([1]);
+            expect(await scan('settings.py', "SETTINGS = {'api_key': 'Xk9pQ2vL8mZr4Tw7'}\n")).toEqual([1]);
+            expect(await scan('client.js', 'const auth = { "access_token": "Xk9pQ2vL8mZr4Tw7" };\n')).toEqual([1]);
+            expect(await scan('form.ts', 'const labels = { password_hint: "Xk9pQ2vL8mZr4Tw7" };\n')).toEqual([]);
+        });
+    });
+
     describe('SQL injection detection', () => {
         it('should detect string concatenation in queries', async () => {
             const filePath = path.join(testDir, 'db.ts');
