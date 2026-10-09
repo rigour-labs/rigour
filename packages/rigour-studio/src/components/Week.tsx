@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { studioWrite } from '../studioWrite';
 import { groupNeeds, NeedGroupCard, needsHeading, type OpenNeed } from './NeedGroups';
 import { ago, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story, inlineCode } from './storyData';
 import './story.css';
@@ -35,6 +36,7 @@ export const Week: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNaviga
                     ? `${plural(data.stopped.total, 'problem')} stopped and fixed before a pull request this week.`
                     : data.recordingSince ? 'Nothing was stopped this week.' : 'Rigour has not recorded any agent work in this repository yet.'}
             </p>
+            {needs.length > 0 && <Recheck onDone={reload} />}
             {groups.length > 0 && <div className="st-stack" style={{ marginTop: 18 }}>{groups.map(g => <NeedGroupCard key={`${g.rule}:${g.pattern}`} group={g} onDone={reload} />)}</div>}
             <div className="st-grid">
                 <section>
@@ -80,6 +82,20 @@ const HowItWorks: React.FC<{ onHide: () => void }> = ({ onHide }) => (
         </div>
     </section>
 );
+
+/** Checks every open finding again against the code as it is now: what the checks no longer report closes, never as a fix. */
+const Recheck: React.FC<{ onDone: () => void }> = ({ onDone }) => {
+    const [said, setSaid] = useState<string | null>(null);
+    const recheck = async () => {
+        const res = await studioWrite('/api/recheck', 'POST', '{}');
+        if (!res.ok) return setSaid('Could not check again.');
+        const { closed, fixed } = await res.json() as { closed: number; fixed: number };
+        const said = [fixed ? `${plural(fixed, 'fix')} by the agent recorded` : '', closed ? `${plural(closed, 'finding')} no longer reported, closed (not counted as fixes)` : ''].filter(Boolean).join('; ');
+        setSaid(said ? `${said}.` : 'Every one is still reported.');
+        onDone();
+    };
+    return <div className="st-row" style={{ marginTop: 10, gap: 12 }}><button className="st-btn" onClick={recheck} type="button">Check these again</button>{said && <span className="st-sub">{said}</span>}</div>;
+};
 
 export const StoryCard: React.FC<{ story: Story; open: boolean; onToggle: () => void }> = ({ story, open, onToggle }) => (
     <div>
