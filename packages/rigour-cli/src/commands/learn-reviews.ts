@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { acceptSuggestedText, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -33,6 +33,9 @@ export interface LearnReviewsOptions {
     withdrawCheck?: string;
     /** A person takes the corrected wording a newer version suggested for a lesson they decided. */
     useWording?: string;
+    /** A person sets how far a lesson reaches (`to`: file, folder or repo). */
+    scope?: string;
+    to?: string;
 }
 
 export async function learnReviewsCommand(cwd: string, options: LearnReviewsOptions): Promise<void> {
@@ -40,6 +43,7 @@ export async function learnReviewsCommand(cwd: string, options: LearnReviewsOpti
     if (options.reject) return decide(cwd, options.reject, 'rejected', options.why);
     if (options.list) return list(cwd, options.json);
     if (options.useWording) return useWording(cwd, options.useWording);
+    if (options.scope) return scope(cwd, options.scope, options.to, options.why);
     if (options.compile) return compile(cwd, options.json);
     if (options.approveCheck) return decideCheck(cwd, options.approveCheck, 'active');
     if (options.withdrawCheck) return decideCheck(cwd, options.withdrawCheck, 'withdrawn');
@@ -69,7 +73,7 @@ function list(cwd: string, json?: boolean): void {
     const label = { verified: chalk.green('lesson   '), candidate: chalk.yellow('candidate'), rejected: chalk.red('rejected ') };
     for (const l of lessons) {
         const prs = [...new Set(l.evidence.map(e => `#${e.pr}`))].join(', ');
-        const by = l.promotedBy ? chalk.dim(` [${l.promotedBy}]`) : '';
+        const by = chalk.dim(`${l.promotedBy ? ` [${l.promotedBy}]` : ''}${l.scope ? ` [${l.scope === 'repo' ? 'every change' : 'its folder'}]` : ''}`);
         console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(team standard)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
         if (l.suggestedText) console.log(chalk.cyan(`          corrected wording (${l.suggestedWhy ?? 'reworded'}): ${l.suggestedText}`) + chalk.dim(`  take it: rigour learn-reviews --use-wording ${l.id}`));
     }
@@ -123,6 +127,30 @@ function decideCheckOrThrow(cwd: string, id: string, state: 'active' | 'withdraw
         return;
     }
     console.log(state === 'active' ? chalk.green(`✔ Runs from now on (a note unless gates.compiled_lessons.block): ${check.message}`) : chalk.yellow(`✔ Taken back: ${check.message}`));
+}
+
+/** A person sets how far a lesson reaches: its file, its folder, or every change (a repository standard). */
+function scope(cwd: string, id: string, to: string | undefined, why?: string): void {
+    if (to !== 'file' && to !== 'folder' && to !== 'repo') {
+        console.error(chalk.red('--to is file, folder or repo.'));
+        process.exitCode = 1;
+        return;
+    }
+    let lesson;
+    try {
+        lesson = scopeLesson(cwd, id, to, personOf(cwd), why);
+    } catch (e: any) {
+        console.error(chalk.red(e.message));
+        process.exitCode = 1;
+        return;
+    }
+    if (!lesson) {
+        console.error(chalk.red(`No lesson ${id}.`));
+        process.exitCode = 1;
+        return;
+    }
+    const reach = to === 'repo' ? 'every change, as a team standard' : to === 'folder' ? `every change in ${path.posix.dirname(lesson.file)}/` : `changes to ${lesson.file}`;
+    console.log(chalk.green(`✔ Reaches ${reach}${lesson.state === 'verified' ? '' : ' once it is a lesson (it is a candidate now)'}: ${lesson.text}`));
 }
 
 /** A person takes the suggested wording of a lesson they decided; the old wording is kept as evidence. */

@@ -411,6 +411,14 @@ with a change, once it is a lesson, when it shares at least two meaningful words
 paths and the names on its added lines): up to three in the agent's question at the stop, up to
 fifteen for a judge reading the whole pull request.
 
+**A person decides how far a lesson reaches.** `rigour learn-reviews --scope <id> --to repo` makes it a
+standard for the whole repository: it reaches every change, whatever its files or words, in the
+briefing, the briefing on a file's first edit and the judge's context. Up to ten such standards are
+served, the most-raised first. `--to folder` reaches every change in the lesson's folder; `--to file`
+takes it back to its own file. Each is recorded with your git email and `--why`; a scope says how far a
+lesson reaches, never whether it is right, so only a lesson (not a candidate) is served. `--list` shows
+each scope.
+
 **A long-running pull request teaches as it goes.** `rigour learn-reviews --pr <n>` learns from that
 one pull request's reviews, open or merged, with the same rules. `--until <time>` takes the pull
 request as it stood then.

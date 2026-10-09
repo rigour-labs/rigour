@@ -63,3 +63,20 @@ describe('rigour learn-reviews --use-wording', () => {
         process.exitCode = 0;
     });
 });
+
+describe('rigour learn-reviews --scope', () => {
+    it("widens a lesson to every change on a person's word, lists it so, and refuses a reach it does not know", async () => {
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { scope: 'L1', to: 'repo', why: 'raised on every service' });
+        expect(readLessons(repo)[0]).toMatchObject({ scope: 'repo', state: 'verified' });
+        expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'scoped', author: 'ana@example.com', detail: 'repo: raised on every service' });
+        expect(out.mock.calls.flat().join('\n')).toContain('Reaches every change, as a team standard');
+        await learnReviewsCommand(repo, { list: true });
+        expect(out.mock.calls.flat().join('\n')).toContain('[every change]');
+        await learnReviewsCommand(repo, { scope: 'L1', to: 'everywhere' });
+        expect(err.mock.calls.flat().join('\n')).toContain('--to is file, folder or repo');
+        expect(process.exitCode).toBe(1);
+        process.exitCode = 0;
+    });
+});

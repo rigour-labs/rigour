@@ -15,8 +15,10 @@ Rigour briefing for PROJ-123: how this team builds the code this task will likel
 ## Two moments
 
 - **The first edit of a file** (the main one). The first time a session edits a file, the agent is told what the team
-  asks of that file: the requirement rules that name it or its folder, the lessons learned on it, the points settled
-  against on it. At most three, each cited; nothing when nothing applies. Once per file per session. This is when the
+  asks of that file: the requirement rules that name it or its folder, the lessons learned on it, then those a person
+  widened to its folder or to the whole repository (`rigour learn-reviews --scope <id> --to folder|repo`, see
+  [the reviewer](./REVIEWER.md)), the points settled against on it. At most three, each cited; nothing when nothing
+  applies. Once per file per session. This is when the
   task's files are known, and so when a briefing can be specific.
 - **The start of a session.** From the session's first prompt, up to ten items for the task as a whole. At that moment
   often only the goal's words are known, so this briefing is the thinner of the two.

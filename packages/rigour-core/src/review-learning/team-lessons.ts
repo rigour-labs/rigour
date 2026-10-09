@@ -3,6 +3,7 @@
  * agent or a model) to check before the PR: "your team has asked for this
  * before".
  */
+import path from 'path';
 import { parseDiff } from '../utils/diff.js';
 import { matchLessons, readLessons, type ReviewLesson } from './lessons.js';
 
@@ -39,11 +40,11 @@ function changeShape(diff: string): { files: string[]; symbols: Set<string> } {
 }
 
 /** A lesson as a judge or agent sees it, in one place. */
-export interface LessonView { file: string; text: string; prs: number[]; said?: string }
+export interface LessonView { file: string; text: string; prs: number[]; said?: string; scope?: ReviewLesson['scope'] }
 
 export function lessonView(l: ReviewLesson): LessonView {
     const said = l.evidence.find(e => e.said && e.said !== l.text)?.said;
-    return { file: l.file, text: l.text, prs: [...new Set(l.evidence.map(e => e.pr))], ...(said ? { said } : {}) };
+    return { file: l.file, text: l.text, prs: [...new Set(l.evidence.map(e => e.pr))], ...(said ? { said } : {}), ...(l.scope ? { scope: l.scope } : {}) };
 }
 
 /**
@@ -51,7 +52,9 @@ export function lessonView(l: ReviewLesson): LessonView {
  * point, their own words, so anyone can see when the rule went beyond what was said.
  */
 export function describeLesson(l: LessonView): string {
-    const where = l.file ? `${l.file}: ` : 'team standard: ';
+    const where = l.scope === 'repo' ? `team standard${l.file ? ` (learned on ${l.file})` : ''}: `
+        : l.scope === 'folder' ? `${path.posix.dirname(l.file)}/ (every file): `
+        : l.file ? `${l.file}: ` : 'team standard: ';
     const said = l.said ? ` (in their words: "${l.said}")` : '';
     const prs = l.prs.length ? ` (acted on in PR ${l.prs.map(p => `#${p}`).join(', ')})` : '';
     return `${where}${l.text}${said}${prs}`;
