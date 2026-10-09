@@ -30,6 +30,8 @@ const RECUR_PRS = 2;
 const RECUR_AUTHORS = 2;
 /** Team standards served with a change, on top of the lessons about its files (an agent's question; a judge takes more), and the words they must share with it. */
 const MAX_STANDARDS = 3;
+/** Repository standards (scope `repo`) served with every change, most-raised first. */
+const REPO_STANDARDS = 10;
 const STANDARD_WORDS = 2;
 /** Words that say nothing about what a rule or a change is about. */
 const PLAIN_WORDS = new Set(['when', 'that', 'this', 'with', 'from', 'before', 'after', 'every', 'their', 'them', 'than', 'each', 'only', 'into', 'rather', 'instead', 'should', 'make', 'keep', 'sure', 'does', 'what', 'which', 'there', 'these', 'those', 'such', 'more', 'other', 'same', 'then', 'also', 'both', 'must', 'never', 'always', 'once', 'been', 'have', 'will', 'your', 'about', 'over', 'under', 'change', 'changes', 'code', 'value', 'values', 'data', 'true', 'false', 'null', 'undefined', 'return', 'const', 'function', 'export', 'import', 'await', 'async', 'string', 'number', 'type']);
@@ -56,7 +58,7 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *             until a person promotes it.
  * A record from before evidence kinds has none: it is a `point`.
  */
-export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled' | 'reworded';
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled' | 'reworded' | 'scoped';
 
 export interface LessonEvidence {
     kind?: EvidenceKind;
@@ -89,6 +91,11 @@ export interface ReviewLesson {
     state: 'candidate' | 'verified' | 'rejected';
     /** Which evidence made it a lesson. */
     promotedBy?: 'outcome' | 'correction' | 'person' | 'recurrence' | 'legacy';
+    /**
+     * How far a person widened it (scopeLesson): `folder`, every change in the lesson's folder; `repo`, every change,
+     * a standard for the whole repository. Absent: its file (or, with no file, a standard served by its words).
+     */
+    scope?: 'folder' | 'repo';
     evidence: LessonEvidence[];
     /**
      * A corrected wording a newer version derived from the lesson's own comment, waiting for a person. A lesson
@@ -297,12 +304,20 @@ export interface ChangeShape {
 export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, options: { includeCandidates?: boolean; limit?: number; standards?: number; perFile?: number; excludePr?: number } = {}): ReviewLesson[] {
     // A lesson whose only evidence is the pull request under review is already in front of the judge as the reviewer's own points.
     if (options.excludePr !== undefined) lessons = lessons.filter(l => !l.evidence.length || l.evidence.some(e => e.pr !== options.excludePr));
+    const inPlay = (l: ReviewLesson) => l.state === 'verified' || (!!options.includeCandidates && l.state === 'candidate');
+    // A person made these the repository's standards: every change gets them, whatever its files or words; most-raised first.
+    const repo = lessons
+        .filter(l => l.scope === 'repo' && inPlay(l))
+        .sort((a, b) => prCount(b) - prCount(a) || b.evidence.length - a.evidence.length)
+        .slice(0, REPO_STANDARDS);
+    lessons = lessons.filter(l => l.scope !== 'repo');
     const dirs = new Set(change.files.map(f => path.posix.dirname(f)));
+    const inFolder = (l: ReviewLesson) => l.scope === 'folder' && change.files.some(f => f.startsWith(`${path.posix.dirname(l.file)}/`));
     const scored = lessons
-        .filter(l => !!l.file && (l.state === 'verified' || (options.includeCandidates && l.state === 'candidate')) && !NOT_CODE.test(l.file))
+        .filter(l => !!l.file && inPlay(l) && !NOT_CODE.test(l.file))
         .map(l => ({
             lesson: l,
-            score: (change.files.includes(l.file) ? 3 : 0) + (dirs.has(path.posix.dirname(l.file)) ? 0.5 : 0)
+            score: (change.files.includes(l.file) || inFolder(l) ? 3 : 0) + (dirs.has(path.posix.dirname(l.file)) ? 0.5 : 0)
                 + 2 * l.symbols.filter(s => isSpecific(s) && change.symbols.has(s)).length,
         }))
         .filter(s => s.score >= 3)
@@ -328,7 +343,30 @@ export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, optio
         perFileCount.set(lesson.file, n + 1);
         taken.push(lesson);
     }
-    return [...taken, ...standards];
+    return [...taken, ...repo, ...standards];
+}
+
+/** Pull requests a lesson was raised or acted on in. */
+function prCount(lesson: ReviewLesson): number {
+    return new Set(lesson.evidence.filter(e => (e.kind ?? 'point') === 'point').map(e => e.pr)).size;
+}
+
+/**
+ * A person sets how far a lesson reaches: `repo` (every change), `folder` (every change in its folder) or `file` (its
+ * own file, as learned). Recorded as evidence with who and why; it says nothing about whether the lesson is right.
+ */
+export function scopeLesson(cwd: string, id: string, scope: 'file' | 'folder' | 'repo', by: string, why = ''): ReviewLesson | undefined {
+    const lessons = readLessons(cwd);
+    const lesson = lessons.find(l => l.id === id);
+    if (!lesson) return undefined;
+    if (scope === 'folder' && !lesson.file) throw new Error('a team standard has no folder: scope it to the repo or leave it');
+    const at = new Date().toISOString();
+    if (scope === 'file') delete lesson.scope;
+    else lesson.scope = scope;
+    lesson.evidence.push({ kind: 'scoped', pr: lesson.evidence[0]?.pr ?? 0, comment: `scoped-${at}`, author: by, detail: why ? `${scope}: ${why}` : scope, at });
+    lesson.updatedAt = at;
+    writeLessons(cwd, lessons);
+    return lesson;
 }
 
 /** RIGOUR_REVIEW_LESSONS points at a lessons file outside the clone (CI, or a team's shared copy). */

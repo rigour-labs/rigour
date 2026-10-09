@@ -7,7 +7,9 @@
  * matchers, before the code exists instead of after. It is deterministic (no model call), local, and it never blocks.
  */
 import { spawnSync } from 'child_process';
+import path from 'path';
 import { rulesForDiff } from '../review-learning/repo-rules.js';
+import type { ReviewLesson } from '../review-learning/lessons.js';
 import { describeLesson, lessonsForDiff, lessonView, rejectedForDiff, type LessonMode } from '../review-learning/team-lessons.js';
 import { appendTaskEvent, taskOf } from '../task/thread.js';
 
@@ -82,7 +84,8 @@ export function briefingText(briefing: Briefing): string {
 
 /**
  * The briefing for one file, the first time an agent edits it: the requirement rules that name it (or its folder), the
- * lessons the team learned on it, and the points the team settled against on it; at most three. At session start the
+ * lessons the team learned on it, then those a person widened to its folder or the whole repository, and the points
+ * the team settled against on it; at most three. At session start the
  * task's files are often unknown; the first edit of a file is when they are, and when a briefing can be specific.
  */
 export function buildFileBriefing(cwd: string, file: string, input: { lessons?: LessonMode; limit?: number } = {}): Briefing {
@@ -91,12 +94,14 @@ export function buildFileBriefing(cwd: string, file: string, input: { lessons?: 
     const shape = shapeOf([file], '');
     const mode = input.lessons ?? 'verified';
     const rules = rulesForDiff(cwd, shape, true, BRIEFING_MAX_ITEMS, true).filter(r => r.requirement);
-    const lessons = lessonsForDiff(cwd, shape, mode, 0, BRIEFING_MAX_ITEMS, BRIEFING_MAX_ITEMS).filter(l => l.file === file && (l.state === 'verified' || mode === 'all'));
+    const reaches = (l: ReviewLesson) => l.file === file || l.scope === 'repo' || (l.scope === 'folder' && file.startsWith(`${path.posix.dirname(l.file)}/`));
+    const lessons = lessonsForDiff(cwd, shape, mode, 0, BRIEFING_MAX_ITEMS, BRIEFING_MAX_ITEMS).filter(l => reaches(l) && (l.state === 'verified' || mode === 'all'));
     const settled = rejectedForDiff(cwd, shape).filter(l => l.file === file);
     const cited = (prs: number[]) => (prs.length ? `learned in PR ${prs.map(p => `#${p}`).join(', ')}` : 'the team\'s decision');
     const items: BriefingItem[] = [
         ...rules.map(r => ({ kind: 'rule' as const, text: r.text, cite: ruleCite(r.source, r.scope), requirement: true, id: `rule:${r.id}` })),
-        ...lessons.map(l => ({ kind: 'lesson' as const, text: lessonView(l).text, cite: cited(lessonView(l).prs), id: `lesson:${l.id}` })),
+        // This file's own lessons read as they are; a widened one says where it reaches (a folder, the team).
+        ...lessons.map(l => ({ kind: 'lesson' as const, text: l.file === file && !l.scope ? lessonView(l).text : describeLesson({ ...lessonView(l), prs: [] }), cite: cited(lessonView(l).prs), id: `lesson:${l.id}` })),
         ...settled.map(l => ({ kind: 'settled' as const, text: `settled against, do not do or raise it: ${lessonView(l).text}`, cite: cited(lessonView(l).prs), id: `settled:${l.id}` })),
     ];
     return { ...(task ? { task: task.key } : {}), goal: '', files: [file], items: items.slice(0, limit) };
