@@ -173,12 +173,15 @@ function getFuncDefPatterns(lang: SideEffectLang): RegExp[] {
 }
 
 /**
- * A call of the function by its own name: bare (`walk(`), or on `self`, `cls` or `this` (`self.crawl(`). A call of
- * another object's method that shares the name (`subprocess.run(` inside `def run`) is not one.
+ * A call of the function by its own name: bare (`walk(`), or on `self`, `cls`, `this` or the function's own Go receiver
+ * (`self.crawl(`, `w.walk(` in `func (w *Walker) walk`). A call of another object's method that shares the name
+ * (`subprocess.run(` inside `def run`) is not one. `header` is the function's declaration line.
  */
-export function selfCallPattern(funcName: string): RegExp {
+export function selfCallPattern(funcName: string, header = ''): RegExp {
     const escaped = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`(?:(?<![\\w$.])|(?<=\\b(?:self|cls|this)\\.))${escaped}\\s*\\(`);
+    const receiver = /^\s*func\s*\(\s*([A-Za-z_]\w*)\s/.exec(header)?.[1];
+    const owners = ['self', 'cls', 'this', ...(receiver ? [receiver] : [])].join('|');
+    return new RegExp(`(?:(?<![\\w$.])|(?<=\\b(?:${owners})\\.))${escaped}\\s*\\(`);
 }
 
 /**
@@ -187,9 +190,9 @@ export function selfCallPattern(funcName: string): RegExp {
  * not just that both exist somewhere in the body.
  */
 export function hasBaseCase(
-    bodyLines: string[], funcName: string,
+    bodyLines: string[], funcName: string, header = '',
 ): boolean {
-    const selfCallPat = selfCallPattern(funcName);
+    const selfCallPat = selfCallPattern(funcName, header);
 
     let foundBaseReturn = false;
 

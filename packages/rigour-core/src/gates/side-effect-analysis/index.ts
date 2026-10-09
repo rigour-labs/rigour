@@ -600,13 +600,13 @@ export class SideEffectAnalysisGate extends Gate {
             const body = bodyLines.join('\n');
 
             // Check if function calls itself
-            if (!selfCallPattern(func.name).test(body)) continue;
+            if (!selfCallPattern(func.name, func.params).test(body)) continue;
 
             // Check for depth/limit parameter in function signature
             if (hasDepthParameter(func.params)) continue;
 
             // Check for base case BEFORE recursive call (ordering matters)
-            if (hasBaseCase(bodyLines, func.name)) continue;
+            if (hasBaseCase(bodyLines, func.name, func.params)) continue;
 
             // Only flag if there's I/O in the recursive function
             // (pure recursion = stack overflow, not a side-effect issue)

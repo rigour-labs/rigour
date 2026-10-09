@@ -50,6 +50,36 @@ describe('SideEffectAnalysisGate', () => {
             expect(titles).toContain('Side-Effect: Unbounded Recursion');
         });
 
+        it('still flags a Go method that calls itself through its receiver', async () => {
+            const walker = await titlesFor('walk/walk.go', [
+                'package walk',
+                '',
+                'import "os"',
+                '',
+                'func (w *Walker) walk(dir string) {',
+                '\tentries, _ := os.ReadDir(dir)',
+                '\tfor _, next := range entries {',
+                '\t\tw.walk(next.Name())',
+                '\t}',
+                '}',
+            ].join('\n'));
+            expect(walker).toContain('Side-Effect: Unbounded Recursion');
+        });
+
+        it('reads a Go method calling another value\'s method of the same name as no recursion', async () => {
+            const runner = await titlesFor('svc/svc.go', [
+                'package svc',
+                '',
+                'import "os"',
+                '',
+                'func (s *Svc) run(job *Job) error {',
+                '\tos.Setenv("JOB", job.Name)',
+                '\treturn job.run()',
+                '}',
+            ].join('\n'));
+            expect(runner).not.toContain('Side-Effect: Unbounded Recursion');
+        });
+
         it('still flags a block-bodied arrow that recurses with I/O and no base case', async () => {
             const titles = await titlesFor('src/walk.ts', [
                 "import fs from 'fs';",
