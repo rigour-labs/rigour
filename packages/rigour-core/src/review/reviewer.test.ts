@@ -389,9 +389,9 @@ describe('the orchestrator', () => {
     const TIMEOUT = 60_000;
     const orch = (extra: Record<string, unknown> = {}) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], timeout_ms: TIMEOUT, ...extra } } });
     const store = async () => (await VerdictStore.open(repo, fakes(() => '', seenNow())))!;
-    /** About 100,000 characters of reads in forty new files, each name its own: over the limit, in parts of whole files. */
-    function bigChange() {
-        for (let f = 0; f < 40; f++) {
+    /** About 2,800 characters of reads in each of `files` new files, each name its own: 24 is over the limit and splits in three parts of whole files. */
+    function bigChange(files = 24) {
+        for (let f = 0; f < files; f++) {
             fs.writeFileSync(path.join(repo, `src/load${f}.ts`), `${Array.from({ length: 30 }, (_, i) => `export async function load${f}x${i}(db) { return db.query('select * from orders${f} where id = ${i}'); }`).join('\n')}\n`);
         }
         git('add', '-A');
@@ -435,6 +435,35 @@ describe('the orchestrator', () => {
         const result = await runReviewer(repo, 'main', orch(), fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
         expect(seen.prompts.map(passOf)).toEqual(['part-1.diff']);
         expect(result.mode?.specialists?.plan).toMatch(/^over the judge's limit; ledger 0 chars, split needs \d+ chars: one pass$/);
+        expect(result.mode?.specialists?.limit).toEqual({ judge: 'claude', chars: passLimit('claude', TIMEOUT) });
+    });
+
+    it('runs one pass, whatever the ledger holds, for a change that would need more than three parts', async () => {
+        bigChange(40);
+        await credit(10_000_000);
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', orch(), fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(passOf)).toEqual(['part-1.diff']);
+        const needs = Number(/^over the judge's limit; needs (\d+) parts > 3: one pass$/.exec(result.mode?.specialists?.plan ?? '')?.[1]);
+        expect(needs).toBeGreaterThan(3);
+    });
+
+    it('records whether each pass read beyond its slice: true outside it, false inside it, null without a trace', async () => {
+        fs.writeFileSync(path.join(repo, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'); // changed, and in no slice: no model reviews a lockfile
+        git('add', '-A');
+        git('commit', '-qm', 'lock');
+        const tracing = (file: string | undefined): Exec => {
+            const base = fakes(() => JSON.stringify(EMPTY), seenNow());
+            return async (command, args, options) => {
+                if (path.basename(command).replace(/\.(cmd|exe)$/, '') !== 'claude' || args[0] === '--version' || file === undefined) return base(command, args, options);
+                const read = { type: 'assistant', message: { id: 'm-1', usage: {}, content: [{ type: 'tool_use', id: '1', name: 'Read', input: { file_path: path.join(repo, file) } }] } };
+                return { exitCode: 0, stdout: [read, { type: 'result', result: JSON.stringify(EMPTY), total_cost_usd: 0.1 }].map(e => JSON.stringify(e)).join('\n'), stderr: '' };
+            };
+        };
+        const beyond = async (file: string | undefined) => (await runReviewer(repo, 'main', config, tracing(file), () => undefined, { orchestrator: true, force: true })).mode?.specialists?.passes[0].readBeyondSlice;
+        expect(await beyond('pnpm-lock.yaml')).toBe(true);
+        expect(await beyond('src/job.ts')).toBe(false);
+        expect(await beyond(undefined)).toBeNull();
     });
 
     it('splits by hunk only when the ledger covers it: one unit short is one pass; covered, every part within the limit, and a point two parts raise is one item', async () => {

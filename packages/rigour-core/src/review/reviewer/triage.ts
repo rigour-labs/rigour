@@ -31,6 +31,8 @@ const SKIP = [
     /\.snap$/, /\.(js|css|d\.ts)\.map$/, /\.min\.(js|css)$/,
     /(^|\/)__generated__\//, /\.generated\.[A-Za-z0-9]+$/, /\.pb\.go$/, /_pb2(_grpc)?\.pyi?$/, /_pb\.(js|ts|d\.ts)$/,
 ];
+/** The most parts a split runs: a change that needs more is one combined pass. */
+export const MAX_PARTS = 3;
 const MIGRATION = /(^|\/)(migrations?|db\/migrate)\/|\.sql$|(^|\/)schema\.prisma$/i;
 
 /**
@@ -145,11 +147,14 @@ export interface Plan {
     combined?: Pass;
     /** Present only when the combined pass is over `limit`: the picked hunks in parts, each within it where one hunk allows. */
     split?: Pass[];
+    /** The parts a change over `limit` would need, when that is more than MAX_PARTS: no split, one combined pass. */
+    needsParts?: number;
 }
 
 /**
  * The passes for what triage picked. A split is by hunk, in diff order: each part takes the next hunks while they stay
  * within `limit`, and runs every specialist that picked any of them. A single hunk over the limit is a part of its own.
+ * A change that needs more than MAX_PARTS parts is not split.
  */
 export function planPasses(hunks: Hunk[], picked: Map<string, number[]>, order: readonly Specialist[], limit: number): Plan {
     const ids = order.map(s => s.id).filter(id => picked.has(id));
@@ -176,6 +181,7 @@ export function planPasses(hunks: Hunk[], picked: Map<string, number[]>, order: 
         parts.at(-1)!.push(index);
         size += length;
     }
+    if (parts.length > MAX_PARTS) return { combined, needsParts: parts.length };
     return parts.length > 1 ? { combined, split: parts.map(pass) } : { combined };
 }
 

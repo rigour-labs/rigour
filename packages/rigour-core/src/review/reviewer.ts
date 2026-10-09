@@ -30,7 +30,7 @@ import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
-import { parseHunks, planPasses, reviewable, triage, type Pass } from './reviewer/triage.js';
+import { MAX_PARTS, parseHunks, planPasses, reviewable, triage, type Pass } from './reviewer/triage.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
@@ -143,6 +143,8 @@ export interface ModeRecord {
     specialists?: {
         selected: string[]; returned: string[]; missing: string[];
         passes: Array<{ specialists: string[]; hunks: number; chars: number; readBeyondSlice: boolean | null }>;
+        /** The most diff one pass could be given, and the judge it came from (orchestrator.ts passLimit). */
+        limit: { judge: ReviewerName; chars: number };
         plan?: string; fallback?: string; none?: string;
     };
     source: Source;
@@ -348,10 +350,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const selected = SPECIALISTS.map(s => s.id).filter(id => picked.has(id));
     let passes: Pass[] = [];
     let planNote: string | undefined;
+    const limit = { judge: reviewers[0], chars: passLimit(reviewers[0], settings.timeout_ms) };
     if (orchestrate) {
         const baseline = store.freezeBaseline(BASELINE_MIN_SINGLES);
-        const plan = planPasses(hunks, picked, SPECIALISTS, passLimit(reviewers[0], settings.timeout_ms));
+        const plan = planPasses(hunks, picked, SPECIALISTS, limit.chars);
         passes = plan.combined ? [plan.combined] : [];
+        if (plan.needsParts) planNote = `over the judge's limit; needs ${plan.needsParts} parts > ${MAX_PARTS}: one pass`;
         if (plan.split) {
             const book = ledger(store.costs(), baseline);
             const needs = splitNeeds(plan.split.reduce((sum, pass) => sum + shared + pass.diff.length, 0), projectedSingle, book.unit, baseline);
@@ -438,7 +442,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             if (orchestrate && passes.length === 0) {
                 // Nothing for a model to review (only lockfiles, generated files): no run, and that is the verdict.
                 parts = [];
-                modeRecord = { ...modeRecord, specialists: { selected: [], returned: [], missing: [], passes: [], none: 'nothing for the model reviewer to review' } };
+                modeRecord = { ...modeRecord, specialists: { selected: [], returned: [], missing: [], passes: [], limit, none: 'nothing for the model reviewer to review' } };
             } else if (orchestrate) {
                 const judge = reviewers[0];
                 const ran: NonNullable<ModeRecord['specialists']>['passes'] = [];
@@ -462,7 +466,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     ran.push({ specialists: pass.specialists, hunks: pass.hunks.length, chars: pass.diff.length, readBeyondSlice: beyond });
                     return verdict;
                 });
-                const specialists = { selected, returned: run.returned, missing: run.missing, passes: ran, ...(planNote ? { plan: planNote } : {}) };
+                const specialists = { selected, returned: run.returned, missing: run.missing, passes: ran, limit, ...(planNote ? { plan: planNote } : {}) };
                 if (orchestrator.required && run.missing.length) {
                     // A required orchestrator reviews every part or gives no verdict: a partial review, or one judge instead, is a quieter one.
                     recordReviewCost();
