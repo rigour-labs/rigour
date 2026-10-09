@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Exec } from '../review/reviewer/exec.js';
 import { appendTaskEvent, readThread } from '../task/thread.js';
 import { ConfigSchema } from '../types/index.js';
@@ -21,8 +21,29 @@ function commit(file: string, text: string, subject: string, at: string): string
     return git(['rev-parse', 'HEAD']);
 }
 
+/**
+ * Repositories built once for the file and copied into each test's own folder: every git command is a process,
+ * slow to start on Windows, and the same history was built again for every test. A copy keeps each test's repository its own.
+ */
+let fixtures: string;
+const built = new Map<'merge' | 'squash', { mergeSha: string; mergedAt: string }>();
+
 /** main with a.ts and b.ts; a pull request on `feature` that changes a.ts, merged on day 0 by `strategy`; then later commits on main. */
 function history(strategy: 'merge' | 'squash'): { mergeSha: string; mergedAt: string } {
+    const copy = path.join(fixtures, strategy);
+    const done = built.get(strategy);
+    if (done) {
+        fs.rmSync(repo, { recursive: true, force: true });
+        fs.cpSync(copy, repo, { recursive: true });
+        return done;
+    }
+    const result = buildHistory(strategy);
+    fs.cpSync(repo, copy, { recursive: true });
+    built.set(strategy, result);
+    return result;
+}
+
+function buildHistory(strategy: 'merge' | 'squash'): { mergeSha: string; mergedAt: string } {
     commit('a.ts', 'export const a = 1;\n', 'init', day(-10));
     commit('b.ts', 'export const b = 1;\n', 'add b', day(-10));
     git(['checkout', '-qb', 'feature']);
@@ -54,12 +75,19 @@ type Run = { name?: string; status: string; conclusion: string | null };
 /** The CI result gh's check runs would give: `merge` on the merge commit, `before` on the commit before it. */
 const ciFrom = (merge: Run[], before: Run[] = []) => checkRunsCi(repo, async (_c, args) => ({ exitCode: 0, stdout: JSON.stringify(args[2].includes('/abc^1/') ? before : merge), stderr: '' }))('abc', 'abc^1');
 
-beforeEach(() => {
-    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'outcomes-'));
+beforeAll(() => {
+    fixtures = fs.mkdtempSync(path.join(os.tmpdir(), 'outcomes-fixtures-'));
+    repo = path.join(fixtures, 'empty');
+    fs.mkdirSync(repo);
     git(['init', '-q', '-b', 'main']);
     git(['config', 'user.email', 't@example.com']);
     git(['config', 'user.name', 't']);
     git(['config', 'commit.gpgsign', 'false']);
+});
+afterAll(() => { fs.rmSync(fixtures, { recursive: true, force: true }); });
+beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'outcomes-'));
+    fs.cpSync(path.join(fixtures, 'empty'), repo, { recursive: true });
 });
 afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
 
