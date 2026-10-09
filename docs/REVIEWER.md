@@ -239,7 +239,9 @@ step, because it turns a personal install into the team's.
   model; anything else gets the cheap one. The only escalation after a run is an answer that is not
   a valid verdict, retried on the team's model. What blocks is unchanged. Tiering turns itself off
   when its last 20 reviews cost more, on average, than one judge would have, and the review record
-  and telemetry say so. Don't rely on it until a backtest on your own history shows what the cheap
+  and telemetry say so. That comparison is in dollars once Rigour has frozen a dollar
+  baseline from this repository's single reviews; before that it compares characters given to the
+  model, which cannot see a cheap model's lower price, only the extra runs an escalation adds. Don't rely on it until a backtest on your own history shows what the cheap
   model misses.
 
 **Daily caps**, per repository, unset by default:
