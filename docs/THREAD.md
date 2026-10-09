@@ -34,7 +34,7 @@ it read as a ticket for that branch; naming the team's project keys in configura
 | `edit-check` | the after-edit hook | session, agent, files, findings, status |
 | `stop-review` | the stop hook | session, agent, blocked, blocking, files |
 | `push` | the push gate | passed, failed (checks that failed) |
-| `review` | the reviewer (not a backtest) | trigger, outcome, blocking, should_fix, pr, pr_title, integrity, cost_usd, judges, lessons_applied (the ids of the team's lessons the judge found the change repeating, read by the [outcome loop](OUTCOMES.md)) |
+| `review` | the reviewer (not a backtest) | trigger, outcome, blocking, should_fix, checks (what Rigour's deterministic checks found on the change, a count), pr, pr_title, integrity, cost_usd (every run this fresh review made, failed ones included; absent for a cached verdict), judges, lessons_applied (the ids of the team's lessons the judge found the change repeating). The [outcome loop](OUTCOMES.md) reads lessons_applied, and its model numbers read blocking, should_fix, checks and cost_usd |
 | `brief` | the briefing (prompt hook, `rigour brief`, `rigour_brief`) | session, agent, items, ids, files |
 | `merge` | `rigour outcomes`, the first time it reads a merged pull request of this branch ([OUTCOMES.md](OUTCOMES.md)) | pr, merge_sha, merged_at |
 | `outcome` | `rigour outcomes`, when that record settles | pr, ci, follow_ups, fixes, reverted |

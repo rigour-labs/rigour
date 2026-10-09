@@ -13,7 +13,7 @@ import { applyOutcomeEvidence, type OutcomeEvidenceResult } from '../review-lear
 import { readLessons, writeLessons } from '../review-learning/lessons.js';
 import { gitIn } from '../review-learning/acted-on.js';
 import { eventsOfKind } from '../task/thread.js';
-import { outcomeMetrics, type OutcomeMetrics } from './metrics.js';
+import { outcomeMetrics, type OutcomeMetrics, type PrReviews } from './metrics.js';
 
 /** How long one run may read before it stops and keeps what it has. */
 const READ_DEADLINE_MS = 2 * 60_000;
@@ -63,13 +63,17 @@ function lessonEvidence(cwd: string, mainRef: string, demoteAfter: number): Outc
     return result;
 }
 
-/** Per pull request, the lessons a review of it recorded as applying, and every pull request a review by Rigour ran on: from the threads. */
-function reviews(cwd: string): { applied: Map<number, Set<string>>; reviewed: Set<number> } {
+/** Per pull request, the lessons a review of it recorded as applying, and every pull request a review by Rigour ran on with its rounds' dollars and its first review's findings: from the threads. */
+function reviews(cwd: string): { applied: Map<number, Set<string>>; reviewed: Map<number, PrReviews> } {
     const applied = new Map<number, Set<string>>();
-    const reviewed = new Set<number>();
+    const reviewed = new Map<number, PrReviews>();
+    const count = (v: unknown) => typeof v === 'number' ? v : 0;
     for (const e of eventsOfKind(cwd, 'review')) {
         if (typeof e.pr !== 'number') continue;
-        reviewed.add(e.pr);
+        const pr = reviewed.get(e.pr) ?? { usd: 0 };
+        pr.usd += count(e.cost_usd);
+        if (!pr.first && typeof e.checks === 'number') pr.first = { model: count(e.blocking) + count(e.should_fix), checks: e.checks };
+        reviewed.set(e.pr, pr);
         if (!Array.isArray(e.lessons_applied)) continue;
         const ids = applied.get(e.pr) ?? new Set<string>();
         for (const id of e.lessons_applied) if (typeof id === 'string') ids.add(id);

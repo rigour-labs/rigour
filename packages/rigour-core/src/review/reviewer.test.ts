@@ -1085,11 +1085,15 @@ describe('the judge Rigour launches', () => {
 describe("the review on the task's thread", () => {
     it('appends each review of a branch to its task, and never a backtest replaying history', async () => {
         const seen = seenNow();
-        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review' });
+        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review', checks: ['src/a.ts:1 an unused export'] });
         const thread = readThread(repo, 'feature');
-        expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking])).toEqual([['review', 'review', 'passed', 0]]);
+        expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking, e.checks])).toEqual([['review', 'review', 'passed', 0, 1]]);
         expect(thread?.events[0].integrity).toEqual(expect.any(String));
+        expect(thread?.events[0].cost_usd).toBe(1.5); // every run this review made: the same dollars as its cost row
+        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
+        expect(readThread(repo, 'feature')?.events[1]).not.toHaveProperty('cost_usd'); // a cached verdict spent nothing
+        expect(readThread(repo, 'feature')?.events).toHaveLength(2);
         await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seenNow()), () => undefined, { pr: 42, reviewsBefore: '2026-10-03', force: true });
-        expect(readThread(repo, 'feature')?.events).toHaveLength(1);
+        expect(readThread(repo, 'feature')?.events).toHaveLength(2);
     });
 });

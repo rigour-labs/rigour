@@ -107,6 +107,8 @@ export interface ReviewerResult {
     scope?: 'full' | 'delta';
     why?: string;
     costUsd?: number;
+    /** What every run of this fresh review reported costing, failed runs included: the number its cost row and its thread event carry. */
+    spentUsd?: number;
     /** The repository's own rules the judge answered, and how. */
     rules?: { checked: number; followed: number; broken: number; notApplicable: number };
     /** The record of this review (record.ts) and where it is kept, beside the verdict. */
@@ -173,10 +175,13 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
     // On the task's thread, unless it replays history: a backtest's worktree is not anyone's task.
     if (trigger !== 'backtest' && result.outcome !== 'skipped') appendTaskEvent(cwd, {
         kind: 'review', trigger, outcome: result.outcome, blocking: result.items.length, should_fix: result.advisory.length,
+        ...(options.checks ? { checks: options.checks.length } : {}),
         ...(result.pr ? { pr: result.pr } : {}),
         ...(result.prTitle ? { pr_title: result.prTitle } : {}),
         ...(result.lessonsApplied ? { lessons_applied: result.lessonsApplied } : {}),
-        ...(result.record ? { integrity: result.record.integrity, cost_usd: result.record.judges.reduce((sum, j) => sum + (j.cost_usd ?? 0), 0), judges: result.record.judges.map(j => j.reviewer) } : {}),
+        ...(result.record ? { integrity: result.record.integrity, judges: result.record.judges.map(j => j.reviewer) } : {}),
+        // Every run this review made, failed ones included: the same dollars as its cost row (the savings ledger).
+        ...(result.spentUsd !== undefined ? { cost_usd: result.spentUsd } : {}),
     });
     return result;
 }
@@ -384,6 +389,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         tally.chars += chars;
         tally.usd += usd ?? 0;
     };
+    const spentUsd = () => Math.round(tally.usd * 10_000) / 10_000;
     // One row per fresh review, for the savings ledger: one judge asked for and run, or orchestrated with everything it ran.
     const recordReviewCost = () => {
         const orchestrated = modeRecord.asked === 'orchestrator';
@@ -391,7 +397,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         store.recordCost({
             at: new Date().toISOString(), mode: orchestrated ? 'orchestrator' : 'single', lines: size.lines, projectedSingleChars: projectedSingle,
             ...(orchestrated ? { projectedChars: passes.reduce((sum, pass) => sum + shared + pass.diff.length, 0) } : {}),
-            actualChars: tally.chars, actualUsd: Math.round(tally.usd * 10_000) / 10_000, runs: tally.runs,
+            actualChars: tally.chars, actualUsd: spentUsd(), runs: tally.runs,
         });
     };
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
@@ -471,7 +477,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     // A required orchestrator reviews every part or gives no verdict: a partial review, or one judge instead, is a quieter one.
                     recordReviewCost();
                     const fallback = `${run.returned.length} of ${passes.length} passes returned`;
-                    return none('unavailable', `${fallback}, and rigour.yml requires the orchestrator: every part or no verdict (not reviewed: ${run.missing.join('; ')})`, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                    return none('unavailable', `${fallback}, and rigour.yml requires the orchestrator: every part or no verdict (not reviewed: ${run.missing.join('; ')})`, { reviewers, scope, why, pr: pr?.number, spentUsd: spentUsd(), mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
                 }
                 if (run.stands) {
                     parts = run.parts;
@@ -482,7 +488,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     const fallback = `${run.returned.length} of ${passes.length} passes returned`;
                     if (short) {
                         recordReviewCost();
-                        return none('unavailable', `${fallback}, and the caps leave no run for one judge: ${short}`, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                        return none('unavailable', `${fallback}, and the caps leave no run for one judge: ${short}`, { reviewers, scope, why, pr: pr?.number, spentUsd: spentUsd(), mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
                     }
                     progress(`Rigour reviewer: ${fallback}; one judge reviews instead`);
                     modeRecord = { ...modeRecord, ran: 'single', specialists: { ...specialists, fallback } };
@@ -526,7 +532,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 const failed = answers.find(a => 'error' in a);
                 if (failed && 'error' in failed) {
                     if (once) recordReviewCost();
-                    return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
+                    return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number, spentUsd: spentUsd() });
                 }
                 parts = answers.map(a => (a as { verdict: Verdict }).verdict);
             }
@@ -564,9 +570,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 },
                 ask: async (judge, asked) => {
                     const name = judge as ReviewerName;
-                    const run = await runJudge(name, crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked), settings.cross_models[name] ?? modelFor(name));
+                    const examPrompt = crossExamPrompt(repoRoot, head.slice(0, 9), diffFile, asked);
+                    const run = await runJudge(name, examPrompt, settings.cross_models[name] ?? modelFor(name));
                     const answer = ADAPTERS[name].answer(run.stdout);
-                    store.addSpend(1, answer.costUsd);
+                    spent(answer.costUsd, examPrompt.length);
                     reserved--;
                     cross.push({ reviewer: `${name} cross-exam`, ...(answer.costUsd !== undefined ? { cost_usd: answer.costUsd } : {}), ...(answer.tokens ? { tokens: answer.tokens } : {}) });
                     progress(`Rigour reviewer: ${name} cross-examined ${asked.length} finding(s) (exit ${run.exitCode})`);
@@ -583,7 +590,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         store.writeJson(store.decidedPath(verdictFile), accounted);
         recordReviewCost();
         if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key, inputsKey });
-        return withRecord(accounted, verdict, false);
+        return { ...withRecord(accounted, verdict, false), spentUsd: spentUsd() };
     } finally {
         fs.rmSync(work, { recursive: true, force: true });
     }

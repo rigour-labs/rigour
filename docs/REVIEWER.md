@@ -180,8 +180,8 @@ The nearest choice wins:
 
 | Setting | Who may set it |
 | --- | --- |
-| `enabled`, `mode`, `panel` (on or off), `judges`, `escalate`, `reviewers`, `models`, `max_runs_per_day`, `max_usd_per_day` | The team in `rigour.yml`, and each person for their own runs |
-| `panel: required`, `mode_required`, `dismissals`, `on_push`, `timeout_ms`, `panel_max_items`, `cross_models`, `model`, `judge_env` | The team only |
+| `enabled`, `mode`, `panel` (on or off), `judges`, `escalate`, `reviewers`, `models`, `max_runs_per_day`, `max_usd_per_day`, `orchestrator` (on or off, see [the orchestrator](#the-orchestrator)) | The team in `rigour.yml`, and each person for their own runs |
+| `panel: required`, `orchestrator: required`, `mode_required`, `dismissals`, `on_push`, `timeout_ms`, `panel_max_items`, `cross_models`, `model`, `judge_env` | The team only |
 
 Your own settings apply to your runs in every repository on your machine. The team can set a
 **floor** that no nearer choice goes below: `panel: required` and `mode_required: true`. Under a
@@ -246,6 +246,89 @@ Studio's Setup page show today's runs and spend against the caps.
 
 Every verdict records its agent runs, the tokens each judge used and, where the CLI reports it, its
 cost.
+
+## The orchestrator
+
+**Experimental, off by default.** One judge doing every step of a review spreads its attention thin.
+The orchestrator routes instead: a triage step, with no model, decides which parts of the review a
+change needs, and the judge is told to do only those, fully. It is a router, not a fan-out: on
+average it costs no more than one judge, and a change with nothing for a model to review costs
+nothing.
+
+### What triage picks
+
+Each hunk of the diff is read on its own:
+
+| Part | Picked for |
+| --- | --- |
+| Earlier human points | every reviewable hunk, when the pull request has human reviews |
+| Correctness | every file but the skipped ones, whatever its language |
+| Production cost | a read (queries in TS/JS, Python, Go and SQL), a loop that awaits on every turn, or a migration |
+| What the change leaves behind | a deletion, a new declaration or a new file |
+| Rules, lessons and the goal | prose, comments, or any change when the team has rules, lessons or a goal for it |
+
+Only lockfiles, snapshots, source maps, minified bundles and files a generator marks as its own
+(`__generated__/`, `.generated.`, protobuf output) are skipped. Prose is matched by extension, so
+code in a `docs/` folder is still code. A change made only of skipped files gets **no model run**,
+and the record says "nothing for the model reviewer to review".
+
+The five parts are fixed and versioned, so a backtest can pin them.
+
+### One pass, split only when it pays for itself
+
+The parts triage picked run as **one combined pass**: the same prompt and inputs as one judge,
+plus a focus block and the pass's slice of the diff (its hunks, and the one hunk defining each name
+they use).
+
+A pass is held to the judge's limit: half its context window, and no more diff than its timeout
+lets it read. The windows are defaults (200k tokens for the CLIs, 128k for the API judge), not
+measurements; every orchestrated review records the limit it used and the judge it came from.
+
+A split always costs more than one pass for that review, because each part re-reads the shared
+inputs. So a change over the limit is split only from **savings**:
+
+- **The savings ledger** sums, over the last 20 orchestrated reviews, what one judge would have
+  been given minus what every run was given. It counts in dollars once Rigour has a baseline (the
+  dollars per character of this repository's single reviews, frozen once at the first orchestrated
+  review), otherwise in characters.
+- **A split runs** only when the ledger covers its extra, by hunk, into at most three parts, each
+  within the limit.
+- **Otherwise it is one pass**, and the record says why ("over the judge's limit; ledger X, split
+  needs Y: one pass", or "needs N parts > 3: one pass"). With no history the ledger is empty, so
+  there is no split.
+
+Every fresh orchestrated review writes one row to the ledger (`costs.jsonl` beside the verdicts):
+what one judge would have been given, what was planned, and what every run was actually given and
+reported costing, failed passes and a fallback included. A review by one judge, asked for and run,
+writes the same row; those rows are what the baseline is frozen from.
+
+### When a pass fails
+
+- Every pass counts against the daily caps. When the caps leave one run but not every part, the
+  change runs as one combined pass.
+- At least half of the passes returned: the result stands, and the parts not reviewed are named.
+- Fewer than half: one judge reviews the change instead, **once**, with no retry and no spare
+  judge, if the caps allow a run; otherwise the review is unavailable.
+- A team floor on the panel or the mode wins over the orchestrator, and the refusal is recorded.
+
+What blocks is unchanged: findings merge through the same accounting, quote check and touched-lines
+rule as one judge's. The same point raised by two passes is one item.
+
+### Turning it on
+
+| Layer | Setting |
+| --- | --- |
+| This run | `rigour review --reviewer --orchestrator` / `--no-orchestrator` |
+| Environment | `RIGOUR_REVIEWER_ORCHESTRATOR=on` or `off` |
+| Yours | `orchestrator` in your settings, or Studio's Setup page |
+| The team's | `review.reviewer.orchestrator: off \| on \| required` in `rigour.yml` |
+
+`required` stops a nearer layer turning it off, and gives **no verdict unless every part
+returns**: never a partial review, and never one judge instead.
+
+The verdict's `mode.specialists` records the parts picked, the passes and their slices, whether
+each pass read beyond its slice (the signal for whether slicing works), the limit, the plan's
+reason and any fallback.
 
 ## How it learns
 

@@ -50,6 +50,10 @@ When this machine worked on the pull request's branch, its [thread](THREAD.md) g
     "reviewed": { "prs": 0, "fixedLater": { "count": 0, "of": 0, "rate": null } },
     "notReviewed": { "prs": 0, "fixedLater": { "count": 0, "of": 0, "rate": null } }
   },
+  "model": {
+    "share": { "model": 0, "checks": 0, "prs": 0, "rate": null, "reason": "fewer than 10 pull requests: a count, not a rate" },
+    "costPerPr": { "prs": 0, "totalUsd": 0, "medianUsd": null }
+  },
   "lessons": { "awaitingDecision": 0, "promotedFromEvidence": 0, "dismissed": 0, "takenBack": 0 }
 }
 ```
@@ -59,6 +63,9 @@ When this machine worked on the pull request's branch, its [thread](THREAD.md) g
   - `ciRegressed` counts over settled records whose CI passed or failed. Those with no CI to read are `ciUnknown`, so they never dilute it. A record whose CI GitHub could not read never settles, so in practice `ciUnknown` counts merges that had no check runs.
   - `fixedLater` means a later commit on the pull request's files, inside the window, says it fixes something.
   - `reviewed` covers the pull requests a review by Rigour ran on (from the threads); `notReviewed` covers the rest.
+- **The model reviewer**, over settled pull requests a review by Rigour ran on:
+  - `share`: the model's findings (blocking and should-fix) out of all findings, the deterministic checks' included, at each pull request's first review that recorded both, before the review's own points changed the code. Below 10 such pull requests, counts only.
+  - `costPerPr`: the dollars of every review round on a pull request, summed per pull request, with the total and the median. Every run counts, a failed one included: the same dollars as the review's row in the [savings ledger](REVIEWER.md#the-orchestrator). A cached verdict spent nothing. Below 10 pull requests, no median.
 - **Lessons:**
   - `awaitingDecision`: candidates waiting on a person (a later fix on their lines, back to candidate, or taken back).
   - `promotedFromEvidence`: lessons a person promoted after such evidence.
