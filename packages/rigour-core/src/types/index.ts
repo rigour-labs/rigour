@@ -546,6 +546,8 @@ export type Failure = z.infer<typeof FailureSchema>;
 export const ReportSchema = z.object({
     status: StatusSchema,
     summary: z.record(StatusSchema),
+    /** Why a check reported SKIP: it could not check (for example, no main branch to compare with). */
+    skips: z.record(z.string()).optional(),
     failures: z.array(FailureSchema),
     stats: z.object({
         duration_ms: z.number(),
