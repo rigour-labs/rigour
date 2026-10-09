@@ -30,7 +30,7 @@ import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
-import { MAX_PARTS, parseHunks, planPasses, reviewable, triage, type Pass } from './reviewer/triage.js';
+import { MAX_PARTS, parseHunks, planPasses, reviewable, skipped, triage, type Pass } from './reviewer/triage.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
@@ -109,6 +109,8 @@ export interface ReviewerResult {
     costUsd?: number;
     /** What every run of this fresh review reported costing, failed runs included: the number its cost row and its thread event carry. */
     spentUsd?: number;
+    /** A verdict reused for the same content reviewed on another commit: nothing ran. */
+    cache?: 'content';
     /** The repository's own rules the judge answered, and how. */
     rules?: { checked: number; followed: number; broken: number; notApplicable: number };
     /** The record of this review (record.ts) and where it is kept, beside the verdict. */
@@ -351,6 +353,27 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const size = reviewable(hunks);
     const shared = reviews.markdown.length + body.length + context.text.length + (options.hints?.trim() || 'none\n').length + (goalText?.length ?? 0);
     const projectedSingle = shared + size.chars;
+
+    // The same content, reviewed on another commit (a rebase, an amend, a cherry-pick, another branch): its verdict, once the
+    // base under every file it cites is checked unchanged. Only a full review: a delta depends on the verdict before it.
+    const contentKey = scope === 'full' ? sha([inputsKey, modeRecord.ran, reviewerVersions, context.key, reviewableBlobs(fullDiff)]) : undefined;
+    const reused = contentKey && !options.force ? store.contentEntry(contentKey) : undefined;
+    if (reused && sameBlobs(reused.cited, await baseBlobs(git, baseSha, Object.keys(reused.cited)))) {
+        const verdict = store.readJson<Verdict>(reused.verdict);
+        if (verdict) {
+            why = `same content as the verdict on ${reused.head.slice(0, 9)}`;
+            const accounted = decide(verdict, undefined, verify, prior, dismissals);
+            store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: null, at: new Date().toISOString(), cache: 'content', from: reused.head } });
+            store.writeJson(openFile, accounted.open);
+            store.writeJson(store.decidedPath(verdictFile), accounted);
+            // A reused verdict ran nothing: it credits the savings ledger with what one judge would have been given.
+            if (modeRecord.asked === 'orchestrator' || (modeRecord.asked === 'single' && modeRecord.ran === 'single')) {
+                store.recordCost({ at: new Date().toISOString(), mode: modeRecord.asked === 'orchestrator' ? 'orchestrator' : 'single', lines: size.lines, projectedSingleChars: projectedSingle, ...(modeRecord.asked === 'orchestrator' ? { projectedChars: 0 } : {}), actualChars: 0, actualUsd: 0, runs: 0, cache: 'content' });
+            }
+            if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key, inputsKey });
+            return { ...withRecord(accounted, verdict, true), cache: 'content' as const };
+        }
+    }
     // The orchestrator's plan: which specialists the change needs, hunk by hunk, as one combined pass. A change over the
     // judge's limit is split by hunk only when the savings ledger covers the split's extra. Nothing to review: no pass.
     const picked = orchestrate ? triage(hunks, { humanReviews: reviews.count, rulesAndLessons: context.rules.length + context.lessons, goal: goalItems.length > 0 }) : new Map<string, number[]>();
@@ -592,6 +615,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         store.writeJson(store.decidedPath(verdictFile), accounted);
         recordReviewCost();
         if (branch !== 'HEAD') store.recordBranch(branch, { head, verdict: verdictFile, mode: scope, rulesHash, reviewsKey: reviews.key, inputsKey });
+        if (contentKey) {
+            const cited = [...new Set(verdict.findings.map(f => f.file).filter((file): file is string => !!file))];
+            store.recordContent(contentKey, { verdict: verdictFile, head, at: new Date().toISOString(), cited: await baseBlobs(git, baseSha, cited) });
+        }
         return { ...withRecord(accounted, verdict, false), spentUsd: spentUsd() };
     } finally {
         fs.rmSync(work, { recursive: true, force: true });
@@ -727,4 +754,30 @@ function names(target: string, file: string): boolean {
     const before = target[at - 1];
     const after = target[at + file.length];
     return (before === undefined || /[\s/'"=]/.test(before)) && (after === undefined || /[\s'":)]/.test(after));
+}
+
+/** The reviewable diff as content: each file's path and its before and after blobs, sorted. Lockfiles and generated files are left out. */
+function reviewableBlobs(diff: string): string {
+    const files: string[] = [];
+    for (const block of diff.split(/^(?=diff --git )/m)) {
+        const file = /^diff --git a\/.+? b\/(.+)$/m.exec(block)?.[1];
+        if (!file || skipped(file)) continue;
+        files.push(`${file} ${/^index ([0-9a-f]+\.\.[0-9a-f]+)/m.exec(block)?.[1] ?? 'no-index'}`);
+    }
+    return files.sort().join('\n');
+}
+
+/** Each file's blob at `commit`, in one `git ls-tree`; a file the commit does not have is ''. */
+async function baseBlobs(git: (args: string[]) => Promise<string>, commit: string, files: string[]): Promise<Record<string, string>> {
+    const blobs: Record<string, string> = Object.fromEntries(files.map(file => [file, '']));
+    if (files.length === 0) return blobs;
+    for (const line of (await git(['ls-tree', commit, '--', ...files])).split('\n')) {
+        const m = /^\d+ blob ([0-9a-f]+)\t(.+)$/.exec(line);
+        if (m && m[2] in blobs) blobs[m[2]] = m[1];
+    }
+    return blobs;
+}
+
+function sameBlobs(a: Record<string, string>, b: Record<string, string>): boolean {
+    return Object.keys(a).every(file => a[file] === b[file]);
 }
