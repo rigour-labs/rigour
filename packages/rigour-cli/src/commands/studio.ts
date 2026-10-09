@@ -338,6 +338,17 @@ async function handleApiRequest(
         return true;
     }
 
+    if (url.pathname === '/api/compiled-checks' && req.method === 'POST') {
+        try {
+            const { decideCompiledCheckFromStudio, proposeChecksFromStudio } = await import('./studio-learning.js');
+            const body = JSON.parse((await readBody(req)) || '{}');
+            sendJson(res, 200, body?.propose === true ? proposeChecksFromStudio(cwd) : decideCompiledCheckFromStudio(cwd, body));
+        } catch (e: any) {
+            sendJson(res, 400, { error: e.message });
+        }
+        return true;
+    }
+
     if (url.pathname === '/api/learning') {
         try {
             const { loadLearning } = await import('./studio-learning.js');
