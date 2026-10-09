@@ -30,7 +30,8 @@ import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
-import { MAX_PARTS, parseHunks, planPasses, reviewable, skipped, triage, type Pass } from './reviewer/triage.js';
+import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, triage, type Pass } from './reviewer/triage.js';
+import { chooseTier, type TierDecision } from './reviewer/tiering.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
@@ -158,6 +159,8 @@ export interface ModeRecord {
     refused?: string[];
     /** With escalate: risk, why this review got one judge or all of them. */
     escalation?: string;
+    /** With cheap-model-first tiering on: the tier, why, and whether it turned itself off or escalated (reviewer/tiering.ts). */
+    tier?: TierDecision;
 }
 
 /** Findings and no verdict stop a push; a skipped review does not, and is reported as owed. */
@@ -327,7 +330,16 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
 
     const verify = checkoutVerifier(cwd);
     const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff), labels: reviews.labels };
-    const modelFor = (name: ReviewerName) => settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
+    // Cheap-model-first (reviewer/tiering.ts): decided before any run, from facts about the change only, for one judge.
+    let tier = reviewers.length === 1 && (modeRecord.ran === 'single' || modeRecord.ran === 'orchestrator')
+        ? chooseTier(settings.tiers, reviewers[0], {
+            required: settings.required.mode || settings.required.panel || orchestrator.required, humanReviews: reviews.count, carried: previousOpen?.length ?? 0,
+            migration: changedFiles.some(isMigration), securityChecks: (options.checks ?? []).filter(c => /\bsecurity\b/i.test(c)).length, goal: goalItems.length > 0, risky: context.risky,
+        }, store.costs(), store.baseline())
+        : undefined;
+    if (tier) modeRecord = { ...modeRecord, tier };
+    const cheapModel = () => (tier?.tier === 'cheap' && !tier.escalated ? tier.model : undefined);
+    const modelFor = (name: ReviewerName) => (name === reviewers[0] ? cheapModel() : undefined) ?? settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
     // What a judge reads besides the repository and Rigour's inputs, on this machine: on the record, so "the same judge" is a claim it can check.
     const outsideOf = (reviewer: string) => {
@@ -422,7 +434,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         store.recordCost({
             at: new Date().toISOString(), mode: orchestrated ? 'orchestrator' : 'single', lines: size.lines, projectedSingleChars: projectedSingle,
             ...(orchestrated ? { projectedChars: passes.reduce((sum, pass) => sum + shared + pass.diff.length, 0) } : {}),
-            actualChars: tally.chars, actualUsd: spentUsd(), runs: tally.runs,
+            actualChars: tally.chars, actualUsd: spentUsd(), runs: tally.runs, ...(tier ? { tier: tier.tier } : {}),
         });
     };
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
@@ -534,6 +546,11 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
                     if (!once && (!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
                         progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
+                        // The cheap model's slip is the one escalation: the retry runs on the team's model.
+                        if (cheapModel()) {
+                            tier = { ...tier!, escalated: 'no valid verdict from the cheap model: retried on the team\'s model' };
+                            modeRecord = { ...modeRecord, tier };
+                        }
                         first = await ask();
                     }
                     return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };

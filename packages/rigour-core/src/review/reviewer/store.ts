@@ -54,6 +54,8 @@ export interface ReviewCost {
     runs: number;
     /** A verdict reused instead of run: for the same content on another commit (`content`). Runs and actual cost are 0. */
     cache?: 'content';
+    /** The tier the review ran at, when cheap-model-first tiering is on (reviewer/tiering.ts). */
+    tier?: 'cheap' | 'strong';
 }
 
 /**
