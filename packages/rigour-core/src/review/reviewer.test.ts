@@ -372,6 +372,71 @@ describe('the reviewer', () => {
     });
 });
 
+describe('the orchestrator', () => {
+    const finding = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' };
+    /** Which specialist a prompt is for, from its focus block ('none' for the single review). */
+    const partOf = (prompt: string) => /Your part:\n(earlier human|correctness|production cost|what the change leaves|claims)/.exec(prompt)?.[1] ?? 'none';
+    /** Answers by specialist: a reply, or 'fail' for a run that gives no answer. */
+    const judge = (seen: Seen, replies: Record<string, string | 'fail'>) => () => {
+        const reply = replies[partOf(seen.prompts.at(-1)!)] ?? JSON.stringify(EMPTY);
+        return reply === 'fail' ? { exitCode: 1, stdout: '', stderr: 'crashed' } : reply;
+    };
+    const capped = (runs: number) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], max_runs_per_day: runs } } });
+
+    it('asks every specialist once, from the same inputs, and merges the same point from two of them into one item naming both', async () => {
+        const seen = seenNow();
+        const both = JSON.stringify({ ...EMPTY, findings: [finding] });
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { correctness: both, 'what the change leaves': both }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(partOf).sort()).toEqual(['claims', 'correctness', 'earlier human', 'production cost', 'what the change leaves']);
+        expect(seen.ran.every(command => path.basename(command).startsWith('claude'))).toBe(true); // one judge, the first
+        // Built once: every specialist reads the same diff file.
+        const diffs = new Set(seen.prompts.map(prompt => /(\S+full\.diff)/.exec(prompt)?.[1]));
+        expect(diffs.size).toBe(1);
+        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'orchestrator', specialists: { asked: 5, missing: [] } });
+        expect(result.items.map(i => [i.class, i.reviewer])).toEqual([['correctness', 'claude:correctness+claude:cleanup']]);
+    });
+
+    it('stands with at least half the specialists back, naming the parts not reviewed', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { correctness: 'fail', 'production cost': 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(result.mode).toMatchObject({ ran: 'orchestrator', specialists: { returned: ['prior-points', 'cleanup', 'rules-and-goal'], missing: ['correctness', 'production-cost'] } });
+        expect(result.mode?.degraded).toContain('not reviewed: correctness, production-cost');
+        expect(seen.prompts).toHaveLength(5); // no retry, no fallback
+    });
+
+    it('falls back to one judge when fewer than half return, and counts that run too', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', config, fakes(judge(seen, { correctness: 'fail', 'production cost': 'fail', claims: 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(partOf)).toContain('none'); // the single review's prompt
+        expect(seen.prompts).toHaveLength(6);
+        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'single', specialists: { fallback: '2 of 5 specialists returned' } });
+        expect(result.outcome).toBe('passed');
+    });
+
+    it('is unavailable when fewer than half return and the caps leave no run for one judge', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', capped(5), fakes(judge(seen, { correctness: 'fail', 'production cost': 'fail', claims: 'fail' }), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts).toHaveLength(5);
+        expect(result.outcome).toBe('unavailable');
+        expect(result.reason).toContain('2 of 5 specialists returned, and the caps leave no run for one judge');
+    });
+
+    it('starts as one judge, said so, when the caps leave room for one run but not every specialist', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', capped(3), fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(partOf)).toEqual(['none']);
+        expect(result.mode).toMatchObject({ asked: 'orchestrator', ran: 'single', specialists: { fallback: expect.stringContaining('not started: the daily run cap is reached') } });
+    });
+
+    it('gives way to a team floor on the panel or the mode, and says so', async () => {
+        const seen = seenNow();
+        const floor = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], mode: 'full', mode_required: true } } });
+        const result = await runReviewer(repo, 'main', floor, fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
+        expect(seen.prompts.map(partOf)).toEqual(['none', 'none']);
+        expect(result.mode?.refused).toContain('orchestrator refused: rigour.yml requires the panel or the mode');
+    });
+});
+
 describe('choosing reviewers', () => {
     it('runs the newest installed copy of a CLI, not the first on PATH', async () => {
         const seen = seenNow();
@@ -441,7 +506,7 @@ describe('verdicts', () => {
         expect(merged.goal).toHaveLength(2);
         const { open, advisory } = account(merged, undefined, checkoutVerifier(repo));
         expect(open).toEqual([]);
-        expect(advisory.map(i => [i.kind, i.reviewer])).toEqual([['goal', 'claude']]);
+        expect(advisory.map(i => [i.kind, i.reviewer])).toEqual([['goal', 'claude+codex']]); // one item, naming both judges
         const cached = { ...EMPTY } as Verdict; // a verdict from before the goal step has none
         expect(account(cached, undefined, () => true).advisory).toEqual([]);
     });

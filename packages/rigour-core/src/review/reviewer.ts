@@ -29,6 +29,7 @@ import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBas
 import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
+import { focusBlock, runSpecialists, SPECIALISTS, SPECIALISTS_KEY } from './reviewer/orchestrator.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
@@ -73,6 +74,8 @@ export interface ReviewerOptions {
     branch?: string;
     /** This run's choice for the goal check (`--goal` / `--no-goal`), the nearest layer of switches.ts. */
     goal?: boolean;
+    /** Review with the specialist judges instead of one (reviewer/orchestrator.ts): opt-in, experimental. */
+    orchestrator?: boolean;
 }
 
 export interface ReviewerResult {
@@ -127,9 +130,11 @@ export interface ReviewerResult {
 }
 
 export interface ModeRecord {
-    asked: 'single' | 'cross' | 'full' | 'panel';
+    asked: 'single' | 'cross' | 'full' | 'panel' | 'orchestrator';
     /** `none` when the review ended before any judge ran (unavailable or skipped); `degraded` or the reason says why. */
-    ran: 'single' | 'cross' | 'full' | 'panel' | 'none';
+    ran: 'single' | 'cross' | 'full' | 'panel' | 'orchestrator' | 'none';
+    /** With the orchestrator: the specialists asked, which returned and which did not, and why it fell back to one judge if it did. */
+    specialists?: { asked: number; returned: string[]; missing: string[]; fallback?: string };
     source: Source;
     /** Why fewer judges ran than were asked for. */
     degraded?: string;
@@ -205,6 +210,16 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     if (reviewers.length < 2 && mode === 'full' && (settings.required.panel || settings.required.mode)) {
         return none('unavailable', `rigour.yml requires two reviewers from different vendors, and ${modeRecord.degraded}`, { reviewers, mode: modeRecord });
     }
+    // The orchestrator runs the specialists on the first judge. A team floor on the panel or the mode wins over it.
+    let orchestrate = options.orchestrator === true;
+    if (orchestrate && (settings.required.panel || settings.required.mode)) {
+        orchestrate = false;
+        modeRecord = { ...modeRecord, refused: [...(modeRecord.refused ?? []), 'orchestrator refused: rigour.yml requires the panel or the mode'] };
+    }
+    if (orchestrate) {
+        reviewers = reviewers.slice(0, 1);
+        modeRecord = { ...modeRecord, asked: 'orchestrator', ran: 'orchestrator' };
+    }
 
     const gh = options.blind ? undefined : ghFor(cwd, exec, await githubEnv(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, exec));
     const found = gh ? await findPullRequest(gh, branch, head, options.pr) : {};
@@ -233,7 +248,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
-    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates]), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
+    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
     if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
@@ -311,7 +326,15 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     }
 
     // The daily caps, before any judge starts: a cached or reused verdict above cost nothing and never reaches here.
-    const over = overBudget(store.spend(), settings, reviewers.length);
+    // Every specialist is a run: when the caps leave room for one run but not all of them, it is one judge, said so.
+    if (orchestrate) {
+        const short = overBudget(store.spend(), settings, SPECIALISTS.length);
+        if (short && !overBudget(store.spend(), settings, 1)) {
+            orchestrate = false;
+            modeRecord = { ...modeRecord, ran: 'single', specialists: { asked: SPECIALISTS.length, returned: [], missing: [], fallback: `not started: ${short}` } };
+        }
+    }
+    const over = overBudget(store.spend(), settings, orchestrate ? SPECIALISTS.length : reviewers.length);
     if (over) return none(settings.required.panel || settings.required.mode ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
@@ -356,44 +379,70 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         progress(`Rigour reviewer: reviewing ${head.slice(0, 9)} against ${base} (${scope}: ${why}; ${reviews.count} human review(s), written by ${[...authors].join(', ') || 'a person'}) with ${reviewers.join(', ')}`);
         const started = Date.now();
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
-        let parts: Verdict[];
+        let parts: Verdict[] | undefined;
         try {
-            const answers = await Promise.all(reviewers.map(async name => {
-                const adapter = ADAPTERS[name];
-                const ask = async () => {
-                    const run = await runJudge(name, prompt, modelFor(name));
-                    progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
-                    const answer = adapter.answer(run.stdout);
-                    store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
-                    return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? parseVerdict(answer.text, needsPriorPoints, name, answer) : undefined };
-                };
-                let first = await ask();
-                // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
-                if ((!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
-                    progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
-                    first = await ask();
+            if (orchestrate) {
+                const judge = reviewers[0];
+                const run = await runSpecialists(judge, async specialist => {
+                    const ran = await runJudge(judge, `${prompt}${focusBlock(specialist)}`, modelFor(judge));
+                    const answer = ADAPTERS[judge].answer(ran.stdout);
+                    store.addSpend(1, answer.costUsd); // every specialist run counts against the caps, an answer or not
+                    progress(`Rigour reviewer: ${judge} (${specialist.id}) finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${ran.exitCode})`);
+                    return ran.exitCode === 0 || answer.text.trim()
+                        ? parseVerdict(answer.text, needsPriorPoints && specialist.id === 'prior-points', judge, answer)
+                        : { error: `${judge} (${specialist.id}): no answer (exit ${ran.exitCode})` };
+                });
+                const specialists = { asked: SPECIALISTS.length, returned: run.returned, missing: run.missing };
+                if (run.stands) {
+                    parts = run.parts;
+                    modeRecord = { ...modeRecord, specialists, ...(run.missing.length ? { degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}not reviewed: ${run.missing.join(', ')} (no verdict)` } : {}) };
+                } else {
+                    // Fewer than half came back: one judge instead, only if the caps still allow a run; the fallback counts too.
+                    const short = overBudget(store.spend(), settings, 1);
+                    const fallback = `${run.returned.length} of ${SPECIALISTS.length} specialists returned`;
+                    if (short) return none('unavailable', `${fallback}, and the caps leave no run for one judge: ${short}`, { reviewers, scope, why, pr: pr?.number, mode: { ...modeRecord, specialists: { ...specialists, fallback } } });
+                    progress(`Rigour reviewer: ${fallback}; one judge reviews instead`);
+                    modeRecord = { ...modeRecord, ran: 'single', specialists: { ...specialists, fallback } };
                 }
-                return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };
-            }));
-            // A judge that gives nothing is replaced by the next one installed, so the boundary stays up: a review ends unavailable only when every judge failed.
-            const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
-            for (let i = 0; i < answers.length; i++) {
-                let answer = answers[i];
-                while ('error' in answer && spare.length && !overBudget(store.spend(), settings, 1)) {
-                    const next = spare.shift()!;
-                    progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
-                    modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
-                    reviewers[i] = next;
-                    const run = await runJudge(next, prompt, modelFor(next));
-                    const got = ADAPTERS[next].answer(run.stdout);
-                    store.addSpend(1, got.costUsd);
-                    answer = run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
-                }
-                answers[i] = answer;
             }
-            const failed = answers.find(a => 'error' in a);
-            if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
-            parts = answers.map(a => (a as { verdict: Verdict }).verdict);
+            if (!parts) {
+                const answers = await Promise.all(reviewers.map(async name => {
+                    const adapter = ADAPTERS[name];
+                    const ask = async () => {
+                        const run = await runJudge(name, prompt, modelFor(name));
+                        progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
+                        const answer = adapter.answer(run.stdout);
+                        store.addSpend(1, answer.costUsd); // every run counts against the caps, an answer or not
+                        return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? parseVerdict(answer.text, needsPriorPoints, name, answer) : undefined };
+                    };
+                    let first = await ask();
+                    // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
+                    if ((!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
+                        progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
+                        first = await ask();
+                    }
+                    return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };
+                }));
+                // A judge that gives nothing is replaced by the next one installed, so the boundary stays up: a review ends unavailable only when every judge failed.
+                const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
+                for (let i = 0; i < answers.length; i++) {
+                    let answer = answers[i];
+                    while ('error' in answer && spare.length && !overBudget(store.spend(), settings, 1)) {
+                        const next = spare.shift()!;
+                        progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
+                        modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
+                        reviewers[i] = next;
+                        const run = await runJudge(next, prompt, modelFor(next));
+                        const got = ADAPTERS[next].answer(run.stdout);
+                        store.addSpend(1, got.costUsd);
+                        answer = run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
+                    }
+                    answers[i] = answer;
+                }
+                const failed = answers.find(a => 'error' in a);
+                if (failed && 'error' in failed) return none('unavailable', failed.error, { reviewers, scope, why, pr: pr?.number });
+                parts = answers.map(a => (a as { verdict: Verdict }).verdict);
+            }
             for (const part of parts) {
                 if (part.trace) labelReads(part.trace, work, changedFiles);
                 attachServedRules(part, context.rules);
