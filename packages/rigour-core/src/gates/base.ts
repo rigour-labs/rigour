@@ -9,6 +9,8 @@ export interface GateContext {
     patterns?: string[];
     /** Shared file cache across gates — reduces memory ~80% on large repos */
     fileCache?: FileSystemCache;
+    /** A gate that could not check (nothing to compare with) says why: the run shows SKIP, never PASS. */
+    skip?: (reason: string) => void;
 }
 
 export abstract class Gate {

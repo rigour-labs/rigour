@@ -149,7 +149,7 @@ At push, the tests that import changed files also run; see the toolchain below.
 | Complexity, size of classes and signatures | A function over `ast.complexity` (10), a class over `ast.max_methods` (10), a function over `ast.max_params` (5). Python needs a `python3` or `python` on the path. | JS/TS, Python; cognitive load for Go, Java, Rust, C#, C++ | `ast-analysis` (`AST_COMPLEXITY`, `AST_MAX_METHODS`, `AST_MAX_PARAMS`, `SME_COGNITIVE_LOAD`) | On | Note |
 | Architecture boundary | An import that a `gates.architecture.boundaries` rule denies. | JS/TS | `ast-analysis` (`ARCH_BOUNDARY`) | On when rules exist | Note |
 | Outdated syntax | `var`, `require()`, `arguments` and similar, per `staleness.rules`. | JS/TS | `ast-analysis` (`STALENESS_*`) | Off | Note |
-| Style drift | A file whose naming or error-handling style deviates from the project's baseline for its language by more than 25%. | Languages with an adapter | `style-drift` | On | Note |
+| Style drift | A changed or new file whose naming or error-handling style deviates by more than 25% from its language's code committed on the main branch (outside Git, a baseline file built on the first full scan). A one-word lowercase name (`run`, `data`) or a dunder (`__init__`) counts as neither camelCase nor snake_case; a private name is read without its leading underscores (`_load_rows` is snake_case). | Languages with an adapter | `style-drift` | On | Note |
 | File size | Files over `max_file_lines` (500). | Any | `file-size` | On | Note |
 | Forbidden markers | `TODO` and `FIXME` comments (`forbid_todos`, `forbid_fixme`). | Code, shell, YAML, JSON | `content-check` | On | Note |
 | Required files | Files in `required_files` that do not exist. | Any | `structure-check` | On | Note |

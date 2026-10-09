@@ -8,10 +8,9 @@
  */
 import fs from "fs-extra";
 import path from "path";
-import os from "os";
 import yaml from "yaml";
 import { randomUUID } from "crypto";
-import { ConfigSchema } from "@rigour-labs/core";
+import { ConfigSchema, rigourUserDir } from "@rigour-labs/core";
 
 // ─── Config Loading ───────────────────────────────────────────────
 /**
@@ -42,11 +41,6 @@ export interface MemoryStore {
     memories: Record<string, { value: string; timestamp: string }>;
 }
 
-/** The home whose .rigour/ holds user-scope memory: RIGOUR_HOME when set (tests, sandboxes), else the OS home. */
-export function userHome(): string {
-    return process.env.RIGOUR_HOME || os.homedir();
-}
-
 /**
  * False when RIGOUR_USER_MEMORY=off. A server kept apart from the user's other work (a private
  * HOME per employer, a sandbox) then never reads or writes ~/.rigour/memory.json, even if it is
@@ -68,7 +62,7 @@ export function resolveCwd(args: unknown): string {
 export type LocalMemoryScope = 'repo' | 'user';
 
 export async function getMemoryPath(cwd: string, scope: LocalMemoryScope = 'repo'): Promise<string> {
-    const rigourDir = scope === 'user' ? path.join(userHome(), ".rigour") : path.join(cwd, ".rigour");
+    const rigourDir = scope === 'user' ? rigourUserDir() : path.join(cwd, ".rigour");
     await fs.ensureDir(rigourDir);
     return path.join(rigourDir, "memory.json");
 }

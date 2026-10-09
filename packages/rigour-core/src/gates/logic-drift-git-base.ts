@@ -1,9 +1,15 @@
 import { execFileSync } from 'node:child_process';
 
 export interface GitLogicBase {
+    /** The commit compared against. */
+    base: string;
+    /** Tracked files that differ from the base (added, copied, modified, renamed). Untracked files are not in it. */
     changedFiles: Set<string>;
     readAtBase: (file: string) => string | null;
 }
+
+/** Why a check that compares with the main branch could not run in a git checkout (resolveGitLogicBase gave null). */
+export const NO_GIT_BASE = 'nothing to compare with: no main branch (GITHUB_BASE_REF, origin/main, main, origin/master or master), or run from below the repository root';
 
 export function isGitWorktree(cwd: string): boolean {
     return git(cwd, ['rev-parse', '--is-inside-work-tree'])?.trim() === 'true';
@@ -53,7 +59,42 @@ export function resolveGitLogicBase(cwd: string): GitLogicBase | null {
     const diff = git(cwd, ['diff', '--name-only', '-z', '--diff-filter=ACMR', base, '--']);
     if (diff === null) return null;
     return {
+        base,
         changedFiles: new Set(diff.split('\0').filter(Boolean)),
         readAtBase: file => git(cwd, ['show', `${base}:${file}`]),
     };
+}
+
+/** Files git does not track and does not ignore: what an agent just created. */
+export function untrackedFiles(cwd: string): string[] {
+    return (git(cwd, ['ls-files', '--others', '--exclude-standard', '-z']) ?? '').split('\0').filter(Boolean);
+}
+
+/** Every file committed at `commit`, repository-relative with `/`. */
+export function filesAtCommit(cwd: string, commit: string): string[] {
+    return (git(cwd, ['ls-tree', '-r', '--name-only', '-z', commit]) ?? '').split('\0').filter(Boolean);
+}
+
+/** The contents of `files` at `commit`, read by one git process; a file missing there is left out. */
+export function readManyAtCommit(cwd: string, commit: string, files: string[]): Map<string, string> {
+    const contents = new Map<string, string>();
+    if (files.length === 0) return contents;
+    let out: Buffer;
+    try {
+        out = execFileSync('git', ['cat-file', '--batch'], { cwd, input: files.map(file => `${commit}:${file}`).join('\n') + '\n', stdio: ['pipe', 'pipe', 'ignore'], maxBuffer: 256 * 1024 * 1024 });
+    } catch {
+        return contents;
+    }
+    let at = 0;
+    for (const file of files) {
+        const end = out.indexOf(0x0a, at);
+        if (end < 0) break;
+        const header = out.subarray(at, end).toString('utf8').split(' ');
+        at = end + 1;
+        if (header[1] !== 'blob') continue; // "<name> missing", or not a file
+        const size = Number(header[2]);
+        contents.set(file, out.subarray(at, at + size).toString('utf8'));
+        at += size + 1;
+    }
+    return contents;
 }

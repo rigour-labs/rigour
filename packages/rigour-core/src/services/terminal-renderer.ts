@@ -26,6 +26,8 @@ export interface RenderOptions {
 export interface GateResult {
     id: string;
     status: Status;
+    /** Why a SKIP: the check could not check. */
+    reason?: string;
 }
 
 // ── Constants ──────────────────────────────────────────────────────
@@ -104,6 +106,7 @@ export function renderGateGrid(gates: GateResult[]): string {
         const row = entries.slice(i, i + 3).map(e => e.padEnd(22)).join('');
         lines.push(`  ${row}`);
     }
+    for (const g of gates) if (g.status === 'SKIP' && g.reason) lines.push(chalk.dim(`  \u{23ED} ${g.id} skipped: ${g.reason}`));
 
     return lines.join('\n');
 }
@@ -212,7 +215,7 @@ export function renderFullReport(report: Report, options: RenderOptions = {}): s
 
     // Gate grid from report summary
     if (report.summary) {
-        const gates: GateResult[] = Object.entries(report.summary).map(([id, status]) => ({ id, status }));
+        const gates: GateResult[] = Object.entries(report.summary).map(([id, status]) => ({ id, status, reason: report.skips?.[id] }));
         if (gates.length > 0) {
             boxContent.push(renderGateGrid(gates));
             boxContent.push('');

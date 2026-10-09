@@ -172,6 +172,7 @@ export class GateRunner {
         const start = Date.now();
         const failures: Failure[] = [];
         const summary: Record<string, Status> = {};
+        const skips: Record<string, string> = {};
 
         const ignore = this.config.ignore;
 
@@ -193,10 +194,14 @@ export class GateRunner {
             gateIndex++;
             try {
                 onProgress?.(`  [${gateIndex}/${totalGates}] Running ${gate.id}...`);
-                const gateFailures = await gate.run({ cwd, record, ignore, patterns, fileCache });
+                let skipped: string | undefined;
+                const gateFailures = await gate.run({ cwd, record, ignore, patterns, fileCache, skip: reason => { skipped = reason; } });
                 if (gateFailures.length > 0) {
                     failures.push(...gateFailures);
                     summary[gate.id] = 'FAIL';
+                } else if (skipped !== undefined) {
+                    summary[gate.id] = 'SKIP';
+                    skips[gate.id] = skipped;
                 } else {
                     summary[gate.id] = 'PASS';
                 }
@@ -335,6 +340,7 @@ export class GateRunner {
         const report: Report = {
             status,
             summary,
+            ...(Object.keys(skips).length ? { skips } : {}),
             failures,
             stats: {
                 duration_ms: Date.now() - start,

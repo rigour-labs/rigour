@@ -28,7 +28,7 @@ import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import { languageAdapters } from './language-adapters/index.js';
 import { extractCallSequence, isDangerousMutation } from './logic-drift-extractors.js';
-import { isGitWorktree, resolveGitLogicBase } from './logic-drift-git-base.js';
+import { NO_GIT_BASE, isGitWorktree, resolveGitLogicBase } from './logic-drift-git-base.js';
 import { isScoped } from '../utils/scope.js';
 import fs from 'fs-extra';
 import path from 'path';
@@ -94,7 +94,7 @@ export class LogicDriftGate extends Gate {
         // In Git worktrees, compare only files changed from an immutable base.
         const gitBase = resolveGitLogicBase(context.cwd);
         if (!gitBase && isGitWorktree(context.cwd)) {
-            Logger.info('Logic Drift: no main reference available; comparison unavailable');
+            context.skip?.(NO_GIT_BASE);
             return [];
         }
         const scanFiles = gitBase ? files.filter(file => gitBase.changedFiles.has(file)) : files;

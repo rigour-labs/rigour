@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readCompiledChecks } from '@rigour-labs/core';
+import { readCompiledChecks, readLessons } from '@rigour-labs/core';
 import { learnReviewsCommand } from './learn-reviews.js';
 
 let repo: string;
@@ -39,6 +39,27 @@ describe('rigour learn-reviews --compile', () => {
         await learnReviewsCommand(repo, { approveCheck: 'c-L1' });
         expect(err.mock.calls.flat().join('\n')).toContain('No git email is set');
         expect(readCompiledChecks(repo)[0].state).toBe('proposed');
+        process.exitCode = 0;
+    });
+});
+
+describe('rigour learn-reviews --use-wording', () => {
+    it('lists a corrected wording beside a decided lesson, and takes it only on a person\'s word', async () => {
+        const file = path.join(repo, '.rigour', 'review-lessons.json');
+        const store = JSON.parse(fs.readFileSync(file, 'utf8'));
+        store.lessons[0] = { ...store.lessons[0], suggestedText: 'Never call `fetchAll` in a request handler. Page it with a keyset.', suggestedWhy: 'parser fix' };
+        fs.writeFileSync(file, JSON.stringify(store));
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { list: true });
+        const listed = out.mock.calls.flat().join('\n');
+        expect(listed).toContain('corrected wording (parser fix): Never call `fetchAll` in a request handler. Page it with a keyset.');
+        expect(listed).toContain('rigour learn-reviews --use-wording L1');
+        await learnReviewsCommand(repo, { useWording: 'L1' });
+        expect(readLessons(repo)[0]).toMatchObject({ text: 'Never call `fetchAll` in a request handler. Page it with a keyset.', state: 'verified' });
+        expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'reworded', author: 'ana@example.com' });
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { useWording: 'L1' });
+        expect(process.exitCode).toBe(1);
         process.exitCode = 0;
     });
 });
