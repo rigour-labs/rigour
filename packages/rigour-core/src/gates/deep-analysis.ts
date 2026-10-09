@@ -220,7 +220,7 @@ export class DeepAnalysisGate extends Gate {
         this.config.onProgress?.(`  Reviewing the PR as a whole (${focus.length} risky function(s) first)...`);
         try {
             const result = await reviewPullRequest(this.provider!, { cwd, diff: options.diff!, focus, related, lessons: lessonsSection(lessonsForDiff(cwd, options.diff!, this.config.reviewLessons)),
-                rules: rulesSection(rulesForDiff(cwd, options.diff!, this.config.repoRules)), prBody: options.prBody }, inferenceOptions(this.config));
+                rules: rulesSection(rulesForDiff(cwd, options.diff!, this.config.repoRules)), prBody: options.prBody, settled: options.settled }, inferenceOptions(this.config));
             this.recordPass({ findings: [], chunksTotal: 1, chunksFailed: 0 });
             this.outcome.findingsProposed = result.findings.length;
             this.outcome.findingsWithdrawn = 0;

@@ -82,4 +82,18 @@ describe('reviewPullRequest', () => {
         expect(kept.map(f => f.description)).toEqual(['`cls` is hard-coded while `price` reads `currency` live.']);
         expect(rejected).toEqual({ ungrounded_identifier: 1 });
     });
+
+    it('tells the model what the checks already found, and drops a finding it makes at one of their lines', async () => {
+        const settled = [{ file: 'src/invoice.ts', line: 11, title: 'Security: XSS' }];
+        expect(buildPrPrompt({ cwd: repo, diff: DIFF, focus: [], settled }).prompt).toContain("## Already found by Rigour's checks: they block on their own, so do not report them again\n- src/invoice.ts:11 Security: XSS");
+        const provider: InferenceProvider = {
+            name: 'fake', isAvailable: async () => true, setup: async () => {}, dispose: () => {}, analyze: async () => '',
+            chat: async () => ({ text: JSON.stringify({ findings: [
+                { category: 'security', severity: 'high', file: 'src/invoice.ts', line: 11, description: '`cls` reaches the page unescaped.', suggestion: 's', confidence: 0.9 },
+                { category: 'correctness', severity: 'high', file: 'src/price.ts', line: 2, description: '`price` returns `currency`, not a number.', suggestion: 's', confidence: 0.9 },
+            ] }), toolCalls: [] }),
+        };
+        const result = await reviewPullRequest(provider, { cwd: repo, diff: DIFF, focus: [], settled }, {});
+        expect(result.findings.map(f => `${f.file}:${f.line}`)).toEqual(['src/price.ts:2']);
+    });
 });

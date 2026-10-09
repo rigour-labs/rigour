@@ -132,13 +132,16 @@ qwen2.5-coder:7b` reviews with the model your Ollama server runs, on this machin
    Actions event), callers in other changed files whose callee changed, the team's review lessons
    for the touched files, and, with `repo_rules: true`, the rules in `AGENTS.md`, `CLAUDE.md`,
    `.github/copilot-instructions.md` and `.cursor/rules/` that name a file or identifier the
-   change touches. Once the diff passes 80,000 characters, the remaining files are listed for
-   the model to read instead of sent.
+   change touches. It is also told what Rigour's own checks already found on the changed lines,
+   as settled, not to be reported again. Once the diff passes 80,000 characters, the remaining
+   files are listed for the model to read instead of sent.
 3. **It looks things up before it reports.** The model has two read-only tools: `read_file`
    (at most 200 lines a call) and `grep` (tracked files, through `git grep`). Both stay inside the
    repository and refuse `.git/`, `.env*`, key and certificate files, `.npmrc`, `.netrc` and
    credentials files. The budget is 24 tool calls over 14 turns, then the model must answer.
-4. **It reports at most five findings**, each anchored on a line the change added or changed.
+4. **It reports at most five findings**, each anchored on a line the change added or changed. A
+   finding on a line where one of Rigour's checks already reports something is dropped: the check
+   stands, and the same defect is not reported twice.
 
 With `agentic: false`, or with `rigour check <paths> --deep` (no diff), the cloud model reviews
 file by file instead, four files at a time: with tools (12 calls, 8 turns per file) when
