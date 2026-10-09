@@ -245,7 +245,10 @@ runs, never a higher one. `rigour review --status` and
 Studio's Setup page show today's runs and spend against the caps.
 
 Every verdict records its agent runs, the tokens each judge used and, where the CLI reports it, its
-cost.
+cost. In `rigour review --reviewer --json`, `spent_usd` is what every run of this review reported
+costing (a failed run, a retry, the orchestrator's fallback and cross-examinations included), and 0
+for a verdict reused from the cache. `cost_usd` is the verdict's judges only, kept for compatibility:
+read `spent_usd` for what a review cost. The terminal shows the same spent figure.
 
 ## The orchestrator
 
