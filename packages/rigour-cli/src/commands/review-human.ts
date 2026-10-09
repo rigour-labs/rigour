@@ -70,6 +70,7 @@ function printQuietLines(result: ReviewResult, notes: boolean): void {
     if (seen) lines.push(`Also seen, never blocking: ${seen} note${seen === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
     const before = result.preexisting + result.excludedOutsideChangedLines;
     if (before) lines.push(`Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change (review.show_preexisting: true lists them).`);
+    if (result.baseUnknown) lines.push('Compared with no base: HEAD already holds this diff, so findings on its lines were not checked against the code before it. Pass --base to compare.');
     if (result.hints.length) lines.push(`To confirm by hand: ${result.hints.length} hint${result.hints.length === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
     if (result.dismissed) lines.push(`Dismissed earlier as not a bug: ${result.dismissed}.`);
     if (result.muted) lines.push(`Muted: ${result.muted} from checks this repository usually dismisses (rigour precision).`);
