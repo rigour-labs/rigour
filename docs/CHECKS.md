@@ -194,6 +194,7 @@ The checks with gate ids `duplicate-null-filter`, `nullable-filtered-column`, `n
 
 - If the project is TypeScript and the program cannot be built (dependencies not installed, generated config missing), the review reports `typed-checks-unavailable` and blocks. A checkout that cannot prove the change is never a pass.
 - `wire_contracts` lists files whose types another service reads, so their members are never reported as write-only.
+- An optional member every host supplies is only a hint when values of the type are also read back from JSON as that type (`JSON.parse`, `readJson`, a response's `.json()`, through an `as`, an annotated variable, a type argument or the declared return type). Data written before the member existed lacks it, so it stays optional until that data is migrated.
 - `schema_migrations` lists folders of SQL migrations (default `supabase/migrations`; relative, absolute or `~/`; another repository is fine, read only). Rigour replays them to learn which columns are NOT NULL. Missing folders are skipped.
 - A function that scans a collection and is called once per item of another is a hint for the reviewer. Hints are listed with `rigour review --notes`.
 

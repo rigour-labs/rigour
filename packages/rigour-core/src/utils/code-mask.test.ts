@@ -12,6 +12,10 @@ describe('the code mask', () => {
         expect(code("f(x)  # g(y)", 'py')).toBe('cccccc......');
         expect(code('f(x); // g(y)', 'ts')).toBe('cccccc.......');
         expect(code('s = `t ${u}`', 'ts')).toBe('cccc........'); // an interpolation counts as string
+        const jsdoc = ' * import { a } from "./a.js"';
+        expect(code(jsdoc, 'ts')).toBe('.'.repeat(jsdoc.length)); // a JSDoc line
+        expect(code('/** eval(x) */', 'js')).toBe('.'.repeat(14));
+        expect(code('* not a comment', 'py')).toBe('c'.repeat(15)); // only the C family writes JSDoc
     });
 
     it('leaves an unclosed quote as code, and starts every line as code', () => {
