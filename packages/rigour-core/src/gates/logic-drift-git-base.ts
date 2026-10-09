@@ -8,6 +8,9 @@ export interface GitLogicBase {
     readAtBase: (file: string) => string | null;
 }
 
+/** Why a check that compares with the main branch could not run in a git checkout (resolveGitLogicBase gave null). */
+export const NO_GIT_BASE = 'nothing to compare with: no main branch (GITHUB_BASE_REF, origin/main, main, origin/master or master), or run from below the repository root';
+
 export function isGitWorktree(cwd: string): boolean {
     return git(cwd, ['rev-parse', '--is-inside-work-tree'])?.trim() === 'true';
 }
