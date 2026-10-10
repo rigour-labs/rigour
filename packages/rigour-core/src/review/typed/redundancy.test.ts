@@ -121,6 +121,22 @@ export function handler(rows: R[]): string { const body: Body = { results: h(row
         expect(hints[0]).toContain('carried as R');
     }, 60_000);
 
+    it('counts a read through the same-shape type a value was carried as, as a read of the value\'s field', async () => {
+        write('src/types.ts', 'export interface A { x: string; y: string }\n');
+        write('src/rows.ts', 'export interface R { id: string; p?: { x: string; y: string } }\n');
+        write('src/h.ts', `import type { A } from './types';
+import type { R } from './rows';
+function make(id: string): A { return { x: id, y: id }; }
+export function h(rows: R[]): R[] { return rows.map(r => ({ ...r, p: make(r.id) })); }
+export const marked = (rows: R[]) => h(rows).filter(r => r.p?.x).length;
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'read through the carrying type');
+        const result = await review();
+        // x is read as R.p.x; its sibling y is read nowhere and still blocks.
+        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual(['A.y']);
+    }, 60_000);
+
     it('still blocks a field of a value carried as another type when that type never leaves the program', async () => {
         write('src/types.ts', 'export interface A { x: string; y: string }\n');
         write('src/rows.ts', 'export interface R { id: string; p?: { x: string; y: string } }\n');
