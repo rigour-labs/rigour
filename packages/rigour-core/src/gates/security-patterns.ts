@@ -18,7 +18,7 @@ import { Gate, GateContext } from './base.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
-import { VULNERABILITY_PATTERNS } from './security-patterns-data.js';
+import { FIX_BY_TYPE, FIX_UNKNOWN, VULNERABILITY_PATTERNS } from './security-patterns-data.js';
 import { findUnsafeShellCalls } from './security-command-execution.js';
 import fs from 'fs-extra';
 import path from 'path';
@@ -33,6 +33,12 @@ export interface SecurityVulnerability {
     cwe?: string;
     /** The pattern is a credential format only a real secret has (security-patterns-data.ts `proven`). */
     proven?: true;
+}
+
+/** The fix for this kind of finding, after what was found; a secret is shown by its first characters only. */
+export function securityHint(vuln: Pick<SecurityVulnerability, 'type' | 'match'>): string {
+    const found = vuln.type === 'hardcoded_secrets' ? `${vuln.match.slice(0, 4)}…` : `${vuln.match.slice(0, 60)}…`;
+    return `Found: "${found}". ${FIX_BY_TYPE[vuln.type] ?? FIX_UNKNOWN}`;
 }
 
 export interface SecurityPatternsConfig {
@@ -150,7 +156,7 @@ export class SecurityPatternsGate extends Gate {
                     ...this.createFailure(
                         `[${vuln.cwe}] ${vuln.description}`,
                         [vuln.file],
-                        `Found: "${vuln.match.slice(0, 60)}..." - Use parameterized queries/sanitization.`,
+                        securityHint(vuln),
                         `Security: ${vuln.type.replace('_', ' ').toUpperCase()}`,
                         vuln.line,
                         vuln.line,

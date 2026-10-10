@@ -154,12 +154,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     provider,
                     apiBaseUrl,
                     modelName,
-                });
+                }, config);
                 break;
             }
             case "rigour_explain":       result = await handleExplain(runner, cwd); break;
             case "rigour_status":        result = await handleStatus(runner, cwd); break;
-            case "rigour_get_fix_packet": result = await handleGetFixPacket(runner, cwd, config, args as any); break;
+            case "rigour_get_fix_packet": result = await handleGetFixPacket(cwd, config, args as any); break;
             case "rigour_list_gates":    result = handleListGates(config); break;
             case "rigour_get_config":    result = handleGetConfig(config); break;
             case "rigour_mcp_get_settings": result = await handleMcpGetSettings(cwd); break;
@@ -419,7 +419,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
                         role: "user" as const,
                         content: {
                             type: "text" as const,
-                            text: `Run \`rigour_check\` on ${cwd}. MCP default deep mode for \`rigour_check\` is "${deepMode}". If the project FAILS, retrieve the fix packet with \`rigour_get_fix_packet\` and fix every violation in priority order (critical → high → medium → low). After each fix, re-run \`rigour_check\` to verify. Repeat until PASS. Do NOT skip any violation. Report progress after each iteration.`,
+                            text: `Run \`rigour_check\` on ${cwd}. MCP default deep mode for \`rigour_check\` is "${deepMode}". If it FAILS, retrieve the fix packet with \`rigour_get_fix_packet\`. Fix every must-fix item: each blocks you at the stop hook and the push gate. Notes are optional. Do not edit files outside your change unless a must-fix item names them. Re-run \`rigour_check\` after your fixes, until it passes. Report progress after each iteration.`,
                         },
                     },
                 ],

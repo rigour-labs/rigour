@@ -29,7 +29,7 @@ export const TOOL_DEFINITIONS = [
     // ─── Core Quality Gates ───────────────────────────────
     {
         name: "rigour_check",
-        description: "Run quality gate checks on the project. MUST be called before declaring any coding task complete. Checks code complexity, file size, required docs, security patterns, and more. Returns PASS or FAIL with details. **Always show the user the headline summary from this tool's output** — it tells them what Rigour caught. If FAIL, call rigour_get_fix_packet for structured fix instructions with exact file locations and step-by-step remediation.",
+        description: "Run quality gate checks on the project. MUST be called before declaring any coding task complete. With no files, it judges your change the way the stop hook and the push gate will: FAIL means something in your change must be fixed. With files, it checks those files. **Always show the user the headline summary from this tool's output** — it tells them what Rigour caught. If FAIL, call rigour_get_fix_packet for what to fix, with exact file:line.",
         inputSchema: {
             type: "object",
             properties: {
@@ -86,7 +86,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_get_fix_packet",
-        description: "Call this after rigour_check returns FAIL. Returns a bounded, prioritized page of violations with file locations and fix instructions. Use next_offset from the response to read further pages, then re-run rigour_check. Report only fixes that were actually verified.",
+        description: "Call this after rigour_check returns FAIL. Returns your change's must-fix items (they block you), then optional notes, a page at a time, each with file:line and the fix. Fix every must-fix item; do not edit files outside your change unless one names them. Use next_offset for further pages, then re-run rigour_check.",
         inputSchema: {
             type: "object",
             properties: {

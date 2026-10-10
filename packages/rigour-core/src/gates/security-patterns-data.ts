@@ -5,6 +5,25 @@
  * language-specific vulnerability patterns.
  */
 
+/**
+ * What the agent is told to do about each kind of finding: every pattern type has its own, and a type without one gets
+ * FIX_UNKNOWN, never another type's advice (a hard-coded key told to "parameterize" its query fixes nothing).
+ */
+export const FIX_BY_TYPE: Record<string, string> = {
+    hardcoded_secrets: 'Remove the secret from the code and read it from an environment variable or a secrets manager. Rotate the key: it is in the repository history now.',
+    sql_injection: 'Pass the values as query parameters (placeholders or a query builder), never by joining strings into the SQL.',
+    xss: 'Render the value as text (textContent, the framework\'s escaping) or sanitize it with an allow-list sanitizer before inserting HTML.',
+    path_traversal: 'Resolve the path against a fixed base directory and reject it unless it stays inside that base; never pass user input to the file system as is.',
+    command_injection: 'Run the program with an argument list (execFile, spawn without a shell), never a command string built from input.',
+    insecure_randomness: 'Use a cryptographic random source (crypto.randomUUID, crypto.getRandomValues, secrets) for tokens, ids and keys.',
+    redos: 'Rewrite the expression without nested or overlapping quantifiers, or bound the input length before matching.',
+    overly_permissive: 'Restrict it to the origins, hosts or permissions that need it instead of a wildcard.',
+    unsafe_output: 'Do not send internal details (stack traces, raw errors, secrets) to the client; log them on the server and return a generic message.',
+    missing_input_validation: 'Validate the input against a schema (type, length, range) before using it.',
+};
+
+export const FIX_UNKNOWN = 'Review this against the cited CWE and fix the root cause.';
+
 export const VULNERABILITY_PATTERNS: {
     type: string;
     regex: RegExp;
