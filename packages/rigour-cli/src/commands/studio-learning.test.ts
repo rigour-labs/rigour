@@ -155,6 +155,9 @@ describe('a lesson back to a candidate when outcomes stopped promoting', () => {
             expect(lesson.fromBots).toBeUndefined();
             const quiet = buildLearning({ now, lessons: [], reviewLessons: [{ id: 'q1', text: 'Add docs.', file: 'src/x.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '', evidence: [bot(3, 'rabbit[bot]')] }], stories: [], events: [] }).lessons[0];
             expect(quiet.fromBots).toBe(true);
+            // A later fix on its lines is evidence for a person to look at, not a person raising it: still from bots.
+            const withLines = buildLearning({ now, lessons: [], reviewLessons: [{ id: 'q2', text: 'Add types.', file: 'src/x.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '', evidence: [bot(4, 'rabbit[bot]'), { kind: 'lines', pr: 9, comment: 'lines-9-abc', author: '', detail: 'fixed later by abc' }] }], stories: [], events: [] }).lessons[0];
+            expect(withLines.fromBots).toBe(true);
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
         }
