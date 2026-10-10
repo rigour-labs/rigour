@@ -8,7 +8,7 @@
  * and so does a proven gate that crashed (a heuristic one is only listed).
  */
 import { spawnSync } from 'child_process';
-import { GateRunner } from '../gates/runner.js';
+import { GateRunner, gateOf } from '../gates/runner.js';
 import type { Config, DeepOptions, Failure, Report } from '../types/index.js';
 import { changedLinesByFile, parseDiff, removedByFile } from '../utils/diff.js';
 import { normalizeScopePatterns } from '../utils/scope.js';
@@ -73,6 +73,8 @@ export interface ReviewResult {
     excludedOutsideChangedLines: number;
     /** Findings the base already had: counted, not reported (baseline.ts). */
     preexisting: number;
+    /** The same, by check. A check whose findings were all the base's reads PASS in the report's summary. */
+    preexistingByCheck: Record<string, number>;
     /** A diff given with no base whose change HEAD already holds (committed work): nothing was compared, so nothing was dropped as the base's. */
     baseUnknown?: boolean;
     changedLines: Record<string, Set<number>>;
@@ -112,14 +114,14 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [], covered: [] };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, preexistingByCheck: {}, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [], covered: [] };
     }
     // The team's compiled checks run before the deep review, so it is told what they found and which lessons they covered.
     const compiled = compiledChecksOn(input.cwd, changedLines, input.config);
     const deep = input.deep ? { ...input.deep, focusLines: changedLinesByFile(changedLines), removedLines: removedByFile(diff), diff, settled: settledChecks(compiled.failures), covered: compiled.covered } : undefined;
     // The team's `commands:` run at push (toolchain.ts), where a failure blocks; here they would only cost time.
     const report = await new GateRunner({ ...input.config, commands: {} }).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
-    const { preexisting, baseUnknown } = await dropPreexisting(input, report, targets);
+    const { preexisting, byCheck: preexistingByCheck = {}, baseUnknown } = await dropPreexisting(input, report, targets);
     if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
     // The review's own checks, each recorded in the summary beside the gates, so a report says everything that ran.
     const reviewCheck = (id: string, key: keyof Config['gates'], failures: Failure[]) => {
@@ -165,6 +167,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         unlocated: split.unlocated,
         excludedOutsideChangedLines: split.outside,
         preexisting,
+        preexistingByCheck,
         ...(baseUnknown ? { baseUnknown } : {}),
         changedLines,
         report,
@@ -179,12 +182,25 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
 }
 
 /**
+ * A check that failed only on what the base already had passes for this change: its summary reads PASS, and the
+ * count, by check, says what it left out. A check with a finding the change introduced keeps FAIL.
+ */
+function passOnlyPreexisting(report: Report, preexisting: Failure[]): Record<string, number> {
+    const byCheck: Record<string, number> = {};
+    const check = (f: Failure) => gateOf(f) ?? f.id;
+    for (const f of preexisting) byCheck[check(f)] = (byCheck[check(f)] ?? 0) + 1;
+    const remaining = new Set(report.failures.map(check));
+    for (const id of Object.keys(byCheck)) if (report.summary[id] === 'FAIL' && !remaining.has(id)) report.summary[id] = 'PASS';
+    return byCheck;
+}
+
+/**
  * Drop the rules' findings the base already had; returns how many. Model findings stay: the model reviews only the change.
  * A diff given with no `--base` is compared with HEAD, which is right for uncommitted work. When HEAD already holds the
  * change (a diff of committed work), HEAD is no base: every finding would look like the base's, so none is dropped and
  * `baseUnknown` says why.
  */
-async function dropPreexisting(input: ReviewInput, report: Report, targets: string[]): Promise<{ preexisting: number; baseUnknown?: boolean }> {
+async function dropPreexisting(input: ReviewInput, report: Report, targets: string[]): Promise<{ preexisting: number; byCheck?: Record<string, number>; baseUnknown?: boolean }> {
     if (input.config.review?.show_preexisting) return { preexisting: 0 };
     if (input.diff !== undefined && input.source?.mode !== 'base' && input.source?.mode !== 'since' && headHolds(input.cwd, input.diff)) return { preexisting: 0, baseUnknown: true };
     const commit = baseCommit(input.cwd, input.source ?? (input.diff ? undefined : { mode: 'working' }));
@@ -194,7 +210,7 @@ async function dropPreexisting(input: ReviewInput, report: Report, targets: stri
         const { preexisting } = splitIntroduced(rules, await baseFindings(input.cwd, input.config, commit, targets));
         const old = new Set(preexisting);
         report.failures = report.failures.filter(f => !old.has(f));
-        return { preexisting: old.size };
+        return { preexisting: old.size, byCheck: passOnlyPreexisting(report, preexisting) };
     } catch {
         return { preexisting: 0 }; // the comparison is a courtesy; it never fails a review
     }

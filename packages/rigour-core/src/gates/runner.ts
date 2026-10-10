@@ -38,6 +38,14 @@ import { Logger } from '../utils/logger.js';
 import { FileSystemCache } from '../services/filesystem-cache.js';
 import { onChangedLines, settledChecks } from '../review/settled-checks.js';
 
+/** The gate each finding of a run came from (a gate may give its findings other ids, such as `AST_COMPLEXITY`). */
+const GATE_OF = new WeakMap<Failure, string>();
+
+/** The gate a finding came from, for a finding this runner produced; else undefined. */
+export function gateOf(failure: Failure): string | undefined {
+    return GATE_OF.get(failure);
+}
+
 export class GateRunner {
     private gates: Gate[] = [];
 
@@ -197,6 +205,7 @@ export class GateRunner {
                 let skipped: string | undefined;
                 const gateFailures = await gate.run({ cwd, record, ignore, patterns, fileCache, skip: reason => { skipped = reason; } });
                 if (gateFailures.length > 0) {
+                    for (const f of gateFailures) GATE_OF.set(f, gate.id);
                     failures.push(...gateFailures);
                     summary[gate.id] = 'FAIL';
                 } else if (skipped !== undefined) {
