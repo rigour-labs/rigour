@@ -95,7 +95,7 @@ function fromEvent(event: AgentEvent): ActivityItem[] {
             // What held it, as the edit line names what it stopped; an older record has only the count.
             const held = event.findings ?? [];
             const named = (f: { title: string; file: string; detail?: string }) => `${f.file ? `${f.file}: ` : ''}${f.title}${f.detail ? ` (${f.detail})` : ''}`;
-            if (held.length === 1 && (event.blocking ?? 1) === 1) return [{ at, kind: 'stopped', text: `Kept the agent working until it fixed ${named(held[0])}` }];
+            if (held.length === 1 && (event.blocking ?? 1) === 1) return [{ at, kind: 'stopped', text: `Kept the agent working: ${named(held[0])}` }]; // written at the block: the "Fixed" story says when it was fixed
             return [{ at, kind: 'stopped', text: `Kept the agent working: ${count(event.blocking ?? held.length, 'problem')} left when it tried to finish`, ...(held.length ? { detail: held.map(named).join(' · ') } : {}) }];
         }
         case 'lessons_served':
