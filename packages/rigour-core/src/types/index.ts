@@ -540,6 +540,12 @@ export const FailureSchema = z.object({
     verified: z.boolean().optional(), // AST-verified LLM finding
     /** A proven check the team keeps as a note (its `block: false`): shown, never blocking. */
     advisory: z.boolean().optional(),
+    /**
+     * How sure the check is that the defect exists, set by the rule that found it: proven (it traced the defect or
+     * states a fact) blocks on a changed line; likely is shown, never blocking; possible is a hint. Severity says how
+     * bad the defect would be, never whether it blocks. Unset: the gate-level rule decides (review/quiet.ts mustFix).
+     */
+    certainty: z.enum(['proven', 'likely', 'possible']).optional(),
 });
 export type Failure = z.infer<typeof FailureSchema>;
 

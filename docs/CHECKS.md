@@ -6,7 +6,7 @@ Every setting named here is listed with its default in [CONFIG_REFERENCE.md](CON
 
 ## What blocks
 
-One rule decides what blocks, in `packages/rigour-core/src/review/quiet.ts` (`mustFix`). The review verdict, the stop hook and the push gate all use it, so they never disagree about a finding. A finding blocks when any of these is true:
+One rule decides what blocks, in `packages/rigour-core/src/review/quiet.ts` (`mustFix`). The review verdict, the stop hook and the push gate all use it, so they never disagree about a finding. A rule that says how sure it is (the finding's `certainty`) decides first: only a `proven` finding blocks, and one marked `likely` or `possible` never does, whatever its check or severity. Otherwise a finding blocks when any of these is true:
 
 - It comes from a **proven** check: one that traces the defect itself rather than guessing at it. These gate ids are proven: `semantic-bugs`, `hallucinated-imports`, `security-patterns`, `deep-analysis`, `diff-tests`, `unused-export`, `orphan-file`, `offset-paging`, `unbounded-window`, `duplicate-function`, `partial-fix`, `partial-wiring`, `migration-order`, `duplicate-null-filter`, `nullable-filtered-column`, `optional-always-supplied`, `write-only-property`, `typed-checks-unavailable`. `unused-export` and `orphan-file` block only when the team turns on their `block` setting (below); otherwise they are notes.
 - Its severity is `critical`.

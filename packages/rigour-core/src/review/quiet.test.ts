@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Failure } from '../types/index.js';
-import { dismissFinding, findingKey, quietSplit } from './quiet.js';
+import { dismissFinding, findingKey, mustFix, quietSplit } from './quiet.js';
 
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quiet-')); });
@@ -30,6 +30,16 @@ describe('quiet by default', () => {
         ];
         expect(quietSplit(dir, all).speaking.map(f => f.id)).toEqual(['frontend-secret-exposure', 'promise-safety', 'file-size', 'migration-order']);
         expect(quietSplit(dir, all).advisory.map(f => f.details)).toEqual(['d']);
+    });
+
+    it('lets a rule\'s own certainty decide when it sets one: only proven blocks, whatever the gate or severity', () => {
+        const proven = { ...finding('promise-safety'), severity: 'medium' as const, certainty: 'proven' as const };
+        const likelyCritical = { ...finding('deprecated-apis'), severity: 'critical' as const, certainty: 'likely' as const };
+        const possibleOnProvenGate = { ...finding('security-patterns'), certainty: 'possible' as const };
+        const advisoryProven = { ...finding('semantic-bugs'), certainty: 'proven' as const, advisory: true };
+        expect([proven, likelyCritical, possibleOnProvenGate, advisoryProven].map(mustFix)).toEqual([true, false, false, false]);
+        // Without it, the gate-level rule stands, unchanged.
+        expect([finding('security-patterns'), { ...finding('deprecated-apis'), severity: 'critical' as const }, finding('promise-safety')].map(mustFix)).toEqual([true, true, false]);
     });
 
     it('never reports a dismissed finding again, even after its line moves', () => {
