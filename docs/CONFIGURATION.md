@@ -153,6 +153,7 @@ rigour init --preset api --paradigm functional --force
 | `RIGOUR_API_KEY` | The key for [model review](./MODEL_REVIEW.md) when no `--api-key` is given. |
 | `RIGOUR_REVIEWER_MODE`, `RIGOUR_REVIEWER_PANEL` | The reviewer's mode (`single`, `cross`, `full`) and panel (`on`, `off`), for runs that take no flags. |
 | `RIGOUR_GITHUB_ACCOUNT` | The `gh` account whose token reads pull requests and their reviews. `GH_TOKEN` wins when set. |
+| `RIGOUR_REVIEWER_BLIND` | `1`: the reviewer reviews the change alone, with no pull request lookup, description or human reviews, as `--blind` does (no GitHub CLI needed). |
 | `RIGOUR_MCP_TOOLS` | `governance` adds the agent-team tools to the MCP server ([Coding agents and MCP](./AGENTS.md)). |
 | `RIGOUR_CWD` | The repository the MCP server works in when the agent does not say. |
 | `RIGOUR_USER_MEMORY` | `off` keeps the MCP server from writing lessons to your home folder. |
