@@ -35,7 +35,35 @@ export interface Journey {
     reach?: { scope: 'file' | 'folder' | 'repo'; hasFile: boolean };
     /** A candidate only review bots raised, with nothing waiting on a person: hidden until a person asks to see bot points. */
     fromBots?: true;
+    /** Teammates' decisions on this lesson, by display name; and a later team decision that settled it against yours. */
+    team?: {
+        decisions: Array<{ kind: string; name: string; at: string; detail?: string }>;
+        overruled?: { yours: string; team: { kind: string; name: string; at: string }; yoursOnly?: string };
+    };
 }
+
+/** A teammate's decision, in words. */
+const TEAM_VERB: Record<string, string> = { accepted: 'accepted', rejected: 'rejected', dismissed: 'dismissed', scoped: 'set how far it reaches', reworded: 'reworded', compiled: 'decided its compiled check' };
+const day = (iso: string) => iso.slice(0, 10);
+
+/** The team's decisions on a lesson, and, when a later one settled it against yours, both. */
+const TeamDecisions: React.FC<{ team: NonNullable<Journey['team']> }> = ({ team }) => (
+    <div style={{ marginTop: 14 }}>
+        {team.overruled && (
+            <div>
+                <span className="st-chip warn">the team decided</span>{' '}
+                <span className="st-sub">
+                    You {TEAM_VERB[team.overruled.yours] ?? team.overruled.yours} it{team.overruled.yoursOnly ? ` (yours only: ${team.overruled.yoursOnly})` : ''}; {team.overruled.team.name} {TEAM_VERB[team.overruled.team.kind] ?? team.overruled.team.kind} it on {day(team.overruled.team.at)}, and the team's decision is what agents are told.
+                </span>
+            </div>
+        )}
+        {team.decisions.map(d => (
+            <div key={`${d.at}-${d.kind}-${d.name}`} className="st-sub" style={{ marginTop: 4 }}>
+                {d.name} (team) {TEAM_VERB[d.kind] ?? d.kind} it on {day(d.at)}{d.detail ? `: ${d.detail}` : ''}
+            </div>
+        ))}
+    </div>
+);
 
 /** Candidates only review bots raised are hidden by default and counted; a person can show them. */
 export const BotPointsToggle: React.FC<{ count: number; shown: boolean; onToggle: () => void }> = ({ count, shown, onToggle }) => (
@@ -60,6 +88,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
             <div><div className="st-sub">Stopped in development</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.stoppedInDevelopment, lesson.origin === 'development')}</div></div>
             <div><div className="st-sub">Reached a PR again</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.reachedPr, lesson.origin === 'development')}</div></div>
         </div>
+        {lesson.team && <TeamDecisions team={lesson.team} />}
         {lesson.takenBack && (
             <div style={{ marginTop: 14 }}>
                 <div><span className="st-chip warn">taken back</span> <span className="st-sub">{lesson.takenBack.detail}</span></div>

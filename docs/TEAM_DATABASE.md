@@ -103,7 +103,7 @@ question (accepted or rejected, how far it reaches, its wording) the latest pers
 - a decision this machine never sends (a `member`'s) counts from when it was made, so a later team decision wins on
   that machine.
 
-The brief cites a lesson a teammate settled with their display name ("approved by Jane D. (team)"). `rigour team
+The brief cites a lesson a teammate settled with their display name ("approved by Jane D. (team)"). Studio's **How it learns** shows each team decision on the lesson's card ("Omar K. (team) rejected it on 2026-10-09: …"), and when a later team decision settled a lesson against your own, says so ("the team decided"), with why your decision is yours only when this machine does not share it. `rigour team
 doctor` says that a clone receives the team's decisions at its first sync. Evidence (a later fix, recurrence) never
 overrides a person. Deciding on a lesson known only from the team takes it into
 the repository's lessons file first (its wording, file and review points, without the team's decisions), and records
