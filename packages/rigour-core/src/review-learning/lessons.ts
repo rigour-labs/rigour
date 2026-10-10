@@ -17,6 +17,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
 import { bodyPoints, withoutEmphasis } from './review-points.js';
+import { notARequest, type NotRequestReason } from './requests.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
 const MAX_TEXT = 220;
@@ -191,9 +192,17 @@ export function lessonSymbols(body: string, codeLines: string[]): string[] {
     return symbols;
 }
 
-export function lessonFromComment(git: Git, comment: ReviewComment, at = new Date().toISOString()): ReviewLesson | undefined {
+/** Told why a point asking for nothing was skipped (requests.ts), so learning can count it. */
+export type OnSkip = (reason: NotRequestReason) => void;
+
+export function lessonFromComment(git: Git, comment: ReviewComment, at = new Date().toISOString(), onSkip?: OnSkip): ReviewLesson | undefined {
     const text = lessonText(comment.body);
     if (text.length < 12) return undefined;
+    const skip = notARequest(text, 'inline');
+    if (skip) {
+        onSkip?.(skip);
+        return undefined;
+    }
     let codeLines: string[] = [];
     try {
         codeLines = git(['show', `${comment.commit}:${comment.path}`]).split('\n').slice(comment.start - 1, comment.end);
@@ -214,10 +223,15 @@ export function lessonFromComment(git: Git, comment: ReviewComment, at = new Dat
  * a team standard (file ''), served with any change it is about once evidence makes it a lesson.
  * Whether files changed after it is recorded, not required.
  */
-export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString()): ReviewLesson[] {
+export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString(), onSkip?: OnSkip): ReviewLesson[] {
     return bodyPoints(review.body).flatMap((point, i) => {
         const text = pointText(withoutEmphasis(point)).slice(0, MAX_TEXT).trim();
         if (text.length < 12) return [];
+        const skip = notARequest(point, 'body');
+        if (skip) {
+            onSkip?.(skip);
+            return [];
+        }
         const named = /(?:^|[\s`(])((?:[\w.-]+\/)+[\w.-]+\.\w+)/.exec(point)?.[1];
         const file = named ?? changedAfter.find(f => text.includes(path.posix.basename(f))) ?? '';
         return [{

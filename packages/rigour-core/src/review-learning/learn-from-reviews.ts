@@ -14,6 +14,7 @@ import { changedSince, gitIn, withActedOn, type Git, type MergedPr, type ReviewB
 import { outcomeFor, revertOf } from './outcomes.js';
 import fs from 'fs';
 import path from 'path';
+import type { NotRequestReason } from './requests.js';
 import { lessonFromComment, lessonsFromReview, lessonsPath, lessonState, mergeLessons, readLessons, writeLessons, type ReviewLesson } from './lessons.js';
 import { rulesFromReviews, type RuleWriter } from './rules-from-reviews.js';
 
@@ -54,6 +55,8 @@ export interface LearnFromReviewsResult {
     reviewBodies: number;
     /** Candidate points read this run, by who wrote them. */
     candidates: { person: number; bot: number };
+    /** Points that ask for nothing (review tool status, a description of the change, praise, status reports), by why: skipped, not learned. */
+    skipped: Partial<Record<NotRequestReason, number>>;
     /** Lessons now promoted, by the evidence that promoted them; anti-lessons; candidates held back by counter-evidence. */
     promoted: Record<'outcome' | 'correction' | 'person' | 'recurrence' | 'legacy', number>;
     rejected: number;
@@ -73,16 +76,18 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
     let comments = 0;
     let acted = 0;
     let bodies = 0;
+    const skipped: Partial<Record<NotRequestReason, number>> = {};
+    const onSkip = (reason: NotRequestReason) => { skipped[reason] = (skipped[reason] ?? 0) + 1; };
     for (const pr of prs) {
         comments += pr.comments.length;
         for (const comment of withActedOn(git, pr)) {
             if (comment.actedOn) acted++;
-            const lesson = lessonFromComment(git, comment);
+            const lesson = lessonFromComment(git, comment, undefined, onSkip);
             if (lesson) lessons.push(lesson);
         }
         for (const review of pr.reviews) {
             bodies++;
-            lessons.push(...lessonsFromReview(review, changedSince(git, review.commit, pr.mergeSha)));
+            lessons.push(...lessonsFromReview(review, changedSince(git, review.commit, pr.mergeSha), undefined, onSkip));
         }
     }
     const known = new Set(readLessons(cwd).flatMap(l => l.evidence.map(e => e.comment)));
@@ -124,6 +129,7 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
     return {
         prs: prs.length, comments, actedOn: acted, reviewBodies: bodies,
         candidates: { person: points.filter(e => e.source !== 'bot').length, bot: points.filter(e => e.source === 'bot').length },
+        skipped,
         promoted, rejected: merged.lessons.filter(l => l.state === 'rejected').length,
         heldBack: merged.lessons.filter(l => l.state === 'candidate' && l.evidence.some(e => e.kind === 'counter')).length,
         ...(written ? { rules: written.rules, notRules: written.dropped } : {}),
