@@ -17,7 +17,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
 import { bodyPoints, withoutEmphasis } from './review-points.js';
-import { notARequest, type NotRequestReason } from './requests.js';
+import { asksSomething, bodyPointPlaces, describesChange, notARequest, type NotRequestReason } from './requests.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
 const MAX_TEXT = 220;
@@ -74,6 +74,8 @@ export interface LessonEvidence {
     prAuthor?: string;
     /** Whether the pull request changed the lines before merging: not evidence (agents apply comments on their own), recorded. */
     actedOn?: boolean;
+    /** The comment was edited at or after `--until`: GitHub serves only its edited text, so this point may say more than it did then. */
+    editedAfterUntil?: true;
     /** The person's own words, kept when a rule was written from them (rules-from-reviews.ts). */
     said?: string;
     /** A point's own words, as it was made (each point merged into a lesson keeps its own). */
@@ -224,10 +226,18 @@ export function lessonFromComment(git: Git, comment: ReviewComment, at = new Dat
  * Whether files changed after it is recorded, not required.
  */
 export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString(), onSkip?: OnSkip): ReviewLesson[] {
+    const places = bodyPointPlaces(review.body);
     return bodyPoints(review.body).flatMap((point, i) => {
         const text = pointText(withoutEmphasis(point)).slice(0, MAX_TEXT).trim();
         if (text.length < 12) return [];
-        const skip = notARequest(point, 'body');
+        // The point's own shape first (a tool's status line is that wherever it sits); then its place: a tool's help
+        // block is never review, and a change summary's bullet is a description unless it asks for something. A
+        // person's "## Summary" often lists defects as plain statements, so there the bullet must also read as a
+        // description; in a bot's body the place is enough.
+        const own = notARequest(point, 'body');
+        const summarised = places[i] === 'describes the change' && !asksSomething(point) && (review.source === 'bot' || describesChange(point));
+        const placed = places[i] === 'review tool status' || summarised ? places[i] : undefined;
+        const skip = own === 'review tool status' ? own : placed ?? own;
         if (skip) {
             onSkip?.(skip);
             return [];
@@ -508,6 +518,6 @@ export function meaningfulWords(text: string): string[] {
 }
 
 /** Who made a point and on whose pull request: recorded with it, never a filter. */
-function pointMeta(x: { source?: 'person' | 'bot'; prAuthor?: string; actedOn?: boolean }): Pick<LessonEvidence, 'source' | 'prAuthor' | 'actedOn'> {
-    return { ...(x.source ? { source: x.source } : {}), ...(x.prAuthor ? { prAuthor: x.prAuthor } : {}), ...(x.actedOn !== undefined ? { actedOn: x.actedOn } : {}) };
+function pointMeta(x: { source?: 'person' | 'bot'; prAuthor?: string; actedOn?: boolean; editedAfterUntil?: true }): Pick<LessonEvidence, 'source' | 'prAuthor' | 'actedOn' | 'editedAfterUntil'> {
+    return { ...(x.source ? { source: x.source } : {}), ...(x.prAuthor ? { prAuthor: x.prAuthor } : {}), ...(x.actedOn !== undefined ? { actedOn: x.actedOn } : {}), ...(x.editedAfterUntil ? { editedAfterUntil: true as const } : {}) };
 }

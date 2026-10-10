@@ -1,0 +1,5030 @@
+{
+  "label": "b1-sections",
+  "at": "2026-10-10T14:53:20.397Z",
+  "repos": {
+    "immich-app/immich": {
+      "prs": 50,
+      "inlineComments": 65,
+      "reviewBodies": 40,
+      "skipped": {},
+      "points": {
+        "total": 61,
+        "people": 61,
+        "bots": 0
+      },
+      "candidates": 61,
+      "verified": 0,
+      "verifiedBy": {
+        "recurrence": 0,
+        "person": 0,
+        "correction": 0,
+        "outcome": 0,
+        "legacy": 0
+      },
+      "cloneMode": "--filter=blob:none",
+      "cloneMb": 546,
+      "seconds": 421,
+      "notVerified": {
+        "raised on one pull request only": 61
+      },
+      "lessons": [
+        {
+          "id": "80c14e3d8fd2",
+          "textHash": "097f6b18efd1",
+          "broken": false,
+          "file": "mobile/lib/constants/aspect_ratios.dart",
+          "state": "candidate",
+          "sources": [
+            "3898203323"
+          ],
+          "units": {},
+          "prs": [
+            31119
+          ],
+          "bot": false
+        },
+        {
+          "id": "40807233557a",
+          "textHash": "dc862b5d606a",
+          "broken": false,
+          "file": "mobile/lib/constants/aspect_ratios.dart",
+          "state": "candidate",
+          "sources": [
+            "3898216766"
+          ],
+          "units": {},
+          "prs": [
+            31119
+          ],
+          "bot": false
+        },
+        {
+          "id": "5d14781581ff",
+          "textHash": "1f458bacbdef",
+          "broken": false,
+          "file": "mobile/lib/constants/aspect_ratios.dart",
+          "state": "candidate",
+          "sources": [
+            "3923525519"
+          ],
+          "units": {},
+          "prs": [
+            31119
+          ],
+          "bot": false
+        },
+        {
+          "id": "4a9504ad5868",
+          "textHash": "e66c612ec80c",
+          "broken": false,
+          "file": "mobile/lib/presentation/actions/delete.action.dart",
+          "state": "candidate",
+          "sources": [
+            "3968662343"
+          ],
+          "units": {},
+          "prs": [
+            31146
+          ],
+          "bot": false
+        },
+        {
+          "id": "031065a9e44e",
+          "textHash": "a03a60f682b7",
+          "broken": false,
+          "file": "mobile/lib/presentation/actions/delete.action.dart",
+          "state": "candidate",
+          "sources": [
+            "3991783187"
+          ],
+          "units": {},
+          "prs": [
+            31146
+          ],
+          "bot": false
+        },
+        {
+          "id": "293587065585",
+          "textHash": "349f0f15dfb7",
+          "broken": false,
+          "file": "mobile/lib/presentation/actions/delete.action.dart",
+          "state": "candidate",
+          "sources": [
+            "3991877231"
+          ],
+          "units": {},
+          "prs": [
+            31146
+          ],
+          "bot": false
+        },
+        {
+          "id": "cf5d8ade7e04",
+          "textHash": "c628a6347521",
+          "broken": false,
+          "file": "mobile/test/unit/presentation/actions/delete_action_test.dart",
+          "state": "candidate",
+          "sources": [
+            "3991902316"
+          ],
+          "units": {},
+          "prs": [
+            31146
+          ],
+          "bot": false
+        },
+        {
+          "id": "eafcd881a01e",
+          "textHash": "7e72364ea086",
+          "broken": false,
+          "file": "mobile/test/unit/presentation/actions/delete_action_test.dart",
+          "state": "candidate",
+          "sources": [
+            "3991906380"
+          ],
+          "units": {},
+          "prs": [
+            31146
+          ],
+          "bot": false
+        },
+        {
+          "id": "adf777b1154d",
+          "textHash": "80c2e355641e",
+          "broken": false,
+          "file": "mobile/lib/presentation/actions/delete.action.dart",
+          "state": "candidate",
+          "sources": [
+            "4074163462"
+          ],
+          "units": {},
+          "prs": [
+            31146
+          ],
+          "bot": false
+        },
+        {
+          "id": "23ad497fb112",
+          "textHash": "b4d96c6bdbad",
+          "broken": false,
+          "file": "mobile/lib/presentation/actions/delete.action.dart",
+          "state": "candidate",
+          "sources": [
+            "4074169758"
+          ],
+          "units": {},
+          "prs": [
+            31146
+          ],
+          "bot": false
+        },
+        {
+          "id": "ec96ade17bf1",
+          "textHash": "2e55985defee",
+          "broken": false,
+          "file": "mobile/lib/infrastructure/repositories/memory.repository.dart",
+          "state": "candidate",
+          "sources": [
+            "3919383023"
+          ],
+          "units": {},
+          "prs": [
+            31229
+          ],
+          "bot": false
+        },
+        {
+          "id": "32e3034b718f",
+          "textHash": "0e17a2b0b9b9",
+          "broken": false,
+          "file": "mobile/lib/widgets/search/search_filter/people_picker.dart",
+          "state": "candidate",
+          "sources": [
+            "3919401508"
+          ],
+          "units": {},
+          "prs": [
+            31229
+          ],
+          "bot": false
+        },
+        {
+          "id": "f53e65c5fe66",
+          "textHash": "e5191a504128",
+          "broken": false,
+          "file": "mobile/lib/providers/app_life_cycle.provider.dart",
+          "state": "candidate",
+          "sources": [
+            "3923882666"
+          ],
+          "units": {},
+          "prs": [
+            31239
+          ],
+          "bot": false
+        },
+        {
+          "id": "491bf183d251",
+          "textHash": "fd53ca1caff6",
+          "broken": false,
+          "file": "web/src/lib/components/album-page/AlbumCard.svelte",
+          "state": "candidate",
+          "sources": [
+            "3934939449"
+          ],
+          "units": {},
+          "prs": [
+            31265
+          ],
+          "bot": false
+        },
+        {
+          "id": "a3677cf54df4",
+          "textHash": "cd0df152a83b",
+          "broken": false,
+          "file": "mobile/test/utils_legacy/action_button_utils_test.dart",
+          "state": "candidate",
+          "sources": [
+            "3958518931"
+          ],
+          "units": {},
+          "prs": [
+            31280
+          ],
+          "bot": false
+        },
+        {
+          "id": "b8a390312bf8",
+          "textHash": "e3620e597133",
+          "broken": false,
+          "file": "mobile/lib/utils/debounce.dart",
+          "state": "candidate",
+          "sources": [
+            "3960327828"
+          ],
+          "units": {},
+          "prs": [
+            31280
+          ],
+          "bot": false
+        },
+        {
+          "id": "f2d890345898",
+          "textHash": "5a0fbc782a9d",
+          "broken": false,
+          "file": "mobile/lib/infrastructure/repositories/storage.repository.dart",
+          "state": "candidate",
+          "sources": [
+            "3989632585"
+          ],
+          "units": {},
+          "prs": [
+            31401
+          ],
+          "bot": false
+        },
+        {
+          "id": "1138e24c21c8",
+          "textHash": "ba39659e6d66",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3992296452"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "ac63520b01a3",
+          "textHash": "9ea429ba1048",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3992356412"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "60d550628b9c",
+          "textHash": "d60a6aadb65e",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3992359679"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "2fc3f752e178",
+          "textHash": "381a384be9c9",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3992371999"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "8588f5a0ebeb",
+          "textHash": "762cd182d72f",
+          "broken": false,
+          "file": "server/src/controllers/person.controller.ts",
+          "state": "candidate",
+          "sources": [
+            "3992756010"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "ec0172f1d3c2",
+          "textHash": "b8235df08086",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3992776348"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "9e1bf7019938",
+          "textHash": "31ef50e46454",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3992788594"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "5444c3346cb8",
+          "textHash": "703fac2de934",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3992871549"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "07df3530ac1d",
+          "textHash": "26f11cc6e715",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3992921111"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "e06167e3dce9",
+          "textHash": "0c8bb246110f",
+          "broken": false,
+          "file": "server/test/medium/specs/services/person.service.spec.ts",
+          "state": "candidate",
+          "sources": [
+            "3992929806"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "10dd42008e46",
+          "textHash": "8f6df3bf9b00",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3993293114"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "80ea015de865",
+          "textHash": "fb9946e33d57",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "3993816515"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "80c5b854df65",
+          "textHash": "8cc0889e356b",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "4006007267"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "1b5c59ea4455",
+          "textHash": "55eec5982786",
+          "broken": false,
+          "file": "server/src/services/person.service.ts",
+          "state": "candidate",
+          "sources": [
+            "4006011037"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "b1ae9e76063e",
+          "textHash": "e1b2e4b96f46",
+          "broken": false,
+          "file": "server/src/controllers/person.controller.ts",
+          "state": "candidate",
+          "sources": [
+            "4006434908"
+          ],
+          "units": {},
+          "prs": [
+            31456
+          ],
+          "bot": false
+        },
+        {
+          "id": "ce4076cb5280",
+          "textHash": "4e20e36e9730",
+          "broken": false,
+          "file": "mobile/lib/utils/bootstrap.dart",
+          "state": "candidate",
+          "sources": [
+            "4004522535"
+          ],
+          "units": {},
+          "prs": [
+            31457
+          ],
+          "bot": false
+        },
+        {
+          "id": "75943f38bdb5",
+          "textHash": "ba5bffda1687",
+          "broken": false,
+          "file": "mobile/lib/utils/isolate.dart",
+          "state": "candidate",
+          "sources": [
+            "4004592466"
+          ],
+          "units": {},
+          "prs": [
+            31457
+          ],
+          "bot": false
+        },
+        {
+          "id": "d2bb9831669b",
+          "textHash": "a9a22d2b91be",
+          "broken": false,
+          "file": "mobile/ios/Runner/Background/BackgroundWorkerApiImpl.swift",
+          "state": "candidate",
+          "sources": [
+            "4039953848"
+          ],
+          "units": {},
+          "prs": [
+            31557
+          ],
+          "bot": false
+        },
+        {
+          "id": "a54fd4a080b3",
+          "textHash": "0f5682d73814",
+          "broken": false,
+          "file": "mobile/lib/providers/app_life_cycle.provider.dart",
+          "state": "candidate",
+          "sources": [
+            "4039969723"
+          ],
+          "units": {},
+          "prs": [
+            31557
+          ],
+          "bot": false
+        },
+        {
+          "id": "1f34256eb806",
+          "textHash": "49bdf0ff3ee4",
+          "broken": false,
+          "file": "mobile/lib/providers/app_life_cycle.provider.dart",
+          "state": "candidate",
+          "sources": [
+            "4040030770"
+          ],
+          "units": {},
+          "prs": [
+            31557
+          ],
+          "bot": false
+        },
+        {
+          "id": "e9b2cedc97e8",
+          "textHash": "10a8abbb7b93",
+          "broken": false,
+          "file": "mobile/lib/providers/app_life_cycle.provider.dart",
+          "state": "candidate",
+          "sources": [
+            "4040032645"
+          ],
+          "units": {},
+          "prs": [
+            31557
+          ],
+          "bot": false
+        },
+        {
+          "id": "7ffea31b6d56",
+          "textHash": "2592b3f20dfd",
+          "broken": false,
+          "file": "mobile/lib/data/db/main/table/local/asset.dart",
+          "state": "candidate",
+          "sources": [
+            "4019333502"
+          ],
+          "units": {},
+          "prs": [
+            31577
+          ],
+          "bot": false
+        },
+        {
+          "id": "ec2b9fd0b3ed",
+          "textHash": "28bf13c25e98",
+          "broken": false,
+          "file": "mobile/lib/services/background_upload.service.dart",
+          "state": "candidate",
+          "sources": [
+            "4019412309"
+          ],
+          "units": {},
+          "prs": [
+            31577
+          ],
+          "bot": false
+        },
+        {
+          "id": "781b6dfce7c6",
+          "textHash": "05c2fe2edf75",
+          "broken": false,
+          "file": "mobile/lib/infrastructure/repositories/local_album.repository.dart",
+          "state": "candidate",
+          "sources": [
+            "4019421064"
+          ],
+          "units": {},
+          "prs": [
+            31577
+          ],
+          "bot": false
+        },
+        {
+          "id": "1595d409c522",
+          "textHash": "7ceccf487ae3",
+          "broken": false,
+          "file": "mobile/lib/domain/services/asset.service.dart",
+          "state": "candidate",
+          "sources": [
+            "4019451490"
+          ],
+          "units": {},
+          "prs": [
+            31577
+          ],
+          "bot": false
+        },
+        {
+          "id": "85e36d7bfac5",
+          "textHash": "ea693a3e570e",
+          "broken": false,
+          "file": "mobile/test/unit/services/asset_service_test.dart",
+          "state": "candidate",
+          "sources": [
+            "4019462880"
+          ],
+          "units": {},
+          "prs": [
+            31577
+          ],
+          "bot": false
+        },
+        {
+          "id": "6186176bfe73",
+          "textHash": "a2a06ea9842a",
+          "broken": false,
+          "file": "mobile/test/medium/repositories/local_album_repository_test.dart",
+          "state": "candidate",
+          "sources": [
+            "4019467754"
+          ],
+          "units": {},
+          "prs": [
+            31577
+          ],
+          "bot": false
+        },
+        {
+          "id": "2eefa4e9ddf5",
+          "textHash": "13ddd9206c9d",
+          "broken": false,
+          "file": "server/src/dtos/sync.dto.ts",
+          "state": "candidate",
+          "sources": [
+            "4019699279"
+          ],
+          "units": {},
+          "prs": [
+            31591
+          ],
+          "bot": false
+        },
+        {
+          "id": "f9c0e0b68e55",
+          "textHash": "56d399837dcd",
+          "broken": false,
+          "file": "mobile/lib/presentation/widgets/asset_viewer/video_viewer.widget.dart",
+          "state": "candidate",
+          "sources": [
+            "4025429895"
+          ],
+          "units": {},
+          "prs": [
+            31606
+          ],
+          "bot": false
+        },
+        {
+          "id": "d4224108568b",
+          "textHash": "0e0cda24302e",
+          "broken": false,
+          "file": "mobile/test/presentation/widgets/asset_viewer/video_viewer_test.dart",
+          "state": "candidate",
+          "sources": [
+            "4037007415"
+          ],
+          "units": {},
+          "prs": [
+            31606
+          ],
+          "bot": false
+        },
+        {
+          "id": "0ca9acb5619a",
+          "textHash": "2d1ebba8e62a",
+          "broken": false,
+          "file": "mobile/test/presentation/widgets/asset_viewer/video_viewer_test.dart",
+          "state": "candidate",
+          "sources": [
+            "4037011226"
+          ],
+          "units": {},
+          "prs": [
+            31606
+          ],
+          "bot": false
+        },
+        {
+          "id": "1492e6e01a2b",
+          "textHash": "ab15727a4383",
+          "broken": false,
+          "file": "mobile/lib/presentation/widgets/asset_viewer/asset_page.widget.dart",
+          "state": "candidate",
+          "sources": [
+            "4026295709"
+          ],
+          "units": {},
+          "prs": [
+            31609
+          ],
+          "bot": false
+        },
+        {
+          "id": "49fefa4f5886",
+          "textHash": "362be556c384",
+          "broken": false,
+          "file": "mobile/lib/data/db/main/table/people/asset_face.dart",
+          "state": "candidate",
+          "sources": [
+            "4026609775"
+          ],
+          "units": {},
+          "prs": [
+            31615
+          ],
+          "bot": false
+        },
+        {
+          "id": "3e1713334fb8",
+          "textHash": "ea35f7bb3ca6",
+          "broken": false,
+          "file": "mobile/lib/data/store/person.dart",
+          "state": "candidate",
+          "sources": [
+            "4048945102"
+          ],
+          "units": {},
+          "prs": [
+            31661
+          ],
+          "bot": false
+        },
+        {
+          "id": "01982c500725",
+          "textHash": "26bdb633ef30",
+          "broken": false,
+          "file": "mobile/lib/presentation/actions/tag.action.dart",
+          "state": "candidate",
+          "sources": [
+            "4073388515"
+          ],
+          "units": {},
+          "prs": [
+            31704
+          ],
+          "bot": false
+        },
+        {
+          "id": "ef77a309e15c",
+          "textHash": "398c40e10648",
+          "broken": false,
+          "file": "mobile/mise.toml",
+          "state": "candidate",
+          "sources": [
+            "4086590463"
+          ],
+          "units": {},
+          "prs": [
+            31753
+          ],
+          "bot": false
+        },
+        {
+          "id": "af4fa35751be",
+          "textHash": "a4d93a0a628c",
+          "broken": false,
+          "file": "web/src/lib/services/album.service.ts",
+          "state": "candidate",
+          "sources": [
+            "4103594272"
+          ],
+          "units": {},
+          "prs": [
+            31768
+          ],
+          "bot": false
+        },
+        {
+          "id": "55379a0778a4",
+          "textHash": "4758d3962105",
+          "broken": false,
+          "file": "web/src/lib/services/album.service.ts",
+          "state": "candidate",
+          "sources": [
+            "4103604135"
+          ],
+          "units": {},
+          "prs": [
+            31768
+          ],
+          "bot": false
+        },
+        {
+          "id": "941cfc3b3eb7",
+          "textHash": "3aeac4449b7c",
+          "broken": false,
+          "file": "web/src/routes/(user)/albums/[albumId=id]/[[photos=photos]]/[[assetId=id]]/+page.svelte",
+          "state": "candidate",
+          "sources": [
+            "4103609680"
+          ],
+          "units": {},
+          "prs": [
+            31768
+          ],
+          "bot": false
+        },
+        {
+          "id": "62d2b086fd8c",
+          "textHash": "2cc60a110b83",
+          "broken": false,
+          "file": "web/src/lib/services/album.service.ts",
+          "state": "candidate",
+          "sources": [
+            "4103623187"
+          ],
+          "units": {},
+          "prs": [
+            31768
+          ],
+          "bot": false
+        },
+        {
+          "id": "2edeaeefd79d",
+          "textHash": "87c5b08cc672",
+          "broken": false,
+          "file": "server/src/utils/mime-types.ts",
+          "state": "candidate",
+          "sources": [
+            "4105537449"
+          ],
+          "units": {},
+          "prs": [
+            31778
+          ],
+          "bot": false
+        },
+        {
+          "id": "f79baa353e55",
+          "textHash": "5a0124339ba8",
+          "broken": false,
+          "file": "web/src/lib/modals/SlideshowSettingsModal.svelte",
+          "state": "candidate",
+          "sources": [
+            "4125532363"
+          ],
+          "units": {},
+          "prs": [
+            31841
+          ],
+          "bot": false
+        },
+        {
+          "id": "6f079c4fad82",
+          "textHash": "5d97b48b1111",
+          "broken": false,
+          "file": "server/src/repositories/storage.repository.spec.ts",
+          "state": "candidate",
+          "sources": [
+            "4142186901"
+          ],
+          "units": {},
+          "prs": [
+            31928
+          ],
+          "bot": false
+        },
+        {
+          "id": "0c9a60fbc695",
+          "textHash": "680b23c5386b",
+          "broken": false,
+          "file": "server/test/medium/specs/services/metadata.service.spec.ts",
+          "state": "candidate",
+          "sources": [
+            "4142236158"
+          ],
+          "units": {},
+          "prs": [
+            31928
+          ],
+          "bot": false
+        }
+      ],
+      "nearDuplicates": []
+    },
+    "tailscale/tailscale": {
+      "prs": 40,
+      "inlineComments": 57,
+      "reviewBodies": 27,
+      "skipped": {},
+      "points": {
+        "total": 56,
+        "people": 54,
+        "bots": 2
+      },
+      "candidates": 55,
+      "verified": 0,
+      "verifiedBy": {
+        "recurrence": 0,
+        "person": 0,
+        "correction": 0,
+        "outcome": 0,
+        "legacy": 0
+      },
+      "cloneMode": "--filter=blob:none",
+      "cloneMb": 253,
+      "seconds": 263,
+      "notVerified": {
+        "raised on one pull request only": 54,
+        "raised only by bots": 1
+      },
+      "lessons": [
+        {
+          "id": "5c8cc8d5f86d",
+          "textHash": "670ae6c9a68f",
+          "broken": false,
+          "file": "k8s-operator/api.md",
+          "state": "candidate",
+          "sources": [
+            "4031026304"
+          ],
+          "units": {},
+          "prs": [
+            21327
+          ],
+          "bot": false
+        },
+        {
+          "id": "d0427c3eec6b",
+          "textHash": "c10f9fd197a7",
+          "broken": true,
+          "file": "k8s-operator/api.md",
+          "state": "candidate",
+          "sources": [
+            "4031031552"
+          ],
+          "units": {},
+          "prs": [
+            21327
+          ],
+          "bot": false
+        },
+        {
+          "id": "d4ce78f5d964",
+          "textHash": "a4fce7672824",
+          "broken": false,
+          "file": "cmd/k8s-proxy/internal/config/config_test.go",
+          "state": "candidate",
+          "sources": [
+            "4031048138"
+          ],
+          "units": {},
+          "prs": [
+            21327
+          ],
+          "bot": false
+        },
+        {
+          "id": "afca88449773",
+          "textHash": "9044f1b8c022",
+          "broken": false,
+          "file": "net/packet/fuzz_test.go",
+          "state": "candidate",
+          "sources": [
+            "4037462166"
+          ],
+          "units": {},
+          "prs": [
+            21331
+          ],
+          "bot": false
+        },
+        {
+          "id": "f1557d9fece3",
+          "textHash": "0b3d681de958",
+          "broken": false,
+          "file": "wgengine/netstack/netstack.go",
+          "state": "candidate",
+          "sources": [
+            "4031117089"
+          ],
+          "units": {},
+          "prs": [
+            21332
+          ],
+          "bot": false
+        },
+        {
+          "id": "19b3a73882a1",
+          "textHash": "2b38690410f1",
+          "broken": false,
+          "file": "wgengine/netstack/netstack.go",
+          "state": "candidate",
+          "sources": [
+            "4050175927"
+          ],
+          "units": {},
+          "prs": [
+            21332
+          ],
+          "bot": false
+        },
+        {
+          "id": "0e02e4e5a795",
+          "textHash": "f66f8ca9b579",
+          "broken": false,
+          "file": "tsweb/vcstime/vcstime_test.go",
+          "state": "candidate",
+          "sources": [
+            "4030737157"
+          ],
+          "units": {},
+          "prs": [
+            21336
+          ],
+          "bot": false
+        },
+        {
+          "id": "21084a277e5a",
+          "textHash": "ebfc9497227b",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5239119340"
+          ],
+          "units": {
+            "review-5239119340": [
+              16
+            ]
+          },
+          "prs": [
+            21354
+          ],
+          "bot": false
+        },
+        {
+          "id": "dd8681c96bd5",
+          "textHash": "49361b20a9a5",
+          "broken": false,
+          "file": "tailcfg/nodecap/nodecap.go",
+          "state": "candidate",
+          "sources": [
+            "4041704667"
+          ],
+          "units": {},
+          "prs": [
+            21358
+          ],
+          "bot": false
+        },
+        {
+          "id": "3a47110ca507",
+          "textHash": "8f9f5024073d",
+          "broken": false,
+          "file": "net/proxymux/mux.go",
+          "state": "candidate",
+          "sources": [
+            "4041272998"
+          ],
+          "units": {},
+          "prs": [
+            21359
+          ],
+          "bot": false
+        },
+        {
+          "id": "d52de069f811",
+          "textHash": "e864b16f8bc5",
+          "broken": false,
+          "file": "feature/conn25/datapath_test.go",
+          "state": "candidate",
+          "sources": [
+            "4064189669"
+          ],
+          "units": {},
+          "prs": [
+            21362
+          ],
+          "bot": false
+        },
+        {
+          "id": "6e8a864e1d26",
+          "textHash": "344a3fe251f7",
+          "broken": false,
+          "file": "feature/conn25/datapath_test.go",
+          "state": "candidate",
+          "sources": [
+            "4064330037"
+          ],
+          "units": {},
+          "prs": [
+            21362
+          ],
+          "bot": false
+        },
+        {
+          "id": "049b1e81dab9",
+          "textHash": "797266c7d144",
+          "broken": false,
+          "file": "feature/conn25/datapath_test.go",
+          "state": "candidate",
+          "sources": [
+            "4064375842"
+          ],
+          "units": {},
+          "prs": [
+            21362
+          ],
+          "bot": false
+        },
+        {
+          "id": "d3924c647980",
+          "textHash": "51a33e767deb",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4051022049"
+          ],
+          "units": {},
+          "prs": [
+            21366
+          ],
+          "bot": false
+        },
+        {
+          "id": "f0cb42e74288",
+          "textHash": "74a26ed5e940",
+          "broken": false,
+          "file": "ssh/tailssh/tailssh_test.go",
+          "state": "candidate",
+          "sources": [
+            "4080541445"
+          ],
+          "units": {},
+          "prs": [
+            21369
+          ],
+          "bot": false
+        },
+        {
+          "id": "5b3d97ffeeb9",
+          "textHash": "70ec70134082",
+          "broken": false,
+          "file": "cmd/containerboot/main.go",
+          "state": "candidate",
+          "sources": [
+            "4061722834"
+          ],
+          "units": {},
+          "prs": [
+            21374
+          ],
+          "bot": false
+        },
+        {
+          "id": "5fd56573669f",
+          "textHash": "f700722e81e0",
+          "broken": false,
+          "file": "cmd/containerboot/main.go",
+          "state": "candidate",
+          "sources": [
+            "4061749558"
+          ],
+          "units": {},
+          "prs": [
+            21374
+          ],
+          "bot": false
+        },
+        {
+          "id": "41e75903c1ca",
+          "textHash": "c06c3cdc915a",
+          "broken": false,
+          "file": "cmd/containerboot/main.go",
+          "state": "candidate",
+          "sources": [
+            "4061769951"
+          ],
+          "units": {},
+          "prs": [
+            21374
+          ],
+          "bot": false
+        },
+        {
+          "id": "696a40b8792c",
+          "textHash": "f0a98994c3f3",
+          "broken": false,
+          "file": "cmd/containerboot/main.go",
+          "state": "candidate",
+          "sources": [
+            "4061796798"
+          ],
+          "units": {},
+          "prs": [
+            21374
+          ],
+          "bot": false
+        },
+        {
+          "id": "5272271a3750",
+          "textHash": "973fdacae2d8",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4046990015"
+          ],
+          "units": {},
+          "prs": [
+            21379
+          ],
+          "bot": false
+        },
+        {
+          "id": "e9a399b78a60",
+          "textHash": "d548a5e27c89",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4047047677"
+          ],
+          "units": {},
+          "prs": [
+            21379
+          ],
+          "bot": false
+        },
+        {
+          "id": "7219082eb66f",
+          "textHash": "d7945f241663",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4047054345"
+          ],
+          "units": {},
+          "prs": [
+            21379
+          ],
+          "bot": false
+        },
+        {
+          "id": "d304f6bf2ed3",
+          "textHash": "62beb85e1289",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4047065366"
+          ],
+          "units": {},
+          "prs": [
+            21379
+          ],
+          "bot": false
+        },
+        {
+          "id": "68530886d847",
+          "textHash": "4167cc3c94b1",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4047074030"
+          ],
+          "units": {},
+          "prs": [
+            21379
+          ],
+          "bot": false
+        },
+        {
+          "id": "b7175450adb3",
+          "textHash": "3b57bb7a6f2c",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4047078325"
+          ],
+          "units": {},
+          "prs": [
+            21379
+          ],
+          "bot": false
+        },
+        {
+          "id": "4c0d0a02f66b",
+          "textHash": "943a337c957b",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4046866392"
+          ],
+          "units": {},
+          "prs": [
+            21380
+          ],
+          "bot": false
+        },
+        {
+          "id": "01713cbf578f",
+          "textHash": "0e220cfaacf3",
+          "broken": false,
+          "file": "tstest/natlab/vmtest/vmtest.go",
+          "state": "candidate",
+          "sources": [
+            "4054097382"
+          ],
+          "units": {},
+          "prs": [
+            21393
+          ],
+          "bot": false
+        },
+        {
+          "id": "738682a87655",
+          "textHash": "79d113ca42d4",
+          "broken": false,
+          "file": "net/stunserver/stunserver.go",
+          "state": "candidate",
+          "sources": [
+            "4063082387"
+          ],
+          "units": {},
+          "prs": [
+            21405
+          ],
+          "bot": false
+        },
+        {
+          "id": "08d9c7fbb9aa",
+          "textHash": "90603700a3e1",
+          "broken": false,
+          "file": "ipn/ipnlocal/local.go",
+          "state": "candidate",
+          "sources": [
+            "4075178127"
+          ],
+          "units": {},
+          "prs": [
+            21420
+          ],
+          "bot": false
+        },
+        {
+          "id": "a3354a339fe5",
+          "textHash": "1cb4d2433224",
+          "broken": false,
+          "file": "ipn/ipnlocal/local_test.go",
+          "state": "candidate",
+          "sources": [
+            "4083948930"
+          ],
+          "units": {},
+          "prs": [
+            21433
+          ],
+          "bot": false
+        },
+        {
+          "id": "d57e78533dea",
+          "textHash": "fcfa1cd55406",
+          "broken": false,
+          "file": "tstest/natlab/vmtest/gokrazy_update_test.go",
+          "state": "candidate",
+          "sources": [
+            "4085062951"
+          ],
+          "units": {},
+          "prs": [
+            21441
+          ],
+          "bot": false
+        },
+        {
+          "id": "360d063555e5",
+          "textHash": "aac0b5c83bf5",
+          "broken": false,
+          "file": "tstest/natlab/vmtest/qemu.go",
+          "state": "candidate",
+          "sources": [
+            "4085780786"
+          ],
+          "units": {},
+          "prs": [
+            21444
+          ],
+          "bot": false
+        },
+        {
+          "id": "8feed243dc6b",
+          "textHash": "474fba7953d2",
+          "broken": false,
+          "file": "ipn/localapi/localapi_test.go",
+          "state": "candidate",
+          "sources": [
+            "4087924654"
+          ],
+          "units": {},
+          "prs": [
+            21447
+          ],
+          "bot": false
+        },
+        {
+          "id": "88315f0b9c01",
+          "textHash": "b831fb97bae3",
+          "broken": false,
+          "file": "feature/conn25/conn25.go",
+          "state": "candidate",
+          "sources": [
+            "4123688579"
+          ],
+          "units": {},
+          "prs": [
+            21451
+          ],
+          "bot": false
+        },
+        {
+          "id": "ce5e922c7729",
+          "textHash": "a384b6bea77a",
+          "broken": false,
+          "file": "safesocket/pipe_windows.go",
+          "state": "candidate",
+          "sources": [
+            "4097137595"
+          ],
+          "units": {},
+          "prs": [
+            21463
+          ],
+          "bot": false
+        },
+        {
+          "id": "27685baa5231",
+          "textHash": "d0b17054dcb4",
+          "broken": false,
+          "file": "paths/paths.go",
+          "state": "candidate",
+          "sources": [
+            "4124988804"
+          ],
+          "units": {},
+          "prs": [
+            21463
+          ],
+          "bot": false
+        },
+        {
+          "id": "9e780bd7d1ee",
+          "textHash": "e9a7ab53a6de",
+          "broken": false,
+          "file": "ipn/ipnlocal/serve.go",
+          "state": "candidate",
+          "sources": [
+            "4097317142"
+          ],
+          "units": {},
+          "prs": [
+            21467
+          ],
+          "bot": false
+        },
+        {
+          "id": "2d277dc0b4dd",
+          "textHash": "364b76cfac8a",
+          "broken": false,
+          "file": "cmd/k8s-operator/deploy/crds/tailscale.com_dnsconfigs.yaml",
+          "state": "candidate",
+          "sources": [
+            "4097428178"
+          ],
+          "units": {},
+          "prs": [
+            21467
+          ],
+          "bot": false
+        },
+        {
+          "id": "6a909b2e30a3",
+          "textHash": "e0e886942c55",
+          "broken": false,
+          "file": "ipn/ipnlocal/serve.go",
+          "state": "candidate",
+          "sources": [
+            "4097492396"
+          ],
+          "units": {},
+          "prs": [
+            21467
+          ],
+          "bot": false
+        },
+        {
+          "id": "91ffc7e107c5",
+          "textHash": "555dedab072e",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4106552835"
+          ],
+          "units": {},
+          "prs": [
+            21479
+          ],
+          "bot": false
+        },
+        {
+          "id": "c7f8a7cf735a",
+          "textHash": "49df2d960dc2",
+          "broken": false,
+          "file": "tstest/natlab/vmtest/connectivity_test.go",
+          "state": "candidate",
+          "sources": [
+            "4136400878"
+          ],
+          "units": {},
+          "prs": [
+            21483
+          ],
+          "bot": false
+        },
+        {
+          "id": "7771124834c3",
+          "textHash": "5055b46328d1",
+          "broken": false,
+          "file": "derp/derpserver/debugclients.go",
+          "state": "candidate",
+          "sources": [
+            "4108842946",
+            "4109172634"
+          ],
+          "units": {},
+          "prs": [
+            21485
+          ],
+          "bot": true
+        },
+        {
+          "id": "3f853c652892",
+          "textHash": "1cabe7a65be5",
+          "broken": false,
+          "file": "derp/derpserver/debugclients.go",
+          "state": "candidate",
+          "sources": [
+            "4123380736"
+          ],
+          "units": {},
+          "prs": [
+            21485
+          ],
+          "bot": false
+        },
+        {
+          "id": "534cc456ce1f",
+          "textHash": "559c7b970f2d",
+          "broken": false,
+          "file": "derp/derpserver/debugclients.go",
+          "state": "candidate",
+          "sources": [
+            "4123540613"
+          ],
+          "units": {},
+          "prs": [
+            21485
+          ],
+          "bot": false
+        },
+        {
+          "id": "e97776c950c7",
+          "textHash": "beb96c4e9979",
+          "broken": false,
+          "file": "derp/derpserver/derpserver.go",
+          "state": "candidate",
+          "sources": [
+            "4123574571"
+          ],
+          "units": {},
+          "prs": [
+            21485
+          ],
+          "bot": false
+        },
+        {
+          "id": "7439a54ca1bb",
+          "textHash": "6dac46e408c1",
+          "broken": false,
+          "file": "feature/conn25/client.go",
+          "state": "candidate",
+          "sources": [
+            "review-5342644156"
+          ],
+          "units": {
+            "review-5342644156": [
+              2
+            ]
+          },
+          "prs": [
+            21518
+          ],
+          "bot": false
+        },
+        {
+          "id": "9d2143f03a8c",
+          "textHash": "9c89629ceb7e",
+          "broken": false,
+          "file": "feature/conn25/client.go",
+          "state": "candidate",
+          "sources": [
+            "review-5342644156"
+          ],
+          "units": {
+            "review-5342644156": [
+              5
+            ]
+          },
+          "prs": [
+            21518
+          ],
+          "bot": false
+        },
+        {
+          "id": "2621a2bc6db5",
+          "textHash": "c36fe0c7f835",
+          "broken": false,
+          "file": "feature/conn25/client.go",
+          "state": "candidate",
+          "sources": [
+            "review-5342644156"
+          ],
+          "units": {
+            "review-5342644156": [
+              7
+            ]
+          },
+          "prs": [
+            21518
+          ],
+          "bot": false
+        },
+        {
+          "id": "1d61dafbb65e",
+          "textHash": "f25a82e62854",
+          "broken": false,
+          "file": "feature/conn25/client.go",
+          "state": "candidate",
+          "sources": [
+            "review-5342644156"
+          ],
+          "units": {
+            "review-5342644156": [
+              10
+            ]
+          },
+          "prs": [
+            21518
+          ],
+          "bot": false
+        },
+        {
+          "id": "bb8cbd0036d5",
+          "textHash": "5980997e6fcc",
+          "broken": false,
+          "file": "feature/conn25/client.go",
+          "state": "candidate",
+          "sources": [
+            "review-5342644156"
+          ],
+          "units": {
+            "review-5342644156": [
+              13
+            ]
+          },
+          "prs": [
+            21518
+          ],
+          "bot": false
+        },
+        {
+          "id": "208d465d8c7c",
+          "textHash": "9d287d646165",
+          "broken": false,
+          "file": "net/socks5/socks5.go",
+          "state": "candidate",
+          "sources": [
+            "4129858937"
+          ],
+          "units": {},
+          "prs": [
+            21524
+          ],
+          "bot": false
+        },
+        {
+          "id": "c067f155ee1b",
+          "textHash": "d9fe87c54efe",
+          "broken": false,
+          "file": "ipn/ipnlocal/local.go",
+          "state": "candidate",
+          "sources": [
+            "4135467280"
+          ],
+          "units": {},
+          "prs": [
+            21575
+          ],
+          "bot": false
+        },
+        {
+          "id": "6e93ebfaf302",
+          "textHash": "4797a0bbc869",
+          "broken": false,
+          "file": "tstest/natlab/vmtest/vmtest.go",
+          "state": "candidate",
+          "sources": [
+            "4147516282"
+          ],
+          "units": {},
+          "prs": [
+            21595
+          ],
+          "bot": false
+        },
+        {
+          "id": "32636a8a94ee",
+          "textHash": "b4161810e212",
+          "broken": false,
+          "file": "cmd/tailscale/cli/up.go",
+          "state": "candidate",
+          "sources": [
+            "4147528669"
+          ],
+          "units": {},
+          "prs": [
+            21595
+          ],
+          "bot": false
+        },
+        {
+          "id": "3ed69567d78b",
+          "textHash": "1d55017bfbf5",
+          "broken": false,
+          "file": "tstest/natlab/vmtest/vmtest.go",
+          "state": "candidate",
+          "sources": [
+            "4147542479"
+          ],
+          "units": {},
+          "prs": [
+            21595
+          ],
+          "bot": false
+        }
+      ],
+      "nearDuplicates": []
+    },
+    "logto-io/logto": {
+      "prs": 40,
+      "inlineComments": 165,
+      "reviewBodies": 96,
+      "skipped": {
+        "describes the change": 53,
+        "review tool status": 132
+      },
+      "points": {
+        "total": 263,
+        "people": 99,
+        "bots": 164
+      },
+      "candidates": 201,
+      "verified": 0,
+      "verifiedBy": {
+        "recurrence": 0,
+        "person": 0,
+        "correction": 0,
+        "outcome": 0,
+        "legacy": 0
+      },
+      "cloneMode": "--filter=blob:none",
+      "cloneMb": 498,
+      "seconds": 567,
+      "notVerified": {
+        "raised only by bots": 103,
+        "one pull request author only": 2,
+        "raised on one pull request only": 96
+      },
+      "lessons": [
+        {
+          "id": "0e465a032e20",
+          "textHash": "5a55db95019e",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "3976447388"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "b6333bd52d28",
+          "textHash": "bd112f684900",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/libraries/sign-in-experience-validator.ts",
+          "state": "candidate",
+          "sources": [
+            "3976447446"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "b9a2bb93cfc4",
+          "textHash": "df64cfca5e9e",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/web-authn-verification.ts",
+          "state": "candidate",
+          "sources": [
+            "3976447476"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "103b571c5283",
+          "textHash": "be40738cf82c",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/password-verification.ts",
+          "state": "candidate",
+          "sources": [
+            "3976864708"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "8e87141279e3",
+          "textHash": "f7f2a979c57e",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/verification-code.ts",
+          "state": "candidate",
+          "sources": [
+            "3976864752",
+            "3994901338"
+          ],
+          "units": {},
+          "prs": [
+            9575,
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "05dea643f0b1",
+          "textHash": "1fa97df508f6",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/verification-code.ts",
+          "state": "candidate",
+          "sources": [
+            "3976864781"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "c1e993c65f38",
+          "textHash": "b153937dbe83",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "3976864827",
+            "4069088066"
+          ],
+          "units": {},
+          "prs": [
+            9575,
+            9643
+          ],
+          "bot": false
+        },
+        {
+          "id": "58d02f693940",
+          "textHash": "1f2698513e90",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/verifications/code-verification.ts",
+          "state": "candidate",
+          "sources": [
+            "3977044032"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "94c8c69ab1ee",
+          "textHash": "ab7ff7fffb8f",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "3977727195"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": false
+        },
+        {
+          "id": "e37dee1affdc",
+          "textHash": "727b66778b6c",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/password-verification.ts",
+          "state": "candidate",
+          "sources": [
+            "3977727358"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": false
+        },
+        {
+          "id": "6a0e5cb74c12",
+          "textHash": "ef7e93c72570",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "3977727574"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": false
+        },
+        {
+          "id": "7dd1756b1f02",
+          "textHash": "12d6f219cbd2",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/password-verification.openapi.json",
+          "state": "candidate",
+          "sources": [
+            "3977727801"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": false
+        },
+        {
+          "id": "1ae0257ec201",
+          "textHash": "c8ef8fb07bec",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/subject-verification-code-helpers.ts",
+          "state": "candidate",
+          "sources": [
+            "3977756785"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": false
+        },
+        {
+          "id": "b339036ce351",
+          "textHash": "b4b7c968ede1",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/password-verification.ts",
+          "state": "candidate",
+          "sources": [
+            "3980232760"
+          ],
+          "units": {},
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "ab4277bb2923",
+          "textHash": "2a5cd241aff0",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5163803166"
+          ],
+          "units": {
+            "review-5163803166": [
+              37
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "7f06538bdf78",
+          "textHash": "aec1306265e1",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5163803166"
+          ],
+          "units": {
+            "review-5163803166": [
+              41
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "b28b9a889df3",
+          "textHash": "6c3a39dd4ef8",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164375548"
+          ],
+          "units": {
+            "review-5164375548": [
+              6
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "cbce3d1714aa",
+          "textHash": "2f62894ba494",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164375548"
+          ],
+          "units": {
+            "review-5164375548": [
+              10
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "0747b95baadb",
+          "textHash": "ecbfaa8e0433",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164375548",
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164375548": [
+              15
+            ],
+            "review-5164628598": [
+              21,
+              35,
+              60
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "396e5c28ceee",
+          "textHash": "a611c111fa44",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164628598": [
+              7
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "f4da608d5bbc",
+          "textHash": "9ebe40dfd661",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164628598": [
+              13
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "ecd191d8c288",
+          "textHash": "2afcc8d2881a",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164628598": [
+              18
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "ecec531e09e1",
+          "textHash": "fdbe4f8ff00f",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164628598": [
+              23
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "dc4902fd6765",
+          "textHash": "ea5d6b41ba1d",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164628598": [
+              27
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "53edb589bd15",
+          "textHash": "d7b02b4d6e94",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164628598": [
+              32
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "40c1efa22707",
+          "textHash": "36a1a817c753",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164628598": [
+              37
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "13c1d6c4a21c",
+          "textHash": "de284ab6fdeb",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598"
+          ],
+          "units": {
+            "review-5164628598": [
+              42
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "9933b32a5063",
+          "textHash": "569b328e8462",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5164628598",
+            "review-5168488545"
+          ],
+          "units": {
+            "review-5164628598": [
+              47,
+              51,
+              55
+            ]
+          },
+          "prs": [
+            9575
+          ],
+          "bot": true
+        },
+        {
+          "id": "e8c7fe9731bf",
+          "textHash": "dcd427b88431",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/middleware/koa-step-up-route-guard.ts",
+          "state": "candidate",
+          "sources": [
+            "3985703522"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "e4344008f891",
+          "textHash": "ce1b0f54b0bf",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/middleware/koa-step-up-route-guard.ts",
+          "state": "candidate",
+          "sources": [
+            "3985703544"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "536c16de1a26",
+          "textHash": "0cddac9a61c3",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/index.ts",
+          "state": "candidate",
+          "sources": [
+            "3986526706"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "6766bcdad79d",
+          "textHash": "670b6ba02543",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/middleware/koa-step-up-route-guard.ts",
+          "state": "candidate",
+          "sources": [
+            "3986526747"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "a83ed62dfeb5",
+          "textHash": "f192d5dbe8d6",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/middleware/koa-step-up-route-guard.ts",
+          "state": "candidate",
+          "sources": [
+            "3986815108"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": false
+        },
+        {
+          "id": "987d4905c403",
+          "textHash": "28019272d2db",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "3986840733"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": false
+        },
+        {
+          "id": "d2aec715550f",
+          "textHash": "15c7a89d8def",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/password-verification.ts",
+          "state": "candidate",
+          "sources": [
+            "3987773775"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": false
+        },
+        {
+          "id": "ff7071cd9a19",
+          "textHash": "2f1d9c76742f",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/verification-routes/password-verification.ts",
+          "state": "candidate",
+          "sources": [
+            "3994901321"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "28d3f0437b02",
+          "textHash": "252824b231f1",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5174732750"
+          ],
+          "units": {
+            "review-5174732750": [
+              42
+            ]
+          },
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "c58f95533fa0",
+          "textHash": "98a4847b7a65",
+          "broken": false,
+          "file": "verification-routes/verification-code.step-up.openapi.j",
+          "state": "candidate",
+          "sources": [
+            "review-5174732750"
+          ],
+          "units": {
+            "review-5174732750": [
+              46
+            ]
+          },
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "113d5c255f26",
+          "textHash": "0ac360b6ccea",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5174732750",
+            "review-5175628533",
+            "review-5176662252",
+            "review-5184985245"
+          ],
+          "units": {
+            "review-5174732750": [
+              50
+            ],
+            "review-5175628533": [
+              7
+            ]
+          },
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "d304a9aefcaf",
+          "textHash": "c2695d5d9e54",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5175628533"
+          ],
+          "units": {
+            "review-5175628533": [
+              9
+            ]
+          },
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "b77d78ed0a69",
+          "textHash": "a1b139948eff",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5175628533"
+          ],
+          "units": {
+            "review-5175628533": [
+              14
+            ]
+          },
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "e20f7d49152e",
+          "textHash": "f31e27f2d5a6",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5175628533"
+          ],
+          "units": {
+            "review-5175628533": [
+              24
+            ]
+          },
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "e372c03747c6",
+          "textHash": "d93561f1b0bf",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5175628533",
+            "review-5176662252"
+          ],
+          "units": {
+            "review-5175628533": [
+              29
+            ]
+          },
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "1b15759b578d",
+          "textHash": "9f85038f180b",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5175628533"
+          ],
+          "units": {
+            "review-5175628533": [
+              34
+            ]
+          },
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "2571ab81713c",
+          "textHash": "25d4fcd00800",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5176662252"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "975d5a6c39a7",
+          "textHash": "80dcdcf5eddb",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5176662252"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "08e564ddccf9",
+          "textHash": "8d7ceff67155",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5184985245"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "7fb3c761fa4e",
+          "textHash": "215400a5507e",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5184985245"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "74f2366e019f",
+          "textHash": "8a1514c1801f",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5184985245"
+          ],
+          "units": {},
+          "prs": [
+            9580
+          ],
+          "bot": true
+        },
+        {
+          "id": "4f03baf5c3d7",
+          "textHash": "c704ca908246",
+          "broken": false,
+          "file": "packages/integration-tests/src/tests/api/experience-api/step-up-interaction/submission.test.ts",
+          "state": "candidate",
+          "sources": [
+            "3986994136"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": false
+        },
+        {
+          "id": "3dd88dac3562",
+          "textHash": "ae6e1c7dae07",
+          "broken": false,
+          "file": "packages/integration-tests/src/tests/api/experience-api/step-up-interaction/submission.test.ts",
+          "state": "candidate",
+          "sources": [
+            "3986994391"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": true
+        },
+        {
+          "id": "e5ab0e0f38ef",
+          "textHash": "d696625ac16b",
+          "broken": false,
+          "file": "packages/schemas/src/types/log/interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "3986994421"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": true
+        },
+        {
+          "id": "51aebdc4d5f2",
+          "textHash": "699b3078f9b6",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "3995491740"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": true
+        },
+        {
+          "id": "4afe53af0205",
+          "textHash": "286e224d35c2",
+          "broken": false,
+          "file": "packages/integration-tests/src/client/index.ts",
+          "state": "candidate",
+          "sources": [
+            "3995491750"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": true
+        },
+        {
+          "id": "ce31624fb7af",
+          "textHash": "a9bc0748602e",
+          "broken": false,
+          "file": "packages/integration-tests/src/tests/api/experience-api/step-up-interaction/submission.test.ts",
+          "state": "candidate",
+          "sources": [
+            "3995491755"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": true
+        },
+        {
+          "id": "07a5b255fad2",
+          "textHash": "c445d97218f9",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "4002635090"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": false
+        },
+        {
+          "id": "ab1fbcdce69a",
+          "textHash": "f047d01eb126",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "4002645620"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": false
+        },
+        {
+          "id": "a7c76d721668",
+          "textHash": "b32c1223c581",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "4002654562"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": false
+        },
+        {
+          "id": "3709079ac8d8",
+          "textHash": "9d0bd903e736",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5193296305"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": true
+        },
+        {
+          "id": "160bce7137a3",
+          "textHash": "20eabe33c489",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5193296305"
+          ],
+          "units": {},
+          "prs": [
+            9582
+          ],
+          "bot": true
+        },
+        {
+          "id": "c88967fa73a0",
+          "textHash": "fd0884d50f68",
+          "broken": false,
+          "file": "packages/core/src/sso/OidcConnector/utils.ts",
+          "state": "candidate",
+          "sources": [
+            "3985834334"
+          ],
+          "units": {},
+          "prs": [
+            9586
+          ],
+          "bot": false
+        },
+        {
+          "id": "c726bdbd65e9",
+          "textHash": "7f4f3fd5bb79",
+          "broken": false,
+          "file": ".changeset/purple-eels-shave.md",
+          "state": "candidate",
+          "sources": [
+            "4002574024"
+          ],
+          "units": {},
+          "prs": [
+            9586
+          ],
+          "bot": false
+        },
+        {
+          "id": "b8af440214a8",
+          "textHash": "3c839d932e2d",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5174387963"
+          ],
+          "units": {},
+          "prs": [
+            9586
+          ],
+          "bot": true
+        },
+        {
+          "id": "8c4fee3764d7",
+          "textHash": "cd37388a3b9d",
+          "broken": false,
+          "file": "packages/experience/src/Providers/StepUpContextProvider/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "3995505444"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "c09a18ac6ccf",
+          "textHash": "d9fa0bc937ca",
+          "broken": false,
+          "file": "packages/experience/src/containers/StepUpMethodList/use-select-step-up-method.ts",
+          "state": "candidate",
+          "sources": [
+            "3995505463"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "b9ef5ba39094",
+          "textHash": "0c8a1b75097c",
+          "broken": false,
+          "file": "packages/experience/src/containers/StepUpSubjectProofList/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "3995505482"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "fa6d04a45bda",
+          "textHash": "ea8445115536",
+          "broken": false,
+          "file": "packages/experience/src/App.tsx",
+          "state": "candidate",
+          "sources": [
+            "3995505501",
+            "4013859954"
+          ],
+          "units": {},
+          "prs": [
+            9589,
+            9595
+          ],
+          "bot": true
+        },
+        {
+          "id": "364df9c3ada9",
+          "textHash": "2c8b3c6b4bd4",
+          "broken": false,
+          "file": "packages/experience/src/Providers/StepUpContextProvider/StepUpContext.tsx",
+          "state": "candidate",
+          "sources": [
+            "3995505516"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "4f3e1e92bb5e",
+          "textHash": "6486dfa17490",
+          "broken": false,
+          "file": "packages/experience/src/containers/StepUpMethodList/use-select-step-up-method.ts",
+          "state": "candidate",
+          "sources": [
+            "4002696393"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": false
+        },
+        {
+          "id": "114653097535",
+          "textHash": "c075b6853765",
+          "broken": false,
+          "file": "packages/experience/src/pages/StepUp/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4002697119"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": false
+        },
+        {
+          "id": "33b39ff95351",
+          "textHash": "6a1d7aa20dd2",
+          "broken": false,
+          "file": "packages/experience/src/Providers/StepUpContextProvider/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4002750028"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": false
+        },
+        {
+          "id": "235401bd85a0",
+          "textHash": "2a52daa9d0ab",
+          "broken": false,
+          "file": "packages/experience/src/Providers/StepUpContextProvider/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4002750827"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": false
+        },
+        {
+          "id": "51a98f91c4ae",
+          "textHash": "1a595c59f382",
+          "broken": false,
+          "file": "packages/experience/src/components/Button/StepUpMethodButton.tsx",
+          "state": "candidate",
+          "sources": [
+            "4002751670"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": false
+        },
+        {
+          "id": "8beb39adcaf5",
+          "textHash": "6582061e9e95",
+          "broken": false,
+          "file": "packages/experience/src/pages/StepUp/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4002752345"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": false
+        },
+        {
+          "id": "f4eb33320d46",
+          "textHash": "b2aad2003571",
+          "broken": false,
+          "file": "packages/experience/src/pages/StepUp/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4003676578"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "c7a74f32f62c",
+          "textHash": "9fd27d7462ca",
+          "broken": false,
+          "file": "packages/experience/src/pages/StepUp/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4003676614"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "859b534b7ad2",
+          "textHash": "fa922470eba5",
+          "broken": false,
+          "file": "packages/experience/src/Providers/StepUpContextProvider/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4003972671"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "6e16118240f5",
+          "textHash": "cff0331b2d3f",
+          "broken": false,
+          "file": "packages/experience/src/Providers/StepUpContextProvider/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4003972745"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "ea2cd771e1be",
+          "textHash": "6b65fd010670",
+          "broken": false,
+          "file": "packages/experience/src/pages/StepUp/index.test.tsx",
+          "state": "candidate",
+          "sources": [
+            "4003972796",
+            "4003972846"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "efdce869b7d5",
+          "textHash": "4a00aaf26572",
+          "broken": false,
+          "file": "packages/experience/src/pages/StepUp/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4003972904"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "57813320d1ee",
+          "textHash": "13317554e60e",
+          "broken": false,
+          "file": "packages/experience/src/utils/step-up.ts",
+          "state": "candidate",
+          "sources": [
+            "4003972963"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "b02546efe9af",
+          "textHash": "108e3260f26b",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5195870942"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "59178c1bb57f",
+          "textHash": "28b8d163d20b",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5196225315"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "ca05e7ea6da3",
+          "textHash": "e193e3d19d32",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5196225315"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "b70af1d3dedb",
+          "textHash": "c0c85885e5c9",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5196225315"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "4770353cd9e1",
+          "textHash": "5c1468ae7307",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5196225315"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "74c44b2352d3",
+          "textHash": "9c49207e0903",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5196404949"
+          ],
+          "units": {},
+          "prs": [
+            9589
+          ],
+          "bot": true
+        },
+        {
+          "id": "32ca28ce1b4e",
+          "textHash": "49442e4b7211",
+          "broken": false,
+          "file": "packages/experience/src/containers/StepUpCodeVerification/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4013860094"
+          ],
+          "units": {},
+          "prs": [
+            9595
+          ],
+          "bot": true
+        },
+        {
+          "id": "e6e1b872ab8e",
+          "textHash": "7ab3fd0698d0",
+          "broken": false,
+          "file": "packages/experience/src/containers/StepUpCodeVerification/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4023215383"
+          ],
+          "units": {},
+          "prs": [
+            9595
+          ],
+          "bot": false
+        },
+        {
+          "id": "4322a9d22f9a",
+          "textHash": "cecce794d5b7",
+          "broken": false,
+          "file": "packages/experience/src/containers/StepUpGuard/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4023215548"
+          ],
+          "units": {},
+          "prs": [
+            9595
+          ],
+          "bot": false
+        },
+        {
+          "id": "b9d11eeaa003",
+          "textHash": "f2b2b20ea7ef",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5207923628"
+          ],
+          "units": {},
+          "prs": [
+            9595
+          ],
+          "bot": true
+        },
+        {
+          "id": "60cce01319b3",
+          "textHash": "60c962ae0ad1",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5207923628"
+          ],
+          "units": {},
+          "prs": [
+            9595
+          ],
+          "bot": true
+        },
+        {
+          "id": "a496e5a44378",
+          "textHash": "fd03645ebf7a",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5207923628"
+          ],
+          "units": {},
+          "prs": [
+            9595
+          ],
+          "bot": true
+        },
+        {
+          "id": "ef33cc9efa6e",
+          "textHash": "f5aab62f7df9",
+          "broken": false,
+          "file": "packages/toolkit/connector-kit/src/types/social.test.ts",
+          "state": "candidate",
+          "sources": [
+            "3999942323"
+          ],
+          "units": {},
+          "prs": [
+            9596
+          ],
+          "bot": true
+        },
+        {
+          "id": "653b68e762c9",
+          "textHash": "56f18ac091b4",
+          "broken": false,
+          "file": "packages/toolkit/connector-kit/src/types/social.ts",
+          "state": "candidate",
+          "sources": [
+            "3999942335"
+          ],
+          "units": {},
+          "prs": [
+            9596
+          ],
+          "bot": true
+        },
+        {
+          "id": "c21474b90d13",
+          "textHash": "c40db0900e45",
+          "broken": false,
+          "file": ".changeset/oidc-prompt-none-validation.md",
+          "state": "candidate",
+          "sources": [
+            "4002843705"
+          ],
+          "units": {},
+          "prs": [
+            9596
+          ],
+          "bot": true
+        },
+        {
+          "id": "2dfbdebf681d",
+          "textHash": "326e5e79db9e",
+          "broken": false,
+          "file": ".changeset/lucky-spoons-itch.md",
+          "state": "candidate",
+          "sources": [
+            "4002570474"
+          ],
+          "units": {},
+          "prs": [
+            9597
+          ],
+          "bot": false
+        },
+        {
+          "id": "569c180d596d",
+          "textHash": "da341c0dc36a",
+          "broken": false,
+          "file": "packages/core/src/routes/admin-user/search.openapi.json",
+          "state": "candidate",
+          "sources": [
+            "4004060494"
+          ],
+          "units": {},
+          "prs": [
+            9598
+          ],
+          "bot": true
+        },
+        {
+          "id": "08503f74bef2",
+          "textHash": "45767f496728",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5196326644"
+          ],
+          "units": {},
+          "prs": [
+            9598
+          ],
+          "bot": true
+        },
+        {
+          "id": "8aeb45f73029",
+          "textHash": "bb4633c6c6af",
+          "broken": false,
+          "file": "packages/core/src/license/LicenseReader.ts",
+          "state": "candidate",
+          "sources": [
+            "4012600392",
+            "4012661382"
+          ],
+          "units": {},
+          "prs": [
+            9600
+          ],
+          "bot": true
+        },
+        {
+          "id": "b13458f6bd8c",
+          "textHash": "b98e1d8ad390",
+          "broken": false,
+          "file": "packages/core/src/license/LicenseReader.ts",
+          "state": "candidate",
+          "sources": [
+            "4012608724"
+          ],
+          "units": {},
+          "prs": [
+            9600
+          ],
+          "bot": true
+        },
+        {
+          "id": "02c18e4b9c41",
+          "textHash": "3a95ebc0840c",
+          "broken": false,
+          "file": "packages/core/src/license/verify.ts",
+          "state": "candidate",
+          "sources": [
+            "4012608789"
+          ],
+          "units": {},
+          "prs": [
+            9600
+          ],
+          "bot": true
+        },
+        {
+          "id": "7aae2d7b3005",
+          "textHash": "03e5e19fbc28",
+          "broken": false,
+          "file": "packages/core/src/license/public-key.ts",
+          "state": "candidate",
+          "sources": [
+            "4014416467"
+          ],
+          "units": {},
+          "prs": [
+            9600
+          ],
+          "bot": true
+        },
+        {
+          "id": "171f0159515a",
+          "textHash": "ee897c3fa854",
+          "broken": false,
+          "file": "packages/core/src/license/public-key.ts",
+          "state": "candidate",
+          "sources": [
+            "4023280959"
+          ],
+          "units": {},
+          "prs": [
+            9600
+          ],
+          "bot": false
+        },
+        {
+          "id": "dd6417e17e17",
+          "textHash": "0733eb4becab",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5207924458"
+          ],
+          "units": {},
+          "prs": [
+            9600
+          ],
+          "bot": true
+        },
+        {
+          "id": "566ea8ff920c",
+          "textHash": "412691056d17",
+          "broken": false,
+          "file": "packages/core/src/license/public-key.ts",
+          "state": "candidate",
+          "sources": [
+            "4033781510"
+          ],
+          "units": {},
+          "prs": [
+            9605
+          ],
+          "bot": false
+        },
+        {
+          "id": "9f1939cc5113",
+          "textHash": "6e0625f3cfc4",
+          "broken": false,
+          "file": "packages/core/src/routes/system.ts",
+          "state": "candidate",
+          "sources": [
+            "4033808469"
+          ],
+          "units": {},
+          "prs": [
+            9605
+          ],
+          "bot": false
+        },
+        {
+          "id": "158cdc6a7ef7",
+          "textHash": "637b72246c10",
+          "broken": false,
+          "file": "packages/core/src/queries/system.ts",
+          "state": "candidate",
+          "sources": [
+            "4033808669"
+          ],
+          "units": {},
+          "prs": [
+            9605
+          ],
+          "bot": false
+        },
+        {
+          "id": "312448352ca5",
+          "textHash": "e9f198c88373",
+          "broken": false,
+          "file": "packages/integration-tests/src/api/system.ts",
+          "state": "candidate",
+          "sources": [
+            "4033808858"
+          ],
+          "units": {},
+          "prs": [
+            9605
+          ],
+          "bot": false
+        },
+        {
+          "id": "062d7b5e1d05",
+          "textHash": "885bb10fb126",
+          "broken": false,
+          "file": "packages/core/src/license/public-key.ts",
+          "state": "candidate",
+          "sources": [
+            "4033809024"
+          ],
+          "units": {},
+          "prs": [
+            9605
+          ],
+          "bot": false
+        },
+        {
+          "id": "c9f6168d2538",
+          "textHash": "b860316bc27d",
+          "broken": false,
+          "file": "packages/core/src/routes/system.ts",
+          "state": "candidate",
+          "sources": [
+            "4033809150"
+          ],
+          "units": {},
+          "prs": [
+            9605
+          ],
+          "bot": false
+        },
+        {
+          "id": "14039384d6d4",
+          "textHash": "be8603fc2da2",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/libraries/step-up-eligibility.ts",
+          "state": "candidate",
+          "sources": [
+            "4033711957"
+          ],
+          "units": {},
+          "prs": [
+            9609
+          ],
+          "bot": false
+        },
+        {
+          "id": "752d77652598",
+          "textHash": "f28cb4977a11",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/libraries/step-up-eligibility.test.ts",
+          "state": "candidate",
+          "sources": [
+            "4033712037"
+          ],
+          "units": {},
+          "prs": [
+            9609
+          ],
+          "bot": false
+        },
+        {
+          "id": "1b6edb2f936a",
+          "textHash": "f2129c9d0063",
+          "broken": false,
+          "file": "packages/core/src/utils/subscription/types.ts",
+          "state": "candidate",
+          "sources": [
+            "4044280648"
+          ],
+          "units": {},
+          "prs": [
+            9610
+          ],
+          "bot": false
+        },
+        {
+          "id": "594431ede4bf",
+          "textHash": "e4f3370ca979",
+          "broken": false,
+          "file": "packages/core/src/libraries/subscription.ts",
+          "state": "candidate",
+          "sources": [
+            "4044280762"
+          ],
+          "units": {},
+          "prs": [
+            9610
+          ],
+          "bot": false
+        },
+        {
+          "id": "fc1b3d054f6a",
+          "textHash": "67f95d2ba102",
+          "broken": false,
+          "file": "packages/core/src/libraries/subscription.ts",
+          "state": "candidate",
+          "sources": [
+            "4044280874"
+          ],
+          "units": {},
+          "prs": [
+            9610
+          ],
+          "bot": false
+        },
+        {
+          "id": "43f3b0cc4ccd",
+          "textHash": "21f6167b1ffc",
+          "broken": false,
+          "file": "packages/core/src/libraries/subscription.ts",
+          "state": "candidate",
+          "sources": [
+            "4044280961"
+          ],
+          "units": {},
+          "prs": [
+            9610
+          ],
+          "bot": false
+        },
+        {
+          "id": "86acb6cd12f1",
+          "textHash": "764da3b6dbae",
+          "broken": false,
+          "file": "packages/core/src/libraries/oidc-private-key.ts",
+          "state": "candidate",
+          "sources": [
+            "4044260089"
+          ],
+          "units": {},
+          "prs": [
+            9616
+          ],
+          "bot": false
+        },
+        {
+          "id": "35b559bd65d4",
+          "textHash": "54a65dae3325",
+          "broken": false,
+          "file": "packages/schemas/src/utils/oidc-private-key.test.ts",
+          "state": "candidate",
+          "sources": [
+            "4044260214"
+          ],
+          "units": {},
+          "prs": [
+            9616
+          ],
+          "bot": false
+        },
+        {
+          "id": "6876e1ba36b7",
+          "textHash": "2820fd986cbe",
+          "broken": false,
+          "file": "packages/connectors/connector-dingtalk-web/src/index.ts",
+          "state": "candidate",
+          "sources": [
+            "4037651651"
+          ],
+          "units": {},
+          "prs": [
+            9622
+          ],
+          "bot": true
+        },
+        {
+          "id": "ecb951474956",
+          "textHash": "b282d64d1245",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5236670792"
+          ],
+          "units": {},
+          "prs": [
+            9622
+          ],
+          "bot": true
+        },
+        {
+          "id": "4117f863ee59",
+          "textHash": "3874c73810d3",
+          "broken": false,
+          "file": ".changeset/custom-user-id-on-create.md",
+          "state": "candidate",
+          "sources": [
+            "4056102124"
+          ],
+          "units": {},
+          "prs": [
+            9626
+          ],
+          "bot": false
+        },
+        {
+          "id": "beb041b371f0",
+          "textHash": "147068631f54",
+          "broken": false,
+          "file": "packages/core/src/routes/admin-user/basics.ts",
+          "state": "candidate",
+          "sources": [
+            "4056332231"
+          ],
+          "units": {},
+          "prs": [
+            9626
+          ],
+          "bot": false
+        },
+        {
+          "id": "8e28d4f8f5c4",
+          "textHash": "fbf1e1ca1388",
+          "broken": false,
+          "file": "packages/core/src/routes/admin-user/basics.ts",
+          "state": "candidate",
+          "sources": [
+            "4056332277"
+          ],
+          "units": {},
+          "prs": [
+            9626
+          ],
+          "bot": false
+        },
+        {
+          "id": "1849293ba128",
+          "textHash": "b1cf2705948a",
+          "broken": false,
+          "file": "packages/core/src/routes/admin-user/basics.ts",
+          "state": "candidate",
+          "sources": [
+            "4056332319"
+          ],
+          "units": {},
+          "prs": [
+            9626
+          ],
+          "bot": false
+        },
+        {
+          "id": "54a1eb954308",
+          "textHash": "c3327a49a16d",
+          "broken": false,
+          "file": "packages/core/src/routes/admin-user/basic.openapi.json",
+          "state": "candidate",
+          "sources": [
+            "4056332351"
+          ],
+          "units": {},
+          "prs": [
+            9626
+          ],
+          "bot": false
+        },
+        {
+          "id": "0c6b3089a3d3",
+          "textHash": "d9143cc152d9",
+          "broken": false,
+          "file": "packages/core/src/routes/admin-user/basics.ts",
+          "state": "candidate",
+          "sources": [
+            "4056332411"
+          ],
+          "units": {},
+          "prs": [
+            9626
+          ],
+          "bot": false
+        },
+        {
+          "id": "92a602d76245",
+          "textHash": "717766031e92",
+          "broken": false,
+          "file": "packages/core/src/routes/admin-user/basic.openapi.json",
+          "state": "candidate",
+          "sources": [
+            "4060057268"
+          ],
+          "units": {},
+          "prs": [
+            9626
+          ],
+          "bot": false
+        },
+        {
+          "id": "8c97ae9e678a",
+          "textHash": "16ccc2642de0",
+          "broken": false,
+          "file": "packages/console/src/pages/SignInExperience/PageContent/Branding/BrandingForm/HideLogtoBrandingField.tsx",
+          "state": "candidate",
+          "sources": [
+            "4057193622"
+          ],
+          "units": {},
+          "prs": [
+            9630
+          ],
+          "bot": false
+        },
+        {
+          "id": "a55f0d197a13",
+          "textHash": "07a53e4a2641",
+          "broken": false,
+          "file": "packages/experience/src/containers/MfaVerificationGuard/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4056398829"
+          ],
+          "units": {},
+          "prs": [
+            9632
+          ],
+          "bot": false
+        },
+        {
+          "id": "89f883b6248c",
+          "textHash": "0a153c6a6199",
+          "broken": false,
+          "file": "packages/experience/src/containers/MfaCodeVerification/use-resend-mfa-verification-code.ts",
+          "state": "candidate",
+          "sources": [
+            "4056398890",
+            "4059646189"
+          ],
+          "units": {},
+          "prs": [
+            9632,
+            9635
+          ],
+          "bot": false
+        },
+        {
+          "id": "98a5a1b51122",
+          "textHash": "8e98af6f562a",
+          "broken": false,
+          "file": "packages/experience/src/containers/MfaVerificationGuard/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4056398925"
+          ],
+          "units": {},
+          "prs": [
+            9632
+          ],
+          "bot": false
+        },
+        {
+          "id": "312ab1e3a87f",
+          "textHash": "69352598b7bc",
+          "broken": false,
+          "file": "packages/experience/src/containers/MfaVerificationGuard/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4056398953"
+          ],
+          "units": {},
+          "prs": [
+            9632
+          ],
+          "bot": false
+        },
+        {
+          "id": "d2384a2f4a49",
+          "textHash": "a5f87b152e4b",
+          "broken": false,
+          "file": "packages/experience/src/types/guard.ts",
+          "state": "candidate",
+          "sources": [
+            "4056398985"
+          ],
+          "units": {},
+          "prs": [
+            9632
+          ],
+          "bot": false
+        },
+        {
+          "id": "eb5b6c594b03",
+          "textHash": "b2f44e5d9b57",
+          "broken": false,
+          "file": "packages/demo-app/src/StepUpForm.tsx",
+          "state": "candidate",
+          "sources": [
+            "4056342689"
+          ],
+          "units": {},
+          "prs": [
+            9633
+          ],
+          "bot": false
+        },
+        {
+          "id": "8e69397fd0df",
+          "textHash": "c61826d1f34b",
+          "broken": false,
+          "file": "packages/demo-app/src/utils.ts",
+          "state": "candidate",
+          "sources": [
+            "4056342714"
+          ],
+          "units": {},
+          "prs": [
+            9633
+          ],
+          "bot": false
+        },
+        {
+          "id": "d8f0edef2155",
+          "textHash": "f0d1e5757874",
+          "broken": false,
+          "file": "packages/demo-app/src/utils.ts",
+          "state": "candidate",
+          "sources": [
+            "4056343176"
+          ],
+          "units": {},
+          "prs": [
+            9633
+          ],
+          "bot": false
+        },
+        {
+          "id": "62dfe7267baf",
+          "textHash": "f6e528ce5906",
+          "broken": false,
+          "file": "packages/demo-app/src/StepUpForm.tsx",
+          "state": "candidate",
+          "sources": [
+            "4056343222"
+          ],
+          "units": {},
+          "prs": [
+            9633
+          ],
+          "bot": false
+        },
+        {
+          "id": "2e84d7c45733",
+          "textHash": "04a9f941b3f7",
+          "broken": false,
+          "file": "packages/demo-app/src/StepUpForm.tsx",
+          "state": "candidate",
+          "sources": [
+            "4056343255"
+          ],
+          "units": {},
+          "prs": [
+            9633
+          ],
+          "bot": false
+        },
+        {
+          "id": "3bd9a67447b1",
+          "textHash": "5fb8020c332f",
+          "broken": false,
+          "file": "packages/demo-app/src/StepUpForm.tsx",
+          "state": "candidate",
+          "sources": [
+            "4056343298"
+          ],
+          "units": {},
+          "prs": [
+            9633
+          ],
+          "bot": false
+        },
+        {
+          "id": "afd589834e77",
+          "textHash": "7a6a8bbf8526",
+          "broken": false,
+          "file": "packages/demo-app/src/StepUpForm.tsx",
+          "state": "candidate",
+          "sources": [
+            "4056343357"
+          ],
+          "units": {},
+          "prs": [
+            9633
+          ],
+          "bot": false
+        },
+        {
+          "id": "04dea9e9b325",
+          "textHash": "90f014b6f48e",
+          "broken": false,
+          "file": "packages/experience/src/Layout/VerificationPageLayout/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4059710379"
+          ],
+          "units": {},
+          "prs": [
+            9636
+          ],
+          "bot": false
+        },
+        {
+          "id": "16b7a6c255fb",
+          "textHash": "e60e62e304ac",
+          "broken": false,
+          "file": "packages/experience/src/Layout/VerificationPageLayout/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4059710468"
+          ],
+          "units": {},
+          "prs": [
+            9636
+          ],
+          "bot": false
+        },
+        {
+          "id": "71c6b840d444",
+          "textHash": "babaa0c738c0",
+          "broken": false,
+          "file": "packages/phrases/src/locales/fr/translation/admin-console/cloud.ts",
+          "state": "candidate",
+          "sources": [
+            "4061053541"
+          ],
+          "units": {},
+          "prs": [
+            9639
+          ],
+          "bot": true
+        },
+        {
+          "id": "c6352ce92811",
+          "textHash": "de68d300731c",
+          "broken": false,
+          "file": "packages/phrases/src/locales/zh-tw/translation/admin-console/cloud.ts",
+          "state": "candidate",
+          "sources": [
+            "4061053632"
+          ],
+          "units": {},
+          "prs": [
+            9639
+          ],
+          "bot": true
+        },
+        {
+          "id": "0ebb74815440",
+          "textHash": "44863309d3bc",
+          "broken": false,
+          "file": "packages/console/src/cloud/AppRoutes.tsx",
+          "state": "candidate",
+          "sources": [
+            "4067827581"
+          ],
+          "units": {},
+          "prs": [
+            9639
+          ],
+          "bot": false
+        },
+        {
+          "id": "cec9e48227f9",
+          "textHash": "cfb9c4ad425b",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5265294480",
+            "review-5265564237",
+            "review-5275408105",
+            "review-5276505741",
+            "review-5275632157",
+            "review-5276197404",
+            "review-5276343692",
+            "review-5276509361",
+            "review-5276560160",
+            "review-5278433392",
+            "review-5278609361",
+            "review-5287695523",
+            "review-5299940640",
+            "review-5343035675",
+            "review-5299750532",
+            "review-5300022303",
+            "review-5300306380"
+          ],
+          "units": {
+            "review-5275408105": [
+              0
+            ],
+            "review-5275632157": [
+              0
+            ]
+          },
+          "prs": [
+            9639,
+            9640,
+            9645,
+            9656
+          ],
+          "bot": true
+        },
+        {
+          "id": "3501f5065126",
+          "textHash": "5ddc7a664b39",
+          "broken": false,
+          "file": "packages/console/src/cloud/pages/ConsoleSso/DomainTags.tsx",
+          "state": "candidate",
+          "sources": [
+            "4069509358"
+          ],
+          "units": {},
+          "prs": [
+            9640
+          ],
+          "bot": true
+        },
+        {
+          "id": "b7fb05887cfe",
+          "textHash": "d30cdad279d2",
+          "broken": false,
+          "file": "packages/console/src/cloud/pages/ConsoleSso/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4069509404"
+          ],
+          "units": {},
+          "prs": [
+            9640
+          ],
+          "bot": true
+        },
+        {
+          "id": "ed68219de821",
+          "textHash": "9dfd32a22beb",
+          "broken": false,
+          "file": "packages/console/src/pages/EnterpriseSso/SsoCreationModal/SsoConnectorRadioGroup/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4069509434"
+          ],
+          "units": {},
+          "prs": [
+            9640
+          ],
+          "bot": true
+        },
+        {
+          "id": "450d9d81180d",
+          "textHash": "ea435200db47",
+          "broken": false,
+          "file": "packages/console/src/cloud/pages/ConsoleSso/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4080011249"
+          ],
+          "units": {},
+          "prs": [
+            9640
+          ],
+          "bot": true
+        },
+        {
+          "id": "063d4460d9c6",
+          "textHash": "f09e0e9c0088",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "4069087672"
+          ],
+          "units": {},
+          "prs": [
+            9643
+          ],
+          "bot": false
+        },
+        {
+          "id": "5c2514d0eda6",
+          "textHash": "486685f44d1d",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/mfa.ts",
+          "state": "candidate",
+          "sources": [
+            "4069087804"
+          ],
+          "units": {},
+          "prs": [
+            9643
+          ],
+          "bot": false
+        },
+        {
+          "id": "a8941391f8b9",
+          "textHash": "9e8614db7392",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "4069087955"
+          ],
+          "units": {},
+          "prs": [
+            9643
+          ],
+          "bot": false
+        },
+        {
+          "id": "90ec7436bc50",
+          "textHash": "e421edce512a",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "4069088184"
+          ],
+          "units": {},
+          "prs": [
+            9643
+          ],
+          "bot": false
+        },
+        {
+          "id": "1453f5f0a415",
+          "textHash": "c980d4614487",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "4069088309"
+          ],
+          "units": {},
+          "prs": [
+            9643
+          ],
+          "bot": false
+        },
+        {
+          "id": "96c4b5086e14",
+          "textHash": "9772bd9256c3",
+          "broken": false,
+          "file": "packages/core/src/routes/experience/classes/experience-interaction.ts",
+          "state": "candidate",
+          "sources": [
+            "4118010919"
+          ],
+          "units": {},
+          "prs": [
+            9643
+          ],
+          "bot": false
+        },
+        {
+          "id": "35391f5478d7",
+          "textHash": "e126f0fa3ea9",
+          "broken": false,
+          "file": "packages/core/src/license/LicenseReader.ts",
+          "state": "candidate",
+          "sources": [
+            "4091870129"
+          ],
+          "units": {},
+          "prs": [
+            9644
+          ],
+          "bot": false
+        },
+        {
+          "id": "646f74ecd22d",
+          "textHash": "b104fb530ba0",
+          "broken": false,
+          "file": "packages/core/src/license/LicenseReader.ts",
+          "state": "candidate",
+          "sources": [
+            "4117983187"
+          ],
+          "units": {},
+          "prs": [
+            9644
+          ],
+          "bot": false
+        },
+        {
+          "id": "e8f9ddeec0f0",
+          "textHash": "1233fffc9964",
+          "broken": false,
+          "file": "packages/core/src/license/LicenseReader.ts",
+          "state": "candidate",
+          "sources": [
+            "4117997204"
+          ],
+          "units": {},
+          "prs": [
+            9644
+          ],
+          "bot": false
+        },
+        {
+          "id": "2a87947a7c37",
+          "textHash": "e08eea570821",
+          "broken": false,
+          "file": "packages/core/src/routes/system.ts",
+          "state": "candidate",
+          "sources": [
+            "4117997295"
+          ],
+          "units": {},
+          "prs": [
+            9644
+          ],
+          "bot": false
+        },
+        {
+          "id": "c2c0c59d311b",
+          "textHash": "8bed89bff1aa",
+          "broken": false,
+          "file": "packages/schemas/src/consts/oidc.ts",
+          "state": "candidate",
+          "sources": [
+            "4069676423"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "d7f39bd8d355",
+          "textHash": "1b6ccd46c508",
+          "broken": false,
+          "file": "packages/experience/index.html",
+          "state": "candidate",
+          "sources": [
+            "4069676476"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "b85c4f4751d6",
+          "textHash": "d113fd59f06b",
+          "broken": false,
+          "file": "packages/schemas/src/consts/oidc.ts",
+          "state": "candidate",
+          "sources": [
+            "4069676512"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "68f9309da70a",
+          "textHash": "3a63aaf254bc",
+          "broken": false,
+          "file": "packages/integration-tests/src/tests/experience/theme.test.ts",
+          "state": "candidate",
+          "sources": [
+            "4070131549"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "71ea96be83db",
+          "textHash": "763037fe32eb",
+          "broken": false,
+          "file": "packages/experience/index.html",
+          "state": "candidate",
+          "sources": [
+            "4070131603"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "908e3648b28c",
+          "textHash": "170c3c0e07dd",
+          "broken": false,
+          "file": "packages/schemas/src/types/ssr.ts",
+          "state": "candidate",
+          "sources": [
+            "4070252385"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "91371e396f44",
+          "textHash": "fd5a63c6fc4e",
+          "broken": false,
+          "file": "packages/experience/index.html",
+          "state": "candidate",
+          "sources": [
+            "4071921685"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "823aaa40afc1",
+          "textHash": "7cface47cf1c",
+          "broken": false,
+          "file": "packages/experience/src/shared/utils/search-parameters.ts",
+          "state": "candidate",
+          "sources": [
+            "4072065458"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "b75a28a3eefe",
+          "textHash": "adf814e74643",
+          "broken": false,
+          "file": "packages/experience/src/shared/utils/search-parameters.ts",
+          "state": "candidate",
+          "sources": [
+            "4078786549"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": false
+        },
+        {
+          "id": "6b17dcb10c39",
+          "textHash": "f100ea4a7677",
+          "broken": false,
+          "file": "packages/core/src/oidc/utils.ts",
+          "state": "candidate",
+          "sources": [
+            "4079716537"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "963a9daef50b",
+          "textHash": "aa7e9eaeb70f",
+          "broken": false,
+          "file": "packages/experience/src/shared/utils/theme.ts",
+          "state": "candidate",
+          "sources": [
+            "4090038853"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": true
+        },
+        {
+          "id": "a99b2de78b66",
+          "textHash": "39f0983b2de6",
+          "broken": false,
+          "file": "packages/core/src/oidc/utils.ts",
+          "state": "candidate",
+          "sources": [
+            "4118063757"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": false
+        },
+        {
+          "id": "9adf97736a0a",
+          "textHash": "33a45f0abe00",
+          "broken": false,
+          "file": "packages/integration-tests/src/tests/experience/theme.test.ts",
+          "state": "candidate",
+          "sources": [
+            "4118063817"
+          ],
+          "units": {},
+          "prs": [
+            9645
+          ],
+          "bot": false
+        },
+        {
+          "id": "6fd8cf23f0d9",
+          "textHash": "1aa77bce9756",
+          "broken": false,
+          "file": "packages/console/src/pages/OssTenantSettings/License/LicenseDetails/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4078689819"
+          ],
+          "units": {},
+          "prs": [
+            9646
+          ],
+          "bot": false
+        },
+        {
+          "id": "39d055f5b7ac",
+          "textHash": "9ca8c3618247",
+          "broken": false,
+          "file": "packages/console/src/pages/OssTenantSettings/License/LicenseDetails/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4078699641"
+          ],
+          "units": {},
+          "prs": [
+            9646
+          ],
+          "bot": false
+        },
+        {
+          "id": "b505e8fadfc0",
+          "textHash": "205de3aa6679",
+          "broken": false,
+          "file": "packages/console/src/pages/SignInExperience/PageContent/Branding/CustomUiForm/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4118049379"
+          ],
+          "units": {},
+          "prs": [
+            9647
+          ],
+          "bot": false
+        },
+        {
+          "id": "79fbbd34a8a3",
+          "textHash": "17e40726dcd1",
+          "broken": false,
+          "file": "packages/console/src/pages/SignInExperience/PageContent/Branding/CustomUiForm/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4118049489"
+          ],
+          "units": {},
+          "prs": [
+            9647
+          ],
+          "bot": false
+        },
+        {
+          "id": "42d06422407c",
+          "textHash": "2d6463764bed",
+          "broken": false,
+          "file": "packages/core/src/routes/sign-in-experience/index.ts",
+          "state": "candidate",
+          "sources": [
+            "4118049574"
+          ],
+          "units": {},
+          "prs": [
+            9647
+          ],
+          "bot": false
+        },
+        {
+          "id": "525bfaf5504a",
+          "textHash": "c7f68f84f08a",
+          "broken": false,
+          "file": "packages/core/src/middleware/koa-security-headers.ts",
+          "state": "candidate",
+          "sources": [
+            "4091869834"
+          ],
+          "units": {},
+          "prs": [
+            9648
+          ],
+          "bot": false
+        },
+        {
+          "id": "f3388282e712",
+          "textHash": "766f0c605e3d",
+          "broken": false,
+          "file": "packages/experience/src/Providers/CaptchaContextProvider/cap.ts",
+          "state": "candidate",
+          "sources": [
+            "4118093587"
+          ],
+          "units": {},
+          "prs": [
+            9648
+          ],
+          "bot": false
+        },
+        {
+          "id": "f794290989b9",
+          "textHash": "b9ece5533591",
+          "broken": false,
+          "file": "packages/schemas/src/foundations/jsonb-types/captcha.ts",
+          "state": "candidate",
+          "sources": [
+            "4118093867"
+          ],
+          "units": {},
+          "prs": [
+            9648
+          ],
+          "bot": false
+        },
+        {
+          "id": "8216acf82c16",
+          "textHash": "291d0965d25b",
+          "broken": false,
+          "file": "packages/core/src/routes/sign-in-experience/custom-ui-assets/unzip.ts",
+          "state": "candidate",
+          "sources": [
+            "4118210988"
+          ],
+          "units": {},
+          "prs": [
+            9650
+          ],
+          "bot": false
+        },
+        {
+          "id": "d29760e017b2",
+          "textHash": "72eee759762c",
+          "broken": false,
+          "file": "packages/core/src/utils/storage/s3-storage.ts",
+          "state": "candidate",
+          "sources": [
+            "4118211063"
+          ],
+          "units": {},
+          "prs": [
+            9650
+          ],
+          "bot": false
+        },
+        {
+          "id": "a485aa9d1bcc",
+          "textHash": "9dea5dddeb33",
+          "broken": false,
+          "file": "packages/core/src/routes-me/tenant.ts",
+          "state": "candidate",
+          "sources": [
+            "4118252708"
+          ],
+          "units": {},
+          "prs": [
+            9651
+          ],
+          "bot": false
+        },
+        {
+          "id": "c429e265625f",
+          "textHash": "88975d64bfc7",
+          "broken": false,
+          "file": "packages/console/src/hooks/use-console-routes/routes/tenant-settings.tsx",
+          "state": "candidate",
+          "sources": [
+            "4118252800"
+          ],
+          "units": {},
+          "prs": [
+            9651
+          ],
+          "bot": false
+        },
+        {
+          "id": "fd73f42f1bd1",
+          "textHash": "62e775fd2d1d",
+          "broken": false,
+          "file": "packages/core/src/routes-me/tenant.ts",
+          "state": "candidate",
+          "sources": [
+            "4118252877"
+          ],
+          "units": {},
+          "prs": [
+            9651
+          ],
+          "bot": false
+        },
+        {
+          "id": "a37ae7ecc600",
+          "textHash": "e93f7908ed46",
+          "broken": false,
+          "file": "packages/console/src/cloud/pages/ConsoleSso/Details/Experience/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4088892510"
+          ],
+          "units": {},
+          "prs": [
+            9652
+          ],
+          "bot": false
+        },
+        {
+          "id": "ac87da4a4ded",
+          "textHash": "8363efb05d2d",
+          "broken": false,
+          "file": "packages/console/src/cloud/pages/ConsoleSso/Details/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4090223871"
+          ],
+          "units": {},
+          "prs": [
+            9652
+          ],
+          "bot": true
+        },
+        {
+          "id": "7034d010fd12",
+          "textHash": "4f1c0ac66467",
+          "broken": false,
+          "file": "packages/console/src/cloud/pages/ConsoleSso/Details/Experience/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4090223877"
+          ],
+          "units": {},
+          "prs": [
+            9652
+          ],
+          "bot": true
+        },
+        {
+          "id": "d8ad360c7883",
+          "textHash": "cf4e406df62e",
+          "broken": false,
+          "file": "packages/console/src/cloud/pages/ConsoleSso/Details/Experience/DomainManager/use-domain-manager.ts",
+          "state": "candidate",
+          "sources": [
+            "4088893836"
+          ],
+          "units": {},
+          "prs": [
+            9653
+          ],
+          "bot": false
+        },
+        {
+          "id": "7c3caaf2d523",
+          "textHash": "b457a4ca4834",
+          "broken": false,
+          "file": "packages/schemas/src/types/logto-config/index.ts",
+          "state": "candidate",
+          "sources": [
+            "4089872770"
+          ],
+          "units": {},
+          "prs": [
+            9656
+          ],
+          "bot": true
+        },
+        {
+          "id": "a657cec1e1c0",
+          "textHash": "e07461479961",
+          "broken": false,
+          "file": "packages/core/src/middleware/koa-cimd-offline-access-consent-prompt.test.ts",
+          "state": "candidate",
+          "sources": [
+            "4090353839"
+          ],
+          "units": {},
+          "prs": [
+            9656
+          ],
+          "bot": true
+        },
+        {
+          "id": "cbce0b6e92d0",
+          "textHash": "b3d399352f76",
+          "broken": false,
+          "file": "packages/core/src/middleware/koa-cimd-offline-access-consent-prompt.ts",
+          "state": "candidate",
+          "sources": [
+            "4091537809"
+          ],
+          "units": {},
+          "prs": [
+            9656
+          ],
+          "bot": false
+        },
+        {
+          "id": "f958f01814e3",
+          "textHash": "ad80e6f9c9b2",
+          "broken": false,
+          "file": "packages/core/src/libraries/organization-invitation.ts",
+          "state": "candidate",
+          "sources": [
+            "4130203559"
+          ],
+          "units": {},
+          "prs": [
+            9673
+          ],
+          "bot": false
+        },
+        {
+          "id": "6d66b766d636",
+          "textHash": "ef5f9ee0aecb",
+          "broken": false,
+          "file": "packages/core/src/tenants/TenantContext.ts",
+          "state": "candidate",
+          "sources": [
+            "4140072967"
+          ],
+          "units": {},
+          "prs": [
+            9681
+          ],
+          "bot": false
+        },
+        {
+          "id": "b33207300538",
+          "textHash": "6c537d52215d",
+          "broken": false,
+          "file": "packages/core/src/routes-me/tenant-organization.ts",
+          "state": "candidate",
+          "sources": [
+            "4140072975"
+          ],
+          "units": {},
+          "prs": [
+            9681
+          ],
+          "bot": false
+        },
+        {
+          "id": "05b09a711ac8",
+          "textHash": "54202fa71f22",
+          "broken": false,
+          "file": "packages/core/src/routes-me/tenant-invitations.ts",
+          "state": "candidate",
+          "sources": [
+            "4140152987"
+          ],
+          "units": {},
+          "prs": [
+            9682
+          ],
+          "bot": false
+        },
+        {
+          "id": "a3744b20313e",
+          "textHash": "a7cd6c85bff9",
+          "broken": false,
+          "file": "packages/core/src/routes-me/tenant-invitations.ts",
+          "state": "candidate",
+          "sources": [
+            "4140155680"
+          ],
+          "units": {},
+          "prs": [
+            9682
+          ],
+          "bot": false
+        },
+        {
+          "id": "ffe80886a3d5",
+          "textHash": "94dc3786f877",
+          "broken": false,
+          "file": "packages/core/src/routes-me/tenant-invitations.ts",
+          "state": "candidate",
+          "sources": [
+            "4140155872"
+          ],
+          "units": {},
+          "prs": [
+            9682
+          ],
+          "bot": false
+        },
+        {
+          "id": "99cedadda329",
+          "textHash": "e568fa8731cf",
+          "broken": false,
+          "file": "packages/console/src/pages/OssTenantSettings/Members/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4141538760"
+          ],
+          "units": {},
+          "prs": [
+            9683
+          ],
+          "bot": false
+        }
+      ],
+      "nearDuplicates": [
+        [
+          "c726bdbd65e9",
+          "2dfbdebf681d",
+          0.75
+        ],
+        [
+          "450d9d81180d",
+          "ac87da4a4ded",
+          0.54
+        ]
+      ]
+    }
+  }
+}

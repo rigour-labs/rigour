@@ -583,10 +583,10 @@ function printNextSteps(tools: HookTool[], unavailableTools: Set<HookTool>): voi
  * config, each command guarded so it runs only in a repository switched on with `rigour setup`.
  * Merged into the person's existing configs like a project install; recorded in Rigour's home.
  */
-export async function installMachineHooks(options: { block?: boolean; dlp?: boolean } = {}): Promise<{ agents: HookTool[]; written: number; failed: string[] }> {
+export async function installMachineHooks(options: { block?: boolean; dlp?: boolean; brief?: boolean } = {}): Promise<{ agents: HookTool[]; written: number; failed: string[] }> {
     const checker = resolveCheckerCommand();
     const agents = installedAgents();
-    const files = agents.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false)).map(file => asUserLevel(file));
+    const files = agents.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false, !!options.brief)).map(file => asUserLevel(file));
     const { written, failedPaths } = await writeHookFiles(agentHome(), files, true, path.dirname(rigourUserDir()));
     return { agents, written, failed: [...failedPaths] };
 }
@@ -716,17 +716,37 @@ export function parseStdinFiles(input: string): string[] {
     }
 }
 
+/** Detection types whose format only a real secret has: a key from a provider's own format, or a private key. */
+const SECRET_FORMAT_TYPES = new Set(['private_key', 'private_key_full', 'gcp_service_account']);
+
 /**
- * Detect if stdin payload is from a Cursor hook (has hook_event_name or prompt field).
- * Cursor hooks send structured JSON with specific fields and expect
- * { continue: boolean, user_message?: string } back.
+ * What Claude Code is told before a tool call carrying credentials. A credential in a real secret's format the scan
+ * still rates a block denies the call (these are never learned away as false positives), with the reason Claude is shown. Anything else
+ * it found is a warning Claude sees beside the tool result; a hook that exits 0 has its stderr shown to no one.
+ */
+function claudeToolDecision(detections: any[]): { deny?: string; warning?: string } {
+    const line = (d: any) => `[${d.type}] ${d.description}${d.match ? ` (${d.match})` : ''} → ${d.recommendation}`;
+    const secrets = detections.filter(d => d.decision === 'block' && (SECRET_FORMAT_TYPES.has(d.type) || d.reason_codes?.includes('provider_pattern')));
+    if (secrets.length) {
+        return { deny: `Rigour: this would write ${secrets.length === 1 ? 'a credential' : `${secrets.length} credentials`} in a real secret's format:\n${secrets.map(line).join('\n')}\nRead it from an environment variable or a secrets file instead. For a test value, build it at run time so no key-shaped literal is written.` };
+    }
+    const seen = detections.filter(d => d.decision !== 'allow');
+    return seen.length ? { warning: `Rigour: possible credential${seen.length === 1 ? '' : 's'} in this tool call, not blocked:\n${seen.map(line).join('\n')}` } : {};
+}
+
+/** Cursor's own hook event names. Claude Code sends hook_event_name too (PreToolUse, PostToolUse, Stop, ...). */
+const CURSOR_EVENTS = new Set([
+    'beforeSubmitPrompt', 'beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'beforeTabFileRead',
+    'afterFileEdit', 'afterTabFileEdit', 'afterShellExecution', 'afterMCPExecution', 'afterAgentResponse', 'afterAgentThought', 'stop',
+]);
+
+/**
+ * Whether a stdin payload is from a Cursor hook, which expects { continue, user_message? } back. Known by Cursor's own
+ * event names, never by the field being there: Claude Code's payloads carry hook_event_name as well, and read as
+ * Cursor's they were scanned for a prompt they do not have (nothing checked). An unknown event is not Cursor's.
  */
 function isCursorHookPayload(payload: any): boolean {
-    return payload && (
-        typeof payload.hook_event_name === 'string' ||
-        typeof payload.prompt === 'string' ||
-        typeof payload.conversation_id === 'string'
-    );
+    return !!payload && typeof payload.hook_event_name === 'string' && CURSOR_EVENTS.has(payload.hook_event_name);
 }
 
 /**
@@ -812,7 +832,12 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         } else {
             // The first edit of a file in a session: the team's word on it rides on this same hook's answer.
             const briefing = options.brief && /^(Write|Edit|MultiEdit)$/.test(String(toolPayload?.tool_name ?? '')) ? await fileBriefingContext(toolPayload, cwd).catch(() => '') : '';
-            process.stdout.write(JSON.stringify(briefing ? { ...result, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: briefing } } : result));
+            const decision = toolPayload?.hook_event_name === 'PreToolUse' ? claudeToolDecision(result.detections) : undefined;
+            const context = [decision?.warning, briefing].filter(Boolean).join('\n\n');
+            const hookSpecificOutput = decision?.deny
+                ? { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: decision.deny }
+                : context ? { hookEventName: 'PreToolUse', additionalContext: context } : undefined;
+            process.stdout.write(JSON.stringify(hookSpecificOutput ? { ...result, hookSpecificOutput } : result));
         }
 
         if (result.status !== 'clean') {

@@ -2,7 +2,7 @@
  * The points a person makes in a review body: its bullet and numbered lines, each cut to its first
  * line. One reader for the backtest's ledger and the learner, so both see the same points.
  */
-const BULLET = /^\s*(?:[-*]|\d+[.)])\s+(.{8,})$/;
+export const BULLET = /^\s*(?:[-*]|\d+[.)])\s+(.{8,})$/;
 
 /** The bullet and numbered lines of a review body: the points a reviewer makes outside any one line. */
 export function bodyPoints(body: string): string[] {

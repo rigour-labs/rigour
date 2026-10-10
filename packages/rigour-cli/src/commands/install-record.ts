@@ -51,9 +51,9 @@ export function isRigourScript(text: string): boolean {
     return /hook for Rigour|@rigour-labs\/cli/.test(text) || isRigourCommand(text);
 }
 
-/** A hook command Rigour installed: it names Rigour and one of its hook subcommands. */
+/** A hook command Rigour installed: it names Rigour and one of its hook subcommands (the briefing's included). */
 function isRigourCommand(command: string): boolean {
-    return /rigour/i.test(command) && /\bhooks\s+(check|stop|push|review-background)\b/.test(command);
+    return /rigour/i.test(command) && /\bhooks\s+(check|stop|push|review-background|brief|brief-file)\b/.test(command);
 }
 
 /**

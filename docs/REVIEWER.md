@@ -411,7 +411,11 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   point that asks for nothing: a review tool's status and scaffolding (a verdict banner, an overview heading,
   "Files reviewed"), a line describing what the pull request does ("Adds caching for…"), praise or thanks, or a
   status report ("all tests passing"). It is skipped only when it carries no sign of a request (an instruction,
-  a modal, a question, a "but"); when unsure it is kept. `rigour learn-reviews` counts them: "N skipped: not a
+  a modal, a question, a "but"); when unsure it is kept. In a review body, structure counts too: the list under a
+  change-summary heading ("Changes", "What changed", "Summary", "Overview") describes the change, whatever its
+  verbs, unless a bullet asks for something; in a person's review, where a "Summary" often lists defects as plain
+  statements, a bullet there is skipped only if it also reads as a description ("Splits the parser…"). A collapsed
+  block about the tool itself ("About…", "How to…") is the tool's own help. `rigour learn-reviews` counts them: "N skipped: not a
   request", by why.
 
 A candidate only review bots raised is never served, not even with `gates.deep.review_lessons: all`; it
@@ -441,7 +445,9 @@ that followed the lesson, or that no review checked against it, never counts, an
 promoted or corrected into being is never taken back; a person promoting it again is final. `--reject <id>` makes an **anti-lesson**: judges are told this team decided
 against it, and it is never served as a lesson. Every piece of evidence stays on the lesson
 (`--list` shows what promoted each). With `--until <time>`, only history before it counts, so a
-measurement never sees the future. The pull request's author commenting on their own pull request is not
+measurement never sees the future: pull requests merged before it, and of those only the comments and reviews
+posted before it. A comment edited after it is kept and marked (`editedAfterUntil`), since GitHub serves only the
+edited text. The pull request's author commenting on their own pull request is not
 a review point. GitHub is read as the account in `review.github_account` (or an explicit
 `GITHUB_TOKEN`), never silently as another signed-in account.
 

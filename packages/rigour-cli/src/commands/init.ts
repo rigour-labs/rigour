@@ -40,6 +40,8 @@ export interface InitOptions {
     force?: boolean;
     /** Write AGENTS.md (and a CLAUDE.md importing it) where the project has none. Off by default: the MCP tools describe themselves and the hooks enforce. */
     instructions?: boolean;
+    /** Also install the team's briefing hooks (rigour setup turns it on; plain init leaves it to hooks init --brief). */
+    brief?: boolean;
 }
 
 type DetectedIDE = 'cursor' | 'vscode' | 'cline' | 'claude' | 'gemini' | 'codex' | 'windsurf' | 'unknown';
@@ -206,7 +208,7 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
 
     // 3. Hooks and the MCP server for the agents this repository uses, and no others.
     const agents = agentsToSetUp(cwd, options.ide);
-    await initHooksForAllDetectedTools(cwd, agents);
+    await initHooksForAllDetectedTools(cwd, agents, !!options.brief);
     await initMCPForDetectedTools(cwd, agents, options.force);
     const others = HOOK_AGENTS.filter(agent => !agents.includes(agent));
     if (others.length) console.log(chalk.dim(`   Set up for ${agents.join(', ')}. Another agent later: rigour hooks init --tool ${others.join('|')}`));
@@ -346,14 +348,15 @@ async function buildPatternIndex(cwd: string, force?: boolean): Promise<void> {
  */
 async function initHooksForAllDetectedTools(
     cwd: string,
-    detectedIDEs: DetectedIDE[]
+    detectedIDEs: DetectedIDE[],
+    brief: boolean
 ): Promise<string[]> {
     // No hook support for vscode, gemini, codex. One run for every agent: one summary, one DLP note, one git hook line.
     const hookTools = detectedIDEs.map(ide => IDE_TO_HOOK_TOOL[ide]).filter((tool): tool is string => !!tool);
     if (hookTools.length === 0) return [];
     try {
         console.log(chalk.dim(`\n   Setting up real-time hooks for ${hookTools.join(', ')}...`));
-        await hooksInitCommand(cwd, { tool: hookTools.join(','), dlp: true, force: true, block: true });
+        await hooksInitCommand(cwd, { tool: hookTools.join(','), dlp: true, force: true, block: true, brief });
     } catch (err: any) {
         console.log(chalk.dim(`   (Hooks setup failed: ${err?.message || err})`));
     }

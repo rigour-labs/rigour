@@ -388,6 +388,86 @@ describe('isSpecific', () => {
 });
 
 describe('learnFromReviews', () => {
+    it('learns from a merged pull request only what was posted before --until, and marks a comment edited after it', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        const until = '2026-09-10T00:00:00Z';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 5, merged_at: '2026-09-01T00:00:00Z', merge_commit_sha: merged, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/5/comments?per_page=100`]: [
+                { id: 51, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z', body: '**Use an upsert keyed on `id` so retries do not duplicate orders.**', user: { login: 'priya' } },
+                { id: 52, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-08-30T00:00:00Z', updated_at: '2026-09-15T00:00:00Z', body: '**Bound the batch size the insert sends in one call.**', user: { login: 'priya' } },
+                { id: 53, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z', body: '**Rename this to orderRows for clarity later.**', user: { login: 'sam' } },
+            ],
+            [`${api}/pulls/5/reviews?per_page=100`]: [
+                { id: 61, commit_id: reviewed, submitted_at: '2026-08-31T00:00:00Z', user: { login: 'priya' }, body: '- Bound both ends of every time window a scheduled job reads.' },
+                { id: 62, commit_id: reviewed, submitted_at: '2026-09-20T00:00:00Z', user: { login: 'sam' }, body: '- Add a test for the empty batch.' },
+            ],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until });
+        const points = readLessons(repo).flatMap(l => l.evidence.filter(e => e.kind === 'point'));
+        // Posted after --until (comment 53, review 62): not in a store as of then.
+        expect(points.map(e => e.comment).sort()).toEqual(['51', '52', 'review-61-0']);
+        // Edited after --until: kept, marked, since only its edited text is served.
+        expect(points.find(e => e.comment === '52')?.editedAfterUntil).toBe(true);
+        expect(points.find(e => e.comment === '51')?.editedAfterUntil).toBeUndefined();
+    });
+
+    it('compares --until as an instant: an offset reads right against UTC, and an unreadable one is refused', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        // 10:00 at +05:30 is 04:30 UTC: a comment at 04:29Z is before it, one at 04:31Z after it.
+        const until = '2026-09-25T10:00:00+05:30';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 6, merged_at: '2026-09-20T00:00:00Z', merge_commit_sha: merged, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/6/comments?per_page=100`]: [
+                { id: 71, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-25T04:29:00Z', updated_at: '2026-09-25T04:29:00Z', body: '**Use an upsert keyed on `id` so retries do not duplicate orders.**', user: { login: 'priya' } },
+                { id: 72, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-25T04:31:00Z', updated_at: '2026-09-25T04:31:00Z', body: '**Bound the batch size the insert sends in one call.**', user: { login: 'priya' } },
+            ],
+            [`${api}/pulls/6/reviews?per_page=100`]: [],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until });
+        expect(readLessons(repo).flatMap(l => l.evidence.filter(e => e.kind === 'point').map(e => e.comment))).toEqual(['71']);
+        await expect(learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until: 'last tuesday' })).rejects.toThrow('--until "last tuesday" is not a date or a time');
+        await expect(learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, since: 'soon' })).rejects.toThrow('--since "soon" is not a date or a time');
+    });
+
+    it('picks merged pull requests by --since and --until as instants, at the merge-time boundary', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        const comment = (id: number) => [{ id, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-20T00:00:00Z', updated_at: '2026-09-20T00:00:00Z', body: `**Use an upsert keyed on \`id\` in batch ${id} so retries do not duplicate orders.**`, user: { login: 'priya' } }];
+        const pages: Record<string, unknown> = {
+            // 10:00 at +05:30 is 04:30 UTC: #8 merged a minute before it, #9 a minute after.
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [
+                { number: 8, merged_at: '2026-09-25T04:29:00Z', merge_commit_sha: merged, user: { login: 'dev' } },
+                { number: 9, merged_at: '2026-09-25T04:31:00Z', merge_commit_sha: merged, user: { login: 'dev' } },
+            ],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/8/comments?per_page=100`]: comment(81), [`${api}/pulls/8/reviews?per_page=100`]: [],
+            [`${api}/pulls/9/comments?per_page=100`]: comment(91), [`${api}/pulls/9/reviews?per_page=100`]: [],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        expect(await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until: '2026-09-25T10:00:00+05:30' })).toMatchObject({ prs: 1 });
+        expect(readLessons(repo).flatMap(l => l.evidence.map(e => e.pr))).toEqual([8]);
+        // --since at the same instant: #8 merged before it, so only #9.
+        fs.rmSync(path.join(repo, '.rigour', 'review-lessons.json'), { force: true });
+        expect(await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, since: '2026-09-25T10:00:00+05:30' })).toMatchObject({ prs: 1 });
+        expect(readLessons(repo).flatMap(l => l.evidence.map(e => e.pr))).toEqual([9]);
+    });
+
     it('reads merged PRs from GitHub, learns from acted-on comments, and shows them for the next change', async () => {
         write(V1);
         const reviewed = commit('pr head');
