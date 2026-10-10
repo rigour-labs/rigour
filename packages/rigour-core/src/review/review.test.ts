@@ -223,6 +223,33 @@ describe('git-backed review', () => {
         expect(all.preexisting).toBe(0);
     }, 30_000); // two whole reviews, each running the rules on the change and on the base tree
 
+    it('passes a check whose findings were all already in the base, counting them, and fails one the change gave a finding', async () => {
+        const branchy = (name: string, extra = '') => [
+            `export function ${name}(x: number) {`,
+            ...Array.from({ length: 12 }, (_, i) => `  if (x === ${i}) return ${i};`),
+            extra,
+            '  return -1;',
+            '}',
+            '',
+        ].join('\n');
+        write('src/old.ts', branchy('legacy'));
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/old.ts', branchy('legacy', '  if (x === 99) return 99;'));
+        const config = ConfigSchema.parse({ version: 1 });
+
+        const only = await reviewChange({ cwd: repo, config });
+        // The complexity finding (id AST_COMPLEXITY) is counted under the gate that gave it.
+        const gate = 'ast-analysis';
+        expect(only.preexistingByCheck[gate]).toBeGreaterThanOrEqual(1);
+        expect(only.report?.summary[gate]).toBe('PASS');
+
+        write('src/fresh.ts', branchy('fresh'));
+        const introduced = await reviewChange({ cwd: repo, config });
+        expect(introduced.preexistingByCheck[gate]).toBeGreaterThanOrEqual(1);
+        expect(introduced.report?.summary[gate]).toBe('FAIL');
+    }, 30_000); // two whole reviews, each running the rules on the change and on the base tree
+
     it('lets a change dismiss its own finding only when the review trusts the working tree', async () => {
         write('src/old.ts', 'export const a = 1;\n');
         write('.gitignore', '.rigour/*\n!.rigour/dismissed.json\n');
