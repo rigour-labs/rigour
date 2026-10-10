@@ -174,10 +174,11 @@ export async function one(row: R): Promise<Response> {
         expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual([]);
         const hints = result.hints.filter(h => h.startsWith('write-only-property src/lookup.ts'));
         expect(hints).toEqual([expect.stringContaining('A.x is set by 1 host(s)'), expect.stringContaining('A.y is set by 1 host(s)')]);
-        expect(hints[0]).toMatch(/Response\.json\(\) at src\/handlers\.ts:\d+, carried as R/);
+        // A is stored in a Map before anything serialises it: the first exit found, and enough to make it a hint.
+        expect(hints[0]).toContain('may leave through Map.set() at src/lookup.ts:6, a container');
     }, 60_000);
 
-    it('still blocks the fields in the same shape when the handlers only count the rows and nothing is serialised', async () => {
+    it('makes the fields of a value stored in a container hints that name it, though nothing serialises it, and still blocks the type never stored', async () => {
         write('tsconfig.json', '{"compilerOptions":{"strict":true,"module":"esnext","target":"es2022","lib":["es2022","dom"],"moduleResolution":"bundler","skipLibCheck":true},"include":["src"]}\n');
         write('src/contracts.ts', 'export interface R { id: string; label: string; p?: { x: string; y: number } }\n');
         write('src/lookup.ts', `import type { R } from './contracts';
@@ -199,7 +200,40 @@ export async function count(rows: R[]): Promise<number> { return (await h(rows))
         git('add', '-A');
         git('commit', '-qm', 'the field shape, never serialised');
         const result = await review();
-        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual(expect.arrayContaining(['A.x', 'A.y']));
+        // A goes into a Map: whatever reads the Map may send it on, so its fields are hints naming the Map.
+        expect(result.hints.filter(h => h.startsWith('write-only-property src/lookup.ts'))).toEqual([
+            expect.stringContaining('A.x is set by 1 host(s) and read by no code; the value may leave through Map.set() at src/lookup.ts:5, a container'),
+            expect.stringContaining('A.y is set by 1 host(s)'),
+        ]);
+        // R is never stored, returned to an uncalled entry or sent: R.p still blocks.
+        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual(['R.p']);
+    }, 60_000);
+
+    it('treats an array push, an index assignment, a Set and the return of an export nothing calls as places a value may leave', async () => {
+        write('src/kinds.ts', `export interface Pushed { id: string; note: string }
+export interface Indexed { id: string; note: string }
+export interface Added { id: string; note: string }
+export interface Returned { id: string; note: string }
+export interface Kept { id: string; note: string }
+const log: Pushed[] = [];
+const byId: Record<string, Indexed> = {};
+const seen = new Set<Added>();
+export function record(id: string): void {
+    log.push({ id, note: 'a' });
+    byId[id] = { id, note: 'b' };
+    seen.add({ id, note: 'c' });
+}
+export function entry(id: string): Returned { return { id, note: 'd' }; }
+function keep(id: string): Kept { return { id, note: 'e' }; }
+export const kept = (id: string) => keep(id).id;
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'containers and an uncalled entry');
+        const result = await review();
+        const hinted = result.hints.map(h => h.match(/^write-only-property [^:]+:\d+: (\w+)\.note is set/)?.[1]).filter(Boolean);
+        expect(hinted.sort()).toEqual(['Added', 'Indexed', 'Pushed', 'Returned']);
+        // Kept is only returned to code in this program that reads its id: never stored, never sent. Its note still blocks.
+        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual(['Kept.note']);
     }, 60_000);
 
     it('still blocks a field of a value carried as another type when that type never leaves the program', async () => {

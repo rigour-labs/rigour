@@ -7,9 +7,10 @@
  *                             so every guard on it is dead;
  *   optional-always-supplied  an optional property every host object supplies (unless values of the type are
  *                             also read back from JSON, where data written before the member existed lacks it);
- *   write-only-property       a property the hosts set and nothing reads. When the value only
- *                             leaves through serialisation to a callee the program does not declare
- *                             (a wire payload), that is a hint for the reviewer, not a block.
+ *   write-only-property       a property the hosts set and nothing reads. It blocks only when the value
+ *                             is shown never to leave: when it may (stored in a container, returned from
+ *                             an export nothing calls, serialised, put in a string), that is a hint for
+ *                             the reviewer naming where, not a block.
  * Plus dead-null-guard (dead-null-guards.ts): a null guard on a column every query returning the row filters;
  * constant-member and constant-argument (constant-inputs.ts): an input production never varies.
  * Plus a note, not yet proven on merged pull requests so it never blocks:
@@ -224,7 +225,38 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
 
     constantInputs(typed, changedSources, declaredTypes, { hostsOf, touched, spanTouched, at, rel, report, walk });
 
-    // A value of the type that leaves the program's sight: placed in a string, or passed to a callee the program does not declare.
+    // Functions some code in the program calls, by symbol: a function nothing calls is called from outside (a route
+    // handler, a library entry), so what it returns goes where the analysis cannot follow.
+    let calledMemo: Set<TS.Symbol> | undefined;
+    const called = (): Set<TS.Symbol> => {
+        if (calledMemo) return calledMemo;
+        calledMemo = new Set();
+        for (const sf of typed.appSources) walk(sf, node => {
+            if (!ts.isCallExpression(node)) return;
+            const callee = ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression;
+            let sym = checker.getSymbolAtLocation(callee);
+            if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+            if (sym) calledMemo!.add(sym);
+        });
+        return calledMemo;
+    };
+    // The exported function a `return` (or an arrow's expression body) belongs to, when nothing in the program calls it.
+    const uncalledExport = (site: TS.Node): string | undefined => {
+        const fn = ts.findAncestor(site.parent, ts.isFunctionLike);
+        if (!fn) return undefined;
+        const holder = ts.isFunctionDeclaration(fn) ? fn : ts.isVariableDeclaration(fn.parent) ? fn.parent : undefined;
+        const exported = holder && (ts.isFunctionDeclaration(holder) ? holder : holder.parent.parent as TS.VariableStatement).modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+        const sym = exported && holder.name && checker.getSymbolAtLocation(holder.name);
+        return sym && !called().has(sym) ? holder.name!.getText() : undefined;
+    };
+    const CONTAINER = /^(Map|Set|WeakMap|WeakSet|ReadonlyMap|ReadonlySet)$/;
+    /** Marks an exit the value may take (a container, an uncalled entry), not one it surely takes. */
+    const MAY = 'may: ';
+    const STORE_METHOD = /^(add|push|unshift|set|put|insert|enqueue|append|splice)$/;
+
+    // A value of the type that leaves the program's sight, or may: placed in a string, passed to a callee the program
+    // does not declare, stored in a container (whatever reads the container may send it on), or returned from an
+    // exported function nothing in the program calls. When unsure, a hint, never a block.
     const escapeMemo = new Map<TS.Symbol, string | undefined>();
     const escapes = (t: Declared): string | undefined => {
         if (escapeMemo.has(t.sym)) return escapeMemo.get(t.sym);
@@ -236,7 +268,9 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
                 const p = node.parent;
                 const isArg = ts.isCallExpression(p) && p.arguments.includes(node);
                 const stringified = ts.isTemplateSpan(p) || (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.PlusToken);
-                if (!isArg && !stringified) return;
+                const indexed = ts.isBinaryExpression(p) && p.right === node && p.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(p.left);
+                const returned = ts.isReturnStatement(p) || (ts.isArrowFunction(p) && p.body === node);
+                if (!isArg && !stringified && !indexed && !returned) return;
                 // An object literal's declared target names its type, unless the callee takes anything (`Response.json(data: any)`):
                 // then the literal's own type is what leaves.
                 const declared = ts.isObjectLiteralExpression(node) ? checker.getContextualType(node) : undefined;
@@ -246,14 +280,29 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
                     found = `string building at ${at(node)}`;
                     return;
                 }
+                if (indexed) {
+                    found = `${MAY}an index assignment at ${at(node)}, a container`;
+                    return;
+                }
+                if (returned) {
+                    const entry = uncalledExport(node);
+                    if (entry) found = `${MAY}the return of ${entry}() at ${at(node)}, which nothing in this program calls`;
+                    return;
+                }
                 const call = p as TS.CallExpression;
                 const sig = checker.getResolvedSignature(call);
                 const decl = sig?.declaration;
-                // Storing into a collection (events.push(e), map.set(k, v)) keeps the value typed and visible.
-                if (decl?.getSourceFile().isDeclarationFile && ts.isPropertyAccessExpression(call.expression)) {
+                if (ts.isPropertyAccessExpression(call.expression)) {
                     const holder = checker.getTypeAtLocation(call.expression.expression);
                     const holderName = String(holder.symbol?.escapedName ?? holder.aliasSymbol?.escapedName ?? '');
-                    if (checker.isArrayType(holder) || /^(Map|Set|WeakMap|WeakSet|Promise|ReadonlyMap|ReadonlySet)$/.test(holderName)) return;
+                    // A promise passes the value on unchanged; it is not a store.
+                    if (decl?.getSourceFile().isDeclarationFile && /^Promise$/.test(holderName)) return;
+                    // Stored in a container (map.set(k, v), events.push(e), a collection's add): whatever reads it may send it on.
+                    const method = call.expression.name.text;
+                    if ((checker.isArrayType(holder) || CONTAINER.test(holderName) || mentionsType(t, holder)) && STORE_METHOD.test(method)) {
+                        found = `${MAY}${holderName || 'an array'}.${method}() at ${at(node)}, a container`;
+                        return;
+                    }
                 }
                 const param = sig?.parameters[call.arguments.indexOf(node as TS.Expression)];
                 const paramType = param && checker.getTypeOfSymbolAtLocation(param, call);
@@ -435,7 +484,8 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
             }
             if (supplied.length && !wire && !isRead(t, name)) {
                 const exit = leaves(t);
-                if (exit) hints.push(`write-only-property ${at(m)}: ${t.name}.${name} is set by ${supplied.length} host(s) and read by no code; the value leaves only through ${exit}. Confirm an external reader needs it, else delete it`);
+                const leavesBy = exit?.startsWith(MAY) ? `may leave through ${exit.slice(MAY.length)}` : `leaves only through ${exit}`;
+                if (exit) hints.push(`write-only-property ${at(m)}: ${t.name}.${name} is set by ${supplied.length} host(s) and read by no code; the value ${leavesBy}. Confirm an external reader needs it, else delete it`);
                 else if (published) publish('write-only-property', m, `${member} is set by ${supplied.length} host(s) and read nowhere in this program`);
                 else {
                     report('write-only-property', 'Property written and never read', anchor,
