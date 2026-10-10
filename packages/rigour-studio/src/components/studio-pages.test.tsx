@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
 import { WeeklyTable } from './AgentContext';
 import { HowItWorks } from './HowItWorks';
-import { CompiledChecks, LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
+import { BotPointsToggle, CompiledChecks, LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
 import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { ReadOnlyNote } from './ReadOnlyNote';
@@ -368,5 +368,14 @@ describe('how Rigour works, on the home page', () => {
         expect(html).toContain('It stops the agent only on problems it can prove.');
         expect(html).toContain('A short review catches the rest; with learning on, fixes become lessons.');
         expect(html).not.toMatch(/any agent\.|checks every change|Every fix teaches/);
+    });
+});
+
+describe('candidates from review bots, on the learning page', () => {
+    it('counts the hidden ones and offers to show them, then to hide them again', () => {
+        expect(html(<BotPointsToggle count={796} shown={false} onToggle={() => undefined} />)).toContain('796 candidates from review bots, hidden.');
+        expect(html(<BotPointsToggle count={796} shown={false} onToggle={() => undefined} />)).toContain('>Show bot points<');
+        expect(html(<BotPointsToggle count={1} shown onToggle={() => undefined} />)).toContain('1 candidate from review bots.');
+        expect(html(<BotPointsToggle count={1} shown onToggle={() => undefined} />)).toContain('>Hide bot points<');
     });
 });

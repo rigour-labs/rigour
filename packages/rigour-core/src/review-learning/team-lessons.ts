@@ -5,7 +5,7 @@
  */
 import path from 'path';
 import { parseDiff } from '../utils/diff.js';
-import { matchLessons, readLessons, type ReviewLesson } from './lessons.js';
+import { matchLessons, raisedOnlyByBots, readLessons, type ReviewLesson } from './lessons.js';
 
 export type LessonMode = 'verified' | 'all' | 'off';
 
@@ -15,7 +15,7 @@ export const DEFAULT_LESSON_MODE: LessonMode = 'verified';
 /** The team's review lessons in play for this mode: none when off, verified ones by default. */
 export function activeLessons(cwd: string, mode: LessonMode = DEFAULT_LESSON_MODE): ReviewLesson[] {
     if (mode === 'off') return [];
-    return readLessons(cwd).filter(l => mode === 'all' || l.state === 'verified');
+    return readLessons(cwd).filter(l => mode === 'all' ? !(l.state === 'candidate' && raisedOnlyByBots(l)) : l.state === 'verified');
 }
 
 /** `standards`, `limit`, `perFile`: how many team standards and file lessons may come, and how many per file (a judge reading a whole pull request takes more than an agent's one question). */
