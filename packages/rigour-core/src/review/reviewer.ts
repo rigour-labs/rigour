@@ -37,6 +37,7 @@ import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
 import { VerdictStore } from './reviewer/store.js';
+import { overBudget } from './reviewer/caps.js';
 import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
@@ -551,7 +552,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     modeRecord = { ...modeRecord, specialists, ...(run.missing.length ? { degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}not reviewed: ${run.missing.join('; ')} (no verdict)` } : {}) };
                 } else {
                     // Fewer than half of the passes came back: one judge instead, once, only if the caps still allow a run; it counts too.
-                    const short = overBudget(store.spend(), settings, 1);
+                    const short = overBudget(store.spend(), settings, 1, tally.usd);
                     const fallback = `${run.returned.length} of ${passes.length} passes returned`;
                     if (short) {
                         recordReviewCost();
@@ -574,7 +575,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     };
                     let first = await ask();
                     // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
-                    if (!once && (!first.verdict || 'error' in first.verdict) && !overBudget(store.spend(), settings, 1)) {
+                    const slipped = !first.verdict || 'error' in first.verdict;
+                    const noRetry = !once && slipped ? overBudget(store.spend(), settings, 1, tally.usd) : undefined;
+                    if (noRetry) return { error: `${name}: no valid verdict, and not asked again: ${noRetry}` };
+                    if (!once && slipped) {
                         progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
                         // The cheap model's slip is the one escalation: the retry runs on the team's model.
                         if (cheapModel()) {
@@ -589,7 +593,13 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
                 for (let i = 0; i < answers.length; i++) {
                     let answer = answers[i];
-                    while (!once && 'error' in answer && spare.length && !overBudget(store.spend(), settings, 1)) {
+                    while (!once && 'error' in answer && spare.length) {
+                        // A cap that leaves no run for the spare judge is the reason the review ends here: said, not hidden.
+                        const capped = overBudget(store.spend(), settings, 1, tally.usd);
+                        if (capped) {
+                            answer = { error: `${answer.error}; no other judge asked: ${capped}` };
+                            break;
+                        }
                         const next = spare.shift()!;
                         progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
                         modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
@@ -623,7 +633,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const survivors = (v: Verdict) => { const a = account(v, previousOpen, verify, prior); return [...a.open, ...a.advisory, ...a.notes, ...(a.reviewPoints ?? [])].filter(i => i.kind === 'finding'); };
         if (units.length) merged.coverage = await accountForUnits(merged, units, offered!.total - units.length, survivors, async missing => {
             // One follow-up run for the units the answer left out, inside the caps; what it finds counts like any finding.
-            if (overBudget(store.spend(), settings, 1)) return undefined;
+            if (overBudget(store.spend(), settings, 1, tally.usd)) return undefined;
             const judge = reviewers[0];
             const ask = followUpPrompt(repoRoot, head.slice(0, 9), diffFile, missing);
             progress(`Rigour reviewer: ${missing.length} changed unit(s) not accounted for; asking ${judge} about them`);
@@ -652,7 +662,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 // Judges cross-examine at the same time: a run is reserved when allowed, so together they never pass the cap.
                 capped: () => {
                     const spent = store.spend();
-                    const reason = overBudget({ ...spent, runs: spent.runs + reserved }, settings, 1);
+                    const reason = overBudget({ ...spent, runs: spent.runs + reserved }, settings, 1, tally.usd);
                     if (!reason) reserved++;
                     return reason;
                 },
@@ -712,12 +722,6 @@ function evidenceNames(text: string): Array<[string, number]> {
 
 type Decided = Accounting & { disputed: OpenItem[]; dropped: OpenItem[]; dismissed: OpenItem[] };
 
-/** Why the caps leave no room for `planned` more runs today, or nothing when they do. */
-function overBudget(spent: { runs: number; usd: number }, caps: { max_runs_per_day?: number; max_usd_per_day?: number }, planned: number): string | undefined {
-    if (caps.max_runs_per_day !== undefined && spent.runs + planned > caps.max_runs_per_day) return `the daily run cap is reached: ${spent.runs} of ${caps.max_runs_per_day} agent runs used today in this repository, and this needs ${planned} more (review.reviewer.max_runs_per_day)`;
-    if (caps.max_usd_per_day !== undefined && spent.usd >= caps.max_usd_per_day) return `the daily cost cap is reached: $${spent.usd.toFixed(2)} of $${caps.max_usd_per_day.toFixed(2)} reported today in this repository (review.reviewer.max_usd_per_day)`;
-    return undefined;
-}
 
 /** Whether a risk-escalated review adds judges: a human review exists, or the router finds a risky changed function. */
 function escalationFor(humanReviews: number, risky: number | undefined): { escalate: boolean; why: string } {

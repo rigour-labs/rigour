@@ -465,12 +465,18 @@ export const ConfigSchema = z.object({
             /** Findings cross-examined per review at most; the rest are shown as disputed. */
             panel_max_items: z.number().int().positive().optional().default(20),
             /**
-             * Spending caps per repository and local day, unset by default. Runs are checked before any judge starts
-             * (a cross-examination counts too); dollars are the ones the CLIs reported, so a cap stops new reviews once
-             * reached. Past a cap a review is skipped, or unavailable when the team requires the reviewer.
+             * Spending caps per repository and local day (40 runs, $10 by default; a team raises them here). Runs are
+             * checked before any judge starts (a cross-examination counts too, and the deep review's cloud model);
+             * dollars are the ones the CLIs and APIs reported, so a cap stops new runs once reached. Past a cap a review
+             * is skipped, or unavailable when the team requires the reviewer.
              */
-            max_runs_per_day: z.number().int().positive().optional(),
-            max_usd_per_day: z.number().positive().optional(),
+            max_runs_per_day: z.number().int().positive().optional().default(40),
+            max_usd_per_day: z.number().positive().optional().default(10),
+            /**
+             * Dollars one review may spend ($2 by default), checked before each judge, retry, cross-examination and
+             * follow-up it starts: past it, the review stops there, says why, and records what it had.
+             */
+            max_usd_per_review: z.number().positive().optional().default(2),
             /** Judges in a full or panel review, each from a different vendor; capped by the vendors installed. */
             judges: z.union([z.literal(2), z.literal(3)]).optional().default(2),
             /**
@@ -593,6 +599,8 @@ export const ReportSchema = z.object({
             enabled: z.boolean(),
             /** ok: every inference ran; partial: some failed; error: deep did not run. */
             status: z.enum(['ok', 'partial', 'error']).optional(),
+            /** Why a cloud deep run did not start: a spending cap (review/reviewer/caps.ts). */
+            skipped: z.string().optional(),
             mode: z.enum(['facts', 'code']).optional(),
             tier: z.enum(['deep', 'lite', 'legacy', 'max', 'cloud']).optional(),
             model: z.string().optional(),

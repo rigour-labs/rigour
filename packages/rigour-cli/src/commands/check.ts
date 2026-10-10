@@ -368,7 +368,8 @@ function renderDeepOutput(
     }
 
     // Deep stats
-    if (stats.deep) {
+    if (stats.deep?.skipped) console.log(chalk.yellow(`  Deep review skipped: ${stats.deep.skipped}`));
+    else if (stats.deep) {
         const tier = stats.deep.tier === 'cloud' ? provider : stats.deep.tier;
         const model = stats.deep.model || 'unknown';
         const inferenceSec = stats.deep.total_ms ? (stats.deep.total_ms / 1000).toFixed(1) + 's' : '';

@@ -251,13 +251,14 @@ step, because it turns a personal install into the team's.
   model, which cannot see a cheap model's lower price, only the extra runs an escalation adds. Don't rely on it until a backtest on your own history shows what the cheap
   model misses.
 
-**Daily caps**, per repository, unset by default:
+**Caps**, per repository, on by default (a team raises them in `rigour.yml`):
 
 ```yaml
 review:
   reviewer:
-    max_runs_per_day: 40     # agent runs, judges and cross-examinations alike
-    max_usd_per_day: 15      # dollars the CLIs reported (Claude Code reports them; Codex reports tokens)
+    max_runs_per_day: 40     # the default: agent runs, judges and cross-examinations alike
+    max_usd_per_day: 10      # the default: dollars the CLIs and APIs reported (Claude Code reports them; Codex reports tokens)
+    max_usd_per_review: 2    # the default: what one review may spend
 ```
 
 Runs are counted before any judge starts, so a review that would pass the run cap does not start,
@@ -265,6 +266,11 @@ and a cross-examination that would pass it is not made (its findings are shown a
 the cap as the reason). Dollars are known only after a run, so the cost cap stops new reviews once
 today's reported spend reaches it. Past a cap, a review is skipped and says why; where the team
 requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
+One review stops at `max_usd_per_review`: it is checked before each judge, retry, cross-examination and follow-up
+the review starts, and a review stopped there keeps what it had and says the cap is why ("no other judge asked: this
+review's cost cap is reached: $3.00 of $2.00…"). The same caps hold the rule writer (`learn-reviews --rules`) and the
+deep review's cloud model (`rigour check --deep` with a key), whose spend counts toward them: past a cap, the cloud
+model does not start and the output says "Deep review skipped:" with the cap.
 A judge whose answer is not a valid verdict (malformed or cut off) is asked once more, inside the caps;
 a review with no valid verdict after that is unavailable. A person may set a lower cap for their own
 runs, never a higher one. `rigour review --status` and

@@ -102,6 +102,7 @@ function printQuietLines(result: ReviewResult, notes: boolean): void {
     if (before) groups.push({ line: `Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change${leftOutByCheck(result.preexistingByCheck)} (review.show_preexisting: true lists them).` });
     const outside = result.excludedOutsideChangedLines;
     if (outside) groups.push({ line: `Not shown: ${outside} issue${outside === 1 ? '' : 's'} on lines this change did not touch${leftOutByCheck(result.outsideChangeByCheck)}.` });
+    if (result.report?.stats.deep?.skipped) groups.push({ line: `Deep review skipped: ${result.report.stats.deep.skipped}.` });
     if (result.baseUnknown) groups.push({ line: 'Compared with no base: HEAD already holds this diff, so findings on its lines were not checked against the code before it. Pass --base to compare.' });
     if (result.dismissed) groups.push({ line: `Dismissed earlier as not a bug: ${result.dismissed}.` });
     if (result.muted) groups.push({ line: `Muted: ${result.muted} from checks this repository usually dismisses (rigour precision).` });
