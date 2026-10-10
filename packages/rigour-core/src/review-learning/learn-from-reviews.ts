@@ -70,7 +70,8 @@ export interface LearnFromReviewsResult {
 }
 
 export async function learnFromReviews(cwd: string, options: LearnFromReviewsOptions): Promise<LearnFromReviewsResult> {
-    if (options.until !== undefined && Number.isNaN(Date.parse(options.until))) throw new Error(`--until "${options.until}" is not a date or a time (use ISO 8601, e.g. 2026-09-25 or 2026-09-25T10:00:00Z)`);
+    readableTime('--since', options.since);
+    readableTime('--until', options.until);
     const git = options.git ?? gitIn(cwd);
     const prs = await mergedPrs(options);
     const lessons: ReviewLesson[] = [];
@@ -163,8 +164,8 @@ async function mergedPrs(options: LearnFromReviewsOptions): Promise<MergedPr[]> 
         if (batch.length === 0) break;
         for (const pr of batch) {
             if (!pr.merged_at || !pr.merge_commit_sha) continue;
-            if (options.since && pr.merged_at < options.since) continue;
-            if (options.until && pr.merged_at >= options.until) continue;
+            if (options.since && postedBefore(options.since, pr.merged_at)) continue;
+            if (!postedBefore(options.until, pr.merged_at)) continue;
             const author = String(pr.user?.login ?? '');
             const reviewer = (user: any) => !!user?.login && user.login !== author;
             const raw: any[] = await get(`${base}/pulls/${pr.number}/comments?per_page=100`);
@@ -208,6 +209,11 @@ async function onePr(options: LearnFromReviewsOptions, base: string, get: (url: 
         reviews: reviews.filter(r => reviewer(r.user) && before(r.submitted_at) && r.commit_id && String(r.body ?? '').trim())
             .map((r): ReviewBody => ({ id: String(r.id), prNumber: Number(options.pr), commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author })),
     };
+}
+
+/** A time cutoff that is not a date or a time is refused, not compared. */
+function readableTime(flag: string, value: string | undefined): void {
+    if (value !== undefined && Number.isNaN(Date.parse(value))) throw new Error(`${flag} "${value}" is not a date or a time (use ISO 8601, e.g. 2026-09-25 or 2026-09-25T10:00:00Z)`);
 }
 
 /**
