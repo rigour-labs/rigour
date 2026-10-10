@@ -198,12 +198,48 @@
     "review-5342644156": {
       "pr": 21518,
       "url": "https://github.com/tailscale/tailscale/pull/21518#pullrequestreview-5342644156",
-      "label": "a"
+      "label": "a",
+      "units": [
+        "b",
+        "b",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ]
     },
     "review-5239119340": {
       "pr": 21354,
       "url": "https://github.com/tailscale/tailscale/pull/21354#pullrequestreview-5239119340",
-      "label": "a"
+      "label": "a",
+      "units": [
+        "b",
+        "b",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "a",
+        "a",
+        "b",
+        "a",
+        "a"
+      ]
     }
   }
 }
