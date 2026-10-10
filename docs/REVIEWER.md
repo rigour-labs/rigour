@@ -403,10 +403,12 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
   change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
 - **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email;
-- **recurrence**, weak alone: the same point on two or more pull requests by different authors, raised
-  independently: by different reviewers, or by one person in different words (a senior re-raising a
-  standard counts; a bot rewording its own point on every pull request does not). At least one of the
-  points must be a person's: review bots agreeing with each other never make a lesson. A point that is only
+- **recurrence**, weak alone: the same point raised by people (review bots never count) on two or more pull
+  requests by different authors, and raised by two or more different reviewers, or by one reviewer on three or
+  more pull requests at least seven days apart (by when each point was posted). A lesson an earlier version
+  verified by a looser rule goes back to a candidate with the rule it missed ("one reviewer, 2 PRs over 3 days;
+  needs ≥3 PRs over ≥7 days or a second reviewer"), shown in Studio and `rigour learn-reviews --list`; a lesson a
+  person promoted, corrected, scoped, re-worded or compiled stays as they left it. A point that is only
   a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate. Neither is a
   point that asks for nothing: a review tool's status and scaffolding (a verdict banner, an overview heading,
   "Files reviewed"), a line describing what the pull request does ("Adds caching for…"), praise or thanks, or a
