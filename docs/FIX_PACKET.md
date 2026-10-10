@@ -306,6 +306,7 @@ This shape is not the report's `failures[]` shape. It is built by `toReviewFindi
 | `line` | number or `null` | Always | The line, or `null`. |
 | `anchor_line` | number | When set | For a finding inside a changed function but off the changed lines: the changed line to post it on. |
 | `key` | string | Always | The same across runs for the same finding. `rigour dismiss <key>` silences it. |
+| `certainty` | string | When set | How sure the rule that found it is: `proven` (it traced the defect, or states a fact) blocks on a changed line; `likely` is shown, never blocking; `possible` is a hint. When it is absent, the check's own rule decides ([CHECKS.md](CHECKS.md)). |
 | `suggestion` | string | When the finding has a hint | The report's `hint`. |
 
 ### `ci_summary`

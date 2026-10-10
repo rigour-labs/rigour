@@ -32,12 +32,15 @@ export function isProven(failure: Failure): boolean {
 }
 
 /**
- * What a change must fix: a proven finding, a critical one, or a high one the semantic engine
- * verified or a security gate found. Never one the team keeps as a note (`advisory`, from a check's `block: false`). The one rule behind the review's verdict, the stop hook and
+ * What a change must fix. A finding whose rule set its `certainty` blocks only when it is proven. Otherwise, the
+ * gate-level rule: a proven gate's finding, a critical one, or a high one the semantic engine verified or a security
+ * gate found. Never one the team keeps as a note (`advisory`, from a check's `block: false`). The one rule behind the review's verdict, the stop hook and
  * the push gate, so the three never disagree about the same finding.
  */
 export function mustFix(failure: Failure): boolean {
     if (failure.advisory) return false;
+    // A rule that says how sure it is decides: only a proven finding blocks, whatever its gate or severity.
+    if (failure.certainty) return failure.certainty === 'proven';
     const severity = failure.severity ?? 'medium';
     return isProven(failure) || severity === 'critical' || (severity === 'high' && (failure.verified === true || failure.provenance === 'security'));
 }

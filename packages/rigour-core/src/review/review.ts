@@ -109,6 +109,8 @@ export interface ReviewFinding {
     /** Stable across runs: `rigour dismiss <key>` silences this finding for good. */
     key: string;
     suggestion?: string;
+    /** How sure the rule is the defect exists, when it says: only `proven` blocks (quiet.ts mustFix). */
+    certainty?: 'proven' | 'likely' | 'possible';
 }
 
 export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
@@ -263,6 +265,7 @@ export function toReviewFinding(failure: Failure): ReviewFinding {
         line: failure.line ?? null,
         ...(failure.anchorLine !== undefined ? { anchor_line: failure.anchorLine } : {}),
         ...(failure.hint ? { suggestion: failure.hint } : {}),
+        ...(failure.certainty ? { certainty: failure.certainty } : {}),
     };
 }
 
