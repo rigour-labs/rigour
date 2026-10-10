@@ -1,3 +1,5 @@
+import { isPlaceholderSecret, isSecretKeyName } from '../gates/secret-values.js';
+
 export type DLPDecision = 'block' | 'warn' | 'allow';
 
 interface DLPDetectionInput {
@@ -46,7 +48,8 @@ const GENERIC_TYPES = new Set([
     'custom_pattern',
 ]);
 
-export function classifyDLPDetection(detection: DLPDetectionInput, input: string): DLPClassification {
+/** `secretAssignments: false` (gates.security.secret_assignments) keeps a generic assignment allowed, as before the check. */
+export function classifyDLPDetection(detection: DLPDetectionInput, input: string, options: { secretAssignments?: boolean } = {}): DLPClassification {
     const context = getDetectionContext(detection, input);
     const value = extractDetectionValue(detection);
     const reasons = new Set<string>();
@@ -65,7 +68,7 @@ export function classifyDLPDetection(detection: DLPDetectionInput, input: string
     if (safe) return safe;
 
     if (GENERIC_TYPES.has(detection.type)) {
-        return classifyGenericSecret(detection, value, context, reasons);
+        return classifyGenericSecret(detection, value, context, reasons, options.secretAssignments !== false);
     }
 
     let confidence = baseConfidence(detection.type);
@@ -103,7 +106,8 @@ function classifyGenericSecret(
     detection: DLPDetectionInput,
     value: string,
     context: { line: string; before: string },
-    reasons: Set<string>
+    reasons: Set<string>,
+    secretAssignments: boolean
 ): DLPClassification {
     if (detection.type === 'custom_pattern') {
         reasons.add('secret_assignment');
@@ -123,6 +127,9 @@ function classifyGenericSecret(
         return verdict(72, 'warn', reasons);
     }
     reasons.add('secret_assignment');
+    // A literal under a secret-named key that is no placeholder, reference or test value (the review's own rule,
+    // secret-values.ts): a warning the agent sees, never a block.
+    if (secretAssignments && isSecretKeyName(detection.match.split(/[:=]/)[0] ?? '') && !isPlaceholderSecret(value)) return verdict(55, 'warn', reasons);
     return verdict(25, 'allow', reasons);
 }
 

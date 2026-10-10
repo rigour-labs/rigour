@@ -69,6 +69,8 @@ export interface InputValidationConfig {
     cwd?: string;
     /** Apply learned hook feedback to reduce repeat false positives (default true when cwd set) */
     use_learned_feedback?: boolean;
+    /** gates.security.secret_assignments: a generic secret assignment that is no placeholder is a warning (default true). */
+    secret_assignments?: boolean;
 }
 
 // ── Credential Pattern Definitions ────────────────────────────────
@@ -507,7 +509,7 @@ export function scanInputForCredentials(
     const classified = detections.map(d => {
         const baseline = {
             ...d,
-            ...classifyDLPDetection(d, input),
+            ...classifyDLPDetection(d, input, { secretAssignments: config.secret_assignments }),
         };
         if (feedbackStore && isLearnableDLPDetection(baseline)) {
             const start = d.position?.start ?? 0;

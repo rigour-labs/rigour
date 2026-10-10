@@ -83,6 +83,11 @@ export const GatesSchema = z.object({
         xss: z.boolean().optional().default(true),
         path_traversal: z.boolean().optional().default(true),
         hardcoded_secrets: z.boolean().optional().default(true),
+        /**
+         * A secret-named key given a literal that is no placeholder, reference or test value (`password = "…"`,
+         * `DB_PASSWORD=…`, in code, JSON, YAML, .env): a note in review, and a warning the agent sees before the tool call.
+         */
+        secret_assignments: z.boolean().optional().default(true),
         insecure_randomness: z.boolean().optional().default(true),
         command_injection: z.boolean().optional().default(true),
         block_on_severity: z.enum(['critical', 'high', 'medium', 'low']).optional().default('high'),
