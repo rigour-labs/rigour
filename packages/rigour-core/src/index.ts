@@ -30,7 +30,7 @@ export { buildReviewTask, type ReviewTask, type ReviewTaskItem } from './review/
 export { buildQualityReceipt, receiptReport, type QualityReceipt, type ReceiptGap, type ReceiptOptions } from './review/receipt.js';
 export { runToolchain, type ToolResult, type ToolStatus } from './review/toolchain.js';
 export { branchFailures, mergeConflicts, staleReferences } from './review/branch-checks.js';
-export { runReviewer, reviewerBlocks, itemLine, defaultExec, githubReader, githubToken, type ReviewerOptions, type ReviewerResult, type ReviewerOutcome, type OpenItem } from './review/reviewer.js';
+export { runReviewer, reviewerCapReached, reviewerBlocks, itemLine, defaultExec, githubReader, githubToken, type ReviewerOptions, type ReviewerResult, type ReviewerOutcome, type OpenItem } from './review/reviewer.js';
 export { startBackgroundReview, backgroundReview, reviewStatus, type ReviewStatus } from './review/reviewer/background.js';
 export { dismissReviewerFinding, REVIEW_DISMISSALS, reviewerInputs } from './review/reviewer/context.js';
 export { goalFailures, hasCheckableGoal, parseGoal, type DoneItem, type Goal } from './goal/goal.js';

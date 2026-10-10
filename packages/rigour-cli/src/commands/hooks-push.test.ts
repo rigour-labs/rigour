@@ -2,9 +2,23 @@ import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readThread } from '@rigour-labs/core';
-import { hooksPushCommand, isPush, pushTarget } from './hooks-push.js';
+import { hooksPushCommand, isPush, pushHookOutput, pushTarget } from './hooks-push.js';
+
+// The reviewer's daily cap, as the push gate asks it; each test says what today's spend leaves.
+const cap = vi.hoisted(() => ({ reason: undefined as string | undefined }));
+vi.mock('@rigour-labs/core', async (importOriginal) => ({ ...(await importOriginal<typeof import('@rigour-labs/core')>()), reviewerCapReached: async () => cap.reason }));
+
+describe("where the push gate's message goes", () => {
+    it('gives the agent a note on a push that goes ahead as context it sees, and a block on stderr', () => {
+        const note = 'Rigour: the model review of abc1234ef was skipped: the daily run cap is reached.';
+        expect(JSON.parse(pushHookOutput({ exitCode: 0, message: note }, false).stdout!)).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: note } });
+        expect(pushHookOutput({ exitCode: 2, message: 'blocked' }, false)).toEqual({ stderr: 'blocked' }); // Claude Code feeds exit 2's stderr back
+        expect(pushHookOutput({ exitCode: 0, message: note }, true)).toEqual({ stderr: note }); // git's pre-push: the person at the terminal
+        expect(pushHookOutput({ exitCode: 0, message: '' }, false)).toEqual({});
+    });
+});
 
 describe('push command parsing', () => {
     it('acts on a real push only', () => {
@@ -81,6 +95,20 @@ describe('rigour hooks push', () => {
         } finally {
             for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
             fs.rmSync(bin, { recursive: true, force: true });
+        }
+    });
+
+    it('tells the agent a reached cap skipped the model review, and starts nothing', async () => {
+        write('rigour.yml', 'version: 1\nreview:\n  reviewer:\n    enabled: true\n    max_usd_per_day: 1\n');
+        git('commit', '-qam', 'reviewer on');
+        cap.reason = 'the daily cost cap is reached: $1.20 of $1.00 reported today in this repository (review.reviewer.max_usd_per_day)';
+        try {
+            const result = await push();
+            expect(result.exitCode).toBe(0); // a skipped review never blocks the push
+            expect(result.message).toMatch(/^Rigour: the model review of [0-9a-f]{9} was skipped: the daily cost cap is reached: \$1\.20 of \$1\.00 .*\(review\.reviewer\.max_usd_per_day\)\.$/);
+            expect(result.message).not.toContain('runs in the background');
+        } finally {
+            cap.reason = undefined;
         }
     });
 

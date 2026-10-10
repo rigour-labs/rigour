@@ -17,7 +17,7 @@ import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { threadCommand } from './commands/thread.js';
 import { outcomesCommand } from './commands/outcomes.js';
 import { briefCommand, hooksBriefCommand, hooksBriefFileCommand } from './commands/brief.js';
-import { hooksPushCommand } from './commands/hooks-push.js';
+import { hooksPushCommand, pushHookOutput } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
 import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
@@ -655,7 +655,9 @@ hooksCmd
     .action(async (options: { git?: boolean }) => {
         const stdin = await hookStdin();
         const result = options.git ? await gitPushGateCommand(stdin, process.cwd()) : await hooksPushCommand(stdin, process.cwd());
-        if (result.message) process.stderr.write(result.message + '\n');
+        const out = pushHookOutput(result, !!options.git);
+        if (out.stdout) process.stdout.write(out.stdout + '\n');
+        if (out.stderr) process.stderr.write(out.stderr + '\n');
         process.exit(result.exitCode);
     });
 
