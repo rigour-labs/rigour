@@ -111,7 +111,7 @@ const WRITES = /\.(insert|insertMany|upsert|update|updateMany|delete|deleteMany|
 
 /**
  * Whether the change touches data: a read or a write in a query API, a migration, or an await inside a loop. The data
- * passes of the reviewer's instructions (read trace, scans, journey) are asked for only then.
+ * passes of the reviewer's instructions (read trace, journey) are asked for only then.
  */
 export function touchesData(hunks: Hunk[]): boolean {
     return hunks.some(hunk => {

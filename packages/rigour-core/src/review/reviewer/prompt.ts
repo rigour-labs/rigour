@@ -138,12 +138,13 @@ const STEP_RULES = `Repository rules. For EVERY rule listed under "Rules this re
 
 /**
  * The steps, numbered as they are given: the general review comes right after prior points, and the data passes (read
- * trace, scans, journey) only when the change touches data (triage.ts touchesData), so a change with no reads or
- * writes is not walked through checks that cannot apply.
+ * trace, journey) only when the change touches data (triage.ts touchesData), so a change with no reads or writes is not
+ * walked through checks that cannot apply. Nested scans are asked for on every change: an in-memory scan per item is a
+ * cost in any language.
  */
 function numberedSteps(v: PromptInputs): string {
     const data = v.dataAccess !== false;
-    const steps = [STEP_PRIOR, STEP_REVIEW, STEP_REDUNDANCY, ...(data ? [STEP_READS, STEP_SCANS] : []), STEP_MERGE, ...(data ? [STEP_JOURNEY] : []), STEP_SIBLINGS, STEP_CLAIMS, STEP_LESSONS, STEP_RULES];
+    const steps = [STEP_PRIOR, STEP_REVIEW, STEP_REDUNDANCY, ...(data ? [STEP_READS] : []), STEP_SCANS, STEP_MERGE, ...(data ? [STEP_JOURNEY] : []), STEP_SIBLINGS, STEP_CLAIMS, STEP_LESSONS, STEP_RULES];
     return steps.map((text, i) => `${i + 1}. ${text}`).join('\n');
 }
 

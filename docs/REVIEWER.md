@@ -27,7 +27,7 @@ judge's own sense of severity) decides what blocks:
    member every caller supplies) and whether it was removed.
 4. **Every read**: rules known before the read but applied after it, a cheaper source, keys that
    change when a user edits, unbounded windows, OFFSET paging, the index that serves it. Only when the change touches data (a read or write in a query API, a migration, an await in a loop).
-5. **Nested scans**: a collection scanned once per item of another. Only when the change touches data (a read or write in a query API, a migration, an await in a loop).
+5. **Nested scans**: a collection scanned once per item of another, in memory or in a query, on every change.
 6. **Merge impact**: call sites of main-side code the merge changed.
 7. **The journey past the request**: state that outlives it (what clears it, a retry, two
    overlapping runs), a status that can move backwards or overwrite a terminal one, and event or

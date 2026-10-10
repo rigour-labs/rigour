@@ -706,9 +706,10 @@ describe('the steps the reviewer is given', () => {
         const seen = seenNow();
         await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { force: true });
         expect(seen.prompts[0]).toContain('2. Review the diff the way this code\'s human reviewers do.');
-        // src/job.ts returns a constant: no read, no write, so no read trace, scans or journey.
+        // src/job.ts returns a constant: no read, no write, so no read trace or journey. Nested scans apply to any code.
         expect(seen.prompts[0]).not.toContain('Read trace.');
         expect(seen.prompts[0]).not.toContain('Journey.');
+        expect(seen.prompts[0]).toContain('Complexity.');
         expect(seen.prompts[0]).toContain('Sibling parity.');
     });
 });
