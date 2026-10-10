@@ -58,7 +58,7 @@
         "gates.security": {
             "title": "Security patterns",
             "summary": "Scans source for injection, cross-site scripting, path traversal, hardcoded secrets, insecure randomness and similar vulnerabilities. Teams turn off a category that does not apply or change which severities are reported.",
-            "blocks": "Blocks every finding it reports"
+            "blocks": "Blocks a credential in a real secret's format; other patterns are notes unless block is on"
         },
         "gates.frontend_secret_exposure": {
             "title": "Frontend secret exposure",
@@ -274,6 +274,7 @@
         "gates.security.insecure_randomness": "When off, use of non-cryptographic random number generators for security values is not reported.",
         "gates.security.command_injection": "When off, shell command injection patterns are not reported by this check; the edit hook still checks for them.",
         "gates.security.block_on_severity": "Lowest severity of security finding that is reported; findings below it are dropped.",
+        "gates.security.block": "Off by default: only a credential in a format only a real secret has (AWS access key, Stripe live key, sk-/ghp_-style keys, a private key block) blocks, and every other pattern is a note, since it cannot see whether its input is trusted. On: every reported pattern blocks. The healthcare, fintech, government and devsecops presets turn it on.",
         "gates.frontend_secret_exposure.enabled": "Turns the frontend secret exposure check on or off.",
         "gates.frontend_secret_exposure.block_on_severity": "Lowest severity of exposure that is reported; findings below it are dropped, and medium or low findings that are reported do not block.",
         "gates.frontend_secret_exposure.check_process_env": "When on, secret-looking process.env references, including destructuring from process.env, are reported in frontend files.",
