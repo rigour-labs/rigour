@@ -29,6 +29,8 @@ export interface ReviewRecord {
         unverified: number;
         notes: number;
         disputed: number;
+        /** Review points shown (at most five) and past the cap: never a block. */
+        review_points?: { shown: number; hidden: number; outside_change?: number };
     };
     /** Recorded as reported, not checked by Rigour. */
     reported: { human_reviews: number };
@@ -75,6 +77,7 @@ export function buildRecord(input: RecordInput): ReviewRecord {
             unverified: input.accounted.unverified.length,
             notes: input.accounted.notes.length,
             disputed: input.accounted.disputed.length,
+            ...(input.accounted.reviewPoints?.length || input.accounted.reviewPointsHidden || input.accounted.reviewPointsOutside ? { review_points: { shown: input.accounted.reviewPoints?.length ?? 0, hidden: input.accounted.reviewPointsHidden ?? 0, ...(input.accounted.reviewPointsOutside ? { outside_change: input.accounted.reviewPointsOutside } : {}) } } : {}),
         },
         reported: { human_reviews: input.humanReviews },
         people: { dismissed: input.accounted.dismissed.length },
@@ -112,9 +115,9 @@ export function recordLines(r: ReviewRecord, shouldFixShown = 5): string[] {
     const lines = [`**Review record** · ${v.blocking.length} blocking · ${v.should_fix.length} should-fix · rules ${v.rules.followed} followed, ${v.rules.broken} broken, ${v.rules.not_applicable} not applicable of ${v.rules.served} · lessons ${v.lessons.applied} of ${v.lessons.served} apply · prior points ${v.prior_points.open} open, ${v.prior_points.resolved} resolved${v.prior_points.labelled !== undefined ? `, ${v.prior_points.labelled} by the review's own label (${v.prior_points.relabelled} relabelled)` : ''}`];
     for (const i of v.blocking) lines.push(`- **Blocking** ${where(i)}`);
     for (const i of v.should_fix.slice(0, shouldFixShown)) lines.push(`- Should fix: ${where(i)}`);
+    lines.push(...countLines(r));
     if (v.should_fix.length > shouldFixShown) lines.push(`- …and ${v.should_fix.length - shouldFixShown} more should-fix in the record.`);
     const folded = [[v.notes, 'working note'], [v.disputed, 'disputed'], [v.unverified, 'unverified'], [r.people.dismissed, 'dismissed']].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
-    if (r.coverage) lines.push(coverageLine(r.coverage));
     if (folded.length) lines.push(`Also seen, never blocking: ${folded.map(([n, w]) => `${n} ${w}${n === 1 || w === 'disputed' || w === 'unverified' || w === 'dismissed' ? '' : 's'}`).join(', ')}.`);
     lines.push(`Judged by ${r.judges.map(j => `${j.reviewer}${j.version ? ` ${j.version}` : ''}${j.model ? ` (${j.model})` : ''}${typeof j.cost_usd === 'number' ? ` $${j.cost_usd.toFixed(2)}` : ''}${j.outside_repo ? ` [${j.outside_repo}]` : ''}`).join(', ') || 'no judge'} on \`${r.head.slice(0, 9)}\` against \`${r.base.slice(0, 9)}\` (${r.scope}); ${r.blind ? 'reviewed without pull request context' : `${r.reported.human_reviews} human review(s) seen`}. Integrity \`${r.integrity.slice(0, 16)}\`.`);
     return lines;
@@ -123,4 +126,13 @@ export function recordLines(r: ReviewRecord, shouldFixShown = 5): string[] {
 /** "Accounted for 7 of 8 changed units; not reviewed: a.go :: Close; 3 more not offered." */
 export function coverageLine(c: NonNullable<ReviewRecord['coverage']>): string {
     return `Accounted for ${c.accounted} of ${c.units} changed unit${c.units === 1 ? '' : 's'}${c.not_reviewed.length ? `; not reviewed: ${c.not_reviewed.join(', ')}` : ''}${c.not_offered ? `; ${c.not_offered} more not offered (past the limit)` : ''}.`;
+}
+
+/** The review's count lines, when it has them: review points, and how much of the change was accounted for. */
+function countLines(r: ReviewRecord): string[] {
+    const v = r.verified;
+    return [
+        ...(v.review_points ? [`Review points, never blocking: ${v.review_points.shown}${v.review_points.hidden ? ` shown, ${v.review_points.hidden} more in the record` : ''}${v.review_points.outside_change ? `; ${v.review_points.outside_change} outside the change, not shown` : ''}.`] : []),
+        ...(r.coverage ? [coverageLine(r.coverage)] : []),
+    ];
 }

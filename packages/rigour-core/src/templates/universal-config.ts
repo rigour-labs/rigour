@@ -297,6 +297,7 @@ export const UNIVERSAL_CONFIG: Config = {
         include_heuristics: false,
         show_preexisting: false,
         coverage: true,
+        review_points: true,
         goal: 'off',
         reviewer: {
             enabled: false,
