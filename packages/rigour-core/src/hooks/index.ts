@@ -5,7 +5,7 @@
 
 export { runHookChecker } from './checker.js';
 export type { CheckerOptions } from './checker.js';
-export { generateHookFiles, pushGateShell } from './templates.js';
+export { generateHookFiles } from './templates.js';
 export type { GeneratedHookFile } from './templates.js';
 export type { HookTool, HookCheckerResult } from './types.js';
 
@@ -26,6 +26,6 @@ export { generateDLPHookFiles } from './dlp-templates.js';
 export type { GeneratedDLPHookFile } from './dlp-templates.js';
 
 // Stop review ("before you say done")
-export { stopReview, stopMessage, teamMessage, STOP_MAX_ATTEMPTS } from './stop-review.js';
-export type { StopDecision, TeamGuidance } from './stop-review.js';
+export { changeReview, stopReview, stopMessage, teamMessage, STOP_MAX_ATTEMPTS } from './stop-review.js';
+export type { ChangeReview, StopDecision, TeamGuidance } from './stop-review.js';
 export { recordSessionBaseline, sessionBaseline, nextStopAttempt, clearStopAttempts, workFingerprint, alreadyReviewed, recordReviewed, untaught, recordTaught } from './session-state.js';

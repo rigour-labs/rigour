@@ -84,30 +84,39 @@ function fileFindingsByCheck(result: ReviewResult): string {
     return countsByCheck(byCheck);
 }
 
-/** One line each, in plain words, for what was seen and never blocks. */
+/**
+ * One line each, in plain words, for what was seen and never blocks. With --notes, each list is printed under its own
+ * line, so nothing listed sits under a "Not shown" line and reads as the issue it left out.
+ */
 function printQuietLines(result: ReviewResult, notes: boolean): void {
-    const lines: string[] = [];
+    const groups: Array<{ line: string; items?: string[] }> = [];
+    const item = (f: { files?: string[]; line?: number; title: string }) => `${f.files?.[0] || '?'}:${f.line ?? '?'}  ${f.title}`;
     const seen = result.advisory.length + result.fileFindings.length;
-    if (seen) lines.push(`Also seen, never blocking: ${seen} note${seen === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
+    if (seen) groups.push({ line: `Also seen, never blocking: ${seen} note${seen === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`, items: result.advisory.map(item) });
     const wholeFile = fileFindingsByCheck(result);
-    if (wholeFile) lines.push(`About a changed file as a whole: ${wholeFile}${notes ? ' (listed below)' : ', shown with --notes'}.`);
+    // The count above includes these: with notes on a line too, say they are part of it.
+    if (wholeFile) groups.push({ line: `${result.advisory.length ? 'Of these, about' : 'About'} a changed file as a whole: ${wholeFile}${notes ? ' (listed below)' : ', shown with --notes'}.`, items: result.fileFindings.map(item) });
+    if (result.hints.length) groups.push({ line: `To confirm by hand: ${result.hints.length} hint${result.hints.length === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`, items: result.hints });
     // Two kinds, each with its own pointer: show_preexisting lists only the first.
     const before = result.preexisting;
-    if (before) lines.push(`Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change${leftOutByCheck(result.preexistingByCheck)} (review.show_preexisting: true lists them).`);
+    if (before) groups.push({ line: `Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change${leftOutByCheck(result.preexistingByCheck)} (review.show_preexisting: true lists them).` });
     const outside = result.excludedOutsideChangedLines;
-    if (outside) lines.push(`Not shown: ${outside} issue${outside === 1 ? '' : 's'} on lines this change did not touch${leftOutByCheck(result.outsideChangeByCheck)}.`);
-    if (result.baseUnknown) lines.push('Compared with no base: HEAD already holds this diff, so findings on its lines were not checked against the code before it. Pass --base to compare.');
-    if (result.hints.length) lines.push(`To confirm by hand: ${result.hints.length} hint${result.hints.length === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
-    if (result.dismissed) lines.push(`Dismissed earlier as not a bug: ${result.dismissed}.`);
-    if (result.muted) lines.push(`Muted: ${result.muted} from checks this repository usually dismisses (rigour precision).`);
-    for (const line of lines) console.log(chalk.dim(line));
+    if (outside) groups.push({ line: `Not shown: ${outside} issue${outside === 1 ? '' : 's'} on lines this change did not touch${leftOutByCheck(result.outsideChangeByCheck)}.` });
+    if (result.baseUnknown) groups.push({ line: 'Compared with no base: HEAD already holds this diff, so findings on its lines were not checked against the code before it. Pass --base to compare.' });
+    if (result.dismissed) groups.push({ line: `Dismissed earlier as not a bug: ${result.dismissed}.` });
+    if (result.muted) groups.push({ line: `Muted: ${result.muted} from checks this repository usually dismisses (rigour precision).` });
+    let open = false;
+    for (const group of groups) {
+        console.log(chalk.dim(group.line));
+        const listed = notes ? group.items ?? [] : [];
+        for (const text of listed) console.log(chalk.dim(`    ${text}`));
+        // A blank line closes a list, so the next line is not read as part of it.
+        if (listed.length) console.log('');
+        open = !listed.length;
+    }
     if (result.controlFilesChanged.length) console.log(chalk.yellow(`This change edits Rigour's own settings: ${result.controlFilesChanged.join(', ')}`));
     for (const f of result.contextFindings) console.log(chalk.yellow(`Nearby, not in your change: ${f.files?.[0] || '?'}:${f.line ?? '?'} ${f.title}`));
-    if (notes) {
-        for (const f of [...result.advisory, ...result.fileFindings]) console.log(chalk.dim(`  ${f.files?.[0] || '?'}:${f.line ?? '?'}  ${f.title}`));
-        for (const hint of result.hints) console.log(chalk.dim(`  ${hint}`));
-    }
-    if (lines.length || result.controlFilesChanged.length || result.contextFindings.length) console.log('');
+    if (open || result.controlFilesChanged.length || result.contextFindings.length) console.log('');
 }
 
 /** Why the review is not a pass although it may have found nothing, and the one step that finishes it. */

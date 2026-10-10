@@ -31,7 +31,12 @@ Rigour briefing for PROJ-123: how this team builds the code this task will likel
 3. Points the team settled against, so the agent neither does them nor raises them.
 4. Guidance rules.
 
-At most `brief.max_items` (default and ceiling 10). A rule from a folder's own rules file (`services/billing/AGENTS.md`)
+At most `brief.max_items` (default and ceiling 10). A rules file is read one rule per top-level bullet, numbered
+item or paragraph, never cut mid-sentence. A paragraph that introduces a list ("…must call one of these:") joins its
+items as one rule when they are too short to be rules alone (`withLock()`); before items that are rules, it is a rule
+of its own only if it asks something (must, never, should…), and otherwise it is not a rule ("The rules below:"). A
+rule over 400 characters is served as its first sentence and where the whole rule is (`full rule: AGENTS.md:12`),
+and a briefing stops adding items once they reach 3,000 characters together. A rule from a folder's own rules file (`services/billing/AGENTS.md`)
 is briefed only for a task in that folder. When nothing applies, the briefing is empty, never padded.
 
 ## The goal and the files
@@ -45,7 +50,7 @@ path names a word of the goal.
 
 | Agent | How |
 | --- | --- |
-| Claude Code | `rigour hooks init --brief` adds the briefing to Claude Code's hooks: each file's first edit is briefed by the credential-scan hook that already runs before every tool (`--brief`, one process for both), or by an edit hook of its own (`rigour hooks brief-file`) when that scan is off; the session's first prompt by a prompt hook (`rigour hooks brief`) |
+| Claude Code | `rigour setup` installs it (`--no-brief` leaves it out); `rigour hooks init --brief` adds the briefing to Claude Code's hooks: each file's first edit is briefed by the credential-scan hook that already runs before every tool (`--brief`, one process for both), or by an edit hook of its own (`rigour hooks brief-file`) when that scan is off; the session's first prompt by a prompt hook (`rigour hooks brief`) |
 | Any agent with MCP | `rigour_brief` with `files` and no `goal` before editing them (the team's word on each), or with a `goal` for the task as a whole |
 | A person, a script, any agent with a shell | `rigour brief [goal] [--files a,b] [--json]` |
 
@@ -58,11 +63,12 @@ The edit briefing rides on the credential-scan hook that already runs before eve
 of its own. Measured on Rigour's own repository (1,023 files, median of 9 runs): the scan alone 336 ms; with the
 briefing, a file's first edit in a session 457 ms (+121 ms) and every later edit 358 ms (+22 ms, the check that the file
 was already briefed). With the credential scan switched off, the edit hook of its own starts a process, about as long
-as the scan alone, before every edit, which is one reason the briefing is opt-in.
+as the scan alone, before every edit.
 
 ## Off, and the kill switch
 
-The prompt hook is **off by default**: it is installed only with `rigour hooks init --brief`. Where it is installed,
+`rigour setup` installs the briefing hooks (the prompt hook, and `--brief` on the credential-scan hook) unless it is
+run with `--no-brief`; `rigour hooks init` installs them only with `--brief`. Where they are installed,
 `brief.enabled: false` in `rigour.yml` (the team) or `RIGOUR_BRIEF=0` (the person) stops every briefing, the hook,
 `rigour brief` and `rigour_brief` alike.
 

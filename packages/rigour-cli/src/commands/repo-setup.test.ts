@@ -22,7 +22,22 @@ describe('checkRepoSetup', () => {
 
     it('calls out the old hook that checked nothing', async () => {
         write('.claude/settings.json', 'rigour hooks check --files "$TOOL_INPUT_file_path"');
-        expect(await byId('edit')).toMatchObject({ state: 'broken', fix: 'rigour hooks init --force' });
+        expect(await byId('edit')).toMatchObject({ state: 'broken', fix: 'rigour setup' }); // setup migrates a personal install too
+    });
+
+    it('says when the agent hooks or the MCP server run another Rigour than the one installed', async () => {
+        const version = async () => (await checkRepoSetup(cwd, now, [], '6.13.0')).find(c => c.id === 'version');
+        expect(await version()).toBeUndefined(); // nothing pins a version: nothing to say
+        write('.claude/settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ command: 'npx --yes @rigour-labs/cli@6.13.0 hooks stop --tool claude' }] }] } }));
+        write('.mcp.json', JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@6.13.0'] } } }));
+        expect(await version()).toMatchObject({ state: 'working', detail: '6.13.0' });
+        write('.claude/settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ command: 'npx --yes @rigour-labs/cli@6.12.4 hooks stop --tool claude' }] }] } }));
+        write('.mcp.json', JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@6'] } } }));
+        expect(await version()).toMatchObject({ state: 'broken', detail: 'hooks run 6.12.4, the MCP server floats on @6; installed is 6.13.0', fix: 'rigour setup' });
+        // An old shell wrapper is called out even at the installed version.
+        write('.claude/settings.json', JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ command: `sh -c 'payload=$(cat); case "$payload" in *git*push*) printf "%s" "$payload" | npx --yes @rigour-labs/cli@6.13.0 hooks push --stdin ;; esac'` }] }] } }));
+        write('.mcp.json', JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@6.13.0'] } } }));
+        expect(await version()).toMatchObject({ state: 'broken', detail: 'hooks run through a shell wrapper PowerShell cannot run; installed is 6.13.0' });
     });
 
     it('finds the PR workflow and reports what is missing', async () => {

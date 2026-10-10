@@ -32,14 +32,29 @@ export function isProven(failure: Failure): boolean {
 }
 
 /**
- * What a change must fix: a proven finding, a critical one, or a high one the semantic engine
- * verified or a security gate found. Never one the team keeps as a note (`advisory`, from a check's `block: false`). The one rule behind the review's verdict, the stop hook and
+ * What a change must fix. A finding whose rule set its `certainty` blocks only when it is proven. Otherwise, the
+ * gate-level rule: a proven gate's finding, a critical one, or a high one the semantic engine verified or a security
+ * gate found. Never one the team keeps as a note (`advisory`, from a check's `block: false`). The one rule behind the review's verdict, the stop hook and
  * the push gate, so the three never disagree about the same finding.
  */
 export function mustFix(failure: Failure): boolean {
     if (failure.advisory) return false;
+    // A rule that says how sure it is decides: only a proven finding blocks, whatever its gate or severity.
+    if (failure.certainty) return failure.certainty === 'proven';
     const severity = failure.severity ?? 'medium';
     return isProven(failure) || severity === 'critical' || (severity === 'high' && (failure.verified === true || failure.provenance === 'security'));
+}
+
+/**
+ * The severity a person is shown. A finding that blocks keeps its own. A security finding that does not block is shown
+ * at most high: "critical" is kept for what blocks. Any other finding is a guess at intent (a heuristic) and is shown at
+ * most medium: "high" means an impact Rigour stands behind, not a pattern's label for one.
+ */
+export function shownSeverity(failure: Failure): NonNullable<Failure['severity']> {
+    const severity = failure.severity ?? 'medium';
+    if (mustFix(failure)) return severity;
+    if (failure.provenance === 'security') return severity === 'critical' ? 'high' : severity;
+    return severity === 'critical' || severity === 'high' ? 'medium' : severity;
 }
 
 /** The same finding across runs and pushes: gate, file and message, never the line (lines move). */

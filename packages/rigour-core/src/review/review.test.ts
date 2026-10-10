@@ -36,6 +36,16 @@ describe('splitByChangedLines', () => {
         expect(split.outside).toBe(2);
     });
 
+    it('keeps a finding that groups a file\'s violations when any of them is on a changed line, anchored there', () => {
+        // The gate names the first violation (line 2, unchanged); the change touched the third one (line 40).
+        const grouped = { ...failure('a.ts', 2), lines: [2, 17, 40] } as Failure;
+        const split = splitByChangedLines([grouped, { ...failure('a.ts', 5), lines: [5, 6] } as Failure], { 'a.ts': new Set([40]) });
+        expect(split.findings).toEqual([expect.objectContaining({ line: 2, anchorLine: 40 })]);
+        expect(split.outside).toBe(1);
+        // When the first one is the changed one, it is kept as it is.
+        expect(splitByChangedLines([grouped], { 'a.ts': new Set([2]) }).findings).toEqual([grouped]);
+    });
+
     it('keeps a deep finding inside a changed function, anchored on the nearest changed line', () => {
         const deep = (line: number) => ({ ...failure('a.ts', line), provenance: 'deep-analysis' }) as Failure;
         const changed = { 'a.ts': new Set([12, 14]) };
@@ -90,6 +100,18 @@ describe('git-backed review', () => {
         git('config', 'commit.gpgsign', 'false');
     });
     afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+
+    it('reviews a violation the change added further down a file that already had one: a per-file finding is anchored on the changed line', async () => {
+        write('src/buf.ts', 'export const a = new Buffer(1);\n\nexport const keep = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/buf.ts', 'export const a = new Buffer(1);\n\nexport const keep = 1;\nexport const b = new Buffer(2);\n');
+        // The team opted in to blocking on security-deprecated APIs (a note by default).
+        const result = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1, gates: { ...NO_DEAD_CODE, deprecated_apis: { block_security_deprecated: true } } }) });
+        const deprecated = result.findings.filter(f => f.id === 'deprecated-apis');
+        expect(deprecated).toEqual([expect.objectContaining({ line: 1, anchorLine: 4 })]);
+        expect(result.status).toBe('FAIL');
+    }, 30_000);
 
     it('works in a repository with no commits yet', () => {
         write('src/new.ts', 'export const a = 1;\n');

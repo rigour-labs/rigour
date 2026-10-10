@@ -58,12 +58,12 @@
         "gates.security": {
             "title": "Security patterns",
             "summary": "Scans source for injection, cross-site scripting, path traversal, hardcoded secrets, insecure randomness and similar vulnerabilities. Teams turn off a category that does not apply or change which severities are reported.",
-            "blocks": "Blocks every finding it reports"
+            "blocks": "Blocks a credential in a real secret's format; other patterns are notes unless block is on"
         },
         "gates.frontend_secret_exposure": {
             "title": "Frontend secret exposure",
             "summary": "Finds server-side secrets referenced or embedded in files that are bundled for the browser. Teams adjust which paths count as frontend or server and which variable names count as secrets.",
-            "blocks": "Blocks critical and high findings"
+            "blocks": "Blocks a literal secret key; a secret-named variable reference is a note unless security.block is on"
         },
         "gates.duplication_drift": {
             "title": "Duplicated functions across files",
@@ -98,7 +98,7 @@
         "gates.deprecated_apis": {
             "title": "Deprecated and insecure APIs",
             "summary": "Reports use of deprecated or removed standard-library and web APIs, with security-deprecated ones reported separately at a higher severity. Teams turn off a language or decide whether security deprecations block.",
-            "blocks": "Blocks on security-deprecated APIs when block_security_deprecated is on; otherwise advisory"
+            "blocks": "A note by default; blocks on security-deprecated APIs only when block_security_deprecated is on"
         },
         "gates.test_quality": {
             "title": "Weak tests",
@@ -128,12 +128,12 @@
         "gates.query_patterns": {
             "title": "Costly query shapes",
             "summary": "Reports offset paging inside a loop and time windows read with a lower bound but no upper bound, on lines a change adds. Teams turn it off if they do not use query builders.",
-            "blocks": "Blocks on changed lines"
+            "blocks": "Notes by default; block: true makes them block"
         },
         "gates.change_sweep": {
             "title": "Half-finished changes",
             "summary": "Reports a fix applied at some sites while the old condition remains elsewhere, a prop added to some sibling component mounts but not others, and accumulators copied on every loop step. Teams turn it off as a whole.",
-            "blocks": "Blocks on changed lines (partial fix, partial wiring); quadratic copy is advisory"
+            "blocks": "Notes by default; block: true makes them block"
         },
         "gates.redundancy": {
             "title": "Redundant code found with the TypeScript checker",
@@ -148,7 +148,7 @@
         "gates.duplicate_functions": {
             "title": "Duplicate functions in the change",
             "summary": "Reports a function a change adds or edits whose body is the same as another function's in the files the change touched. Teams turn it off as a whole.",
-            "blocks": "Blocks on changed lines"
+            "blocks": "Notes by default; block: true makes them block"
         },
         "gates.orphan_files": {
             "title": "Files nothing uses",
@@ -173,7 +173,7 @@
         "gates.side_effect_analysis": {
             "title": "Runaway side effects",
             "summary": "Reports timers never cleared, spawned processes without lifecycle handling, I/O loops with no exit, retries without a limit, file watchers that trigger themselves, resource leaks, unbounded recursion and auto-restart loops. Teams switch off individual patterns or exclude files.",
-            "blocks": "Blocks on critical patterns (unbounded I/O loops, circular triggers, auto-restart); others advisory"
+            "blocks": "Notes by default; with block: true the critical patterns (unbounded I/O loops, circular triggers, auto-restart) block"
         },
         "gates.style_drift": {
             "title": "Style drift from project conventions",
@@ -274,6 +274,7 @@
         "gates.security.insecure_randomness": "When off, use of non-cryptographic random number generators for security values is not reported.",
         "gates.security.command_injection": "When off, shell command injection patterns are not reported by this check; the edit hook still checks for them.",
         "gates.security.block_on_severity": "Lowest severity of security finding that is reported; findings below it are dropped.",
+        "gates.security.block": "Off by default: only a credential in a format only a real secret has (AWS access key, Stripe live key, sk-/ghp_-style keys, a private key block) blocks, and every other pattern is a note, since it cannot see whether its input is trusted. On: every reported pattern blocks, and so do a write through __proto__, constructor or prototype (ast-analysis) and a secret-named variable referenced in client code (frontend-secret-exposure). The healthcare, fintech, government and devsecops presets turn it on.",
         "gates.frontend_secret_exposure.enabled": "Turns the frontend secret exposure check on or off.",
         "gates.frontend_secret_exposure.block_on_severity": "Lowest severity of exposure that is reported; findings below it are dropped, and medium or low findings that are reported do not block.",
         "gates.frontend_secret_exposure.check_process_env": "When on, secret-looking process.env references, including destructuring from process.env, are reported in frontend files.",
@@ -298,7 +299,7 @@
         "gates.context_window_artifacts.signals_required": "Number of separate degradation signals a file must show to be reported; lower it to make the check more sensitive.",
         "gates.promise_safety.enabled": "Turns the async and error-handling safety check on or off.",
         "gates.promise_safety.check_unhandled_then": "Reports JavaScript and TypeScript .then() chains that have no .catch() and are not inside a try block.",
-        "gates.promise_safety.check_unsafe_parse": "Reports JSON parsing outside error handling in each supported language; off by default because it cannot tell trusted input from untrusted input.",
+        "gates.promise_safety.check_unsafe_parse": "Reports JSON parsing outside error handling in each supported language; off by default because it cannot tell trusted input from untrusted input. Test files, in any language, are never reported: there an uncaught parse error is the test failing.",
         "gates.promise_safety.check_async_without_await": "Reports async functions that never use await, in JavaScript, TypeScript, Python and C#.",
         "gates.promise_safety.check_unsafe_fetch": "Reports HTTP calls (such as fetch or axios) made without error handling or a status check.",
         "gates.promise_safety.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
@@ -316,7 +317,7 @@
         "gates.deprecated_apis.check_go": "Includes Go files, checked against deprecated Go standard-library APIs.",
         "gates.deprecated_apis.check_csharp": "Includes C# files, checked against deprecated .NET APIs.",
         "gates.deprecated_apis.check_java": "Includes Java files, checked against deprecated JDK APIs.",
-        "gates.deprecated_apis.block_security_deprecated": "Reports APIs deprecated for security reasons as critical, which blocks; when off they are reported as high and are advisory.",
+        "gates.deprecated_apis.block_security_deprecated": "Off by default: APIs deprecated for security reasons are shown as notes, since deprecated is not always vulnerable (md5 for a cache key, shell=True with a constant). On: they are reported as critical and block.",
         "gates.deprecated_apis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
         "gates.test_quality.enabled": "Turns the weak-test check on or off.",
         "gates.test_quality.check_empty_tests": "Reports tests with an empty body or with code but no assertion.",
@@ -339,12 +340,15 @@
         "gates.unused_exports.allow": "Export names, matched exactly, that are never reported because a framework or tool loads them by name.",
         "gates.unused_exports.block": "Make an unused export block. Off by default: it is reported as a note, since teams often approve exports kept for tests or for another export's signature.",
         "gates.query_patterns.enabled": "Turns the offset-paging and unbounded-time-window checks on or off.",
+        "gates.query_patterns.block": "Off by default: an offset-paged loop or an open-ended time window is a note, since a small or caller-bounded table is fine. On: they block.",
         "gates.change_sweep.enabled": "Turns the partial-fix, partial-wiring and quadratic-copy checks on or off together.",
+        "gates.change_sweep.block": "Off by default: a partial fix, a prop wired into some sibling mounts only, or a copied accumulator is a note, since the difference may be deliberate. On: they block.",
         "gates.redundancy.enabled": "Turns the TypeScript-checker redundancy checks on or off; they run only when the change touches non-test TypeScript files.",
         "gates.redundancy.wire_contracts": "Glob patterns for files whose types another service reads, so their properties are never reported as written but never read.",
         "gates.redundancy.schema_migrations": "Folders of SQL migrations (relative, absolute or starting with ~/, possibly in another repository) replayed in file-name order to learn which columns are NOT NULL; missing folders are skipped.",
         "gates.optional_params.enabled": "Turns the optional-only-for-tests parameter check on or off.",
         "gates.duplicate_functions.enabled": "Turns the duplicate-function check on the changed files on or off.",
+        "gates.duplicate_functions.block": "Off by default: a duplicated function body is a note, since generated code and deliberate per-module copies exist. On: it blocks.",
         "gates.orphan_files.enabled": "Turns the unused-new-file check on or off.",
         "gates.orphan_files.allow": "Glob patterns for files that are never reported because a tool loads them by path.",
         "gates.orphan_files.block": "Make an orphaned file block. Off by default: it is reported as a note.",
@@ -355,6 +359,7 @@
         "gates.semantic_bugs.enabled": "Turns the proven semantic-bug rules on or off.",
         "gates.semantic_bugs.rules": "Rule ids to run, including opt-in candidate rules and learned rules as learned/<id>; when set, only the named rules run, and when unset the default rules plus the repository's learned rules run.",
         "gates.side_effect_analysis.enabled": "Turns the runaway side-effect check on or off.",
+        "gates.side_effect_analysis.block": "Off by default: every finding is a note, since servers, consumers and daemons loop forever by design and a limit set elsewhere is not seen. On: the critical patterns (unbounded I/O loop, circular trigger, auto-restart) block.",
         "gates.side_effect_analysis.check_unbounded_timers": "Reports interval timers that are never cleared.",
         "gates.side_effect_analysis.check_unbounded_loops": "Reports loops that perform I/O with no exit condition or delay.",
         "gates.side_effect_analysis.check_process_lifecycle": "Reports spawned child processes with no exit handling, wait or kill.",
@@ -404,6 +409,8 @@
         "output.report_path": "The file, relative to the repository root, that rigour check writes its JSON report to and that other commands read it from.",
         "review.include_heuristics": "When true, heuristic findings (size, complexity, guessed intent) can decide the verdict and block, instead of only findings that prove a defect.",
         "review.show_preexisting": "When true, a review also reports rule findings the base commit already had, instead of only those the change introduced.",
+        "review.review_points": "When the model reviewer runs, it also raises review points: what a careful reviewer would ask to change though nothing goes wrong today (one job done twice, a cheaper path on the code's frequent path, a lock or copy it does not need, a branch that forgets an error or callback). Never a block. At most five per review, the most confident first; the rest are counted. Each needs a quote Rigour finds at the line it names.",
+        "review.coverage": "When the model reviewer runs, it accounts for every changed unit (a function, or a hunk named by its enclosing code): a finding, or what it checked and why it holds. A unit it leaves out gets one follow-up run, then is reported as not reviewed, never passed. At most 25 units per review, riskiest and largest first; the rest are counted as not offered.",
         "learning.outcomes.mode": "Reads what happened after each pull request merged (CI on its merge commit, later commits and fixes on its files, a revert) with rigour outcomes: off, on, or required, which stops a person, RIGOUR_OUTCOMES or --no-outcomes turning it off (team; a person sets outcomes in settings.json).",
         "learning.outcomes.demote_after": "How many later pull requests, from more than one author or merged at least a week apart, that a review found repeating a lesson and that then settled clean (CI passed, no fix on its file, no revert) take back a lesson an outcome or recurrence promoted; at least 2.",
         "learning.outcomes.window_days": "How many days after a merge later commits on its files count, from 7 to 90; a record is settled once its window has closed and CI has an answer.",

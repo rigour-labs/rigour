@@ -6,7 +6,7 @@ import { DiscoveryService, loadSettings } from '@rigour-labs/core';
 import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
 import { writeAgentInstructions } from './init-handshake.js';
-import { recordCreated } from './install-record.js';
+import { isRigourMcpEntry, recordCreated } from './install-record.js';
 import { askTelemetryOnce } from './telemetry-consent.js';
 import { getCliVersion } from '../utils/cli-version.js';
 
@@ -40,6 +40,8 @@ export interface InitOptions {
     force?: boolean;
     /** Write AGENTS.md (and a CLAUDE.md importing it) where the project has none. Off by default: the MCP tools describe themselves and the hooks enforce. */
     instructions?: boolean;
+    /** Also install the team's briefing hooks (rigour setup turns it on; plain init leaves it to hooks init --brief). */
+    brief?: boolean;
 }
 
 type DetectedIDE = 'cursor' | 'vscode' | 'cline' | 'claude' | 'gemini' | 'codex' | 'windsurf' | 'unknown';
@@ -206,7 +208,7 @@ export async function initCommand(cwd: string, options: InitOptions = {}) {
 
     // 3. Hooks and the MCP server for the agents this repository uses, and no others.
     const agents = agentsToSetUp(cwd, options.ide);
-    await initHooksForAllDetectedTools(cwd, agents);
+    await initHooksForAllDetectedTools(cwd, agents, !!options.brief);
     await initMCPForDetectedTools(cwd, agents, options.force);
     const others = HOOK_AGENTS.filter(agent => !agents.includes(agent));
     if (others.length) console.log(chalk.dim(`   Set up for ${agents.join(', ')}. Another agent later: rigour hooks init --tool ${others.join('|')}`));
@@ -346,14 +348,15 @@ async function buildPatternIndex(cwd: string, force?: boolean): Promise<void> {
  */
 async function initHooksForAllDetectedTools(
     cwd: string,
-    detectedIDEs: DetectedIDE[]
+    detectedIDEs: DetectedIDE[],
+    brief: boolean
 ): Promise<string[]> {
     // No hook support for vscode, gemini, codex. One run for every agent: one summary, one DLP note, one git hook line.
     const hookTools = detectedIDEs.map(ide => IDE_TO_HOOK_TOOL[ide]).filter((tool): tool is string => !!tool);
     if (hookTools.length === 0) return [];
     try {
         console.log(chalk.dim(`\n   Setting up real-time hooks for ${hookTools.join(', ')}...`));
-        await hooksInitCommand(cwd, { tool: hookTools.join(','), dlp: true, force: true, block: true });
+        await hooksInitCommand(cwd, { tool: hookTools.join(','), dlp: true, force: true, block: true, brief });
     } catch (err: any) {
         console.log(chalk.dim(`   (Hooks setup failed: ${err?.message || err})`));
     }
@@ -383,13 +386,23 @@ export function resolveMCPServerConfig(): { command: string; args: string[] } {
 }
 
 /**
- * The MCP server pinned to this CLI's major version (`@rigour-labs/mcp@6`): fixes
- * arrive without editing the config, a breaking major does not, and a bare name
- * (which makes npx run any older global install) is never written.
+ * The MCP server pinned to this CLI's exact version (`@rigour-labs/mcp@6.13.0`), as every hook pins the CLI: an agent's
+ * tools and its hooks come from the same release, and `rigour setup` moves both. The two packages are published at the
+ * same version. A bare name (which makes npx run any older global install) is never written.
  */
 export function mcpPackageSpec(cliVersion: string): string {
-    const major = /^(\d+)\./.exec(cliVersion)?.[1];
-    return major && major !== '0' ? `@rigour-labs/mcp@${major}` : '@rigour-labs/mcp@latest';
+    return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(cliVersion) && !cliVersion.startsWith('0.') ? `@rigour-labs/mcp@${cliVersion}` : '@rigour-labs/mcp@latest';
+}
+
+/** Whether an existing `rigour` server entry stays as it is: the same as the one to write, or one the person changed. */
+function keepMcpEntry(current: unknown, wanted: { command: string; args: string[] }, force?: boolean): boolean {
+    if (!current || force) return false;
+    return JSON.stringify(current) === JSON.stringify(wanted) || !isRigourMcpEntry(current);
+}
+
+/** `rigour setup` on a repository that already has rigour.yml: the MCP server for its agents, written or re-pinned. */
+export async function registerProjectMcp(cwd: string): Promise<void> {
+    await initMCPForDetectedTools(cwd, agentsToSetUp(cwd), false);
 }
 
 /** The Rigour MCP server for the agents set up: Cursor in .cursor/mcp.json, Claude Code in .mcp.json. */
@@ -430,10 +443,8 @@ async function setupCursorMCP(
             console.log(chalk.yellow('  Kept .cursor/mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
             return;
         }
-        // Don't overwrite if rigour already registered (unless --force)
-        if (existing?.mcpServers?.rigour && !force) {
-            return;
-        }
+        // An entry already as it should be, or one the person changed, is kept (unless --force); Rigour's own is re-pinned.
+        if (keepMcpEntry(existing?.mcpServers?.rigour, serverConfig, force)) return;
     }
 
     const created = !(await fs.pathExists(mcpPath));
@@ -465,7 +476,7 @@ async function setupClaudeMCP(
             console.log(chalk.yellow('  Kept .mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
             return;
         }
-        if (existing?.mcpServers?.rigour && !force) return;
+        if (keepMcpEntry(existing?.mcpServers?.rigour, serverConfig, force)) return;
     }
     if (!existing.mcpServers) existing.mcpServers = {};
     existing.mcpServers.rigour = serverConfig;

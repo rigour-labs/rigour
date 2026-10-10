@@ -47,6 +47,7 @@ import { teamCommand } from './commands/team.js';
 import { createSkillsCommand } from './commands/skills.js';
 import { checkForUpdates } from './utils/version.js';
 import { getCliVersion } from './utils/cli-version.js';
+import { hookStdin, runOnlyIfEnabled } from './commands/hook-input.js';
 import { configureHelp } from './cli-help.js';
 import chalk from 'chalk';
 
@@ -248,7 +249,8 @@ program
     .option('--team', 'Commit Rigour to this repository (rigour.yml, project hooks, .mcp.json) so everyone who clones gets it. Default: personal, nothing in your working tree')
     .option('--instructions', 'With --team: also write AGENTS.md, and a one-line CLAUDE.md that imports it, where the project has none')
     .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
-    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean }) => {
+    .option('--no-brief', 'Do not brief the agent with the team\'s rules and lessons (on by default: from each session\'s first prompt, and on the first edit of each file)')
+    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean; brief?: boolean }) => {
         await setupCommand(process.cwd(), options);
     });
 
@@ -483,6 +485,8 @@ Examples:
         await securityAuditCommand(process.cwd(), options);
     });
 
+const IF_ENABLED = 'Run only in a repository rigour setup switched on, from the agent\'s project directory; elsewhere exit 0 and print nothing (the personal install\'s machine hooks)';
+
 const hooksCmd = program
     .command('hooks')
     .description('Manage AI coding tool hook integrations (file checks + DLP credential scanning)')
@@ -498,7 +502,11 @@ Examples:
   $ rigour hooks init --tool cursor
   $ rigour hooks check --mode dlp --stdin
   $ rigour hooks check --dlp-allow-last
-    `);
+    `)
+    // A personal install's machine hooks carry --if-enabled: the guard runs here, not in a shell only POSIX has.
+    .hook('preAction', async (_hooks, action) => {
+        if (action.opts().ifEnabled) await runOnlyIfEnabled();
+    });
 
 hooksCmd
     .command('init')
@@ -523,20 +531,20 @@ Examples:
 hooksCmd
     .command('brief')
     .description('Prompt hook: brief the agent once per session from its first prompt (installed by rigour hooks init --brief); reads the hook payload on stdin')
+    .option('--if-enabled', IF_ENABLED)
     .action(async () => {
-        const chunks: Buffer[] = [];
-        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
-        const reply = await hooksBriefCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
+        const stdin = await hookStdin();
+        const reply = await hooksBriefCommand(stdin, process.cwd());
         if (reply) process.stdout.write(reply + '\n');
     });
 
 hooksCmd
     .command('brief-file')
     .description('Edit hook: the team\'s word on a file the first time a session edits it (installed by rigour hooks init --brief); reads the hook payload on stdin')
+    .option('--if-enabled', IF_ENABLED)
     .action(async () => {
-        const chunks: Buffer[] = [];
-        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
-        const reply = await hooksBriefFileCommand(Buffer.concat(chunks).toString('utf8'), process.cwd());
+        const stdin = await hookStdin();
+        const reply = await hooksBriefFileCommand(stdin, process.cwd());
         if (reply) process.stdout.write(reply + '\n');
     });
 
@@ -544,11 +552,11 @@ hooksCmd
     .command('stop')
     .description('Stop hook: review the branch against main (on main, what the session changed) before the agent finishes; reads the hook payload on stdin')
     .option('--tool <name>', 'Hook format to reply in: claude or cursor', 'claude')
+    .option('--if-enabled', IF_ENABLED)
     .action(async (options: any) => {
-        const chunks: Buffer[] = [];
-        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
+        const stdin = await hookStdin();
         const tool = options.tool === 'cursor' ? 'cursor' : 'claude';
-        const reply = await hooksStopCommand(tool, Buffer.concat(chunks).toString('utf8'), process.cwd());
+        const reply = await hooksStopCommand(tool, stdin, process.cwd());
         if (reply) process.stdout.write(reply + '\n');
     });
 
@@ -643,10 +651,9 @@ hooksCmd
     .description('Push gate: before a push, run the review, the repository\'s own tools and the typed checks on the branch; a failure refuses the push. From an agent hook (PreToolUse payload on stdin, exit 2) or from git\'s pre-push (--git, exit 1)')
     .option('--stdin', 'Read the hook payload from stdin (the default)')
     .option('--git', 'Run as git\'s pre-push hook: the refs on stdin, the commit git is about to send')
+    .option('--if-enabled', IF_ENABLED)
     .action(async (options: { git?: boolean }) => {
-        const chunks: Buffer[] = [];
-        if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
-        const stdin = Buffer.concat(chunks).toString('utf8');
+        const stdin = await hookStdin();
         const result = options.git ? await gitPushGateCommand(stdin, process.cwd()) : await hooksPushCommand(stdin, process.cwd());
         if (result.message) process.stderr.write(result.message + '\n');
         process.exit(result.exitCode);
@@ -688,6 +695,7 @@ hooksCmd
     .option('--mode <mode>', 'Check mode: "check" (default) or "dlp" (credential scanning)')
     .option('--agent <name>', 'Agent name for DLP audit trail (e.g., cursor, claude)')
     .option('--dlp-allow-last', 'Record the last DLP warning as learned false positives (hook feedback)')
+    .option('--if-enabled', IF_ENABLED)
     .option('--brief', 'DLP mode before an edit: also give the team\'s word on the file, the first time the session edits it')
     .addHelpText('after', `
 Examples:

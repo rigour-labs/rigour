@@ -19,15 +19,18 @@ import path from 'path';
 import { printRepoSetup } from './doctor.js';
 import { installGitPushHook } from './hooks-git.js';
 import { hooksInitCommand, installMachineHooks, pinnedCliCommand } from './hooks.js';
-import { initCommand, resolveMCPServerConfig } from './init.js';
+import { initCommand, registerProjectMcp, resolveMCPServerConfig } from './init.js';
 import { writeAgentInstructions } from './init-handshake.js';
 import { disableHere, enableHere, registerUserMcp } from './personal.js';
+import { applyConfigMigrations } from './setup-migrations.js';
 import { setupSemantic } from './semantic.js';
 
 const AGENT_NAME = { claude: 'Claude Code', cursor: 'Cursor', cline: 'Cline', windsurf: 'Windsurf' } as const;
 
 export interface SetupOptions {
     semantic?: boolean;
+    /** The team's briefing for the agent (the session's first prompt, each file's first edit): on unless false (--no-brief). */
+    brief?: boolean;
     team?: boolean;
     instructions?: boolean;
 }
@@ -36,19 +39,20 @@ export async function setupCommand(cwd = process.cwd(), options: SetupOptions = 
     const team = options.team || committedConfig(cwd);
     console.log(chalk.bold.cyan(`\nRigour setup (${team ? 'team: committed to this repository' : 'personal: nothing in your working tree'})\n`));
     if (team) await teamSetup(cwd, options);
-    else await personalSetup(cwd);
+    else await personalSetup(cwd, options.brief !== false);
+    for (const change of applyConfigMigrations(cwd)) console.log(chalk.green(`✔ Migrated ${change}`));
     if (options.semantic !== false) await setupSemantic(cwd);
     await printRepoSetup(cwd);
     console.log(`See what Rigour does as your agents work: ${chalk.cyan('rigour studio')}`);
     console.log(chalk.dim(`Take it back out: rigour uninstall${team ? '' : ' (this repository) or rigour uninstall --machine (everywhere)'}\n`));
 }
 
-async function personalSetup(cwd: string): Promise<void> {
+async function personalSetup(cwd: string, brief: boolean): Promise<void> {
     if (!enableHere(cwd)) {
         console.log(chalk.yellow('Not a git repository: Rigour switches on per repository. Run it inside one.'));
         return;
     }
-    const hooks = await installMachineHooks({ block: true, dlp: true });
+    const hooks = await installMachineHooks({ block: true, dlp: true, brief });
     const push = installGitPushHook(cwd, pinnedCliCommand(), { workingTree: false });
     const mcp = registerUserMcp(resolveMCPServerConfig());
     console.log('');
@@ -66,9 +70,10 @@ async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {
     disableHere(cwd, false);
     if (fs.existsSync(path.join(cwd, 'rigour.yml'))) {
         // The same options the team's install was written with, so a teammate's setup changes no committed file.
-        await hooksInitCommand(cwd, { block: true, dlp: true });
+        await hooksInitCommand(cwd, { block: true, dlp: true, brief: options.brief !== false });
+        await registerProjectMcp(cwd);
         if (options.instructions) await writeAgentInstructions(cwd);
-    } else await initCommand(cwd, { instructions: options.instructions });
+    } else await initCommand(cwd, { instructions: options.instructions, brief: options.brief !== false });
 }
 
 /** A rigour.yml the repository tracks: the team has adopted Rigour, so setup completes their install. */

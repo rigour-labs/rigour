@@ -29,8 +29,9 @@ import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBas
 import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
+import { changedUnits, coverageStep, followUpPrompt, unaccounted, unitLabel, unitsText, type ChangedUnit, type Coverage } from './reviewer/coverage.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
-import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, triage, type Pass } from './reviewer/triage.js';
+import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, touchesData, triage, type Pass } from './reviewer/triage.js';
 import { chooseTier, type TierDecision } from './reviewer/tiering.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
@@ -45,7 +46,7 @@ import { judgeUnset } from './reviewer/judge-env.js';
 import { appendTaskEvent } from '../task/thread.js';
 import type { CoveredLesson } from './settled-checks.js';
 
-export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
+export { defaultExec, githubEnv, githubReader, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
 export { itemLine, type OpenItem } from './reviewer/verdict.js';
 
 export type ReviewerOutcome = 'passed' | 'findings' | 'unavailable' | 'skipped';
@@ -97,6 +98,12 @@ export interface ReviewerResult {
     notes: OpenItem[];
     /** Should-fixes with a verified quote: shown, capped, never a block. */
     advisory: OpenItem[];
+    /** Review points (review.review_points): what to change though nothing breaks, quote verified, never a block, at most five. */
+    reviewPoints?: OpenItem[];
+    /** Review points past the cap: counted, not shown. */
+    reviewPointsHidden?: number;
+    /** Verified review points about code the change does not touch: counted, not shown. */
+    reviewPointsOutside?: number;
     /** Panel findings without a majority: shown, never a block, not carried to the next round. */
     disputed: OpenItem[];
     /** Panel findings refuted with evidence: logged, never a block. */
@@ -123,6 +130,8 @@ export interface ReviewerResult {
     record?: ReviewRecord;
     /** The team's lessons the judge said this change repeats, by id: what the outcome loop reads against a lesson (review-learning/outcome-evidence.ts). */
     lessonsApplied?: string[];
+    /** How much of the change the reviewer accounted for, unit by unit (reviewer/coverage.ts); absent when coverage is off. */
+    coverage?: Coverage;
     recordPath?: string;
     /** Tokens every run reported, summed: the only measure of a CLI that reports no dollars (Codex). */
     tokens?: Tokens;
@@ -284,7 +293,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
-    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
+    const coverageOn = config.review?.coverage !== false;
+    const reviewPointsOn = config.review?.review_points !== false;
+    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([coverageOn, reviewPointsOn, settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
     if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
@@ -363,7 +374,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count, blind: options.blind });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
         const applied = lessonsApplied(verdict.lessons ?? [], context.servedLessons);
-        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}) };
+        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}), ...(verdict.coverage ? { coverage: verdict.coverage } : {}) };
     };
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
@@ -450,7 +461,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
     let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
-        ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
+        ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, cache: apiVendor(settings.api) === 'anthropic', ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
         : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...(ADAPTERS[name].env ? { env: ADAPTERS[name].env } : {}) });
     try {
         const file = (name: string, text: string) => {
@@ -467,12 +478,14 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const goalFile = goalText ? file('declared-goal.md', `${goalText}\n`) : undefined;
         inlineInputs = [[reviewsFile, reviews.markdown], [prBodyFile, body], [diffstatFile, await git(['diff', '--stat', `${baseSha}...HEAD`])], [diffFile, fullDiff], [contextFile, context.text], [hintsFile, options.hints?.trim() || 'none\n'], ...(goalFile ? [[goalFile, `${goalText}\n`]] : [])].map(([p, text]) => ({ path: p, text }));
         let delta = '';
+        let deltaDiff: string | undefined;
         // A reviewer must report on the human reviews, unless every point was settled by the previous verdict and is carried.
         let needsPriorPoints = reviews.count > 0;
         if (scope === 'delta') {
             const previousOpenFile = file('previous-open.json', JSON.stringify(previousOpen, null, 2));
             const commitsFile = file('delta-commits.txt', await git(['log', '--format=%h %s', `${previous!.head}..HEAD`]));
-            const deltaDiffFile = file('delta.diff', (await exec('git', ['diff', `${previous!.head}..HEAD`], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout);
+            deltaDiff = (await exec('git', ['diff', `${previous!.head}..HEAD`], { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout;
+            const deltaDiffFile = file('delta.diff', deltaDiff);
             // Human points the previous verdict resolved, whose files the new commits leave alone, are not judged again.
             const settled = (store.readJson<Verdict>(previous!.verdict)?.prior_points ?? []).filter(p => p.resolved && !evidenceTouched(p.evidence, sincePrevious));
             const settledFile = file('previous-resolved.json', JSON.stringify(settled, null, 2));
@@ -484,7 +497,14 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             const impact = await mergeImpact(cwd, await git(['merge-base', 'HEAD^1', 'HEAD^2']), 'HEAD^2', 'HEAD', exec);
             merge = mergeBlock(base, impact ? file('merge-impact.md', impact) : undefined);
         }
-        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}) });
+        // Coverage: the reviewer accounts for every changed unit (the reviewed range: the delta in delta mode). The
+        // orchestrator splits the change across passes, so it is reviewed without it.
+        const offered = coverageOn && !orchestrate ? changedUnits(cwd, deltaDiff ?? fullDiff) : undefined;
+        const units: ChangedUnit[] = offered?.units ?? [];
+        prior.units = units;
+        const unitsFile = units.length ? file('changed-units.txt', unitsText(units, offered!.total - units.length)) : undefined;
+        if (unitsFile) inlineInputs.push({ path: unitsFile, text: unitsText(units, offered!.total - units.length) });
+        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}), ...(unitsFile ? { coverageBlock: coverageStep(unitsFile) } : {}), reviewPoints: reviewPointsOn, dataAccess: touchesData(deltaDiff ? parseHunks(deltaDiff) : hunks) });
         progress(`Rigour reviewer: reviewing ${head.slice(0, 9)} against ${base} (${scope}: ${why}; ${reviews.count} human review(s), written by ${[...authors].join(', ') || 'a person'}) with ${reviewers.join(', ')}`);
         const started = Date.now();
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
@@ -596,7 +616,23 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             clearInterval(ticker);
         }
         // One part too: every item is tagged with who found it. No part (nothing for a model to review): an empty verdict.
-        const merged = parts.length ? mergeVerdicts(parts) : { prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [], reviewers: [] };
+        // Review points off: a judge that raised one anyway is not heard.
+        if (!reviewPointsOn) for (const part of parts) part.findings = part.findings.filter(f => f.class !== 'review');
+        const merged: Verdict = parts.length ? mergeVerdicts(parts) : { prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [], reviewers: [] };
+        // A "finding" entry counts only for a finding that survives the same validation as everything shown (quote at the line).
+        const survivors = (v: Verdict) => { const a = account(v, previousOpen, verify, prior); return [...a.open, ...a.advisory, ...a.notes, ...(a.reviewPoints ?? [])].filter(i => i.kind === 'finding'); };
+        if (units.length) merged.coverage = await accountForUnits(merged, units, offered!.total - units.length, survivors, async missing => {
+            // One follow-up run for the units the answer left out, inside the caps; what it finds counts like any finding.
+            if (overBudget(store.spend(), settings, 1)) return undefined;
+            const judge = reviewers[0];
+            const ask = followUpPrompt(repoRoot, head.slice(0, 9), diffFile, missing);
+            progress(`Rigour reviewer: ${missing.length} changed unit(s) not accounted for; asking ${judge} about them`);
+            const run = await runJudge(judge, ask, modelFor(judge));
+            const answer = ADAPTERS[judge].answer(run.stdout);
+            spent(answer.costUsd, ask.length);
+            const got = parseVerdict(answer.text, false, judge, answer);
+            return 'verdict' in got ? got.verdict : undefined;
+        });
         const touched = scope === 'delta' ? sincePrevious : new Set<string>();
         let verdict = scope === 'delta' ? carryResolved(merged, store.readJson<Verdict>(previous!.verdict), touched) : merged;
         if (modeRecord.ran === 'panel' && parts.length > 1) {
@@ -754,6 +790,9 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         answerInReply: accounted.answerInReply,
         notes: accounted.notes,
         advisory: accounted.advisory,
+        reviewPoints: accounted.reviewPoints ?? [],
+        reviewPointsHidden: accounted.reviewPointsHidden ?? 0,
+        reviewPointsOutside: accounted.reviewPointsOutside ?? 0,
         disputed: accounted.disputed,
         dropped: accounted.dropped,
         dismissed: accounted.dismissed,
@@ -762,7 +801,7 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         scope,
         why,
         ...(cost.length ? { costUsd: cost.reduce((a, b) => a + b, 0) } : {}),
-        ...(used.length ? { tokens: used.reduce((a, b) => ({ input: a.input + b.input, output: a.output + b.output }), { input: 0, output: 0 }) } : {}),
+        ...(used.length ? { tokens: sumTokens(used) } : {}),
         runs: (verdict.reviewers ?? []).length,
         ...(verdict.rules?.length ? { rules: { checked: verdict.rules.length, followed: verdict.rules.filter(r => r.status === 'followed').length, broken: verdict.rules.filter(r => r.status === 'broken').length, notApplicable: verdict.rules.filter(r => r.status === 'not-applicable').length } } : {}),
         mode,
@@ -807,4 +846,31 @@ async function baseBlobs(git: (args: string[]) => Promise<string>, commit: strin
 
 function sameBlobs(a: Record<string, string>, b: Record<string, string>): boolean {
     return Object.keys(a).every(file => a[file] === b[file]);
+}
+
+/**
+ * Accounts for every changed unit given to the reviewer: the units its answer left out get one follow-up run (`ask`,
+ * undefined when the caps leave none), whose findings and entries join the verdict; any still left out are not
+ * reviewed, and said so.
+ */
+async function accountForUnits(verdict: Verdict, units: ChangedUnit[], notOffered: number, survivors: (verdict: Verdict) => Array<{ file?: string; line?: number }>, ask: (missing: ChangedUnit[]) => Promise<Verdict | undefined>): Promise<Coverage> {
+    let missing = unaccounted(units, verdict.functions ?? [], survivors(verdict));
+    let followUp = false;
+    if (missing.length) {
+        const more = await ask(missing);
+        followUp = true;
+        if (more) {
+            verdict.functions = [...(verdict.functions ?? []), ...(more.functions ?? []).map(f => ({ ...f, reviewer: more.reviewer }))];
+            verdict.findings = [...verdict.findings, ...more.findings.map(f => ({ ...f, reviewer: more.reviewer }))];
+            verdict.reviewers = [...(verdict.reviewers ?? []), { reviewer: `${more.reviewer} coverage`, ...(more.cost_usd !== undefined ? { cost_usd: more.cost_usd } : {}), ...(more.tokens ? { tokens: more.tokens } : {}) }];
+            missing = unaccounted(units, verdict.functions, survivors(verdict));
+        }
+    }
+    return { units: units.length, notOffered, accounted: units.length - missing.length, notReviewed: missing.map(unitLabel), followUp };
+}
+
+/** The tokens of several runs together, the cache's share kept when any run reported one. */
+function sumTokens(used: Tokens[]): Tokens {
+    const total = used.reduce((a, b) => ({ input: a.input + b.input, output: a.output + b.output, cacheRead: (a.cacheRead ?? 0) + (b.cacheRead ?? 0), cacheWrite: (a.cacheWrite ?? 0) + (b.cacheWrite ?? 0) }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    return { input: total.input, output: total.output, ...(total.cacheRead ? { cacheRead: total.cacheRead } : {}), ...(total.cacheWrite ? { cacheWrite: total.cacheWrite } : {}) };
 }

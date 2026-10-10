@@ -14,7 +14,7 @@ tool, and what to do when something does not fire. Setting Rigour up is covered 
 
 | Agent | After every edit | Before "done" | Before push | Credential warnings (DLP) | MCP server written by setup |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | yes | yes | yes, in the agent and through git | yes, before every tool call | yes |
+| Claude Code | yes | yes | yes, in the agent and through git | yes, before every tool call | yes, in a new or an existing repository |
 | Cursor | yes | yes | yes, through git | yes, before a prompt is sent | yes |
 | Cline | yes | no | yes, through git | yes, before every tool call | no |
 | Windsurf | yes | no | yes, through git | yes, before code is written | no |
@@ -35,10 +35,13 @@ Node 22.13 or later is required.
 | `rigour hooks init --tool <name>` | The repository. | The one you name: `claude`, `cursor`, `cline`, `windsurf`, or `all`; several comma-separated. |
 
 **Personal install.** The user-level files are `~/.claude/settings.json`, `~/.cursor/hooks.json`,
-`~/.codeium/windsurf/hooks.json` and `~/Documents/Cline/Hooks/`. Each hook command is wrapped in a
-guard: it looks for a `rigour-enabled` marker in the repository's git directory and exits 0 at once
-when there is none. `rigour setup` writes that marker, so the hooks run only in repositories you have
-switched on and stay silent everywhere else.
+`~/.codeium/windsurf/hooks.json` and `~/Documents/Cline/Hooks/`. Each hook command carries
+`--if-enabled`: the CLI finds the project (Claude Code's `CLAUDE_PROJECT_DIR`, else the hook payload's `cwd`, else
+where the hook started), looks for a `rigour-enabled` marker in its git directory, and exits 0 without printing
+anything when there is none. `rigour setup` writes that marker, so the hooks run only in repositories you have
+switched on and stay silent everywhere else. Every hook is a plain command, so it runs in whatever shell the agent
+uses: bash, or PowerShell (Claude Code on Windows without Git Bash). Before 6.13.0 the guard and the push gate were
+`sh -c` wrappers that PowerShell cannot run; `rigour doctor` names them, and `rigour setup` replaces them in place.
 
 **Team install.** `rigour setup --team` looks for these signs in the repository root:
 
@@ -76,8 +79,8 @@ File: `.claude/settings.json` (team) or `~/.claude/settings.json` (personal).
 | --- | --- | --- | --- |
 | `PostToolUse` | `Write\|Edit\|MultiEdit` | `<cli> hooks check --stdin`, plus `--block` when asked | Fast checks on the file just written. |
 | `Stop` | none | `<cli> hooks stop --tool claude` (timeout 120 s) | Reviews the branch against main before the agent finishes. At most three stops, then the agent may finish and the finding still blocks the push. |
-| `PreToolUse` | `Bash` | `<cli> hooks push --stdin`, inside a shell that starts it only when the command mentions `git` and `push` (timeout 1800 s) | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
-| `PreToolUse` | `.*` | `<cli> hooks check --mode dlp --stdin` | Credential warnings on the input of every tool call. |
+| `PreToolUse` | `Bash` | `<cli> hooks push --stdin` (timeout 1800 s); the CLI passes a command that is not a push straight through | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
+| `PreToolUse` | `.*` | `<cli> hooks check --mode dlp --stdin` | Credentials in the input of every tool call: a real secret's format denies the call, anything else is a warning the agent sees. |
 
 ### Cursor
 
@@ -163,9 +166,17 @@ GitHub, Stripe, Twilio, Slack, SendGrid), private keys, database URLs with crede
 and JWTs, password and `.env`-style assignments, credentials in URLs, CI and registry secrets, and
 high-entropy encoded values.
 
-As installed, the DLP hooks **warn and never block**: the hook command carries no `--block`. The hook
-prints the warning (for Cursor, as a message on the prompt; for Cline, in the agent's context) and
-records it in `.rigour/events.jsonl`.
+For Claude Code, a credential in a real secret's format (a provider's own key format such as an AWS
+access key or a Stripe live key, a private key, a GCP service account) **denies the tool call**: Claude
+Code shows the agent the reason, and the credential is never written. Anything the scan only suspects
+(a database URL with a password, a high-entropy value) is a warning added to the agent's context
+beside the tool result. Before 6.13.0, a Claude Code payload was mistaken for Cursor's and nothing
+was scanned; the hooks pin Rigour's version, so run `rigour setup` (or `rigour hooks init`) after
+upgrading to move them to the new one.
+
+For the other agents the DLP hooks **warn and never block**: the hook command carries no `--block`.
+The hook prints the warning (for Cursor, as a message on the prompt; for Cline, in the agent's
+context) and records it in `.rigour/events.jsonl`.
 
 A warning that is wrong can be taught once:
 
@@ -219,11 +230,13 @@ client that starts stdio servers can be given the same command.
 `<server>` is:
 
 ```bash
-npx -y @rigour-labs/mcp@<major>
+npx -y @rigour-labs/mcp@<version>
 ```
 
-`<major>` is the major version of the CLI that wrote it. Fixes arrive without editing the config; a
-breaking major release does not. When the CLI runs from a source checkout, the config points at that
+`<version>` is the exact version of the CLI that wrote it, the same version every hook pins the CLI to, so
+the agent's tools and its hooks always come from one release. `rigour setup` writes it, and re-running
+setup after an upgrade moves both. An entry you changed yourself (another command or path) is left as
+it is. When the CLI runs from a source checkout, the config points at that
 checkout's `packages/rigour-mcp/dist/index.js` with `node` instead. `rigour uninstall --machine`
 removes the user-level registrations.
 
@@ -247,7 +260,7 @@ name.
   "mcpServers": {
     "rigour": {
       "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp@<major>"],
+      "args": ["-y", "@rigour-labs/mcp@<version>"],
       "env": { "RIGOUR_MCP_TOOLS": "governance" }
     }
   }
@@ -261,8 +274,8 @@ name.
 | Review | `rigour_review` | Review the change before calling it done: uncommitted work, or the whole branch with `base`. Only findings on changed lines, each with file, line and a fix. With `mode: "agent"` it also returns the risky changed functions and what to check in each, for the agent to review with its own model. |
 | Review | `rigour_review_ack` | Record the agent's verdict on one of those functions (`fixed` or `no_issue`, with a note). It holds until the function's code changes. |
 | Review | `rigour_reviewer_verdict` | Read what the model [reviewer](./REVIEWER.md) last decided for the branch: items to fix, disputed items, and whether the verdict is for the current commit. Read-only. |
-| Review | `rigour_check` | Run the quality checks on the project or on given files; returns pass or fail. |
-| Review | `rigour_get_fix_packet` | After a failed `rigour_check`: the violations a page at a time (5 by default, at most 10), with locations and fix instructions. See [Fix packet](./FIX_PACKET.md). |
+| Review | `rigour_check` | By default the agent's change, judged as the stop hook and push gate judge it (fail means something to fix in the change). With `files`: those files. `scope: "repo"`: the whole repository, for an audit. |
+| Review | `rigour_get_fix_packet` | After a failed `rigour_check`: the change's must-fix items, then its notes, a page at a time (5 by default, at most 10), each with `file:line` and the fix. See [Fix packet](./FIX_PACKET.md). |
 | Reuse and context | `rigour_index` | Build or update the pattern index (`.rigour/patterns.json`): functions, classes, routes and signatures, embedded locally so they can be found by intent. |
 | Reuse and context | `rigour_context_scope` | Before reading source files: a small edit scope (3 to 10 files) with signatures, for a plain-language description of the task. |
 | Reuse and context | `rigour_check_pattern` | Before writing a new function, component, hook or class: whether one already exists (by name, intent or signature), and known vulnerabilities. Refuses writes to protected paths such as `.github/` and `rigour.yml`. |
@@ -318,12 +331,25 @@ not seen firing), broken, or missing, with the command that fixes it:
 
 - the project settings (`rigour.yml`, or a personal install's defaults);
 - the after-edit hook for Claude Code, Cursor and Windsurf, in the project and, for a personal
-  install, at user level. It names a hook that reads a variable the agent never sets
-  (fix: `rigour hooks init --force`). Cline's hooks are not checked;
+  install, at user level. It names the old hook that passes a variable the agent never sets, so no
+  edit is checked (fix: `rigour setup`, which rewrites Rigour's own entries in the project or, for a
+  personal install, at user level). Cline's hooks are not checked;
 - the stop hook;
 - the MCP server, found in `.mcp.json`, `~/.claude.json` or `~/.cursor/mcp.json`, or seen through tool
   calls;
-- the pull request workflow.
+- whether the agent hooks and the MCP server run the Rigour that is installed. Each pins a version, so an upgrade
+  reaches them only when `rigour setup` rewrites the pin; doctor names the pinned and the installed version (fix:
+  `rigour setup`). An MCP entry on a floating major (`@rigour-labs/mcp@6`, written before 6.13.0) is called out too;
+- the pull request workflow;
+- settings an older Rigour wrote that no longer do what they say:
+  - a `rigour.yml` made from a preset that blocks on every security finding (healthcare, fintech,
+    government, devsecops) before `gates.security.block` existed: its security findings are shown as
+    notes. `rigour setup` adds `block: true`, keeping the file's comments;
+  - `gates.deprecated_apis.block_security_deprecated: true`, which older `rigour init` wrote for
+    everyone: keep it if your team chose it, otherwise delete the line. Rigour never changes it.
+
+The old edit hook also says so itself: on every edit it prints that it checks nothing and to run
+`rigour setup`, and exits 1, which the agent shows you without stopping the edit.
 
 When the clone has Rigour's `pre-push` hook, doctor also runs the same real-push test as
 `rigour hooks selftest`.

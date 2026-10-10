@@ -16,6 +16,7 @@
  */
 
 import { Gate, GateContext } from './base.js';
+import { isDocumentedExampleKey } from './security-patterns.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
@@ -35,6 +36,8 @@ export interface FrontendSecretExposureConfig {
     frontend_path_patterns?: string[];
     server_path_patterns?: string[];
     allowlist_env_names?: string[];
+    /** `security.block`, passed by the runner (the compliance and devsecops presets set it): an env reference blocks too. */
+    security_block?: boolean;
 }
 
 type FileContext = 'frontend' | 'server' | 'ambiguous';
@@ -65,6 +68,7 @@ export class FrontendSecretExposureGate extends Gate {
         this.cfg = {
             enabled: config.enabled ?? true,
             block_on_severity: config.block_on_severity ?? 'high',
+            security_block: config.security_block ?? false,
             check_process_env: config.check_process_env ?? true,
             check_import_meta_env: config.check_import_meta_env ?? true,
             secret_env_name_patterns: config.secret_env_name_patterns ?? [
@@ -247,7 +251,7 @@ export class FrontendSecretExposureGate extends Gate {
                 let m: RegExpExecArray | null;
                 while ((m = pattern.regex.exec(line)) !== null) {
                     // Skip dummy/placeholder values and test-mode keys
-                    if (this.isDummyValue(m[0])) continue;
+                    if (this.isDummyValue(m[0]) || isDocumentedExampleKey(m[0])) continue;
                     if (/(?:sk_test_|pk_test_|_test_|_sandbox_)/i.test(m[0])) continue;
 
                     out.push({
@@ -293,6 +297,16 @@ export class FrontendSecretExposureGate extends Gate {
         };
     }
 
+    /**
+     * A literal key in a secret's format ships in the bundle: proven. A reference to a secret-named variable is a guess:
+     * bundlers inline only public-prefixed variables, so a non-public one is undefined in the browser, not leaked. It
+     * is likely in a definite frontend file, possible in an ambiguous one, and proven when the team set security.block.
+     */
+    private certaintyOf(exp: SecretExposure): 'proven' | 'likely' | 'possible' {
+        if (exp.kind === 'literal' || this.cfg.security_block) return 'proven';
+        return exp.fileContext === 'frontend' ? 'likely' : 'possible';
+    }
+
     /** Filters out trivial dummy/placeholder text to reduce false positives. */
     private isDummyValue(text: string): boolean {
         return /(?:example|placeholder|your[_-]|xxx+|dummy|fake|changeme)/i.test(text);
@@ -323,7 +337,7 @@ export class FrontendSecretExposureGate extends Gate {
             const ctx = exp.fileContext === 'frontend' ? '[definite frontend]' : '[possible frontend]';
             const kind = exp.kind === 'literal' ? 'literal key' : 'env var ref';
 
-            failures.push(this.createFailure(
+            failures.push({ ...this.createFailure(
                 `[${exp.cwe}] ${exp.serviceLabel} (${kind}) in ${ctx} file — ` +
                 `\`${exp.varName}\` at line ${exp.line}`,
                 [exp.file],
@@ -332,7 +346,7 @@ export class FrontendSecretExposureGate extends Gate {
                 exp.line,
                 exp.line,
                 exp.severity,
-            ));
+            ), certainty: this.certaintyOf(exp) });
         }
 
         if (unique.length > 0 && failures.length === 0) {

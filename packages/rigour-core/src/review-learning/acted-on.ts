@@ -24,6 +24,10 @@ export interface ReviewComment {
     prAuthor?: string;
     /** Whether the lines it points at changed before the merge. */
     actedOn?: boolean;
+    /** Edited at or after `--until`: its text is the edited one, which the store as of `until` would not have had. */
+    editedAfterUntil?: true;
+    /** When it was posted (GitHub's created_at), for how far apart one reviewer's points are. */
+    postedAt?: string;
 }
 
 /** A review's body: where a reviewer makes the points that are not about one line. */
@@ -36,6 +40,8 @@ export interface ReviewBody {
     author: string;
     source?: 'person' | 'bot';
     prAuthor?: string;
+    /** When it was submitted (GitHub's submitted_at). */
+    postedAt?: string;
 }
 
 export interface MergedPr {

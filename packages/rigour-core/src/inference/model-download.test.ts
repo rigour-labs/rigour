@@ -87,6 +87,19 @@ describe('getCachedModel', () => {
         });
     }
 
+    it('trusts a file whose write time trails its verification by a few milliseconds, and not one changed later', async () => {
+        await cacheFile(FALLBACK_MODELS.lite.filename, 16);
+        const file = path.join(modelsDir, FALLBACK_MODELS.lite.filename);
+        const verifiedAt = Date.now();
+        await fs.writeJson(`${file}.meta.json`, { sha256: 'a'.repeat(64), sizeBytes: 16, verifiedAt: new Date(verifiedAt).toISOString(), sourceUrl: 'https://x' });
+        // Windows: the write time can land a few milliseconds after the Date taken just after writing the file.
+        await fs.utimes(file, new Date(verifiedAt + 15), new Date(verifiedAt + 15));
+        expect((await getCachedModel('lite'))?.fallback).toBe(true);
+        // Changed well after it was verified: not the file that was verified.
+        await fs.utimes(file, new Date(verifiedAt + 60_000), new Date(verifiedAt + 60_000));
+        expect(await getCachedModel('lite')).toBeNull();
+    });
+
     it('returns null when nothing is cached', async () => {
         expect(await getCachedModel('deep')).toBeNull();
     });

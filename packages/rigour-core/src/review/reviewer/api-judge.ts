@@ -27,6 +27,12 @@ export interface ApiJudgeOptions {
     fetchImpl?: typeof fetch;
     /** The review's input files, given inline in the first message: a model that never calls a tool still has what it needs. */
     inputs?: Array<{ path: string; text: string }>;
+    /**
+     * Ask the API to cache the conversation so far (`cache_control` on the request), for models that cache only when
+     * asked (Claude). Each turn re-sends the whole conversation, so every turn after the first reads the earlier turns
+     * from the cache. An API that refuses the field on the first turn is asked again without it, and never again.
+     */
+    cache?: boolean;
 }
 
 export interface ApiJudgeRun { exitCode: number; stdout: string; stderr: string }
@@ -60,20 +66,26 @@ export async function runApiJudge(prompt: string, o: ApiJudgeOptions): Promise<A
     const usage: RunTrace['usage'] = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
     const calls: RunTrace['calls'] = [];
     let cost: number | undefined;
+    let cache = o.cache === true;
     const fail = (why: string): ApiJudgeRun => ({ exitCode: 1, stdout: '', stderr: `api judge (${o.model}): ${why}` });
     for (let turn = 1; turn <= o.maxTurns; turn++) {
         const left = deadline - Date.now();
         if (left <= 0) return fail(`timed out after ${o.timeoutMs} ms`);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), left);
+        const send = () => fetchImpl(`${o.url.replace(/\/$/, '')}/chat/completions`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${o.key}` },
+            body: JSON.stringify({ model: o.model, messages, tools: TOOLS, tool_choice: 'auto', max_tokens: MAX_OUTPUT_TOKENS, ...(o.reasoning ? { reasoning_effort: o.reasoning } : {}), ...(cache ? { cache_control: { type: 'ephemeral' } } : {}) }),
+            signal: controller.signal,
+        });
         let response: Response;
         try {
-            response = await fetchImpl(`${o.url.replace(/\/$/, '')}/chat/completions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json', authorization: `Bearer ${o.key}` },
-                body: JSON.stringify({ model: o.model, messages, tools: TOOLS, tool_choice: 'auto', max_tokens: MAX_OUTPUT_TOKENS, ...(o.reasoning ? { reasoning_effort: o.reasoning } : {}) }),
-                signal: controller.signal,
-            });
+            response = await send();
+            if (response.status === 400 && cache && turn === 1) {
+                cache = false;
+                response = await send();
+            }
         } catch (error) {
             return fail(`request failed: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
@@ -88,8 +100,10 @@ export async function runApiJudge(prompt: string, o: ApiJudgeOptions): Promise<A
         }
         const u = body.usage ?? {};
         const cached = n(u.prompt_tokens_details?.cached_tokens);
-        usage.input += Math.max(0, n(u.prompt_tokens) - cached);
+        const written = n(u.prompt_tokens_details?.cache_write_tokens);
+        usage.input += Math.max(0, n(u.prompt_tokens) - cached - written);
         usage.cacheRead += cached;
+        usage.cacheWrite += written;
         usage.output += n(u.completion_tokens);
         if (typeof u.cost === 'number') cost = (cost ?? 0) + u.cost;
         const choice = body.choices?.[0];

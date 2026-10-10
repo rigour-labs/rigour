@@ -14,13 +14,31 @@ describe('handleCheck deep routing', () => {
         },
     } as any;
 
-    it('runs standard check by default', async () => {
+    it('runs standard check on the files when no config is given', async () => {
         const run = vi.fn().mockResolvedValue(baseReport);
         const runner = { run } as any;
 
         await handleCheck(runner, '/repo');
 
         expect(run).toHaveBeenCalledWith('/repo', undefined, undefined);
+    });
+
+    it('judges the agent\'s change by the stop hook\'s rule when no files are named', async () => {
+        const run = vi.fn();
+        const review = vi.fn().mockResolvedValue({ blocking: [{ id: 'hallucinated-imports' }], result: { advisory: [{}], fileFindings: [], preexisting: 4, report: null }, against: 'main @ abc1234', diff: '' });
+        const result = await handleCheck({ run } as any, '/repo', {}, { gates: {} } as any, review);
+        expect(run).not.toHaveBeenCalled(); // scope "change" is the default
+        expect(review).toHaveBeenCalledWith('/repo', { gates: {} });
+        expect(result.content[0].text).toContain('FAIL: 1 thing to fix in your change (against main @ abc1234)');
+        expect(result.content[0].text).toContain('Not yours: 4 issue(s) the code already had');
+    });
+
+    it('audits the whole repository when asked for scope "repo"', async () => {
+        const run = vi.fn().mockResolvedValue(baseReport);
+        const review = vi.fn();
+        await handleCheck({ run } as any, '/repo', { scope: 'repo' }, { gates: {} } as any, review);
+        expect(run).toHaveBeenCalledWith('/repo', undefined, undefined);
+        expect(review).not.toHaveBeenCalled();
     });
 
     it('maps quick deep mode and file scope', async () => {
@@ -124,29 +142,23 @@ describe('handleCheck deep routing', () => {
 });
 
 describe('handleGetFixPacket pagination', () => {
-    const report = {
-        status: 'FAIL',
-        summary: {},
-        failures: Array.from({ length: 12 }, (_, index) => ({
-            id: 'file-size', title: `Finding ${index}`, details: `Detail ${index}`,
-            files: [`src/file-${index}.ts`], severity: 'low',
-        })),
-        stats: { score: 50 },
-    } as any;
-    const runner = { run: vi.fn().mockResolvedValue(report) } as any;
+    const review = vi.fn().mockResolvedValue({
+        blocking: Array.from({ length: 12 }, (_, index) => ({ id: 'file-size', title: `Finding ${index}`, details: `Detail ${index}`, files: [`src/file-${index}.ts`], severity: 'low' })),
+        result: { advisory: [], fileFindings: [] }, against: 'main @ abc1234', diff: '',
+    });
     const config = { gates: { safety: {} }, commands: {} } as any;
 
     it('returns a small first page and a precise continuation offset', async () => {
-        const result = await handleGetFixPacket(runner, '/repo', config);
-        expect(result.content[0].text).toContain('FIX 1/12');
+        const result = await handleGetFixPacket('/repo', config, {}, review);
+        expect(result.content[0].text).toContain('MUST FIX 1/12');
         expect(result.content[0].text).toContain('offset=5 and limit=5');
         expect(result.content[0].text).not.toContain('Finding 5');
     });
 
-    it('rejects invalid pagination before scanning', async () => {
-        runner.run.mockClear();
-        const result = await handleGetFixPacket(runner, '/repo', config, { limit: 11 });
+    it('rejects invalid pagination before reviewing', async () => {
+        review.mockClear();
+        const result = await handleGetFixPacket('/repo', config, { limit: 11 }, review);
         expect(result.isError).toBe(true);
-        expect(runner.run).not.toHaveBeenCalled();
+        expect(review).not.toHaveBeenCalled();
     });
 });

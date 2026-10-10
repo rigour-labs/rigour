@@ -41,11 +41,27 @@ export async function githubEnv(cwd: string, account: string | undefined, exec: 
  * accounts never reads as the wrong one.
  */
 export async function githubToken(cwd: string, account: string | undefined, exec: Exec): Promise<string> {
-    const explicit = process.env.GH_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim();
-    if (explicit) return explicit;
+    return (await readToken(cwd, account, exec)).token;
+}
+
+/**
+ * The token (as githubToken) and who it reads as, for a message that never shows the token: the named
+ * account, the variable the token came from, or gh's active login (read from gh's local config, no network).
+ */
+export async function githubReader(cwd: string, account: string | undefined, exec: Exec): Promise<{ token: string; as: string }> {
+    const { token, as } = await readToken(cwd, account, exec);
+    if (as) return { token, as };
+    const user = await exec('gh', ['config', 'get', 'user', '-h', 'github.com'], { cwd, timeoutMs: GH_TIMEOUT_MS });
+    return { token, as: user.exitCode === 0 && user.stdout.trim() ? user.stdout.trim() : "gh's active account" };
+}
+
+/** The token, and where it came from when that is known without asking gh again (undefined: gh's active account). */
+async function readToken(cwd: string, account: string | undefined, exec: Exec): Promise<{ token: string; as?: string }> {
+    if (process.env.GH_TOKEN?.trim()) return { token: process.env.GH_TOKEN.trim(), as: 'the token in GH_TOKEN' };
+    if (process.env.GITHUB_TOKEN?.trim()) return { token: process.env.GITHUB_TOKEN.trim(), as: 'the token in GITHUB_TOKEN' };
     const named = account?.trim();
     const read = await exec('gh', named ? ['auth', 'token', '--user', named] : ['auth', 'token'], { cwd, timeoutMs: GH_TIMEOUT_MS });
-    if (read.exitCode === 0 && read.stdout.trim()) return read.stdout.trim();
+    if (read.exitCode === 0 && read.stdout.trim()) return { token: read.stdout.trim(), ...(named ? { as: named } : {}) };
     throw new Error(named
         ? `GitHub account ${named} is named for reading, but \`gh auth token --user ${named}\` gave no token: sign in to it with \`gh auth login\`, or set GITHUB_TOKEN.`
         : 'Set GITHUB_TOKEN or sign in with `gh auth login` (read access to the repository is enough).');

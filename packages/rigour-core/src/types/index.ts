@@ -86,6 +86,8 @@ export const GatesSchema = z.object({
         insecure_randomness: z.boolean().optional().default(true),
         command_injection: z.boolean().optional().default(true),
         block_on_severity: z.enum(['critical', 'high', 'medium', 'low']).optional().default('high'),
+        /** Opt in: every pattern blocks. By default only a credential in a real secret's format blocks; the rest are notes. */
+        block: z.boolean().optional().default(false),
     }).optional().default({}),
     frontend_secret_exposure: z.object({
         enabled: z.boolean().optional().default(true),
@@ -174,7 +176,7 @@ export const GatesSchema = z.object({
         check_go: z.boolean().optional().default(true),
         check_csharp: z.boolean().optional().default(true),
         check_java: z.boolean().optional().default(true),
-        block_security_deprecated: z.boolean().optional().default(true),
+        block_security_deprecated: z.boolean().optional().default(false),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
     test_quality: z.object({
@@ -257,9 +259,9 @@ export const GatesSchema = z.object({
         block: z.boolean().optional().default(false),
     }).optional().default({}),
     /** Query shapes that cost production: offset paging in a loop, a time window with no upper bound (review/query-patterns.ts). */
-    query_patterns: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    query_patterns: z.object({ enabled: z.boolean().optional().default(true), /** Opt in: its findings block. By default they are notes (learned from one team's review history). */ block: z.boolean().optional().default(false) }).optional().default({}),
     /** What a fix leaves half done: the narrower condition still used elsewhere, a prop wired into some sibling mounts only, an accumulator copied every step (review/partial-fixes.ts, partial-wiring.ts, loop-copies.ts). */
-    change_sweep: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    change_sweep: z.object({ enabled: z.boolean().optional().default(true), /** Opt in: its findings block. By default they are notes (learned from one team's review history). */ block: z.boolean().optional().default(false) }).optional().default({}),
     /**
      * What a change made redundant, from the project's own TypeScript (review/typed/redundancy.ts): a null filter beside a
      * range on the same column, a nullable row type the query filters non-null, an optional member every host supplies, a
@@ -276,7 +278,7 @@ export const GatesSchema = z.object({
     /** A parameter the change adds as optional that only tests omit (review/optional-params.ts). */
     optional_params: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** A changed function whose body duplicates another in the files the change touched (review/duplicate-functions.ts). */
-    duplicate_functions: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    duplicate_functions: z.object({ enabled: z.boolean().optional().default(true), /** Opt in: its findings block. By default they are notes (learned from one team's review history). */ block: z.boolean().optional().default(false) }).optional().default({}),
     /** Code files the change adds that nothing imports or runs (review/orphan-files.ts). */
     orphan_files: z.object({
         enabled: z.boolean().optional().default(true),
@@ -307,6 +309,8 @@ export const GatesSchema = z.object({
         check_retry_without_limit: z.boolean().optional().default(true),
         check_circular_triggers: z.boolean().optional().default(true),
         check_auto_restart: z.boolean().optional().default(true),
+        /** Opt in: the critical rules (unbounded I/O loop, circular trigger, restart bomb) block. By default every finding is a note. */
+        block: z.boolean().optional().default(false),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
     // v5.1+ Style Drift Detection
@@ -400,6 +404,20 @@ export const ConfigSchema = z.object({
         include_heuristics: z.boolean().optional().default(false),
         /** Also report findings the base already had; by default only what the change introduced is (baseline.ts). */
         show_preexisting: z.boolean().optional().default(false),
+        /**
+         * The model reviewer accounts for every changed unit (function, or hunk named by its enclosing code): a
+         * finding, or what it checked and why it holds. A unit left out gets one follow-up run, then is reported as
+         * not reviewed (review/reviewer/coverage.ts). Applies only when the reviewer runs. Off by default: measured, it
+         * cost 1.4 to 2.5 times more per review with no gain in what the reviewer found.
+         */
+        coverage: z.boolean().optional().default(false),
+        /**
+         * The model reviewer also raises review points: what a careful reviewer would ask to change though nothing goes
+         * wrong today (one job done twice, a cheaper path, an unneeded lock, a forgotten branch). Never a block; at most
+         * five, the most confident first, each with a quote Rigour checks (review/reviewer/verdict.ts). Off by default,
+         * with coverage: the measured run found no gain in what the reviewer found for the cost.
+         */
+        review_points: z.boolean().optional().default(false),
         /**
          * Check the change against the goal its pull request's description declares (goal/goal.ts): a changed file
          * outside the declared Scope or inside Out of scope, a "Done when" item naming a file or symbol the change never
@@ -540,6 +558,14 @@ export const FailureSchema = z.object({
     verified: z.boolean().optional(), // AST-verified LLM finding
     /** A proven check the team keeps as a note (its `block: false`): shown, never blocking. */
     advisory: z.boolean().optional(),
+    /**
+     * How sure the check is that the defect exists, set by the rule that found it: proven (it traced the defect or
+     * states a fact) blocks on a changed line; likely is shown, never blocking; possible is a hint. Severity says how
+     * bad the defect would be, never whether it blocks. Unset: the gate-level rule decides (review/quiet.ts mustFix).
+     */
+    certainty: z.enum(['proven', 'likely', 'possible']).optional(),
+    /** Every line a finding that groups a file's violations names: one on a changed line puts it in the change, anchored there (review/changed-lines.ts). */
+    lines: z.array(z.number()).optional(),
 });
 export type Failure = z.infer<typeof FailureSchema>;
 

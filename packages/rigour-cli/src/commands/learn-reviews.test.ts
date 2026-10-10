@@ -109,4 +109,17 @@ describe('rigour learn-reviews --list', () => {
         expect(all).toContain('Q2');
         expect(all).not.toContain('hidden');
     });
+
+    it('keeps a bot-only candidate hidden after a later fix on its lines: outcome evidence never makes it a person\'s', async () => {
+        const file = path.join(repo, '.rigour', 'review-lessons.json');
+        const bot = { kind: 'point', pr: 3, comment: 'c-bot', author: 'rabbit[bot]', source: 'bot', prAuthor: 'dev' };
+        const lines = { kind: 'lines', pr: 9, comment: 'lines-9-abc', author: '', detail: 'fixed later by abc "fix: x"' };
+        fs.writeFileSync(file, JSON.stringify({ version: 1, lessons: [{ id: 'Q1', text: 'lesson Q1', file: 'src/load.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '', evidence: [bot, lines] }] }));
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { list: true });
+        const listed = out.mock.calls.flat().join('\n');
+        expect(listed).not.toContain('Q1');
+        expect(listed).toContain('1 candidate(s) from review bots, hidden');
+    });
 });
+

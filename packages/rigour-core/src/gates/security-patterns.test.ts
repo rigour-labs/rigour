@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SecurityPatternsGate, checkSecurityPatterns } from './security-patterns.js';
+import { FIX_BY_TYPE, FIX_UNKNOWN, VULNERABILITY_PATTERNS } from './security-patterns-data.js';
+import { mustFix } from '../review/quiet.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -26,6 +28,72 @@ describe('SecurityPatternsGate', () => {
             const gate = new SecurityPatternsGate({ enabled: false });
             const failures = await gate.run({ cwd: testDir });
             expect(failures).toEqual([]);
+        });
+    });
+
+    describe('what blocks', () => {
+        // Built at run time: no credential-shaped literal is kept in the repository.
+        const AWS = 'AKIA' + 'Q7XJ4P2M8K3L5N9R';
+        const STRIPE = 'sk_' + 'live_' + '9fQ2xWm4Lp8Zr7Tn3Kb6Vd1Y';
+        const KEY = '-----BEGIN ' + 'RSA PRIVATE KEY-----';
+        const findings = async (files: Record<string, string>, config = {}) => {
+            fs.mkdirSync(path.join(testDir, 'src'), { recursive: true });
+            for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(testDir, 'src', name), body);
+            return new SecurityPatternsGate(config).run({ cwd: testDir });
+        };
+
+        it('blocks on a credential in a format only a real secret has', async () => {
+            const found = await findings({
+                'aws.ts': `export const id = '${AWS}';\n`,
+                'pay.ts': `export const key = '${STRIPE}';\n`,
+                'key.ts': `export const pem = \`${KEY}\nMIIE\`;\n`,
+            });
+            for (const file of ['src/aws.ts', 'src/pay.ts', 'src/key.ts']) {
+                const f = found.find(x => x.files?.[0] === file);
+                expect(f, file).toMatchObject({ certainty: 'proven' });
+                expect(mustFix(f!), file).toBe(true);
+            }
+        });
+
+        it('never fires on a provider\'s documented example or placeholder key', async () => {
+            const examples = {
+                'aws-example.ts': `// e.g. ${'AKIA' + 'IOSFODNN7' + 'EXAMPLE'}\nexport const id = '${'AKIA' + 'QWERTYUIO' + 'EXAMPLE'}';\n`,
+                'stripe-x.ts': `export const key = '${'sk_' + 'live_' + 'x'.repeat(24)}';\n`,
+                'stripe-0.ts': `export const key = '${'rk_' + 'live_' + '0'.repeat(24)}';\n`,
+                'stripe-your.ts': `export const key = '${'sk_' + 'live_' + 'yourSecretKeyGoesHere1234'}';\n`,
+            };
+            // Each would match the key pattern itself: only the exclusion keeps it out.
+            const keyPattern = /\b(?:AKIA[0-9A-Z]{16}|(?:sk|rk)_live_[0-9a-zA-Z]{24,})\b/;
+            for (const body of Object.values(examples)) expect(keyPattern.test(body), body).toBe(true);
+            const found = await findings(examples);
+            expect(found.filter(f => /AWS|Stripe|Cloud/.test(f.details))).toEqual([]);
+        });
+
+        it('still blocks a real key whose random text happens to contain "your" or "EXAMPLE"', async () => {
+            const found = await findings({
+                'gh.ts': `export const t = '${'ghp_' + 'Ab3YoUrQ9xLm2Pz7Kd4Wn8Rt'}';\n`,
+                'pem.ts': `export const pem = \`${'-----BEGIN ' + 'PRIVATE KEY-----'}\nMIIEvYoUrQIBADANBgkq\`;\n`,
+            });
+            for (const file of ['src/gh.ts', 'src/pem.ts']) {
+                const f = found.find(x => x.files?.[0] === file);
+                expect(f, file).toMatchObject({ certainty: 'proven' });
+                expect(mustFix(f!), file).toBe(true);
+            }
+        });
+
+        it('shows string-built SQL and innerHTML as notes, never a block, unless the team opts in', async () => {
+            const files = {
+                'db.ts': 'export function find(db: any, id: string) {\n  return db.query(`SELECT * FROM users WHERE id = ${id}`);\n}\n',
+                'view.ts': 'export function show(el: any, html: string) {\n  el.innerHTML = html;\n}\n',
+            };
+            const found = await findings(files);
+            for (const file of ['src/db.ts', 'src/view.ts']) {
+                const f = found.find(x => x.files?.[0] === file);
+                expect(f, file).toMatchObject({ certainty: 'likely' });
+                expect(mustFix(f!), file).toBe(false);
+            }
+            const opted = await findings(files, { block: true });
+            expect(opted.filter(f => f.files?.[0] === 'src/db.ts').every(mustFix)).toBe(true);
         });
     });
 
@@ -268,5 +336,31 @@ describe('SecurityPatternsGate', () => {
             const failures = await gate.run({ cwd: testDir });
             expect(failures).toHaveLength(0);
         });
+    });
+});
+
+describe('what a security finding tells the agent to do', () => {
+    it("gives every pattern type its own fix, never another type's", () => {
+        const types = [...new Set(VULNERABILITY_PATTERNS.map(p => p.type))];
+        for (const type of types) expect(FIX_BY_TYPE[type], type).toBeDefined();
+        expect(new Set(types.map(type => FIX_BY_TYPE[type])).size).toBe(types.length); // no two types share advice
+        expect(FIX_BY_TYPE.hardcoded_secrets).not.toMatch(/parameter/i);
+        expect(FIX_BY_TYPE.sql_injection).toMatch(/query parameters/);
+        expect(FIX_UNKNOWN).not.toMatch(/parameter|escape|environment/i);
+    });
+
+    it('tells a hard-coded key to move to the environment and rotate, and never repeats the key', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'security-hint-'));
+        try {
+            const key = ['AKIA', 'Z9Y8X7W6V5U4T3Q2'].join('');
+            fs.mkdirSync(path.join(dir, 'src'));
+            fs.writeFileSync(path.join(dir, 'src', 'config.ts'), `export const awsKey = "${key}";\n`);
+            const [finding] = await new SecurityPatternsGate({}).run({ cwd: dir, ignore: [] } as any);
+            expect(finding.hint).toMatch(/environment variable or a secrets manager.*Rotate/);
+            expect(finding.hint).not.toMatch(/parameter/i);
+            expect(JSON.stringify(finding)).not.toContain(key);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

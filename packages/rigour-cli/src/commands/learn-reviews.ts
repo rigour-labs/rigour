@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, pendingDecision, quietBotCandidate, readLessons, type LessonEvidence, type ReviewLesson, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubReader, learnFromReviews, lessonsPath, pendingDecision, quietBotCandidate, readLessons, type LessonEvidence, type ReviewLesson, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -54,11 +54,11 @@ export async function learnReviewsCommand(cwd: string, options: LearnReviewsOpti
         const writeRules = options.rules ? await ruleWriterFor(cwd, config, defaultExec, line => console.error(chalk.yellow(line))) : undefined;
         if (options.rules && !writeRules) throw new Error('--rules needs a reviewer CLI (claude, codex or cursor-agent) installed, as named in review.reviewer.reviewers.');
         const result = await learnFromReviews(cwd, {
-            token: await githubToken(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, defaultExec), repo: originRepo(cwd), since: options.since, until: options.until,
+            ...await reader(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT), repo: originRepo(cwd), since: options.since, until: options.until,
             limit: options.limit ? Number(options.limit) : undefined, mainRef: branchBase(cwd)?.mainRef, writeRules, ...(options.pr ? { pr: Number(options.pr) } : {}), apiUrl: process.env.GITHUB_API_URL,
         });
         if (options.json) return void console.log(JSON.stringify(result, null, 2));
-        console.log(chalk.green(`✔ ${options.pr ? `PR #${options.pr}` : `${result.prs} merged PR(s)`}: ${result.candidates.person + result.candidates.bot} new candidate point(s) (${result.candidates.person} under people's logins, ${result.candidates.bot} from review bots); ${result.actedOn} of ${result.comments} review comment(s) acted on before the merge (recorded, not evidence).`));
+        console.log(chalk.green(`✔ ${options.pr ? `PR #${options.pr}` : `${result.prs} merged PR(s)`}: ${result.candidates.person + result.candidates.bot} new candidate point(s) (${result.candidates.person} under people's logins, ${result.candidates.bot} from review bots), ${skippedCount(result.skipped)} skipped: not a request${skippedWhy(result.skipped)}; ${result.actedOn} of ${result.comments} review comment(s) acted on before the merge (recorded, not evidence).`));
         const p = result.promoted;
         console.log(`  Lessons on evidence: ${result.verified} (outcome ${p.outcome}, a person's edit of agent work ${p.correction}, a person's decision ${p.person}, recurrence across authors ${p.recurrence}${p.legacy ? `, from before evidence ${p.legacy}` : ''}); ${result.heldBack} held back by counter-evidence; ${result.rejected} rejected.`);
         if (result.rules !== undefined) console.log(`  ${result.rules} written as rules, ${result.notRules} judged no rule (every judgement in .rigour/review-rules-log.jsonl).`);
@@ -67,6 +67,23 @@ export async function learnReviewsCommand(cwd: string, options: LearnReviewsOpti
         console.error(chalk.red(error instanceof Error ? error.message : String(error)));
         process.exitCode = 1;
     }
+}
+
+/** The token and who it reads as, for learnFromReviews. */
+async function reader(cwd: string, account: string | undefined): Promise<{ token: string; readAs: string }> {
+    const { token, as } = await githubReader(cwd, account, defaultExec);
+    return { token, readAs: as };
+}
+
+/** Points that asked for nothing, in all. */
+function skippedCount(skipped: Record<string, number | undefined>): number {
+    return Object.values(skipped).reduce<number>((n, k) => n + (k ?? 0), 0);
+}
+
+/** Why they were skipped, when any were: ` (describes the change 4, review tool status 3)`. */
+function skippedWhy(skipped: Record<string, number | undefined>): string {
+    const parts = Object.entries(skipped).filter(([, n]) => n).sort((a, b) => b[1]! - a[1]!).map(([why, n]) => `${why} ${n}`);
+    return parts.length ? ` (${parts.join(', ')})` : '';
 }
 
 function list(cwd: string, json?: boolean, includeBots?: boolean): void {

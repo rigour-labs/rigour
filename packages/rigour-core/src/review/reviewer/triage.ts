@@ -106,6 +106,21 @@ export function triage(hunks: Hunk[], context: TriageContext): Map<string, numbe
     return picked;
 }
 
+/** Lines that write data, per language: an ORM or query builder's write, or SQL that changes rows. Not `map.set`. */
+const WRITES = /\.(insert|insertMany|upsert|update|updateMany|delete|deleteMany|save|create|createMany|bulkCreate|bulk_create)\s*\(|\b(insert\s+into|update\s+[A-Za-z_"`.]+\s+set|delete\s+from)\b/i;
+
+/**
+ * Whether the change touches data: a read or a write in a query API, a migration, or an await inside a loop. The data
+ * passes of the reviewer's instructions (read trace, journey) are asked for only then.
+ */
+export function touchesData(hunks: Hunk[]): boolean {
+    return hunks.some(hunk => {
+        if (skipped(hunk.file) || PROSE.test(hunk.file)) return false;
+        const lines = [...hunk.added, ...hunk.removed];
+        return MIGRATION.test(hunk.file) || lines.some(line => WRITES.test(line) || READS.some(pattern => pattern.test(line))) || awaitsInLoop(hunk.added);
+    });
+}
+
 /** Whether a file is a migration or a schema (a change a cheaper model may miss the cost of). */
 export function isMigration(file: string): boolean {
     return MIGRATION.test(file);

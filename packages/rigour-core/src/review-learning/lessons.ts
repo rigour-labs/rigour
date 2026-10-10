@@ -17,6 +17,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
 import { bodyPoints, withoutEmphasis } from './review-points.js';
+import { asksSomething, bodyPointPlaces, describesChange, notARequest, type NotRequestReason } from './requests.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
 const MAX_TEXT = 220;
@@ -28,6 +29,12 @@ const MAX_SYMBOLS = 8;
  */
 const RECUR_PRS = 2;
 const RECUR_AUTHORS = 2;
+/** One reviewer raising a point again is a standard only across this many pull requests, this many days apart. */
+const ONE_REVIEWER_PRS = 3;
+const ONE_REVIEWER_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** A person's keeping of a verified lesson: its reach, its wording, a check compiled from it. Recurrence never takes those back. */
+const KEPT_BY_A_PERSON = new Set<EvidenceKind>(['scoped', 'reworded', 'compiled']);
 /** Team standards served with a change, on top of the lessons about its files (an agent's question; a judge takes more), and the words they must share with it. */
 const MAX_STANDARDS = 3;
 /** Repository standards (scope `repo`) served with every change, most-raised first. */
@@ -73,6 +80,10 @@ export interface LessonEvidence {
     prAuthor?: string;
     /** Whether the pull request changed the lines before merging: not evidence (agents apply comments on their own), recorded. */
     actedOn?: boolean;
+    /** The comment was edited at or after `--until`: GitHub serves only its edited text, so this point may say more than it did then. */
+    editedAfterUntil?: true;
+    /** When the point was posted on GitHub (not when it was learned, which is `at`): how far apart one reviewer's points are. */
+    postedAt?: string;
     /** The person's own words, kept when a rule was written from them (rules-from-reviews.ts). */
     said?: string;
     /** A point's own words, as it was made (each point merged into a lesson keeps its own). */
@@ -131,14 +142,29 @@ export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 
     if (kinds.has('counter')) return { state: 'candidate' };
     // A lesson is never verified without a person: review bots agreeing with each other are not a team's standard.
     if (raisedOnlyByBots(lesson)) return { state: 'candidate' };
-    const points = lesson.evidence.filter(e => (e.kind ?? 'point') === 'point');
-    const prs = new Set(points.map(e => e.pr)).size;
-    const authors = new Set(points.map(e => e.prAuthor).filter(Boolean)).size;
-    const reviewers = new Set(points.map(e => e.author).filter(Boolean)).size;
-    // One person raising it again in their own words is a standard; a bot rewording its own point on every pull request is not.
-    const wordings = new Set(points.filter(e => e.source !== 'bot').map(e => normalize(e.text ?? '')).filter(Boolean)).size;
-    const independent = reviewers >= 2 || wordings >= 2;
-    return prs >= RECUR_PRS && authors >= RECUR_AUTHORS && independent ? { state: 'verified', promotedBy: 'recurrence' } : { state: 'candidate' };
+    if (!whyNotRecurring(lesson)) return { state: 'verified', promotedBy: 'recurrence' };
+    // A person who kept a verified lesson (its reach, its wording, a compiled check) decided; the rule does not undo it.
+    if (lesson.state === 'verified' && lesson.evidence.some(e => e.kind && KEPT_BY_A_PERSON.has(e.kind))) return { state: 'verified', promotedBy: lesson.promotedBy };
+    return { state: 'candidate' };
+}
+
+/**
+ * Why recurrence does not make this lesson a standard, in the rule's own words; undefined when it does. Only people's
+ * points count: on two or more pull requests by different authors, raised by a second reviewer, or by one reviewer on
+ * at least ONE_REVIEWER_PRS pull requests ONE_REVIEWER_DAYS or more apart (when each point was posted).
+ */
+function whyNotRecurring(lesson: ReviewLesson): string | undefined {
+    const people = lesson.evidence.filter(e => (e.kind ?? 'point') === 'point' && e.source !== 'bot');
+    if (people.length === 0) return BOTS_ONLY;
+    const prs = new Set(people.map(e => e.pr)).size;
+    if (prs < RECUR_PRS) return `raised by people on ${prs} pull request; needs ${RECUR_PRS} or more`;
+    if (new Set(people.map(e => e.prAuthor).filter(Boolean)).size < RECUR_AUTHORS) return `raised on pull requests by one author; needs ${RECUR_AUTHORS} or more authors`;
+    if (new Set(people.map(e => e.author).filter(Boolean)).size >= 2) return undefined;
+    const needs = `needs ≥${ONE_REVIEWER_PRS} PRs over ≥${ONE_REVIEWER_DAYS} days or a second reviewer`;
+    const times = people.map(e => Date.parse(e.postedAt ?? ''));
+    if (times.some(Number.isNaN)) return `one reviewer, ${prs} PRs, when they were posted not recorded; ${needs}`;
+    const days = Math.floor((Math.max(...times) - Math.min(...times)) / DAY_MS);
+    return prs >= ONE_REVIEWER_PRS && days >= ONE_REVIEWER_DAYS ? undefined : `one reviewer, ${prs} PRs over ${days} days; ${needs}`;
 }
 
 /** Every point on the lesson came from a review bot: it is recorded, but never verified or served until a person decides. */
@@ -191,9 +217,17 @@ export function lessonSymbols(body: string, codeLines: string[]): string[] {
     return symbols;
 }
 
-export function lessonFromComment(git: Git, comment: ReviewComment, at = new Date().toISOString()): ReviewLesson | undefined {
+/** Told why a point asking for nothing was skipped (requests.ts), so learning can count it. */
+export type OnSkip = (reason: NotRequestReason) => void;
+
+export function lessonFromComment(git: Git, comment: ReviewComment, at = new Date().toISOString(), onSkip?: OnSkip): ReviewLesson | undefined {
     const text = lessonText(comment.body);
     if (text.length < 12) return undefined;
+    const skip = notARequest(text, 'inline');
+    if (skip) {
+        onSkip?.(skip);
+        return undefined;
+    }
     let codeLines: string[] = [];
     try {
         codeLines = git(['show', `${comment.commit}:${comment.path}`]).split('\n').slice(comment.start - 1, comment.end);
@@ -214,10 +248,23 @@ export function lessonFromComment(git: Git, comment: ReviewComment, at = new Dat
  * a team standard (file ''), served with any change it is about once evidence makes it a lesson.
  * Whether files changed after it is recorded, not required.
  */
-export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString()): ReviewLesson[] {
+export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString(), onSkip?: OnSkip): ReviewLesson[] {
+    const places = bodyPointPlaces(review.body);
     return bodyPoints(review.body).flatMap((point, i) => {
         const text = pointText(withoutEmphasis(point)).slice(0, MAX_TEXT).trim();
         if (text.length < 12) return [];
+        // The point's own shape first (a tool's status line is that wherever it sits); then its place: a tool's help
+        // block is never review, and a change summary's bullet is a description unless it asks for something. A
+        // person's "## Summary" often lists defects as plain statements, so there the bullet must also read as a
+        // description; in a bot's body the place is enough.
+        const own = notARequest(point, 'body');
+        const summarised = places[i] === 'describes the change' && !asksSomething(point) && (review.source === 'bot' || describesChange(point));
+        const placed = places[i] === 'review tool status' || summarised ? places[i] : undefined;
+        const skip = own === 'review tool status' ? own : placed ?? own;
+        if (skip) {
+            onSkip?.(skip);
+            return [];
+        }
         const named = /(?:^|[\s`(])((?:[\w.-]+\/)+[\w.-]+\.\w+)/.exec(point)?.[1];
         const file = named ?? changedAfter.find(f => text.includes(path.posix.basename(f))) ?? '';
         return [{
@@ -403,11 +450,13 @@ export function pendingDecision(lesson: ReviewLesson): LessonEvidence | undefine
 }
 
 /**
- * A candidate only review bots raised, with nothing waiting on a person: hidden from the default lists (`--list`,
- * Studio) and counted instead. One taken back or reclassified stays in view, so its reason is seen.
+ * A candidate only review bots raised: hidden from the default lists (`--list`, Studio) and counted instead. Who
+ * raised it comes only from its review points: outcome evidence (a later fix on its lines) never makes it a
+ * person's. One taken back or reclassified stays in view, so the reason a lesson went back is seen.
  */
 export function quietBotCandidate(lesson: ReviewLesson): boolean {
-    return lesson.state === 'candidate' && raisedOnlyByBots(lesson) && !pendingDecision(lesson);
+    const pending = pendingDecision(lesson);
+    return lesson.state === 'candidate' && raisedOnlyByBots(lesson) && (!pending || pending.kind === 'lines');
 }
 
 /** Why a lesson an outcome alone had promoted is a candidate again. */
@@ -423,12 +472,13 @@ const BOTS_ONLY = 'only review bots raised it (no person)';
  * person's point, a correction or a person's decision keeps a lesson verified.
  */
 function reclassified(lesson: ReviewLesson): ReviewLesson {
-    const byBots = lesson.promotedBy === 'recurrence' && raisedOnlyByBots(lesson);
-    if (lesson.state !== 'verified' || !(lesson.promotedBy === 'outcome' || byBots) || lesson.evidence.some(e => e.kind === 'reclassified')) return lesson;
+    const byRecurrence = lesson.promotedBy === 'recurrence';
+    if (lesson.state !== 'verified' || !(lesson.promotedBy === 'outcome' || byRecurrence) || lesson.evidence.some(e => e.kind === 'reclassified')) return lesson;
     const next = lessonState(lesson);
     if (next.state === 'verified') return { ...lesson, ...next };
     const at = new Date().toISOString();
-    return { ...lesson, state: 'candidate', promotedBy: undefined, evidence: [...lesson.evidence, { kind: 'reclassified', pr: lesson.evidence[0]?.pr ?? 0, comment: `reclassified-${lesson.id}`, author: '', detail: byBots ? BOTS_ONLY : RECLASSIFIED, at }] };
+    const detail = byRecurrence ? whyNotRecurring(lesson) ?? RECLASSIFIED : RECLASSIFIED;
+    return { ...lesson, state: 'candidate', promotedBy: undefined, evidence: [...lesson.evidence, { kind: 'reclassified', pr: lesson.evidence[0]?.pr ?? 0, comment: `reclassified-${lesson.id}`, author: '', detail, at }] };
 }
 
 export function writeLessons(cwd: string, lessons: ReviewLesson[]): void {
@@ -492,6 +542,6 @@ export function meaningfulWords(text: string): string[] {
 }
 
 /** Who made a point and on whose pull request: recorded with it, never a filter. */
-function pointMeta(x: { source?: 'person' | 'bot'; prAuthor?: string; actedOn?: boolean }): Pick<LessonEvidence, 'source' | 'prAuthor' | 'actedOn'> {
-    return { ...(x.source ? { source: x.source } : {}), ...(x.prAuthor ? { prAuthor: x.prAuthor } : {}), ...(x.actedOn !== undefined ? { actedOn: x.actedOn } : {}) };
+function pointMeta(x: { source?: 'person' | 'bot'; prAuthor?: string; actedOn?: boolean; editedAfterUntil?: true; postedAt?: string }): Pick<LessonEvidence, 'source' | 'prAuthor' | 'actedOn' | 'editedAfterUntil' | 'postedAt'> {
+    return { ...(x.source ? { source: x.source } : {}), ...(x.prAuthor ? { prAuthor: x.prAuthor } : {}), ...(x.actedOn !== undefined ? { actedOn: x.actedOn } : {}), ...(x.editedAfterUntil ? { editedAfterUntil: true as const } : {}), ...(x.postedAt ? { postedAt: x.postedAt } : {}) };
 }

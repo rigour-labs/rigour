@@ -40,14 +40,20 @@ export function unchangedSinceInstall(record: InstallRecord, relPath: string, co
     return record.created[relPath] === sha(content);
 }
 
+/** A server entry Rigour wrote (npx of its MCP package), which setup may re-pin; one the person changed is theirs. */
+export function isRigourMcpEntry(entry: unknown): boolean {
+    const e = entry as { command?: unknown; args?: unknown } | undefined;
+    return e?.command === 'npx' && Array.isArray(e.args) && e.args.some(a => typeof a === 'string' && a.startsWith('@rigour-labs/mcp'));
+}
+
 /** A hook script Rigour wrote (the Cline hooks): it names Rigour in its header or runs the Rigour CLI. */
 export function isRigourScript(text: string): boolean {
     return /hook for Rigour|@rigour-labs\/cli/.test(text) || isRigourCommand(text);
 }
 
-/** A hook command Rigour installed: it names Rigour and one of its hook subcommands. */
+/** A hook command Rigour installed: it names Rigour and one of its hook subcommands (the briefing's included). */
 function isRigourCommand(command: string): boolean {
-    return /rigour/i.test(command) && /\bhooks\s+(check|stop|push|review-background)\b/.test(command);
+    return /rigour/i.test(command) && /\bhooks\s+(check|stop|push|review-background|brief|brief-file)\b/.test(command);
 }
 
 /**

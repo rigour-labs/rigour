@@ -16,10 +16,10 @@ import { deepAnalysisError } from '../utils/deep-status.js';
 import { splitByChangedLines } from './changed-lines.js';
 import { changedFunctionSpans } from './changed-function-spans.js';
 import { isGeneratedFile, withoutGenerated } from './generated-files.js';
-import { findingKey, isProven, quietSplit } from './quiet.js';
+import { findingKey, isProven, quietSplit, shownSeverity } from './quiet.js';
 import { checkId, rememberReported } from './check-outcomes.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
-import { diffTestFailures } from './diff-test-findings.js';
+import { diffTestFailures, withDiffTestCertainty } from './diff-test-findings.js';
 import { migrationOrderFailures } from './migration-order.js';
 import { compiledChecksOn } from '../review-learning/compiled-lessons.js';
 import { settledChecks, type CoveredLesson } from './settled-checks.js';
@@ -109,6 +109,8 @@ export interface ReviewFinding {
     /** Stable across runs: `rigour dismiss <key>` silences this finding for good. */
     key: string;
     suggestion?: string;
+    /** How sure the rule is the defect exists, when it says: only `proven` blocks (quiet.ts mustFix). */
+    certainty?: 'proven' | 'likely' | 'possible';
 }
 
 export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
@@ -124,7 +126,8 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     // The team's `commands:` run at push (toolchain.ts), where a failure blocks; here they would only cost time.
     const report = await new GateRunner({ ...input.config, commands: {} }).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     const { preexisting, byCheck: preexistingByCheck = {}, baseUnknown } = await dropPreexisting(input, report, targets);
-    if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
+    const goal = input.goalDescription !== undefined ? parseGoal(input.goalDescription, fileNames(input.cwd, diff)) : undefined;
+    if (input.diffTests && deep) report.failures.push(...withDiffTestCertainty(await diffTestFailures(input.cwd, input.source, deep), !!goal?.invariants.length));
     // The review's own checks, each recorded in the summary beside the gates, so a report says everything that ran.
     const reviewCheck = (id: string, key: keyof Config['gates'], failures: Failure[]) => {
         const enabled = (input.config.gates[key] as { enabled?: boolean } | undefined)?.enabled;
@@ -135,14 +138,17 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     reviewCheck('unused-exports', 'unused_exports', unusedExportFailures(input.cwd, diff, input.config));
     reviewCheck('orphan-files', 'orphan_files', orphanFileFailures(input.cwd, diff, input.config));
     reviewCheck('compiled-lessons', 'compiled_lessons', compiled.failures);
-    reviewCheck('query-patterns', 'query_patterns', queryPatternFailures(input.cwd, changedLines, input.config));
+    // Checks learned from one team's review history: good lessons, not facts about any repository. Likely, shown, never
+    // a block, unless the team opts in with the check's `block` (then proven).
+    const optIn = (failures: Failure[], block: boolean | undefined): Failure[] => failures.map(f => ({ ...f, certainty: block ? 'proven' : 'likely' }));
+    reviewCheck('query-patterns', 'query_patterns', optIn(queryPatternFailures(input.cwd, changedLines, input.config), input.config.gates.query_patterns?.block));
     reviewCheck('optional-params', 'optional_params', optionalParamFailures(input.cwd, changedLines, input.config));
-    reviewCheck('duplicate-functions', 'duplicate_functions', duplicateFunctionFailures(input.cwd, changedLines, input.config));
-    reviewCheck('change-sweep', 'change_sweep', [
+    reviewCheck('duplicate-functions', 'duplicate_functions', optIn(duplicateFunctionFailures(input.cwd, changedLines, input.config), input.config.gates.duplicate_functions?.block));
+    reviewCheck('change-sweep', 'change_sweep', optIn([
         ...loopCopyFailures(input.cwd, changedLines, input.config),
         ...partialFixFailures(input.cwd, changedLines, input.config),
         ...partialWiringFailures(input.cwd, changedLines, input.config),
-    ]);
+    ], input.config.gates.change_sweep?.block));
     const typed: Redundancy = input.typed ? typedChecks(input.cwd, changedLines, input.config) : { failures: [], hints: [] };
     if (typed.error) report.summary[TYPED_CHECKS] = 'ERROR'; // a check that could not run is a crashed gate, never a pass
     else if (input.typed) reviewCheck('redundancy', 'redundancy', typed.failures);
@@ -151,7 +157,6 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const outsideChangeByCheck = passChecksOnlyLeftOut(report, split.outsideFindings, report.failures.filter(f => !outside.has(f)));
     const deepError = deepAnalysisError(report);
     // The goal's findings are about the change as a whole (a file it should not touch, an item it never did), not a line, so they skip the changed-line split.
-    const goal = input.goalDescription !== undefined ? parseGoal(input.goalDescription, fileNames(input.cwd, diff)) : undefined;
     const checkedGoal = goal && hasCheckableGoal(goal) ? goal : undefined;
     const goalFindings = checkedGoal ? goalFailures(checkedGoal, changedLines, diff, file => isGeneratedFile(input.cwd, file)) : [];
     if (checkedGoal) report.summary.goal = goalFindings.length ? 'FAIL' : 'PASS';
@@ -255,7 +260,7 @@ export function toReviewFinding(failure: Failure): ReviewFinding {
     return {
         id: failure.id,
         gate: failure.title,
-        severity: failure.severity || 'medium',
+        severity: shownSeverity(failure),
         provenance: failure.provenance || 'traditional',
         message: failure.details,
         key: findingKey(failure),
@@ -263,6 +268,7 @@ export function toReviewFinding(failure: Failure): ReviewFinding {
         line: failure.line ?? null,
         ...(failure.anchorLine !== undefined ? { anchor_line: failure.anchorLine } : {}),
         ...(failure.hint ? { suggestion: failure.hint } : {}),
+        ...(failure.certainty ? { certainty: failure.certainty } : {}),
     };
 }
 

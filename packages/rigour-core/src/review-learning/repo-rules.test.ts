@@ -41,6 +41,45 @@ describe('repository rules', () => {
         expect(splitRules('AGENTS.md', AGENTS)[0].id).toBe(rules[0].id); // stable across runs
     });
 
+    it('makes each numbered rule its own rule, whole, and never the paragraph that introduces the list', () => {
+        const numbered = [
+            'Agents working in this repository follow the rules below:',
+            '',
+            '1. Every job in `src/jobs/` must take the advisory lock before its first read.',
+            '2. Never read a whole table in a request handler: page it with a keyset.',
+            '3. Bound both ends of every time window a scheduled job reads.',
+            '   - The lower bound comes from the last run, never from the clock.',
+            '4. Migrations are append-only: add a new file, never edit an applied one.',
+            '5. Every new read path names the index it uses in the pull request.',
+            '6. Do not log a token, a cookie or a full request body.',
+        ].join('\n');
+        const rules = splitRules('AGENTS.md', numbered);
+        expect(rules.map(r => r.text)).toEqual([
+            'Every job in `src/jobs/` must take the advisory lock before its first read.',
+            'Never read a whole table in a request handler: page it with a keyset.',
+            'Bound both ends of every time window a scheduled job reads. - The lower bound comes from the last run, never from the clock.',
+            'Migrations are append-only: add a new file, never edit an applied one.',
+            'Every new read path names the index it uses in the pull request.',
+            'Do not log a token, a cookie or a full request body.',
+        ]);
+        expect(rules.every(r => !r.text.endsWith('…'))).toBe(true);
+        // A long prose rule is served whole, never cut.
+        const long = `Object access is checked per resource: ${'every data-bearing route checks the caller can read it, '.repeat(14)}and nothing else.`;
+        expect(splitRules('AGENTS.md', long)[0].text).toBe(long);
+        // The same list with bullets, and a lead-in with no blank line before it, read the same way.
+        expect(splitRules('AGENTS.md', numbered.replace(/^\d\. /gm, '- ').replace(':\n\n', ':\n')).map(r => r.text)).toHaveLength(6);
+        // A lead-in that asks something, before items too short to be rules: the lead-in and its items are one rule.
+        expect(splitRules('AGENTS.md', 'Every job in `src/jobs/` must call one of these before its first read:\n1. `withLock()`\n2. `withLease()`').map(r => r.text))
+            .toEqual(['Every job in `src/jobs/` must call one of these before its first read: `withLock()`; `withLease()`']);
+        // A lead-in that asks something, before items that are rules: it stays a rule, and so does each item.
+        expect(splitRules('AGENTS.md', 'Agents working in this repository must follow these rules:\n- Never read a whole table in a request handler: page it.\n- Bound both ends of every time window a scheduled job reads.').map(r => r.text))
+            .toEqual(['Agents working in this repository must follow these rules:', 'Never read a whole table in a request handler: page it.', 'Bound both ends of every time window a scheduled job reads.']);
+        // Each rule knows its line, for pointing at it.
+        expect(splitRules('AGENTS.md', numbered).map(r => r.line)).toEqual([3, 4, 5, 7, 8, 9]);
+        // A paragraph that does not introduce a list is a rule, colon or not.
+        expect(splitRules('AGENTS.md', 'Release notes are written for the people who upgrade, not for us:\n\nKeep them short.').map(r => r.text)).toEqual(['Release notes are written for the people who upgrade, not for us:']);
+    });
+
     it('keeps a rule\'s "Why" and "How to apply" paragraphs with it, and ranks a rule naming the change above one that only shares its words', () => {
         const text = '- **Use the design system.** Every control comes from `src/lib/ui`.\n\n**Why:** one source of styling.\n\n**How to apply:** import from `$lib/ui`, never a raw `<button>`.\n\n- Bound both ends of every time window a scheduled job reads.\n\n- Name the index a new query relies on in the migrations.\n';
         const rules = splitRules('AGENTS.md', text);

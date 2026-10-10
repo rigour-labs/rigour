@@ -62,6 +62,7 @@ export const UNIVERSAL_CONFIG: Config = {
             insecure_randomness: true,
             command_injection: true,
             block_on_severity: 'high',
+            block: false,
         },
         frontend_secret_exposure: {
             enabled: true,
@@ -155,7 +156,7 @@ export const UNIVERSAL_CONFIG: Config = {
             check_go: true,
             check_csharp: true,
             check_java: true,
-            block_security_deprecated: true,
+            block_security_deprecated: false,
             ignore_patterns: [],
         },
         test_quality: {
@@ -226,12 +227,14 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         query_patterns: {
             enabled: true,
+            block: false,
         },
         optional_params: {
             enabled: true,
         },
         change_sweep: {
             enabled: true,
+            block: false,
         },
         redundancy: {
             enabled: true,
@@ -240,6 +243,7 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         duplicate_functions: {
             enabled: true,
+            block: false,
         },
         migration_order: {
             enabled: false,
@@ -258,6 +262,7 @@ export const UNIVERSAL_CONFIG: Config = {
             check_retry_without_limit: true,
             check_circular_triggers: true,
             check_auto_restart: true,
+            block: false,
             ignore_patterns: [],
         },
         deep: {
@@ -291,6 +296,8 @@ export const UNIVERSAL_CONFIG: Config = {
     review: {
         include_heuristics: false,
         show_preexisting: false,
+        coverage: false,
+        review_points: false,
         goal: 'off',
         reviewer: {
             enabled: false,

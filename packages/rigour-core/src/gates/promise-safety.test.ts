@@ -36,3 +36,25 @@ describe('PromiseSafetyGate unhandled .then', () => {
         expect(await thenFindings(code)).toBe(0);
     });
 });
+
+describe('PromiseSafetyGate unsafe parse in tests', () => {
+    let cwd: string;
+    beforeEach(() => { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'promise-safety-parse-')); });
+    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true }); });
+
+    const put = (rel: string, body: string) => {
+        fs.mkdirSync(path.dirname(path.join(cwd, rel)), { recursive: true });
+        fs.writeFileSync(path.join(cwd, rel), body);
+    };
+
+    it('reports an unguarded parse in code, never in a test, where an uncaught parse error is the test failing', async () => {
+        const parse = 'import json\n\ndef load(body):\n    return json.loads(body)\n';
+        put('app/api.py', parse);
+        put('tests/test_api.py', parse);
+        put('app/conftest.py', parse);
+        put('web/load.spec.ts', 'export const load = (s: string) => JSON.parse(s);\n');
+        const failures = await new PromiseSafetyGate({ check_unsafe_parse: true }).run({ cwd });
+        const parsed = failures.filter(f => f.details.includes('unsafe-parse')).map(f => f.files?.[0]);
+        expect(parsed).toEqual(['app/api.py']);
+    });
+});

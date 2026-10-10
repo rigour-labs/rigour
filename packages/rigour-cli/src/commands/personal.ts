@@ -11,11 +11,12 @@
  * commits its configuration to the repository.
  */
 import { spawnSync } from 'child_process';
+import { execaSync } from 'execa';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { rigourUserDir } from '@rigour-labs/core';
-import { isEmptyConfig, readInstallRecord, recordCreated, unchangedSinceInstall, withoutRigour } from './install-record.js';
+import { isEmptyConfig, isRigourMcpEntry, readInstallRecord, recordCreated, unchangedSinceInstall, withoutRigour } from './install-record.js';
 
 const MARKER = 'rigour-enabled';
 
@@ -31,6 +32,15 @@ export function agentHome(): string {
 /** The Claude Code CLI Rigour asks to register its MCP server (RIGOUR_CLAUDE_CLI overrides it). */
 function claudeCli(): string {
     return process.env.RIGOUR_CLAUDE_CLI || 'claude';
+}
+
+/**
+ * Runs the Claude Code CLI. Through execa (cross-spawn), so Windows finds and runs its `claude.cmd` shim: a bare spawn
+ * neither looks one up nor may run a .cmd without a shell, and every Windows install reported "no CLI".
+ */
+function claude(args: string[]): { ok: boolean; stdout: string } {
+    const run = execaSync(claudeCli(), args, { reject: false });
+    return { ok: !run.failed && run.exitCode === 0, stdout: String(run.stdout ?? '') };
 }
 const EXCLUDE_LINE = '.rigour/';
 
@@ -83,13 +93,12 @@ export function disableHere(cwd: string, withState: boolean): string[] {
 }
 
 /**
- * A hook command that runs only where Rigour is switched on. Claude Code gives hooks the project in
- * CLAUDE_PROJECT_DIR; the other agents run them in the workspace. Outside a repository, or in one
- * nobody switched on, it exits 0 before anything starts.
+ * A hook command that runs only where Rigour is switched on: the CLI's own `--if-enabled` (hook-input.ts) finds the
+ * project (CLAUDE_PROJECT_DIR, else the payload's cwd) and exits 0 silently elsewhere. A plain command, so it runs in
+ * whatever shell the agent uses: bash, or PowerShell on Windows without Git Bash, where a `sh -c` guard could not.
  */
 function guardCommand(command: string): string {
-    const inner = `cd "\${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null; d=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0; [ -f "$d/${MARKER}" ] || exit 0; exec ${command}`;
-    return `sh -c '${inner.replace(/'/g, `'\\''`)}'`;
+    return `${command} --if-enabled`;
 }
 
 /** The same guard for a Node hook script (Cline's): it answers `{}` and stops where Rigour is off. */
@@ -136,19 +145,25 @@ export function asUserLevel<T extends { path: string; content: string }>(file: T
     return { ...file, path: target, content: JSON.stringify(guard(JSON.parse(file.content)), null, 4) };
 }
 
-export type McpState = 'added' | 'present' | 'removed' | 'absent' | 'no CLI';
+export type McpState = 'added' | 'updated' | 'present' | 'removed' | 'absent' | 'no CLI';
 
 /**
  * The Rigour MCP server at user level: Claude Code through its own `claude mcp add --scope user`
  * (its state file is Claude's, not Rigour's to edit), Cursor merged into `~/.cursor/mcp.json`.
  */
 export function registerUserMcp(server: { command: string; args: string[] }): { claude: McpState; cursor: McpState } {
-    let claude: McpState = 'no CLI';
-    if (spawnSync(claudeCli(), ['--version'], { encoding: 'utf8' }).status === 0) {
-        if (spawnSync(claudeCli(), ['mcp', 'get', 'rigour'], { encoding: 'utf8' }).status === 0) claude = 'present';
-        else claude = spawnSync(claudeCli(), ['mcp', 'add', '--scope', 'user', 'rigour', '--', server.command, ...server.args], { encoding: 'utf8' }).status === 0 ? 'added' : 'no CLI';
+    let state: McpState = 'no CLI';
+    if (claude(['--version']).ok) {
+        const add = () => claude(['mcp', 'add', '--scope', 'user', 'rigour', '--', server.command, ...server.args]).ok;
+        const get = claude(['mcp', 'get', 'rigour']);
+        if (!get.ok) state = add() ? 'added' : 'no CLI';
+        // Rigour's own registration at another version is moved to this one, as the hooks are; one the person changed stays.
+        else if (/@rigour-labs\/mcp/.test(get.stdout) && !get.stdout.includes(server.args[server.args.length - 1])) {
+            claude(['mcp', 'remove', '--scope', 'user', 'rigour']);
+            state = add() ? 'updated' : 'no CLI';
+        } else state = 'present';
     }
-    if (!installedAgents().includes('cursor')) return { claude, cursor: 'absent' };
+    if (!installedAgents().includes('cursor')) return { claude: state, cursor: 'absent' };
     const cursorFile = path.join(agentHome(), '.cursor', 'mcp.json');
     let config: any = {};
     const existed = fs.existsSync(cursorFile);
@@ -156,16 +171,17 @@ export function registerUserMcp(server: { command: string; args: string[] }): { 
         try {
             config = JSON.parse(fs.readFileSync(cursorFile, 'utf8'));
         } catch {
-            return { claude, cursor: 'absent' }; // not valid JSON: the person's to fix, not Rigour's to replace
+            return { claude: state, cursor: 'absent' }; // not valid JSON: the person's to fix, not Rigour's to replace
         }
     }
-    if (config?.mcpServers?.rigour) return { claude, cursor: 'present' };
+    const current = config?.mcpServers?.rigour;
+    if (current && (JSON.stringify(current) === JSON.stringify(server) || !isRigourMcpEntry(current))) return { claude: state, cursor: 'present' };
     config.mcpServers = { ...(config.mcpServers ?? {}), rigour: server };
     fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
     const content = JSON.stringify(config, null, 4) + '\n';
     fs.writeFileSync(cursorFile, content);
     if (!existed) recordCreated(path.dirname(rigourUserDir()), path.relative(agentHome(), cursorFile), content);
-    return { claude, cursor: 'added' };
+    return { claude: state, cursor: current ? 'updated' : 'added' };
 }
 
 /**
@@ -203,8 +219,8 @@ export function uninstallMachine(dryRun: boolean): string[] {
         const text = fs.readFileSync(file, 'utf8');
         if (unchangedSinceInstall(record, rel, text) || /hook for Rigour/.test(text)) act(`delete ~/${rel}`, () => fs.unlinkSync(file));
     }
-    if (spawnSync(claudeCli(), ['mcp', 'get', 'rigour'], { encoding: 'utf8' }).status === 0) {
-        act('remove the Rigour MCP server from Claude Code (user scope)', () => spawnSync(claudeCli(), ['mcp', 'remove', '--scope', 'user', 'rigour'], { encoding: 'utf8' }));
+    if (claude(['mcp', 'get', 'rigour']).ok) {
+        act('remove the Rigour MCP server from Claude Code (user scope)', () => claude(['mcp', 'remove', '--scope', 'user', 'rigour']));
     }
     const runtime = path.join(rigourUserDir(), 'runtime');
     if (fs.existsSync(runtime)) act('delete the shared semantic search runtime', () => fs.rmSync(runtime, { recursive: true, force: true }));

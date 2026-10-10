@@ -178,7 +178,7 @@ export class HallucinatedImportsGate extends Gate {
                 });
                 continue;
             }
-            failures.push(this.createFailure(
+            failures.push({ ...this.createFailure(
                 `Hallucinated imports in ${file}:\n${details}`,
                 [file],
                 `These imports reference modules that don't exist. Remove or replace with real modules. AI models often "hallucinate" package names or file paths.`,
@@ -186,7 +186,7 @@ export class HallucinatedImportsGate extends Gate {
                 imports[0].line,
                 undefined,
                 'critical'
-            ));
+            ), lines: imports.map(item => item.line) });
         }
 
         return failures;

@@ -7,7 +7,7 @@
  */
 import chalk from 'chalk';
 import { execFileSync } from 'child_process';
-import { branchBase, itemLine, reviewerInputs, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
+import { branchBase, coverageLine, itemLine, reviewerInputs, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
 
 /** The base a branch review runs against: the one named, else where the branch left main. */
 export function reviewerBase(cwd: string, named: string | undefined): string | undefined {
@@ -46,9 +46,11 @@ export function printReviewer(result: ReviewerResult, options: { notes?: boolean
     // What is shown gets the same discipline as what blocks: blocks in full, verified should-fixes capped, the rest one count.
     const shown = result.advisory.slice(0, options.notes ? undefined : ADVISORY_SHOWN);
     for (const item of shown) console.log(chalk.yellow(`  should fix (verified, never blocks)  ${itemLine(item)}`));
+    // Review points: never a block, at most five (the most confident), each with the code it is about.
+    for (const item of result.reviewPoints ?? []) console.log(chalk.cyan(`  review point (never blocks)  ${itemLine(item)}`) + (item.suggestion ? chalk.dim(`\n            change: ${item.suggestion}`) : ''));
     for (const point of result.answerInReply) console.log(chalk.dim(`  answer in the reply  ${point.point}${point.evidence ? `\n            ${point.evidence}` : ''}`));
     const folded = [
-        [result.advisory.length - shown.length, 'more should-fix'], [result.notes.length, 'working note'], [result.disputed.length, 'disputed'],
+        [result.advisory.length - shown.length, 'more should-fix'], [result.reviewPointsHidden ?? 0, 'more review point'], [result.notes.length, 'working note'], [result.disputed.length, 'disputed'],
         [result.unverified.length, 'unverified'], [result.dismissed.length, 'dismissed earlier'], [result.dropped.length, 'refuted by the other judges'],
     ].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
     if (options.notes) {
@@ -59,9 +61,11 @@ export function printReviewer(result: ReviewerResult, options: { notes?: boolean
     } else if (folded.length) {
         console.log(chalk.dim(`  Also seen, never blocking: ${folded.map(([n, what]) => `${n} ${what}${n === 1 || what.startsWith('more') || what === 'disputed' || what === 'unverified' ? '' : 's'}`).join(', ')} (rigour review --reviewer --notes lists them)`));
     }
+    if (result.record?.coverage) console.log(chalk.dim(`  ${coverageLine(result.record.coverage)}`));
     if (result.rules?.checked) console.log(chalk.dim(`  repository rules answered: ${result.rules.checked} (${result.rules.broken} broken, ${result.rules.followed} followed, ${result.rules.notApplicable} not applicable)`));
     if (result.record && result.recordPath) console.log(chalk.dim(`  record: ${result.recordPath} (integrity ${result.record.integrity.slice(0, 16)})`));
-    const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens` : '';
+    const cached = result.tokens?.cacheRead ? ` (${result.tokens.cacheRead.toLocaleString('en-US')} read from cache)` : '';
+    const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens${cached}` : '';
     // What every run of this review cost, failed ones included (the verdict's judges alone would under-count it).
     const spent = result.spentUsd ?? result.costUsd;
     const cost = `${spent !== undefined ? `, $${spent.toFixed(2)}` : ''}${tokens}`;
@@ -85,6 +89,7 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         blocks: result.outcome === 'findings' || result.outcome === 'unavailable',
         reason: result.reason ?? null,
         blind: !!result.blind,
+        coverage: result.coverage ?? null,
         reviewers: result.reviewers,
         scope: result.scope ?? null,
         items: result.items,
@@ -93,6 +98,8 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         answer_in_reply: result.answerInReply,
         notes: result.notes,
         advisory: result.advisory,
+        review_points: result.reviewPoints ?? [],
+        review_points_hidden: result.reviewPointsHidden ?? 0,
         shown: { blocking: result.items.length, should_fix: Math.min(result.advisory.length, ADVISORY_SHOWN), folded: result.advisory.length - Math.min(result.advisory.length, ADVISORY_SHOWN) + result.notes.length + result.disputed.length + result.unverified.length + result.dismissed.length + result.dropped.length },
         disputed: result.disputed,
         dropped: result.dropped,

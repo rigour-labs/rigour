@@ -5,6 +5,25 @@
  * language-specific vulnerability patterns.
  */
 
+/**
+ * What the agent is told to do about each kind of finding: every pattern type has its own, and a type without one gets
+ * FIX_UNKNOWN, never another type's advice (a hard-coded key told to "parameterize" its query fixes nothing).
+ */
+export const FIX_BY_TYPE: Record<string, string> = {
+    hardcoded_secrets: 'Remove the secret from the code and read it from an environment variable or a secrets manager. Rotate the key: it is in the repository history now.',
+    sql_injection: 'Pass the values as query parameters (placeholders or a query builder), never by joining strings into the SQL.',
+    xss: 'Render the value as text (textContent, the framework\'s escaping) or sanitize it with an allow-list sanitizer before inserting HTML.',
+    path_traversal: 'Resolve the path against a fixed base directory and reject it unless it stays inside that base; never pass user input to the file system as is.',
+    command_injection: 'Run the program with an argument list (execFile, spawn without a shell), never a command string built from input.',
+    insecure_randomness: 'Use a cryptographic random source (crypto.randomUUID, crypto.getRandomValues, secrets) for tokens, ids and keys.',
+    redos: 'Rewrite the expression without nested or overlapping quantifiers, or bound the input length before matching.',
+    overly_permissive: 'Restrict it to the origins, hosts or permissions that need it instead of a wildcard.',
+    unsafe_output: 'Do not send internal details (stack traces, raw errors, secrets) to the client; log them on the server and return a generic message.',
+    missing_input_validation: 'Validate the input against a schema (type, length, range) before using it.',
+};
+
+export const FIX_UNKNOWN = 'Review this against the cited CWE and fix the root cause.';
+
 export const VULNERABILITY_PATTERNS: {
     type: string;
     regex: RegExp;
@@ -18,6 +37,12 @@ export const VULNERABILITY_PATTERNS: {
      * in code, not in a string literal or a comment (utils/code-mask.ts).
      */
     where?: 'anywhere';
+    /**
+     * A credential in a format only a real secret has (a provider's key prefix and length, a private key block): the
+     * match is the fact, so it blocks. Every other pattern guesses at input it cannot trace (is it trusted? constant?):
+     * likely, shown, never a block unless the team opts in (security.block).
+     */
+    proven?: true;
 }[] = [
     // SQL Injection
     {
@@ -93,6 +118,7 @@ export const VULNERABILITY_PATTERNS: {
         type: 'hardcoded_secrets',
         regex: /(?:sk-|pk-|rk-|ghp_|gho_|ghu_|ghs_|ghr_)[a-zA-Z0-9]{20,}/g,
         where: 'anywhere',
+        proven: true,
         severity: 'critical',
         description: 'API key pattern detected (OpenAI, GitHub, etc.)',
         cwe: 'CWE-798',
@@ -102,8 +128,20 @@ export const VULNERABILITY_PATTERNS: {
         type: 'hardcoded_secrets',
         regex: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
         where: 'anywhere',
+        proven: true,
         severity: 'critical',
         description: 'Private key embedded in source code',
+        cwe: 'CWE-798',
+        languages: ['*']
+    },
+    {
+        type: 'hardcoded_secrets',
+        // An AWS access key id, or a Stripe live secret or restricted key: formats only a real credential has.
+        regex: /\b(?:AKIA[0-9A-Z]{16}|(?:sk|rk)_live_[0-9a-zA-Z]{24,})\b/g,
+        where: 'anywhere',
+        proven: true,
+        severity: 'critical',
+        description: 'Cloud or payment provider key (AWS access key, Stripe live key)',
         cwe: 'CWE-798',
         languages: ['*']
     },

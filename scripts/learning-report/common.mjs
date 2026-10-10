@@ -1,0 +1,179 @@
+// Shared by the learning-quality report's scripts: the repositories, the cutoff, and a GitHub reader.
+import { execFileSync } from 'child_process';
+import crypto from 'crypto';
+import os from 'os';
+import path from 'path';
+
+/** Public repositories whose review history is public. */
+/** Pull requests merged before this are the main set's input; fixed so later runs read the same thing. */
+export const CUTOFF = '2026-10-01T00:00:00Z';
+/** The held-out set's window ends here: pull requests merged after the main set, read only after the patterns were written. */
+const HELDOUT_UNTIL = '2026-10-10T00:00:00Z';
+
+/**
+ * Two sets, chosen by LEARNING_REPORT_SET:
+ * - main: the pinned pull requests the learning changes are measured on. zulip/zulip was the third repository; its
+ *   clone passed the 1 GB cap with both clone modes, so it was replaced by the candidate with the most human review
+ *   per merged pull request (logto 0.45, superset 0.40, 20 each). Counts fixed before any result was read: enough
+ *   for 40 sampled candidates with margin (about 0.9 candidates per pull request for immich).
+ * - heldout: logto pull requests merged after the main window, which no pattern was written against, with 30
+ *   source comments labelled before any change is run on them. A check against fitting the main set. Only 5 pull
+ *   requests in that window had a person's review, so this set takes any reviewer but the author, bots included:
+ *   bots write most of the text the patterns are about. Fixed before any of its text was read.
+ */
+const SETS = {
+    main: { dir: '', repos: ['immich-app/immich', 'tailscale/tailscale', 'logto-io/logto'], prCount: { 'immich-app/immich': 50, 'tailscale/tailscale': 40, 'logto-io/logto': 40 }, mergedFrom: undefined, mergedBefore: CUTOFF, reviewers: 'people', sample: { candidates: 40 } },
+    heldout: { dir: 'heldout', repos: ['logto-io/logto'], prCount: { 'logto-io/logto': 20 }, mergedFrom: CUTOFF, mergedBefore: HELDOUT_UNTIL, reviewers: 'anyone', sample: { sources: 30 } },
+};
+export const SET = process.env.LEARNING_REPORT_SET === 'heldout' ? 'heldout' : 'main';
+export const REPOS = SETS[SET].repos;
+export const PR_COUNT = SETS[SET].prCount;
+/** The merge window this set reads: [mergedFrom, mergedBefore). */
+export const WINDOW = { from: SETS[SET].mergedFrom, before: SETS[SET].mergedBefore };
+/** Whose review qualifies a pull request for this set: a person's ('people'), or anyone's but the author ('anyone'). */
+export const REVIEWERS = SETS[SET].reviewers;
+/** How this set's precision sample is drawn: a number of candidates, or candidates until a number of source comments. */
+export const SAMPLE = SETS[SET].sample;
+const HERE = path.dirname(new URL(import.meta.url).pathname);
+/** A path in this set's folder of the report: `prs.json`, `results/…`, `labels/…`, `REPORT.md`. */
+export const setPath = (...parts) => path.join(HERE, SETS[SET].dir, ...parts);
+/** The held-out set's folder, for the main report to show its numbers beside the main set's. */
+export const HELDOUT_DIR = path.join(HERE, SETS.heldout.dir);
+/** One clone mode for every repository, so runs compare: every tree, file contents fetched when read. */
+export const CLONE_FILTER = 'blob:none';
+/** A clone is stopped past this: the disk is near full. */
+export const CLONE_CAP_BYTES = 1024 ** 3;
+
+/** A review bot: a GitHub App account, or a login ending in [bot]. */
+export function isBot(user) {
+    return user?.type === 'Bot' || /\[bot\]$/i.test(String(user?.login ?? ''));
+}
+
+let token;
+/** A GitHub REST read with the gh CLI's token (any account: the repositories are public). Never printed. */
+export async function github(pathAndQuery) {
+    const response = await fetch(`https://api.github.com${pathAndQuery}`, { headers: { Authorization: `Bearer ${githubToken()}`, Accept: 'application/vnd.github+json' } });
+    if (!response.ok) throw new Error(`GitHub ${pathAndQuery}: HTTP ${response.status}`);
+    return response.json();
+}
+
+/** The token GitHub is read with: GITHUB_TOKEN, else gh's. */
+export function githubToken() {
+    token ??= process.env.GITHUB_TOKEN || execFileSync('gh', ['auth', 'token'], { encoding: 'utf8' }).trim();
+    return token;
+}
+
+/** Where a candidate's point came from: the inline comment, or the review whose body it is in (`review-<id>`). */
+export function sourceOf(commentId) {
+    const review = /^review-(\d+)-\d+$/.exec(commentId);
+    return review ? `review-${review[1]}` : commentId;
+}
+
+/** The source's page on GitHub, so anyone can check a label. */
+export function sourceUrl(repo, pr, source) {
+    return source.startsWith('review-') ? `https://github.com/${repo}/pull/${pr}#pullrequestreview-${source.slice(7)}` : `https://github.com/${repo}/pull/${pr}#discussion_r${source}`;
+}
+
+/**
+ * A candidate text cut mid-thought, judged mechanically: it starts like a continuation (Or / And / But) or ends on a
+ * connector (", or", "and"). A lowercase start alone is not: reviewers often write sentences that way.
+ */
+export function looksBroken(text) {
+    const t = String(text ?? '').trim();
+    return /^(or|and|but)\b/i.test(t) || /(,\s*(or|and)|\b(or|and|but))\s*[.:]?$/i.test(t);
+}
+
+/** Wilson score interval at 95% for k successes of n. */
+export function wilson(k, n) {
+    if (n === 0) return [0, 0];
+    const z = 1.96, p = k / n, d = 1 + z * z / n;
+    const c = p + z * z / (2 * n), m = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n));
+    return [(c - m) / d, (c + m) / d];
+}
+
+/**
+ * Where third-party comment text is kept: outside the repository, rebuilt from the URLs by these scripts. The
+ * repository holds ids, URLs, labels, counts and hashes only.
+ */
+export const TEXT_CACHE = path.join(process.env.LEARNING_REPORT_CACHE || path.join(os.homedir(), 'Workspace/Projects/Personal/rigour-labs/notes/learning-report'), SET === 'main' ? '' : SET);
+
+/** A short hash of a text, so a run can say a candidate's text changed without holding the text. */
+export function textHash(text) {
+    return crypto.createHash('sha256').update(String(text ?? '')).digest('hex').slice(0, 12);
+}
+
+// Recurrence the file-anchored match cannot see: candidate pairs from different pull requests whose content words
+// overlap by at least half (Jaccard), whatever their files. A measure for a person to judge, not a rule.
+const STOP = new Set(['this', 'that', 'with', 'from', 'have', 'should', 'would', 'could', 'there', 'their', 'here', 'what', 'when', 'which', 'will', 'into', 'also', 'just', 'than', 'then', 'they', 'them', 'these', 'those', 'make', 'sure', 'need', 'needs', 'does', 'only', 'more', 'some', 'like', 'please', 'maybe', 'think', 'instead']);
+const words = text => new Set(String(text).toLowerCase().match(/[a-z_][a-z0-9_]{3,}/g)?.filter(w => !STOP.has(w)) ?? []);
+
+/** `[idA, idB, score]` for candidates (with `id`, `text`, `prs`) on different pull requests, best first. */
+export function nearDuplicates(lessons) {
+    const pairs = [];
+    const bags = lessons.map(l => words(l.text));
+    for (let i = 0; i < lessons.length; i++) for (let j = i + 1; j < lessons.length; j++) {
+        if (lessons[i].prs.some(p => lessons[j].prs.includes(p))) continue;
+        const [a, b] = [bags[i], bags[j]];
+        if (a.size < 3 || b.size < 3) continue;
+        const both = [...a].filter(w => b.has(w)).length;
+        const score = both / (a.size + b.size - both);
+        if (score >= 0.5) pairs.push([lessons[i].id, lessons[j].id, Number(score.toFixed(2))]);
+    }
+    return pairs.sort((x, y) => y[2] - x[2]);
+}
+
+/**
+ * A review body's units, the granularity its labels use: each non-empty line once HTML markup is removed, a prose
+ * line with several sentences split into them, and a fenced code block as one unit. Deterministic, so unit indices
+ * in labels/ stay valid against the same body.
+ */
+export function unitsOf(body) {
+    const units = [];
+    let fence;
+    for (const raw of String(body ?? '').replace(/<!--[\s\S]*?-->/g, '').split('\n')) {
+        const line = raw.replace(/<[^>]+>/g, '').trim();
+        if (/^```/.test(line)) {
+            if (fence === undefined) { fence = [line]; continue; }
+            units.push([...fence, line].join('\n'));
+            fence = undefined;
+            continue;
+        }
+        if (fence !== undefined) { fence.push(line); continue; }
+        if (!line || /^\|?\s*:?-{3,}/.test(line) || /^(-{3,}|\*{3,})$/.test(line)) continue;
+        const sentences = line.startsWith('|') ? [line] : line.split(/(?<=[.!?])\s+(?=[A-Z`*])/);
+        for (const sentence of sentences) if (sentence.trim()) units.push(sentence.trim());
+    }
+    if (fence !== undefined) units.push(fence.join('\n'));
+    return units;
+}
+
+const norm = text => String(text ?? '').toLowerCase().replace(/[^a-z0-9_]+/g, ' ').trim();
+
+/**
+ * The units of a body a candidate's text came from: units contained in the text, or the unit that contains it, or
+ * else the units sharing most of its words. Used to credit a candidate by its units' labels.
+ */
+export function unitsFor(text, units) {
+    const t = norm(text);
+    if (!t) return [];
+    const inside = units.map((u, i) => [norm(u), i]).filter(([u]) => u && (t.includes(u) || u.includes(t))).map(([, i]) => i);
+    if (inside.length) return inside;
+    const tw = new Set(t.split(' '));
+    return units.map((u, i) => {
+        const uw = norm(u).split(' ').filter(Boolean);
+        return [uw.filter(w => tw.has(w)).length / Math.max(1, Math.min(uw.length, tw.size)), i];
+    }).filter(([score]) => score >= 0.6).map(([, i]) => i);
+}
+
+/**
+ * For each review-body source of a candidate whose units are labelled (in the labeller's cache), the indices of the
+ * units its text came from. Indices only: the text never leaves the cache.
+ */
+export function creditUnits(text, sources, unitCache) {
+    const credited = {};
+    for (const source of sources) {
+        const units = unitCache?.[source]?.units;
+        if (source.startsWith('review-') && units) credited[source] = unitsFor(text, units);
+    }
+    return credited;
+}

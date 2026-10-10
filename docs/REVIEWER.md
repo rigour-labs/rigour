@@ -22,21 +22,22 @@ Every judge follows the same steps, in order, and answers in a fixed shape, so a
 judge's own sense of severity) decides what blocks:
 
 1. **Every earlier human point**, siblings included: is it fully resolved at this commit?
-2. **Redundancy**: what a fix made unnecessary (a guard below a query that now filters, an optional
+2. **The diff as a person reads it**: every changed function read in full, with what it calls and its callers, before the narrower checks.
+3. **Redundancy**: what a fix made unnecessary (a guard below a query that now filters, an optional
    member every caller supplies) and whether it was removed.
-3. **Every read**: rules known before the read but applied after it, a cheaper source, keys that
-   change when a user edits, unbounded windows, OFFSET paging, the index that serves it.
-4. **Nested scans**: a collection scanned once per item of another.
-5. **Merge impact**: call sites of main-side code the merge changed.
-6. **The journey past the request**: state that outlives it (what clears it, a retry, two
+4. **Every read**: rules known before the read but applied after it, a cheaper source, keys that
+   change when a user edits, unbounded windows, OFFSET paging, the index that serves it. Only when the change touches data (a read or write in a query API, a migration, an await in a loop).
+5. **Nested scans**: a collection scanned once per item of another, in memory or in a query, on every change.
+6. **Merge impact**: call sites of main-side code the merge changed.
+7. **The journey past the request**: state that outlives it (what clears it, a retry, two
    overlapping runs), a status that can move backwards or overwrite a terminal one, and event or
-   dedupe keys that change when the user edits.
-7. **Sibling parity**: the routes, runners or handlers that do the same job and need the same change.
-8. **Claims**: every comment in a touched file and every sentence of the description that says what
+   dedupe keys that change when the user edits. Only when the change touches data (a read or write in a query API, a migration, an await in a loop).
+8. **Sibling parity**: the routes, runners or handlers that do the same job and need the same change.
+9. **Claims**: every comment in a touched file and every sentence of the description that says what
    the code does, checked against the code.
-9. **Team lessons**: every lesson the team taught that it was shown, answered one by one: does this
+10. **Team lessons**: every lesson the team taught that it was shown, answered one by one: does this
    change repeat it? A lesson pasted as background was skimmed; asked as a checklist it is checked.
-10. **Repository rules**: the rules the repository wrote for itself (AGENTS.md, CLAUDE.md, Cursor rules,
+11. **Repository rules**: the rules the repository wrote for itself (AGENTS.md, CLAUDE.md, Cursor rules,
     Copilot instructions, the AGENTS.md and CLAUDE.md files in folders below the root, and every file
     they import with an `@path` line; a folder's own rules, and what they import, apply only to changes
     in that folder, and rules files in vendored folders such as `vendor/` or `third_party/` are not the
@@ -44,13 +45,13 @@ judge's own sense of severity) decides what blocks:
     or not applicable, with the code that breaks one quoted. A rule the team worded as a requirement
     (must, never, always, only, every, do not), broken with its quote verified, blocks; guidance broken is a
     should-fix. The rule's words and weight come from the file, never from the judge.
-11. **The diff as a person reads it.**
-12. **The declared goal**, only with the [goal check](GOAL.md) on and a description that declares one: each
+
+Then **the declared goal**, only with the [goal check](GOAL.md) on and a description that declares one: each
     "Done when" item that names no file, and each invariant, answered met, not met (with the code quoted)
     or cannot tell. An item not met is a should-fix, never a block, whatever the judge says; the
     deterministic goal check already blocks on what needs no model.
 
-Steps 2 to 10 are the judge's working notes: you see them, and they never block on their own, with one
+The steps other than findings are the judge's working notes: you see them, and they never block on their own, with one
 exception: a requirement rule shown broken with a verified quote. Otherwise only a
 finding can block, and only when it carries three things: the input that goes wrong, what goes wrong
 for it (or a material cost: one that grows with the data or traffic, such as an extra query, rows
@@ -131,6 +132,12 @@ own input folder. A judge that gives nothing, twice, is replaced by the next one
 `reviewers`, and the verdict says so; a review is unavailable only when every judge failed. The same prompt, the same evidence contract, the same
 record and trace as a CLI judge; cost when the API reports it, tokens always. The judge is
 installed only when `api` is configured and the key it names is set.
+
+Each turn re-sends the whole conversation so far. For a Claude model (`vendor: anthropic`, or a
+model name with `claude` or `anthropic` in it), Rigour asks the API to cache it (`cache_control` on
+the request), so every turn after the first reads the earlier turns from the cache at a fraction of
+the input price; the trace counts cache reads and writes apart from fresh input. Other models cache on
+their own and are not asked. An API that refuses the field on the first turn is asked again without it.
 
 What we measured on the same reviews, rules frozen: Claude Code finished every review in one to
 two minutes; Codex at high reasoning effort finished them four to six times slower, and ran out of
@@ -361,6 +368,27 @@ Each judge starts from what your team already knows, written to a file it reads:
   on a file that has not changed since. Judges are told not to raise them again without something new;
 - the docs that name the changed code.
 
+**Review points, never blocking (opt-in: `review.review_points: true`).** Beside findings, the judge raises what a careful reviewer of the code would ask
+to change though nothing goes wrong today: one job done in two places, a simpler shape for the same behaviour, a
+cheaper path on the code's frequent path, a lock, copy or wait it does not need, an error or callback one branch
+forgets, an interface that is easy to call wrongly. Never a style or naming preference. Each comes with the code it
+is about (a quote Rigour finds at the line it names, or it is not shown), what to change, and the judge's confidence.
+Only points about code the change touches are shown: a changed line, or inside a changed unit; one about other code
+is counted as outside the change. At most five are shown, the most confident first, and the rest are counted: a
+review point is worth reading, not wading through. They never block, in the verdict, at the stop or at the push.
+
+**Every changed unit, accounted for (opt-in: `review.coverage: true`).** The judge gets the change's units: each changed function where the
+language parses (JavaScript, TypeScript), else each changed hunk named by the code around it (any language), at most
+25, riskiest and largest first. For every one it must say either which finding is about it, or what it checked and
+why it holds. A review with no findings is therefore "looked at each of these, and here is why each holds", never an
+empty answer. A unit the answer leaves out gets one follow-up run, inside the caps; one still left out is shown as
+**not reviewed**, never as passed: "Accounted for 7 of 8 changed units; not reviewed: conn.go :: Close." The count is
+in the review record, and in `--json` as `coverage`.
+
+Both are off by default. Measured on the same reviewed pull requests, they made each review cost 1.4 to 2.5 times
+more (the coverage pass alone $0.10 to $1.30 per review) and found nothing the reviewer missed without them. They stay
+available for a team that measures a gain on its own pull requests.
+
 **Where the lessons come from: evidence, not who wrote it.** `rigour learn-reviews` reads the
 repository's merged pull requests. Every review point is a **candidate**, whoever wrote it: a person, an
 AI posting under a person's login, or a review bot. It keeps the point's own words: its bold title, else
@@ -378,18 +406,30 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
   change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
 - **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email;
-- **recurrence**, weak alone: the same point on two or more pull requests by different authors, raised
-  independently: by different reviewers, or by one person in different words (a senior re-raising a
-  standard counts; a bot rewording its own point on every pull request does not). At least one of the
-  points must be a person's: review bots agreeing with each other never make a lesson. A point that is only
-  a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
+- **recurrence**, weak alone: the same point raised by people (review bots never count) on two or more pull
+  requests by different authors, and raised by two or more different reviewers, or by one reviewer on three or
+  more pull requests at least seven days apart (by when each point was posted). A lesson an earlier version
+  verified by a looser rule goes back to a candidate with the rule it missed ("one reviewer, 2 PRs over 3 days;
+  needs ≥3 PRs over ≥7 days or a second reviewer"), shown in Studio and `rigour learn-reviews --list`; a lesson a
+  person promoted, corrected, scoped, re-worded or compiled stays as they left it. A point that is only
+  a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate. Neither is a
+  point that asks for nothing: a review tool's status and scaffolding (a verdict banner, an overview heading,
+  "Files reviewed"), a line describing what the pull request does ("Adds caching for…"), praise or thanks, or a
+  status report ("all tests passing"). It is skipped only when it carries no sign of a request (an instruction,
+  a modal, a question, a "but"); when unsure it is kept. In a review body, structure counts too: the list under a
+  change-summary heading ("Changes", "What changed", "Summary", "Overview") describes the change, whatever its
+  verbs, unless a bullet asks for something; in a person's review, where a "Summary" often lists defects as plain
+  statements, a bullet there is skipped only if it also reads as a description ("Splits the parser…"). A collapsed
+  block about the tool itself ("About…", "How to…") is the tool's own help. `rigour learn-reviews` counts them: "N skipped: not a
+  request", by why.
 
 A candidate only review bots raised is never served, not even with `gates.deep.review_lessons: all`; it
 reaches agents once a person promotes it, or a person's point joins it and recurrence promotes it. Lessons an
 earlier version promoted on bots' points alone are back to candidates, each with a `reclassified` record
 saying "only review bots raised it (no person)", in Studio and in `rigour learn-reviews --list`. Other
 candidates only review bots raised are hidden from both by default and counted ("N candidates from review
-bots, hidden"); `--include-bots` or **Show bot points** lists them. `--list --json` keeps every lesson.
+bots, hidden"); `--include-bots` or **Show bot points** lists them. Who raised a point comes only from the review
+points: a later fix on its lines never makes a bot's candidate a person's. `--list --json` keeps every lesson.
 
 **What happens after the merge never promotes on its own.** A later commit on the main branch that changes the lines a point named and says it fixed something, or a revert of the pull request, is recorded on the candidate (`rigour learn-reviews` records it as `lines`). Lessons an earlier version promoted on that alone are back to candidates, each with a `reclassified` record, listed first in Studio. The [outcome loop](OUTCOMES.md) goes further: It follows a point's lines
 through every later commit as the code moves (within three lines either side, inside the window); a
@@ -410,7 +450,9 @@ that followed the lesson, or that no review checked against it, never counts, an
 promoted or corrected into being is never taken back; a person promoting it again is final. `--reject <id>` makes an **anti-lesson**: judges are told this team decided
 against it, and it is never served as a lesson. Every piece of evidence stays on the lesson
 (`--list` shows what promoted each). With `--until <time>`, only history before it counts, so a
-measurement never sees the future. The pull request's author commenting on their own pull request is not
+measurement never sees the future: pull requests merged before it, and of those only the comments and reviews
+posted before it. A comment edited after it is kept and marked (`editedAfterUntil`), since GitHub serves only the
+edited text. The pull request's author commenting on their own pull request is not
 a review point. GitHub is read as the account in `review.github_account` (or an explicit
 `GITHUB_TOKEN`), never silently as another signed-in account.
 

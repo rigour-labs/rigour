@@ -1,0 +1,245 @@
+{
+  "repo": "tailscale/tailscale",
+  "seed": 20261010,
+  "sample": 40,
+  "drawnFrom": "baseline",
+  "rubric": "judge the text, not its author: a = asks for something a person could act on, or names a concrete defect; b = does not (praise, status, thanks, a summary)",
+  "sources": {
+    "4030737157": {
+      "pr": 21336,
+      "url": "https://github.com/tailscale/tailscale/pull/21336#discussion_r4030737157",
+      "label": "a"
+    },
+    "4031026304": {
+      "pr": 21327,
+      "url": "https://github.com/tailscale/tailscale/pull/21327#discussion_r4031026304",
+      "label": "a"
+    },
+    "4031048138": {
+      "pr": 21327,
+      "url": "https://github.com/tailscale/tailscale/pull/21327#discussion_r4031048138",
+      "label": "b"
+    },
+    "4031117089": {
+      "pr": 21332,
+      "url": "https://github.com/tailscale/tailscale/pull/21332#discussion_r4031117089",
+      "label": "a"
+    },
+    "4037462166": {
+      "pr": 21331,
+      "url": "https://github.com/tailscale/tailscale/pull/21331#discussion_r4037462166",
+      "label": "a"
+    },
+    "4041272998": {
+      "pr": 21359,
+      "url": "https://github.com/tailscale/tailscale/pull/21359#discussion_r4041272998",
+      "label": "a"
+    },
+    "4046866392": {
+      "pr": 21380,
+      "url": "https://github.com/tailscale/tailscale/pull/21380#discussion_r4046866392",
+      "label": "a"
+    },
+    "4046990015": {
+      "pr": 21379,
+      "url": "https://github.com/tailscale/tailscale/pull/21379#discussion_r4046990015",
+      "label": "a"
+    },
+    "4047047677": {
+      "pr": 21379,
+      "url": "https://github.com/tailscale/tailscale/pull/21379#discussion_r4047047677",
+      "label": "a"
+    },
+    "4047054345": {
+      "pr": 21379,
+      "url": "https://github.com/tailscale/tailscale/pull/21379#discussion_r4047054345",
+      "label": "a"
+    },
+    "4047065366": {
+      "pr": 21379,
+      "url": "https://github.com/tailscale/tailscale/pull/21379#discussion_r4047065366",
+      "label": "a"
+    },
+    "4047074030": {
+      "pr": 21379,
+      "url": "https://github.com/tailscale/tailscale/pull/21379#discussion_r4047074030",
+      "label": "a"
+    },
+    "4047078325": {
+      "pr": 21379,
+      "url": "https://github.com/tailscale/tailscale/pull/21379#discussion_r4047078325",
+      "label": "a"
+    },
+    "4051022049": {
+      "pr": 21366,
+      "url": "https://github.com/tailscale/tailscale/pull/21366#discussion_r4051022049",
+      "label": "a"
+    },
+    "4061749558": {
+      "pr": 21374,
+      "url": "https://github.com/tailscale/tailscale/pull/21374#discussion_r4061749558",
+      "label": "a"
+    },
+    "4061769951": {
+      "pr": 21374,
+      "url": "https://github.com/tailscale/tailscale/pull/21374#discussion_r4061769951",
+      "label": "a"
+    },
+    "4061796798": {
+      "pr": 21374,
+      "url": "https://github.com/tailscale/tailscale/pull/21374#discussion_r4061796798",
+      "label": "a"
+    },
+    "4063082387": {
+      "pr": 21405,
+      "url": "https://github.com/tailscale/tailscale/pull/21405#discussion_r4063082387",
+      "label": "a"
+    },
+    "4064375842": {
+      "pr": 21362,
+      "url": "https://github.com/tailscale/tailscale/pull/21362#discussion_r4064375842",
+      "label": "a"
+    },
+    "4075178127": {
+      "pr": 21420,
+      "url": "https://github.com/tailscale/tailscale/pull/21420#discussion_r4075178127",
+      "label": "a"
+    },
+    "4080541445": {
+      "pr": 21369,
+      "url": "https://github.com/tailscale/tailscale/pull/21369#discussion_r4080541445",
+      "label": "a"
+    },
+    "4083948930": {
+      "pr": 21433,
+      "url": "https://github.com/tailscale/tailscale/pull/21433#discussion_r4083948930",
+      "label": "a"
+    },
+    "4085062951": {
+      "pr": 21441,
+      "url": "https://github.com/tailscale/tailscale/pull/21441#discussion_r4085062951",
+      "label": "a"
+    },
+    "4087924654": {
+      "pr": 21447,
+      "url": "https://github.com/tailscale/tailscale/pull/21447#discussion_r4087924654",
+      "label": "a"
+    },
+    "4097317142": {
+      "pr": 21467,
+      "url": "https://github.com/tailscale/tailscale/pull/21467#discussion_r4097317142",
+      "label": "a"
+    },
+    "4097428178": {
+      "pr": 21467,
+      "url": "https://github.com/tailscale/tailscale/pull/21467#discussion_r4097428178",
+      "label": "a"
+    },
+    "4097492396": {
+      "pr": 21467,
+      "url": "https://github.com/tailscale/tailscale/pull/21467#discussion_r4097492396",
+      "label": "a"
+    },
+    "4106552835": {
+      "pr": 21479,
+      "url": "https://github.com/tailscale/tailscale/pull/21479#discussion_r4106552835",
+      "label": "a"
+    },
+    "4108842946": {
+      "pr": 21485,
+      "url": "https://github.com/tailscale/tailscale/pull/21485#discussion_r4108842946",
+      "label": "a"
+    },
+    "4109172634": {
+      "pr": 21485,
+      "url": "https://github.com/tailscale/tailscale/pull/21485#discussion_r4109172634",
+      "label": "a"
+    },
+    "4123380736": {
+      "pr": 21485,
+      "url": "https://github.com/tailscale/tailscale/pull/21485#discussion_r4123380736",
+      "label": "a"
+    },
+    "4123540613": {
+      "pr": 21485,
+      "url": "https://github.com/tailscale/tailscale/pull/21485#discussion_r4123540613",
+      "label": "a"
+    },
+    "4124988804": {
+      "pr": 21463,
+      "url": "https://github.com/tailscale/tailscale/pull/21463#discussion_r4124988804",
+      "label": "a"
+    },
+    "4129858937": {
+      "pr": 21524,
+      "url": "https://github.com/tailscale/tailscale/pull/21524#discussion_r4129858937",
+      "label": "a"
+    },
+    "4135467280": {
+      "pr": 21575,
+      "url": "https://github.com/tailscale/tailscale/pull/21575#discussion_r4135467280",
+      "label": "a"
+    },
+    "4136400878": {
+      "pr": 21483,
+      "url": "https://github.com/tailscale/tailscale/pull/21483#discussion_r4136400878",
+      "label": "b"
+    },
+    "4147528669": {
+      "pr": 21595,
+      "url": "https://github.com/tailscale/tailscale/pull/21595#discussion_r4147528669",
+      "label": "a"
+    },
+    "4147542479": {
+      "pr": 21595,
+      "url": "https://github.com/tailscale/tailscale/pull/21595#discussion_r4147542479",
+      "label": "a"
+    },
+    "review-5342644156": {
+      "pr": 21518,
+      "url": "https://github.com/tailscale/tailscale/pull/21518#pullrequestreview-5342644156",
+      "label": "a",
+      "units": [
+        "b",
+        "b",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ]
+    },
+    "review-5239119340": {
+      "pr": 21354,
+      "url": "https://github.com/tailscale/tailscale/pull/21354#pullrequestreview-5239119340",
+      "label": "a",
+      "units": [
+        "b",
+        "b",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "a",
+        "a",
+        "b",
+        "a",
+        "a"
+      ]
+    }
+  }
+}

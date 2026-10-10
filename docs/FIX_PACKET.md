@@ -299,13 +299,14 @@ This shape is not the report's `failures[]` shape. It is built by `toReviewFindi
 |:---|:---|:---|:---|
 | `id` | string | Always | The gate that raised it. |
 | `gate` | string | Always | The finding's title (the report's `title`, not the gate id). |
-| `severity` | string | Always | Severity; `medium` when none was given. |
+| `severity` | string | Always | Severity; `medium` when none was given. A finding that does not block is shown at most `high` when it is a security finding and at most `medium` otherwise: a heuristic's "high" is a guess at intent, not an impact Rigour stands behind. |
 | `provenance` | string | Always | Provenance; `traditional` when none was given. |
 | `message` | string | Always | The report's `details`. |
 | `file` | string | Always | The first file; empty when there is none. |
 | `line` | number or `null` | Always | The line, or `null`. |
 | `anchor_line` | number | When set | For a finding inside a changed function but off the changed lines: the changed line to post it on. |
 | `key` | string | Always | The same across runs for the same finding. `rigour dismiss <key>` silences it. |
+| `certainty` | string | When set | How sure the rule that found it is: `proven` (it traced the defect, or states a fact) blocks on a changed line; `likely` is shown, never blocking; `possible` is a hint. When it is absent, the check's own rule decides ([CHECKS.md](CHECKS.md)). |
 | `suggestion` | string | When the finding has a hint | The report's `hint`. |
 
 ### `ci_summary`
@@ -347,15 +348,25 @@ Agents connected to Rigour's MCP server get the fix packet through `rigour_get_f
 | `offset` | integer, 0 or more | Optional | First violation to return. Default `0`. |
 | `limit` | integer, 1 to 10 | Optional | Violations per page. Default `5`. |
 
-Each call runs the gates again on the whole repository and builds the packet in memory. It does not read or write `rigour-fix-packet.json`. When everything passes, it returns `ALL QUALITY GATES PASSED.` with the score.
+Each call reviews **the agent's change** by the rule the stop hook and the push gate hold it to: the branch against main,
+else uncommitted work, with the same certainty rule, changed-line filter and severity cap as `rigour review`. Issues the
+code already had, and issues in files the change did not touch, are not in it. It does not read or write
+`rigour-fix-packet.json`.
 
-Otherwise it returns plain text, not JSON, so that a large packet does not flood the agent's context:
+It returns plain text, not JSON, so that a large packet does not flood the agent's context:
 
-- A header with the score, the number of violations, the failed gates, the page range and `next_offset` (a number, or `none` on the last page).
-- Each violation on the page, in the packet's severity order: severity and title, gate, problem, up to five locations, and up to three fix steps (or the hint when there are no steps). Long text is cut at fixed lengths and marked `[truncated]`.
-- The first five verification commands, the `do_not_touch` list, and how many files are in `allowed_scope`.
-- The call to make for the next page, or a closing line telling the agent to re-run `rigour_check` and to report a pass only after verification.
+- A header: what the change was read against, how many items must be fixed and how many are notes, the instruction (fix
+  every must-fix item, notes are optional, do not edit files outside the change unless a must-fix item names them,
+  re-run `rigour_check` after), the page range and `next_offset` (a number, or `none` on the last page).
+- **Must fix (blocks you)** first, then **Notes (optional)**, under their own headings on every page. Each item: its
+  shown severity and title, the check and its certainty, the exact `file:line`, the problem and the fix.
+- The call to make for the next page, or a closing line telling the agent to re-run `rigour_check`.
 
-Because each call scans again, the violations and their order can change after the agent edits files. Start again at `offset` 0 after editing.
+`rigour_check` reads the change the same way by default (`scope: "change"`): `FAIL` means the agent has something to
+fix in its change, never old debt elsewhere. With `files`, or a deep review, it checks those files as they are;
+`scope: "repo"` checks the whole repository, for an audit of the codebase, not for an agent's fix loop.
+
+Because each call reviews again, the items and their order can change after the agent edits files. Start again at
+`offset` 0 after editing.
 
 An `offset` or `limit` outside those ranges returns an error, and nothing is scanned.

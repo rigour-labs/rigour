@@ -8,7 +8,7 @@ import { learnFromReviews } from './learn-from-reviews.js';
 import { outcomeFor } from './outcomes.js';
 import { rulesFromReviews } from './rules-from-reviews.js';
 import { describeLesson, lessonView } from './team-lessons.js';
-import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, pendingDecision, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
+import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, pendingDecision, quietBotCandidate, raisedOnlyByBots, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
 import { activeLessons, lessonsForDiff, lessonsSection } from './team-lessons.js';
 
 let repo: string;
@@ -116,12 +116,17 @@ describe('lessons', () => {
         const lesson = (...evidence: LessonEvidence[]): ReviewLesson => ({ id: 'x', text: 'Use upsert', file: 'src/orders.ts', symbols: [], state: 'candidate', evidence, createdAt: '', updatedAt: '' });
         expect(lessonState(lesson(point(1, 'ann')))).toEqual({ state: 'candidate' });
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'ann')))).toEqual({ state: 'candidate' }); // two PRs, one author: weak, not enough
-        expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob', 'bot')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // a bot's point counts the same
+        expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob', 'bot')))).toEqual({ state: 'candidate' }); // a bot's point never counts: one person on one PR
+        expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // two people, two PRs, two authors
         expect(lessonState(lesson(point(1, 'ann', 'bot', 'rabbit[bot]'), point(2, 'bob', 'bot', 'helper[bot]')))).toEqual({ state: 'candidate' }); // two bots agreeing, no person: never verified
         const said = (e: LessonEvidence, text: string): LessonEvidence => ({ ...e, text });
         expect(lessonState(lesson(said(point(1, 'ann', 'bot', 'helper[bot]'), 'Around line 60-103: update the callers.'), said(point(2, 'bob', 'bot', 'helper[bot]'), 'Around line 12-14: update the loader.')))).toEqual({ state: 'candidate' }); // a bot rewording its own point is one source
         expect(lessonState(lesson(said(point(1, 'ann', 'bot', 'helper[bot]'), 'Consider more tests.'), said(point(2, 'bob', 'bot', 'helper[bot]'), 'Consider more tests.')))).toEqual({ state: 'candidate' }); // one bot's template on every PR is one source
-        expect(lessonState(lesson(said(point(1, 'ann', 'person', 'lead'), 'Regenerate the API client after changing the schema.'), said(point(2, 'bob', 'person', 'lead'), 'The generated client is stale again.')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // a senior re-raising it in their own words
+        // One reviewer re-raising it: a standard only on 3 or more PRs over 7 or more days.
+        const on = (e: LessonEvidence, postedAt: string): LessonEvidence => ({ ...e, postedAt });
+        expect(lessonState(lesson(on(point(1, 'ann', 'person', 'lead'), '2026-09-01T00:00:00Z'), on(point(2, 'bob', 'person', 'lead'), '2026-09-04T00:00:00Z')))).toEqual({ state: 'candidate' });
+        expect(lessonState(lesson(on(point(1, 'ann', 'person', 'lead'), '2026-09-01T00:00:00Z'), on(point(2, 'bob', 'person', 'lead'), '2026-09-02T00:00:00Z'), on(point(3, 'cy', 'person', 'lead'), '2026-09-04T00:00:00Z')))).toEqual({ state: 'candidate' });
+        expect(lessonState(lesson(on(point(1, 'ann', 'person', 'lead'), '2026-09-01T00:00:00Z'), on(point(2, 'bob', 'person', 'lead'), '2026-09-05T00:00:00Z'), on(point(3, 'cy', 'person', 'lead'), '2026-09-10T00:00:00Z')))).toEqual({ state: 'verified', promotedBy: 'recurrence' });
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob'), { kind: 'norule', pr: 1, comment: 'n', author: '' }))).toEqual({ state: 'candidate' }); // no rule in it: never promoted again
         const outcome: LessonEvidence = { kind: 'outcome', pr: 1, comment: 'o', author: '', detail: 'fixed later by abc' };
         const counter: LessonEvidence = { kind: 'counter', pr: 1, comment: 'k', author: '', detail: 'unchanged 40 days' };
@@ -157,7 +162,7 @@ describe('lessons', () => {
         expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
     });
 
-    it('takes a lesson only review bots promoted back to a candidate, with why, and keeps one with a person\'s point verified', () => {
+    it('takes a lesson only review bots promoted back to a candidate, with why, and a person with a bot too: bots never count', () => {
         const point = (pr: number, prAuthor: string, reviewer: string, source: 'person' | 'bot'): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: reviewer, source, prAuthor });
         const stored = (id: string, evidence: LessonEvidence[]): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', evidence, createdAt: '', updatedAt: '' });
         writeLessons(repo, [
@@ -168,11 +173,34 @@ describe('lessons', () => {
         expect(bots).toMatchObject({ state: 'candidate', evidence: [{}, {}, { kind: 'reclassified', comment: 'reclassified-bots', detail: 'only review bots raised it (no person)' }] });
         expect(bots.promotedBy).toBeUndefined();
         expect(pendingDecision(bots)?.detail).toBe('only review bots raised it (no person)');
-        expect(withPerson).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
-        expect(withPerson.evidence.some(e => e.kind === 'reclassified')).toBe(false);
+        expect(withPerson).toMatchObject({ state: 'candidate', evidence: [{}, {}, { kind: 'reclassified', detail: 'raised by people on 1 pull request; needs 2 or more' }] });
         writeLessons(repo, readLessons(repo));
         expect(readLessons(repo)[0].evidence.filter(e => e.kind === 'reclassified')).toHaveLength(1);
         decideLesson(repo, 'bots', 'accepted', 'lead@x');
+        expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
+    });
+
+    it('takes a lesson one reviewer raised too close together back to a candidate, saying the rule, and never one a person kept', () => {
+        const point = (pr: number, prAuthor: string, postedAt?: string): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: 'lead', source: 'person', prAuthor, ...(postedAt ? { postedAt } : {}) });
+        const stored = (id: string, evidence: LessonEvidence[]): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', evidence, createdAt: '', updatedAt: '' });
+        const close = [point(1, 'ann', '2026-09-01T00:00:00Z'), point(2, 'bob', '2026-09-04T00:00:00Z')];
+        writeLessons(repo, [
+            stored('close', close),
+            stored('untimed', [point(1, 'ann'), point(2, 'bob')]),
+            stored('scoped', [...close, { kind: 'scoped', pr: 1, comment: 'scoped-1', author: 'lead@x', detail: 'repo' }]),
+            stored('reworded', [...close, { kind: 'reworded', pr: 1, comment: 'reworded-1', author: 'lead@x', detail: 'parser fix; was: x' }]),
+        ]);
+        const [shut, untimed, scoped, reworded] = readLessons(repo);
+        expect(shut).toMatchObject({ state: 'candidate' });
+        expect(pendingDecision(shut)?.detail).toBe('one reviewer, 2 PRs over 3 days; needs ≥3 PRs over ≥7 days or a second reviewer');
+        expect(pendingDecision(untimed)?.detail).toBe('one reviewer, 2 PRs, when they were posted not recorded; needs ≥3 PRs over ≥7 days or a second reviewer');
+        // A person kept these: the rule does not take them back.
+        expect(scoped).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
+        expect(reworded).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
+        expect([scoped, reworded].some(l => l.evidence.some(e => e.kind === 'reclassified'))).toBe(false);
+        // Nothing is deleted, and a person can promote it again.
+        expect(shut.evidence.filter(e => e.kind === 'point')).toHaveLength(2);
+        decideLesson(repo, 'close', 'accepted', 'lead@x');
         expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
     });
 
@@ -184,9 +212,26 @@ describe('lessons', () => {
         expect(matchLessons(lessons, change, { includeCandidates: true }).map(l => l.id).sort()).toEqual(['both', 'person']);
         writeLessons(repo, lessons);
         expect(activeLessons(repo, 'all').map(l => l.id).sort()).toEqual(['both', 'person']);
+        // A later fix on its lines is evidence, not a person raising it: still bot-only, still not served.
+        const withLines = { ...candidate('lines', point('bot')), evidence: [point('bot'), { kind: 'lines' as const, pr: 9, comment: 'lines-9', author: '', detail: 'fixed later' }] };
+        expect(raisedOnlyByBots(withLines)).toBe(true);
+        expect(quietBotCandidate(withLines)).toBe(true);
+        expect(matchLessons([withLines], change, { includeCandidates: true })).toEqual([]);
         // Once a person accepts it, it is served like any lesson.
         decideLesson(repo, 'bot-only', 'accepted', 'lead@x');
         expect(activeLessons(repo, 'verified').map(l => l.id)).toEqual(['bot-only']);
+    });
+
+    it('says which account could not read the repository on a 401, 403 or 404, how to name another, and never the token', async () => {
+        for (const status of [401, 403, 404]) {
+            const denied = (async () => ({ ok: false, status, json: async () => ({}) })) as never;
+            const error = await learnFromReviews(repo, { token: 'secret-token-value', readAs: 'work-account', repo: 'acme/app', fetch: denied }).then(() => '', e => (e as Error).message);
+            expect(error).toBe(`can't read acme/app as work-account (HTTP ${status}): the account may not have access; name another with review.github_account / RIGOUR_GITHUB_ACCOUNT, or check gh auth status. Asked for /pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1.`);
+            expect(error).not.toContain('secret-token-value');
+        }
+        // Any other failure keeps the plain status.
+        const down = (async () => ({ ok: false, status: 502, json: async () => ({}) })) as never;
+        await expect(learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: down })).rejects.toThrow('GitHub /pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1: HTTP 502');
     });
 
     it('records a person accepting or rejecting a lesson as evidence, with who and why', () => {
@@ -371,6 +416,89 @@ describe('isSpecific', () => {
 });
 
 describe('learnFromReviews', () => {
+    it('learns from a merged pull request only what was posted before --until, and marks a comment edited after it', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        const until = '2026-09-10T00:00:00Z';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 5, merged_at: '2026-09-01T00:00:00Z', merge_commit_sha: merged, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/5/comments?per_page=100`]: [
+                { id: 51, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z', body: '**Use an upsert keyed on `id` so retries do not duplicate orders.**', user: { login: 'priya' } },
+                { id: 52, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-08-30T00:00:00Z', updated_at: '2026-09-15T00:00:00Z', body: '**Bound the batch size the insert sends in one call.**', user: { login: 'priya' } },
+                { id: 53, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z', body: '**Rename this to orderRows for clarity later.**', user: { login: 'sam' } },
+            ],
+            [`${api}/pulls/5/reviews?per_page=100`]: [
+                { id: 61, commit_id: reviewed, submitted_at: '2026-08-31T00:00:00Z', user: { login: 'priya' }, body: '- Bound both ends of every time window a scheduled job reads.' },
+                { id: 62, commit_id: reviewed, submitted_at: '2026-09-20T00:00:00Z', user: { login: 'sam' }, body: '- Add a test for the empty batch.' },
+            ],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until });
+        const points = readLessons(repo).flatMap(l => l.evidence.filter(e => e.kind === 'point'));
+        // Posted after --until (comment 53, review 62): not in a store as of then.
+        expect(points.map(e => e.comment).sort()).toEqual(['51', '52', 'review-61-0']);
+        // Edited after --until: kept, marked, since only its edited text is served.
+        expect(points.find(e => e.comment === '52')?.editedAfterUntil).toBe(true);
+        expect(points.find(e => e.comment === '51')?.editedAfterUntil).toBeUndefined();
+        // When each point was posted is kept, for how far apart one reviewer's points are.
+        expect(points.find(e => e.comment === '51')?.postedAt).toBe('2026-08-30T00:00:00Z');
+        expect(points.find(e => e.comment === 'review-61-0')?.postedAt).toBe('2026-08-31T00:00:00Z');
+    });
+
+    it('compares --until as an instant: an offset reads right against UTC, and an unreadable one is refused', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        // 10:00 at +05:30 is 04:30 UTC: a comment at 04:29Z is before it, one at 04:31Z after it.
+        const until = '2026-09-25T10:00:00+05:30';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 6, merged_at: '2026-09-20T00:00:00Z', merge_commit_sha: merged, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/6/comments?per_page=100`]: [
+                { id: 71, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-25T04:29:00Z', updated_at: '2026-09-25T04:29:00Z', body: '**Use an upsert keyed on `id` so retries do not duplicate orders.**', user: { login: 'priya' } },
+                { id: 72, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-25T04:31:00Z', updated_at: '2026-09-25T04:31:00Z', body: '**Bound the batch size the insert sends in one call.**', user: { login: 'priya' } },
+            ],
+            [`${api}/pulls/6/reviews?per_page=100`]: [],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until });
+        expect(readLessons(repo).flatMap(l => l.evidence.filter(e => e.kind === 'point').map(e => e.comment))).toEqual(['71']);
+        await expect(learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until: 'last tuesday' })).rejects.toThrow('--until "last tuesday" is not a date or a time');
+        await expect(learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, since: 'soon' })).rejects.toThrow('--since "soon" is not a date or a time');
+    });
+
+    it('picks merged pull requests by --since and --until as instants, at the merge-time boundary', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        const comment = (id: number) => [{ id, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-20T00:00:00Z', updated_at: '2026-09-20T00:00:00Z', body: `**Use an upsert keyed on \`id\` in batch ${id} so retries do not duplicate orders.**`, user: { login: 'priya' } }];
+        const pages: Record<string, unknown> = {
+            // 10:00 at +05:30 is 04:30 UTC: #8 merged a minute before it, #9 a minute after.
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [
+                { number: 8, merged_at: '2026-09-25T04:29:00Z', merge_commit_sha: merged, user: { login: 'dev' } },
+                { number: 9, merged_at: '2026-09-25T04:31:00Z', merge_commit_sha: merged, user: { login: 'dev' } },
+            ],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/8/comments?per_page=100`]: comment(81), [`${api}/pulls/8/reviews?per_page=100`]: [],
+            [`${api}/pulls/9/comments?per_page=100`]: comment(91), [`${api}/pulls/9/reviews?per_page=100`]: [],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        expect(await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until: '2026-09-25T10:00:00+05:30' })).toMatchObject({ prs: 1 });
+        expect(readLessons(repo).flatMap(l => l.evidence.map(e => e.pr))).toEqual([8]);
+        // --since at the same instant: #8 merged before it, so only #9.
+        fs.rmSync(path.join(repo, '.rigour', 'review-lessons.json'), { force: true });
+        expect(await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, since: '2026-09-25T10:00:00+05:30' })).toMatchObject({ prs: 1 });
+        expect(readLessons(repo).flatMap(l => l.evidence.map(e => e.pr))).toEqual([9]);
+    });
+
     it('reads merged PRs from GitHub, learns from acted-on comments, and shows them for the next change', async () => {
         write(V1);
         const reviewed = commit('pr head');
@@ -418,5 +546,28 @@ describe('learnFromReviews', () => {
         expect(readLessons(repo).find(l => l.state === 'verified')).toMatchObject({ text: 'Make every write idempotent on retry.', promotedBy: 'person' });
         const audit = fs.readFileSync(path.join(repo, '.rigour', 'review-rules-log.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
         expect(audit.map(a => [a.said, a.rule])).toEqual([[upsert.text, 'Make every write idempotent on retry.']]);
+    });
+
+    it('skips points that ask for nothing, counts them by why, and keeps the request beside them', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 9, merged_at: '2026-09-02T00:00:00Z', merge_commit_sha: merged, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/9/comments?per_page=100`]: [
+                { id: 31, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, body: 'LGTM, thanks for the quick turnaround!', user: { login: 'priya' } },
+            ],
+            [`${api}/pulls/9/reviews?per_page=100`]: [
+                { id: 41, commit_id: reviewed, user: { login: 'review-helper[bot]', type: 'Bot' }, body: '### Changes recommended\n\n**Changes:**\n- Adds caching for the order list.\n- Updates the order schema and its tests.\n- Bound the retry loop in src/orders.ts: it never stops on a permanent error.\n- **Files reviewed:** 3/3 changed files' },
+            ],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        const result = await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl });
+        expect(result.skipped).toEqual({ 'describes the change': 2, 'review tool status': 1, 'praise or thanks': 1 });
+        expect(result.candidates).toEqual({ person: 0, bot: 1 });
+        expect(readLessons(repo).map(l => l.text)).toEqual(['Bound the retry loop in src/orders.ts: it never stops on a permanent error.']);
     });
 });

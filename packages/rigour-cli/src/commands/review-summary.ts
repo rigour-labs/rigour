@@ -1,4 +1,4 @@
-import type { Failure } from '@rigour-labs/core';
+import { shownSeverity, type Failure } from '@rigour-labs/core';
 
 type Severity = 'critical' | 'high' | 'medium' | 'low';
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low'];
@@ -31,7 +31,8 @@ function safeLabel(value: string, max = 120): string {
 }
 
 function severityOf(failure: Failure): Severity {
-    return SEVERITIES.includes(failure.severity as Severity) ? failure.severity as Severity : 'medium';
+    const shown = shownSeverity(failure);
+    return SEVERITIES.includes(shown as Severity) ? shown as Severity : 'medium';
 }
 
 function guidance(rule: string): { reason: string; next_step: string } {

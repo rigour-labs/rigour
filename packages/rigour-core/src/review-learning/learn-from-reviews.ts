@@ -14,6 +14,7 @@ import { changedSince, gitIn, withActedOn, type Git, type MergedPr, type ReviewB
 import { outcomeFor, revertOf } from './outcomes.js';
 import fs from 'fs';
 import path from 'path';
+import type { NotRequestReason } from './requests.js';
 import { lessonFromComment, lessonsFromReview, lessonsPath, lessonState, mergeLessons, readLessons, writeLessons, type ReviewLesson } from './lessons.js';
 import { rulesFromReviews, type RuleWriter } from './rules-from-reviews.js';
 
@@ -21,6 +22,8 @@ type Fetch = (url: string, init?: any) => Promise<{ ok: boolean; status: number;
 
 export interface LearnFromReviewsOptions {
     token: string;
+    /** Who the token reads as, for an error message (githubReader): an account, or where the token came from. Never the token. */
+    readAs?: string;
     /** owner/name */
     repo: string;
     /** Only PRs merged on or after this ISO date. */
@@ -52,6 +55,8 @@ export interface LearnFromReviewsResult {
     reviewBodies: number;
     /** Candidate points read this run, by who wrote them. */
     candidates: { person: number; bot: number };
+    /** Points that ask for nothing (review tool status, a description of the change, praise, status reports), by why: skipped, not learned. */
+    skipped: Partial<Record<NotRequestReason, number>>;
     /** Lessons now promoted, by the evidence that promoted them; anti-lessons; candidates held back by counter-evidence. */
     promoted: Record<'outcome' | 'correction' | 'person' | 'recurrence' | 'legacy', number>;
     rejected: number;
@@ -65,22 +70,26 @@ export interface LearnFromReviewsResult {
 }
 
 export async function learnFromReviews(cwd: string, options: LearnFromReviewsOptions): Promise<LearnFromReviewsResult> {
+    readableTime('--since', options.since);
+    readableTime('--until', options.until);
     const git = options.git ?? gitIn(cwd);
     const prs = await mergedPrs(options);
     const lessons: ReviewLesson[] = [];
     let comments = 0;
     let acted = 0;
     let bodies = 0;
+    const skipped: Partial<Record<NotRequestReason, number>> = {};
+    const onSkip = (reason: NotRequestReason) => { skipped[reason] = (skipped[reason] ?? 0) + 1; };
     for (const pr of prs) {
         comments += pr.comments.length;
         for (const comment of withActedOn(git, pr)) {
             if (comment.actedOn) acted++;
-            const lesson = lessonFromComment(git, comment);
+            const lesson = lessonFromComment(git, comment, undefined, onSkip);
             if (lesson) lessons.push(lesson);
         }
         for (const review of pr.reviews) {
             bodies++;
-            lessons.push(...lessonsFromReview(review, changedSince(git, review.commit, pr.mergeSha)));
+            lessons.push(...lessonsFromReview(review, changedSince(git, review.commit, pr.mergeSha), undefined, onSkip));
         }
     }
     const known = new Set(readLessons(cwd).flatMap(l => l.evidence.map(e => e.comment)));
@@ -122,6 +131,7 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
     return {
         prs: prs.length, comments, actedOn: acted, reviewBodies: bodies,
         candidates: { person: points.filter(e => e.source !== 'bot').length, bot: points.filter(e => e.source === 'bot').length },
+        skipped,
         promoted, rejected: merged.lessons.filter(l => l.state === 'rejected').length,
         heldBack: merged.lessons.filter(l => l.state === 'candidate' && l.evidence.some(e => e.kind === 'counter')).length,
         ...(written ? { rules: written.rules, notRules: written.dropped } : {}),
@@ -129,12 +139,21 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
     };
 }
 
+/**
+ * Why a GitHub read failed. With several accounts, 401, 403 and 404 most often mean this account cannot see the
+ * repository, not that it is the wrong one: say which account read it, and how to name another. Never the token.
+ */
+function cannotRead(options: LearnFromReviewsOptions, status: number, path: string): string {
+    if (status !== 401 && status !== 403 && status !== 404) return `GitHub ${path}: HTTP ${status}`;
+    return `can't read ${options.repo} as ${options.readAs ?? 'this token'} (HTTP ${status}): the account may not have access; name another with review.github_account / RIGOUR_GITHUB_ACCOUNT, or check gh auth status. Asked for ${path}.`;
+}
+
 async function mergedPrs(options: LearnFromReviewsOptions): Promise<MergedPr[]> {
     const fetchImpl = options.fetch ?? (fetch as unknown as Fetch);
     const base = `${(options.apiUrl || 'https://api.github.com').replace(/\/$/, '')}/repos/${options.repo}`;
     const get = async (url: string) => {
         const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${options.token}`, Accept: 'application/vnd.github+json' } });
-        if (!response.ok) throw new Error(`GitHub ${url.replace(base, '')}: HTTP ${response.status}`);
+        if (!response.ok) throw new Error(cannotRead(options, response.status, url.replace(base, '')));
         return response.json();
     };
     if (options.pr !== undefined) return [await onePr(options, base, get)];
@@ -145,16 +164,17 @@ async function mergedPrs(options: LearnFromReviewsOptions): Promise<MergedPr[]> 
         if (batch.length === 0) break;
         for (const pr of batch) {
             if (!pr.merged_at || !pr.merge_commit_sha) continue;
-            if (options.since && pr.merged_at < options.since) continue;
-            if (options.until && pr.merged_at >= options.until) continue;
+            if (options.since && postedBefore(options.since, pr.merged_at)) continue;
+            if (!postedBefore(options.until, pr.merged_at)) continue;
             const author = String(pr.user?.login ?? '');
             const reviewer = (user: any) => !!user?.login && user.login !== author;
             const raw: any[] = await get(`${base}/pulls/${pr.number}/comments?per_page=100`);
             const reviews: any[] = await get(`${base}/pulls/${pr.number}/reviews?per_page=100`);
+            // As of --until: a merged pull request still gathers comments after it; those are not in the store as of then.
             prs.push({
                 number: pr.number, mergeSha: pr.merge_commit_sha, mergedAt: pr.merged_at,
-                comments: raw.filter(c => reviewer(c.user)).flatMap(c => toComment(pr.number, c, author)),
-                reviews: reviews.filter(r => reviewer(r.user) && r.commit_id && String(r.body ?? '').trim()).map((r): ReviewBody => ({ id: String(r.id), prNumber: pr.number, commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author })),
+                comments: raw.filter(c => reviewer(c.user) && postedBefore(options.until, c.created_at)).flatMap(c => toComment(pr.number, c, author, options.until)),
+                reviews: reviews.filter(r => reviewer(r.user) && postedBefore(options.until, r.submitted_at) && r.commit_id && String(r.body ?? '').trim()).map((r): ReviewBody => ({ id: String(r.id), prNumber: pr.number, commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author, ...(r.submitted_at ? { postedAt: String(r.submitted_at) } : {}) })),
             });
             if (prs.length >= limit) break;
         }
@@ -165,7 +185,7 @@ async function mergedPrs(options: LearnFromReviewsOptions): Promise<MergedPr[]> 
 /** One pull request as of `until`: its head then, and the reviews by people posted before it. */
 async function onePr(options: LearnFromReviewsOptions, base: string, get: (url: string) => Promise<any>): Promise<MergedPr> {
     const pr = await get(`${base}/pulls/${options.pr}`);
-    const before = (at: unknown) => !options.until || (typeof at === 'string' && at < options.until);
+    const before = (at: unknown) => postedBefore(options.until, at);
     // Every page: a long-running pull request has hundreds of commits and comments.
     const all = async (url: string) => {
         const items: any[] = [];
@@ -185,19 +205,33 @@ async function onePr(options: LearnFromReviewsOptions, base: string, get: (url: 
     const reviews = await all(`${base}/pulls/${options.pr}/reviews`);
     return {
         number: Number(options.pr), mergeSha: head, mergedAt: pr.merged_at ?? '',
-        comments: raw.filter(c => reviewer(c.user) && before(c.created_at)).flatMap(c => toComment(Number(options.pr), c, author)),
+        comments: raw.filter(c => reviewer(c.user) && before(c.created_at)).flatMap(c => toComment(Number(options.pr), c, author, options.until)),
         reviews: reviews.filter(r => reviewer(r.user) && before(r.submitted_at) && r.commit_id && String(r.body ?? '').trim())
-            .map((r): ReviewBody => ({ id: String(r.id), prNumber: Number(options.pr), commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author })),
+            .map((r): ReviewBody => ({ id: String(r.id), prNumber: Number(options.pr), commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author, ...(r.submitted_at ? { postedAt: String(r.submitted_at) } : {}) })),
     };
 }
 
-/** A review comment where it was written: its original commit and lines. */
-function toComment(prNumber: number, c: any, prAuthor: string): ReviewComment[] {
+/** A time cutoff that is not a date or a time is refused, not compared. */
+function readableTime(flag: string, value: string | undefined): void {
+    if (value !== undefined && Number.isNaN(Date.parse(value))) throw new Error(`${flag} "${value}" is not a date or a time (use ISO 8601, e.g. 2026-09-25 or 2026-09-25T10:00:00Z)`);
+}
+
+/**
+ * Posted before `until` (when one is given): what a store as of `until` could have read. Compared as instants, not
+ * strings, so an offset (`+05:30`) or a bare date in `until` reads right against GitHub's UTC times.
+ */
+function postedBefore(until: string | undefined, at: unknown): boolean {
+    return !until || (typeof at === 'string' && Date.parse(at) < Date.parse(until));
+}
+
+/** A review comment where it was written; marked when edited at or after `until`, since only its edited text is served. */
+function toComment(prNumber: number, c: any, prAuthor: string, until?: string): ReviewComment[] {
     const end = c.original_line ?? c.line;
     const commit = c.original_commit_id ?? c.commit_id;
     if (!c.path || !end || !commit || c.in_reply_to_id) return [];
     const start = c.original_start_line ?? c.start_line ?? end;
-    return [{ id: String(c.id), prNumber, path: c.path, start: Math.min(start, end), end, commit, body: String(c.body ?? ''), author: String(c.user?.login ?? ''), source: sourceOf(c.user), prAuthor }];
+    const edited = !!until && typeof c.updated_at === 'string' && !postedBefore(until, c.updated_at);
+    return [{ id: String(c.id), prNumber, path: c.path, start: Math.min(start, end), end, commit, body: String(c.body ?? ''), author: String(c.user?.login ?? ''), source: sourceOf(c.user), prAuthor, ...(edited ? { editedAfterUntil: true as const } : {}), ...(c.created_at ? { postedAt: String(c.created_at) } : {}) }];
 }
 
 /** A GitHub App or a bot account (`type: Bot`, or a login like `name[bot]`), else a person's login, whose text may itself be an AI's. */
