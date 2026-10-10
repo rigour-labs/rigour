@@ -53,3 +53,18 @@ describe('rigour setup briefs the agent by default', () => {
         expect(JSON.stringify(hooks.PreToolUse)).not.toContain('--brief');
     });
 });
+
+describe('rigour setup replaces the old shell wrappers in place', () => {
+    it("swaps a team install's `sh -c` push wrapper for the plain command and keeps the person's own hooks", async () => {
+        fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\n');
+        fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+        const old = `sh -c 'payload=$(cat); case "$payload" in *git*push*) printf "%s" "$payload" | npx --yes @rigour-labs/cli@6.12.4 hooks push --stdin ;; esac'`;
+        fs.writeFileSync(path.join(repo, '.claude/settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: old }] }, { matcher: 'Write', hooks: [{ type: 'command', command: 'npm run format' }] }] } }));
+        await setupCommand(repo, { team: true, semantic: false });
+        const text = fs.readFileSync(path.join(repo, '.claude/settings.json'), 'utf8');
+        expect(text).not.toContain('sh -c');
+        expect(text).toContain('hooks push --stdin');
+        expect(text).toContain('npm run format');
+    });
+});
+

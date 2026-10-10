@@ -13,24 +13,37 @@ let bin: string;
 const saved = { RIGOUR_AGENT_HOME: process.env.RIGOUR_AGENT_HOME, RIGOUR_CLAUDE_CLI: process.env.RIGOUR_CLAUDE_CLI, RIGOUR_HOME: process.env.RIGOUR_HOME };
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
 const atHome = (rel: string) => path.join(home, rel);
-const unix = process.platform !== 'win32';
+const windows = process.platform === 'win32';
+/** The built CLI, which CI builds before it tests: the hooks below run it as an agent would. */
+const builtCli = path.resolve(__dirname, '../../dist/cli.js');
 
-/** A `claude` CLI that keeps its MCP servers in a file, so add/get/remove behave like the real one. */
+/**
+ * A `claude` CLI that keeps its MCP servers in a file, so add/get/remove behave like the real one. A Node script behind
+ * the shim npm would install: `claude.cmd` on Windows, an executable script elsewhere.
+ */
 function fakeClaude(): string {
     const servers = path.join(bin, 'claude-mcp.txt');
-    fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh
-echo "$@" >> "${path.join(bin, 'claude-calls.log')}"
-case "$1 $2" in
-  "--version "*) echo "9.9.9 (Claude Code)"; exit 0 ;;
-  "mcp get") grep -qx "$3" "${servers}" 2>/dev/null; exit $? ;;
-  "mcp add") echo "$5" >> "${servers}"; exit 0 ;;
-  "mcp remove") : > "${servers}"; exit 0 ;;
-esac
-exit 1
-`, { mode: 0o755 });
-    process.env.RIGOUR_CLAUDE_CLI = path.join(bin, 'claude');
-    return path.join(bin, 'claude-calls.log');
+    const log = path.join(bin, 'claude-calls.log');
+    const script = path.join(bin, 'claude.js');
+    fs.writeFileSync(script, `const fs = require('fs');
+const [a, b, c, , e] = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');
+const servers = () => fs.existsSync(${JSON.stringify(servers)}) ? fs.readFileSync(${JSON.stringify(servers)}, 'utf8').split('\\n') : [];
+if (a === '--version') { console.log('9.9.9 (Claude Code)'); process.exit(0); }
+if (a === 'mcp' && b === 'get') process.exit(servers().includes(c) ? 0 : 1);
+if (a === 'mcp' && b === 'add') { fs.appendFileSync(${JSON.stringify(servers)}, e + '\\n'); process.exit(0); }
+if (a === 'mcp' && b === 'remove') { fs.writeFileSync(${JSON.stringify(servers)}, ''); process.exit(0); }
+process.exit(1);
+`);
+    const shim = path.join(bin, windows ? 'claude.cmd' : 'claude');
+    fs.writeFileSync(shim, windows ? `@"${process.execPath}" "${script}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`, { mode: 0o755 });
+    process.env.RIGOUR_CLAUDE_CLI = shim;
+    return log;
 }
+
+/** The shells an agent may run a hook command in, those this machine has: bash (Git Bash on Windows) and PowerShell. */
+const shells = [['bash', ['-c']], [windows ? 'powershell' : 'pwsh', ['-NoProfile', '-Command']]]
+    .filter(([shell]) => spawnSync(shell as string, [...(shell === 'bash' ? ['-c', 'exit 0'] : ['-NoProfile', '-Command', 'exit 0'])]).status === 0) as Array<[string, string[]]>;
 
 beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'personal-repo-'));
@@ -81,25 +94,53 @@ describe('the switch for a repository', () => {
     });
 });
 
-describe.skipIf(!unix)('the guard on a machine-level hook', () => {
-    /** The command a project Stop hook becomes in the user-level Claude settings. */
-    const guarded = (command: string): string => JSON.parse(asUserLevel({ path: '.claude/settings.json', content: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command }] }] } }) }).content).hooks.Stop[0].hooks[0].command;
-    const run = (command: string) => spawnSync('sh', ['-c', command], { cwd: repo, input: 'payload', encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: '' } });
+describe('the guard on a machine-level hook', () => {
+    /** The command a project hook becomes in the user-level Claude settings. */
+    const guarded = (command: string): string => JSON.parse(asUserLevel({ path: '.claude/settings.json', content: JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command }] }] } }) }).content).hooks.UserPromptSubmit[0].hooks[0].command;
+    /** One team rule, about a folder the repository has. */
+    const teamRule = () => {
+        fs.writeFileSync(path.join(repo, 'AGENTS.md'), '- Every job in `src/jobs/` must call `withLock()` before its first read.\n');
+        fs.mkdirSync(path.join(repo, 'src/jobs'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'src/jobs/send.ts'), 'export const send = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'jobs');
+    };
+    /** What Claude Code sends to a prompt hook. */
+    const payload = (cwd: string, session = 's1') => JSON.stringify({ session_id: session, hook_event_name: 'UserPromptSubmit', prompt: 'add a job in src/jobs', cwd });
 
-    it('runs the command only in a repository switched on, with stdin passed through, even for a quoted command', () => {
-        const command = guarded(`sh -c 'printf "ran:"; cat'`);
-        expect(run(command).stdout).toBe('');
-        expect(run(command).status).toBe(0);
-        enableHere(repo);
-        expect(run(command).stdout).toBe('ran:payload');
-        const outside = spawnSync('sh', ['-c', command], { cwd: os.tmpdir(), input: 'x', encoding: 'utf8' });
-        expect(outside).toMatchObject({ status: 0, stdout: '' });
+    it('is a plain command: the CLI checks the switch, no shell guard', () => {
+        expect(guarded('npx --yes @rigour-labs/cli@6.13.0 hooks brief')).toBe('npx --yes @rigour-labs/cli@6.13.0 hooks brief --if-enabled');
     });
 
-    it('turns each project hook file into its agent\'s user-level twin, every command guarded', () => {
+    it('runs alike in bash and in PowerShell: silent where Rigour is off, the briefing where it is on, in the project Claude Code names', () => {
+        teamRule();
+        const command = guarded(`node "${builtCli}" hooks brief`);
+        // Started outside the project, as an agent may start it: the project comes from CLAUDE_PROJECT_DIR. A session per
+        // run, since the prompt briefing is given once per session.
+        const run = ([shell, args]: [string, string[]]) => spawnSync(shell, [...args, command], { cwd: os.tmpdir(), input: payload(repo, `s-${shell}`), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo } });
+        expect(shells.map(s => s[0])).toContain('bash'); // Git Bash on Windows
+        for (const shell of shells) expect(run(shell), shell[0]).toMatchObject({ status: 0, stdout: '' });
+        enableHere(repo);
+        for (const shell of shells) {
+            const result = run(shell);
+            expect(result.status, shell[0]).toBe(0);
+            expect(result.stdout, shell[0]).toContain('must call `withLock()`');
+        }
+    });
+
+    it("finds the project from the payload's cwd when the agent names none", () => {
+        enableHere(repo);
+        teamRule();
+        const env = { ...process.env };
+        delete env.CLAUDE_PROJECT_DIR;
+        const result = spawnSync(process.execPath, [builtCli, 'hooks', 'brief', '--if-enabled'], { cwd: os.tmpdir(), input: payload(repo), encoding: 'utf8', env });
+        expect(result.stdout).toContain('must call `withLock()`');
+    });
+
+    it("turns each project hook file into its agent's user-level twin, every command guarded", () => {
         const claude = asUserLevel({ path: '.claude/settings.json', content: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'npx rigour hooks stop' }] }] } }) });
         expect(claude.path).toBe('.claude/settings.json');
-        expect(JSON.parse(claude.content).hooks.Stop[0].hooks[0].command).toMatch(/^sh -c '.*rigour-enabled.*exec npx rigour hooks stop'$/);
+        expect(JSON.parse(claude.content).hooks.Stop[0].hooks[0].command).toBe('npx rigour hooks stop --if-enabled');
         expect(asUserLevel({ path: '.windsurf/hooks.json', content: '{}' }).path).toBe('.codeium/windsurf/hooks.json');
         const cline = asUserLevel({ path: '.clinerules/hooks/PostToolUse', content: '#!/usr/bin/env node\nprocess.stdout.write("ran");\n' });
         expect(cline.path).toBe('Documents/Cline/Hooks/PostToolUse');
@@ -110,7 +151,7 @@ describe.skipIf(!unix)('the guard on a machine-level hook', () => {
     });
 });
 
-describe.skipIf(!unix)('rigour setup, personal', () => {
+describe('rigour setup, personal', () => {
     it('leaves the working tree untouched, installs machine hooks into the configs the person has, and comes back out exactly', async () => {
         const calls = fakeClaude();
         const ownSettings = { permissions: { allow: ['Bash(ls)'] }, hooks: { PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'npm run format' }] }] } };
@@ -127,7 +168,8 @@ describe.skipIf(!unix)('rigour setup, personal', () => {
         expect(settings.permissions).toEqual(ownSettings.permissions);
         const commands = JSON.stringify(settings.hooks);
         expect(commands).toContain('npm run format');
-        expect(commands).toContain('rigour-enabled'); // every Rigour hook is guarded
+        expect(commands).toContain('--if-enabled'); // every Rigour hook is guarded
+        expect(commands).not.toContain('sh -c'); // and runs in any shell
         for (const rel of ['.cursor/hooks.json', '.cursor/mcp.json']) expect(fs.existsSync(atHome(rel)), rel).toBe(true);
         for (const rel of ['.codeium', 'Documents']) expect(fs.existsSync(atHome(rel)), rel).toBe(false); // nothing for an agent that is not installed
         expect(fs.readFileSync(calls, 'utf8')).toMatch(/^mcp add --scope user rigour -- /m);

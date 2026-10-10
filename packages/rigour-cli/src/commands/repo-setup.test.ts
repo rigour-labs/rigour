@@ -34,6 +34,10 @@ describe('checkRepoSetup', () => {
         write('.claude/settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ command: 'npx --yes @rigour-labs/cli@6.12.4 hooks stop --tool claude' }] }] } }));
         write('.mcp.json', JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@6'] } } }));
         expect(await version()).toMatchObject({ state: 'broken', detail: 'hooks run 6.12.4, the MCP server floats on @6; installed is 6.13.0', fix: 'rigour setup' });
+        // An old shell wrapper is called out even at the installed version.
+        write('.claude/settings.json', JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ command: `sh -c 'payload=$(cat); case "$payload" in *git*push*) printf "%s" "$payload" | npx --yes @rigour-labs/cli@6.13.0 hooks push --stdin ;; esac'` }] }] } }));
+        write('.mcp.json', JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@6.13.0'] } } }));
+        expect(await version()).toMatchObject({ state: 'broken', detail: 'hooks run through a shell wrapper PowerShell cannot run; installed is 6.13.0' });
     });
 
     it('finds the PR workflow and reports what is missing', async () => {

@@ -32,11 +32,12 @@ import {
     recordAgentWrites,
 } from '@rigour-labs/core';
 import type { HookCheckerResult } from '@rigour-labs/core';
-import { pushGateShell, rigourUserDir } from '@rigour-labs/core';
+import { rigourUserDir } from '@rigour-labs/core';
 import { groupFilesByRepo, recordEditCatches } from './hooks-check-repos.js';
 import { installGitPushHook } from './hooks-git.js';
 import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.js';
 import { agentHome, asUserLevel, installedAgents } from './personal.js';
+import { hookStdin } from './hook-input.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -187,7 +188,8 @@ const PUSH_HOOK_TIMEOUT_S = 1800;
 /** The push gate: same pinned CLI, `hooks push`. */
 function pushHookCommand(checker: CheckerCommandSpec): string {
     const args = checker.args[checker.args.length - 1] === 'check' ? [...checker.args.slice(0, -1), 'push'] : [...checker.args, 'push'];
-    return pushGateShell(checkerToShellCommand({ command: checker.command, args: [...args, '--stdin'] }));
+    // A plain command, which bash, PowerShell and cmd all run: the CLI passes every non-push command through itself.
+    return checkerToShellCommand({ command: checker.command, args: [...args, '--stdin'] });
 }
 
 function shellEscape(arg: string): string {
@@ -665,13 +667,6 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     });
 }
 
-async function readStdin(): Promise<string> {
-    const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) {
-        chunks.push(chunk as Buffer);
-    }
-    return Buffer.concat(chunks).toString('utf-8').trim();
-}
 
 export function parseStdinFiles(input: string): string[] {
     if (!input) {
@@ -771,7 +766,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
     // ── DLP Mode: Scan text for credentials ──────────────────
     if (options.mode === 'dlp') {
         let rawInput = options.stdin
-            ? await readStdin()
+            ? await hookStdin()
             : (options.files ?? ''); // Reuse files param as text in DLP mode
 
         if (!rawInput) {
@@ -873,7 +868,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
 
     let hookSession: string | undefined;
     if (options.stdin) {
-        rawStdin = await readStdin();
+        rawStdin = await hookStdin();
         // Detect Cursor/IDE hook payload format
         try {
             const payload = JSON.parse(rawStdin);

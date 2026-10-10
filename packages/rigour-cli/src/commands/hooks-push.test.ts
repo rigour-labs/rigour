@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -86,6 +86,10 @@ describe('rigour hooks push', () => {
 
     it('lets any other command, and a clean branch, through', async () => {
         expect(await push('npm test')).toEqual({ exitCode: 0, message: '' });
+        // As an agent runs it: a command that is not a push says nothing and exits 0, as the shell filter it replaced did.
+        const cli = path.resolve(__dirname, '../../dist/cli.js');
+        const ran = spawnSync(process.execPath, [cli, 'hooks', 'push', '--stdin'], { input: JSON.stringify({ cwd: repo, tool_input: { command: 'npm test' } }), encoding: 'utf8' });
+        expect(ran).toMatchObject({ status: 0, stdout: '', stderr: '' });
         write('src/util.ts', 'export const used = 2;\n');
         git('commit', '-qam', 'tweak');
         expect(await push()).toEqual({ exitCode: 0, message: '' });

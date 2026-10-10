@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { execFileSync } from 'child_process';
-import { generateHookFiles, pushCommandFor, pushGateShell, stopCommandFor } from './templates.js';
+import { generateHookFiles, pushCommandFor, stopCommandFor } from './templates.js';
 
 const CHECKER = 'npx @rigour-labs/cli@6.5.0 hooks check';
 
@@ -18,10 +17,9 @@ describe('hook templates', () => {
         expect(pushCommandFor('node ./my-checker.js')).toBeUndefined();
     });
 
-    it.skipIf(process.platform === 'win32')('starts the push gate only for a command that mentions git push', () => {
-        const run = (command: string) => execFileSync('sh', ['-c', pushGateShell('cat > /dev/null; echo gated; exit 2').replace(/^sh -c /, '').slice(1, -1)], { input: JSON.stringify({ tool_input: { command } }), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-        expect(run('npm test')).toBe('');
-        expect(() => run('git push -u origin main')).toThrow(); // the gate's exit 2 reaches the agent
+    it('writes the push gate as a plain command, which bash, PowerShell and cmd all run', () => {
+        const claude = JSON.parse(generateHookFiles('claude', CHECKER)[0].content);
+        expect(claude.hooks.PreToolUse[0].hooks[0].command).toBe('npx @rigour-labs/cli@6.5.0 hooks push --stdin'); // the CLI passes other commands through
     });
 
     it('adds no stop hook for a checker that is not the CLI', () => {

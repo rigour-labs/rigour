@@ -83,13 +83,12 @@ export function disableHere(cwd: string, withState: boolean): string[] {
 }
 
 /**
- * A hook command that runs only where Rigour is switched on. Claude Code gives hooks the project in
- * CLAUDE_PROJECT_DIR; the other agents run them in the workspace. Outside a repository, or in one
- * nobody switched on, it exits 0 before anything starts.
+ * A hook command that runs only where Rigour is switched on: the CLI's own `--if-enabled` (hook-input.ts) finds the
+ * project (CLAUDE_PROJECT_DIR, else the payload's cwd) and exits 0 silently elsewhere. A plain command, so it runs in
+ * whatever shell the agent uses: bash, or PowerShell on Windows without Git Bash, where a `sh -c` guard could not.
  */
 function guardCommand(command: string): string {
-    const inner = `cd "\${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null; d=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0; [ -f "$d/${MARKER}" ] || exit 0; exec ${command}`;
-    return `sh -c '${inner.replace(/'/g, `'\\''`)}'`;
+    return `${command} --if-enabled`;
 }
 
 /** The same guard for a Node hook script (Cline's): it answers `{}` and stops where Rigour is off. */

@@ -25,16 +25,11 @@ const STOP_HOOK_TIMEOUT_S = 120;
 const PUSH_HOOK_TIMEOUT_S = 1800;
 
 /**
- * The push gate for a Bash hook: a shell check passes every command that is not a git push straight
- * through, so the agent's other commands never wait for Rigour to start.
+ * The `rigour hooks push` command matching a `rigour hooks check` command, if the checker is the CLI. A plain command,
+ * which every shell runs; the CLI passes a command that is not a git push straight through.
  */
-export function pushGateShell(rigourPushCommand: string): string {
-    return `sh -c 'payload=$(cat); case "$payload" in *git*push*) printf "%s" "$payload" | ${rigourPushCommand.replace(/'/g, `'\\''`)} ;; esac'`;
-}
-
-/** The `rigour hooks push` command matching a `rigour hooks check` command, if the checker is the CLI. */
 export function pushCommandFor(checkerCommand: string): string | undefined {
-    return /\bhooks check$/.test(checkerCommand.trim()) ? pushGateShell(`${checkerCommand.trim().replace(/hooks check$/, 'hooks push')} --stdin`) : undefined;
+    return /\bhooks check$/.test(checkerCommand.trim()) ? `${checkerCommand.trim().replace(/hooks check$/, 'hooks push')} --stdin` : undefined;
 }
 
 /** The `rigour hooks stop` command matching a `rigour hooks check` command, if the checker is the CLI. */
