@@ -55,6 +55,8 @@ export interface TeamModeStatus {
 
 export interface TeamDoctorResult extends TeamModeStatus {
     schemaVersion?: number;
+    /** Whether the database can hold shared review decisions: `missing` until the administrator runs init-schema again. */
+    reviewDecisions?: 'ready' | 'missing';
     databaseRole?: string;
     permissions?: string[];
 }
@@ -229,6 +231,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
         const result = await pool.query(
             `SELECT current_user AS database_role,
                     (SELECT value::integer FROM rigour.meta WHERE key = 'schema_version') AS schema_version,
+                    (SELECT value::integer FROM rigour.meta WHERE key = 'review_decisions_version') AS review_decisions_version,
                     role
              FROM rigour.memberships
              WHERE db_role = current_user AND team_id = $1 AND actor_id = $2 AND organization_id = $3`,
@@ -238,6 +241,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
         const schemaVersion = Number(result.rows[0].schema_version);
         if (schemaVersion !== 1) return offline(`Incompatible team schema version ${schemaVersion}; expected 1.`);
         const semantic = resolved.semantic ? await getTeamSemanticHealth(pool, resolved) : undefined;
+        const reviewDecisions = Number(result.rows[0].review_decisions_version) === 1 ? 'ready' : 'missing';
         return {
             mode: 'team',
             connectivity: 'online',
@@ -249,7 +253,10 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
             databaseRole: String(result.rows[0].database_role),
             permissions: [String(result.rows[0].role)],
             semantic,
-            message: 'PostgreSQL team mode is healthy.',
+            reviewDecisions,
+            message: reviewDecisions === 'ready'
+                ? 'PostgreSQL team mode is healthy.'
+                : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.',
         };
     } catch (error) {
         return offline(explainTeamConnectionError(error));
