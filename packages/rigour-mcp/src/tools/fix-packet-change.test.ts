@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ConfigSchema } from '@rigour-labs/core';
+import { ConfigSchema, changeReview } from '@rigour-labs/core';
 import { handleCheck, handleGetFixPacket } from './quality-handlers.js';
 
 let repo: string;
@@ -26,14 +26,17 @@ afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
 describe("the agent's work order follows the rule that holds it", () => {
     it('lists the change\'s proven issue as must-fix, and nothing from the untouched file', async () => {
-        const config = ConfigSchema.parse({ version: 1 });
-        const packet = (await handleGetFixPacket(repo, config)).content[0].text;
+        // Fast and offline: no pull request lookup (gh), and one real change review shared by the packet and the check.
+        const config = ConfigSchema.parse({ version: 1, review: { goal: 'off' } });
+        const once = changeReview(repo, config);
+        const review = () => once;
+        const packet = (await handleGetFixPacket(repo, config, {}, review)).content[0].text;
         expect(packet).toContain('1 must fix (blocks you)');
         expect(packet).toMatch(/MUST FIX 1\/1: \[\w+\] .*\n.*hallucinated-imports/);
         expect(packet).toContain('WHERE: src/retry.ts:1');
         expect(packet).not.toContain('src/old.ts');
-        const check = (await handleCheck({ run: () => { throw new Error('no whole-repository scan'); } } as any, repo, {}, config)).content[0].text;
+        const check = (await handleCheck({ run: () => { throw new Error('no whole-repository scan'); } } as any, repo, {}, config, review)).content[0].text;
         expect(check).toContain('FAIL: 1 thing to fix in your change');
         expect(check).not.toContain('src/old.ts');
-    });
+    }, 30_000); // a real git repository and every gate: under a second here, past 5 s on a loaded macOS runner (run 38068392268)
 });
