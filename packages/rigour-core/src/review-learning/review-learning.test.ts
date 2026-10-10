@@ -8,8 +8,8 @@ import { learnFromReviews } from './learn-from-reviews.js';
 import { outcomeFor } from './outcomes.js';
 import { rulesFromReviews } from './rules-from-reviews.js';
 import { describeLesson, lessonView } from './team-lessons.js';
-import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
-import { lessonsForDiff, lessonsSection } from './team-lessons.js';
+import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, pendingDecision, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
+import { activeLessons, lessonsForDiff, lessonsSection } from './team-lessons.js';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
@@ -117,6 +117,7 @@ describe('lessons', () => {
         expect(lessonState(lesson(point(1, 'ann')))).toEqual({ state: 'candidate' });
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'ann')))).toEqual({ state: 'candidate' }); // two PRs, one author: weak, not enough
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob', 'bot')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // a bot's point counts the same
+        expect(lessonState(lesson(point(1, 'ann', 'bot', 'rabbit[bot]'), point(2, 'bob', 'bot', 'helper[bot]')))).toEqual({ state: 'candidate' }); // two bots agreeing, no person: never verified
         const said = (e: LessonEvidence, text: string): LessonEvidence => ({ ...e, text });
         expect(lessonState(lesson(said(point(1, 'ann', 'bot', 'helper[bot]'), 'Around line 60-103: update the callers.'), said(point(2, 'bob', 'bot', 'helper[bot]'), 'Around line 12-14: update the loader.')))).toEqual({ state: 'candidate' }); // a bot rewording its own point is one source
         expect(lessonState(lesson(said(point(1, 'ann', 'bot', 'helper[bot]'), 'Consider more tests.'), said(point(2, 'bob', 'bot', 'helper[bot]'), 'Consider more tests.')))).toEqual({ state: 'candidate' }); // one bot's template on every PR is one source
@@ -154,6 +155,38 @@ describe('lessons', () => {
         // A person promoting it again is final.
         decideLesson(repo, 'only-outcome', 'accepted', 'lead@x');
         expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
+    });
+
+    it('takes a lesson only review bots promoted back to a candidate, with why, and keeps one with a person\'s point verified', () => {
+        const point = (pr: number, prAuthor: string, reviewer: string, source: 'person' | 'bot'): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: reviewer, source, prAuthor });
+        const stored = (id: string, evidence: LessonEvidence[]): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', evidence, createdAt: '', updatedAt: '' });
+        writeLessons(repo, [
+            stored('bots', [point(1, 'ann', 'rabbit[bot]', 'bot'), point(2, 'bob', 'helper[bot]', 'bot')]),
+            stored('with-person', [point(1, 'ann', 'lead', 'person'), point(2, 'bob', 'helper[bot]', 'bot')]),
+        ]);
+        const [bots, withPerson] = readLessons(repo);
+        expect(bots).toMatchObject({ state: 'candidate', evidence: [{}, {}, { kind: 'reclassified', comment: 'reclassified-bots', detail: 'only review bots raised it (no person)' }] });
+        expect(bots.promotedBy).toBeUndefined();
+        expect(pendingDecision(bots)?.detail).toBe('only review bots raised it (no person)');
+        expect(withPerson).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
+        expect(withPerson.evidence.some(e => e.kind === 'reclassified')).toBe(false);
+        writeLessons(repo, readLessons(repo));
+        expect(readLessons(repo)[0].evidence.filter(e => e.kind === 'reclassified')).toHaveLength(1);
+        decideLesson(repo, 'bots', 'accepted', 'lead@x');
+        expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
+    });
+
+    it('never serves a candidate only review bots raised, even when a team serves candidates', () => {
+        const point = (source: 'person' | 'bot'): LessonEvidence => ({ kind: 'point', pr: 1, comment: `c-${source}`, author: source === 'bot' ? 'rabbit[bot]' : 'lead', source });
+        const candidate = (id: string, ...evidence: LessonEvidence[]): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'candidate', evidence, createdAt: '', updatedAt: '' });
+        const lessons = [candidate('bot-only', point('bot')), candidate('person', point('person')), candidate('both', point('bot'), point('person')), { ...candidate('standard', point('bot')), file: '', scope: 'repo' as const }];
+        const change = { files: ['src/a.ts'], symbols: new Set<string>() };
+        expect(matchLessons(lessons, change, { includeCandidates: true }).map(l => l.id).sort()).toEqual(['both', 'person']);
+        writeLessons(repo, lessons);
+        expect(activeLessons(repo, 'all').map(l => l.id).sort()).toEqual(['both', 'person']);
+        // Once a person accepts it, it is served like any lesson.
+        decideLesson(repo, 'bot-only', 'accepted', 'lead@x');
+        expect(activeLessons(repo, 'verified').map(l => l.id)).toEqual(['bot-only']);
     });
 
     it('records a person accepting or rejecting a lesson as evidence, with who and why', () => {
