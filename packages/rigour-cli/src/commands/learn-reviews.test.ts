@@ -4,7 +4,6 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readCompiledChecks, readLessons } from '@rigour-labs/core';
-import { NO_GIT_EMAIL } from './git-identity.js';
 import { learnReviewsCommand } from './learn-reviews.js';
 
 let repo: string;
@@ -38,7 +37,7 @@ describe('rigour learn-reviews --compile', () => {
         vi.spyOn(console, 'log').mockImplementation(() => undefined);
         await learnReviewsCommand(repo, { compile: true });
         await learnReviewsCommand(repo, { approveCheck: 'c-L1' });
-        expect(err.mock.calls.flat().join('\n')).toContain(NO_GIT_EMAIL);
+        expect(err.mock.calls.flat().join('\n')).toContain('no git email is set in this checkout (git config user.email)');
         expect(readCompiledChecks(repo)[0].state).toBe('proposed');
         process.exitCode = 0;
     });
@@ -48,7 +47,7 @@ describe('rigour learn-reviews --compile', () => {
         const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const before = readLessons(repo)[0].evidence.length;
         await learnReviewsCommand(repo, { reject: 'L1' });
-        expect(err.mock.calls.flat().join('\n')).toContain(NO_GIT_EMAIL);
+        expect(err.mock.calls.flat().join('\n')).toContain('no git email is set in this checkout (git config user.email)');
         expect(process.exitCode).toBe(1);
         expect(readLessons(repo)[0].evidence).toHaveLength(before);
         process.exitCode = 0;

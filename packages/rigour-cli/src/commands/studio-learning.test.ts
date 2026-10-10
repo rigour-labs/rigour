@@ -4,7 +4,6 @@ import os from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { decisionRows, personOf, readCompiledChecks, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
-import { NO_GIT_EMAIL } from './git-identity.js';
 import { buildLearning, decideCompiledCheckFromStudio, decideReviewLesson, proposeChecksFromStudio, readableFixLesson } from './studio-learning.js';
 
 const now = new Date('2026-10-09T12:00:00Z');
@@ -263,7 +262,7 @@ describe('a decision made in Studio is one the team sync sends', () => {
             const rows = decisionRows(readLessons(repo), { repositoryId: 'r', person: personOf(repo), salt: 's' });
             // With no git email, Studio refuses rather than record a decision as nobody, which would never sync.
             execFileSync('git', ['-C', repo, 'config', 'user.email', '']);
-            expect(() => decideReviewLesson(repo, { id: 'e1b2c3d4e5f6', decision: 'rejected' })).toThrow(NO_GIT_EMAIL);
+            expect(() => decideReviewLesson(repo, { id: 'e1b2c3d4e5f6', decision: 'rejected' })).toThrow('no git email is set in this checkout (git config user.email)');
             expect(readLessons(repo).find(l => l.id === 'e1b2c3d4e5f6')?.state).toBe('verified');
             expect(rows.map(r => [r.lessonId, r.kind]).sort()).toEqual([
                 ['e1b2c3d4e5f6', 'accepted'], ['e2b2c3d4e5f6', 'rejected'], ['e2b2c3d4e5f6', 'scoped'], ['e3b2c3d4e5f6', 'reworded'],
