@@ -98,6 +98,12 @@ export interface ReviewerResult {
     notes: OpenItem[];
     /** Should-fixes with a verified quote: shown, capped, never a block. */
     advisory: OpenItem[];
+    /** Review points (review.review_points): what to change though nothing breaks, quote verified, never a block, at most five. */
+    reviewPoints?: OpenItem[];
+    /** Review points past the cap: counted, not shown. */
+    reviewPointsHidden?: number;
+    /** Verified review points about code the change does not touch: counted, not shown. */
+    reviewPointsOutside?: number;
     /** Panel findings without a majority: shown, never a block, not carried to the next round. */
     disputed: OpenItem[];
     /** Panel findings refuted with evidence: logged, never a block. */
@@ -288,7 +294,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
     const coverageOn = config.review?.coverage !== false;
-    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([coverageOn, settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
+    const reviewPointsOn = config.review?.review_points !== false;
+    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([coverageOn, reviewPointsOn, settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
     if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
@@ -494,9 +501,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         // orchestrator splits the change across passes, so it is reviewed without it.
         const offered = coverageOn && !orchestrate ? changedUnits(cwd, deltaDiff ?? fullDiff) : undefined;
         const units: ChangedUnit[] = offered?.units ?? [];
+        prior.units = units;
         const unitsFile = units.length ? file('changed-units.txt', unitsText(units, offered!.total - units.length)) : undefined;
         if (unitsFile) inlineInputs.push({ path: unitsFile, text: unitsText(units, offered!.total - units.length) });
-        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}), ...(unitsFile ? { coverageBlock: coverageStep(unitsFile) } : {}) });
+        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}), ...(unitsFile ? { coverageBlock: coverageStep(unitsFile) } : {}), reviewPoints: reviewPointsOn });
         progress(`Rigour reviewer: reviewing ${head.slice(0, 9)} against ${base} (${scope}: ${why}; ${reviews.count} human review(s), written by ${[...authors].join(', ') || 'a person'}) with ${reviewers.join(', ')}`);
         const started = Date.now();
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
@@ -608,9 +616,11 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             clearInterval(ticker);
         }
         // One part too: every item is tagged with who found it. No part (nothing for a model to review): an empty verdict.
+        // Review points off: a judge that raised one anyway is not heard.
+        if (!reviewPointsOn) for (const part of parts) part.findings = part.findings.filter(f => f.class !== 'review');
         const merged: Verdict = parts.length ? mergeVerdicts(parts) : { prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [], reviewers: [] };
         // A "finding" entry counts only for a finding that survives the same validation as everything shown (quote at the line).
-        const survivors = (v: Verdict) => { const a = account(v, previousOpen, verify, prior); return [...a.open, ...a.advisory, ...a.notes].filter(i => i.kind === 'finding'); };
+        const survivors = (v: Verdict) => { const a = account(v, previousOpen, verify, prior); return [...a.open, ...a.advisory, ...a.notes, ...(a.reviewPoints ?? [])].filter(i => i.kind === 'finding'); };
         if (units.length) merged.coverage = await accountForUnits(merged, units, offered!.total - units.length, survivors, async missing => {
             // One follow-up run for the units the answer left out, inside the caps; what it finds counts like any finding.
             if (overBudget(store.spend(), settings, 1)) return undefined;
@@ -780,6 +790,9 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         answerInReply: accounted.answerInReply,
         notes: accounted.notes,
         advisory: accounted.advisory,
+        reviewPoints: accounted.reviewPoints ?? [],
+        reviewPointsHidden: accounted.reviewPointsHidden ?? 0,
+        reviewPointsOutside: accounted.reviewPointsOutside ?? 0,
         disputed: accounted.disputed,
         dropped: accounted.dropped,
         dismissed: accounted.dismissed,
