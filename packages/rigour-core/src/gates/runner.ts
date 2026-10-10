@@ -101,7 +101,7 @@ export class GateRunner {
         }
 
         if (this.config.gates.frontend_secret_exposure?.enabled !== false) {
-            this.gates.push(new FrontendSecretExposureGate(this.config.gates.frontend_secret_exposure));
+            this.gates.push(new FrontendSecretExposureGate({ ...this.config.gates.frontend_secret_exposure, security_block: this.config.gates.security?.block }));
         }
 
         // v2.16+ AI-Native Drift Detection Gates (enabled by default)

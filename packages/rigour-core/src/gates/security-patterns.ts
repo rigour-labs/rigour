@@ -58,7 +58,7 @@ export interface SecurityPatternsConfig {
  * `AKIAIOSFODNN7EXAMPLE` (an AWS key ending in EXAMPLE), or a Stripe live key of all x's or 0's or spelling out
  * "your". A proven pattern never fires on one.
  */
-function isDocumentedExampleKey(match: string): boolean {
+export function isDocumentedExampleKey(match: string): boolean {
     // Each exclusion is scoped to its own key shape: a random token (ghp_, sk-) can contain "your" by chance.
     return /^AKIA[0-9A-Z]*EXAMPLE$/.test(match) || /^(?:sk|rk)_live_(?:x+|0+)$/i.test(match) || /^(?:sk|rk)_live_\w*your/i.test(match);
 }
