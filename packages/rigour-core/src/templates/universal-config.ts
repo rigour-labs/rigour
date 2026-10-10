@@ -226,12 +226,14 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         query_patterns: {
             enabled: true,
+            block: false,
         },
         optional_params: {
             enabled: true,
         },
         change_sweep: {
             enabled: true,
+            block: false,
         },
         redundancy: {
             enabled: true,
@@ -240,6 +242,7 @@ export const UNIVERSAL_CONFIG: Config = {
         },
         duplicate_functions: {
             enabled: true,
+            block: false,
         },
         migration_order: {
             enabled: false,

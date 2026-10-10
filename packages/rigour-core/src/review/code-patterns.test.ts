@@ -12,6 +12,7 @@ import { partialFixFailures } from './partial-fixes.js';
 import { partialWiringFailures } from './partial-wiring.js';
 import { optionalParamFailures } from './optional-params.js';
 import { queryPatternFailures } from './query-patterns.js';
+import { reviewChange } from './review.js';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
@@ -33,6 +34,26 @@ beforeEach(() => {
     git('commit', '-qm', 'init');
 });
 afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+
+describe('checks learned from review history', () => {
+    it('show their findings as notes by default, and block only when the team opts in', async () => {
+        write('src/sweep.ts', [
+            'export async function sweep(db: any) {',
+            '  for (let from = 0; ; from += 500) {',
+            "    const { data } = await db.from('rows').select('id').order('id').range(from, from + 499);",
+            '    if (!data?.length) return;',
+            '  }',
+            '}',
+        ].join('\n'));
+        const quiet = { unused_exports: { enabled: false }, orphan_files: { enabled: false } };
+        const byDefault = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1, gates: quiet }) });
+        expect(byDefault.findings.map(f => f.id)).not.toContain('offset-paging');
+        expect(byDefault.advisory.find(f => f.id === 'offset-paging')).toMatchObject({ certainty: 'likely' });
+        const opted = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1, gates: { ...quiet, query_patterns: { block: true } } }) });
+        expect(opted.findings.find(f => f.id === 'offset-paging')).toMatchObject({ certainty: 'proven' });
+        expect(opted.status).toBe('FAIL');
+    }, 30_000);
+});
 
 describe('query patterns', () => {
     it('reports offset paging in a loop and in a pager callback, not a single page a request asks for', () => {
