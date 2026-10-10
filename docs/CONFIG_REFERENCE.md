@@ -484,7 +484,7 @@ Reports calls to methods that do not exist on known standard-library modules in 
 
 Reports use of deprecated or removed standard-library and web APIs, with security-deprecated ones reported separately at a higher severity. Teams turn off a language or decide whether security deprecations block.
 
-**Blocks:** Blocks on security-deprecated APIs when block_security_deprecated is on; otherwise advisory
+**Blocks:** A note by default; blocks on security-deprecated APIs only when block_security_deprecated is on
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
@@ -495,7 +495,7 @@ Reports use of deprecated or removed standard-library and web APIs, with securit
 | `check_go` | boolean | `true` | Includes Go files, checked against deprecated Go standard-library APIs. |
 | `check_csharp` | boolean | `true` | Includes C# files, checked against deprecated .NET APIs. |
 | `check_java` | boolean | `true` | Includes Java files, checked against deprecated JDK APIs. |
-| `block_security_deprecated` | boolean | `true` | Reports APIs deprecated for security reasons as critical, which blocks; when off they are reported as high and are advisory. |
+| `block_security_deprecated` | boolean | `false` | Off by default: APIs deprecated for security reasons are shown as notes, since deprecated is not always vulnerable (md5 for a cache key, shell=True with a constant). On: they are reported as critical and block. |
 | `ignore_patterns` | list of string | `[]` | Regular expressions matched against file paths; matching files are not scanned by this check. |
 
 ## Weak tests
@@ -741,7 +741,7 @@ Runs type-aware rules on JavaScript and TypeScript that trace a value from where
 
 Reports timers never cleared, spawned processes without lifecycle handling, I/O loops with no exit, retries without a limit, file watchers that trigger themselves, resource leaks, unbounded recursion and auto-restart loops. Teams switch off individual patterns or exclude files.
 
-**Blocks:** Blocks on critical patterns (unbounded I/O loops, circular triggers, auto-restart); others advisory
+**Blocks:** Notes by default; with block: true the critical patterns (unbounded I/O loops, circular triggers, auto-restart) block
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
@@ -754,6 +754,7 @@ Reports timers never cleared, spawned processes without lifecycle handling, I/O 
 | `check_retry_without_limit` | boolean | `true` | Reports retry loops that catch an error and try again with no attempt limit. |
 | `check_circular_triggers` | boolean | `true` | Reports file watchers that write to a path they are watching. |
 | `check_auto_restart` | boolean | `true` | Reports code that restarts a process on exit with no limit. |
+| `block` | boolean | `false` | Off by default: every finding is a note, since servers, consumers and daemons loop forever by design and a limit set elsewhere is not seen. On: the critical patterns (unbounded I/O loop, circular trigger, auto-restart) block. |
 | `ignore_patterns` | list of string | `[]` | Regular expressions matched against file paths; matching files are not scanned by this check. |
 
 ## Style drift from project conventions

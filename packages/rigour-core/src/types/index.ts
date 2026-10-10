@@ -176,7 +176,7 @@ export const GatesSchema = z.object({
         check_go: z.boolean().optional().default(true),
         check_csharp: z.boolean().optional().default(true),
         check_java: z.boolean().optional().default(true),
-        block_security_deprecated: z.boolean().optional().default(true),
+        block_security_deprecated: z.boolean().optional().default(false),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
     test_quality: z.object({
@@ -309,6 +309,8 @@ export const GatesSchema = z.object({
         check_retry_without_limit: z.boolean().optional().default(true),
         check_circular_triggers: z.boolean().optional().default(true),
         check_auto_restart: z.boolean().optional().default(true),
+        /** Opt in: the critical rules (unbounded I/O loop, circular trigger, restart bomb) block. By default every finding is a note. */
+        block: z.boolean().optional().default(false),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
     // v5.1+ Style Drift Detection

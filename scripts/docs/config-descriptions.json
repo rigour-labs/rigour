@@ -98,7 +98,7 @@
         "gates.deprecated_apis": {
             "title": "Deprecated and insecure APIs",
             "summary": "Reports use of deprecated or removed standard-library and web APIs, with security-deprecated ones reported separately at a higher severity. Teams turn off a language or decide whether security deprecations block.",
-            "blocks": "Blocks on security-deprecated APIs when block_security_deprecated is on; otherwise advisory"
+            "blocks": "A note by default; blocks on security-deprecated APIs only when block_security_deprecated is on"
         },
         "gates.test_quality": {
             "title": "Weak tests",
@@ -173,7 +173,7 @@
         "gates.side_effect_analysis": {
             "title": "Runaway side effects",
             "summary": "Reports timers never cleared, spawned processes without lifecycle handling, I/O loops with no exit, retries without a limit, file watchers that trigger themselves, resource leaks, unbounded recursion and auto-restart loops. Teams switch off individual patterns or exclude files.",
-            "blocks": "Blocks on critical patterns (unbounded I/O loops, circular triggers, auto-restart); others advisory"
+            "blocks": "Notes by default; with block: true the critical patterns (unbounded I/O loops, circular triggers, auto-restart) block"
         },
         "gates.style_drift": {
             "title": "Style drift from project conventions",
@@ -317,7 +317,7 @@
         "gates.deprecated_apis.check_go": "Includes Go files, checked against deprecated Go standard-library APIs.",
         "gates.deprecated_apis.check_csharp": "Includes C# files, checked against deprecated .NET APIs.",
         "gates.deprecated_apis.check_java": "Includes Java files, checked against deprecated JDK APIs.",
-        "gates.deprecated_apis.block_security_deprecated": "Reports APIs deprecated for security reasons as critical, which blocks; when off they are reported as high and are advisory.",
+        "gates.deprecated_apis.block_security_deprecated": "Off by default: APIs deprecated for security reasons are shown as notes, since deprecated is not always vulnerable (md5 for a cache key, shell=True with a constant). On: they are reported as critical and block.",
         "gates.deprecated_apis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
         "gates.test_quality.enabled": "Turns the weak-test check on or off.",
         "gates.test_quality.check_empty_tests": "Reports tests with an empty body or with code but no assertion.",
@@ -356,6 +356,7 @@
         "gates.semantic_bugs.enabled": "Turns the proven semantic-bug rules on or off.",
         "gates.semantic_bugs.rules": "Rule ids to run, including opt-in candidate rules and learned rules as learned/<id>; when set, only the named rules run, and when unset the default rules plus the repository's learned rules run.",
         "gates.side_effect_analysis.enabled": "Turns the runaway side-effect check on or off.",
+        "gates.side_effect_analysis.block": "Off by default: every finding is a note, since servers, consumers and daemons loop forever by design and a limit set elsewhere is not seen. On: the critical patterns (unbounded I/O loop, circular trigger, auto-restart) block.",
         "gates.side_effect_analysis.check_unbounded_timers": "Reports interval timers that are never cleared.",
         "gates.side_effect_analysis.check_unbounded_loops": "Reports loops that perform I/O with no exit condition or delay.",
         "gates.side_effect_analysis.check_process_lifecycle": "Reports spawned child processes with no exit handling, wait or kill.",

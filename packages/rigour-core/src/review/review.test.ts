@@ -106,7 +106,8 @@ describe('git-backed review', () => {
         git('add', '-A');
         git('commit', '-qm', 'init');
         write('src/buf.ts', 'export const a = new Buffer(1);\n\nexport const keep = 1;\nexport const b = new Buffer(2);\n');
-        const result = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1, gates: NO_DEAD_CODE }) });
+        // The team opted in to blocking on security-deprecated APIs (a note by default).
+        const result = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1, gates: { ...NO_DEAD_CODE, deprecated_apis: { block_security_deprecated: true } } }) });
         const deprecated = result.findings.filter(f => f.id === 'deprecated-apis');
         expect(deprecated).toEqual([expect.objectContaining({ line: 1, anchorLine: 4 })]);
         expect(result.status).toBe('FAIL');

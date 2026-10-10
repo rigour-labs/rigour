@@ -156,7 +156,7 @@ export const UNIVERSAL_CONFIG: Config = {
             check_go: true,
             check_csharp: true,
             check_java: true,
-            block_security_deprecated: true,
+            block_security_deprecated: false,
             ignore_patterns: [],
         },
         test_quality: {
@@ -259,6 +259,7 @@ export const UNIVERSAL_CONFIG: Config = {
             check_retry_without_limit: true,
             check_circular_triggers: true,
             check_auto_restart: true,
+            block: false,
             ignore_patterns: [],
         },
         deep: {

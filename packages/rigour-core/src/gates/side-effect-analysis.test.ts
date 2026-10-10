@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SideEffectAnalysisGate } from './side-effect-analysis/index.js';
+import { mustFix } from '../review/quiet.js';
 
 describe('SideEffectAnalysisGate', () => {
     let cwd: string;
@@ -15,6 +16,23 @@ describe('SideEffectAnalysisGate', () => {
         const failures = await new SideEffectAnalysisGate().run({ cwd });
         return failures.map(f => f.title);
     }
+
+    describe('what blocks', () => {
+        it('reports a critical pattern as a note by default, and blocks on it only when the team opts in', async () => {
+            fs.writeFileSync(path.join(cwd, 'worker.js'), [
+                "const fs = require('fs');",
+                'while (true) {',
+                "    fs.appendFileSync('log.txt', 'tick');",
+                '}',
+            ].join('\n'));
+            const loop = (await new SideEffectAnalysisGate().run({ cwd })).find(f => f.severity === 'critical');
+            expect(loop).toMatchObject({ certainty: 'likely' });
+            expect(mustFix(loop!)).toBe(false);
+            const opted = (await new SideEffectAnalysisGate({ block: true }).run({ cwd })).find(f => f.severity === 'critical');
+            expect(opted).toMatchObject({ certainty: 'proven' });
+            expect(mustFix(opted!)).toBe(true);
+        });
+    });
 
     describe('recursion', () => {
         it('ends an expression-bodied arrow at its expression, not at the next block', async () => {

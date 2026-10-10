@@ -19,6 +19,7 @@ vi.mock('fs-extra', () => ({
 }));
 
 import { DeprecatedApisGate } from './deprecated-apis.js';
+import { mustFix } from '../review/quiet.js';
 
 describe('DeprecatedApisGate — a call written in a string or a comment', () => {
     beforeEach(() => { vi.clearAllMocks(); });
@@ -52,8 +53,21 @@ const buf2 = new Buffer('hello');
         expect(failures.length).toBeGreaterThanOrEqual(1);
         const secFail = failures.find(f => f.title === 'Security-Deprecated APIs');
         expect(secFail).toBeDefined();
-        expect(secFail!.severity).toBe('critical');
+        // Deprecated is not always vulnerable: by default a note (likely), never a block.
+        expect(secFail).toMatchObject({ severity: 'high', certainty: 'likely' });
+        expect(mustFix(secFail!)).toBe(false);
         expect(secFail!.details).toContain('Buffer');
+
+        // The team's opt-in wins: critical, proven, and it blocks.
+        const opted = (await new DeprecatedApisGate({ block_security_deprecated: true }).run({ cwd: '/project' })).find(f => f.title === 'Security-Deprecated APIs');
+        expect(opted).toMatchObject({ severity: 'critical', certainty: 'proven' });
+        expect(mustFix(opted!)).toBe(true);
+    });
+
+    it('leaves Python and Go test files out', async () => {
+        mockFindFiles.mockResolvedValue([]);
+        await gate.run({ cwd: '/project' });
+        expect(mockFindFiles.mock.calls[0][0].ignore).toEqual(expect.arrayContaining(['**/test_*.py', '**/*_test.py', '**/conftest.py', '**/tests/**', '**/*_test.go']));
     });
 
     it('should flag crypto.createCipher as security-critical', async () => {

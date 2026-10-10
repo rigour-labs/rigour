@@ -47,7 +47,7 @@ export interface DeprecatedApisConfig {
     check_go?: boolean;
     check_csharp?: boolean;
     check_java?: boolean;
-    block_security_deprecated?: boolean;  // Treat security-deprecated as critical
+    block_security_deprecated?: boolean;  // Opt in: security-deprecated is critical and blocks (default: high, a note)
     ignore_patterns?: string[];
 }
 
@@ -64,7 +64,7 @@ export class DeprecatedApisGate extends Gate {
             check_go: config.check_go ?? true,
             check_csharp: config.check_csharp ?? true,
             check_java: config.check_java ?? true,
-            block_security_deprecated: config.block_security_deprecated ?? true,
+            block_security_deprecated: config.block_security_deprecated ?? false,
             ignore_patterns: config.ignore_patterns ?? [],
         };
     }
@@ -84,6 +84,8 @@ export class DeprecatedApisGate extends Gate {
             patterns: scanPatterns,
             ignore: [...(context.ignore || []), '**/node_modules/**', '**/dist/**', '**/build/**',
                 '**/*.test.*', '**/*.spec.*', '**/__tests__/**',
+                // Python and Go tests: a deprecated call there is the test's business, not shipped code.
+                '**/test_*.py', '**/*_test.py', '**/conftest.py', '**/tests/**', '**/*_test.go',
                 '**/.venv/**', '**/venv/**', '**/vendor/**', '**/__pycache__/**',
                 '**/bin/Debug/**', '**/bin/Release/**', '**/obj/**',
                 '**/target/**', '**/.gradle/**', '**/out/**'],
@@ -158,7 +160,10 @@ export class DeprecatedApisGate extends Gate {
                     securityUsages[0].line,
                     undefined,
                     this.config.block_security_deprecated ? 'critical' : 'high'
-                ), lines: securityUsages.map(item => item.line) });
+                ), lines: securityUsages.map(item => item.line),
+                // Deprecated is not vulnerable (md5 for a cache key, shell=True with a constant): likely, shown, never a
+                // block, unless the team opts in, and then its own choice makes it a block.
+                certainty: this.config.block_security_deprecated ? 'proven' : 'likely' });
             }
 
             if (otherUsages.length > 0) {
