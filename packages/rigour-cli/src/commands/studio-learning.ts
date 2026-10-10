@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, lastDecision, readTeamDecisionCache, type TeamDecisionCache, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { decider } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
@@ -39,6 +39,15 @@ export interface LessonJourney {
     reach?: { scope: 'file' | 'folder' | 'repo'; hasFile: boolean };
     /** A candidate only review bots raised, nothing waiting on a person (core quietBotCandidate): hidden until a person asks to see bot points. */
     fromBots?: true;
+    /**
+     * Teammates' decisions on a review lesson, received from the team database (core team-decisions.ts): each with the
+     * teammate's display name and when the team database got it; and, when a later team decision settled the lesson
+     * against this person's own, both, with why this machine does not share theirs (`yoursOnly`) when it does not.
+     */
+    team?: {
+        decisions: Array<{ kind: string; name: string; at: string; detail?: string }>;
+        overruled?: { yours: string; team: { kind: string; name: string; at: string }; yoursOnly?: string };
+    };
 }
 
 export interface StudioLearning {
@@ -116,6 +125,18 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
     return { lessons, weeks, prRecorded };
 }
 
+/** A review lesson's team decisions for Studio, and whether a later one settled it against this person's own. */
+function teamOn(lesson: ReviewLesson, sharing: TeamDecisionCache['sharing'] | undefined): Pick<LessonJourney, 'team'> {
+    const decisions = lesson.evidence.filter(e => e.team).map(e => ({ kind: e.kind ?? 'point', name: e.team!.name, at: e.team!.receivedAt, ...(e.detail ? { detail: e.detail } : {}) }));
+    if (decisions.length === 0) return {};
+    const settled = lastDecision(lesson);
+    const yours = lesson.evidence.filter(e => !e.team && e.author && (e.kind === 'accepted' || e.kind === 'rejected')).at(-1);
+    const overruled = settled?.team && yours?.kind && yours.kind !== settled.kind
+        ? { yours: yours.kind, team: { kind: settled.kind ?? 'accepted', name: settled.team.name, at: settled.team.receivedAt }, ...(sharing && !sharing.shares && sharing.reason ? { yoursOnly: sharing.reason } : {}) }
+        : undefined;
+    return { team: { decisions, ...(overruled ? { overruled } : {}) } };
+}
+
 function learnedFromPoints(points: ReviewLesson['evidence']): string {
     const authors = [...new Set(points.map(e => e.author).filter(Boolean))];
     return `At PR ${[...new Set(points.map(e => `#${e.pr}`))].join(', ')}${authors.length ? `, from ${authors.join(', ')}` : ''}`;
@@ -190,10 +211,14 @@ export function proposeChecksFromStudio(cwd: string): { proposed: number } {
 
 export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS): Promise<StudioLearning> {
     const roots = checkoutRoots(cwd);
-    const learning = buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons: readLessons(cwd), stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
+    const reviewLessons = readLessons(cwd);
+    const built = buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons, stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
+    // Teammates' decisions (team database), with why this machine does not share its person's when it does not.
+    const sharing = readTeamDecisionCache(cwd)?.sharing;
+    const byId = new Map(reviewLessons.map(l => [l.id, l]));
+    const learning = { ...built, lessons: built.lessons.map(j => (byId.has(j.id) ? { ...j, ...teamOn(byId.get(j.id)!, sharing) } : j)) };
     const outcomes = localOutcomeMetrics(cwd);
-    const lessons = new Map(readLessons(cwd).map(l => [l.id, l]));
-    const withChecks = { ...learning, compiled: readCompiledChecks(cwd).map(c => ({ ...c, ...(suspension(c, lessons) ? { suspended: suspension(c, lessons) } : {}) })) };
+    const withChecks = { ...learning, compiled: readCompiledChecks(cwd).map(c => ({ ...c, ...(suspension(c, byId) ? { suspended: suspension(c, byId) } : {}) })) };
     return outcomes ? { ...withChecks, outcomes } : withChecks;
 }
 

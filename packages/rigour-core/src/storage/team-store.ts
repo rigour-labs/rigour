@@ -8,7 +8,7 @@ import { diagnoseMissingMembership, explainTeamConnectionError } from './team-di
 import { rigourUserDir } from '../utils/user-state.js';
 import { withheldReason } from './team-scope.js';
 import { getRepositoryId, originOf } from './repository-origin.js';
-import { syncReviewDecisions, type DecisionSync } from './team-review-decisions.js';
+import { previewReviewDecisions, syncReviewDecisions, type DecisionPreview, type DecisionSync } from './team-review-decisions.js';
 import { personOf } from '../utils/person.js';
 import {
     TEAM_VECTOR_SCHEMA,
@@ -258,7 +258,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
             semantic,
             reviewDecisions,
             message: reviewDecisions === 'ready'
-                ? 'PostgreSQL team mode is healthy.'
+                ? 'PostgreSQL team mode is healthy. A clone receives the team\'s decisions on review lessons at its first sync (`rigour team sync`, or the next Rigour tool call).'
                 : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.',
         };
     } catch (error) {
@@ -291,7 +291,7 @@ function refusedRow(error: unknown): boolean {
     return typeof code === 'string' && (code === '42501' || code.startsWith('23'));
 }
 
-export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string }): Promise<{ pending: number; withheld: number; synced: number; pulled: number; decisions?: DecisionSync }> {
+export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string }): Promise<{ pending: number; withheld: number; synced: number; pulled: number; decisions?: DecisionSync | DecisionPreview }> {
     const config = await loadTeamConfiguration();
     if (!config?.databaseUrl) throw new Error('Team mode is not configured.');
     const db = await openDatabase();
@@ -301,7 +301,8 @@ export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string })
             `SELECT * FROM sync_outbox WHERE synced_at IS NULL ORDER BY created_at ASC LIMIT 200`,
         );
         const { sendable: pending, held } = await splitOutbox(db, queued, config);
-        if (options.dryRun) return { pending: pending.length, withheld: held.length, synced: 0, pulled: 0 };
+        const decisionInput = { cwd: options.cwd, origin: await originOf(options.cwd), repositoryId: await getRepositoryId(options.cwd), person: personOf(options.cwd), scope: config };
+        if (options.dryRun) return { pending: pending.length, withheld: held.length, synced: 0, pulled: 0, decisions: await previewReviewDecisions(db, decisionInput) };
         for (const item of held) {
             await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = ? WHERE id = ?', Date.now(), `not sent: ${item.reason}`, item.id);
         }
@@ -363,10 +364,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string })
                 }
             }
             // The repository this sync runs in: its person's decisions on review lessons out, the team's in (team-review-decisions.ts).
-            decisions = await syncReviewDecisions(pool, db, {
-                cwd: options.cwd, origin: await originOf(options.cwd), repositoryId: await getRepositoryId(options.cwd),
-                person: personOf(options.cwd), scope: config,
-            });
+            decisions = await syncReviewDecisions(pool, db, decisionInput);
             // Only what changed since the last pull, less a margin: updated_at comes from each member's clock, and
             // re-reading a few minutes is harmless (the local write is an upsert) where a skewed clock would lose a lesson.
             const mark = `team_pulled:${config.organizationId}/${config.teamId}/${config.actorId}`;

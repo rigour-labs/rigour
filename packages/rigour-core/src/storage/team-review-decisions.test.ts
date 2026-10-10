@@ -7,7 +7,7 @@ import type { ReviewLesson } from '../review-learning/lessons.js';
 import { readLessons } from '../review-learning/lessons.js';
 import { readTeamDecisionCache } from '../review-learning/team-decisions.js';
 import { repositoryIdSync } from './repository-origin.js';
-import { decisionRows, syncReviewDecisions, type DecisionCache, type DecisionPool } from './team-review-decisions.js';
+import { decisionRows, previewReviewDecisions, syncReviewDecisions, type DecisionCache, type DecisionPool } from './team-review-decisions.js';
 
 const ME = 'lead@example.com';
 const lesson = (extra: Partial<ReviewLesson> = {}): ReviewLesson => ({
@@ -189,6 +189,21 @@ describe('the review decisions sync', () => {
         await syncReviewDecisions(f.pool, f.cache, input());
         const adopted = readLessons(repo).find(l => l.id === 'ffffffffffff')!;
         expect(adopted).toMatchObject({ text: 'Close every cursor in a finally block.', file: 'src/orders/write.ts', state: 'verified' });
+    });
+
+    it('a dry run says what the first sync sends, and which decisions in the store stay because someone else made them', async () => {
+        const evidence = [
+            ...lesson().evidence,
+            { kind: 'rejected' as const, pr: 7, comment: 'rejected-x', author: 'teammate@example.com', at: '2026-01-03T00:00:00Z' },
+            { kind: 'dismissed' as const, pr: 7, comment: 'dismissed-x', author: 'unknown', at: '2026-01-04T00:00:00Z' },
+        ];
+        fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [lesson({ evidence })] }));
+        const f = fakes();
+        expect(await previewReviewDecisions(f.cache, input())).toEqual({ yours: 1, notYours: { 'teammate@example.com': 1, 'no git email': 1 } });
+        expect(f.remote).toHaveLength(0); // a dry run sends nothing
+        await syncReviewDecisions(f.pool, f.cache, input());
+        expect((await previewReviewDecisions(f.cache, input())).yours).toBe(0);
+        expect((await previewReviewDecisions(f.cache, input({ origin: 'https://github.com/other/api' }))).held).toMatch(/not one of the team's repositories/);
     });
 
     it('sets a refused row aside with its reason and does not stop; anything else stops and keeps the decision', async () => {
