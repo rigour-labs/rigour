@@ -716,17 +716,19 @@ export function parseStdinFiles(input: string): string[] {
     }
 }
 
+/** Cursor's own hook event names. Claude Code sends hook_event_name too (PreToolUse, PostToolUse, Stop, ...). */
+const CURSOR_EVENTS = new Set([
+    'beforeSubmitPrompt', 'beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'beforeTabFileRead',
+    'afterFileEdit', 'afterTabFileEdit', 'afterShellExecution', 'afterMCPExecution', 'afterAgentResponse', 'afterAgentThought', 'stop',
+]);
+
 /**
- * Detect if stdin payload is from a Cursor hook (has hook_event_name or prompt field).
- * Cursor hooks send structured JSON with specific fields and expect
- * { continue: boolean, user_message?: string } back.
+ * Whether a stdin payload is from a Cursor hook, which expects { continue, user_message? } back. Known by Cursor's own
+ * event names, never by the field being there: Claude Code's payloads carry hook_event_name as well, and read as
+ * Cursor's they were scanned for a prompt they do not have (nothing checked). An unknown event is not Cursor's.
  */
 function isCursorHookPayload(payload: any): boolean {
-    return payload && (
-        typeof payload.hook_event_name === 'string' ||
-        typeof payload.prompt === 'string' ||
-        typeof payload.conversation_id === 'string'
-    );
+    return !!payload && typeof payload.hook_event_name === 'string' && CURSOR_EVENTS.has(payload.hook_event_name);
 }
 
 /**
