@@ -45,7 +45,7 @@ import { judgeUnset } from './reviewer/judge-env.js';
 import { appendTaskEvent } from '../task/thread.js';
 import type { CoveredLesson } from './settled-checks.js';
 
-export { defaultExec, githubEnv, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
+export { defaultExec, githubEnv, githubReader, githubToken, parseJsonArrays, type Exec, type Progress } from './reviewer/exec.js';
 export { itemLine, type OpenItem } from './reviewer/verdict.js';
 
 export type ReviewerOutcome = 'passed' | 'findings' | 'unavailable' | 'skipped';

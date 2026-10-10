@@ -21,6 +21,8 @@ type Fetch = (url: string, init?: any) => Promise<{ ok: boolean; status: number;
 
 export interface LearnFromReviewsOptions {
     token: string;
+    /** Who the token reads as, for an error message (githubReader): an account, or where the token came from. Never the token. */
+    readAs?: string;
     /** owner/name */
     repo: string;
     /** Only PRs merged on or after this ISO date. */
@@ -129,12 +131,21 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
     };
 }
 
+/**
+ * Why a GitHub read failed. With several accounts, 401, 403 and 404 most often mean this account cannot see the
+ * repository, not that it is the wrong one: say which account read it, and how to name another. Never the token.
+ */
+function cannotRead(options: LearnFromReviewsOptions, status: number, path: string): string {
+    if (status !== 401 && status !== 403 && status !== 404) return `GitHub ${path}: HTTP ${status}`;
+    return `can't read ${options.repo} as ${options.readAs ?? 'this token'} (HTTP ${status}): the account may not have access; name another with review.github_account / RIGOUR_GITHUB_ACCOUNT, or check gh auth status. Asked for ${path}.`;
+}
+
 async function mergedPrs(options: LearnFromReviewsOptions): Promise<MergedPr[]> {
     const fetchImpl = options.fetch ?? (fetch as unknown as Fetch);
     const base = `${(options.apiUrl || 'https://api.github.com').replace(/\/$/, '')}/repos/${options.repo}`;
     const get = async (url: string) => {
         const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${options.token}`, Accept: 'application/vnd.github+json' } });
-        if (!response.ok) throw new Error(`GitHub ${url.replace(base, '')}: HTTP ${response.status}`);
+        if (!response.ok) throw new Error(cannotRead(options, response.status, url.replace(base, '')));
         return response.json();
     };
     if (options.pr !== undefined) return [await onePr(options, base, get)];

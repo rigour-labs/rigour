@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, pendingDecision, quietBotCandidate, readLessons, type LessonEvidence, type ReviewLesson, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubReader, learnFromReviews, lessonsPath, pendingDecision, quietBotCandidate, readLessons, type LessonEvidence, type ReviewLesson, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -54,7 +54,7 @@ export async function learnReviewsCommand(cwd: string, options: LearnReviewsOpti
         const writeRules = options.rules ? await ruleWriterFor(cwd, config, defaultExec, line => console.error(chalk.yellow(line))) : undefined;
         if (options.rules && !writeRules) throw new Error('--rules needs a reviewer CLI (claude, codex or cursor-agent) installed, as named in review.reviewer.reviewers.');
         const result = await learnFromReviews(cwd, {
-            token: await githubToken(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT, defaultExec), repo: originRepo(cwd), since: options.since, until: options.until,
+            ...await reader(cwd, config.review?.github_account ?? process.env.RIGOUR_GITHUB_ACCOUNT), repo: originRepo(cwd), since: options.since, until: options.until,
             limit: options.limit ? Number(options.limit) : undefined, mainRef: branchBase(cwd)?.mainRef, writeRules, ...(options.pr ? { pr: Number(options.pr) } : {}), apiUrl: process.env.GITHUB_API_URL,
         });
         if (options.json) return void console.log(JSON.stringify(result, null, 2));
@@ -67,6 +67,12 @@ export async function learnReviewsCommand(cwd: string, options: LearnReviewsOpti
         console.error(chalk.red(error instanceof Error ? error.message : String(error)));
         process.exitCode = 1;
     }
+}
+
+/** The token and who it reads as, for learnFromReviews. */
+async function reader(cwd: string, account: string | undefined): Promise<{ token: string; readAs: string }> {
+    const { token, as } = await githubReader(cwd, account, defaultExec);
+    return { token, readAs: as };
 }
 
 function list(cwd: string, json?: boolean, includeBots?: boolean): void {

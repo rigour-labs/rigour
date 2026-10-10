@@ -1,6 +1,6 @@
 import os from 'os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { defaultExec, githubToken, type Exec } from './exec.js';
+import { defaultExec, githubReader, githubToken, type Exec } from './exec.js';
 
 describe('running a command', () => {
     it('passes the command\'s own output through', async () => {
@@ -59,5 +59,20 @@ describe('the token GitHub is read with', () => {
         expect(asked).toEqual([['auth', 'token', '--user', 'work'], ['auth', 'token'], ['auth', 'token', '--user', 'missing']]); // a named account never falls back to the active one
         vi.stubEnv('GITHUB_TOKEN', 'ci-token');
         expect(await githubToken(os.tmpdir(), 'work', gh(tokens, asked))).toBe('ci-token');
+    });
+
+    it('says who it reads as, never the token: the named account, the variable, or gh\'s active login', async () => {
+        vi.stubEnv('GH_TOKEN', ''); vi.stubEnv('GITHUB_TOKEN', '');
+        const tokens = { active: 'secret-active', work: 'secret-work' };
+        const withLogin = (login: string | undefined): Exec => async (command, args) => args[0] === 'config'
+            ? (login ? { exitCode: 0, stdout: `${login}\n`, stderr: '' } : { exitCode: 1, stdout: '', stderr: '' })
+            : gh(tokens, [])(command, args, {} as never);
+        expect(await githubReader(os.tmpdir(), 'work', withLogin('octo'))).toEqual({ token: 'secret-work', as: 'work' });
+        expect(await githubReader(os.tmpdir(), undefined, withLogin('octo'))).toEqual({ token: 'secret-active', as: 'octo' });
+        expect(await githubReader(os.tmpdir(), undefined, withLogin(undefined))).toEqual({ token: 'secret-active', as: "gh's active account" });
+        vi.stubEnv('GITHUB_TOKEN', 'secret-ci');
+        expect((await githubReader(os.tmpdir(), 'work', withLogin('octo'))).as).toBe('the token in GITHUB_TOKEN');
+        vi.stubEnv('GH_TOKEN', 'secret-gh');
+        expect((await githubReader(os.tmpdir(), 'work', withLogin('octo'))).as).toBe('the token in GH_TOKEN');
     });
 });
