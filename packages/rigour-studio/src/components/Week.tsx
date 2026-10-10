@@ -9,7 +9,7 @@ interface WeekData {
     recordingSince: string | null;
     needs: OpenNeed[];
     stories: Story[];
-    stopped: { total: number; byStage: Record<CatchStage, number> };
+    stopped: { total: number; fixed: number; byStage: Record<CatchStage, number> };
     agentSaidDone: number;
     raised: number;
     overruled: number;
@@ -34,7 +34,7 @@ export const Week: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNaviga
             <h1 className="st-h1">{needsHeading(groups)}</h1>
             <p className="st-lead">
                 {data.stopped.total > 0
-                    ? `${plural(data.stopped.total, 'problem')} stopped and fixed before a pull request this week.`
+                    ? `${plural(data.stopped.total, 'problem')} stopped before a pull request this week, ${data.stopped.fixed} fixed so far.`
                     : data.recordingSince ? 'Nothing was stopped this week.' : 'Rigour has not recorded any agent work in this repository yet.'}
             </p>
             {needs.length > 0 && <Recheck onDone={reload} />}
@@ -114,6 +114,7 @@ const CopySummary: React.FC<{ data: WeekData }> = ({ data }) => {
     if (data.stopped.total === 0) return null;
     const text = `Rigour stopped ${plural(data.stopped.total, 'problem')} before a pull request this week: `
         + `${data.stopped.byStage.edit} while the agent was writing, ${data.stopped.byStage.review} when it checked its work, ${data.stopped.byStage.stop} before it said done. `
+        + `${data.stopped.fixed} fixed so far. `
         + `${data.overruled} of ${data.raised} overruled.`;
     const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); } catch { /* clipboard blocked */ } };
     return <button className="st-btn" onClick={copy} type="button" style={{ marginTop: 14, width: '100%' }}>{copied ? 'Copied' : 'Copy this week'}</button>;
