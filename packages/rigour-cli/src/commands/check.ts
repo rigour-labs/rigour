@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import yaml from 'yaml';
 import { GateRunner, ConfigSchema, normalizeScopePatterns, deepAnalysisError, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend, IncrementalCache, renderFullReport, type RenderOptions } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
-import inquirer from 'inquirer';
+import { input, select, Separator } from '@inquirer/prompts';
 import { randomUUID } from 'crypto';
 
 import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR, exitCodeFor } from './exit-codes.js';
@@ -569,25 +569,17 @@ async function interactiveMode(report: any, config: any) {
     console.log(chalk.bold.blue('══ Rigour Interactive Review ══\n'));
     console.log(chalk.yellow(`${report.failures.length} violations found.\n`));
 
-    const choices = report.failures.map((f: Failure, i: number) => ({
+    const choices: Array<{ name: string; value: number } | Separator> = report.failures.map((f: Failure, i: number) => ({
         name: `[${f.id}] ${f.title}`,
         value: i
     }));
 
-    choices.push(new (inquirer as any).Separator());
+    choices.push(new Separator());
     choices.push({ name: 'Exit', value: -1 });
 
     let exit = false;
     while (!exit) {
-        const { index } = await inquirer.prompt([
-            {
-                type: 'list',
-                name: 'index',
-                message: 'Select a violation to view details:',
-                choices,
-                pageSize: 15
-            }
-        ]);
+        const index = await select({ message: 'Select a violation to view details:', choices, pageSize: 15 });
 
         if (index === -1) {
             exit = true;
@@ -618,7 +610,7 @@ async function interactiveMode(report: any, config: any) {
         }
 
         console.log(chalk.dim('\n' + '─'.repeat(40)));
-        await inquirer.prompt([{ type: 'input', name: 'continue', message: 'Press Enter to return to list...' }]);
+        await input({ message: 'Press Enter to return to list...' });
         console.clear();
         console.log(chalk.bold.blue('══ Rigour Interactive Review ══\n'));
     }
