@@ -7,6 +7,8 @@
  * instruction, a modal, a question, a "but"). When unsure, it is kept.
  */
 
+import { BULLET } from './review-points.js';
+
 /** Why a point is not a request, as counted. */
 export type NotRequestReason = 'review tool status' | 'describes the change' | 'praise or thanks' | 'status report';
 
@@ -43,14 +45,52 @@ function plain(text: string): string {
 /** Where a point was made: a comment on lines of code, or a review body (where a tool or the author summarises). */
 export type PointPlace = 'inline' | 'body';
 
+/** Whether a point carries a sign of a request: an instruction, a modal, a question, a contrast. */
+export function asksSomething(point: string): boolean {
+    return ASKS.test(plain(point));
+}
+
 /** Why this point asks for nothing, or undefined when it may ask for something (kept). */
 export function notARequest(point: string, place: PointPlace): NotRequestReason | undefined {
     const text = plain(point);
     if (!text) return undefined;
     if (TOOL_STATUS.test(text)) return 'review tool status';
-    if (ASKS.test(text)) return undefined;
+    if (asksSomething(text)) return undefined;
     if (STATUS.test(text)) return 'status report';
     if (PRAISE.test(text)) return 'praise or thanks';
     if (place === 'body' && DESCRIBES.test(text)) return 'describes the change';
     return undefined;
+}
+
+/**
+ * A heading that introduces a summary of the change: what a review tool or the author writes about the pull request.
+ * Matched on the heading's own text, so the list under it is a description whatever verbs its bullets start with.
+ */
+const SUMMARY_HEADING = /^(?:changes|changes made|what changed(?: in this pr)?|summary(?: of changes)?|pull request overview|overview|walkthrough|file summaries)\b/i;
+/** A collapsed block a review tool adds about itself: how it works, how to call it. Its list is help, not review. */
+const HELP_SUMMARY = /\b(?:about|how to|help|usage|commands|getting started)\b/i;
+
+/**
+ * For each bullet point of a review body, in the order bodyPoints returns them, why its place in the body makes it
+ * ask for nothing, by structure: a bullet in the list under a change-summary heading describes the change; a bullet
+ * inside a collapsed block whose summary is about the tool is the tool's own help. Undefined elsewhere.
+ */
+export function bodyPointPlaces(body: string): Array<NotRequestReason | undefined> {
+    const places: Array<NotRequestReason | undefined> = [];
+    let section: NotRequestReason | undefined;
+    let help = false;
+    for (const raw of body.split('\n')) {
+        const summary = /<summary>(.*?)<\/summary>/i.exec(raw)?.[1];
+        if (summary !== undefined) help = HELP_SUMMARY.test(plain(summary));
+        if (/<\/details>/i.test(raw)) help = false;
+        const line = raw.replace(/<[^>]+>/g, '').trim();
+        if (BULLET.test(raw)) {
+            places.push(help ? 'review tool status' : section);
+            continue;
+        }
+        // A heading or a bold lead line opens a section; the list under a change-summary heading describes the change.
+        const heading = /^#{1,6}\s+(.*)$/.exec(line)?.[1] ?? /^\*\*([^*]+)\*\*:?$/.exec(line)?.[1] ?? (summary !== undefined ? summary : undefined);
+        if (heading !== undefined) section = SUMMARY_HEADING.test(plain(heading).replace(/:$/, '')) ? 'describes the change' : undefined;
+    }
+    return places;
 }

@@ -17,7 +17,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
 import { bodyPoints, withoutEmphasis } from './review-points.js';
-import { notARequest, type NotRequestReason } from './requests.js';
+import { asksSomething, bodyPointPlaces, notARequest, type NotRequestReason } from './requests.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
 const MAX_TEXT = 220;
@@ -224,10 +224,15 @@ export function lessonFromComment(git: Git, comment: ReviewComment, at = new Dat
  * Whether files changed after it is recorded, not required.
  */
 export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at = new Date().toISOString(), onSkip?: OnSkip): ReviewLesson[] {
+    const places = bodyPointPlaces(review.body);
     return bodyPoints(review.body).flatMap((point, i) => {
         const text = pointText(withoutEmphasis(point)).slice(0, MAX_TEXT).trim();
         if (text.length < 12) return [];
-        const skip = notARequest(point, 'body');
+        // The point's own shape first (a tool's status line is that wherever it sits); then its place: a tool's help
+        // block is never review, and a change summary's bullet is a description unless it asks for something.
+        const own = notARequest(point, 'body');
+        const placed = places[i] === 'review tool status' || (places[i] && !asksSomething(point)) ? places[i] : undefined;
+        const skip = own === 'review tool status' ? own : placed ?? own;
         if (skip) {
             onSkip?.(skip);
             return [];
