@@ -149,7 +149,10 @@ for (const [name, dir] of [['main', setPath()], ['held out', HELDOUT_DIR]]) {
 lines.push('## Notes', '',
     '- Run-to-run noise: immich has one point more in b1 than in baseline. It is a comment posted before the cutoff and',
     '  the merge whose commit fetch evidently failed in the baseline run (a comment on a commit that cannot be fetched is',
-    '  skipped) and succeeded in b1. A change that only removes points cannot add one.', '');
+    '  skipped) and succeeded in b1. A change that only removes points cannot add one.',
+    '- The b3 brief check for tailscale first read 1 file, 1 lesson: its lessons store was damaged by two overlapping runs',
+    '  writing the same scratch store. Each run now works in its own folder; re-run alone, it reads 5 files, 3 lessons each.',
+    '  Its points and candidates were counted in memory and did not change.', '');
 lines.push('## Candidates that look broken (mechanical)', '', 'Starts with Or / And / But, or ends on a connector (", or", "and"). Listed for spot checks.', '', ...(broken.length ? broken : ['None.']), '');
 fs.writeFileSync(setPath('REPORT.md'), lines.join('\n'));
 console.log(lines.slice(0, 40).join('\n'));
