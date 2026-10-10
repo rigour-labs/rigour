@@ -389,7 +389,8 @@ reaches agents once a person promotes it, or a person's point joins it and recur
 earlier version promoted on bots' points alone are back to candidates, each with a `reclassified` record
 saying "only review bots raised it (no person)", in Studio and in `rigour learn-reviews --list`. Other
 candidates only review bots raised are hidden from both by default and counted ("N candidates from review
-bots, hidden"); `--include-bots` or **Show bot points** lists them. `--list --json` keeps every lesson.
+bots, hidden"); `--include-bots` or **Show bot points** lists them. Who raised a point comes only from the review
+points: a later fix on its lines never makes a bot's candidate a person's. `--list --json` keeps every lesson.
 
 **What happens after the merge never promotes on its own.** A later commit on the main branch that changes the lines a point named and says it fixed something, or a revert of the pull request, is recorded on the candidate (`rigour learn-reviews` records it as `lines`). Lessons an earlier version promoted on that alone are back to candidates, each with a `reclassified` record, listed first in Studio. The [outcome loop](OUTCOMES.md) goes further: It follows a point's lines
 through every later commit as the code moves (within three lines either side, inside the window); a

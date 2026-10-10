@@ -403,11 +403,13 @@ export function pendingDecision(lesson: ReviewLesson): LessonEvidence | undefine
 }
 
 /**
- * A candidate only review bots raised, with nothing waiting on a person: hidden from the default lists (`--list`,
- * Studio) and counted instead. One taken back or reclassified stays in view, so its reason is seen.
+ * A candidate only review bots raised: hidden from the default lists (`--list`, Studio) and counted instead. Who
+ * raised it comes only from its review points: outcome evidence (a later fix on its lines) never makes it a
+ * person's. One taken back or reclassified stays in view, so the reason a lesson went back is seen.
  */
 export function quietBotCandidate(lesson: ReviewLesson): boolean {
-    return lesson.state === 'candidate' && raisedOnlyByBots(lesson) && !pendingDecision(lesson);
+    const pending = pendingDecision(lesson);
+    return lesson.state === 'candidate' && raisedOnlyByBots(lesson) && (!pending || pending.kind === 'lines');
 }
 
 /** Why a lesson an outcome alone had promoted is a candidate again. */

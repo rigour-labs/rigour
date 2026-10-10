@@ -8,7 +8,7 @@ import { learnFromReviews } from './learn-from-reviews.js';
 import { outcomeFor } from './outcomes.js';
 import { rulesFromReviews } from './rules-from-reviews.js';
 import { describeLesson, lessonView } from './team-lessons.js';
-import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, pendingDecision, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
+import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, pendingDecision, quietBotCandidate, raisedOnlyByBots, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
 import { activeLessons, lessonsForDiff, lessonsSection } from './team-lessons.js';
 
 let repo: string;
@@ -184,6 +184,11 @@ describe('lessons', () => {
         expect(matchLessons(lessons, change, { includeCandidates: true }).map(l => l.id).sort()).toEqual(['both', 'person']);
         writeLessons(repo, lessons);
         expect(activeLessons(repo, 'all').map(l => l.id).sort()).toEqual(['both', 'person']);
+        // A later fix on its lines is evidence, not a person raising it: still bot-only, still not served.
+        const withLines = { ...candidate('lines', point('bot')), evidence: [point('bot'), { kind: 'lines' as const, pr: 9, comment: 'lines-9', author: '', detail: 'fixed later' }] };
+        expect(raisedOnlyByBots(withLines)).toBe(true);
+        expect(quietBotCandidate(withLines)).toBe(true);
+        expect(matchLessons([withLines], change, { includeCandidates: true })).toEqual([]);
         // Once a person accepts it, it is served like any lesson.
         decideLesson(repo, 'bot-only', 'accepted', 'lead@x');
         expect(activeLessons(repo, 'verified').map(l => l.id)).toEqual(['bot-only']);
