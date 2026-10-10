@@ -143,6 +143,19 @@ describe('a lesson back to a candidate when outcomes stopped promoting', () => {
         expect(decided.reclassified).toBeUndefined();
     });
 
+    it('says when only review bots had promoted it, after an upgrade reads a store they verified', () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-bots-'));
+        try {
+            const bot = (pr: number, author: string) => ({ kind: 'point' as const, pr, comment: `c${pr}`, author, source: 'bot' as const, prAuthor: `author-${pr}` });
+            fs.mkdirSync(path.join(repo, '.rigour'));
+            fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{ id: 'b1b2c3d4e5f6', text: 'Add more tests.', file: 'src/x.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', createdAt: '', updatedAt: '', evidence: [bot(1, 'rabbit[bot]'), bot(2, 'helper[bot]')] }] }));
+            const [lesson] = buildLearning({ now, lessons: [], reviewLessons: readLessons(repo), stories: [], events: [] }).lessons;
+            expect(lesson).toMatchObject({ state: 'candidate', canDecide: true, reclassified: { detail: 'only review bots raised it (no person)' } });
+        } finally {
+            fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
+
     it('proposes compiled checks from Studio, and records a decision with the person\'s git email or refuses without one', () => {
         const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-compiled-'));
         try {

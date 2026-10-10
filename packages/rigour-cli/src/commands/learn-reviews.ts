@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, readLessons, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, pendingDecision, readLessons, type LessonEvidence, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -75,9 +75,18 @@ function list(cwd: string, json?: boolean): void {
         const prs = [...new Set(l.evidence.map(e => `#${e.pr}`))].join(', ');
         const by = chalk.dim(`${l.promotedBy ? ` [${l.promotedBy}]` : ''}${l.scope ? ` [${l.scope === 'repo' ? 'every change' : 'its folder'}]` : ''}`);
         console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(team standard)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
+        const pending = pendingDecision(l);
+        if (pending) console.log(chalk.yellow(`          ${pendingReason(pending)}`));
         if (l.suggestedText) console.log(chalk.cyan(`          corrected wording (${l.suggestedWhy ?? 'reworded'}): ${l.suggestedText}`) + chalk.dim(`  take it: rigour learn-reviews --use-wording ${l.id}`));
     }
     if (lessons.length === 0) console.log('No review lessons yet. Run `rigour learn-reviews`.');
+}
+
+/** Why a candidate waits on a person, in the words Studio's chip uses. */
+function pendingReason(e: LessonEvidence): string {
+    if (e.kind === 'lines') return `a later fix changed its lines: ${e.detail ?? ''}`.trim();
+    if (e.kind === 'reclassified') return `back to candidate: ${e.detail ?? ''}`;
+    return e.detail ?? 'taken back';
 }
 
 /** Proposes checks for the verified lessons a template fits, then lists every compiled check and its state. */

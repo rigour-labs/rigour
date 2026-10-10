@@ -80,3 +80,14 @@ describe('rigour learn-reviews --scope', () => {
         process.exitCode = 0;
     });
 });
+
+describe('rigour learn-reviews --list', () => {
+    it('says why a lesson only review bots promoted is back to a candidate', async () => {
+        const file = path.join(repo, '.rigour', 'review-lessons.json');
+        const bot = (pr: number, author: string) => ({ kind: 'point', pr, comment: `c${pr}`, author, source: 'bot', prAuthor: `author-${pr}` });
+        fs.writeFileSync(file, JSON.stringify({ version: 1, lessons: [{ id: 'B1', text: 'Add more tests.', file: 'src/load.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', createdAt: '', updatedAt: '', evidence: [bot(1, 'rabbit[bot]'), bot(2, 'helper[bot]')] }] }));
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { list: true });
+        expect(out.mock.calls.flat().join('\n')).toContain('back to candidate: only review bots raised it (no person)');
+    });
+});

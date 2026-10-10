@@ -385,7 +385,7 @@
         "gates.deep.budget_ms": "A time limit, in milliseconds, for the whole model review of a change; files not started before it runs out are reported as skipped instead of reviewed.",
         "gates.deep.agentic": "Set to false to stop a cloud model from reading other repository files while it reviews a change, so it sees only what Rigour sends it.",
         "gates.deep.repo_rules": "When true, the model review, the agent review list and the stop hook's end-of-task question include the rules from AGENTS.md, CLAUDE.md and Cursor rules that name what the change touches. The reviewer (review.reviewer) always checks the repository's rules, whatever this says.",
-        "gates.deep.review_lessons": "Which of the team's past review lessons raise a function's risk, are shown to the reviewer, and are put to the agent once at the stop hook: lessons (promoted on evidence), all of them including candidates, or none (off).",
+        "gates.deep.review_lessons": "Which of the team's past review lessons raise a function's risk, are shown to the reviewer, and are put to the agent once at the stop hook: lessons (promoted on evidence), all of them including candidates (never one only review bots raised), or none (off).",
         "gates.deep.router.enabled": "Set to false to send every changed file to the cloud model instead of only the riskiest changed functions.",
         "gates.deep.router.min_score": "The risk score a changed function needs to go to the model or onto the agent review list; functions below it get the deterministic checks only.",
         "gates.deep.router.max_functions": "The most changed functions sent to the model, or listed for agent review, per change; the highest-risk ones are kept.",
