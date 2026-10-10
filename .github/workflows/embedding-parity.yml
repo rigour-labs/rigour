@@ -1,0 +1,53 @@
+name: Embedding parity
+
+# Whether the embedding library `rigour setup` installs (TRANSFORMERS_SPEC in semantic-runtime.ts) gives the same vectors
+# as the one on main, so indexes built by either can be searched by the other. Runs when that library or the embedding
+# code changes, and by hand for any two versions. The rule for the result is in CONTRIBUTING.md.
+on:
+  push:
+    paths:
+      - packages/rigour-core/src/pattern-index/semantic-runtime.ts
+      - packages/rigour-core/src/pattern-index/embeddings.ts
+      - scripts/eval/embedding-parity.mjs
+      - .github/workflows/embedding-parity.yml
+  workflow_dispatch:
+    inputs:
+      old:
+        description: 'The version to compare against (default: the one main installs)'
+        required: false
+      new:
+        description: 'The version to measure (default: the one this branch installs)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install both versions
+        env:
+          OLD: ${{ inputs.old }}
+          NEW: ${{ inputs.new }}
+        run: |
+          set -euo pipefail
+          spec() { git show "$1:packages/rigour-core/src/pattern-index/semantic-runtime.ts" | sed -n "s/^export const TRANSFORMERS_SPEC = '\(.*\)';$/\1/p"; }
+          OLD="${OLD:-$(spec origin/main)}"
+          NEW="${NEW:-$(spec HEAD)}"
+          for side in old new; do
+            dir="$RUNNER_TEMP/$side"; mkdir -p "$dir"
+            want=$([ "$side" = old ] && echo "$OLD" || echo "$NEW")
+            # The same install `rigour setup` runs (packages/rigour-cli/src/commands/semantic.ts).
+            (cd "$dir" && npm init -y >/dev/null && npm install --no-audit --no-fund --omit=dev "$want" >/dev/null)
+            echo "$side: $want, installed $(du -sh "$dir/node_modules" | cut -f1)"
+          done
+      - name: Compare the vectors
+        run: node scripts/eval/embedding-parity.mjs "$RUNNER_TEMP/old" "$RUNNER_TEMP/new" 200

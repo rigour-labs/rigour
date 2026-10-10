@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import { execa } from 'execa';
 import fs from 'fs';
 import path from 'path';
-import { locateTransformers, semanticRuntimeDir, TRANSFORMERS_SPEC } from '@rigour-labs/core';
+import { locateTransformers, RETIRED_TRANSFORMERS_PACKAGE, retiredSemanticRuntimeInstalled, semanticRuntimeDir, TRANSFORMERS_SPEC } from '@rigour-labs/core';
 
 /** What the library takes on disk, with room to spare for npm's own cache while it installs. */
 const NEEDED_BYTES = 1024 ** 3;
@@ -28,7 +28,10 @@ async function ensureSemanticRuntime(cwd: string): Promise<SemanticInstall> {
     const result = await execa(npm, ['install', '--no-audit', '--no-fund', '--omit=dev', TRANSFORMERS_SPEC], { cwd: dir, reject: false, timeout: INSTALL_TIMEOUT_MS });
     if (result.exitCode !== 0) return { state: 'failed', reason: String(result.stderr || result.stdout || `npm exited ${result.exitCode}`).trim().split('\n').slice(-3).join(' ') };
     const where = locateTransformers(cwd);
-    return where ? { state: 'installed', where } : { state: 'failed', reason: `npm finished, but ${TRANSFORMERS_SPEC} does not resolve from ${dir}` };
+    if (!where) return { state: 'failed', reason: `npm finished, but ${TRANSFORMERS_SPEC} does not resolve from ${dir}` };
+    // The copy an earlier setup installed is never loaded again: free its space. A failure here costs only disk.
+    if (retiredSemanticRuntimeInstalled()) await execa(npm, ['uninstall', '--no-audit', '--no-fund', RETIRED_TRANSFORMERS_PACKAGE], { cwd: dir, reject: false, timeout: INSTALL_TIMEOUT_MS });
+    return { state: 'installed', where };
 }
 
 function freeBytes(dir: string): number | undefined {
@@ -57,5 +60,7 @@ export function semanticStatusLine(cwd: string): string {
     const where = locateTransformers(cwd);
     return where
         ? chalk.green(`  ✓ Semantic search: on (${where.includes(semanticRuntimeDir()) ? "Rigour's shared copy" : 'installed with Rigour or the project'})`)
-        : chalk.yellow('  ⚠ Semantic search: off. Recall and pattern matching use keywords, which find far less. Run: rigour setup');
+        : chalk.yellow(retiredSemanticRuntimeInstalled()
+            ? `  ⚠ Semantic search: off. It moved to ${TRANSFORMERS_SPEC}, and existing indexes rebuild on first use. Run: rigour setup`
+            : '  ⚠ Semantic search: off. Recall and pattern matching use keywords, which find far less. Run: rigour setup');
 }
