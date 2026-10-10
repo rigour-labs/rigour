@@ -10,13 +10,14 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { CLONE_CAP_BYTES, CLONE_FILTER, REPOS, TEXT_CACHE, creditUnits, githubToken, looksBroken, nearDuplicates, sourceOf, sourceUrl, textHash } from './common.mjs';
+import { CLONE_CAP_BYTES, CLONE_FILTER, REPOS, TEXT_CACHE, setPath, creditUnits, githubToken, looksBroken, nearDuplicates, sourceOf, sourceUrl, textHash } from './common.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [label, scratch, ...only] = process.argv.slice(2);
 if (!label || !scratch) throw new Error('usage: run.mjs <label> <scratch dir>');
-const { learnFromReviews, readLessons } = await import(path.join(here, '../../packages/rigour-core/dist/index.js'));
-const { prs } = JSON.parse(fs.readFileSync(path.join(here, 'prs.json'), 'utf8'));
+// LEARNING_REPORT_CORE runs another build of core (another checkout's dist/index.js): the same pins, before and after a change.
+const { learnFromReviews, readLessons } = await import(process.env.LEARNING_REPORT_CORE || path.join(here, '../../packages/rigour-core/dist/index.js'));
+const { prs } = JSON.parse(fs.readFileSync(setPath('prs.json'), 'utf8'));
 const kb = dir => Number(execFileSync('du', ['-sk', dir], { encoding: 'utf8' }).split('\t')[0]);
 
 /** The labeller's unit cache for a repository (review bodies split into labelled units), if present. */
@@ -40,7 +41,7 @@ function whyCandidate(l) {
     return 'one reviewer, one wording';
 }
 
-const resultFile = path.join(here, 'results', `${label}.json`);
+const resultFile = setPath('results', `${label}.json`);
 const cacheFile = path.join(TEXT_CACHE, `${label}.json`);
 const cached = only.length && fs.existsSync(cacheFile) ? JSON.parse(fs.readFileSync(cacheFile, 'utf8')) : {};
 const result = only.length && fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : { label, at: new Date().toISOString(), repos: {} };
@@ -66,10 +67,12 @@ for (const repo of only.length ? only : REPOS) {
     fs.rmSync(store, { force: true });
     process.env.RIGOUR_REVIEW_LESSONS = store;
     let comments = 0, bodies = 0, maxKb = kb(clone);
+    const skipped = {};
     try {
         for (const pr of prs[repo]) {
             const r = await withRetry(() => learnFromReviews(clone, { token: githubToken(), repo, pr }));
             comments += r.comments;
+            for (const [why, n] of Object.entries(r.skipped ?? {})) skipped[why] = (skipped[why] ?? 0) + n;
             bodies += r.reviewBodies;
             maxKb = Math.max(maxKb, kb(clone));
             if (maxKb * 1024 > CLONE_CAP_BYTES) throw new Error(`${repo}: the clone passed ${CLONE_CAP_BYTES / 1024 ** 3} GB (${Math.round(maxKb / 1024)} MB, --filter=${CLONE_FILTER}); stopped`);
@@ -78,6 +81,8 @@ for (const repo of only.length ? only : REPOS) {
         const points = lessons.flatMap(l => l.evidence.filter(e => (e.kind ?? 'point') === 'point').map(e => ({ ...e, lesson: l.id })));
         result.repos[repo] = {
             prs: prs[repo].length, inlineComments: comments, reviewBodies: bodies,
+            // Points learning skipped as asking for nothing, by why (0 before the learner counted them).
+            skipped,
             points: { total: points.length, people: points.filter(e => e.source !== 'bot').length, bots: points.filter(e => e.source === 'bot').length },
             candidates: lessons.length,
             verified: lessons.filter(l => l.state === 'verified').length,
@@ -104,6 +109,7 @@ for (const repo of only.length ? only : REPOS) {
         fs.rmSync(store, { force: true });
     }
 }
+fs.mkdirSync(path.dirname(resultFile), { recursive: true });
 fs.writeFileSync(resultFile, JSON.stringify(result, null, 2) + '\n');
 fs.mkdirSync(TEXT_CACHE, { recursive: true });
 fs.writeFileSync(cacheFile, JSON.stringify(cached, null, 2) + '\n');

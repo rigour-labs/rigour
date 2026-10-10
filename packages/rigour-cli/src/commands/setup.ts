@@ -22,6 +22,7 @@ import { hooksInitCommand, installMachineHooks, pinnedCliCommand } from './hooks
 import { initCommand, resolveMCPServerConfig } from './init.js';
 import { writeAgentInstructions } from './init-handshake.js';
 import { disableHere, enableHere, registerUserMcp } from './personal.js';
+import { applyConfigMigrations } from './setup-migrations.js';
 import { setupSemantic } from './semantic.js';
 
 const AGENT_NAME = { claude: 'Claude Code', cursor: 'Cursor', cline: 'Cline', windsurf: 'Windsurf' } as const;
@@ -37,6 +38,7 @@ export async function setupCommand(cwd = process.cwd(), options: SetupOptions = 
     console.log(chalk.bold.cyan(`\nRigour setup (${team ? 'team: committed to this repository' : 'personal: nothing in your working tree'})\n`));
     if (team) await teamSetup(cwd, options);
     else await personalSetup(cwd);
+    for (const change of applyConfigMigrations(cwd)) console.log(chalk.green(`✔ Migrated ${change}`));
     if (options.semantic !== false) await setupSemantic(cwd);
     await printRepoSetup(cwd);
     console.log(`See what Rigour does as your agents work: ${chalk.cyan('rigour studio')}`);

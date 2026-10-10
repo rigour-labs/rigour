@@ -5,16 +5,40 @@ import os from 'os';
 import path from 'path';
 
 /** Public repositories whose review history is public. */
-// zulip/zulip was the third; its clone passed the 1 GB cap with both clone modes, so it was replaced by the
-// candidate with the most human review comments per merged pull request (logto 0.45, superset 0.40, 20 each).
-export const REPOS = ['immich-app/immich', 'tailscale/tailscale', 'logto-io/logto'];
-/** Pull requests merged before this are the report's input; fixed so later runs read the same thing. */
+/** Pull requests merged before this are the main set's input; fixed so later runs read the same thing. */
 export const CUTOFF = '2026-10-01T00:00:00Z';
+/** The held-out set's window ends here: pull requests merged after the main set, read only after the patterns were written. */
+const HELDOUT_UNTIL = '2026-10-10T00:00:00Z';
+
 /**
- * How many pull requests per repository, fixed before any result is read: enough for 40 sampled candidates with
- * margin at the rate the first, stopped run showed (about 0.9 candidates per pull request for immich).
+ * Two sets, chosen by LEARNING_REPORT_SET:
+ * - main: the pinned pull requests the learning changes are measured on. zulip/zulip was the third repository; its
+ *   clone passed the 1 GB cap with both clone modes, so it was replaced by the candidate with the most human review
+ *   per merged pull request (logto 0.45, superset 0.40, 20 each). Counts fixed before any result was read: enough
+ *   for 40 sampled candidates with margin (about 0.9 candidates per pull request for immich).
+ * - heldout: logto pull requests merged after the main window, which no pattern was written against, with 30
+ *   source comments labelled before any change is run on them. A check against fitting the main set. Only 5 pull
+ *   requests in that window had a person's review, so this set takes any reviewer but the author, bots included:
+ *   bots write most of the text the patterns are about. Fixed before any of its text was read.
  */
-export const PR_COUNT = { 'immich-app/immich': 50, 'tailscale/tailscale': 40, 'logto-io/logto': 40 };
+const SETS = {
+    main: { dir: '', repos: ['immich-app/immich', 'tailscale/tailscale', 'logto-io/logto'], prCount: { 'immich-app/immich': 50, 'tailscale/tailscale': 40, 'logto-io/logto': 40 }, mergedFrom: undefined, mergedBefore: CUTOFF, reviewers: 'people', sample: { candidates: 40 } },
+    heldout: { dir: 'heldout', repos: ['logto-io/logto'], prCount: { 'logto-io/logto': 20 }, mergedFrom: CUTOFF, mergedBefore: HELDOUT_UNTIL, reviewers: 'anyone', sample: { sources: 30 } },
+};
+export const SET = process.env.LEARNING_REPORT_SET === 'heldout' ? 'heldout' : 'main';
+export const REPOS = SETS[SET].repos;
+export const PR_COUNT = SETS[SET].prCount;
+/** The merge window this set reads: [mergedFrom, mergedBefore). */
+export const WINDOW = { from: SETS[SET].mergedFrom, before: SETS[SET].mergedBefore };
+/** Whose review qualifies a pull request for this set: a person's ('people'), or anyone's but the author ('anyone'). */
+export const REVIEWERS = SETS[SET].reviewers;
+/** How this set's precision sample is drawn: a number of candidates, or candidates until a number of source comments. */
+export const SAMPLE = SETS[SET].sample;
+const HERE = path.dirname(new URL(import.meta.url).pathname);
+/** A path in this set's folder of the report: `prs.json`, `results/…`, `labels/…`, `REPORT.md`. */
+export const setPath = (...parts) => path.join(HERE, SETS[SET].dir, ...parts);
+/** The held-out set's folder, for the main report to show its numbers beside the main set's. */
+export const HELDOUT_DIR = path.join(HERE, SETS.heldout.dir);
 /** One clone mode for every repository, so runs compare: every tree, file contents fetched when read. */
 export const CLONE_FILTER = 'blob:none';
 /** A clone is stopped past this: the disk is near full. */
@@ -71,7 +95,7 @@ export function wilson(k, n) {
  * Where third-party comment text is kept: outside the repository, rebuilt from the URLs by these scripts. The
  * repository holds ids, URLs, labels, counts and hashes only.
  */
-export const TEXT_CACHE = process.env.LEARNING_REPORT_CACHE || path.join(os.homedir(), 'Workspace/Projects/Personal/rigour-labs/notes/learning-report');
+export const TEXT_CACHE = path.join(process.env.LEARNING_REPORT_CACHE || path.join(os.homedir(), 'Workspace/Projects/Personal/rigour-labs/notes/learning-report'), SET === 'main' ? '' : SET);
 
 /** A short hash of a text, so a run can say a candidate's text changed without holding the text. */
 export function textHash(text) {

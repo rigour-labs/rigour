@@ -8,6 +8,7 @@ import path from 'path';
 import { getContextEvents, type AgentEvent, type ContextEvent } from '@rigour-labs/core';
 import { resolveMCPServerConfig } from './init.js';
 import { agentHome, enabledHere } from './personal.js';
+import { isOldEditHook } from './setup-migrations.js';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 
 export type SetupState = 'working' | 'set up' | 'broken' | 'missing';
@@ -58,9 +59,10 @@ function editCheck(agents: Array<{ name: string; config: string }>, now: Date, e
     const wired = agents.filter(a => a.config.includes('hooks check'));
     const name = wired.length ? `Checks ${listOf(wired.map(a => a.name))} as it writes` : 'Checks your agent as it writes';
     if (wired.length === 0) return { id: 'edit', name, state: 'missing', detail: 'No edit hook configured', fix: 'rigour setup' };
-    const broken = wired.find(a => a.config.includes('TOOL_INPUT_file_path'));
+    const broken = wired.find(a => isOldEditHook(a.config));
     if (broken) {
-        return { id: 'edit', name, state: 'broken', detail: `The ${broken.name} hook reads a variable the agent never sets, so it checks nothing`, fix: 'rigour hooks init --force' };
+        // setup rewrites Rigour's own entries where they live (the project, or the machine for a personal install).
+        return { id: 'edit', name, state: 'broken', detail: `The ${broken.name} hook is the old form: it reads a variable the agent never sets, so no edit is checked`, fix: 'rigour setup' };
     }
     return fired('edit', name, events.filter(e => e.type === 'hook_check'), now, 'edit checks');
 }

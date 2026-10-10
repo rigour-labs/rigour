@@ -1,0 +1,578 @@
+{
+  "label": "b1",
+  "at": "2026-10-10T13:53:06.578Z",
+  "repos": {
+    "logto-io/logto": {
+      "prs": 16,
+      "inlineComments": 17,
+      "reviewBodies": 42,
+      "skipped": {
+        "describes the change": 26
+      },
+      "points": {
+        "total": 52,
+        "people": 4,
+        "bots": 48
+      },
+      "candidates": 29,
+      "verified": 0,
+      "verifiedBy": {
+        "recurrence": 0,
+        "person": 0,
+        "correction": 0,
+        "outcome": 0,
+        "legacy": 0
+      },
+      "cloneMode": "--filter=blob:none",
+      "cloneMb": 674,
+      "seconds": 175,
+      "notVerified": {
+        "raised only by bots": 26,
+        "one pull request author only": 1,
+        "raised on one pull request only": 2
+      },
+      "lessons": [
+        {
+          "id": "54d168200498",
+          "textHash": "f61469aa96a4",
+          "broken": false,
+          "file": "packages/schemas/src/types/tenant-organization.ts",
+          "state": "candidate",
+          "sources": [
+            "4226164382"
+          ],
+          "units": {},
+          "prs": [
+            9694
+          ],
+          "bot": true
+        },
+        {
+          "id": "d4a7a9ac649a",
+          "textHash": "6d84f34b9576",
+          "broken": false,
+          "file": "packages/schemas/src/types/tenant-organization.ts",
+          "state": "candidate",
+          "sources": [
+            "4227827844"
+          ],
+          "units": {},
+          "prs": [
+            9694
+          ],
+          "bot": true
+        },
+        {
+          "id": "e6d82955b886",
+          "textHash": "6deaab67ac15",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5454815219"
+          ],
+          "units": {
+            "review-5454815219": [
+              8
+            ]
+          },
+          "prs": [
+            9694
+          ],
+          "bot": true
+        },
+        {
+          "id": "373d09a5f1cc",
+          "textHash": "856177085292",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465170551",
+            "review-5465374539"
+          ],
+          "units": {
+            "review-5465170551": [
+              6
+            ],
+            "review-5465374539": [
+              6
+            ]
+          },
+          "prs": [
+            9694
+          ],
+          "bot": true
+        },
+        {
+          "id": "cf037fda8094",
+          "textHash": "ec1f2e32d076",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465170551",
+            "review-5465374539"
+          ],
+          "units": {
+            "review-5465170551": [
+              7
+            ],
+            "review-5465374539": [
+              7
+            ]
+          },
+          "prs": [
+            9694
+          ],
+          "bot": true
+        },
+        {
+          "id": "401617bbffc6",
+          "textHash": "a3126db0a2bf",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465170551",
+            "review-5465374539"
+          ],
+          "units": {
+            "review-5465170551": [
+              0,
+              8
+            ],
+            "review-5465374539": [
+              0,
+              8
+            ]
+          },
+          "prs": [
+            9694
+          ],
+          "bot": true
+        },
+        {
+          "id": "1b0c26f8d52a",
+          "textHash": "c9595f01f94d",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5467243855",
+            "review-5457118471",
+            "review-5465128792",
+            "review-5457754522",
+            "review-5465145053",
+            "review-5465186872",
+            "review-5457640087",
+            "review-5457814443",
+            "review-5465190824",
+            "review-5465237159",
+            "review-5465198610",
+            "review-5465225488",
+            "review-5465302098",
+            "review-5465449092"
+          ],
+          "units": {
+            "review-5457118471": [],
+            "review-5457754522": [],
+            "review-5457640087": [],
+            "review-5465190824": [],
+            "review-5465198610": [],
+            "review-5465225488": []
+          },
+          "prs": [
+            9694,
+            9695,
+            9696,
+            9698,
+            9701,
+            9703,
+            9704
+          ],
+          "bot": true
+        },
+        {
+          "id": "c03ae759c1c5",
+          "textHash": "f0fca5a04e6a",
+          "broken": false,
+          "file": "packages/core/src/routes/sign-in-experience/custom-ui-assets/index.openapi.json",
+          "state": "candidate",
+          "sources": [
+            "4219361083",
+            "4226208831"
+          ],
+          "units": {},
+          "prs": [
+            9695,
+            9704
+          ],
+          "bot": true
+        },
+        {
+          "id": "63b5f8e990cf",
+          "textHash": "fbf68049c131",
+          "broken": false,
+          "file": "packages/core/src/routes/sign-in-experience/custom-ui-assets/unzip.ts",
+          "state": "candidate",
+          "sources": [
+            "4226126416"
+          ],
+          "units": {},
+          "prs": [
+            9695
+          ],
+          "bot": true
+        },
+        {
+          "id": "62cd453f0318",
+          "textHash": "ec9b9ff86aa6",
+          "broken": false,
+          "file": "packages/core/src/routes/sign-in-experience/custom-ui-assets/unzip.ts",
+          "state": "candidate",
+          "sources": [
+            "4227187952",
+            "4228225473"
+          ],
+          "units": {},
+          "prs": [
+            9695,
+            9704
+          ],
+          "bot": false
+        },
+        {
+          "id": "0a858cbaa4aa",
+          "textHash": "5ed795b54bf4",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5457118471"
+          ],
+          "units": {
+            "review-5457118471": [
+              7
+            ]
+          },
+          "prs": [
+            9695
+          ],
+          "bot": true
+        },
+        {
+          "id": "76007c963b5c",
+          "textHash": "a9d160493903",
+          "broken": false,
+          "file": "packages/console/src/hooks/use-current-tenant-scopes.ts",
+          "state": "candidate",
+          "sources": [
+            "4219875116"
+          ],
+          "units": {},
+          "prs": [
+            9696
+          ],
+          "bot": true
+        },
+        {
+          "id": "98390fb5a5ca",
+          "textHash": "587e416aee25",
+          "broken": false,
+          "file": "packages/console/src/pages/OssTenantSettings/License/LicenseDetails/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4219781510"
+          ],
+          "units": {},
+          "prs": [
+            9698
+          ],
+          "bot": true
+        },
+        {
+          "id": "c1dbdfbddaf4",
+          "textHash": "a730a294e62f",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5457640087"
+          ],
+          "units": {
+            "review-5457640087": [
+              7
+            ]
+          },
+          "prs": [
+            9698
+          ],
+          "bot": true
+        },
+        {
+          "id": "bbf38f056341",
+          "textHash": "e5cd752095d0",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5457758585"
+          ],
+          "units": {
+            "review-5457758585": [
+              6
+            ]
+          },
+          "prs": [
+            9699
+          ],
+          "bot": true
+        },
+        {
+          "id": "4d1d03c9b426",
+          "textHash": "5648a3706f35",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5466139676"
+          ],
+          "units": {
+            "review-5466139676": [
+              6
+            ]
+          },
+          "prs": [
+            9700
+          ],
+          "bot": true
+        },
+        {
+          "id": "28a578b5e613",
+          "textHash": "47d33b324eee",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5466139676"
+          ],
+          "units": {
+            "review-5466139676": [
+              7
+            ]
+          },
+          "prs": [
+            9700
+          ],
+          "bot": true
+        },
+        {
+          "id": "31a4c06fa64a",
+          "textHash": "3d21a744844f",
+          "broken": false,
+          "file": "packages/console/src/components/OssLicenseBanner/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4226182056"
+          ],
+          "units": {},
+          "prs": [
+            9701
+          ],
+          "bot": true
+        },
+        {
+          "id": "faadcd40943d",
+          "textHash": "3a56e3244632",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465190824"
+          ],
+          "units": {
+            "review-5465190824": [
+              7
+            ]
+          },
+          "prs": [
+            9701
+          ],
+          "bot": true
+        },
+        {
+          "id": "8c59ae739914",
+          "textHash": "4defd34917bf",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465190824"
+          ],
+          "units": {
+            "review-5465190824": [
+              8
+            ]
+          },
+          "prs": [
+            9701
+          ],
+          "bot": true
+        },
+        {
+          "id": "90433eccb012",
+          "textHash": "0f079c7bb830",
+          "broken": false,
+          "file": "packages/console/src/components/FeatureTag/index.tsx",
+          "state": "candidate",
+          "sources": [
+            "4226187673"
+          ],
+          "units": {},
+          "prs": [
+            9703
+          ],
+          "bot": true
+        },
+        {
+          "id": "ce7f60878625",
+          "textHash": "bc581bbf23b4",
+          "broken": false,
+          "file": "packages/core/src/routes/sign-in-experience/custom-ui-assets/unzip.ts",
+          "state": "candidate",
+          "sources": [
+            "4226208782"
+          ],
+          "units": {},
+          "prs": [
+            9704
+          ],
+          "bot": true
+        },
+        {
+          "id": "b3d737134b45",
+          "textHash": "362e096a9507",
+          "broken": false,
+          "file": "packages/console/src/ds-components/Uploader/FileUploader/index.test.tsx",
+          "state": "candidate",
+          "sources": [
+            "4226372798"
+          ],
+          "units": {},
+          "prs": [
+            9704
+          ],
+          "bot": true
+        },
+        {
+          "id": "c2994370317d",
+          "textHash": "1c0034c0089b",
+          "broken": false,
+          "file": "packages/core/src/routes/sign-in-experience/custom-ui-assets/unzip.ts",
+          "state": "candidate",
+          "sources": [
+            "4228225478"
+          ],
+          "units": {},
+          "prs": [
+            9704
+          ],
+          "bot": false
+        },
+        {
+          "id": "76d3f9159bae",
+          "textHash": "5941f9fb9285",
+          "broken": false,
+          "file": "packages/core/src/routes/sign-in-experience/custom-ui-assets/unzip.ts",
+          "state": "candidate",
+          "sources": [
+            "4228225485"
+          ],
+          "units": {},
+          "prs": [
+            9704
+          ],
+          "bot": false
+        },
+        {
+          "id": "99135fe7ad29",
+          "textHash": "f4e2b896124e",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465225488"
+          ],
+          "units": {
+            "review-5465225488": [
+              9
+            ]
+          },
+          "prs": [
+            9704
+          ],
+          "bot": true
+        },
+        {
+          "id": "eec7f7569742",
+          "textHash": "bccb32512775",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465225488"
+          ],
+          "units": {
+            "review-5465225488": [
+              10
+            ]
+          },
+          "prs": [
+            9704
+          ],
+          "bot": true
+        },
+        {
+          "id": "be31ad849a51",
+          "textHash": "5afd48c6a715",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465219028"
+          ],
+          "units": {
+            "review-5465219028": [
+              6
+            ]
+          },
+          "prs": [
+            9705
+          ],
+          "bot": true
+        },
+        {
+          "id": "a61fe2bcaf85",
+          "textHash": "728aa565783d",
+          "broken": false,
+          "file": "",
+          "state": "candidate",
+          "sources": [
+            "review-5465335017"
+          ],
+          "units": {
+            "review-5465335017": [
+              6
+            ]
+          },
+          "prs": [
+            9708
+          ],
+          "bot": true
+        }
+      ],
+      "nearDuplicates": []
+    }
+  }
+}

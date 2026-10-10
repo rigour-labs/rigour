@@ -133,6 +133,12 @@ own input folder. A judge that gives nothing, twice, is replaced by the next one
 record and trace as a CLI judge; cost when the API reports it, tokens always. The judge is
 installed only when `api` is configured and the key it names is set.
 
+Each turn re-sends the whole conversation so far. For a Claude model (`vendor: anthropic`, or a
+model name with `claude` or `anthropic` in it), Rigour asks the API to cache it (`cache_control` on
+the request), so every turn after the first reads the earlier turns from the cache at a fraction of
+the input price; the trace counts cache reads and writes apart from fresh input. Other models cache on
+their own and are not asked. An API that refuses the field on the first turn is asked again without it.
+
 What we measured on the same reviews, rules frozen: Claude Code finished every review in one to
 two minutes; Codex at high reasoning effort finished them four to six times slower, and ran out of
 time on a large pull request; Cursor's ask mode did not finish a small review within fifteen
@@ -401,7 +407,12 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   independently: by different reviewers, or by one person in different words (a senior re-raising a
   standard counts; a bot rewording its own point on every pull request does not). At least one of the
   points must be a person's: review bots agreeing with each other never make a lesson. A point that is only
-  a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
+  a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate. Neither is a
+  point that asks for nothing: a review tool's status and scaffolding (a verdict banner, an overview heading,
+  "Files reviewed"), a line describing what the pull request does ("Adds caching for…"), praise or thanks, or a
+  status report ("all tests passing"). It is skipped only when it carries no sign of a request (an instruction,
+  a modal, a question, a "but"); when unsure it is kept. `rigour learn-reviews` counts them: "N skipped: not a
+  request", by why.
 
 A candidate only review bots raised is never served, not even with `gates.deep.review_lessons: all`; it
 reaches agents once a person promotes it, or a person's point joins it and recurrence promotes it. Lessons an

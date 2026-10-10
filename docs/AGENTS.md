@@ -318,12 +318,22 @@ not seen firing), broken, or missing, with the command that fixes it:
 
 - the project settings (`rigour.yml`, or a personal install's defaults);
 - the after-edit hook for Claude Code, Cursor and Windsurf, in the project and, for a personal
-  install, at user level. It names a hook that reads a variable the agent never sets
-  (fix: `rigour hooks init --force`). Cline's hooks are not checked;
+  install, at user level. It names the old hook that passes a variable the agent never sets, so no
+  edit is checked (fix: `rigour setup`, which rewrites Rigour's own entries in the project or, for a
+  personal install, at user level). Cline's hooks are not checked;
 - the stop hook;
 - the MCP server, found in `.mcp.json`, `~/.claude.json` or `~/.cursor/mcp.json`, or seen through tool
   calls;
-- the pull request workflow.
+- the pull request workflow;
+- settings an older Rigour wrote that no longer do what they say:
+  - a `rigour.yml` made from a preset that blocks on every security finding (healthcare, fintech,
+    government, devsecops) before `gates.security.block` existed: its security findings are shown as
+    notes. `rigour setup` adds `block: true`, keeping the file's comments;
+  - `gates.deprecated_apis.block_security_deprecated: true`, which older `rigour init` wrote for
+    everyone: keep it if your team chose it, otherwise delete the line. Rigour never changes it.
+
+The old edit hook also says so itself: on every edit it prints that it checks nothing and to run
+`rigour setup`, and exits 1, which the agent shows you without stopping the edit.
 
 When the clone has Rigour's `pre-push` hook, doctor also runs the same real-push test as
 `rigour hooks selftest`.

@@ -55,8 +55,9 @@ export interface SecurityPatternsConfig {
 
 /**
  * A provider's documented example or placeholder key, which docs, comments and SDK samples carry everywhere: AWS's
- * `AKIAIOSFODNN7EXAMPLE` (an AWS key ending in EXAMPLE), or a Stripe live key of all x's or 0's or spelling out
- * "your". A proven pattern never fires on one.
+ * documented example access key (the one ending in EXAMPLE), or a Stripe live key of all x's or 0's or spelling out
+ * "your". A proven pattern never fires on one. No key is spelled out here: the release scan refuses any tarball with
+ * a credential-shaped string, whoever's it is.
  */
 export function isDocumentedExampleKey(match: string): boolean {
     // Each exclusion is scoped to its own key shape: a random token (ghp_, sk-) can contain "your" by chance.

@@ -106,6 +106,26 @@ describe('the API judge', () => {
         expect(first.length).toBeLessThan(241_000);
     });
 
+    it('asks for the cache on every turn when told to, and counts what it wrote and read', async () => {
+        const { fetchImpl, seen } = model([
+            { tools: [{ name: 'list_dir', args: { path: 'src' } }], usage: { prompt_tokens: 3000, completion_tokens: 10, prompt_tokens_details: { cache_write_tokens: 2900 } } },
+            { text: 'ok', usage: { prompt_tokens: 3100, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 2900, cache_write_tokens: 150 } } },
+        ]);
+        const answer: ApiJudgeAnswer = JSON.parse((await runApiJudge('p', options(fetchImpl, { cache: true }))).stdout);
+        expect(seen.map(r => r.cache_control)).toEqual([{ type: 'ephemeral' }, { type: 'ephemeral' }]);
+        expect(answer.usage).toEqual({ input: 150, cacheRead: 2900, cacheWrite: 3050, output: 15 });
+        const { fetchImpl: plain, seen: plainSeen } = model([{ text: 'ok' }]);
+        await runApiJudge('p', options(plain));
+        expect(plainSeen[0].cache_control).toBeUndefined();
+    });
+
+    it('asks again without the cache when the API refuses it on the first turn, and does not ask for it again', async () => {
+        const { fetchImpl, seen } = model([{ status: 400 }, { tools: [{ name: 'list_dir', args: { path: 'src' } }] }, { text: 'ok' }]);
+        const run = await runApiJudge('p', options(fetchImpl, { cache: true }));
+        expect(run.exitCode).toBe(0);
+        expect(seen.map(r => r.cache_control)).toEqual([{ type: 'ephemeral' }, undefined, undefined]);
+    });
+
     it('passes the reasoning effort when asked', async () => {
         const { fetchImpl, seen } = model([{ text: 'ok' }]);
         await runApiJudge('p', options(fetchImpl, { reasoning: 'low' }));
