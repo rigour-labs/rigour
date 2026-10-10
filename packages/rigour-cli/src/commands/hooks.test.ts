@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'child_process';
 import { readThread } from '@rigour-labs/core';
 import { hooksInitCommand, hooksCheckCommand, parseStdinFiles } from './hooks.js';
+import { Readable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -347,3 +348,81 @@ describe('hooksCheckCommand', () => {
         process.exitCode = originalExitCode;
     });
 });
+
+describe('which agent sent the hook payload', () => {
+    let repo: string;
+    let stdout: string;
+    const originalStdin = Object.getOwnPropertyDescriptor(process, 'stdin')!;
+    const originalExitCode = process.exitCode;
+
+    beforeEach(() => {
+        repo = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-payload-'));
+        execFileSync('git', ['-C', repo, 'init', '-q', '-b', 'feat/retry']);
+        fs.mkdirSync(path.join(repo, 'src', 'jobs'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'AGENTS.md'), '- Every job in `src/jobs/` must call `withLock()` before its first read.\n');
+        stdout = '';
+        vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => { stdout += String(chunk); return true; });
+        vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        Object.defineProperty(process, 'stdin', originalStdin);
+        process.exitCode = originalExitCode;
+        vi.restoreAllMocks();
+        fs.rmSync(repo, { recursive: true, force: true });
+    });
+
+    /** Runs the hook with this payload on stdin, as the agent runs it; returns what it wrote to stdout, parsed. */
+    const run = async (payload: object, options: Parameters<typeof hooksCheckCommand>[1]) => {
+        Object.defineProperty(process, 'stdin', { value: Readable.from([Buffer.from(JSON.stringify(payload))]), configurable: true });
+        await hooksCheckCommand(repo, { stdin: true, ...options });
+        return JSON.parse(stdout);
+    };
+    /** What Claude Code sends to a PreToolUse or PostToolUse hook, in full. */
+    const claude = (event: 'PreToolUse' | 'PostToolUse', file: string, content: string) => ({
+        session_id: 'a1b2c3', transcript_path: path.join(repo, 't.jsonl'), cwd: repo, permission_mode: 'default', hook_event_name: event,
+        tool_name: 'Write', tool_input: { file_path: path.join(repo, file), content },
+        ...(event === 'PostToolUse' ? { tool_response: { filePath: path.join(repo, file), success: true } } : {}),
+    });
+    /** What Cursor sends, in full. */
+    const cursor = (event: string, extra: object) => ({
+        conversation_id: 'c1', generation_id: 'g1', hook_event_name: event, workspace_roots: [repo], ...extra,
+    });
+
+    it("denies a Claude Code tool call that writes a credential in a real secret's format, with the reason Claude is shown", async () => {
+        const out = await run(claude('PreToolUse', 'src/jobs/k.ts', `const k = "${AWS_KEY}";`), { mode: 'dlp' });
+        expect(out.continue).toBeUndefined(); // it used to scan nothing and answer continue
+        expect(out.hookSpecificOutput).toMatchObject({ hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: expect.stringContaining('[aws_access_key]') });
+        expect(stdout).not.toContain(AWS_KEY); // the reason and the result carry the redacted form only
+        expect(out.hookSpecificOutput.permissionDecisionReason).toContain(`${AWS_KEY.slice(0, 4)}****${AWS_KEY.slice(-2)}`);
+    });
+
+    it('lets a credential the scan only suspects through, with a warning Claude sees', async () => {
+        const out = await run(claude('PreToolUse', 'src/jobs/db.ts', 'const url = "postgres://admin:Zq8Lr2Vt9@db.example.com:5432/app";'), { mode: 'dlp' });
+        expect(out.hookSpecificOutput.permissionDecision).toBeUndefined();
+        expect(out.hookSpecificOutput.additionalContext).toContain('not blocked');
+        expect(stdout).not.toContain('Zq8Lr2Vt9');
+    });
+
+    it("briefs a Claude Code agent on a file's first edit", async () => {
+        const out = await run(claude('PreToolUse', 'src/jobs/retry.ts', 'export {};'), { mode: 'dlp', brief: true });
+        expect(out.hookSpecificOutput).toMatchObject({ hookEventName: 'PreToolUse', additionalContext: expect.stringContaining('must call `withLock()`') });
+    });
+
+    it("answers a Claude Code edit check in Claude Code's format, and an unknown event the same way", async () => {
+        fs.writeFileSync(path.join(repo, 'src/jobs/retry.ts'), 'export const x = 1;\n');
+        expect(await run(claude('PostToolUse', 'src/jobs/retry.ts', ''), {})).toMatchObject({ status: 'pass' });
+        stdout = '';
+        expect(await run({ ...claude('PostToolUse', 'src/jobs/retry.ts', ''), hook_event_name: 'SomethingNew' }, {})).toMatchObject({ status: 'pass' });
+    });
+
+    it("still answers Cursor in Cursor's format", async () => {
+        const prompt = await run(cursor('beforeSubmitPrompt', { prompt: `my key is ${AWS_KEY}` }), { mode: 'dlp' });
+        expect(prompt).toMatchObject({ continue: true, user_message: expect.stringContaining('credential') });
+        stdout = '';
+        fs.writeFileSync(path.join(repo, 'src/jobs/retry.ts'), 'export const x = 1;\n');
+        expect(await run(cursor('afterFileEdit', { file_path: path.join(repo, 'src/jobs/retry.ts'), edits: [] }), {})).toEqual({ continue: true });
+    });
+});
+
