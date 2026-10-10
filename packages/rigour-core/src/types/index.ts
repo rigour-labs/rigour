@@ -401,6 +401,12 @@ export const ConfigSchema = z.object({
         /** Also report findings the base already had; by default only what the change introduced is (baseline.ts). */
         show_preexisting: z.boolean().optional().default(false),
         /**
+         * The model reviewer accounts for every changed unit (function, or hunk named by its enclosing code): a
+         * finding, or what it checked and why it holds. A unit left out gets one follow-up run, then is reported as
+         * not reviewed (review/reviewer/coverage.ts). Applies only when the reviewer runs.
+         */
+        coverage: z.boolean().optional().default(true),
+        /**
          * Check the change against the goal its pull request's description declares (goal/goal.ts): a changed file
          * outside the declared Scope or inside Out of scope, a "Done when" item naming a file or symbol the change never
          * touches. Deterministic; a finding blocks. `required` stops a person, the environment or a flag turning it off.

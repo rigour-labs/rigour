@@ -34,6 +34,8 @@ export interface ReviewRecord {
     reported: { human_reviews: number };
     /** Reviewed without pull request context: no pull request, description or human review was read (`--blind`). */
     blind?: true;
+    /** Changed units the reviewer accounted for (coverage.ts): given, accounted, not reviewed, not offered. */
+    coverage?: { units: number; accounted: number; not_reviewed: string[]; not_offered: number };
     /** Decisions people made. */
     people: { dismissed: number };
     /** sha256 of everything above, keys sorted, so a copy can be checked against the original. */
@@ -77,6 +79,7 @@ export function buildRecord(input: RecordInput): ReviewRecord {
         reported: { human_reviews: input.humanReviews },
         people: { dismissed: input.accounted.dismissed.length },
         ...(input.blind ? { blind: true as const } : {}),
+        ...(input.verdict.coverage ? { coverage: { units: input.verdict.coverage.units, accounted: input.verdict.coverage.accounted, not_reviewed: input.verdict.coverage.notReviewed, not_offered: input.verdict.coverage.notOffered } } : {}),
     };
     return { ...body, integrity: integrityOf(body) };
 }
@@ -111,7 +114,13 @@ export function recordLines(r: ReviewRecord, shouldFixShown = 5): string[] {
     for (const i of v.should_fix.slice(0, shouldFixShown)) lines.push(`- Should fix: ${where(i)}`);
     if (v.should_fix.length > shouldFixShown) lines.push(`- …and ${v.should_fix.length - shouldFixShown} more should-fix in the record.`);
     const folded = [[v.notes, 'working note'], [v.disputed, 'disputed'], [v.unverified, 'unverified'], [r.people.dismissed, 'dismissed']].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
+    if (r.coverage) lines.push(coverageLine(r.coverage));
     if (folded.length) lines.push(`Also seen, never blocking: ${folded.map(([n, w]) => `${n} ${w}${n === 1 || w === 'disputed' || w === 'unverified' || w === 'dismissed' ? '' : 's'}`).join(', ')}.`);
     lines.push(`Judged by ${r.judges.map(j => `${j.reviewer}${j.version ? ` ${j.version}` : ''}${j.model ? ` (${j.model})` : ''}${typeof j.cost_usd === 'number' ? ` $${j.cost_usd.toFixed(2)}` : ''}${j.outside_repo ? ` [${j.outside_repo}]` : ''}`).join(', ') || 'no judge'} on \`${r.head.slice(0, 9)}\` against \`${r.base.slice(0, 9)}\` (${r.scope}); ${r.blind ? 'reviewed without pull request context' : `${r.reported.human_reviews} human review(s) seen`}. Integrity \`${r.integrity.slice(0, 16)}\`.`);
     return lines;
+}
+
+/** "Accounted for 7 of 8 changed units; not reviewed: a.go :: Close; 3 more not offered." */
+export function coverageLine(c: NonNullable<ReviewRecord['coverage']>): string {
+    return `Accounted for ${c.accounted} of ${c.units} changed unit${c.units === 1 ? '' : 's'}${c.not_reviewed.length ? `; not reviewed: ${c.not_reviewed.join(', ')}` : ''}${c.not_offered ? `; ${c.not_offered} more not offered (past the limit)` : ''}.`;
 }

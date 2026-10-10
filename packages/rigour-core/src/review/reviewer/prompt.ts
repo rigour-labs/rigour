@@ -7,6 +7,7 @@
  * severe it feels.
  */
 import { createHash } from 'crypto';
+import { COVERAGE_FORMAT, coverageStep } from './coverage.js';
 
 export interface PromptInputs {
     repoRoot: string;
@@ -27,6 +28,8 @@ export interface PromptInputs {
     mergeBlock: string;
     /** Step 12, the goal the description declares (goalStep), or empty when the goal check is off or declares nothing to judge. */
     goalBlock?: string;
+    /** The coverage step (coverage.ts coverageStep), or empty when coverage is off or nothing parses into units. */
+    coverageBlock?: string;
 }
 
 export function renderPrompt(v: PromptInputs): string {
@@ -148,7 +151,7 @@ Do these steps in order. Report only what you verified in the code, with file:li
 11. Review the diff the way the human reviewers do: correctness, production cost, dead code and
    unreferenced exports (a test is not a consumer), code duplicated across sibling routes or
    runners, links or ids built outside the helper that owns them, and the repository's rules.
-${v.goalBlock ?? ''}
+${v.goalBlock ?? ''}${v.coverageBlock ?? ''}
 The lists from steps 2-10 are your working notes: people see them, and they never block on their
 own, with one exception: a requirement rule you mark broken, with its quote verified, blocks. A miss blocks only when you also put it in findings, with all three of:
 - input: the concrete input, state or sequence that goes wrong (a user edits, a retry, two runs at once);
@@ -190,7 +193,7 @@ Your final message must be ONLY this JSON, starting with { and ending with }, no
  "claims":[{"source":"comment"|"description","claim":"...","file":"<code that contradicts it>","line":0,"holds":true|false,"evidence":"..."}],
  "lessons":[{"lesson":"<the lesson as listed>","applies":true|false,"file":"...","line":0,"evidence":"..."}],
  "rules":[{"id":"<the rule's id as listed>","status":"followed"|"broken"|"not-applicable","file":"...","line":0,"quote":"<when broken: the code that breaks it, copied exactly>","evidence":"..."}],
-${v.goalBlock ? GOAL_FORMAT : ''} "findings":[{"class":"...","severity":"blocking"|"should","file":"...","line":0,"issue":"...","why":"...","input":"...","consequence":"<wrong outcome for that input, or the cost; empty for an opinion>","quote":"<the code at file:line, copied exactly>","absent":"<for a missing call or check: the exact text that is missing>"}],
+${v.goalBlock ? GOAL_FORMAT : ''}${v.coverageBlock ? COVERAGE_FORMAT : ''} "findings":[{"class":"...","severity":"blocking"|"should","file":"...","line":0,"issue":"...","why":"...","input":"...","consequence":"<wrong outcome for that input, or the cost; empty for an opinion>","quote":"<the code at file:line, copied exactly>","absent":"<for a missing call or check: the exact text that is missing>"}],
  "carried":["<delta mode: ids of previous open items that still stand>"],
  "resolved_previous":[{"id":"<delta mode: id of a previous open item now fixed>","evidence":"file:line and the fix"}]}`;
 }
@@ -239,7 +242,7 @@ export function goalStep(goalFile: string): string {
 
 export const PROMPT_VERSION = createHash('sha256').update(renderPrompt({
     repoRoot: '<repo>', branch: '<branch>', head: '<head>', base: '<base>', baseSha: '<sha>', mode: 'full', reviewsFile: '<r>', humanCount: 0,
-    prBodyFile: '<b>', diffstatFile: '<s>', diffFile: '<d>', hintsFile: '<h>', contextFile: '<c>', deltaBlock: '', mergeBlock: '',
+    prBodyFile: '<b>', diffstatFile: '<s>', diffFile: '<d>', hintsFile: '<h>', contextFile: '<c>', deltaBlock: '', mergeBlock: '', coverageBlock: coverageStep('<u>'),
 })).digest('hex').slice(0, 12);
 
 /** One judge's single call on the items the other judge raised alone: confirm or refute each, with the code that shows it. */

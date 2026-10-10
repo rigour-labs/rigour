@@ -7,7 +7,7 @@
  */
 import chalk from 'chalk';
 import { execFileSync } from 'child_process';
-import { branchBase, itemLine, reviewerInputs, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
+import { branchBase, coverageLine, itemLine, reviewerInputs, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
 
 /** The base a branch review runs against: the one named, else where the branch left main. */
 export function reviewerBase(cwd: string, named: string | undefined): string | undefined {
@@ -59,6 +59,7 @@ export function printReviewer(result: ReviewerResult, options: { notes?: boolean
     } else if (folded.length) {
         console.log(chalk.dim(`  Also seen, never blocking: ${folded.map(([n, what]) => `${n} ${what}${n === 1 || what.startsWith('more') || what === 'disputed' || what === 'unverified' ? '' : 's'}`).join(', ')} (rigour review --reviewer --notes lists them)`));
     }
+    if (result.record?.coverage) console.log(chalk.dim(`  ${coverageLine(result.record.coverage)}`));
     if (result.rules?.checked) console.log(chalk.dim(`  repository rules answered: ${result.rules.checked} (${result.rules.broken} broken, ${result.rules.followed} followed, ${result.rules.notApplicable} not applicable)`));
     if (result.record && result.recordPath) console.log(chalk.dim(`  record: ${result.recordPath} (integrity ${result.record.integrity.slice(0, 16)})`));
     const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens` : '';
@@ -85,6 +86,7 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         blocks: result.outcome === 'findings' || result.outcome === 'unavailable',
         reason: result.reason ?? null,
         blind: !!result.blind,
+        coverage: result.coverage ?? null,
         reviewers: result.reviewers,
         scope: result.scope ?? null,
         items: result.items,
