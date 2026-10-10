@@ -267,11 +267,17 @@ describe('hooksCheckCommand', () => {
         expect(readThread(testDir, 'feat/PROJ-21-thread')?.events.map(e => [e.kind, e.agent, e.files, e.findings, e.status])).toEqual([['edit-check', 'codex', ['ok.ts'], 0, 'pass']]);
     });
 
-    it('reports skipped, not pass, when the hook named no file', async () => {
+    it('reports skipped, not pass, when the hook named no file, and calls out the old hook that passes an empty --files', async () => {
         const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-        vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-        await hooksCheckCommand(testDir, { files: '' });
-        expect(stdoutSpy.mock.calls.map(call => String(call[0])).join('')).toContain('"status":"skipped"');
+        const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        try {
+            await hooksCheckCommand(testDir, { files: '' });
+            expect(stdoutSpy.mock.calls.map(call => String(call[0])).join('')).toContain('"status":"skipped"');
+            expect(stderrSpy.mock.calls.map(call => String(call[0])).join('')).toContain('This edit hook is the old form');
+            expect(process.exitCode).toBe(1); // shown to the person by the agent, never a block (2)
+        } finally {
+            process.exitCode = undefined;
+        }
     });
 
     it('should return fail JSON and set exit code 2 in block mode', async () => {
