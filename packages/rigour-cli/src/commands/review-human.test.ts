@@ -79,6 +79,8 @@ describe('rigour review, as a person reads it', () => {
         const text = show(result({ advisory: [finding(1)], fileFindings: [finding(2)], preexisting: 12, excludedOutsideChangedLines: 3 }));
         expect(text).toContain('Also seen, never blocking: 2 notes (rigour review --notes)');
         expect(text).toContain('Not shown: 15 issues the code already had before this change');
+        const byCheck = show(result({ preexisting: 12, excludedOutsideChangedLines: 3, preexistingByCheck: { 'ast-analysis': 11, 'file-size': 1 }, outsideChangeByCheck: { 'file-size': 2, 'style-drift': 1 } }));
+        expect(byCheck).toContain('Not shown: 15 issues the code already had before this change: ast-analysis 11, file-size 3, style-drift 1 (review.show_preexisting: true lists them).');
         expect(text).not.toContain('export f1');
         expect(show(result({ advisory: [finding(1)] }), { notes: true })).toContain('src/a.ts:1  export f1 is used nowhere');
     });

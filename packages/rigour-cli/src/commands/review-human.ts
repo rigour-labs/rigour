@@ -63,13 +63,21 @@ function printFindings(result: ReviewResult, all: boolean): void {
     console.log(chalk.dim('\n  Wrong? Dismiss it once and it never comes back.\n'));
 }
 
+/** The left-out findings by check, most first (`: ast-analysis 12, file-size 1`), as `checked.preexisting` and `checked.outsideChange` give them in JSON. */
+function leftOutByCheck(result: ReviewResult): string {
+    const byCheck = new Map<string, number>();
+    for (const counts of [result.preexistingByCheck, result.outsideChangeByCheck]) for (const [check, n] of Object.entries(counts ?? {})) byCheck.set(check, (byCheck.get(check) ?? 0) + n);
+    const parts = [...byCheck].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([check, n]) => `${check} ${n}`);
+    return parts.length ? `: ${parts.join(', ')}` : '';
+}
+
 /** One line each, in plain words, for what was seen and never blocks. */
 function printQuietLines(result: ReviewResult, notes: boolean): void {
     const lines: string[] = [];
     const seen = result.advisory.length + result.fileFindings.length;
     if (seen) lines.push(`Also seen, never blocking: ${seen} note${seen === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
     const before = result.preexisting + result.excludedOutsideChangedLines;
-    if (before) lines.push(`Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change (review.show_preexisting: true lists them).`);
+    if (before) lines.push(`Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change${leftOutByCheck(result)} (review.show_preexisting: true lists them).`);
     if (result.baseUnknown) lines.push('Compared with no base: HEAD already holds this diff, so findings on its lines were not checked against the code before it. Pass --base to compare.');
     if (result.hints.length) lines.push(`To confirm by hand: ${result.hints.length} hint${result.hints.length === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
     if (result.dismissed) lines.push(`Dismissed earlier as not a bug: ${result.dismissed}.`);
