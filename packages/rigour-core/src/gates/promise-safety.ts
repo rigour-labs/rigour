@@ -29,6 +29,16 @@ function detectLang(filePath: string): Lang {
     return LANG_EXTENSIONS[ext] || 'unknown';
 }
 
+/**
+ * A test file, in any language: there an uncaught parse error is the test failing, which is what it should do, so an
+ * unguarded parse is no finding. Every other check of this gate still runs on tests.
+ */
+function isTestPath(file: string): boolean {
+    const f = file.replace(/\\/g, '/');
+    return /(^|\/)(tests?|__tests__|spec)\//.test(f) || /\.(test|spec)\.[^/]+$/.test(f) || /(^|\/)test_[^/]+\.py$/.test(f)
+        || /_test\.(py|go)$/.test(f) || /(^|\/)conftest\.py$/.test(f) || /_spec\.rb$/.test(f) || /Tests?\.cs$/.test(f);
+}
+
 export class PromiseSafetyGate extends Gate {
     private config: Required<Omit<PromiseSafetyConfig, 'ignore_patterns'>> & { ignore_patterns: string[] };
 
@@ -94,7 +104,7 @@ export class PromiseSafetyGate extends Gate {
 
     private scanJS(lines: string[], content: string, file: string, violations: PromiseViolation[]) {
         if (this.config.check_unhandled_then) this.detectUnhandledThen(lines, file, violations);
-        if (this.config.check_unsafe_parse) this.detectUnsafeParseJS(lines, file, violations);
+        if (this.config.check_unsafe_parse && !isTestPath(file)) this.detectUnsafeParseJS(lines, file, violations);
         if (this.config.check_async_without_await) this.detectAsyncWithoutAwaitJS(content, file, violations);
         if (this.config.check_unsafe_fetch) this.detectUnsafeFetchJS(lines, file, violations);
     }
@@ -162,7 +172,7 @@ export class PromiseSafetyGate extends Gate {
     }
 
     private scanPython(lines: string[], content: string, file: string, violations: PromiseViolation[]) {
-        if (this.config.check_unsafe_parse) this.detectUnsafeParsePython(lines, file, violations);
+        if (this.config.check_unsafe_parse && !isTestPath(file)) this.detectUnsafeParsePython(lines, file, violations);
         if (this.config.check_async_without_await) this.detectAsyncWithoutAwaitPython(content, file, violations);
         if (this.config.check_unsafe_fetch) this.detectUnsafeFetchPython(lines, file, violations);
         this.detectBareExceptPython(lines, file, violations);
@@ -243,7 +253,7 @@ export class PromiseSafetyGate extends Gate {
     }
 
     private scanGo(lines: string[], content: string, file: string, violations: PromiseViolation[]) {
-        if (this.config.check_unsafe_parse) this.detectUnsafeParseGo(lines, file, violations);
+        if (this.config.check_unsafe_parse && !isTestPath(file)) this.detectUnsafeParseGo(lines, file, violations);
         if (this.config.check_unsafe_fetch) this.detectUnsafeFetchGo(lines, file, violations);
         this.detectIgnoredErrorsGo(lines, file, violations);
     }
@@ -292,7 +302,7 @@ export class PromiseSafetyGate extends Gate {
     }
 
     private scanRuby(lines: string[], content: string, file: string, violations: PromiseViolation[]) {
-        if (this.config.check_unsafe_parse) this.detectUnsafeParseRuby(lines, file, violations);
+        if (this.config.check_unsafe_parse && !isTestPath(file)) this.detectUnsafeParseRuby(lines, file, violations);
         if (this.config.check_unsafe_fetch) this.detectUnsafeFetchRuby(lines, file, violations);
     }
 
@@ -313,7 +323,7 @@ export class PromiseSafetyGate extends Gate {
     }
 
     private scanCSharp(lines: string[], content: string, file: string, violations: PromiseViolation[]) {
-        if (this.config.check_unsafe_parse) this.detectUnsafeParseCSharp(lines, file, violations);
+        if (this.config.check_unsafe_parse && !isTestPath(file)) this.detectUnsafeParseCSharp(lines, file, violations);
         if (this.config.check_unsafe_fetch) this.detectUnsafeFetchCSharp(lines, file, violations);
         if (this.config.check_async_without_await) this.detectAsyncWithoutAwaitCSharp(content, file, violations);
         this.detectDeadlockRiskCSharp(lines, file, violations);
