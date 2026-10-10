@@ -15,7 +15,7 @@ Works with Claude Code, Cursor, Codex, Cline and Windsurf. Free, open source, an
 
 ## How it does it
 
-1. **Brief before writing.** Before an agent edits a file, it is told what your team asks of that file: the rules your repository wrote for it, the lessons your team learned on it, the points your team settled against. At most three items per file, each cited. Opt-in: `rigour hooks init --brief`, or `rigour_brief` for any agent with MCP. See [The briefing](docs/BRIEF.md).
+1. **Brief before writing.** Before an agent edits a file, it is told what your team asks of that file: the rules your repository wrote for it, the lessons your team learned on it, the points your team settled against. At most three items per file, each cited. Installed by `rigour setup` (`--no-brief` to leave it out), or `rigour_brief` for any agent with MCP. See [The briefing](docs/BRIEF.md).
 2. **Verify while writing and before push.** Your team's checks and rules gate any agent's work: on every edit, before the agent says "done", and before `git push`, where your formatter, linter, type check and the tests that touch the change run too. Opt-in, the change is also checked against the goal its pull request declares: files outside its scope, "done when" items it never did. See [The goal check](docs/GOAL.md).
 3. **Review with your team's context, at your team's severity.** A reviewer that reads every point from your last human review, checks each rule your repository wrote that the change touches, and takes your reviewer's own "Blocking / Should fix / Nits" over its own reading. What your team blocks and what it lets go is your repository's setting, not one global opinion. See [The reviewer](docs/REVIEWER.md).
 4. **Learn from outcomes.** A review point becomes a lesson only on evidence: a person corrected an agent's work, someone on the team decided, or it recurred across authors. What happened after the merge (a later fix on its lines, a revert) is shown to a person to decide, never a promotion on its own, and a lesson the team keeps merging against cleanly is taken back. What it learns flows into the next briefing and the next review.
@@ -39,7 +39,7 @@ One piece of work is one **task**, whatever agents and people touch it, and `rig
 | The reviewer | Off until enabled in Studio or `rigour.yml` | Your agent's own model and login, one long read per review; the record of each review shows its cost |
 | A panel of judges | Off; `mode: full` or `panel: on` | One judge's cost per judge, plus a short cross-examination of what they disagree on |
 | A judge through any OpenAI-compatible API | Off; `reviewers: [api]` | The provider's price for your key |
-| The briefing | Off; `rigour hooks init --brief` | No model; with the credential scan on, +22 ms per edit and +121 ms on a file's first edit (measured on Rigour's own repository) |
+| The briefing | On with `rigour setup` (`--no-brief`, `brief.enabled: false` or `RIGOUR_BRIEF=0` turns it off) | No model; with the credential scan on, +22 ms per edit and +121 ms on a file's first edit (measured on Rigour's own repository) |
 | The task thread | On wherever the hooks run | A line per event in your git folder |
 
 ## How it works

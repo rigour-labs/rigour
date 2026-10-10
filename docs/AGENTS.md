@@ -77,7 +77,7 @@ File: `.claude/settings.json` (team) or `~/.claude/settings.json` (personal).
 | `PostToolUse` | `Write\|Edit\|MultiEdit` | `<cli> hooks check --stdin`, plus `--block` when asked | Fast checks on the file just written. |
 | `Stop` | none | `<cli> hooks stop --tool claude` (timeout 120 s) | Reviews the branch against main before the agent finishes. At most three stops, then the agent may finish and the finding still blocks the push. |
 | `PreToolUse` | `Bash` | `<cli> hooks push --stdin`, inside a shell that starts it only when the command mentions `git` and `push` (timeout 1800 s) | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
-| `PreToolUse` | `.*` | `<cli> hooks check --mode dlp --stdin` | Credential warnings on the input of every tool call. |
+| `PreToolUse` | `.*` | `<cli> hooks check --mode dlp --stdin` | Credentials in the input of every tool call: a real secret's format denies the call, anything else is a warning the agent sees. |
 
 ### Cursor
 
@@ -163,9 +163,17 @@ GitHub, Stripe, Twilio, Slack, SendGrid), private keys, database URLs with crede
 and JWTs, password and `.env`-style assignments, credentials in URLs, CI and registry secrets, and
 high-entropy encoded values.
 
-As installed, the DLP hooks **warn and never block**: the hook command carries no `--block`. The hook
-prints the warning (for Cursor, as a message on the prompt; for Cline, in the agent's context) and
-records it in `.rigour/events.jsonl`.
+For Claude Code, a credential in a real secret's format (a provider's own key format such as an AWS
+access key or a Stripe live key, a private key, a GCP service account) **denies the tool call**: Claude
+Code shows the agent the reason, and the credential is never written. Anything the scan only suspects
+(a database URL with a password, a high-entropy value) is a warning added to the agent's context
+beside the tool result. Before 6.13.0, a Claude Code payload was mistaken for Cursor's and nothing
+was scanned; the hooks pin Rigour's version, so run `rigour setup` (or `rigour hooks init`) after
+upgrading to move them to the new one.
+
+For the other agents the DLP hooks **warn and never block**: the hook command carries no `--block`.
+The hook prints the warning (for Cursor, as a message on the prompt; for Cline, in the agent's
+context) and records it in `.rigour/events.jsonl`.
 
 A warning that is wrong can be taught once:
 
