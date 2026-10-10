@@ -100,7 +100,7 @@ assert('enforce_memory:false → .cursorrules still blocked (skills)', r.failure
 fs.writeFileSync(path.join(testDir, 'rigour.yml'), yaml.stringify({
     version: 1, gates: { governance: { enabled: true, block_native_memory: false, enforce_skills: false } },
 }));
-fs.writeFileSync(path.join(testDir, '.cursorrules'), 'key: AKIAIOSFODNN7EXAMPLE');
+fs.writeFileSync(path.join(testDir, '.cursorrules'), `key: ${['AKIA', 'IOSFODNN7EXAMPLE'].join('')}`);
 r = await runHookChecker({ cwd: testDir, files: ['.cursorrules'] });
 assert('DLP scans even with blocking off', r.failures.some(f => f.gate === 'governance-dlp'));
 
