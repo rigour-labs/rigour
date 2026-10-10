@@ -13,14 +13,16 @@ Claude Code and Cursor, together with the hooks that run Rigour's checks whether
 register it by hand:
 
 ```bash
-claude mcp add --scope user rigour -- npx -y @rigour-labs/mcp@6
+claude mcp add --scope user rigour -- npx -y @rigour-labs/mcp@<version>
 ```
 
 Or, in any client's MCP configuration:
 
 ```json
-{ "mcpServers": { "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp@6"] } } }
+{ "mcpServers": { "rigour": { "command": "npx", "args": ["-y", "@rigour-labs/mcp@<version>"] } } }
 ```
+
+`<version>` is the version of your Rigour CLI (`rigour --version`), so the tools and the hooks come from one release.
 
 Node 22.13 or later. Each call works in the repository given by its `cwd` argument, else `RIGOUR_CWD`, else
 the directory the server started in.

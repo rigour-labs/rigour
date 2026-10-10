@@ -6,7 +6,7 @@ import { DiscoveryService, loadSettings } from '@rigour-labs/core';
 import { hooksInitCommand } from './hooks.js';
 import { randomUUID } from 'crypto';
 import { writeAgentInstructions } from './init-handshake.js';
-import { recordCreated } from './install-record.js';
+import { isRigourMcpEntry, recordCreated } from './install-record.js';
 import { askTelemetryOnce } from './telemetry-consent.js';
 import { getCliVersion } from '../utils/cli-version.js';
 
@@ -386,13 +386,23 @@ export function resolveMCPServerConfig(): { command: string; args: string[] } {
 }
 
 /**
- * The MCP server pinned to this CLI's major version (`@rigour-labs/mcp@6`): fixes
- * arrive without editing the config, a breaking major does not, and a bare name
- * (which makes npx run any older global install) is never written.
+ * The MCP server pinned to this CLI's exact version (`@rigour-labs/mcp@6.13.0`), as every hook pins the CLI: an agent's
+ * tools and its hooks come from the same release, and `rigour setup` moves both. The two packages are published at the
+ * same version. A bare name (which makes npx run any older global install) is never written.
  */
 export function mcpPackageSpec(cliVersion: string): string {
-    const major = /^(\d+)\./.exec(cliVersion)?.[1];
-    return major && major !== '0' ? `@rigour-labs/mcp@${major}` : '@rigour-labs/mcp@latest';
+    return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(cliVersion) && !cliVersion.startsWith('0.') ? `@rigour-labs/mcp@${cliVersion}` : '@rigour-labs/mcp@latest';
+}
+
+/** Whether an existing `rigour` server entry stays as it is: the same as the one to write, or one the person changed. */
+function keepMcpEntry(current: unknown, wanted: { command: string; args: string[] }, force?: boolean): boolean {
+    if (!current || force) return false;
+    return JSON.stringify(current) === JSON.stringify(wanted) || !isRigourMcpEntry(current);
+}
+
+/** `rigour setup` on a repository that already has rigour.yml: the MCP server for its agents, written or re-pinned. */
+export async function registerProjectMcp(cwd: string): Promise<void> {
+    await initMCPForDetectedTools(cwd, agentsToSetUp(cwd), false);
 }
 
 /** The Rigour MCP server for the agents set up: Cursor in .cursor/mcp.json, Claude Code in .mcp.json. */
@@ -433,10 +443,8 @@ async function setupCursorMCP(
             console.log(chalk.yellow('  Kept .cursor/mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
             return;
         }
-        // Don't overwrite if rigour already registered (unless --force)
-        if (existing?.mcpServers?.rigour && !force) {
-            return;
-        }
+        // An entry already as it should be, or one the person changed, is kept (unless --force); Rigour's own is re-pinned.
+        if (keepMcpEntry(existing?.mcpServers?.rigour, serverConfig, force)) return;
     }
 
     const created = !(await fs.pathExists(mcpPath));
@@ -468,7 +476,7 @@ async function setupClaudeMCP(
             console.log(chalk.yellow('  Kept .mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
             return;
         }
-        if (existing?.mcpServers?.rigour && !force) return;
+        if (keepMcpEntry(existing?.mcpServers?.rigour, serverConfig, force)) return;
     }
     if (!existing.mcpServers) existing.mcpServers = {};
     existing.mcpServers.rigour = serverConfig;
