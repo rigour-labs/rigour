@@ -16,7 +16,10 @@ const ASKS = /\?|\b(?:should|must|need|needs|could|would|can we|can you|let'?s|p
 /** A review tool's own scaffolding: verdict banners, overview headings, review metadata, prompts to rerun it. */
 const TOOL_STATUS = /^(?:changes recommended|approval recommended|copilot review overview|pull request overview|review details|file summaries|what changed in this pr|suppressed comments|previously missed|files reviewed:|comments generated:|review effort(?: level)?:|findings:|open \(\d+\)|get a fresh assessment|once you've addressed the issues|learn more in the docs|add a code-review agent skill)/i;
 
-/** A sentence describing what the pull request does, as an overview writes it: a third-person verb first. */
+/**
+ * A sentence describing what the pull request does, as an overview writes it: a third-person verb first. Only in a
+ * review body: on a line, from a person, the same shape states a defect ("Loads every row on each request.").
+ */
 const DESCRIBES = /^(?:adds|updates|introduces|extends|integrates|restricts|supports|implements|defines|refactors|moves|renames|replaces|improves|enables|exposes|persists|propagates|localizes|guards|tests|covers|documents|applies|uses|reads|builds|creates|loads|renders|styles|provides|preserves|parses|bumps|upgrades|migrates|wires|allows|reworks|simplifies|splits|consolidates)\b/i;
 
 /** Praise and thanks that close or open a review. */
@@ -37,14 +40,17 @@ function plain(text: string): string {
         .trim();
 }
 
+/** Where a point was made: a comment on lines of code, or a review body (where a tool or the author summarises). */
+export type PointPlace = 'inline' | 'body';
+
 /** Why this point asks for nothing, or undefined when it may ask for something (kept). */
-export function notARequest(point: string): NotRequestReason | undefined {
+export function notARequest(point: string, place: PointPlace): NotRequestReason | undefined {
     const text = plain(point);
     if (!text) return undefined;
     if (TOOL_STATUS.test(text)) return 'review tool status';
     if (ASKS.test(text)) return undefined;
     if (STATUS.test(text)) return 'status report';
     if (PRAISE.test(text)) return 'praise or thanks';
-    if (DESCRIBES.test(text)) return 'describes the change';
+    if (place === 'body' && DESCRIBES.test(text)) return 'describes the change';
     return undefined;
 }

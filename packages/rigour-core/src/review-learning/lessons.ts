@@ -198,7 +198,7 @@ export type OnSkip = (reason: NotRequestReason) => void;
 export function lessonFromComment(git: Git, comment: ReviewComment, at = new Date().toISOString(), onSkip?: OnSkip): ReviewLesson | undefined {
     const text = lessonText(comment.body);
     if (text.length < 12) return undefined;
-    const skip = notARequest(text);
+    const skip = notARequest(text, 'inline');
     if (skip) {
         onSkip?.(skip);
         return undefined;
@@ -227,7 +227,7 @@ export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at
     return bodyPoints(review.body).flatMap((point, i) => {
         const text = pointText(withoutEmphasis(point)).slice(0, MAX_TEXT).trim();
         if (text.length < 12) return [];
-        const skip = notARequest(point);
+        const skip = notARequest(point, 'body');
         if (skip) {
             onSkip?.(skip);
             return [];
