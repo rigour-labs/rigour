@@ -248,7 +248,8 @@ program
     .option('--team', 'Commit Rigour to this repository (rigour.yml, project hooks, .mcp.json) so everyone who clones gets it. Default: personal, nothing in your working tree')
     .option('--instructions', 'With --team: also write AGENTS.md, and a one-line CLAUDE.md that imports it, where the project has none')
     .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
-    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean }) => {
+    .option('--no-brief', 'Do not brief the agent with the team\'s rules and lessons (on by default: from each session\'s first prompt, and on the first edit of each file)')
+    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean; brief?: boolean }) => {
         await setupCommand(process.cwd(), options);
     });
 
