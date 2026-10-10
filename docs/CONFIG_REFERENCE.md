@@ -288,7 +288,7 @@ Scans source for injection, cross-site scripting, path traversal, hardcoded secr
 | `insecure_randomness` | boolean | `true` | When off, use of non-cryptographic random number generators for security values is not reported. |
 | `command_injection` | boolean | `true` | When off, shell command injection patterns are not reported by this check; the edit hook still checks for them. |
 | `block_on_severity` | "critical" \| "high" \| "medium" \| "low" | `"high"` | Lowest severity of security finding that is reported; findings below it are dropped. |
-| `block` | boolean | `false` | Off by default: only a credential in a format only a real secret has (AWS access key, Stripe live key, sk-/ghp_-style keys, a private key block) blocks, and every other pattern is a note, since it cannot see whether its input is trusted. On: every reported pattern blocks. The healthcare, fintech, government and devsecops presets turn it on. |
+| `block` | boolean | `false` | Off by default: only a credential in a format only a real secret has (AWS access key, Stripe live key, sk-/ghp_-style keys, a private key block) blocks, and every other pattern is a note, since it cannot see whether its input is trusted. On: every reported pattern blocks, and so does a secret-named variable referenced in client code (frontend-secret-exposure). The healthcare, fintech, government and devsecops presets turn it on. |
 
 ## Frontend secret exposure
 
@@ -296,7 +296,7 @@ Scans source for injection, cross-site scripting, path traversal, hardcoded secr
 
 Finds server-side secrets referenced or embedded in files that are bundled for the browser. Teams adjust which paths count as frontend or server and which variable names count as secrets.
 
-**Blocks:** Blocks critical and high findings
+**Blocks:** Blocks a literal secret key; a secret-named variable reference is a note unless security.block is on
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |

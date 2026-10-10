@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { FrontendSecretExposureGate } from './frontend-secret-exposure.js';
+import { mustFix } from '../review/quiet.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -13,6 +14,40 @@ describe('FrontendSecretExposureGate', () => {
 
     afterEach(() => {
         fs.rmSync(testDir, { recursive: true, force: true });
+    });
+
+    describe('what blocks', () => {
+        const put = (rel: string, body: string) => {
+            fs.mkdirSync(path.dirname(path.join(testDir, rel)), { recursive: true });
+            fs.writeFileSync(path.join(testDir, rel), body);
+        };
+        const byFile = async (security_block = false) => {
+            const failures = await new FrontendSecretExposureGate({ security_block }).run({ cwd: testDir });
+            return (file: string) => failures.find(f => f.files?.includes(file));
+        };
+
+        it('blocks a literal secret key in client code; a secret-named variable is a note', async () => {
+            // Built at run time: no key-shaped literal is kept in the repository.
+            put('src/components/Pay.tsx', `export const key = '${'sk_' + 'live_' + '9fQ2xWm4Lp8Zr7Tn3Kb6Vd1Y'}';\n`);
+            put('src/components/Checkout.tsx', 'export const key = process.env.STRIPE_SECRET_KEY;\n');
+            put('src/lib/shared.ts', 'export const key = process.env.STRIPE_SECRET_KEY;\n');
+            const at = await byFile();
+            expect(at('src/components/Pay.tsx')).toMatchObject({ certainty: 'proven' });
+            expect(mustFix(at('src/components/Pay.tsx')!)).toBe(true);
+            // Bundlers inline only public-prefixed variables: a non-public one is undefined in the browser, not leaked.
+            expect(at('src/components/Checkout.tsx')).toMatchObject({ certainty: 'likely' });
+            expect(mustFix(at('src/components/Checkout.tsx')!)).toBe(false);
+            // A shared module may or may not be bundled for the browser: possible.
+            expect(at('src/lib/shared.ts')).toMatchObject({ certainty: 'possible' });
+            expect(mustFix(at('src/lib/shared.ts')!)).toBe(false);
+        });
+
+        it('blocks a secret-named variable in client code when the team set security.block', async () => {
+            put('src/components/Checkout.tsx', 'export const key = process.env.STRIPE_SECRET_KEY;\n');
+            const at = await byFile(true);
+            expect(at('src/components/Checkout.tsx')).toMatchObject({ certainty: 'proven' });
+            expect(mustFix(at('src/components/Checkout.tsx')!)).toBe(true);
+        });
     });
 
     it('detects process.env secret usage in client-bundled file', async () => {
