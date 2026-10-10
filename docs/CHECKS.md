@@ -270,7 +270,9 @@ Two settings change this:
 | `review.show_preexisting` | `false` | `true` skips step 3 and reports findings the base already had. |
 | `review.include_heuristics` | `false` | `true` makes every finding on a changed line block, notes included. |
 
-`rigour review` lists the first five blocking findings; `--all` lists every one, and `--notes` lists the notes and hints.
+`rigour review` lists the first five blocking findings; `--all` lists every one, and `--notes` lists the notes and hints, each under its own count line. The "Not shown" lines (issues the code already had, issues on lines the change did not touch) list nothing beneath them; `review.show_preexisting: true` reports the first kind as findings.
+
+**The score** (`rigour check`, `rigour review --ci` and `--json`) counts every finding in the files checked, notes included: critical 20, high 10, medium 5 and low 2 points each, capped per check, from 100. It measures the code, not the verdict: a review can pass at 62/100 when every finding is a note or older than the change. Below 100, the output says so in one line.
 
 ## How precision is kept honest
 
