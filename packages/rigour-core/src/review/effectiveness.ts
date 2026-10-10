@@ -27,6 +27,11 @@ export interface AgentEvent {
     /** lessons_served: where the agent got them, and their subjects (learning-events.ts). */
     via?: string;
     lessons?: string[];
+    /** lessons_served from a briefing: the items' ids, and the files they were for. */
+    ids?: string[];
+    files?: string[];
+    /** How many of a briefing's items are the repository's rules, not lessons. */
+    rules?: number;
     /** pr_catches: what a branch review reported. */
     findings?: Array<{ rule: string; title: string; file: string }>;
     /** reuse_suggested: what the agent was about to write, what already exists, and BLOCK or WARN. */

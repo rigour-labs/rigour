@@ -28,6 +28,11 @@ export interface StudioAgentContext {
     weeks: StudioContextWeek[];
 }
 
+/** The lessons these events gave agents: a briefing's items count only when they are lessons, not the repository's rules. */
+function lessonsIn(served: AgentEvent[]): number {
+    return served.reduce((n, e) => n + (e.lessons?.length ?? 0) - (e.rules ?? 0), 0);
+}
+
 export function buildAgentContext(input: { now: Date; context: ContextEvent[]; events: AgentEvent[] }): StudioAgentContext {
     const at = (e: ContextEvent) => e.createdAt ?? 0;
     const since = input.now.getTime() - WEEK_MS;
@@ -45,7 +50,7 @@ export function buildAgentContext(input: { now: Date; context: ContextEvent[]; e
             tokensConsidered: sum(scopes, e => e.candidateTokens),
             tokensReturned: sum(scopes, e => e.returnedTokens),
             recalls: recentContext.filter(e => e.toolName === 'rigour_recall').length,
-            lessonsTold: served.filter(inWeek).reduce((n, e) => n + (e.lessons?.length ?? 0), 0),
+            lessonsTold: lessonsIn(served.filter(inWeek)),
             reuse: reuse.filter(inWeek).reverse().map(e => ({ at: e.timestamp ?? '', planned: e.planned ?? '', existing: e.existing ?? '', action: e.action ?? '' })),
         },
         weeks: Array.from({ length: WEEKS }, (_, i) => {
@@ -59,7 +64,7 @@ export function buildAgentContext(input: { now: Date; context: ContextEvent[]; e
                 filesReturned: sum(weekScopes, e => e.returnedFiles),
                 filesConsidered: sum(weekScopes, e => e.candidateFiles),
                 recalls: input.context.filter(e => e.toolName === 'rigour_recall' && within(at(e))).length,
-                lessonsTold: served.filter(e => within(Date.parse(e.timestamp ?? ''))).reduce((n, e) => n + (e.lessons?.length ?? 0), 0),
+                lessonsTold: lessonsIn(served.filter(e => within(Date.parse(e.timestamp ?? '')))),
                 reuse: reuse.filter(e => within(Date.parse(e.timestamp ?? ''))).length,
             };
         }),

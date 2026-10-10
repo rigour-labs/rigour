@@ -22,6 +22,11 @@ describe('buildActivity', () => {
         ]);
     });
 
+    it("says what a briefing told the agent, rules and lessons apart, and for which files", () => {
+        const [item] = buildActivity({ events: [{ type: 'lessons_served', timestamp: '2026-10-09T10:00:00Z', via: 'brief', lessons: ['Every job takes withLock()', 'Bound the window'], rules: 1, ids: ['r1', 'l1'], files: ['src/jobs/retry.ts'] }], ledger: [], stories: [] });
+        expect(item).toMatchObject({ kind: 'taught', text: 'Briefed the agent before it wrote: 1 rule and 1 lesson for src/jobs/retry.ts', detail: 'Every job takes withLock() · Bound the window' });
+    });
+
     it('never says an edit was stopped when the hook ran without --block, or did not record it', () => {
         const check = (blocked?: boolean) => ({ type: 'hook_check', timestamp: '2026-10-09T10:00:00Z', ...(blocked === undefined ? {} : { blocked }), files: ['src/a.ts'], findings: [{ message: 'Import not found' }] }) as any;
         for (const event of [check(false), check()]) {

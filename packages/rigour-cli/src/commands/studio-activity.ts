@@ -94,8 +94,14 @@ function fromEvent(event: AgentEvent): ActivityItem[] {
             return [event.blocked
                 ? { at, kind: 'stopped', text: `Kept the agent working: ${count(event.blocking ?? 0, 'problem')} left when it tried to finish` }
                 : { at, kind: 'checked', text: 'The agent finished with nothing blocking' }];
-        case 'lessons_served':
-            return [{ at, kind: 'taught', text: `Told the agent ${count(event.lessons?.length ?? 0, 'lesson')} before it wrote`, detail: event.lessons?.join(' · ') }];
+        case 'lessons_served': {
+            const items = event.lessons?.length ?? 0;
+            if (event.via !== 'brief') return [{ at, kind: 'taught', text: `Told the agent ${count(items, 'lesson')} before it wrote`, detail: event.lessons?.join(' · ') }];
+            // A briefing: the repository's rules and the team's lessons, for the files the task touches.
+            const rules = event.rules ?? 0;
+            const told = [rules ? count(rules, 'rule') : '', items - rules ? count(items - rules, 'lesson') : ''].filter(Boolean).join(' and ');
+            return [{ at, kind: 'taught', text: `Briefed the agent before it wrote: ${told}${event.files?.length ? ` for ${event.files.join(', ')}` : ''}`, detail: event.lessons?.join(' · ') }];
+        }
         case 'pr_catches':
             return [{ at, kind: 'pr', text: `A branch review found ${count(event.findings?.length ?? 0, 'problem')}`, detail: event.findings?.map(f => `${f.title} (${f.file})`).join(' · ') }];
         default:
