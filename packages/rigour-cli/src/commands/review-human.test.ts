@@ -24,7 +24,7 @@ const finding = (n: number, over: Partial<Failure> = {}): Failure => ({
 
 const result = (over: Partial<ReviewResult> = {}): ReviewResult => ({
     status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {},
-    unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, preexistingByCheck: {}, changedLines: { 'src/a.ts': new Set([1]), 'src/b.ts': new Set([2]) },
+    unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, preexistingByCheck: {}, outsideChangeByCheck: {}, changedLines: { 'src/a.ts': new Set([1]), 'src/b.ts': new Set([2]) },
     report: { status: 'PASS', failures: [] } as never, gateErrors: [], controlFilesChanged: [], hints: [], covered: [], ...over,
 });
 

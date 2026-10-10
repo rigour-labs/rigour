@@ -287,8 +287,9 @@ a verdict, or to compare a review on a laptop with the one CI ran.
 | `head_sha` | string \| null | `HEAD` when the review ran. |
 | `uncommitted` | boolean | Tracked files differed from `HEAD`, so the review covered work that is not committed. |
 | `config` | string | The settings read: a path such as `rigour.yml`, `rigour.yml at <commit>` for an independent review, or `defaults` when there is none. |
-| `checks` | object | Every check the run reached, by id: `PASS`, `FAIL`, `SKIP` (switched off, or could not check: the report's `skips` says why) or `ERROR` (could not run). The review's own checks (`unused-exports`, `migration-order` and the rest) are listed beside the gates. A check whose findings were all already in the base reads `PASS`: the change gave it nothing. |
+| `checks` | object | Every check the run reached, by id: `PASS`, `FAIL`, `SKIP` (switched off, or could not check: the report's `skips` says why) or `ERROR` (could not run). The review's own checks (`unused-exports`, `migration-order` and the rest) are listed beside the gates. A check whose findings were all already in the base, or only on lines the change did not touch, reads `PASS`: the change gave it nothing. |
 | `preexisting` | object | By check, how many findings the base already had (left out of the verdict, and out of `checks`): `{ "ast-analysis": 2 }` beside `"ast-analysis": "PASS"` reads "passed, 2 pre-existing". Empty with `review.show_preexisting: true`, or when nothing was compared. |
+| `outsideChange` | object | By check, how many findings sat only on lines the change did not touch (left out of the verdict, and out of `checks`), counted after `preexisting`. |
 
 ### A finding in `rigour review --json`
 

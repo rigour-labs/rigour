@@ -19,10 +19,12 @@ export interface Checked {
     uncommitted: boolean;
     /** The settings read: a path, `<path> at <commit>` for an independent review, or `defaults`. */
     config: string;
-    /** Every check the run reached, by id: PASS, FAIL, SKIP or ERROR. A check whose findings were all already in the base reads PASS. */
+    /** Every check the run reached, by id: PASS, FAIL, SKIP or ERROR. A check whose findings were all already in the base, or only on lines the change did not touch, reads PASS. */
     checks: Record<string, string>;
     /** By check, how many findings the base already had: left out of the verdict and of `checks`. */
     preexisting: Record<string, number>;
+    /** By check, how many findings sat only on lines the change did not touch: left out of the verdict and of `checks`. */
+    outsideChange: Record<string, number>;
 }
 
 export function whatWasChecked(cwd: string, options: { base?: string; config?: string }, trustedRef: string | undefined, result: ReviewResult): Checked {
@@ -36,6 +38,7 @@ export function whatWasChecked(cwd: string, options: { base?: string; config?: s
         config: configSource(cwd, options, trustedRef),
         checks: { ...(result.report?.summary ?? {}) },
         preexisting: { ...result.preexistingByCheck },
+        outsideChange: { ...result.outsideChangeByCheck },
     };
 }
 

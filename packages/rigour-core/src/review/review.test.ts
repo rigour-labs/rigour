@@ -250,6 +250,29 @@ describe('git-backed review', () => {
         expect(introduced.report?.summary[gate]).toBe('FAIL');
     }, 30_000); // two whole reviews, each running the rules on the change and on the base tree
 
+    it('passes a check whose findings sit only on files or lines the change did not touch, counting them', async () => {
+        const branchy = (name: string, extra = '') => [
+            `export function ${name}(x: number) {`,
+            ...Array.from({ length: 12 }, (_, i) => `  if (x === ${i}) return ${i};`),
+            extra,
+            '  return -1;',
+            '}',
+            '',
+        ].join('\n');
+        write('src/old.ts', branchy('legacy'));
+        git('add', '-A');
+        git('commit', '-qm', 'init');
+        write('src/old.ts', branchy('legacy', '  if (x === 99) return 99;'));
+        // Every finding stays in play (nothing dropped as the base's), so only the changed-line split leaves any out.
+        const result = await reviewChange({ cwd: repo, config: ConfigSchema.parse({ version: 1, review: { show_preexisting: true } }) });
+        // structure-check names project docs the change never touched: left out, so the check passes for this change.
+        expect(result.outsideChangeByCheck['structure-check']).toBe(1);
+        expect(result.report?.summary['structure-check']).toBe('PASS');
+        // The complexity finding is about src/old.ts as a whole, a file the change touched: still in play, still FAIL.
+        expect(result.outsideChangeByCheck['ast-analysis']).toBeUndefined();
+        expect(result.report?.summary['ast-analysis']).toBe('FAIL');
+    }, 30_000);
+
     it('lets a change dismiss its own finding only when the review trusts the working tree', async () => {
         write('src/old.ts', 'export const a = 1;\n');
         write('.gitignore', '.rigour/*\n!.rigour/dismissed.json\n');
