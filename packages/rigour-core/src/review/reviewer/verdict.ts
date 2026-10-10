@@ -30,6 +30,9 @@ export interface PriorChecks { approvals: Approval[]; inCheckout: (text: string)
 /** A point under a severity heading the reviewer wrote ("Blocking", "Should fix", "Nits"): the reviewer's own label. */
 export interface LabelledPoint { login: string; at: string; severity: NonNullable<PriorPoint['severity']>; text: string }
 
+/** The most review points one review shows: recall bought by volume is noise. The rest are counted. */
+const REVIEW_POINTS_SHOWN = 5;
+
 /** How alike a judge's prior point and a labelled line of the review must read to take the reviewer's label. */
 const LABEL_SIMILARITY = 0.4;
 
@@ -116,7 +119,7 @@ export interface ServedRule { id: string; source: string; text: string; requirem
  * `rule`, `source` and `requirement` are filled in by Rigour from what it served, never taken from the judge.
  */
 export interface RuleCheck { id: string; status: 'followed' | 'broken' | 'not-applicable'; file?: string; line?: number; quote?: string; evidence?: string; reviewer?: string; rule?: string; source?: string; requirement?: boolean }
-export interface Finding { class: string; file: string; line?: number; issue: string; why?: string; consequence?: string; input?: string; quote?: string; reviewer?: string; severity?: 'blocking' | 'should'; absent?: string }
+export interface Finding { class: string; file: string; line?: number; issue: string; why?: string; consequence?: string; input?: string; quote?: string; reviewer?: string; severity?: 'blocking' | 'should'; absent?: string; /** A review point: what to change. */ suggestion?: string; /** A review point: how sure the judge is that this code's reviewers would ask for it, 0 to 1. */ confidence?: number }
 
 export interface Verdict {
     prior_points: PriorPoint[];
@@ -166,6 +169,9 @@ export interface OpenItem {
     status?: 'carried' | 'not accounted for';
     /** The same point made elsewhere: one item per root cause, every place it was found. */
     locations?: Array<{ file: string; line?: number }>;
+    /** A review point: what to change, and how sure the judge is (0 to 1). */
+    suggestion?: string;
+    confidence?: number;
 }
 
 /** Checks a file (and a line, and a quote of the code there) against the checkout; an item that fails cannot block. */
@@ -331,6 +337,10 @@ export interface Accounting {
     notes: OpenItem[];
     /** Should-fixes the judge could show (a verified quote): worth a person's time, never a block. */
     advisory: OpenItem[];
+    /** Review points (class review) whose quote checks out: never a block, at most REVIEW_POINTS_SHOWN, most confident first. */
+    reviewPoints?: OpenItem[];
+    /** Review points past the cap: counted, not shown. */
+    reviewPointsHidden?: number;
     /** The reviews' own severity labels: how many there were, how many prior points took one, and how many the judge read otherwise. */
     labels?: { served: number; taken: number; disagreed: number };
 }
@@ -465,7 +475,16 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         advise({ id: id('goal', g.item), kind: 'goal', class: 'goal', ...(g.file ? { file: g.file } : {}), ...(g.line ? { line: g.line } : {}), issue: `the description's goal is not met: ${g.item.trim()}`, ...(g.quote ? { quote: g.quote } : {}), ...(g.evidence ? { evidence: g.evidence } : {}), reviewer: g.reviewer });
     }
     const stillOpen = new Set((previousOpen ?? []).map(item => item.id));
+    const reviewPointItems: OpenItem[] = [];
     for (const f of verdict.findings) {
+        if (f.class === 'review') {
+            // A review point is never a block: shown when its quote is the code at the line it names, else unverified.
+            const point: OpenItem = { id: id('review', f.file, f.issue), kind: 'finding', class: 'review', file: f.file, line: f.line, issue: f.issue, ...(f.quote?.trim() ? { quote: f.quote } : {}), ...(f.suggestion?.trim() ? { suggestion: f.suggestion.trim() } : {}), ...(typeof f.confidence === 'number' ? { confidence: Math.max(0, Math.min(1, f.confidence)) } : {}), reviewer: f.reviewer };
+            if (seen.has(point.id)) continue;
+            seen.add(point.id);
+            keep(!!point.file && !!point.quote?.trim() && verify(point.file, point.line, point.quote) ? reviewPointItems : unverified, point);
+            continue;
+        }
         const item: OpenItem = { id: id(f.class, f.file, f.issue), kind: 'finding', class: f.class, file: f.file, line: f.line, issue: f.issue, evidence: f.why, ...(f.consequence?.trim() ? { consequence: f.consequence.trim() } : {}), ...(f.input?.trim() ? { input: f.input.trim() } : {}), ...(f.quote?.trim() ? { quote: f.quote } : {}), reviewer: f.reviewer };
         // An opinion is a finding the judge said has no consequence: an empty one. A missing field fails closed, and an
         // item already open from the last round stays open until it is resolved with evidence.
@@ -497,7 +516,8 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
             }
         }
     }
-    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory), labels: { served: prior.labels?.length ?? 0, taken: read.filter(r => r.took).length, disagreed: read.filter(r => r.disagreed).length } };
+    const ranked = [...reviewPointItems].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory), reviewPoints: ranked.slice(0, REVIEW_POINTS_SHOWN), reviewPointsHidden: Math.max(0, ranked.length - REVIEW_POINTS_SHOWN), labels: { served: prior.labels?.length ?? 0, taken: read.filter(r => r.took).length, disagreed: read.filter(r => r.disagreed).length } };
 }
 
 /** How alike two items' words must be to be the same point made in two places; and, on the same lines, to be one point said two ways. */

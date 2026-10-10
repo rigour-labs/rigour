@@ -411,6 +411,12 @@ export const ConfigSchema = z.object({
          */
         coverage: z.boolean().optional().default(true),
         /**
+         * The model reviewer also raises review points: what a careful reviewer would ask to change though nothing goes
+         * wrong today (one job done twice, a cheaper path, an unneeded lock, a forgotten branch). Never a block; at most
+         * five, the most confident first, each with a quote Rigour checks (review/reviewer/verdict.ts).
+         */
+        review_points: z.boolean().optional().default(true),
+        /**
          * Check the change against the goal its pull request's description declares (goal/goal.ts): a changed file
          * outside the declared Scope or inside Out of scope, a "Done when" item naming a file or symbol the change never
          * touches. Deterministic; a finding blocks. `required` stops a person, the environment or a flag turning it off.

@@ -46,9 +46,11 @@ export function printReviewer(result: ReviewerResult, options: { notes?: boolean
     // What is shown gets the same discipline as what blocks: blocks in full, verified should-fixes capped, the rest one count.
     const shown = result.advisory.slice(0, options.notes ? undefined : ADVISORY_SHOWN);
     for (const item of shown) console.log(chalk.yellow(`  should fix (verified, never blocks)  ${itemLine(item)}`));
+    // Review points: never a block, at most five (the most confident), each with the code it is about.
+    for (const item of result.reviewPoints ?? []) console.log(chalk.cyan(`  review point (never blocks)  ${itemLine(item)}`) + (item.suggestion ? chalk.dim(`\n            change: ${item.suggestion}`) : ''));
     for (const point of result.answerInReply) console.log(chalk.dim(`  answer in the reply  ${point.point}${point.evidence ? `\n            ${point.evidence}` : ''}`));
     const folded = [
-        [result.advisory.length - shown.length, 'more should-fix'], [result.notes.length, 'working note'], [result.disputed.length, 'disputed'],
+        [result.advisory.length - shown.length, 'more should-fix'], [result.reviewPointsHidden ?? 0, 'more review point'], [result.notes.length, 'working note'], [result.disputed.length, 'disputed'],
         [result.unverified.length, 'unverified'], [result.dismissed.length, 'dismissed earlier'], [result.dropped.length, 'refuted by the other judges'],
     ].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
     if (options.notes) {
@@ -95,6 +97,8 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         answer_in_reply: result.answerInReply,
         notes: result.notes,
         advisory: result.advisory,
+        review_points: result.reviewPoints ?? [],
+        review_points_hidden: result.reviewPointsHidden ?? 0,
         shown: { blocking: result.items.length, should_fix: Math.min(result.advisory.length, ADVISORY_SHOWN), folded: result.advisory.length - Math.min(result.advisory.length, ADVISORY_SHOWN) + result.notes.length + result.disputed.length + result.unverified.length + result.dismissed.length + result.dropped.length },
         disputed: result.disputed,
         dropped: result.dropped,
