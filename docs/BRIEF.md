@@ -41,6 +41,9 @@ is briefed only for a task in that folder. When nothing applies, the briefing is
 
 ## The goal and the files
 
+A briefing is read from the repository's top, wherever in it the agent or the command starts, so a session started in
+a subfolder is briefed with the same rules and lessons, and the same `rigour.yml` switch, as one started at the root.
+
 The goal is what the task is for: the session's first prompt (the hook), the argument or tool parameter (`rigour brief`,
 `rigour_brief`), else the pull request's title and description (`rigour brief`, when `gh` can read them within five
 seconds), else the branch name. The files are the ones given, else the branch's own changes and the tracked files whose

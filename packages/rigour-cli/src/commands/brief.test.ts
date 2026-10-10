@@ -38,6 +38,14 @@ describe('the prompt hook', () => {
         expect(readThread(repo)?.events.map(e => [e.kind, e.session, e.agent])).toEqual([['brief', 's1', 'claude'], ['brief', 's2', 'claude']]);
     });
 
+    it('briefs a session that started in a subfolder, once, by the repository\'s own settings', async () => {
+        const fromSub = (session: string) => JSON.stringify({ cwd: path.join(repo, 'src', 'jobs'), session_id: session, prompt: 'make the jobs retry with backoff', hook_event_name: 'UserPromptSubmit' });
+        expect(JSON.parse(await hooksBriefCommand(fromSub('s9'), '/')).hookSpecificOutput.additionalContext).toContain('must take `withLock()`');
+        expect(await hooksBriefCommand(payload('s9'), '/')).toBe(''); // the same session from the root: already briefed
+        write('rigour.yml', 'version: 1\nbrief:\n  enabled: false\n');
+        expect(await hooksBriefCommand(fromSub('s10'), '/')).toBe(''); // the team's switch at the root holds in a subfolder
+    });
+
     it('says nothing when the team or the person switched briefings off, or the payload is not a session', async () => {
         write('rigour.yml', 'version: 1\nbrief:\n  enabled: false\n');
         expect(await hooksBriefCommand(payload('s1'), '/')).toBe('');
