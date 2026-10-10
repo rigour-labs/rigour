@@ -151,6 +151,10 @@ describe('a lesson back to a candidate when outcomes stopped promoting', () => {
             fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{ id: 'b1b2c3d4e5f6', text: 'Add more tests.', file: 'src/x.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', createdAt: '', updatedAt: '', evidence: [bot(1, 'rabbit[bot]'), bot(2, 'helper[bot]')] }] }));
             const [lesson] = buildLearning({ now, lessons: [], reviewLessons: readLessons(repo), stories: [], events: [] }).lessons;
             expect(lesson).toMatchObject({ state: 'candidate', canDecide: true, reclassified: { detail: 'only review bots raised it (no person)' } });
+            // Its reason waits on a person, so it is not hidden with the other bot points.
+            expect(lesson.fromBots).toBeUndefined();
+            const quiet = buildLearning({ now, lessons: [], reviewLessons: [{ id: 'q1', text: 'Add docs.', file: 'src/x.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '', evidence: [bot(3, 'rabbit[bot]')] }], stories: [], events: [] }).lessons[0];
+            expect(quiet.fromBots).toBe(true);
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
         }

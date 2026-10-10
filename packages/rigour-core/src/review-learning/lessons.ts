@@ -402,6 +402,14 @@ export function pendingDecision(lesson: ReviewLesson): LessonEvidence | undefine
     return last?.kind === 'demoted' || last?.kind === 'lines' || last?.kind === 'reclassified' ? last : undefined;
 }
 
+/**
+ * A candidate only review bots raised, with nothing waiting on a person: hidden from the default lists (`--list`,
+ * Studio) and counted instead. One taken back or reclassified stays in view, so its reason is seen.
+ */
+export function quietBotCandidate(lesson: ReviewLesson): boolean {
+    return lesson.state === 'candidate' && raisedOnlyByBots(lesson) && !pendingDecision(lesson);
+}
+
 /** Why a lesson an outcome alone had promoted is a candidate again. */
 const RECLASSIFIED = 'promoted by the exact-line rule, which no longer promotes on its own';
 /** Why a lesson recurrence had promoted on review bots' points alone is a candidate again. */

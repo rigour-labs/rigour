@@ -90,4 +90,23 @@ describe('rigour learn-reviews --list', () => {
         await learnReviewsCommand(repo, { list: true });
         expect(out.mock.calls.flat().join('\n')).toContain('back to candidate: only review bots raised it (no person)');
     });
+
+    it('hides candidates only review bots raised, counts them, and lists them with --include-bots', async () => {
+        const file = path.join(repo, '.rigour', 'review-lessons.json');
+        const point = (author: string, source: 'person' | 'bot') => ({ kind: 'point', pr: 3, comment: `c-${author}`, author, source, prAuthor: 'dev' });
+        const candidate = (id: string, ...evidence: object[]) => ({ id, text: `lesson ${id}`, file: 'src/load.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '', evidence });
+        fs.writeFileSync(file, JSON.stringify({ version: 1, lessons: [candidate('Q1', point('rabbit[bot]', 'bot')), candidate('Q2', point('helper[bot]', 'bot')), candidate('P1', point('lead', 'person'), point('rabbit[bot]', 'bot'))] }));
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { list: true });
+        const listed = out.mock.calls.flat().join('\n');
+        expect(listed).toContain('P1');
+        expect(listed).not.toContain('Q1');
+        expect(listed).toContain('2 candidate(s) from review bots, hidden: --include-bots lists them.');
+        out.mockClear();
+        await learnReviewsCommand(repo, { list: true, includeBots: true });
+        const all = out.mock.calls.flat().join('\n');
+        expect(all).toContain('Q1');
+        expect(all).toContain('Q2');
+        expect(all).not.toContain('hidden');
+    });
 });

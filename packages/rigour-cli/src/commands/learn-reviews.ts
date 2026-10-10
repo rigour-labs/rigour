@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
 import { personOf } from './git-identity.js';
-import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, pendingDecision, readLessons, type LessonEvidence, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubToken, learnFromReviews, lessonsPath, pendingDecision, quietBotCandidate, readLessons, type LessonEvidence, type ReviewLesson, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
 export interface LearnReviewsOptions {
@@ -22,6 +22,8 @@ export interface LearnReviewsOptions {
     reject?: string;
     why?: string;
     list?: boolean;
+    /** With --list: also list candidates only review bots raised (hidden by default, and counted). */
+    includeBots?: boolean;
     json?: boolean;
     /** Rewrite each new point as the rule behind it with the team's reviewer CLI (memory, never training). */
     rules?: boolean;
@@ -41,7 +43,7 @@ export interface LearnReviewsOptions {
 export async function learnReviewsCommand(cwd: string, options: LearnReviewsOptions): Promise<void> {
     if (options.promote) return decide(cwd, options.promote, 'accepted', options.why);
     if (options.reject) return decide(cwd, options.reject, 'rejected', options.why);
-    if (options.list) return list(cwd, options.json);
+    if (options.list) return list(cwd, options.json, options.includeBots);
     if (options.useWording) return useWording(cwd, options.useWording);
     if (options.scope) return scope(cwd, options.scope, options.to, options.why);
     if (options.compile) return compile(cwd, options.json);
@@ -67,19 +69,24 @@ export async function learnReviewsCommand(cwd: string, options: LearnReviewsOpti
     }
 }
 
-function list(cwd: string, json?: boolean): void {
-    const lessons = readLessons(cwd);
-    if (json) return void console.log(JSON.stringify(lessons, null, 2));
+function list(cwd: string, json?: boolean, includeBots?: boolean): void {
+    const all = readLessons(cwd);
+    if (json) return void console.log(JSON.stringify(all, null, 2));
+    const lessons = includeBots ? all : all.filter(l => !quietBotCandidate(l));
+    for (const l of lessons) printLesson(l);
+    const hidden = all.length - lessons.length;
+    if (hidden) console.log(chalk.dim(`${hidden} candidate(s) from review bots, hidden: --include-bots lists them.`));
+    else if (all.length === 0) console.log('No review lessons yet. Run `rigour learn-reviews`.');
+}
+
+function printLesson(l: ReviewLesson): void {
     const label = { verified: chalk.green('lesson   '), candidate: chalk.yellow('candidate'), rejected: chalk.red('rejected ') };
-    for (const l of lessons) {
-        const prs = [...new Set(l.evidence.map(e => `#${e.pr}`))].join(', ');
-        const by = chalk.dim(`${l.promotedBy ? ` [${l.promotedBy}]` : ''}${l.scope ? ` [${l.scope === 'repo' ? 'every change' : 'its folder'}]` : ''}`);
-        console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(team standard)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
-        const pending = pendingDecision(l);
-        if (pending) console.log(chalk.yellow(`          ${pendingReason(pending)}`));
-        if (l.suggestedText) console.log(chalk.cyan(`          corrected wording (${l.suggestedWhy ?? 'reworded'}): ${l.suggestedText}`) + chalk.dim(`  take it: rigour learn-reviews --use-wording ${l.id}`));
-    }
-    if (lessons.length === 0) console.log('No review lessons yet. Run `rigour learn-reviews`.');
+    const prs = [...new Set(l.evidence.map(e => `#${e.pr}`))].join(', ');
+    const by = chalk.dim(`${l.promotedBy ? ` [${l.promotedBy}]` : ''}${l.scope ? ` [${l.scope === 'repo' ? 'every change' : 'its folder'}]` : ''}`);
+    console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(team standard)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
+    const pending = pendingDecision(l);
+    if (pending) console.log(chalk.yellow(`          ${pendingReason(pending)}`));
+    if (l.suggestedText) console.log(chalk.cyan(`          corrected wording (${l.suggestedWhy ?? 'reworded'}): ${l.suggestedText}`) + chalk.dim(`  take it: rigour learn-reviews --use-wording ${l.id}`));
 }
 
 /** Why a candidate waits on a person, in the words Studio's chip uses. */
