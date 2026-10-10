@@ -265,6 +265,8 @@ and a cross-examination that would pass it is not made (its findings are shown a
 the cap as the reason). Dollars are known only after a run, so the cost cap stops new reviews once
 today's reported spend reaches it. Past a cap, a review is skipped and says why; where the team
 requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
+At a push, the agent is told so, with the cap and its key ("the model review of 1a2b3c4d5 was skipped: the daily
+cost cap is reached … (review.reviewer.max_usd_per_day)"), and no background review starts.
 A judge whose answer is not a valid verdict (malformed or cut off) is asked once more, inside the caps;
 a review with no valid verdict after that is unavailable. A person may set a lower cap for their own
 runs, never a higher one. `rigour review --status` and

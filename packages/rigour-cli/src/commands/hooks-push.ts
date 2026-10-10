@@ -17,7 +17,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    appendTaskEvent, branchBase, branchFailures, captureHumanEdits, diffFromGit, hookGoalDescription, itemLine, recordGoal, mergeBaseOf, resolveReviewer, reviewChange, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
+    appendTaskEvent, branchBase, branchFailures, captureHumanEdits, diffFromGit, hookGoalDescription, itemLine, recordGoal, mergeBaseOf, resolveReviewer, reviewChange, reviewerCapReached, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
@@ -36,6 +36,17 @@ export async function hooksPushCommand(stdin: string, fallbackCwd: string): Prom
     const repo = repositoryOf(pushTarget(command) ?? payload.cwd ?? fallbackCwd);
     if (!repo) return { exitCode: 0, message: '' };
     return pushGate(repo);
+}
+
+/**
+ * Where a push gate's message goes. Claude Code feeds a block's stderr (exit 2) back to the agent but shows no one the stderr
+ * of a hook that exits 0, so a note on a push that goes ahead (a review starting, or skipped by a cap) is PreToolUse context
+ * on stdout. git's pre-push hook speaks to the person at the terminal: stderr.
+ */
+export function pushHookOutput(result: { exitCode: number; message: string }, git: boolean): { stdout?: string; stderr?: string } {
+    if (!result.message) return {};
+    if (git || result.exitCode !== 0) return { stderr: result.message };
+    return { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: result.message } }) };
 }
 
 /** The gate itself, on the repository's branch against main: shared by the agent hook and git's pre-push (hooks-git.ts). */
@@ -99,6 +110,9 @@ async function backgroundReviewNote(repo: string, mainRef: string, config: Confi
     const branch = gitOutput(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
     if (!head || !branch || branch === 'HEAD') return '';
     const base = mainRef.replace(/^refs\/(remotes\/|heads\/)/, '');
+    // A reached cap is said, never hidden behind "it runs in the background": that run would only skip.
+    const capped = await reviewerCapReached(repo, config).catch(() => undefined);
+    if (capped) return `Rigour: the model review of ${head.slice(0, 9)} was skipped: ${capped}.`;
     const log = await startBackgroundReview(repo, { head, branch, base }, [process.execPath, process.argv[1], 'hooks', 'review-background', '--commit', head, '--branch', branch, '--base', base]);
     return log ? `Rigour: the model review of ${head.slice(0, 9)} runs in the background (rigour review --status; log: ${log}). Run \`rigour review --reviewer --full\` before asking for a human review.` : '';
 }
