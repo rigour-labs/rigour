@@ -137,7 +137,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Test quality | Empty tests, tautological assertions, tests that mock everything, async tests that never await or assert. | JS/TS, Python, Go, Java, Kotlin | `test-quality` | On | Note |
+| Test quality | Empty tests, tautological assertions, tests that mock everything, async tests that never await or assert. A call to an assertion helper counts as an assertion: one the test imports named `expect…`, `assert…` or `should…`, or one defined in the test file or an in-repo module it imports whose body asserts (in JS/TS and Python, including a base-class method called on `self`). | JS/TS, Python, Go, Java, Kotlin | `test-quality` | On | Note |
 | Coverage | A file below 50% line coverage (80% for complex files), read from an existing `lcov.info` or `coverage-final.json`. Silent when there is no report. | Any with a coverage report | `coverage-guard` (`DYNAMIC_COVERAGE_LOW`) | On | Note |
 
 At push, the tests that import changed files also run; see the toolchain below.
