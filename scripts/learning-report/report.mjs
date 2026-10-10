@@ -9,8 +9,10 @@ import { fileURLToPath } from 'url';
 import { REPOS, sourceUrl, wilson } from './common.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const runs = fs.readdirSync(path.join(here, 'results')).filter(f => f.endsWith('.json')).map(f => JSON.parse(fs.readFileSync(path.join(here, 'results', f), 'utf8')))
+const read = f => JSON.parse(fs.readFileSync(path.join(here, 'results', f), 'utf8'));
+const runs = fs.readdirSync(path.join(here, 'results')).filter(f => f.endsWith('.json') && f !== 'recurrence-100.json').map(read)
     .sort((a, b) => a.at.localeCompare(b.at));
+const recurrence = fs.existsSync(path.join(here, 'results', 'recurrence-100.json')) ? read('recurrence-100.json') : undefined;
 const labels = Object.fromEntries(REPOS.map(repo => {
     const file = path.join(here, 'labels', `${repo.replace('/', '__')}.json`);
     return [repo, fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).sources : {}];
@@ -42,6 +44,16 @@ if (latest) {
         'different authors, raised independently. Points join one lesson only when they are on the same file and share two',
         'identifiers on another pull request, or neither names a file and the words are the same. So a standard a team',
         `raises on different files never recurs. Candidates on different pull requests with half their words in common, any file: ${pairs}.`, '');
+}
+if (recurrence) {
+    lines.push(`## Recurrence over ${recurrence.window} pull requests per repository (the learner's default window)`, '',
+        'From the GitHub API only, no clone: a comment\'s identifiers come from its own text, not the code it points at.', '',
+        '| Repository | PRs | Candidates | Lessons after merging | With identifiers | Recurring, current rule | Verified, current rule | Pairs, same person + shared identifier, any file |',
+        '|---|---|---|---|---|---|---|---|');
+    for (const [repo, r] of Object.entries(recurrence.repos)) lines.push(`| ${repo} | ${r.prs} | ${r.candidates} | ${r.lessons} | ${r.withIdentifiers} | ${r.currentRule.recurring} | ${r.currentRule.verified} | ${r.looserRule.pairs} (${r.looserRule.lessons} lessons) |`);
+    lines.push('');
+    for (const [repo, r] of Object.entries(recurrence.repos)) for (const p of r.looserRule.examples) lines.push(`- ${repo}: ${p.a} ↔ ${p.b} (shared: ${p.shared.map(x => `\`${x}\``).join(', ')})`);
+    lines.push('');
 }
 const broken = [];
 for (const repo of REPOS) {

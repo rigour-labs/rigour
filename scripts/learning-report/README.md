@@ -46,6 +46,14 @@ change to the learning pipeline. It costs nothing: GitHub reads and git fetches,
   (", or", "and"). A lowercase start alone is not counted: reviewers often write sentences that way. `REPORT.md`
   lists them for spot checks.
 
+## Recurrence over the learner's default window
+
+`recurrence.mjs` reads the 100 most recent merged pull requests per repository (the default of
+`learn-reviews --limit`) from the GitHub API only, builds candidates with Rigour's own functions (with no checkout, a
+comment's identifiers come from its own text), and counts recurrence under the current rule (`mergeLessons`) and under
+a looser one (the same person and a shared identifier on different pull requests, any file). It measures; it changes
+no rule. Results: `results/recurrence-100.json`, counts and URLs only.
+
 ## Report
 
 `node scripts/learning-report/report.mjs` writes `REPORT.md` from every run in `results/` and the labels.
