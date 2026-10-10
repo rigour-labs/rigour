@@ -118,7 +118,7 @@ Lessons are encrypted at rest in the local store and queue (AES-256-GCM, see [Da
 ## Set up a team, start to finish
 
 Your team brings its own PostgreSQL; Rigour never hosts one. One administrator and each teammate follow these steps,
-with no help from us. Each step links to its details below.
+with no help from us; run end to end on a test database, the commands take a few minutes. Each step links to its details below.
 
 1. **A PostgreSQL 13 or later database**, managed (any host's PostgreSQL service) or self-hosted, reachable from each
    teammate's machine over TLS. Note its administrator URL. See [What you need](#what-you-need).
@@ -132,16 +132,25 @@ with no help from us. Each step links to its details below.
    repositories: `rigour team configure --database-url '<their URL>' --organization <id> --team <id> --actor <id>
    --repositories 'github.com/<owner>/*'`. Without `--repositories`, nothing is shared. See
    [Set up each teammate](#set-up-each-teammate).
-5. **Each teammate checks**: `rigour team doctor` says `connectivity: online`, the role, and `reviewDecisions: ready`.
-   See [When something fails](#when-something-fails) for each message.
-6. **Bring in the decisions people already made.** In each of the team's repositories, each `sme` or `owner` runs
+5. **Each teammate checks**: `rigour team doctor` says `connectivity: online`, the role under `permissions`
+   (`["sme"]`), and `reviewDecisions: ready`. See [When something fails](#when-something-fails) for each message.
+6. **Learn the repository's review lessons**, if no one has yet: in a clone, `rigour learn-reviews` reads the merged
+   pull requests' review comments (the last 100; `--pr <n>` reads one) and keeps what people asked for as candidates.
+   It reads GitHub, so it needs read access: `gh auth login`, or `GITHUB_TOKEN`. A candidate becomes a lesson when an
+   `sme` or `owner` confirms it: `rigour learn-reviews --list`, then `--promote <id> --why "…"` (or `--reject`), or
+   **How it learns** in `rigour studio`. Each clone can learn the same candidates from GitHub itself, so
+   `.rigour/review-lessons.json` need not be committed; committing it is harmless, since teammates' decisions are never
+   written to it.
+7. **Bring in the decisions people already made.** In each of the team's repositories, each `sme` or `owner` runs
    `rigour team sync --dry-run` and reads `decisions`: `yours` is how many of their own decisions on review lessons the
    first sync sends; `notYours` lists, by git email, decisions in that clone someone else made, which are never sent
    from it (that person sends them from their own clone). Then `rigour team sync`. There is no separate import: the
    first sync is it, and each decision is sent once.
-7. **See it in Studio.** On a teammate's machine, after a sync in the same repository, `rigour studio` → **How it
-   learns**: a lesson an `sme` decided shows their decision by display name and date, and the brief cites it ("approved
-   by Jane D. (team)").
+8. **See it on a teammate's machine**, after `rigour team sync` in a clone of the same repository (a `member`'s sync
+   says its own decisions are `held`; that is expected): `rigour learn-reviews --list` lists the lesson, `rigour brief
+   --files <its file>` cites it ("learned in PR #12, approved by Jane D. (team)"), and `rigour studio` → **How it
+   learns** shows the decision on the lesson's card by display name and date. A rejection of a lesson that clone never
+   learned has no wording to show, so it shows nowhere there until the clone learns that lesson itself.
 
 **An empty brief at first is expected.** The brief serves verified lessons only (see [the brief](./BRIEF.md)), and a
 lesson learned from review comments is verified only when a person confirms it (`rigour learn-reviews --promote`, or
@@ -276,7 +285,7 @@ Failures come with the fix: an untrusted certificate chain, an unreachable host,
 rigour team sync --dry-run
 ```
 
-This does not connect. It reports how many queued items would be sent (`pending`) and how many would stay on the machine (`withheld`). A real `rigour team sync` also reports `synced` (sent) and `pulled` (received).
+This does not connect. It reports how many queued items would be sent (`pending`) and how many would stay on the machine (`withheld`), and, under `decisions`, how many of your decisions on this repository's review lessons the next sync sends (`yours`) and which in the clone someone else made (`notYours`). A real `rigour team sync` also reports `synced` (sent), `pulled` (received) and, under `decisions`, `sent`, `received` and any `held` reason.
 
 ### End to end, on a local database
 
@@ -354,7 +363,7 @@ rigour team semantic-search 'safe database migration'   # what agents would be o
 
 ## Bring in lessons from before team mode
 
-Decisions on review lessons need no import: the first sync sends the ones already in the repository's lessons file (see [Set up a team, start to finish](#set-up-a-team-start-to-finish), step 6).
+Decisions on review lessons need no import: the first sync sends the ones already in the repository's lessons file (see [Set up a team, start to finish](#set-up-a-team-start-to-finish), step 7).
 
 Lessons learned before you configured team mode are not queued. To queue a repository's personal lessons:
 
