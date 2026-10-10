@@ -74,6 +74,8 @@ export interface LessonEvidence {
     prAuthor?: string;
     /** Whether the pull request changed the lines before merging: not evidence (agents apply comments on their own), recorded. */
     actedOn?: boolean;
+    /** The comment was edited at or after `--until`: GitHub serves only its edited text, so this point may say more than it did then. */
+    editedAfterUntil?: true;
     /** The person's own words, kept when a rule was written from them (rules-from-reviews.ts). */
     said?: string;
     /** A point's own words, as it was made (each point merged into a lesson keeps its own). */
@@ -508,6 +510,6 @@ export function meaningfulWords(text: string): string[] {
 }
 
 /** Who made a point and on whose pull request: recorded with it, never a filter. */
-function pointMeta(x: { source?: 'person' | 'bot'; prAuthor?: string; actedOn?: boolean }): Pick<LessonEvidence, 'source' | 'prAuthor' | 'actedOn'> {
-    return { ...(x.source ? { source: x.source } : {}), ...(x.prAuthor ? { prAuthor: x.prAuthor } : {}), ...(x.actedOn !== undefined ? { actedOn: x.actedOn } : {}) };
+function pointMeta(x: { source?: 'person' | 'bot'; prAuthor?: string; actedOn?: boolean; editedAfterUntil?: true }): Pick<LessonEvidence, 'source' | 'prAuthor' | 'actedOn' | 'editedAfterUntil'> {
+    return { ...(x.source ? { source: x.source } : {}), ...(x.prAuthor ? { prAuthor: x.prAuthor } : {}), ...(x.actedOn !== undefined ? { actedOn: x.actedOn } : {}), ...(x.editedAfterUntil ? { editedAfterUntil: true as const } : {}) };
 }

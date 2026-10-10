@@ -24,6 +24,8 @@ export interface ReviewComment {
     prAuthor?: string;
     /** Whether the lines it points at changed before the merge. */
     actedOn?: boolean;
+    /** Edited at or after `--until`: its text is the edited one, which the store as of `until` would not have had. */
+    editedAfterUntil?: true;
 }
 
 /** A review's body: where a reviewer makes the points that are not about one line. */
