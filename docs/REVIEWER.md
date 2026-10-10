@@ -368,23 +368,26 @@ Each judge starts from what your team already knows, written to a file it reads:
   on a file that has not changed since. Judges are told not to raise them again without something new;
 - the docs that name the changed code.
 
-**Review points, never blocking.** Beside findings, the judge raises what a careful reviewer of the code would ask
+**Review points, never blocking (opt-in: `review.review_points: true`).** Beside findings, the judge raises what a careful reviewer of the code would ask
 to change though nothing goes wrong today: one job done in two places, a simpler shape for the same behaviour, a
 cheaper path on the code's frequent path, a lock, copy or wait it does not need, an error or callback one branch
 forgets, an interface that is easy to call wrongly. Never a style or naming preference. Each comes with the code it
 is about (a quote Rigour finds at the line it names, or it is not shown), what to change, and the judge's confidence.
 Only points about code the change touches are shown: a changed line, or inside a changed unit; one about other code
 is counted as outside the change. At most five are shown, the most confident first, and the rest are counted: a
-review point is worth reading, not wading through. They never block, in the verdict, at the stop or at the push. `review.review_points: false` turns
-them off.
+review point is worth reading, not wading through. They never block, in the verdict, at the stop or at the push.
 
-**Every changed unit, accounted for.** The judge gets the change's units: each changed function where the
+**Every changed unit, accounted for (opt-in: `review.coverage: true`).** The judge gets the change's units: each changed function where the
 language parses (JavaScript, TypeScript), else each changed hunk named by the code around it (any language), at most
 25, riskiest and largest first. For every one it must say either which finding is about it, or what it checked and
 why it holds. A review with no findings is therefore "looked at each of these, and here is why each holds", never an
 empty answer. A unit the answer leaves out gets one follow-up run, inside the caps; one still left out is shown as
 **not reviewed**, never as passed: "Accounted for 7 of 8 changed units; not reviewed: conn.go :: Close." The count is
-in the review record, and in `--json` as `coverage`. `review.coverage: false` turns it off.
+in the review record, and in `--json` as `coverage`.
+
+Both are off by default. Measured on the same reviewed pull requests, they made each review cost 1.4 to 2.5 times
+more (the coverage pass alone $0.10 to $1.30 per review) and found nothing the reviewer missed without them. They stay
+available for a team that measures a gain on its own pull requests.
 
 **Where the lessons come from: evidence, not who wrote it.** `rigour learn-reviews` reads the
 repository's merged pull requests. Every review point is a **candidate**, whoever wrote it: a person, an

@@ -732,6 +732,13 @@ describe('review points', () => {
         expect(recordLines(result.record!).join('\n')).toContain('Review points, never blocking: 1.');
     });
 
+    it('are off by default, with coverage: the judge is asked for neither', async () => {
+        const seen = seenNow();
+        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { force: true });
+        expect(seen.prompts[0]).not.toContain('Review points.');
+        expect(seen.prompts[0]).not.toContain('Coverage.');
+    });
+
     it('neither asks for them nor hears them when the team turns them off', async () => {
         const seen = seenNow();
         const result = await runReviewer(repo, 'main', pointing(false), fakes(() => answer, seen, null), () => undefined, { force: true });
@@ -741,7 +748,7 @@ describe('review points', () => {
 });
 
 describe('coverage: every changed unit accounted for', () => {
-    const covering = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } });
+    const covering = ConfigSchema.parse({ version: 1, review: { coverage: true, reviewer: { enabled: true, reviewers: ['claude'] } } });
     const fine = { file: 'src/job.ts', unit: 'job', status: 'fine', note: 'returns a constant; no input, nothing to check' };
 
     it('gives the reviewer the changed units and keeps its account of each', async () => {

@@ -407,15 +407,17 @@ export const ConfigSchema = z.object({
         /**
          * The model reviewer accounts for every changed unit (function, or hunk named by its enclosing code): a
          * finding, or what it checked and why it holds. A unit left out gets one follow-up run, then is reported as
-         * not reviewed (review/reviewer/coverage.ts). Applies only when the reviewer runs.
+         * not reviewed (review/reviewer/coverage.ts). Applies only when the reviewer runs. Off by default: measured, it
+         * cost 1.4 to 2.5 times more per review with no gain in what the reviewer found.
          */
-        coverage: z.boolean().optional().default(true),
+        coverage: z.boolean().optional().default(false),
         /**
          * The model reviewer also raises review points: what a careful reviewer would ask to change though nothing goes
          * wrong today (one job done twice, a cheaper path, an unneeded lock, a forgotten branch). Never a block; at most
-         * five, the most confident first, each with a quote Rigour checks (review/reviewer/verdict.ts).
+         * five, the most confident first, each with a quote Rigour checks (review/reviewer/verdict.ts). Off by default,
+         * with coverage: the measured run found no gain in what the reviewer found for the cost.
          */
-        review_points: z.boolean().optional().default(true),
+        review_points: z.boolean().optional().default(false),
         /**
          * Check the change against the goal its pull request's description declares (goal/goal.ts): a changed file
          * outside the declared Scope or inside Out of scope, a "Done when" item naming a file or symbol the change never

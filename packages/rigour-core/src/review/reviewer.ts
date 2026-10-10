@@ -801,7 +801,7 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         scope,
         why,
         ...(cost.length ? { costUsd: cost.reduce((a, b) => a + b, 0) } : {}),
-        ...(used.length ? { tokens: used.reduce((a, b) => ({ input: a.input + b.input, output: a.output + b.output }), { input: 0, output: 0 }) } : {}),
+        ...(used.length ? { tokens: sumTokens(used) } : {}),
         runs: (verdict.reviewers ?? []).length,
         ...(verdict.rules?.length ? { rules: { checked: verdict.rules.length, followed: verdict.rules.filter(r => r.status === 'followed').length, broken: verdict.rules.filter(r => r.status === 'broken').length, notApplicable: verdict.rules.filter(r => r.status === 'not-applicable').length } } : {}),
         mode,
@@ -867,4 +867,10 @@ async function accountForUnits(verdict: Verdict, units: ChangedUnit[], notOffere
         }
     }
     return { units: units.length, notOffered, accounted: units.length - missing.length, notReviewed: missing.map(unitLabel), followUp };
+}
+
+/** The tokens of several runs together, the cache's share kept when any run reported one. */
+function sumTokens(used: Tokens[]): Tokens {
+    const total = used.reduce((a, b) => ({ input: a.input + b.input, output: a.output + b.output, cacheRead: (a.cacheRead ?? 0) + (b.cacheRead ?? 0), cacheWrite: (a.cacheWrite ?? 0) + (b.cacheWrite ?? 0) }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    return { input: total.input, output: total.output, ...(total.cacheRead ? { cacheRead: total.cacheRead } : {}), ...(total.cacheWrite ? { cacheWrite: total.cacheWrite } : {}) };
 }
