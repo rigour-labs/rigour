@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { compactDiff } from '../review/stories.js';
-import { mergeLessons, readLessons, writeLessons, type ReviewLesson } from './lessons.js';
+import { mergeLessons, updateLessons, type ReviewLesson } from './lessons.js';
 
 const DIR = path.join('.rigour', 'agent-writes');
 const MAX_FILE_BYTES = 200_000;
@@ -92,6 +92,6 @@ export function captureHumanEdits(cwd: string, by = 'a person'): number {
             createdAt: at, updatedAt: at,
         });
     }
-    if (lessons.length) writeLessons(cwd, mergeLessons(readLessons(cwd), lessons).lessons);
+    if (lessons.length) updateLessons(cwd, stored => { stored.splice(0, stored.length, ...mergeLessons(stored, lessons).lessons); });
     return lessons.length;
 }

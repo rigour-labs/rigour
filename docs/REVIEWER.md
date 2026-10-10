@@ -509,6 +509,14 @@ review included. Commit `.rigour/dismissed-review-items.json` so the record is r
 When a team turns dismissals off again, the recorded ones stop counting.
 
 
+**Two writers never overwrite each other.** The lessons file (`.rigour/review-lessons.json`, or `RIGOUR_REVIEW_LESSONS`)
+is written whole, through a temporary file, so a reader never sees half of it, and under a lock (`<file>.lock`). A person's
+decision in Studio or the CLI holds the lock only to read, change and write. A run that works for longer
+(`rigour learn-reviews`, outcomes) does not hold it while it works. When it writes, it keeps what changed meanwhile: every lesson and
+piece of evidence either side added, and each other field from the side that changed it. A lock older than 30 seconds
+was left by a writer that stopped, and is taken over; a writer that waits 10 seconds for a live one stops with an error
+rather than overwrite.
+
 ### Lessons compiled into checks
 
 A verified lesson can become a check that runs without a model, on every review, for free. Only a lesson
