@@ -418,6 +418,29 @@ describe('learnFromReviews', () => {
         expect(points.find(e => e.comment === '51')?.editedAfterUntil).toBeUndefined();
     });
 
+    it('compares --until as an instant: an offset reads right against UTC, and an unreadable one is refused', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        // 10:00 at +05:30 is 04:30 UTC: a comment at 04:29Z is before it, one at 04:31Z after it.
+        const until = '2026-09-25T10:00:00+05:30';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 6, merged_at: '2026-09-20T00:00:00Z', merge_commit_sha: merged, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/6/comments?per_page=100`]: [
+                { id: 71, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-25T04:29:00Z', updated_at: '2026-09-25T04:29:00Z', body: '**Use an upsert keyed on `id` so retries do not duplicate orders.**', user: { login: 'priya' } },
+                { id: 72, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-25T04:31:00Z', updated_at: '2026-09-25T04:31:00Z', body: '**Bound the batch size the insert sends in one call.**', user: { login: 'priya' } },
+            ],
+            [`${api}/pulls/6/reviews?per_page=100`]: [],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until });
+        expect(readLessons(repo).flatMap(l => l.evidence.filter(e => e.kind === 'point').map(e => e.comment))).toEqual(['71']);
+        await expect(learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until: 'last tuesday' })).rejects.toThrow('--until "last tuesday" is not a date or a time');
+    });
+
     it('reads merged PRs from GitHub, learns from acted-on comments, and shows them for the next change', async () => {
         write(V1);
         const reviewed = commit('pr head');

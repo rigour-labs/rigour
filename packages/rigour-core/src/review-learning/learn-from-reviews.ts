@@ -70,6 +70,7 @@ export interface LearnFromReviewsResult {
 }
 
 export async function learnFromReviews(cwd: string, options: LearnFromReviewsOptions): Promise<LearnFromReviewsResult> {
+    if (options.until !== undefined && Number.isNaN(Date.parse(options.until))) throw new Error(`--until "${options.until}" is not a date or a time (use ISO 8601, e.g. 2026-09-25 or 2026-09-25T10:00:00Z)`);
     const git = options.git ?? gitIn(cwd);
     const prs = await mergedPrs(options);
     const lessons: ReviewLesson[] = [];
@@ -209,9 +210,12 @@ async function onePr(options: LearnFromReviewsOptions, base: string, get: (url: 
     };
 }
 
-/** Posted before `until` (when one is given): what a store as of `until` could have read. */
+/**
+ * Posted before `until` (when one is given): what a store as of `until` could have read. Compared as instants, not
+ * strings, so an offset (`+05:30`) or a bare date in `until` reads right against GitHub's UTC times.
+ */
 function postedBefore(until: string | undefined, at: unknown): boolean {
-    return !until || (typeof at === 'string' && at < until);
+    return !until || (typeof at === 'string' && Date.parse(at) < Date.parse(until));
 }
 
 /** A review comment where it was written; marked when edited at or after `until`, since only its edited text is served. */
@@ -220,7 +224,7 @@ function toComment(prNumber: number, c: any, prAuthor: string, until?: string): 
     const commit = c.original_commit_id ?? c.commit_id;
     if (!c.path || !end || !commit || c.in_reply_to_id) return [];
     const start = c.original_start_line ?? c.start_line ?? end;
-    const edited = !!until && typeof c.updated_at === 'string' && c.updated_at >= until;
+    const edited = !!until && typeof c.updated_at === 'string' && !postedBefore(until, c.updated_at);
     return [{ id: String(c.id), prNumber, path: c.path, start: Math.min(start, end), end, commit, body: String(c.body ?? ''), author: String(c.user?.login ?? ''), source: sourceOf(c.user), prAuthor, ...(edited ? { editedAfterUntil: true as const } : {}) }];
 }
 
