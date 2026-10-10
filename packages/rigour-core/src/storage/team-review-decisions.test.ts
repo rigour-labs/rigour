@@ -1,9 +1,13 @@
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ReviewLesson } from '../review-learning/lessons.js';
-import { decisionRows, pushReviewDecisions, type DecisionCache, type DecisionPool } from './team-review-decisions.js';
+import { readLessons } from '../review-learning/lessons.js';
+import { readTeamDecisionCache } from '../review-learning/team-decisions.js';
+import { repositoryIdSync } from './repository-origin.js';
+import { decisionRows, syncReviewDecisions, type DecisionCache, type DecisionPool } from './team-review-decisions.js';
 
 const ME = 'lead@example.com';
 const lesson = (extra: Partial<ReviewLesson> = {}): ReviewLesson => ({
@@ -67,24 +71,43 @@ describe('which decisions are shared, and what they carry', () => {
     });
 });
 
-describe('pushing decisions', () => {
+describe('the review decisions sync', () => {
     let repo: string;
+    let home: string;
+    const saved = process.env.RIGOUR_HOME;
     const scope = { organizationId: 'acme', teamId: 'web', actorId: 'jane', repositories: ['github.com/acme/*'] };
     beforeEach(() => {
         repo = fs.mkdtempSync(path.join(os.tmpdir(), 'decisions-'));
+        home = fs.mkdtempSync(path.join(os.tmpdir(), 'decisions-home-'));
+        process.env.RIGOUR_HOME = home;
+        execFileSync('git', ['-C', repo, 'init', '-q']);
+        execFileSync('git', ['-C', repo, 'remote', 'add', 'origin', 'https://github.com/acme/api']);
+        fs.mkdirSync(path.join(repo, 'src', 'orders'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'src', 'orders', 'write.ts'), '');
+        execFileSync('git', ['-C', repo, 'add', '-A']);
         fs.mkdirSync(path.join(repo, '.rigour'));
         fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [lesson()] }));
     });
-    afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+    afterEach(() => {
+        if (saved === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = saved;
+        fs.rmSync(repo, { recursive: true, force: true });
+        fs.rmSync(home, { recursive: true, force: true });
+    });
 
+    /** A team database and a local cache in memory. `remote` holds the team's rows; an insert adds one, stamped by the "server". */
     function fakes(role = 'sme', version: string | null = '1', refuse?: string) {
-        const inserts: unknown[][] = [];
+        const remote: any[] = [];
+        let clock = Date.parse('2026-02-01T00:00:00Z');
         const pool: DecisionPool = {
-            query: async (sql, params) => {
+            query: async (sql, params = []) => {
                 if (sql.includes("key = 'review_decisions_version'")) return { rows: version ? [{ value: version }] : [], rowCount: 1 };
                 if (sql.includes('FROM rigour.memberships')) return { rows: [{ role, salt: 'org-salt' }], rowCount: 1 };
+                if (sql.includes('FROM rigour.review_decisions')) {
+                    const rows = remote.filter(r => Date.parse(r.received_at) > Date.parse(String(params[3])));
+                    return { rows, rowCount: rows.length };
+                }
                 if (refuse) throw Object.assign(new Error('refused'), { code: refuse });
-                inserts.push(params ?? []);
+                remote.push({ id: `row-${remote.length + 1}`, lesson_id: params[3], kind: params[4], actor_name: 'Jane D.', client_key: params[6], decided_at: params[7], received_at: new Date(clock += 1000).toISOString(), detail: params[8], payload: JSON.parse(String(params[9])) });
                 return { rows: [], rowCount: 1 };
             },
         };
@@ -98,40 +121,82 @@ describe('pushing decisions', () => {
                 else meta.set(String(params[0]), String(params[1]));
             },
         };
-        return { pool, cache, inserts, sent };
+        /** A teammate's row, as the team database holds it. */
+        const teammate = (extra: Record<string, unknown>) => remote.push({
+            id: `t-${remote.length + 1}`, lesson_id: 'a1b2c3d4e5f6', actor_name: 'Omar K.', client_key: `other-${remote.length}`,
+            decided_at: '2026-02-02T00:00:00Z', received_at: new Date(clock += 1000).toISOString(), detail: '', payload: { points: [] }, ...extra,
+        });
+        return { pool, cache, remote, sent, teammate };
     }
-    const input = (extra = {}) => ({ cwd: repo, origin: 'https://github.com/acme/api', repositoryId: 'repo-hash', person: ME, scope, ...extra });
+    const input = (extra = {}) => ({ cwd: repo, origin: 'https://github.com/acme/api', repositoryId: repositoryIdSync(repo), person: ME, scope, ...extra });
 
     it('sends each decision once: an unchanged store is not read again, and a sent key is never resent', async () => {
         const f = fakes();
-        expect(await pushReviewDecisions(f.pool, f.cache, input())).toEqual({ sent: 1, refused: 0 });
-        expect(await pushReviewDecisions(f.pool, f.cache, input())).toEqual({ sent: 0, refused: 0 });
+        expect(await syncReviewDecisions(f.pool, f.cache, input())).toMatchObject({ sent: 1, refused: 0, received: 0 });
+        expect(await syncReviewDecisions(f.pool, f.cache, input())).toMatchObject({ sent: 0 });
         fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [lesson()] }) + '\n');
-        expect(await pushReviewDecisions(f.pool, f.cache, input())).toEqual({ sent: 0, refused: 0 });
-        expect(f.inserts).toHaveLength(1);
-        expect(f.inserts[0].slice(0, 6)).toEqual(['acme', 'web', 'repo-hash', 'a1b2c3d4e5f6', 'accepted', 'jane']);
+        expect(await syncReviewDecisions(f.pool, f.cache, input())).toMatchObject({ sent: 0 });
+        expect(f.remote.map(r => [r.lesson_id, r.kind])).toEqual([['a1b2c3d4e5f6', 'accepted']]);
     });
 
-    it('holds everything back for an unlisted repository, one without origin, a member, or a database without the tables', async () => {
-        expect((await pushReviewDecisions(fakes().pool, fakes().cache, input({ origin: 'https://github.com/other/api' }))).held).toMatch(/not one of the team's repositories/);
-        expect((await pushReviewDecisions(fakes().pool, fakes().cache, input({ origin: undefined }))).held).toMatch(/no origin/);
-        const member = fakes('member');
-        expect((await pushReviewDecisions(member.pool, member.cache, input())).held).toMatch(/sme or owner/);
-        expect(member.inserts).toHaveLength(0);
+    it('neither sends nor receives for an unlisted repository or one without origin, and writes no cache for it', async () => {
+        const f = fakes();
+        f.teammate({ kind: 'rejected' });
+        expect((await syncReviewDecisions(f.pool, f.cache, input({ origin: 'https://github.com/other/api' }))).held).toMatch(/not one of the team's repositories/);
+        expect((await syncReviewDecisions(f.pool, f.cache, input({ origin: undefined }))).held).toMatch(/no origin/);
+        expect(fs.existsSync(path.join(home, '.rigour', 'team-decisions'))).toBe(false);
+    });
+
+    it('a member receives but does not send, and the cache says why it does not share', async () => {
+        const f = fakes('member');
+        f.teammate({ kind: 'rejected', detail: 'one-off' });
+        expect(await syncReviewDecisions(f.pool, f.cache, input())).toMatchObject({ sent: 0, received: 1, held: expect.stringMatching(/sme or owner/) });
+        expect(readTeamDecisionCache(repo)?.sharing).toEqual({ shares: false, reason: "a member's decisions stay on this machine: an sme or owner shares them" });
         const old = fakes('sme', null);
-        expect((await pushReviewDecisions(old.pool, old.cache, input())).held).toMatch(/init-schema/);
-        expect((await pushReviewDecisions(fakes().pool, fakes().cache, input({ person: 'unknown' }))).held).toMatch(/user.email/);
+        expect((await syncReviewDecisions(old.pool, old.cache, input())).held).toMatch(/init-schema/);
     });
 
-    it('sets a refused row aside with its reason and does not stop', async () => {
-        const f = fakes('sme', '1', '42501');
-        expect(await pushReviewDecisions(f.pool, f.cache, input())).toEqual({ sent: 0, refused: 1 });
-        expect([...f.sent.values()][0]).toMatch(/^refused by the team database/);
+    it('a teammate\'s later rejection wins over my earlier, already received acceptance; the store is never written', async () => {
+        const f = fakes();
+        await syncReviewDecisions(f.pool, f.cache, input());
+        f.teammate({ kind: 'rejected', detail: 'not for this repo' });
+        expect(await syncReviewDecisions(f.pool, f.cache, input())).toMatchObject({ received: 1 });
+        const scan = readLessons(repo).find(l => l.id === 'a1b2c3d4e5f6')!;
+        expect(scan.state).toBe('rejected');
+        expect(scan.evidence.at(-1)).toMatchObject({ kind: 'rejected', author: '', team: { name: 'Omar K.' } });
+        expect(JSON.stringify(JSON.parse(fs.readFileSync(path.join(repo, '.rigour', 'review-lessons.json'), 'utf8')))).not.toContain('Omar');
     });
 
-    it('stops on anything else, so the decision is tried again next sync', async () => {
-        const f = fakes('sme', '1', 'ECONNRESET');
-        await expect(pushReviewDecisions(f.pool, f.cache, input())).rejects.toThrow('refused');
-        expect(f.sent.size).toBe(0);
+    it('my decision not yet back holds over a teammate\'s; once back, the order is when the team database got each', async () => {
+        const f = fakes();
+        f.teammate({ kind: 'rejected' }); // the team rejected it before my acceptance reached the database
+        expect(await syncReviewDecisions(f.pool, f.cache, input())).toMatchObject({ sent: 1, received: 1 });
+        expect(readLessons(repo).find(l => l.id === 'a1b2c3d4e5f6')!.state).toBe('verified');
+        expect(Object.keys(readTeamDecisionCache(repo)!.mine)).toHaveLength(1); // mine came back with its received time
+    });
+
+    it('a member\'s own decision is ordered by when it was made, so a later team decision wins on that machine', async () => {
+        const f = fakes('member');
+        f.teammate({ kind: 'rejected', received_at: '2026-03-01T00:00:00Z' }); // after my acceptance of 2026-01-02
+        await syncReviewDecisions(f.pool, f.cache, input());
+        expect(readLessons(repo).find(l => l.id === 'a1b2c3d4e5f6')!.state).toBe('rejected');
+    });
+
+    it('a teammate\'s lesson this clone never learned is served from its approved wording, its file found from the hash', async () => {
+        const f = fakes();
+        const file = decisionRows([lesson({ id: 'ffffffffffff' })], { ...context, repositoryId: repositoryIdSync(repo) })[0].payload.file;
+        f.teammate({ lesson_id: 'ffffffffffff', kind: 'accepted', payload: { text: 'Close every cursor in a finally block.', file, points: [{ pr: 3, comment: '77', source: 'person' }] } });
+        await syncReviewDecisions(f.pool, f.cache, input());
+        const adopted = readLessons(repo).find(l => l.id === 'ffffffffffff')!;
+        expect(adopted).toMatchObject({ text: 'Close every cursor in a finally block.', file: 'src/orders/write.ts', state: 'verified' });
+    });
+
+    it('sets a refused row aside with its reason and does not stop; anything else stops and keeps the decision', async () => {
+        const refused = fakes('sme', '1', '42501');
+        expect(await syncReviewDecisions(refused.pool, refused.cache, input())).toMatchObject({ sent: 0, refused: 1 });
+        expect([...refused.sent.values()][0]).toMatch(/^refused by the team database/);
+        const down = fakes('sme', '1', 'ECONNRESET');
+        await expect(syncReviewDecisions(down.pool, down.cache, input())).rejects.toThrow('refused');
+        expect(down.sent.size).toBe(0);
     });
 });
