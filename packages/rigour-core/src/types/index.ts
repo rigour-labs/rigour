@@ -174,7 +174,7 @@ export const GatesSchema = z.object({
         check_go: z.boolean().optional().default(true),
         check_csharp: z.boolean().optional().default(true),
         check_java: z.boolean().optional().default(true),
-        block_security_deprecated: z.boolean().optional().default(true),
+        block_security_deprecated: z.boolean().optional().default(false),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
     test_quality: z.object({

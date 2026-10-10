@@ -155,7 +155,7 @@ export const UNIVERSAL_CONFIG: Config = {
             check_go: true,
             check_csharp: true,
             check_java: true,
-            block_security_deprecated: true,
+            block_security_deprecated: false,
             ignore_patterns: [],
         },
         test_quality: {

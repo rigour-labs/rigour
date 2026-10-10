@@ -98,7 +98,7 @@
         "gates.deprecated_apis": {
             "title": "Deprecated and insecure APIs",
             "summary": "Reports use of deprecated or removed standard-library and web APIs, with security-deprecated ones reported separately at a higher severity. Teams turn off a language or decide whether security deprecations block.",
-            "blocks": "Blocks on security-deprecated APIs when block_security_deprecated is on; otherwise advisory"
+            "blocks": "A note by default; blocks on security-deprecated APIs only when block_security_deprecated is on"
         },
         "gates.test_quality": {
             "title": "Weak tests",
@@ -316,7 +316,7 @@
         "gates.deprecated_apis.check_go": "Includes Go files, checked against deprecated Go standard-library APIs.",
         "gates.deprecated_apis.check_csharp": "Includes C# files, checked against deprecated .NET APIs.",
         "gates.deprecated_apis.check_java": "Includes Java files, checked against deprecated JDK APIs.",
-        "gates.deprecated_apis.block_security_deprecated": "Reports APIs deprecated for security reasons as critical, which blocks; when off they are reported as high and are advisory.",
+        "gates.deprecated_apis.block_security_deprecated": "Off by default: APIs deprecated for security reasons are shown as notes, since deprecated is not always vulnerable (md5 for a cache key, shell=True with a constant). On: they are reported as critical and block.",
         "gates.deprecated_apis.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
         "gates.test_quality.enabled": "Turns the weak-test check on or off.",
         "gates.test_quality.check_empty_tests": "Reports tests with an empty body or with code but no assertion.",

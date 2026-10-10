@@ -116,7 +116,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 | Frontend secret exposure | A server secret referenced from a file that ships to the browser (`process.env.X` / `import.meta.env.X` without a public prefix), or a live key literal in source. Only `critical` and `high` are reported by default. | JS/TS, Vue, Svelte | `frontend-secret-exposure` | On | Yes |
 | Prototype pollution | `__proto__` access, unsafe bracket writes, `Object.assign({}, …)` merges. | JS/TS | `ast-analysis` (`SECURITY_PROTOTYPE_POLLUTION`, `…_MERGE`) | On | Yes |
 | Unsafe call | A dangerous execution sink found from the syntax tree. | Go, Java, Rust, C#, C++ | `ast-analysis` (`SME_SECURITY_SINK`) | On | Yes |
-| Security-deprecated API | An API deprecated for security reasons (`new Buffer()`, weak hashes and similar), used in code: the same text in a string literal or a comment is not a use. Critical while `block_security_deprecated` is true (default); high, and a note, when it is false. | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Yes |
+| Security-deprecated API | An API deprecated for security reasons (`new Buffer()`, weak hashes and similar), used in code: the same text in a string literal or a comment is not a use. A note by default (deprecated is not always vulnerable); with `block_security_deprecated: true` it is critical and blocks. Python and Go test files are skipped. | JS/TS, Python, Go, C#, Java | `deprecated-apis` | On | Note; `block_security_deprecated: true` makes it block |
 
 ### Mistakes coding agents make
 

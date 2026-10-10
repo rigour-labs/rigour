@@ -483,7 +483,7 @@ Reports calls to methods that do not exist on known standard-library modules in 
 
 Reports use of deprecated or removed standard-library and web APIs, with security-deprecated ones reported separately at a higher severity. Teams turn off a language or decide whether security deprecations block.
 
-**Blocks:** Blocks on security-deprecated APIs when block_security_deprecated is on; otherwise advisory
+**Blocks:** A note by default; blocks on security-deprecated APIs only when block_security_deprecated is on
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
@@ -494,7 +494,7 @@ Reports use of deprecated or removed standard-library and web APIs, with securit
 | `check_go` | boolean | `true` | Includes Go files, checked against deprecated Go standard-library APIs. |
 | `check_csharp` | boolean | `true` | Includes C# files, checked against deprecated .NET APIs. |
 | `check_java` | boolean | `true` | Includes Java files, checked against deprecated JDK APIs. |
-| `block_security_deprecated` | boolean | `true` | Reports APIs deprecated for security reasons as critical, which blocks; when off they are reported as high and are advisory. |
+| `block_security_deprecated` | boolean | `false` | Off by default: APIs deprecated for security reasons are shown as notes, since deprecated is not always vulnerable (md5 for a cache key, shell=True with a constant). On: they are reported as critical and block. |
 | `ignore_patterns` | list of string | `[]` | Regular expressions matched against file paths; matching files are not scanned by this check. |
 
 ## Weak tests
