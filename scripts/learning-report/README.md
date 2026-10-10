@@ -37,6 +37,24 @@ change to the learning pipeline. It costs nothing: GitHub reads and git fetches,
   spot-checked 30 (10 per repository) and disagreed on 2, both logto review bodies labelled b that name concrete
   defects. All 10 logto b labels were then re-checked against the rubric; 8 became a, each with its reason in
   `recheck`, in a commit of their own. No label changes after that.
+- **Review bodies are labelled by unit.** One review body (a review bot's summary, say) can hold both requests and
+  lines that only describe the pull request. So every review-body source in the sample is split into units
+  (`unitsOf`: each non-empty line once HTML is removed, a prose line split into its sentences, a fenced code block as
+  one unit), and each unit is labelled once, by the same rubric, before any learning change. A candidate from a
+  review body is credited by the units its text came from (`unitsFor`), and counts as **a** only if every one of
+  them is **a**: a candidate that mixes an a unit with a b unit is a split defect and counts as **b**. Inline
+  comments are one point each and keep their source label.
+- The unit rubric, with invented examples:
+  - **a**, a bullet naming a defect: `* This retry loop has no upper bound; cap it and log the last error.`
+  - **a**, a sentence naming a defect: `Missing lock in refreshCache: it reads the map without holding mu.`
+  - **a**, a suggested change: a fenced `suggestion` block, or a status line that itself names the defect
+    (`Stale entries can be served after a config reload.`).
+  - **b**, an overview line: `Adds caching for the settings page.`, `Pull request overview`, a "Changes:" bullet
+    that describes what the pull request does.
+  - **b**, a status or approval line: `Changes recommended`, `Approval recommended`, `Looks good, thanks!`.
+  - **b**, scaffolding: a heading, a file-summary table row, a location line (`**src/cache.ts:42**`), a
+    "This issue also appears in" list, review metadata (`Files reviewed: 2/2`), a code block that only quotes
+    existing code.
 - The comment text the labeller read stays outside the repository (`TEXT_CACHE`, default
   `~/Workspace/Projects/Personal/rigour-labs/notes/learning-report/`); the label files hold the URL, so anyone can
   read the comment where it was written.
