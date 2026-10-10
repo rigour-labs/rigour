@@ -10,6 +10,7 @@
  *   node scripts/eval/embedding-parity.mjs <old-install-dir> <new-install-dir> [sample-size]
  */
 import { execFileSync } from 'child_process';
+import fs from 'fs';
 import { createRequire } from 'module';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -43,7 +44,8 @@ async function embedder(dir) {
     for (const name of ['@huggingface/transformers', '@xenova/transformers']) {
         let entry;
         try { entry = require.resolve(name); } catch { continue; }
-        const version = require(`${name}/package.json`).version;
+        // Read from disk: version 3 on does not export its package.json.
+        const version = JSON.parse(fs.readFileSync(path.join(path.resolve(dir), 'node_modules', name, 'package.json'), 'utf8')).version;
         const lib = await import(pathToFileURL(entry).href);
         // Version 2 loads 8-bit weights by default (`quantized: true`); version 3 on asks for them by `dtype`.
         const options = name === '@xenova/transformers' ? { quantized: true } : { dtype: 'q8' };
