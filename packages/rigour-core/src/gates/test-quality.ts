@@ -155,7 +155,7 @@ export class TestQualityGate extends Gate {
 
         for (const [file, fileIssues] of byFile) {
             const details = fileIssues.map(i => `  L${i.line}: [${i.pattern}] ${i.reason}`).join('\n');
-            failures.push(this.createFailure(
+            failures.push({ ...this.createFailure(
                 `AI test quality issues in ${file}:\n${details}`,
                 [file],
                 `These test patterns indicate AI-generated tests that may not verify actual behavior. Review each test to ensure it validates real business logic, not just AI assumptions.`,
@@ -163,7 +163,7 @@ export class TestQualityGate extends Gate {
                 fileIssues[0].line,
                 undefined,
                 'medium'
-            ));
+            ), lines: fileIssues.map(item => item.line) });
         }
 
         return failures;

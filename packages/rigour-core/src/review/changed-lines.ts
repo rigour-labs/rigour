@@ -36,6 +36,10 @@ export function splitByChangedLines(
         const files = failure.files ?? [];
         if (files.length === 0) {
             split.unlocated++;
+        } else if (failure.lines?.length && changedLineOf(failure, files, changedLines) !== undefined) {
+            // A finding that groups a file's violations is in the change when any of them is: anchored on the first changed one.
+            const at = changedLineOf(failure, files, changedLines)!;
+            split.findings.push(at === failure.line ? failure : { ...failure, anchorLine: at });
         } else if (failure.line === undefined) {
             if (files.some(file => changedLines[file])) split.fileFindings.push(failure);
             else leftOutside(split, failure);
@@ -77,4 +81,9 @@ function removedInside(failure: Failure, blocks: RemovedBlock[] | undefined): bo
     const end = failure.endLine;
     if (!blocks?.length || end === undefined || failure.line === undefined || end <= failure.line) return false;
     return blocks.some(block => block.line > (failure.line as number) && block.line <= end);
+}
+
+/** The first of a grouped finding's lines the change touched, in any of its files. */
+function changedLineOf(failure: Failure, files: string[], changedLines: Record<string, Set<number>>): number | undefined {
+    return [...failure.lines!].sort((a, b) => a - b).find(line => files.some(file => changedLines[file]?.has(line)));
 }

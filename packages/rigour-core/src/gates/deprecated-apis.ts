@@ -150,7 +150,7 @@ export class DeprecatedApisGate extends Gate {
                 const details = securityUsages.map(u =>
                     `  L${u.line}: ${u.api} — ${u.reason} → Use ${u.replacement}`
                 ).join('\n');
-                failures.push(this.createFailure(
+                failures.push({ ...this.createFailure(
                     `Security-deprecated APIs in ${file}:\n${details}`,
                     [file],
                     `These APIs were deprecated for security reasons. Using them introduces known vulnerabilities. Replace with the suggested alternatives immediately.`,
@@ -158,14 +158,14 @@ export class DeprecatedApisGate extends Gate {
                     securityUsages[0].line,
                     undefined,
                     this.config.block_security_deprecated ? 'critical' : 'high'
-                ));
+                ), lines: securityUsages.map(item => item.line) });
             }
 
             if (otherUsages.length > 0) {
                 const details = otherUsages.map(u =>
                     `  L${u.line}: ${u.api} — ${u.reason} → Use ${u.replacement}`
                 ).join('\n');
-                failures.push(this.createFailure(
+                failures.push({ ...this.createFailure(
                     `Deprecated APIs in ${file}:\n${details}`,
                     [file],
                     `These APIs are deprecated or removed. AI models trained on older code frequently suggest them. Update to current alternatives.`,
@@ -173,7 +173,7 @@ export class DeprecatedApisGate extends Gate {
                     otherUsages[0].line,
                     undefined,
                     'medium'
-                ));
+                ), lines: otherUsages.map(item => item.line) });
             }
         }
 

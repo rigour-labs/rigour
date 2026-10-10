@@ -137,7 +137,7 @@ export class PhantomApisGate extends Gate {
 
         for (const [file, apis] of byFile) {
             const details = apis.map(a => `  L${a.line}: ${a.module}.${a.method}() — ${a.reason}`).join('\n');
-            failures.push(this.createFailure(
+            failures.push({ ...this.createFailure(
                 `Phantom API calls in ${file}:\n${details}`,
                 [file],
                 `These method calls reference functions that don't exist on the target module. AI models confidently hallucinate plausible-sounding method names. Check the official API docs.`,
@@ -145,7 +145,7 @@ export class PhantomApisGate extends Gate {
                 apis[0].line,
                 undefined,
                 'high'
-            ));
+            ), lines: apis.map(item => item.line) });
         }
 
         return failures;
