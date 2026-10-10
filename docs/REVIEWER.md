@@ -132,6 +132,12 @@ own input folder. A judge that gives nothing, twice, is replaced by the next one
 record and trace as a CLI judge; cost when the API reports it, tokens always. The judge is
 installed only when `api` is configured and the key it names is set.
 
+Each turn re-sends the whole conversation so far. For a Claude model (`vendor: anthropic`, or a
+model name with `claude` or `anthropic` in it), Rigour asks the API to cache it (`cache_control` on
+the request), so every turn after the first reads the earlier turns from the cache at a fraction of
+the input price; the trace counts cache reads and writes apart from fresh input. Other models cache on
+their own and are not asked. An API that refuses the field on the first turn is asked again without it.
+
 What we measured on the same reviews, rules frozen: Claude Code finished every review in one to
 two minutes; Codex at high reasoning effort finished them four to six times slower, and ran out of
 time on a large pull request; Cursor's ask mode did not finish a small review within fifteen

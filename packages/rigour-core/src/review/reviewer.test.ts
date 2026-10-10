@@ -352,6 +352,11 @@ describe('the reviewer', () => {
             expect(calls[0].reasoning_effort).toBe('low');
             expect(calls[0].messages[1].content).toContain('full.diff'); // the same prompt a CLI judge gets
             expect(result.record?.judges).toEqual([{ reviewer: 'api', version: 'qwen3-coder', cost_usd: 0.1, turns: 2 }]);
+            expect(calls[0].cache_control).toBeUndefined(); // a model that caches on its own is not asked to
+            calls.length = 0;
+            const claude = ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['api'], api: { url: 'https://example.test/v1', model: 'anthropic/claude-sonnet-5.5', key_env: 'TEST_JUDGE_KEY' } } } });
+            await runReviewer(repo, 'main', claude, fakes(() => '', seen), () => undefined, { fetch: fetchImpl, force: true });
+            expect(calls.map(c => c.cache_control)).toEqual([{ type: 'ephemeral' }, { type: 'ephemeral' }]); // Claude caches only when asked
         } finally {
             delete process.env.TEST_JUDGE_KEY;
         }
