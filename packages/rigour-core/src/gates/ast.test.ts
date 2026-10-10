@@ -157,6 +157,11 @@ describe('ASTGate ignore behavior', () => {
         const failures = (await gate.run({ cwd: testDir, ignore: [] })).filter(f => f.id.startsWith('SECURITY_PROTOTYPE_POLLUTION'));
         expect(failures.map(f => [f.line, f.certainty])).toEqual([[1, 'possible'], [2, 'possible'], [3, 'possible'], [4, 'likely']]);
         expect(failures.some(mustFix)).toBe(false);
+
+        // A team that opted in with security.block keeps the block on a write; reads and the copy idiom stay possible.
+        const strict = new ASTGate({ ast: { max_params: 10 }, security: { block: true } } as any);
+        const opted = (await strict.run({ cwd: testDir, ignore: [] })).filter(f => f.id.startsWith('SECURITY_PROTOTYPE_POLLUTION'));
+        expect(opted.map(f => [f.line, f.certainty, mustFix(f)])).toEqual([[1, 'possible', false], [2, 'possible', false], [3, 'possible', false], [4, 'proven', true]]);
     });
 
     it('does not attribute nested function complexity to parent function', async () => {

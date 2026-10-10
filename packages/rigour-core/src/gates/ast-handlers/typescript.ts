@@ -18,6 +18,8 @@ export class TypeScriptHandler extends ASTHandler {
 
     private analyzeSourceFile(sourceFile: ts.SourceFile, relativePath: string, failures: Failure[]) {
         const astConfig = this.config.ast || {};
+        // security.block (the compliance and devsecops presets set it): a write through a prototype key blocks, as before.
+        const writeCertainty = this.config.security?.block ? 'proven' as const : 'likely' as const;
         const stalenessConfig = (this.config as any).staleness || {};
         const stalenessRules = stalenessConfig.rules || {};
         const maxComplexity = astConfig.complexity || 10;
@@ -122,7 +124,7 @@ export class TypeScriptHandler extends ASTHandler {
             if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name) && node.name.text === '__proto__') {
                 const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                 addFailure({
-                    certainty: isWrittenThrough(node) ? 'likely' : 'possible',
+                    certainty: isWrittenThrough(node) ? writeCertainty : 'possible',
                     id: 'SECURITY_PROTOTYPE_POLLUTION',
                     title: `Direct __proto__ access`,
                     details: `Prototype pollution vulnerability in ${relativePath}:${line}`,
@@ -140,7 +142,7 @@ export class TypeScriptHandler extends ASTHandler {
                 if (accessKey === '__proto__' || accessKey === 'constructor' || accessKey === 'prototype') {
                     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                     addFailure({
-                        certainty: isWrittenThrough(node) ? 'likely' : 'possible',
+                        certainty: isWrittenThrough(node) ? writeCertainty : 'possible',
                         id: 'SECURITY_PROTOTYPE_POLLUTION',
                         title: `Unsafe bracket notation access to '${accessKey}'`,
                         details: `Potential prototype pollution via bracket notation in ${relativePath}:${line}`,
