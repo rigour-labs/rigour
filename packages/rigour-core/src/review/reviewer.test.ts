@@ -15,7 +15,8 @@ import { VerdictStore } from './reviewer/store.js';
 import { readThread } from '../task/thread.js';
 
 let repo: string;
-const config = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
+// Coverage (reviewer/coverage.ts) is tested on its own below: these judges answer a fixed verdict with no functions list.
+const config = ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'] } } });
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
 
 const PR = { number: 42, state: 'OPEN', isDraft: false, author: { login: 'author' }, body: 'Every read is bounded at both ends.' };
@@ -294,7 +295,7 @@ describe('the reviewer', () => {
 
     it('asks the judge about the goal the description declares, with the goal check on, and never blocks on it', async () => {
         const body = 'Adds the job.\n\n## Done when\n- `src/job.ts` exists\n- the job takes the lock before it reads\n\n## Invariants\n- a second run never sends twice';
-        const goalConfig = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', goal: 'on', reviewer: { enabled: true, reviewers: ['claude'] } } });
+        const goalConfig = ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', goal: 'on', reviewer: { enabled: true, reviewers: ['claude'] } } });
         const seen = seenNow();
         const answer = () => JSON.stringify({ ...EMPTY, goal: [
             { item: 'the job takes the lock before it reads', met: false, file: 'src/job.ts', line: 2, quote: 'return 1;', evidence: 'no lock at all' },
@@ -341,7 +342,7 @@ describe('the reviewer', () => {
                 : { role: 'assistant', content: JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock', input: 'two runs', consequence: 'two emails', quote: 'return 1;', severity: 'blocking' }] }) };
             return new Response(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 100, completion_tokens: 20, cost: 0.05 } }), { status: 200 });
         }) as unknown as typeof fetch;
-        const apiConfig = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['api'], api: { url: 'https://example.test/v1', model: 'qwen3-coder', key_env: 'TEST_JUDGE_KEY' }, reasoning: { api: 'low' } } } });
+        const apiConfig = ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['api'], api: { url: 'https://example.test/v1', model: 'qwen3-coder', key_env: 'TEST_JUDGE_KEY' }, reasoning: { api: 'low' } } } });
         const without = await runReviewer(repo, 'main', apiConfig, fakes(() => '', seen), () => undefined, { fetch: fetchImpl });
         expect(without).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('no reviewer installed') }); // the key is not set
         process.env.TEST_JUDGE_KEY = 'secret';
@@ -359,7 +360,7 @@ describe('the reviewer', () => {
     it('replaces a judge that gives nothing with the next one installed, and says so', async () => {
         const seen = seenNow();
         const silent = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 0 } }), { status: 200 })) as unknown as typeof fetch;
-        const twoJudges = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['api', 'claude'], api: { url: 'https://example.test/v1', model: 'silent-model', key_env: 'TEST_JUDGE_KEY' } } } });
+        const twoJudges = ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['api', 'claude'], api: { url: 'https://example.test/v1', model: 'silent-model', key_env: 'TEST_JUDGE_KEY' } } } });
         process.env.TEST_JUDGE_KEY = 'secret';
         try {
             const result = await runReviewer(repo, 'main', twoJudges, fakes(() => JSON.stringify(EMPTY), seen), () => undefined, { fetch: silent, force: true });
@@ -421,7 +422,7 @@ describe('the orchestrator', () => {
     };
     /** A one-minute timeout holds a claude pass to 30,000 characters (passLimit), so a modest change is over it. */
     const TIMEOUT = 60_000;
-    const orch = (extra: Record<string, unknown> = {}) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], timeout_ms: TIMEOUT, ...extra } } });
+    const orch = (extra: Record<string, unknown> = {}) => ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], timeout_ms: TIMEOUT, ...extra } } });
     const store = async () => (await VerdictStore.open(repo, fakes(() => '', seenNow())))!;
     /** About 2,800 characters of reads in each of `files` new files, each name its own: 24 is over the limit and splits in three parts of whole files. */
     function bigChange(files = 24) {
@@ -571,7 +572,7 @@ describe('the orchestrator', () => {
     });
 
     it('runs when the team turns it on, with no flag, and keeps a required one on against --no-orchestrator, unavailable when the caps are reached', async () => {
-        const team = (orchestrator: 'on' | 'required', extra = {}) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], orchestrator, ...extra } } });
+        const team = (orchestrator: 'on' | 'required', extra = {}) => ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], orchestrator, ...extra } } });
         const on = seenNow();
         expect((await runReviewer(repo, 'main', team('on'), fakes(judge(on, {}), on), () => undefined, { force: true })).mode).toMatchObject({ asked: 'orchestrator', source: 'team' });
         const required = seenNow();
@@ -617,7 +618,7 @@ describe('the orchestrator', () => {
 
     it('gives way to a team floor on the panel or the mode, and says so', async () => {
         const seen = seenNow();
-        const floor = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], mode: 'full', mode_required: true } } });
+        const floor = ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], mode: 'full', mode_required: true } } });
         const result = await runReviewer(repo, 'main', floor, fakes(judge(seen, {}), seen), () => undefined, { orchestrator: true, force: true });
         expect(seen.prompts.map(passOf)).toEqual(['single', 'single']);
         expect(result.mode?.refused).toContain('orchestrator refused: rigour.yml requires the panel or the mode');
@@ -667,7 +668,7 @@ describe('the content cache', () => {
 });
 
 describe('cheap-model-first tiering', () => {
-    const tiered = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'], tiers: { cheap: { claude: 'cheap-model' } } } } });
+    const tiered = ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'], tiers: { cheap: { claude: 'cheap-model' } } } } });
     const modelArg = (seen: Seen, i: number) => { const args = seen.args![i]; const at = args.indexOf('--model'); return at >= 0 ? args[at + 1] : undefined; };
 
     it('runs the cheap model on a change with no risk signal, and records the tier on the review and its cost row', async () => {
@@ -695,8 +696,38 @@ describe('cheap-model-first tiering', () => {
     });
 
     it('is off without a cheap model', async () => {
-        const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { force: true });
+        const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { force: true });
         expect(result.mode?.tier).toBeUndefined();
+    });
+});
+
+describe('coverage: every changed unit accounted for', () => {
+    const covering = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } });
+    const fine = { file: 'src/job.ts', unit: 'job', status: 'fine', note: 'returns a constant; no input, nothing to check' };
+
+    it('gives the reviewer the changed units and keeps its account of each', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', covering, fakes(() => JSON.stringify({ ...EMPTY, functions: [fine] }), seen, null), () => undefined, { force: true });
+        expect(seen.prompts).toHaveLength(1);
+        expect(seen.prompts[0]).toContain('changed-units.txt');
+        expect(seen.prompts[0]).toContain('"functions":[');
+        expect(result.coverage).toEqual({ units: 1, notOffered: 0, accounted: 1, notReviewed: [], followUp: false });
+    });
+
+    it('asks once more about a unit the answer left out, and counts what that run finds', async () => {
+        const seen = seenNow();
+        let calls = 0;
+        const result = await runReviewer(repo, 'main', covering, fakes(() => JSON.stringify(calls++ === 0 ? EMPTY : { prior_points: [], reads: [], findings: [], functions: [fine] }), seen, null), () => undefined, { force: true });
+        expect(seen.prompts).toHaveLength(2);
+        expect(seen.prompts[1]).toContain('src/job.ts :: job');
+        expect(result.coverage).toMatchObject({ units: 1, accounted: 1, notReviewed: [], followUp: true });
+        expect(result.record?.judges.map(j => j.reviewer)).toContain('claude coverage');
+    });
+
+    it('says a unit was not reviewed when the follow-up leaves it out too, never that it passed', async () => {
+        const result = await runReviewer(repo, 'main', covering, fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { force: true });
+        expect(result.coverage).toMatchObject({ units: 1, accounted: 0, notReviewed: ['src/job.ts :: job'], followUp: true });
+        expect(recordLines(result.record!).join('\n')).toContain('Accounted for 0 of 1 changed unit; not reviewed: src/job.ts :: job.');
     });
 });
 
@@ -903,7 +934,7 @@ describe('verdicts', () => {
 });
 
 describe('a panel of judges', () => {
-    const panelConfig = (reviewer: Record<string, unknown>) => ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor', 'codex'], mode: 'full', panel: 'on', ...reviewer } } });
+    const panelConfig = (reviewer: Record<string, unknown>) => ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor', 'codex'], mode: 'full', panel: 'on', ...reviewer } } });
     const LOCK = { class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', quote: 'export function job() {', consequence: 'two runs send the same email' };
     const LONE = { class: 'dead-code', file: 'src/job.ts', line: 1, issue: 'job is exported and never called', quote: 'export function job() {', consequence: 'a reader treats it as the contract' };
     const OPINION = { class: 'duplication', file: 'src/job.ts', line: 2, issue: 'could be one line shorter', quote: 'export function job() {', consequence: '' };
@@ -996,7 +1027,7 @@ describe('a panel of judges', () => {
 });
 
 describe('what the team already knows', () => {
-    const allowing = ConfigSchema.parse({ version: 1, review: { github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], dismissals: true } } });
+    const allowing = ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], dismissals: true } } });
 
     it('refuses a dismissal unless the team allows them: fix the code, or the reviewer', async () => {
         const first = await runReviewer(repo, 'main', allowing, fakes(() => JSON.stringify({ ...EMPTY, findings: [{ class: 'correctness', file: 'src/job.ts', line: 2, issue: 'returns before the lock is taken', quote: 'export function job() {', consequence: 'two runs send the same email' }] }), seenNow()), () => undefined);
@@ -1197,7 +1228,7 @@ describe("the reviewer's own severity label", () => {
 describe('the judge Rigour launches', () => {
     it('runs claude with every memory file switched off, and records the isolation as unverified below the version it was verified in', async () => {
         const seen = seenNow();
-        const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review' });
+        const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review' });
         expect(result.outcome).toBe('passed');
         const claude = seen.ran.findIndex(command => path.basename(command).startsWith('claude'));
         expect(seen.env?.[claude]).toEqual({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
@@ -1207,7 +1238,7 @@ describe('the judge Rigour launches', () => {
         const current = seenNow();
         // The installed fake is claude on Unix and claude.cmd on Windows: name both.
         current.versions = { [path.join(bins[0], 'claude')]: '2.1.285 (Claude Code)', [path.join(bins[0], 'claude.cmd')]: '2.1.285 (Claude Code)' };
-        const verified = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), current, null), () => undefined, { trigger: 'review', force: true });
+        const verified = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), current, null), () => undefined, { trigger: 'review', force: true });
         expect(verified.record?.judges.map(j => j.outside_repo)).toEqual([undefined]);
     });
 });
@@ -1215,12 +1246,12 @@ describe('the judge Rigour launches', () => {
 describe("the review on the task's thread", () => {
     it('appends each review of a branch to its task, and never a backtest replaying history', async () => {
         const seen = seenNow();
-        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review', checks: ['src/a.ts:1 an unused export'] });
+        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { trigger: 'review', checks: ['src/a.ts:1 an unused export'] });
         const thread = readThread(repo, 'feature');
         expect(thread?.events.map(e => [e.kind, e.trigger, e.outcome, e.blocking, e.checks])).toEqual([['review', 'review', 'passed', 0, 1]]);
         expect(thread?.events[0].integrity).toEqual(expect.any(String));
         expect(thread?.events[0]).toMatchObject({ cost_usd: 1.5, cost_basis: 'runs' }); // every run this review made: the same dollars as its cost row
-        const cached = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
+        const cached = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { trigger: 'review' });
         expect(cached.cached).toBe(true);
         expect(cached.spentUsd).toBeUndefined(); // --json reports spent_usd 0
         expect(readThread(repo, 'feature')?.events[1]).not.toHaveProperty('cost_usd'); // a cached verdict spent nothing

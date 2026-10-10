@@ -14,6 +14,7 @@ import path from 'path';
 import type { RunTrace, Spend, Tokens } from './adapters.js';
 import type { PanelItem } from './panel.js';
 import { textSimilarity } from './consensus.js';
+import type { Coverage, UnitCheck } from './coverage.js';
 
 export interface PriorPoint { point: string; review?: string; severity?: 'blocking' | 'should-fix' | 'non-blocking'; resolved: boolean; evidence?: string; checked_siblings?: string[]; reviewer?: string; file?: string; line?: number; quote?: string; absent?: string }
 
@@ -130,6 +131,10 @@ export interface Verdict {
     lessons?: LessonCheck[];
     rules?: RuleCheck[];
     goal?: GoalCheck[];
+    /** Every changed unit given to the reviewer, accounted for (coverage.ts); absent when coverage is off. */
+    functions?: UnitCheck[];
+    /** How much of the change the reviewer accounted for (coverage.ts). */
+    coverage?: Coverage;
     findings: Finding[];
     carried: string[];
     resolved_previous: Array<{ id: string; evidence: string }>;
@@ -231,7 +236,7 @@ const ACCEPTED_SIMILARITY = 0.4;
 const WORKING_NOTES = new Set<OpenItem['kind']>(['redundant', 'read', 'scan', 'merge', 'journey', 'sibling', 'claim', 'lesson']);
 
 const SHAPE: Array<keyof Verdict> = ['prior_points', 'reads', 'findings'];
-const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'journey', 'siblings', 'claims', 'lessons', 'rules', 'goal', 'carried', 'resolved_previous'];
+const LISTS: Array<keyof Verdict> = ['redundant', 'scans', 'merge_impact', 'journey', 'siblings', 'claims', 'lessons', 'rules', 'goal', 'functions', 'carried', 'resolved_previous'];
 
 /** The verdict in a reviewer's answer, or why it is not one. `needsPriorPoints`: a human review exists and none of its points is carried. */
 export function parseVerdict(text: string, needsPriorPoints: boolean, reviewer: string, spend: Spend): { verdict: Verdict } | { error: string } {
@@ -286,6 +291,7 @@ export function mergeVerdicts(parts: Verdict[]): Verdict {
         lessons: tagged(part => part.lessons ?? []),
         rules: tagged(part => part.rules ?? []),
         goal: tagged(part => part.goal ?? []),
+        functions: tagged(part => part.functions ?? []),
         findings: tagged(part => part.findings),
         carried: parts.flatMap(part => part.carried),
         resolved_previous: parts.length === 1 ? parts[0].resolved_previous : parts[0].resolved_previous.filter(x => parts.every(part => part.resolved_previous.some(y => y.id === x.id))),

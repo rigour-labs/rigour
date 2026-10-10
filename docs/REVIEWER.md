@@ -361,6 +361,14 @@ Each judge starts from what your team already knows, written to a file it reads:
   on a file that has not changed since. Judges are told not to raise them again without something new;
 - the docs that name the changed code.
 
+**Every changed unit, accounted for.** The judge gets the change's units: each changed function where the
+language parses (JavaScript, TypeScript), else each changed hunk named by the code around it (any language), at most
+25, riskiest and largest first. For every one it must say either which finding is about it, or what it checked and
+why it holds. A review with no findings is therefore "looked at each of these, and here is why each holds", never an
+empty answer. A unit the answer leaves out gets one follow-up run, inside the caps; one still left out is shown as
+**not reviewed**, never as passed: "Accounted for 7 of 8 changed units; not reviewed: conn.go :: Close." The count is
+in the review record, and in `--json` as `coverage`. `review.coverage: false` turns it off.
+
 **Where the lessons come from: evidence, not who wrote it.** `rigour learn-reviews` reads the
 repository's merged pull requests. Every review point is a **candidate**, whoever wrote it: a person, an
 AI posting under a person's login, or a review bot. It keeps the point's own words: its bold title, else
