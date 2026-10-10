@@ -75,6 +75,8 @@ export interface ReviewResult {
     preexisting: number;
     /** The same, by check. A check whose findings were all the base's reads PASS in the report's summary. */
     preexistingByCheck: Record<string, number>;
+    /** By check, findings only on lines the change did not touch. A check whose findings were all such reads PASS in the report's summary. */
+    outsideChangeByCheck: Record<string, number>;
     /** A diff given with no base whose change HEAD already holds (committed work): nothing was compared, so nothing was dropped as the base's. */
     baseUnknown?: boolean;
     changedLines: Record<string, Set<number>>;
@@ -114,7 +116,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, preexistingByCheck: {}, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [], covered: [] };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, preexistingByCheck: {}, outsideChangeByCheck: {}, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [], covered: [] };
     }
     // The team's compiled checks run before the deep review, so it is told what they found and which lessons they covered.
     const compiled = compiledChecksOn(input.cwd, changedLines, input.config);
@@ -145,6 +147,8 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     if (typed.error) report.summary[TYPED_CHECKS] = 'ERROR'; // a check that could not run is a crashed gate, never a pass
     else if (input.typed) reviewCheck('redundancy', 'redundancy', typed.failures);
     const split = splitByChangedLines(report.failures, changedLines, deep ? changedFunctionSpans(input.cwd, changedLines) : {}, removedByFile(diff));
+    const outside = new Set(split.outsideFindings);
+    const outsideChangeByCheck = passChecksOnlyLeftOut(report, split.outsideFindings, report.failures.filter(f => !outside.has(f)));
     const deepError = deepAnalysisError(report);
     // The goal's findings are about the change as a whole (a file it should not touch, an item it never did), not a line, so they skip the changed-line split.
     const goal = input.goalDescription !== undefined ? parseGoal(input.goalDescription, fileNames(input.cwd, diff)) : undefined;
@@ -168,6 +172,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         excludedOutsideChangedLines: split.outside,
         preexisting,
         preexistingByCheck,
+        outsideChangeByCheck,
         ...(baseUnknown ? { baseUnknown } : {}),
         changedLines,
         report,
@@ -182,14 +187,15 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
 }
 
 /**
- * A check that failed only on what the base already had passes for this change: its summary reads PASS, and the
- * count, by check, says what it left out. A check with a finding the change introduced keeps FAIL.
+ * A check whose findings were all left out of this change's verdict (what the base already had, or lines the change
+ * did not touch) passes for it: its summary reads PASS, and the count, by check, says what it left out. A check with
+ * any finding still in play keeps FAIL.
  */
-function passOnlyPreexisting(report: Report, preexisting: Failure[]): Record<string, number> {
+function passChecksOnlyLeftOut(report: Report, leftOut: Failure[], kept: Failure[]): Record<string, number> {
     const byCheck: Record<string, number> = {};
     const check = (f: Failure) => gateOf(f) ?? f.id;
-    for (const f of preexisting) byCheck[check(f)] = (byCheck[check(f)] ?? 0) + 1;
-    const remaining = new Set(report.failures.map(check));
+    for (const f of leftOut) byCheck[check(f)] = (byCheck[check(f)] ?? 0) + 1;
+    const remaining = new Set(kept.map(check));
     for (const id of Object.keys(byCheck)) if (report.summary[id] === 'FAIL' && !remaining.has(id)) report.summary[id] = 'PASS';
     return byCheck;
 }
@@ -210,7 +216,7 @@ async function dropPreexisting(input: ReviewInput, report: Report, targets: stri
         const { preexisting } = splitIntroduced(rules, await baseFindings(input.cwd, input.config, commit, targets));
         const old = new Set(preexisting);
         report.failures = report.failures.filter(f => !old.has(f));
-        return { preexisting: old.size, byCheck: passOnlyPreexisting(report, preexisting) };
+        return { preexisting: old.size, byCheck: passChecksOnlyLeftOut(report, preexisting, report.failures) };
     } catch {
         return { preexisting: 0 }; // the comparison is a courtesy; it never fails a review
     }
