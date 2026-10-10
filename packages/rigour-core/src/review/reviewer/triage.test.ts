@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ledger, passLimit, SPECIALISTS, splitNeeds } from './orchestrator.js';
 import type { ReviewCost } from './store.js';
-import { parseHunks, planPasses, reviewable, triage } from './triage.js';
+import { parseHunks, planPasses, reviewable, touchesData, triage } from './triage.js';
 
 /** A diff adding `lines` to `file` (a new file when `fresh`), or removing them with `removed`. */
 function diff(file: string, lines: string[], options: { fresh?: boolean; removed?: string[] } = {}): string {
@@ -153,5 +153,18 @@ describe('the savings ledger', () => {
         const old = Array.from({ length: 5 }, () => row('orchestrator', 10_000, 0));
         const recent = Array.from({ length: 20 }, () => row('orchestrator', 1000, 1000));
         expect(ledger([...old, ...recent], undefined).credit).toBe(0);
+    });
+});
+
+describe('whether a change touches data', () => {
+    const hunk = (file: string, added: string[]) => parseHunks([`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`, `@@ -1,1 +1,${added.length} @@`, ...added.map(l => `+${l}`)].join('\n'));
+    it('says yes for a read, a write, a migration or an await in a loop, and no for plain code', () => {
+        expect(touchesData(hunk('src/a.ts', ["const rows = await db.from('orders').select('id');"]))).toBe(true);
+        expect(touchesData(hunk('src/a.py', ['session.add(order)', 'Order.objects.filter(id=1)']))).toBe(true);
+        expect(touchesData(hunk('src/a.ts', ['await prisma.order.update({ where: { id } });']))).toBe(true);
+        expect(touchesData(hunk('migrations/2026_add.sql', ['alter table orders add column x int;']))).toBe(true);
+        expect(touchesData(hunk('src/a.ts', ['for (const id of ids) {', '  await load(id);', '}']))).toBe(true);
+        expect(touchesData(hunk('src/a.ts', ['const cache = new Map();', 'cache.set(key, value);', 'return items.filter(Boolean);']))).toBe(false);
+        expect(touchesData(hunk('docs/a.md', ['update orders set x = 1']))).toBe(false);
     });
 });

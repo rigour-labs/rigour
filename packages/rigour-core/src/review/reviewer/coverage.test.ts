@@ -27,9 +27,20 @@ describe('changed units', () => {
             diffFor('README.md', [{ start: 1, context: '', added: ['words'] }]),
         ].join('\n');
         const { units, total } = changedUnits(dir, diff);
-        expect(units.map(u => `${u.file} :: ${u.name}`)).toEqual(['src/a.ts :: load', 'conn/conn.go :: func (c *Conn) Close() error {']);
-        expect(units[1]).toMatchObject({ start: 40, end: 90 }); // two hunks of one function are one unit
+        // One scale for both kinds: three added lines each, so the tie goes by file name.
+        expect(units.map(u => `${u.file} :: ${u.name}`)).toEqual(['conn/conn.go :: func (c *Conn) Close() error {', 'src/a.ts :: load']);
+        expect(units[0]).toMatchObject({ start: 40, end: 90 }); // two hunks of one function are one unit
         expect(total).toBe(2);
+    });
+
+    it('ranks a large hunk in any language above a small parsed function: one scale, not the parser first', () => {
+        fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src/a.ts'), 'export function tiny() {\n    return 1;\n}\n');
+        const diff = [
+            diffFor('src/a.ts', [{ start: 2, context: '', added: ['    return 1;'] }]),
+            diffFor('pkg/big.go', [{ start: 10, context: 'func Big() {', added: Array.from({ length: 30 }, () => '\tx := 1') }]),
+        ].join('\n');
+        expect(changedUnits(dir, diff).units.map(u => u.file)).toEqual(['pkg/big.go', 'src/a.ts']);
     });
 
     it('offers at most MAX_UNITS, largest first, and says how many more there are', () => {

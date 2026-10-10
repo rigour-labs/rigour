@@ -22,21 +22,22 @@ Every judge follows the same steps, in order, and answers in a fixed shape, so a
 judge's own sense of severity) decides what blocks:
 
 1. **Every earlier human point**, siblings included: is it fully resolved at this commit?
-2. **Redundancy**: what a fix made unnecessary (a guard below a query that now filters, an optional
+2. **The diff as a person reads it**: every changed function read in full, with what it calls and its callers, before the narrower checks.
+3. **Redundancy**: what a fix made unnecessary (a guard below a query that now filters, an optional
    member every caller supplies) and whether it was removed.
-3. **Every read**: rules known before the read but applied after it, a cheaper source, keys that
-   change when a user edits, unbounded windows, OFFSET paging, the index that serves it.
-4. **Nested scans**: a collection scanned once per item of another.
-5. **Merge impact**: call sites of main-side code the merge changed.
-6. **The journey past the request**: state that outlives it (what clears it, a retry, two
+4. **Every read**: rules known before the read but applied after it, a cheaper source, keys that
+   change when a user edits, unbounded windows, OFFSET paging, the index that serves it. Only when the change touches data (a read or write in a query API, a migration, an await in a loop).
+5. **Nested scans**: a collection scanned once per item of another. Only when the change touches data (a read or write in a query API, a migration, an await in a loop).
+6. **Merge impact**: call sites of main-side code the merge changed.
+7. **The journey past the request**: state that outlives it (what clears it, a retry, two
    overlapping runs), a status that can move backwards or overwrite a terminal one, and event or
-   dedupe keys that change when the user edits.
-7. **Sibling parity**: the routes, runners or handlers that do the same job and need the same change.
-8. **Claims**: every comment in a touched file and every sentence of the description that says what
+   dedupe keys that change when the user edits. Only when the change touches data (a read or write in a query API, a migration, an await in a loop).
+8. **Sibling parity**: the routes, runners or handlers that do the same job and need the same change.
+9. **Claims**: every comment in a touched file and every sentence of the description that says what
    the code does, checked against the code.
-9. **Team lessons**: every lesson the team taught that it was shown, answered one by one: does this
+10. **Team lessons**: every lesson the team taught that it was shown, answered one by one: does this
    change repeat it? A lesson pasted as background was skimmed; asked as a checklist it is checked.
-10. **Repository rules**: the rules the repository wrote for itself (AGENTS.md, CLAUDE.md, Cursor rules,
+11. **Repository rules**: the rules the repository wrote for itself (AGENTS.md, CLAUDE.md, Cursor rules,
     Copilot instructions, the AGENTS.md and CLAUDE.md files in folders below the root, and every file
     they import with an `@path` line; a folder's own rules, and what they import, apply only to changes
     in that folder, and rules files in vendored folders such as `vendor/` or `third_party/` are not the
@@ -44,13 +45,13 @@ judge's own sense of severity) decides what blocks:
     or not applicable, with the code that breaks one quoted. A rule the team worded as a requirement
     (must, never, always, only, every, do not), broken with its quote verified, blocks; guidance broken is a
     should-fix. The rule's words and weight come from the file, never from the judge.
-11. **The diff as a person reads it.**
-12. **The declared goal**, only with the [goal check](GOAL.md) on and a description that declares one: each
+
+Then **the declared goal**, only with the [goal check](GOAL.md) on and a description that declares one: each
     "Done when" item that names no file, and each invariant, answered met, not met (with the code quoted)
     or cannot tell. An item not met is a should-fix, never a block, whatever the judge says; the
     deterministic goal check already blocks on what needs no model.
 
-Steps 2 to 10 are the judge's working notes: you see them, and they never block on their own, with one
+The steps other than findings are the judge's working notes: you see them, and they never block on their own, with one
 exception: a requirement rule shown broken with a verified quote. Otherwise only a
 finding can block, and only when it carries three things: the input that goes wrong, what goes wrong
 for it (or a material cost: one that grows with the data or traffic, such as an extra query, rows
