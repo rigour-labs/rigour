@@ -27,6 +27,7 @@ import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
 import { languageAdapters } from './language-adapters/index.js';
 import { checkGoTestQuality, checkJavaKotlinTestQuality } from './test-quality-lang.js';
+import { assertionHelpers, callsHelper, pythonAssertionHelpers } from './test-quality-helpers.js';
 import {
     JS_TEST_START_PATTERN, JS_ASSERTION_PATTERNS, JS_MOCK_PATTERNS,
     JS_TAUTOLOGICAL_PATTERNS, JS_VAR_TAUTOLOGY_PATTERN,
@@ -96,6 +97,12 @@ export class TestQualityGate extends Gate {
 
         Logger.info(`Test Quality: Scanning ${files.length} test files`);
 
+        // Helper modules several test files import are read once per run.
+        const modules = new Map<string, Promise<string | undefined>>();
+        const read = (abs: string) => {
+            if (!modules.has(abs)) modules.set(abs, Promise.resolve().then(() => fs.readFile(abs, 'utf-8')).catch(() => undefined));
+            return modules.get(abs)!;
+        };
         const CONCURRENCY = 16;
         for (let i = 0; i < files.length; i += CONCURRENCY) {
             const batch = files.slice(i, i + CONCURRENCY);
@@ -109,10 +116,10 @@ export class TestQualityGate extends Gate {
                 const localIssues: typeof issues = [];
                 switch (adapter.id) {
                     case 'js':
-                        this.checkJSTestQuality(content, file, localIssues);
+                        this.checkJSTestQuality(content, file, localIssues, await assertionHelpers(context.cwd, file, content, read));
                         break;
                     case 'python':
-                        this.checkPythonTestQuality(content, file, localIssues);
+                        this.checkPythonTestQuality(content, file, localIssues, await pythonAssertionHelpers(context.cwd, file, content, read));
                         break;
                     case 'go':
                         checkGoTestQuality(content, file, localIssues, {
@@ -162,7 +169,7 @@ export class TestQualityGate extends Gate {
         return failures;
     }
 
-    private checkJSTestQuality(content: string, file: string, issues: TestQualityIssue[]): void {
+    private checkJSTestQuality(content: string, file: string, issues: TestQualityIssue[], helpers: Set<string> = new Set()): void {
         const lines = content.split('\n');
 
         // Track test blocks for analysis
@@ -215,7 +222,7 @@ export class TestQualityGate extends Gate {
                 }
 
                 // Check for assertions
-                if (JS_ASSERTION_PATTERNS.some(p => p.test(line))) {
+                if (JS_ASSERTION_PATTERNS.some(p => p.test(line)) || callsHelper(line, helpers)) {
                     hasAssertion = true;
                 }
 
@@ -302,7 +309,7 @@ export class TestQualityGate extends Gate {
         }
     }
 
-    private checkPythonTestQuality(content: string, file: string, issues: TestQualityIssue[]): void {
+    private checkPythonTestQuality(content: string, file: string, issues: TestQualityIssue[], helpers: Set<string> = new Set()): void {
         const lines = content.split('\n');
         const basename = path.basename(file);
 
@@ -371,7 +378,7 @@ export class TestQualityGate extends Gate {
                 testContent += line + '\n';
 
                 // Check for assertions
-                if (PYTHON_ASSERTION_PATTERNS.some(p => p.test(trimmed))) {
+                if (PYTHON_ASSERTION_PATTERNS.some(p => p.test(trimmed)) || callsHelper(trimmed, helpers, true)) {
                     hasAssertion = true;
                 }
 
