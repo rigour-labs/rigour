@@ -394,12 +394,15 @@ describe('which agent sent the hook payload', () => {
         const out = await run(claude('PreToolUse', 'src/jobs/k.ts', `const k = "${AWS_KEY}";`), { mode: 'dlp' });
         expect(out.continue).toBeUndefined(); // it used to scan nothing and answer continue
         expect(out.hookSpecificOutput).toMatchObject({ hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: expect.stringContaining('[aws_access_key]') });
+        expect(stdout).not.toContain(AWS_KEY); // the reason and the result carry the redacted form only
+        expect(out.hookSpecificOutput.permissionDecisionReason).toContain(`${AWS_KEY.slice(0, 4)}****${AWS_KEY.slice(-2)}`);
     });
 
     it('lets a credential the scan only suspects through, with a warning Claude sees', async () => {
         const out = await run(claude('PreToolUse', 'src/jobs/db.ts', 'const url = "postgres://admin:Zq8Lr2Vt9@db.example.com:5432/app";'), { mode: 'dlp' });
         expect(out.hookSpecificOutput.permissionDecision).toBeUndefined();
         expect(out.hookSpecificOutput.additionalContext).toContain('not blocked');
+        expect(stdout).not.toContain('Zq8Lr2Vt9');
     });
 
     it("briefs a Claude Code agent on a file's first edit", async () => {
