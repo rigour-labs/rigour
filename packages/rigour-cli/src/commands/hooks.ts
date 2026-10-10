@@ -716,6 +716,24 @@ export function parseStdinFiles(input: string): string[] {
     }
 }
 
+/** Detection types whose format only a real secret has: a key from a provider's own format, or a private key. */
+const SECRET_FORMAT_TYPES = new Set(['private_key', 'private_key_full', 'gcp_service_account']);
+
+/**
+ * What Claude Code is told before a tool call carrying credentials. A credential in a real secret's format the scan
+ * still rates a block denies the call (these are never learned away as false positives), with the reason Claude is shown. Anything else
+ * it found is a warning Claude sees beside the tool result; a hook that exits 0 has its stderr shown to no one.
+ */
+function claudeToolDecision(detections: any[]): { deny?: string; warning?: string } {
+    const line = (d: any) => `[${d.type}] ${d.description}${d.match ? ` (${d.match})` : ''} → ${d.recommendation}`;
+    const secrets = detections.filter(d => d.decision === 'block' && (SECRET_FORMAT_TYPES.has(d.type) || d.reason_codes?.includes('provider_pattern')));
+    if (secrets.length) {
+        return { deny: `Rigour: this would write ${secrets.length === 1 ? 'a credential' : `${secrets.length} credentials`} in a real secret's format:\n${secrets.map(line).join('\n')}\nRead it from an environment variable or a secrets file instead. For a test value, build it at run time so no key-shaped literal is written.` };
+    }
+    const seen = detections.filter(d => d.decision !== 'allow');
+    return seen.length ? { warning: `Rigour: possible credential${seen.length === 1 ? '' : 's'} in this tool call, not blocked:\n${seen.map(line).join('\n')}` } : {};
+}
+
 /** Cursor's own hook event names. Claude Code sends hook_event_name too (PreToolUse, PostToolUse, Stop, ...). */
 const CURSOR_EVENTS = new Set([
     'beforeSubmitPrompt', 'beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'beforeTabFileRead',
@@ -814,7 +832,12 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         } else {
             // The first edit of a file in a session: the team's word on it rides on this same hook's answer.
             const briefing = options.brief && /^(Write|Edit|MultiEdit)$/.test(String(toolPayload?.tool_name ?? '')) ? await fileBriefingContext(toolPayload, cwd).catch(() => '') : '';
-            process.stdout.write(JSON.stringify(briefing ? { ...result, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: briefing } } : result));
+            const decision = toolPayload?.hook_event_name === 'PreToolUse' ? claudeToolDecision(result.detections) : undefined;
+            const context = [decision?.warning, briefing].filter(Boolean).join('\n\n');
+            const hookSpecificOutput = decision?.deny
+                ? { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: decision.deny }
+                : context ? { hookEventName: 'PreToolUse', additionalContext: context } : undefined;
+            process.stdout.write(JSON.stringify(hookSpecificOutput ? { ...result, hookSpecificOutput } : result));
         }
 
         if (result.status !== 'clean') {
