@@ -713,6 +713,27 @@ describe('the steps the reviewer is given', () => {
     });
 });
 
+describe('review points', () => {
+    const pointing = (on: boolean) => ConfigSchema.parse({ version: 1, review: { coverage: false, review_points: on, reviewer: { enabled: true, reviewers: ['claude'] } } });
+    const answer = JSON.stringify({ ...EMPTY, findings: [{ class: 'review', severity: 'should', file: 'src/job.ts', line: 2, issue: 'a constant behind a function call', quote: '    return 1;', suggestion: 'export the constant', confidence: 0.6, input: '', consequence: '' }] });
+
+    it('asks for them, shows them and never blocks on them', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', pointing(true), fakes(() => answer, seen, null), () => undefined, { force: true });
+        expect(seen.prompts[0]).toContain('Review points.');
+        expect(result.outcome).toBe('passed');
+        expect(result.reviewPoints).toEqual([expect.objectContaining({ issue: 'a constant behind a function call', suggestion: 'export the constant' })]);
+        expect(recordLines(result.record!).join('\n')).toContain('Review points, never blocking: 1.');
+    });
+
+    it('neither asks for them nor hears them when the team turns them off', async () => {
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', pointing(false), fakes(() => answer, seen, null), () => undefined, { force: true });
+        expect(seen.prompts[0]).not.toContain('Review points.');
+        expect(result.reviewPoints).toEqual([]);
+    });
+});
+
 describe('coverage: every changed unit accounted for', () => {
     const covering = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, reviewers: ['claude'] } } });
     const fine = { file: 'src/job.ts', unit: 'job', status: 'fine', note: 'returns a constant; no input, nothing to check' };
@@ -823,6 +844,29 @@ describe('verdicts', () => {
         expect(advisory.map(i => [i.kind, i.reviewer])).toEqual([['goal', 'claude+codex']]); // one item, naming both judges
         const cached = { ...EMPTY } as Verdict; // a verdict from before the goal step has none
         expect(account(cached, undefined, () => true).advisory).toEqual([]);
+    });
+
+    it('shows review points with a checked quote, never as a block, at most five, the most confident first', () => {
+        const verify = checkoutVerifier(repo);
+        const point = (n: number, confidence: number, quote = '    return 1;') => ({ class: 'review', severity: 'should', file: 'src/job.ts', line: 2, issue: `point ${n}`, quote, suggestion: `change ${n}`, confidence, input: '', consequence: '' });
+        const seven = [0.2, 0.9, 0.5, 0.7, 0.1, 0.8, 0.3].map((c, i) => point(i, c));
+        const accounted = account({ ...EMPTY, prior_points: [], findings: [...seven, point(9, 1, 'return 99;')] } as Verdict, undefined, verify);
+        expect(accounted.open).toEqual([]);
+        expect(accounted.reviewPoints?.map(p => p.confidence)).toEqual([0.9, 0.8, 0.7, 0.5, 0.3]);
+        expect(accounted.reviewPoints?.[0]).toMatchObject({ class: 'review', suggestion: 'change 1' });
+        expect(accounted.reviewPointsHidden).toBe(2);
+        // A quote that is not the code at the line: unverified, never shown as a point.
+        expect(accounted.unverified.map(u => u.issue)).toEqual(['point 9']);
+    });
+
+    it('shows a review point only about code the change touches: a changed line, or inside a changed unit', () => {
+        fs.writeFileSync(path.join(repo, 'src/long.ts'), Array.from({ length: 40 }, (_, i) => `export const v${i + 1} = ${i + 1};`).join('\n') + '\n');
+        const verify = checkoutVerifier(repo);
+        const at = (line: number) => ({ class: 'review', severity: 'should', file: 'src/long.ts', line, issue: `point at ${line}`, quote: `export const v${line} = ${line};`, suggestion: 's', confidence: 0.5, input: '', consequence: '' });
+        const prior = { approvals: [], inCheckout: () => undefined, changed: new Map([['src/long.ts', new Set([5])]]), units: [{ file: 'src/long.ts', start: 18, end: 24 }] };
+        const accounted = account({ ...EMPTY, prior_points: [], findings: [at(5), at(21), at(35)] } as Verdict, undefined, verify, prior);
+        expect(accounted.reviewPoints?.map(p => p.line)).toEqual([5, 21]);
+        expect(accounted.reviewPointsOutside).toBe(1);
     });
 
     it('blocks on a finding only when the code it quotes is at the line it names, and never carries an old working note as a block', () => {

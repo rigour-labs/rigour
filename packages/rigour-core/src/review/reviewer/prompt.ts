@@ -32,6 +32,8 @@ export interface PromptInputs {
     coverageBlock?: string;
     /** Whether the change touches data (reads, writes, migrations, awaits in a loop): the data passes are asked for only then. Undefined: asked. */
     dataAccess?: boolean;
+    /** Review points (review.review_points): the class and its paragraph, or neither when off. */
+    reviewPoints?: boolean;
 }
 
 const STEP_PRIOR = `Prior points. For EVERY point in EVERY human review (blocking, should-fix and non-blocking,
@@ -192,14 +194,14 @@ present, is answered in prior_points and is never a blocking finding unless you 
 they did not know about.
 
 Classes: correctness, production-cost, dead-code, duplication, stale-claim, helper-bypass,
-repo-rule. Every finding needs a consequence: the wrong outcome it causes (an input and what
+repo-rule${v.reviewPoints ? ', review' : ''}. Every finding needs a consequence: the wrong outcome it causes (an input and what
 goes wrong) or a material cost: one that grows with the data or the traffic (an extra query or
 round trip, rows read that scale with users or time, a missing index, an unbounded window, memory
 per item). A cost that does not grow (one more column on rows already read, a second copy of a
 small check, code that could be shorter or shared) is not material. A finding with no wrong outcome
 and no material cost is an opinion: leave consequence empty and it is shown, never blocking. Do not
 report style preferences or trade-offs you would not request changes for.
-
+${v.reviewPoints ? REVIEW_POINTS : ''}
 Your final message must be ONLY this JSON, starting with { and ending with }, nothing before or after it:
 {"prior_points":[{"point":"...","review":"<login> <submitted_at>","severity":"blocking"|"should-fix"|"non-blocking","resolved":true|false,"evidence":"file:line ...","file":"<when not resolved>","line":0,"quote":"<when not resolved: the code that shows it still open>","absent":"<when not resolved because something is missing: the exact text you searched the checkout for>","checked_siblings":["file:line"]}],
  "redundant":[{"file":"...","line":0,"what":"...","made_redundant_by":"file:line","removed":true|false}],
@@ -211,10 +213,24 @@ Your final message must be ONLY this JSON, starting with { and ending with }, no
  "claims":[{"source":"comment"|"description","claim":"...","file":"<code that contradicts it>","line":0,"holds":true|false,"evidence":"..."}],
  "lessons":[{"lesson":"<the lesson as listed>","applies":true|false,"file":"...","line":0,"evidence":"..."}],
  "rules":[{"id":"<the rule's id as listed>","status":"followed"|"broken"|"not-applicable","file":"...","line":0,"quote":"<when broken: the code that breaks it, copied exactly>","evidence":"..."}],
-${v.goalBlock ? GOAL_FORMAT : ''}${v.coverageBlock ? COVERAGE_FORMAT : ''} "findings":[{"class":"...","severity":"blocking"|"should","file":"...","line":0,"issue":"...","why":"...","input":"...","consequence":"<wrong outcome for that input, or the cost; empty for an opinion>","quote":"<the code at file:line, copied exactly>","absent":"<for a missing call or check: the exact text that is missing>"}],
+${v.goalBlock ? GOAL_FORMAT : ''}${v.coverageBlock ? COVERAGE_FORMAT : ''} "findings":[{"class":"...","severity":"blocking"|"should","file":"...","line":0,"issue":"...","why":"...","input":"...","consequence":"<wrong outcome for that input, or the cost; empty for an opinion>","quote":"<the code at file:line, copied exactly>","absent":"<for a missing call or check: the exact text that is missing>"${v.reviewPoints ? ',"suggestion":"<review only: what to change>","confidence":0.0' : ''}}],
  "carried":["<delta mode: ids of previous open items that still stand>"],
  "resolved_previous":[{"id":"<delta mode: id of a previous open item now fixed>","evidence":"file:line and the fix"}]}`;
 }
+
+/** The review class, in the reviewer's instructions when review points are on. */
+const REVIEW_POINTS = `
+Review points. Apart from findings, raise what a careful reviewer of this code would ask the author
+to change even though nothing goes wrong today: two pieces of code doing one job that should be one,
+a simpler shape for the same behaviour, a cheaper path on this code's own frequent path (a lookup or
+allocation repeated per item, work done before a check that could skip it), a lock, copy or wait the
+code does not need, an error, result or callback one branch of the code forgets, an interface that is
+easy to call wrongly. Report each as a finding of class review: file, line and quote (the code,
+copied exactly), the point in issue, what to change in suggestion, and confidence: how sure you are,
+from 0 to 1, that this code's reviewers would ask for it. Give severity should and leave input and
+consequence empty: a review point is never blocking. Report at most five, the most confident first,
+and only points about code this change adds or changes. Never a style or naming preference.
+`;
 
 export function deltaBlock(previousHead: string, previousVerdict: string, previousOpenFile: string, commitsFile: string, deltaDiffFile: string, settledFile: string): string {
     return `- DELTA MODE. The previous verdict on ${previousHead.slice(0, 9)} is at ${previousVerdict}; its open
@@ -260,7 +276,7 @@ The declared goal. The pull request description declares what this change is for
 
 export const PROMPT_VERSION = createHash('sha256').update(renderPrompt({
     repoRoot: '<repo>', branch: '<branch>', head: '<head>', base: '<base>', baseSha: '<sha>', mode: 'full', reviewsFile: '<r>', humanCount: 0,
-    prBodyFile: '<b>', diffstatFile: '<s>', diffFile: '<d>', hintsFile: '<h>', contextFile: '<c>', deltaBlock: '', mergeBlock: '', coverageBlock: coverageStep('<u>'),
+    prBodyFile: '<b>', diffstatFile: '<s>', diffFile: '<d>', hintsFile: '<h>', contextFile: '<c>', deltaBlock: '', mergeBlock: '', coverageBlock: coverageStep('<u>'), reviewPoints: true,
 })).digest('hex').slice(0, 12);
 
 /** One judge's single call on the items the other judge raised alone: confirm or refute each, with the code that shows it. */
