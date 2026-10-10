@@ -261,6 +261,52 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
         return found;
     };
 
+    // Where a value of T is put in a place declared as another type (a property typed as a same-shape inline type, a
+    // variable, a parameter, a return), T's members travel as that type: the declared types the place names.
+    const isFlowSite = (node: TS.Node) => {
+        const p = node.parent;
+        return !!p && ((ts.isPropertyAssignment(p) && p.initializer === node) || ts.isSpreadAssignment(p) || (ts.isVariableDeclaration(p) && p.initializer === node)
+            || ts.isReturnStatement(p) || (ts.isArrowFunction(p) && p.body === node) || (ts.isCallExpression(p) && p.arguments.includes(node as TS.Expression)));
+    };
+    // The declared types a place names. A property or spread in an object literal whose own declared type names none
+    // (an inline type) is carried by the literal: the declared types of the place the literal goes, a level up at a time.
+    const namedAt = (node: TS.Node, t: Declared): Declared[] => {
+        for (let at: TS.Node | undefined = node; at && ts.isExpression(at); at = ts.isObjectLiteralExpression(at.parent?.parent) ? at.parent.parent : undefined) {
+            const target = checker.getContextualType(at as TS.Expression);
+            if (!target || target.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) || mentionsType(t, target)) return [];
+            const named = declaredTypes.filter(d => d.sym !== t.sym && mentionsType(d, target));
+            if (named.length) return named;
+        }
+        return [];
+    };
+    const flowMemo = new Map<TS.Symbol, Declared[]>();
+    const flowsInto = (t: Declared): Declared[] => {
+        const cached = flowMemo.get(t.sym);
+        if (cached) return cached;
+        const into = new Set<Declared>();
+        for (const sf of typed.appSources) {
+            walk(sf, node => {
+                if (!ts.isExpression(node) || !isFlowSite(node) || !mentionsType(t, checker.getTypeAtLocation(node))) return;
+                for (const d of namedAt(node, t)) into.add(d);
+            });
+        }
+        const found = [...into];
+        flowMemo.set(t.sym, found);
+        return found;
+    };
+    // T leaves the program where its own values do, or where a type it travels as does.
+    const leaves = (t: Declared, seen = new Set<TS.Symbol>([t.sym])): string | undefined => {
+        const direct = escapes(t);
+        if (direct) return direct;
+        for (const d of flowsInto(t)) {
+            if (seen.has(d.sym)) continue;
+            seen.add(d.sym);
+            const via = leaves(d, seen);
+            if (via) return `${via}, carried as ${d.name}`;
+        }
+        return undefined;
+    };
+
     // Values of the type read back from JSON (JSON.parse, readJson, a response's .json()) as the type: an assertion,
     // an annotated variable, a type argument, or the declared return of the function that returns them. Data written
     // before a member existed lacks it, so the member stays optional however every host in the code supplies it now.
@@ -349,7 +395,7 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
                 }
             }
             if (supplied.length && !wire && !isRead(t, name)) {
-                const exit = escapes(t);
+                const exit = leaves(t);
                 if (exit) hints.push(`write-only-property ${at(m)}: ${t.name}.${name} is set by ${supplied.length} host(s) and read by no code; the value leaves only through ${exit}. Confirm an external reader needs it, else delete it`);
                 else if (published) publish('write-only-property', m, `${member} is set by ${supplied.length} host(s) and read nowhere in this program`);
                 else {
