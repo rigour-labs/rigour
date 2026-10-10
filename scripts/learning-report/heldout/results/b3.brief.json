@@ -1,0 +1,16 @@
+{
+  "label": "b3",
+  "at": "2026-10-10T16:20:01.297Z",
+  "repos": {
+    "logto-io/logto": {
+      "files": 1,
+      "servedPerFile": [
+        3
+      ],
+      "overCap": 0,
+      "lessonItems": 3,
+      "uncited": 0,
+      "broken": 0
+    }
+  }
+}

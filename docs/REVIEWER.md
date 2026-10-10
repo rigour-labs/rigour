@@ -462,10 +462,11 @@ on its own. `rigour review --reviewer --blind` (or `RIGOUR_REVIEWER_BLIND=1`) re
 with no pull request lookup, description or human reviews. The output and the review record say "reviewed without
 pull request context", and `--json` carries `blind: true`.
 
-A point that names a path is about that file. One that names none is a **team standard**: shown
-with a change, once it is a lesson, when it shares at least two meaningful words with the change (its
-paths and the names on its added lines): up to three in the agent's question at the stop, up to
-fifteen for a judge reading the whole pull request.
+A point that names a path is about that file. One that names none has **no file**: shown with a change,
+once it is a lesson, only when it shares at least two meaningful words with the change (its paths and the
+names on its added lines), as "(no file): …": up to three in the agent's question at the stop, up to fifteen
+for a judge reading the whole pull request. It is never served to every change, and never called a team
+standard, until a person scopes it to the repository (below).
 
 **A person decides how far a lesson reaches.** `rigour learn-reviews --scope <id> --to repo` makes it a
 standard for the whole repository: it reaches every change, whatever its files or words, in the

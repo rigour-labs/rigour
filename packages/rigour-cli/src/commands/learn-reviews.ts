@@ -100,7 +100,7 @@ function printLesson(l: ReviewLesson): void {
     const label = { verified: chalk.green('lesson   '), candidate: chalk.yellow('candidate'), rejected: chalk.red('rejected ') };
     const prs = [...new Set(l.evidence.map(e => `#${e.pr}`))].join(', ');
     const by = chalk.dim(`${l.promotedBy ? ` [${l.promotedBy}]` : ''}${l.scope ? ` [${l.scope === 'repo' ? 'every change' : 'its folder'}]` : ''}`);
-    console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(team standard)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
+    console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(no file)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
     const pending = pendingDecision(l);
     if (pending) console.log(chalk.yellow(`          ${pendingReason(pending)}`));
     if (l.suggestedText) console.log(chalk.cyan(`          corrected wording (${l.suggestedWhy ?? 'reworded'}): ${l.suggestedText}`) + chalk.dim(`  take it: rigour learn-reviews --use-wording ${l.id}`));

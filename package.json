@@ -19,7 +19,9 @@
     "verify:release": "node scripts/verify-release-readiness.mjs",
     "publish:packages": "node scripts/publish-packages.mjs",
     "test:docs": "node --test scripts/docs/config-reference.test.mjs",
-    "docs:config": "node scripts/docs/config-reference.mjs --write"
+    "docs:config": "node scripts/docs/config-reference.mjs --write",
+    "learning-report": "node scripts/learning-report/run.mjs",
+    "learning-report:brief-check": "node scripts/learning-report/brief-check.mjs"
   },
   "devDependencies": {
     "@rigour-labs/core": "workspace:*",

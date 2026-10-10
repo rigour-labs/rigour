@@ -367,6 +367,23 @@ describe('learning from merged pull requests, after the merge', () => {
     });
 });
 
+describe('a lesson with no file', () => {
+    it('reaches a change only by its words, never every change, and is never called a team standard until a person scopes it so', () => {
+        const point: LessonEvidence = { kind: 'point', pr: 4, comment: 'c4', author: 'lead', source: 'person', prAuthor: 'dev' };
+        const noFile = (id: string, text: string, state: 'candidate' | 'verified' = 'candidate', scope?: 'repo'): ReviewLesson => ({ id, text, file: '', symbols: [], state, evidence: [point], createdAt: '', updatedAt: '', ...(scope ? { scope } : {}) });
+        const lessons = [noFile('window', 'Bound both ends of every time window a scheduled job reads.'), noFile('shortcut', 'Keep keyboard shortcuts consistent across every dialog.')];
+        const jobChange = { files: ['src/jobs/scan.ts'], symbols: new Set(['timeWindowStart', 'scheduledJob']) };
+        // Served when its words are the change's, and only then: not to every change.
+        expect(matchLessons(lessons, jobChange, { includeCandidates: true }).map(l => l.id)).toEqual(['window']);
+        expect(matchLessons(lessons, { files: ['README.md'], symbols: new Set<string>() }, { includeCandidates: true })).toEqual([]);
+        expect(describeLesson(lessonView(lessons[0]))).toBe('(no file): Bound both ends of every time window a scheduled job reads. (acted on in PR #4)');
+        // A person scoping it to the repository makes it a team standard: then every change gets it, and it says so.
+        const standard = noFile('std', 'Keep keyboard shortcuts consistent across every dialog.', 'verified', 'repo');
+        expect(matchLessons([standard], { files: ['README.md'], symbols: new Set<string>() }).map(l => l.id)).toEqual(['std']);
+        expect(describeLesson(lessonView(standard))).toBe('team standard: Keep keyboard shortcuts consistent across every dialog. (acted on in PR #4)');
+    });
+});
+
 describe('team standards', () => {
     it('verifies a standard when the same point recurs in another author\'s PR, and serves it only to a change it is about', () => {
         const standard = (pr: number, text: string): ReviewLesson => ({ id: `s${pr}`, text, file: '', symbols: [], state: 'candidate', evidence: [{ kind: 'point', pr, comment: `r${pr}`, author: `reviewer${pr}`, prAuthor: `dev${pr}` }], createdAt: '', updatedAt: '' });
@@ -398,7 +415,7 @@ describe('turning reviews into rules', () => {
         expect(out.lessons[0].evidence[0].said).toBe('The invoice total is computed before the discount is applied.');
         expect(prompts[0]).toContain('"said": "npm run check: 0 errors, lint clean."');
         expect(describeLesson(lessonView({ ...out.lessons[0], evidence: [...out.lessons[0].evidence, { pr: 9, comment: 'x', author: 'sam' }] })))
-            .toBe('team standard: Apply discounts before computing an invoice total. (in their words: "The invoice total is computed before the discount is applied.") (acted on in PR #7, #9)');
+            .toBe('(no file): Apply discounts before computing an invoice total. (in their words: "The invoice total is computed before the discount is applied.") (acted on in PR #7, #9)');
     });
 
     it('never loses a point when the model cannot run, and keeps a file only when the point was about it', async () => {
