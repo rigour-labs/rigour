@@ -1,6 +1,6 @@
 {
   "label": "b1-sections",
-  "at": "2026-10-10T14:23:25.532Z",
+  "at": "2026-10-10T14:50:39.688Z",
   "repos": {
     "logto-io/logto": {
       "prs": 16,
@@ -25,8 +25,8 @@
         "legacy": 0
       },
       "cloneMode": "--filter=blob:none",
-      "cloneMb": 677,
-      "seconds": 180,
+      "cloneMb": 675,
+      "seconds": 160,
       "notVerified": {
         "raised only by bots": 11,
         "one pull request author only": 1,

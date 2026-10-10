@@ -55,7 +55,7 @@ b1-sections on these runs no longer count as held out. A fresh held-out sample i
 
 Not verified in b1-sections, by the first condition failed: raised on one pull request only: 61.
 
-Clone: --filter=blob:none, peak 550 MB, 422 s.
+Clone: --filter=blob:none, peak 546 MB, 421 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 0.
 
@@ -70,7 +70,7 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 
 Not verified in b1-sections, by the first condition failed: raised on one pull request only: 54; raised only by bots: 1.
 
-Clone: --filter=blob:none, peak 251 MB, 263 s.
+Clone: --filter=blob:none, peak 253 MB, 263 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 0.
 
@@ -85,7 +85,7 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 
 Not verified in b1-sections, by the first condition failed: raised only by bots: 103; raised on one pull request only: 96; one pull request author only: 2.
 
-Clone: --filter=blob:none, peak 522 MB, 540 s.
+Clone: --filter=blob:none, peak 498 MB, 567 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 2.
 
