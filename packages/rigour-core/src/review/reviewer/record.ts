@@ -30,7 +30,7 @@ export interface ReviewRecord {
         notes: number;
         disputed: number;
         /** Review points shown (at most five) and past the cap: never a block. */
-        review_points?: { shown: number; hidden: number };
+        review_points?: { shown: number; hidden: number; outside_change?: number };
     };
     /** Recorded as reported, not checked by Rigour. */
     reported: { human_reviews: number };
@@ -77,7 +77,7 @@ export function buildRecord(input: RecordInput): ReviewRecord {
             unverified: input.accounted.unverified.length,
             notes: input.accounted.notes.length,
             disputed: input.accounted.disputed.length,
-            ...(input.accounted.reviewPoints?.length || input.accounted.reviewPointsHidden ? { review_points: { shown: input.accounted.reviewPoints?.length ?? 0, hidden: input.accounted.reviewPointsHidden ?? 0 } } : {}),
+            ...(input.accounted.reviewPoints?.length || input.accounted.reviewPointsHidden || input.accounted.reviewPointsOutside ? { review_points: { shown: input.accounted.reviewPoints?.length ?? 0, hidden: input.accounted.reviewPointsHidden ?? 0, ...(input.accounted.reviewPointsOutside ? { outside_change: input.accounted.reviewPointsOutside } : {}) } } : {}),
         },
         reported: { human_reviews: input.humanReviews },
         people: { dismissed: input.accounted.dismissed.length },
@@ -132,7 +132,7 @@ export function coverageLine(c: NonNullable<ReviewRecord['coverage']>): string {
 function countLines(r: ReviewRecord): string[] {
     const v = r.verified;
     return [
-        ...(v.review_points ? [`Review points, never blocking: ${v.review_points.shown}${v.review_points.hidden ? ` shown, ${v.review_points.hidden} more in the record` : ''}.`] : []),
+        ...(v.review_points ? [`Review points, never blocking: ${v.review_points.shown}${v.review_points.hidden ? ` shown, ${v.review_points.hidden} more in the record` : ''}${v.review_points.outside_change ? `; ${v.review_points.outside_change} outside the change, not shown` : ''}.`] : []),
         ...(r.coverage ? [coverageLine(r.coverage)] : []),
     ];
 }

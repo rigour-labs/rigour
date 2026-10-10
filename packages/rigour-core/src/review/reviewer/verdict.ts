@@ -25,7 +25,7 @@ export interface Approval { login: string; at: string; commit?: string }
  * What an item is checked against besides its quote: who approved (a prior point), whether the checkout has what a
  * point calls missing, and which lines the change touched (a block must sit on one; unknown when absent).
  */
-export interface PriorChecks { approvals: Approval[]; inCheckout: (text: string) => string | undefined; changed?: ChangedLines; labels?: LabelledPoint[] }
+export interface PriorChecks { approvals: Approval[]; inCheckout: (text: string) => string | undefined; changed?: ChangedLines; labels?: LabelledPoint[]; /** The changed units (coverage.ts): a review point inside one is about the change. */ units?: Array<{ file: string; start: number; end: number }> }
 
 /** A point under a severity heading the reviewer wrote ("Blocking", "Should fix", "Nits"): the reviewer's own label. */
 export interface LabelledPoint { login: string; at: string; severity: NonNullable<PriorPoint['severity']>; text: string }
@@ -88,6 +88,12 @@ export function changedLinesOf(diff: string): ChangedLines {
         }
     }
     return changed;
+}
+
+/** A line near one the change touched, or inside a changed unit (with the same window either side). */
+function inChange(file: string, line: number | undefined, prior: PriorChecks): boolean {
+    if (line === undefined) return false;
+    return nearChanged(prior.changed!, file, line) || (prior.units ?? []).some(u => u.file === file && line >= u.start - CHANGED_WINDOW && line <= u.end + CHANGED_WINDOW);
 }
 
 /** Whether a line of a file is within CHANGED_WINDOW lines of one the change touched. */
@@ -341,6 +347,8 @@ export interface Accounting {
     reviewPoints?: OpenItem[];
     /** Review points past the cap: counted, not shown. */
     reviewPointsHidden?: number;
+    /** Verified review points about code the change does not touch: counted, not shown. */
+    reviewPointsOutside?: number;
     /** The reviews' own severity labels: how many there were, how many prior points took one, and how many the judge read otherwise. */
     labels?: { served: number; taken: number; disagreed: number };
 }
@@ -476,13 +484,18 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
     }
     const stillOpen = new Set((previousOpen ?? []).map(item => item.id));
     const reviewPointItems: OpenItem[] = [];
+    let reviewPointsOutside = 0;
     for (const f of verdict.findings) {
         if (f.class === 'review') {
             // A review point is never a block: shown when its quote is the code at the line it names, else unverified.
             const point: OpenItem = { id: id('review', f.file, f.issue), kind: 'finding', class: 'review', file: f.file, line: f.line, issue: f.issue, ...(f.quote?.trim() ? { quote: f.quote } : {}), ...(f.suggestion?.trim() ? { suggestion: f.suggestion.trim() } : {}), ...(typeof f.confidence === 'number' ? { confidence: Math.max(0, Math.min(1, f.confidence)) } : {}), reviewer: f.reviewer };
             if (seen.has(point.id)) continue;
             seen.add(point.id);
-            keep(!!point.file && !!point.quote?.trim() && verify(point.file, point.line, point.quote) ? reviewPointItems : unverified, point);
+            if (!(!!point.file && !!point.quote?.trim() && verify(point.file, point.line, point.quote))) { keep(unverified, point); continue; }
+            // Only about code the change adds or changes: on a changed line, or inside a changed unit. Asked in the prompt,
+            // enforced here; a point elsewhere is counted, not shown.
+            if (prior.changed && !inChange(point.file!, point.line, prior)) { reviewPointsOutside++; continue; }
+            keep(reviewPointItems, point);
             continue;
         }
         const item: OpenItem = { id: id(f.class, f.file, f.issue), kind: 'finding', class: f.class, file: f.file, line: f.line, issue: f.issue, evidence: f.why, ...(f.consequence?.trim() ? { consequence: f.consequence.trim() } : {}), ...(f.input?.trim() ? { input: f.input.trim() } : {}), ...(f.quote?.trim() ? { quote: f.quote } : {}), reviewer: f.reviewer };
@@ -517,7 +530,7 @@ export function account(verdict: Verdict, previousOpen: OpenItem[] | undefined, 
         }
     }
     const ranked = [...reviewPointItems].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
-    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory), reviewPoints: ranked.slice(0, REVIEW_POINTS_SHOWN), reviewPointsHidden: Math.max(0, ranked.length - REVIEW_POINTS_SHOWN), labels: { served: prior.labels?.length ?? 0, taken: read.filter(r => r.took).length, disagreed: read.filter(r => r.disagreed).length } };
+    return { open: onePerRootCause(open), unverified, resolved, answerInReply, notes, advisory: onePerRootCause(advisory), reviewPoints: ranked.slice(0, REVIEW_POINTS_SHOWN), reviewPointsHidden: Math.max(0, ranked.length - REVIEW_POINTS_SHOWN), reviewPointsOutside, labels: { served: prior.labels?.length ?? 0, taken: read.filter(r => r.took).length, disagreed: read.filter(r => r.disagreed).length } };
 }
 
 /** How alike two items' words must be to be the same point made in two places; and, on the same lines, to be one point said two ways. */

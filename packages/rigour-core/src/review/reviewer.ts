@@ -102,6 +102,8 @@ export interface ReviewerResult {
     reviewPoints?: OpenItem[];
     /** Review points past the cap: counted, not shown. */
     reviewPointsHidden?: number;
+    /** Verified review points about code the change does not touch: counted, not shown. */
+    reviewPointsOutside?: number;
     /** Panel findings without a majority: shown, never a block, not carried to the next round. */
     disputed: OpenItem[];
     /** Panel findings refuted with evidence: logged, never a block. */
@@ -499,6 +501,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         // orchestrator splits the change across passes, so it is reviewed without it.
         const offered = coverageOn && !orchestrate ? changedUnits(cwd, deltaDiff ?? fullDiff) : undefined;
         const units: ChangedUnit[] = offered?.units ?? [];
+        prior.units = units;
         const unitsFile = units.length ? file('changed-units.txt', unitsText(units, offered!.total - units.length)) : undefined;
         if (unitsFile) inlineInputs.push({ path: unitsFile, text: unitsText(units, offered!.total - units.length) });
         const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}), ...(unitsFile ? { coverageBlock: coverageStep(unitsFile) } : {}), reviewPoints: reviewPointsOn });
@@ -789,6 +792,7 @@ function result(accounted: Decided, verdict: Verdict, reviewers: ReviewerName[],
         advisory: accounted.advisory,
         reviewPoints: accounted.reviewPoints ?? [],
         reviewPointsHidden: accounted.reviewPointsHidden ?? 0,
+        reviewPointsOutside: accounted.reviewPointsOutside ?? 0,
         disputed: accounted.disputed,
         dropped: accounted.dropped,
         dismissed: accounted.dismissed,

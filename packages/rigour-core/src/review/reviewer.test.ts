@@ -847,6 +847,16 @@ describe('verdicts', () => {
         expect(accounted.unverified.map(u => u.issue)).toEqual(['point 9']);
     });
 
+    it('shows a review point only about code the change touches: a changed line, or inside a changed unit', () => {
+        fs.writeFileSync(path.join(repo, 'src/long.ts'), Array.from({ length: 40 }, (_, i) => `export const v${i + 1} = ${i + 1};`).join('\n') + '\n');
+        const verify = checkoutVerifier(repo);
+        const at = (line: number) => ({ class: 'review', severity: 'should', file: 'src/long.ts', line, issue: `point at ${line}`, quote: `export const v${line} = ${line};`, suggestion: 's', confidence: 0.5, input: '', consequence: '' });
+        const prior = { approvals: [], inCheckout: () => undefined, changed: new Map([['src/long.ts', new Set([5])]]), units: [{ file: 'src/long.ts', start: 18, end: 24 }] };
+        const accounted = account({ ...EMPTY, prior_points: [], findings: [at(5), at(21), at(35)] } as Verdict, undefined, verify, prior);
+        expect(accounted.reviewPoints?.map(p => p.line)).toEqual([5, 21]);
+        expect(accounted.reviewPointsOutside).toBe(1);
+    });
+
     it('blocks on a finding only when the code it quotes is at the line it names, and never carries an old working note as a block', () => {
         const verify = checkoutVerifier(repo);
         const at = (quote?: string, line = 2) => account({ ...EMPTY, prior_points: [], findings: [{ class: 'correctness', file: 'src/job.ts', line, issue: 'returns before the lock', input: 'two runs at once', consequence: 'two emails', ...(quote === undefined ? {} : { quote }) }] } as Verdict, undefined, verify);
