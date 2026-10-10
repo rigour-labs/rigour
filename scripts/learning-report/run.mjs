@@ -66,10 +66,12 @@ for (const repo of only.length ? only : REPOS) {
     fs.rmSync(store, { force: true });
     process.env.RIGOUR_REVIEW_LESSONS = store;
     let comments = 0, bodies = 0, maxKb = kb(clone);
+    const skipped = {};
     try {
         for (const pr of prs[repo]) {
             const r = await withRetry(() => learnFromReviews(clone, { token: githubToken(), repo, pr }));
             comments += r.comments;
+            for (const [why, n] of Object.entries(r.skipped ?? {})) skipped[why] = (skipped[why] ?? 0) + n;
             bodies += r.reviewBodies;
             maxKb = Math.max(maxKb, kb(clone));
             if (maxKb * 1024 > CLONE_CAP_BYTES) throw new Error(`${repo}: the clone passed ${CLONE_CAP_BYTES / 1024 ** 3} GB (${Math.round(maxKb / 1024)} MB, --filter=${CLONE_FILTER}); stopped`);
@@ -78,6 +80,8 @@ for (const repo of only.length ? only : REPOS) {
         const points = lessons.flatMap(l => l.evidence.filter(e => (e.kind ?? 'point') === 'point').map(e => ({ ...e, lesson: l.id })));
         result.repos[repo] = {
             prs: prs[repo].length, inlineComments: comments, reviewBodies: bodies,
+            // Points learning skipped as asking for nothing, by why (0 before the learner counted them).
+            skipped,
             points: { total: points.length, people: points.filter(e => e.source !== 'bot').length, bots: points.filter(e => e.source === 'bot').length },
             candidates: lessons.length,
             verified: lessons.filter(l => l.state === 'verified').length,

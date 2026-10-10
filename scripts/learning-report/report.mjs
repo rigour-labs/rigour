@@ -20,6 +20,19 @@ const labels = Object.fromEntries(REPOS.map(repo => {
 const pct = x => `${Math.round(x * 100)}%`;
 
 /**
+ * Requests the first run had that this run lost: a request-labelled candidate of the first run none of whose
+ * request sources still yields a request here (an inline comment by its id; a review body by any of the same a
+ * units). Matched by source and unit, not by lesson id, so a change to the text (B2) does not count as a loss.
+ */
+function requestsLost(repo, first, now) {
+    if (!first?.lessons || !now?.lessons) return 0;
+    const kept = new Set(now.lessons.filter(l => l.sources.every(s => labels[repo][s]) && isRequest(repo, l))
+        .flatMap(l => l.sources.flatMap(s => (l.units?.[s] ? l.units[s].map(i => `${s}#${i}`) : [s]))));
+    return first.lessons.filter(l => l.sources.every(s => labels[repo][s]) && isRequest(repo, l))
+        .filter(l => !l.sources.some(s => (l.units?.[s] ? l.units[s].some(i => kept.has(`${s}#${i}`)) : kept.has(s)))).length;
+}
+
+/**
  * A labelled candidate is a request only if every source it came from is: an inline comment by its label, a review
  * body by the units the candidate's text came from, all of which must be a. A candidate mixing a and b units is a
  * split defect, and one whose text matches no unit cannot be credited: both count as not a request.
@@ -71,7 +84,7 @@ if (recurrence) {
 }
 const broken = [];
 for (const repo of REPOS) {
-    lines.push(`## ${repo}`, '', '| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit |', '|---|---|---|---|---|---|---|---|---|---|---|');
+    lines.push(`## ${repo}`, '', '| Run | PRs | Points (people / bots) | Skipped: not a request | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit | Requests lost vs first run |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|');
     for (const run of runs) {
         const r = run.repos[repo];
         if (!r?.lessons) continue;
@@ -81,7 +94,9 @@ for (const repo of REPOS) {
         const [lo, hi] = wilson(asks, labelled.length);
         const cut = r.lessons.filter(l => l.broken);
         for (const l of cut) broken.push(`- ${run.label} · ${repo} · ${link(repo, l)}`);
-        lines.push(`| ${run.label} | ${r.prs} | ${r.points.total} (${r.points.people} / ${r.points.bots}) | ${r.candidates} | ${r.lessons.filter(l => l.bot).length} | ${r.verified} | ${cut.length} | ${labelled.length} | ${labelled.length ? `${pct(asks / labelled.length)} (${pct(lo)}–${pct(hi)})` : 'unlabelled'} | ${labelled.length - asks} | ${unmatched} |`);
+        const skippedN = Object.values(r.skipped ?? {}).reduce((n, k) => n + k, 0);
+        const lost = run === runs[0] ? 0 : requestsLost(repo, runs[0].repos[repo], r);
+        lines.push(`| ${run.label} | ${r.prs} | ${r.points.total} (${r.points.people} / ${r.points.bots}) | ${skippedN} | ${r.candidates} | ${r.lessons.filter(l => l.bot).length} | ${r.verified} | ${cut.length} | ${labelled.length} | ${labelled.length ? `${pct(asks / labelled.length)} (${pct(lo)}–${pct(hi)})` : 'unlabelled'} | ${labelled.length - asks} | ${unmatched} | ${lost} |`);
     }
     lines.push('');
     const last = runs.at(-1)?.repos[repo];
