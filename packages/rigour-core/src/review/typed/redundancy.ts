@@ -261,6 +261,72 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
         return found;
     };
 
+    // Where a value of T is put in a place declared as another type (a property typed as a same-shape inline type, a
+    // variable, a parameter, a return), T's members travel as that type: the declared types the place names.
+    const isFlowSite = (node: TS.Node) => {
+        const p = node.parent;
+        return !!p && ((ts.isPropertyAssignment(p) && p.initializer === node) || ts.isSpreadAssignment(p) || (ts.isVariableDeclaration(p) && p.initializer === node)
+            || ts.isReturnStatement(p) || (ts.isArrowFunction(p) && p.body === node) || (ts.isCallExpression(p) && p.arguments.includes(node as TS.Expression)));
+    };
+    // The declared types a place names. A property or spread in an object literal whose own declared type names none
+    // (an inline type) is carried by the literal: the declared types of the place the literal goes, a level up at a time.
+    const namedAt = (node: TS.Node, t: Declared): Declared[] => {
+        for (let at: TS.Node | undefined = node; at && ts.isExpression(at); at = ts.isObjectLiteralExpression(at.parent?.parent) ? at.parent.parent : undefined) {
+            const target = checker.getContextualType(at as TS.Expression);
+            if (!target || target.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) || mentionsType(t, target)) return [];
+            const named = declaredTypes.filter(d => d.sym !== t.sym && mentionsType(d, target));
+            if (named.length) return named;
+        }
+        return [];
+    };
+    // The parts of `target` that receive T's values inside `value`, found by walking both the same way: arrays, union
+    // members of the value, and same-named properties (`R[]` receiving `{ …, p: T }[]` gives the type of `R.p`).
+    const receiving = (t: Declared, value: TS.Type, target: TS.Type, depth = 0): TS.Type[] => {
+        const to = checker.getNonNullableType(target);
+        if (value.symbol === t.sym || value.aliasSymbol === t.sym) return mentionsType(t, to) ? [] : [to];
+        if (depth > MENTION_DEPTH) return [];
+        if (value.isUnion()) return value.types.flatMap(v => receiving(t, v, target, depth + 1));
+        if (checker.isArrayType(value)) return checker.isArrayType(to) ? receiving(t, checker.getTypeArguments(value as TS.TypeReference)[0], checker.getTypeArguments(to as TS.TypeReference)[0], depth + 1) : [];
+        if (!(value.flags & ts.TypeFlags.Object)) return [];
+        return checker.getPropertiesOfType(value).flatMap(p => {
+            const into = checker.getPropertyOfType(to, p.name);
+            return into ? receiving(t, checker.getTypeOfSymbol(p), checker.getTypeOfSymbol(into), depth + 1) : [];
+        });
+    };
+    // Where T's values go: the declared types they travel as (`into`), and the types of the places that receive them
+    // (`receivers`: a same-shape inline type, a parameter's type), whose members are T's members under another type.
+    const flowMemo = new Map<TS.Symbol, { into: Declared[]; receivers: TS.Type[] }>();
+    const flowsOf = (t: Declared): { into: Declared[]; receivers: TS.Type[] } => {
+        const cached = flowMemo.get(t.sym);
+        if (cached) return cached;
+        const into = new Set<Declared>();
+        const receivers = new Set<TS.Type>();
+        for (const sf of typed.appSources) {
+            walk(sf, node => {
+                if (!ts.isExpression(node) || !isFlowSite(node) || !mentionsType(t, checker.getTypeAtLocation(node))) return;
+                const target = checker.getContextualType(node);
+                if (target && !(target.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) && !mentionsType(t, target)) for (const r of receiving(t, checker.getTypeAtLocation(node), target)) receivers.add(r);
+                for (const d of namedAt(node, t)) into.add(d);
+            });
+        }
+        const found = { into: [...into], receivers: [...receivers] };
+        flowMemo.set(t.sym, found);
+        return found;
+    };
+    const flowsInto = (t: Declared): Declared[] => flowsOf(t).into;
+    // T leaves the program where its own values do, or where a type it travels as does.
+    const leaves = (t: Declared, seen = new Set<TS.Symbol>([t.sym])): string | undefined => {
+        const direct = escapes(t);
+        if (direct) return direct;
+        for (const d of flowsInto(t)) {
+            if (seen.has(d.sym)) continue;
+            seen.add(d.sym);
+            const via = leaves(d, seen);
+            if (via) return `${via}, carried as ${d.name}`;
+        }
+        return undefined;
+    };
+
     // Values of the type read back from JSON (JSON.parse, readJson, a response's .json()) as the type: an assertion,
     // an annotated variable, a type argument, or the declared return of the function that returns them. Data written
     // before a member existed lacks it, so the member stays optional however every host in the code supplies it now.
@@ -302,8 +368,25 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
         const sym = checker.getPropertyOfType(t.type, name);
         if (!sym) return 'no such property';
         const declaration = sym.declarations?.[0];
-        const isOurs = (s: TS.Symbol | undefined) => !!s && (s === sym || !!s.declarations?.some(d => d === declaration));
-        const ofType = (expr: TS.Node) => mentionsType(t, checker.getTypeAtLocation(expr));
+        const ownRead = (s: TS.Symbol | undefined) => !!s && (s === sym || !!s.declarations?.some(d => d === declaration));
+        const ownType = (expr: TS.Node) => mentionsType(t, checker.getTypeAtLocation(expr));
+        let found = scanReads(name, ownRead, ownType);
+        if (found) return found;
+        // A value of T received as another type (`p?: { x: string }` holding a T) is read through that type's member of the same name.
+        const { receivers } = flowsOf(t);
+        const members = new Set(receivers.map(r => checker.getPropertyOfType(r, name)).filter((m): m is TS.Symbol => !!m));
+        if (members.size) {
+            const memberDecls = new Set([...members].flatMap(m => m.declarations ?? []));
+            const viaRead = (s: TS.Symbol | undefined) => !!s && (members.has(s) || !!s.declarations?.some(d => memberDecls.has(d)));
+            const viaType = (expr: TS.Node) => receivers.includes(checker.getNonNullableType(checker.getTypeAtLocation(expr)));
+            found = scanReads(name, viaRead, viaType);
+            if (found) return found;
+        }
+        const text = textReads(t, name);
+        return text ? `${text.file} (by name)` : undefined;
+    };
+    // A read of `name` in a non-test file: an access whose symbol `isOurs` accepts, or a destructuring or `['name']` of a value `ofType` accepts.
+    const scanReads = (name: string, isOurs: (s: TS.Symbol | undefined) => boolean, ofType: (expr: TS.Node) => boolean): string | undefined => {
         for (const sf of typed.appSources) {
             if (!sf.text.includes(name) && !sf.text.includes('...')) continue;
             let read: TS.Node | undefined;
@@ -315,8 +398,7 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
             });
             if (read) return at(read);
         }
-        const text = textReads(t, name);
-        return text ? `${text.file} (by name)` : undefined;
+        return undefined;
     };
 
     for (const t of declaredTypes) {
@@ -349,7 +431,7 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
                 }
             }
             if (supplied.length && !wire && !isRead(t, name)) {
-                const exit = escapes(t);
+                const exit = leaves(t);
                 if (exit) hints.push(`write-only-property ${at(m)}: ${t.name}.${name} is set by ${supplied.length} host(s) and read by no code; the value leaves only through ${exit}. Confirm an external reader needs it, else delete it`);
                 else if (published) publish('write-only-property', m, `${member} is set by ${supplied.length} host(s) and read nowhere in this program`);
                 else {

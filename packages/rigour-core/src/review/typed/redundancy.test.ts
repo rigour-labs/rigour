@@ -92,6 +92,66 @@ export async function scan(since: string): Promise<Row[]> {
         expect(sent.hints[1]).toContain('leaves only through JSON.stringify() at src/send.ts:2');
     }, 60_000);
 
+    it('follows a value into a property declared as a same-shape inline type: when that type is serialised, every field of the value\'s type is a hint', async () => {
+        write('src/types.ts', 'export interface A { x: string; y: string }\n');
+        write('src/rows.ts', 'export interface R { id: string; p?: { x: string; y: string } }\nexport interface Body { results: R[] }\n');
+        write('src/g.ts', `import type { A } from './types';
+function make(id: string): A { return { x: id, y: id }; }
+export function g(ids: string[]): Map<string, A> { return new Map(ids.map(id => [id, make(id)])); }
+`);
+        write('src/h.ts', `import { g } from './g';
+import type { R } from './rows';
+export function h(rows: R[]): R[] {
+    const found = g(rows.map(r => r.id));
+    return rows.map(r => { const a = found.get(r.id); return a ? { ...r, p: a } : r; });
+}
+`);
+        write('src/send.ts', `import { h } from './h';
+import type { Body, R } from './rows';
+function k(body: Body): string { return JSON.stringify(body); }
+export function handler(rows: R[]): string { const body: Body = { results: h(rows) }; return k(body); }
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'serialised through a same-shape inline type');
+        const result = await review();
+        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual([]);
+        const hints = result.hints.filter(h => h.startsWith('write-only-property src/types.ts'));
+        expect(hints).toEqual([expect.stringContaining('A.x is set by 1 host(s)'), expect.stringContaining('A.y is set by 1 host(s)')]);
+        expect(hints[0]).toContain('JSON.stringify() at src/send.ts:3');
+        expect(hints[0]).toContain('carried as R');
+    }, 60_000);
+
+    it('counts a read through the same-shape type a value was carried as, as a read of the value\'s field', async () => {
+        write('src/types.ts', 'export interface A { x: string; y: string }\n');
+        write('src/rows.ts', 'export interface R { id: string; p?: { x: string; y: string } }\n');
+        write('src/h.ts', `import type { A } from './types';
+import type { R } from './rows';
+function make(id: string): A { return { x: id, y: id }; }
+export function h(rows: R[]): R[] { return rows.map(r => ({ ...r, p: make(r.id) })); }
+export const marked = (rows: R[]) => h(rows).filter(r => r.p?.x).length;
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'read through the carrying type');
+        const result = await review();
+        // x is read as R.p.x; its sibling y is read nowhere and still blocks.
+        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual(['A.y']);
+    }, 60_000);
+
+    it('still blocks a field of a value carried as another type when that type never leaves the program', async () => {
+        write('src/types.ts', 'export interface A { x: string; y: string }\n');
+        write('src/rows.ts', 'export interface R { id: string; p?: { x: string; y: string } }\n');
+        write('src/h.ts', `import type { A } from './types';
+import type { R } from './rows';
+function make(id: string): A { return { x: id, y: id }; }
+export function h(rows: R[]): R[] { return rows.map(r => ({ ...r, p: make(r.id) })); }
+export const count = (rows: R[]) => h(rows).length;
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'carried, never serialised');
+        const result = await review();
+        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual(['A.x', 'A.y']);
+    }, 60_000);
+
     it('keeps a member optional, as a hint, when values of the type are read back from JSON written before it existed', async () => {
         write('src/store.ts', `import fs from 'fs';
 interface Entry { file: string; stamp?: string }

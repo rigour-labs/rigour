@@ -33,7 +33,17 @@ export interface Journey {
     suggestedText?: { text: string; why: string };
     /** How far a review lesson reaches: its file, its folder, or every change (a team standard). */
     reach?: { scope: 'file' | 'folder' | 'repo'; hasFile: boolean };
+    /** A candidate only review bots raised, with nothing waiting on a person: hidden until a person asks to see bot points. */
+    fromBots?: true;
 }
+
+/** Candidates only review bots raised are hidden by default and counted; a person can show them. */
+export const BotPointsToggle: React.FC<{ count: number; shown: boolean; onToggle: () => void }> = ({ count, shown, onToggle }) => (
+    <div className="st-row" style={{ marginTop: 12, gap: 8 }}>
+        <span className="st-sub">{count} candidate{count === 1 ? '' : 's'} from review bots{shown ? '' : ', hidden'}.</span>
+        <button type="button" className="st-btn" onClick={onToggle}>{shown ? 'Hide bot points' : 'Show bot points'}</button>
+    </div>
+);
 
 /** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
 const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);

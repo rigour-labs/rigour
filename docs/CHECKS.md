@@ -87,7 +87,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 | Orphaned file | A new code file that nothing imports or runs. Routes, hooks, tests, migrations and config files are skipped. A folder of new files that only import each other is reported as a whole. | JS/TS, Svelte | `orphan-file` | On | Note; `block: true` makes it block |
 | Duplicate function | A changed function whose body is the same, line for line, as another function in the touched files (comments and layout ignored; at least 4 statements and 6 lines). | JS/TS, Svelte | `duplicate-function` | On | Yes |
 | Optional member every host supplies | An optional property that every object providing it sets. | TypeScript | `optional-always-supplied` | On (`redundancy`) | Yes |
-| Write-only property | A property the hosts set that nothing reads. When the value only leaves through serialisation, it is a hint instead. | TypeScript | `write-only-property` | On (`redundancy`) | Yes |
+| Write-only property | A property the hosts set that nothing reads. When the value only leaves through serialisation, it is a hint instead, also when it gets there inside another type (put in a property typed as a same-shape inline type, say). A read through that other type (`row.p.x` where `p` holds the value) counts as a read. | TypeScript | `write-only-property` | On (`redundancy`) | Yes |
 | Optional only for tests | A parameter the change adds as optional that every non-test call passes. | JS/TS | `optional-for-tests` | On | Note |
 | Near-duplicate across files | Functions in different files that are near-identical by structure or meaning, even with different names. | JS/TS, Python, Go, Rust | `duplication-drift` | On | Note |
 | Reference to a deleted file | A file that still names a file the branch deleted. Stop and push only. | Code, docs, config, scripts | `stale-reference` | On | Yes (branch check) |
@@ -137,7 +137,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
-| Test quality | Empty tests, tautological assertions, tests that mock everything, async tests that never await or assert. | JS/TS, Python, Go, Java, Kotlin | `test-quality` | On | Note |
+| Test quality | Empty tests, tautological assertions, tests that mock everything, async tests that never await or assert. A call to an assertion helper counts as an assertion: one the test imports named `expect…`, `assert…` or `should…`, or one defined in the test file or an in-repo module it imports whose body asserts (in JS/TS and Python, including a base-class method called on `self`). | JS/TS, Python, Go, Java, Kotlin | `test-quality` | On | Note |
 | Coverage | A file below 50% line coverage (80% for complex files), read from an existing `lcov.info` or `coverage-final.json`. Silent when there is no report. | Any with a coverage report | `coverage-guard` (`DYNAMIC_COVERAGE_LOW`) | On | Note |
 
 At push, the tests that import changed files also run; see the toolchain below.

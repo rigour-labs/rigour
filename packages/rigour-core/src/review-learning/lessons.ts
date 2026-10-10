@@ -129,6 +129,8 @@ export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 
     // An outcome (a later fix on the point's lines, a revert) no longer promotes on its own: judged by a person against
     // real history, it was most often unrelated work. It is shown in Studio for a person to promote.
     if (kinds.has('counter')) return { state: 'candidate' };
+    // A lesson is never verified without a person: review bots agreeing with each other are not a team's standard.
+    if (raisedOnlyByBots(lesson)) return { state: 'candidate' };
     const points = lesson.evidence.filter(e => (e.kind ?? 'point') === 'point');
     const prs = new Set(points.map(e => e.pr)).size;
     const authors = new Set(points.map(e => e.prAuthor).filter(Boolean)).size;
@@ -137,6 +139,12 @@ export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 
     const wordings = new Set(points.filter(e => e.source !== 'bot').map(e => normalize(e.text ?? '')).filter(Boolean)).size;
     const independent = reviewers >= 2 || wordings >= 2;
     return prs >= RECUR_PRS && authors >= RECUR_AUTHORS && independent ? { state: 'verified', promotedBy: 'recurrence' } : { state: 'candidate' };
+}
+
+/** Every point on the lesson came from a review bot: it is recorded, but never verified or served until a person decides. */
+export function raisedOnlyByBots(lesson: ReviewLesson): boolean {
+    const points = lesson.evidence.filter(e => (e.kind ?? 'point') === 'point');
+    return points.length > 0 && points.every(e => e.source === 'bot');
 }
 
 /** A sentence that tells the author what to do, not only what is wrong. */
@@ -304,7 +312,7 @@ export interface ChangeShape {
 export function matchLessons(lessons: ReviewLesson[], change: ChangeShape, options: { includeCandidates?: boolean; limit?: number; standards?: number; perFile?: number; excludePr?: number } = {}): ReviewLesson[] {
     // A lesson whose only evidence is the pull request under review is already in front of the judge as the reviewer's own points.
     if (options.excludePr !== undefined) lessons = lessons.filter(l => !l.evidence.length || l.evidence.some(e => e.pr !== options.excludePr));
-    const inPlay = (l: ReviewLesson) => l.state === 'verified' || (!!options.includeCandidates && l.state === 'candidate');
+    const inPlay = (l: ReviewLesson) => l.state === 'verified' || (!!options.includeCandidates && l.state === 'candidate' && !raisedOnlyByBots(l));
     // A person made these the repository's standards: every change gets them, whatever its files or words; most-raised first.
     const repo = lessons
         .filter(l => l.scope === 'repo' && inPlay(l))
@@ -394,21 +402,33 @@ export function pendingDecision(lesson: ReviewLesson): LessonEvidence | undefine
     return last?.kind === 'demoted' || last?.kind === 'lines' || last?.kind === 'reclassified' ? last : undefined;
 }
 
+/**
+ * A candidate only review bots raised, with nothing waiting on a person: hidden from the default lists (`--list`,
+ * Studio) and counted instead. One taken back or reclassified stays in view, so its reason is seen.
+ */
+export function quietBotCandidate(lesson: ReviewLesson): boolean {
+    return lesson.state === 'candidate' && raisedOnlyByBots(lesson) && !pendingDecision(lesson);
+}
+
 /** Why a lesson an outcome alone had promoted is a candidate again. */
 const RECLASSIFIED = 'promoted by the exact-line rule, which no longer promotes on its own';
+/** Why a lesson recurrence had promoted on review bots' points alone is a candidate again. */
+const BOTS_ONLY = 'only review bots raised it (no person)';
 
 /**
- * A lesson stored as verified by an outcome (a later fix on its lines, or a revert), as every reader sees it now that
- * outcomes no longer promote: its state worked out again from its evidence, and, when that leaves it a candidate, one
- * `reclassified` record saying why. Never deleted, nothing else changed; the next write keeps it, and a lesson that
- * already has the record is left as it is. Recurrence, a correction or a person's decision keeps a lesson verified.
+ * A lesson stored as verified by a rule that no longer promotes on its own, as every reader sees it now: an outcome
+ * (a later fix on its lines, or a revert), or recurrence on review bots' points alone. Its state is worked out again
+ * from its evidence, and, when that leaves it a candidate, one `reclassified` record says why. Never deleted, nothing
+ * else changed; the next write keeps it, and a lesson that already has the record is left as it is. Recurrence with a
+ * person's point, a correction or a person's decision keeps a lesson verified.
  */
 function reclassified(lesson: ReviewLesson): ReviewLesson {
-    if (lesson.state !== 'verified' || lesson.promotedBy !== 'outcome' || lesson.evidence.some(e => e.kind === 'reclassified')) return lesson;
+    const byBots = lesson.promotedBy === 'recurrence' && raisedOnlyByBots(lesson);
+    if (lesson.state !== 'verified' || !(lesson.promotedBy === 'outcome' || byBots) || lesson.evidence.some(e => e.kind === 'reclassified')) return lesson;
     const next = lessonState(lesson);
     if (next.state === 'verified') return { ...lesson, ...next };
     const at = new Date().toISOString();
-    return { ...lesson, state: 'candidate', promotedBy: undefined, evidence: [...lesson.evidence, { kind: 'reclassified', pr: lesson.evidence[0]?.pr ?? 0, comment: `reclassified-${lesson.id}`, author: '', detail: RECLASSIFIED, at }] };
+    return { ...lesson, state: 'candidate', promotedBy: undefined, evidence: [...lesson.evidence, { kind: 'reclassified', pr: lesson.evidence[0]?.pr ?? 0, comment: `reclassified-${lesson.id}`, author: '', detail: byBots ? BOTS_ONLY : RECLASSIFIED, at }] };
 }
 
 export function writeLessons(cwd: string, lessons: ReviewLesson[]): void {
