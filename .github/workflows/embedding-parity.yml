@@ -54,5 +54,9 @@ jobs:
             echo "$side: $want, installed $(du -sh "$dir/node_modules" | cut -f1); the largest packages:"
             (cd "$dir/node_modules" && du -sk * @*/* 2>/dev/null | sort -rn | head -5 | awk '{ printf "  %d MB  %s\n", $1 / 1024, $2 }')
           done
+      - name: The runtimes' largest files (temporary)
+        run: |
+          cd "$RUNNER_TEMP/new/node_modules"
+          find onnxruntime-node onnxruntime-web -type f -size +1M -exec du -k {} + | sort -rn | head -25 | awk '{ printf "  %d MB  %s\n", $1 / 1024, $2 }'
       - name: Compare the vectors
         run: node scripts/eval/embedding-parity.mjs "$RUNNER_TEMP/old" "$RUNNER_TEMP/new" 200
