@@ -388,6 +388,36 @@ describe('isSpecific', () => {
 });
 
 describe('learnFromReviews', () => {
+    it('learns from a merged pull request only what was posted before --until, and marks a comment edited after it', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        const until = '2026-09-10T00:00:00Z';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 5, merged_at: '2026-09-01T00:00:00Z', merge_commit_sha: merged, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/5/comments?per_page=100`]: [
+                { id: 51, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z', body: '**Use an upsert keyed on `id` so retries do not duplicate orders.**', user: { login: 'priya' } },
+                { id: 52, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-08-30T00:00:00Z', updated_at: '2026-09-15T00:00:00Z', body: '**Bound the batch size the insert sends in one call.**', user: { login: 'priya' } },
+                { id: 53, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z', body: '**Rename this to orderRows for clarity later.**', user: { login: 'sam' } },
+            ],
+            [`${api}/pulls/5/reviews?per_page=100`]: [
+                { id: 61, commit_id: reviewed, submitted_at: '2026-08-31T00:00:00Z', user: { login: 'priya' }, body: '- Bound both ends of every time window a scheduled job reads.' },
+                { id: 62, commit_id: reviewed, submitted_at: '2026-09-20T00:00:00Z', user: { login: 'sam' }, body: '- Add a test for the empty batch.' },
+            ],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl, until });
+        const points = readLessons(repo).flatMap(l => l.evidence.filter(e => e.kind === 'point'));
+        // Posted after --until (comment 53, review 62): not in a store as of then.
+        expect(points.map(e => e.comment).sort()).toEqual(['51', '52', 'review-61-0']);
+        // Edited after --until: kept, marked, since only its edited text is served.
+        expect(points.find(e => e.comment === '52')?.editedAfterUntil).toBe(true);
+        expect(points.find(e => e.comment === '51')?.editedAfterUntil).toBeUndefined();
+    });
+
     it('reads merged PRs from GitHub, learns from acted-on comments, and shows them for the next change', async () => {
         write(V1);
         const reviewed = commit('pr head');

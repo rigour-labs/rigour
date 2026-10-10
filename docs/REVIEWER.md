@@ -441,7 +441,9 @@ that followed the lesson, or that no review checked against it, never counts, an
 promoted or corrected into being is never taken back; a person promoting it again is final. `--reject <id>` makes an **anti-lesson**: judges are told this team decided
 against it, and it is never served as a lesson. Every piece of evidence stays on the lesson
 (`--list` shows what promoted each). With `--until <time>`, only history before it counts, so a
-measurement never sees the future. The pull request's author commenting on their own pull request is not
+measurement never sees the future: pull requests merged before it, and of those only the comments and reviews
+posted before it. A comment edited after it is kept and marked (`editedAfterUntil`), since GitHub serves only the
+edited text. The pull request's author commenting on their own pull request is not
 a review point. GitHub is read as the account in `review.github_account` (or an explicit
 `GITHUB_TOKEN`), never silently as another signed-in account.
 
