@@ -428,6 +428,7 @@ program
     .option('--limit <n>', 'Merged PRs to read at most', '100')
     .option('--rules', "Write each newly promoted lesson as the rule behind it, with the team's reviewer CLI (counts toward review.reviewer.max_usd_per_day)")
     .option('--list', 'List the lessons learned so far')
+    .option('--include-bots', 'With --list: also list candidates only review bots raised (hidden by default)')
     .option('--promote <id>', 'Accept a candidate as a lesson (recorded as your decision)')
     .option('--reject <id>', 'Reject a candidate or lesson: the judges are told this team decided against it')
     .option('--why <text>', 'Why, recorded with --promote or --reject')
