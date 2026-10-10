@@ -29,7 +29,7 @@ export const SEMANTIC_INSTALL_ENV = { ONNXRUNTIME_NODE_INSTALL: 'skip' } as cons
 
 /**
  * Removes the ONNX runtime's binaries for other platforms and architectures from an install (`<dir>/node_modules`):
- * the package ships every one (about 230 MB) and loads only `bin/napi-v*\/<platform>/<arch>`. Returns the bytes freed.
+ * the package ships every one (200 to 240 MB) and loads only `bin/napi-v*\/<platform>/<arch>`. Returns the bytes freed.
  */
 export function pruneSemanticRuntime(dir: string, platform: string = process.platform, arch: string = process.arch): number {
     let freed = 0;

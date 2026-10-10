@@ -55,7 +55,7 @@ export async function setupSemantic(cwd: string): Promise<void> {
         console.log(chalk.green('✔ Semantic search is on (local embeddings)'));
         return;
     }
-    console.log(chalk.dim('Installing semantic search: about 230 MB, once for every Rigour version on this machine (skip with --no-semantic)...'));
+    console.log(chalk.dim('Installing semantic search: about 250 MB on Linux, 280 MB on macOS, once for every Rigour version on this machine (skip with --no-semantic)...'));
     const result = await ensureSemanticRuntime(cwd);
     if (result.state === 'installed' || result.state === 'present') console.log(chalk.green('✔ Semantic search is on (local embeddings)'));
     else console.log(chalk.yellow(`Semantic search is off (${result.reason}). Recall and pattern matching use keywords until \`rigour setup\` runs again.`));
