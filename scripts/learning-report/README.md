@@ -55,6 +55,8 @@ change to the learning pipeline. It costs nothing: GitHub reads and git fetches,
   - **b**, scaffolding: a heading, a file-summary table row, a location line (`**src/cache.ts:42**`), a
     "This issue also appears in" list, review metadata (`Files reviewed: 2/2`), a code block that only quotes
     existing code.
+- Reviewer spot-check of unit labels: 15, 0 disagreements, 1 borderline (a unit giving the reason next to a
+  defect, labelled a; defensible either way, unchanged).
 - The comment text the labeller read stays outside the repository (`TEXT_CACHE`, default
   `~/Workspace/Projects/Personal/rigour-labs/notes/learning-report/`); the label files hold the URL, so anyone can
   read the comment where it was written.
