@@ -24,7 +24,11 @@ permissions:
 
 jobs:
   parity:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +51,8 @@ jobs:
             want=$([ "$side" = old ] && echo "$OLD" || echo "$NEW")
             # The same install `rigour setup` runs (packages/rigour-cli/src/commands/semantic.ts).
             (cd "$dir" && npm init -y >/dev/null && npm install --no-audit --no-fund --omit=dev "$want" >/dev/null)
-            echo "$side: $want, installed $(du -sh "$dir/node_modules" | cut -f1)"
+            echo "$side: $want, installed $(du -sh "$dir/node_modules" | cut -f1); the largest packages:"
+            (cd "$dir/node_modules" && du -sk * @*/* 2>/dev/null | sort -rn | head -5 | awk '{ printf "  %d MB  %s\n", $1 / 1024, $2 }')
           done
       - name: Compare the vectors
         run: node scripts/eval/embedding-parity.mjs "$RUNNER_TEMP/old" "$RUNNER_TEMP/new" 200

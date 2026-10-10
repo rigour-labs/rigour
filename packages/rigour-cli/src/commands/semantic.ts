@@ -61,6 +61,6 @@ export function semanticStatusLine(cwd: string): string {
     return where
         ? chalk.green(`  ✓ Semantic search: on (${where.includes(semanticRuntimeDir()) ? "Rigour's shared copy" : 'installed with Rigour or the project'})`)
         : chalk.yellow(retiredSemanticRuntimeInstalled()
-            ? `  ⚠ Semantic search: off. It moved to ${TRANSFORMERS_SPEC}, and existing indexes rebuild on first use. Run: rigour setup`
+            ? `  ⚠ Semantic search: off. It moved to ${TRANSFORMERS_SPEC}; existing indexes keep working. Run: rigour setup`
             : '  ⚠ Semantic search: off. Recall and pattern matching use keywords, which find far less. Run: rigour setup');
 }
