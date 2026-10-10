@@ -332,6 +332,9 @@ not seen firing), broken, or missing, with the command that fixes it:
 - the stop hook;
 - the MCP server, found in `.mcp.json`, `~/.claude.json` or `~/.cursor/mcp.json`, or seen through tool
   calls;
+- whether the agent hooks and the MCP server run the Rigour that is installed. Each pins a version, so an upgrade
+  reaches them only when `rigour setup` rewrites the pin; doctor names the pinned and the installed version (fix:
+  `rigour setup`). An MCP entry on a floating major (`@rigour-labs/mcp@6`, written before 6.13.0) is called out too;
 - the pull request workflow;
 - settings an older Rigour wrote that no longer do what they say:
   - a `rigour.yml` made from a preset that blocks on every security finding (healthcare, fintech,

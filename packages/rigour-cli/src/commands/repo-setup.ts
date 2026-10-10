@@ -9,6 +9,7 @@ import { getContextEvents, type AgentEvent, type ContextEvent } from '@rigour-la
 import { resolveMCPServerConfig } from './init.js';
 import { agentHome, enabledHere } from './personal.js';
 import { isOldEditHook } from './setup-migrations.js';
+import { getCliVersion } from '../utils/cli-version.js';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 
 export type SetupState = 'working' | 'set up' | 'broken' | 'missing';
@@ -24,7 +25,7 @@ export interface SetupCheck {
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: ContextEvent[]): Promise<SetupCheck[]> {
+export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: ContextEvent[], installed = getCliVersion()): Promise<SetupCheck[]> {
     const events = eventsAcross(checkoutRoots(cwd));
     // Only the MCP server writes context records, one per tool call: the CLI's own events would count otherwise.
     const calls = toolCalls ?? await getContextEvents(undefined, cwd).catch(() => []);
@@ -38,13 +39,36 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
         { name: 'Cursor', config: read('.cursor/hooks.json') + home('.cursor/hooks.json') },
         { name: 'Windsurf', config: read('.windsurf/hooks.json') + home('.codeium/windsurf/hooks.json') },
     ].filter(a => a.config);
+    const mcpConfig = read('.mcp.json') + read('.cursor/mcp.json') + home('.claude.json') + home('.cursor/mcp.json');
+    const version = versionCheck(agents.map(a => a.config).join('\n'), mcpConfig, installed);
     return [
         configCheck(cwd, personal),
         editCheck(agents, now, events),
         stopCheck(agents.map(a => a.config).join('\n'), now, events),
-        mcpCheck(read('.mcp.json') + home('.claude.json') + home('.cursor/mcp.json'), now, calls),
+        mcpCheck(mcpConfig, now, calls),
+        ...(version ? [version] : []),
         prCheck(cwd),
     ];
+}
+
+/**
+ * Whether the agent hooks and the MCP server run the Rigour that is installed. Each pins a version
+ * (`@rigour-labs/cli@6.12.4`), so an upgrade reaches them only when `rigour setup` rewrites the pin.
+ * Nothing to say when nothing pins a version (a source checkout runs its own build).
+ */
+function versionCheck(hooks: string, mcp: string, installed: string): SetupCheck | undefined {
+    const pins = (text: string, pkg: string) => [...new Set([...text.matchAll(new RegExp(`@rigour-labs/${pkg}@([0-9A-Za-z.-]+)`, 'g'))].map(m => m[1]))];
+    const hookPins = pins(hooks, 'cli');
+    const mcpPins = pins(mcp, 'mcp');
+    if (!hookPins.length && !mcpPins.length) return undefined;
+    const name = 'Agent hooks and tools run the installed Rigour';
+    const stale = [
+        ...hookPins.filter(v => v !== installed).map(v => `hooks run ${v}`),
+        ...mcpPins.filter(v => v !== installed).map(v => (/^\d+$/.test(v) || v === 'latest' ? `the MCP server floats on @${v}` : `the MCP server runs ${v}`)),
+    ];
+    return stale.length
+        ? { id: 'version', name, state: 'broken', detail: `${stale.join(', ')}; installed is ${installed}`, fix: 'rigour setup' }
+        : { id: 'version', name, state: 'working', detail: installed };
 }
 
 function configCheck(cwd: string, personal: boolean): SetupCheck {
