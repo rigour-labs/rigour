@@ -29,11 +29,12 @@ export const TOOL_DEFINITIONS = [
     // ─── Core Quality Gates ───────────────────────────────
     {
         name: "rigour_check",
-        description: "Run quality gate checks on the project. MUST be called before declaring any coding task complete. With no files, it judges your change the way the stop hook and the push gate will: FAIL means something in your change must be fixed. With files, it checks those files. **Always show the user the headline summary from this tool's output** — it tells them what Rigour caught. If FAIL, call rigour_get_fix_packet for what to fix, with exact file:line.",
+        description: "Run quality gate checks on the project. MUST be called before declaring any coding task complete. By default it judges your change as the stop hook and push gate will: FAIL means something in it must be fixed. **Always show the user the headline summary from this tool's output** — it tells them what Rigour caught. If FAIL, call rigour_get_fix_packet for what to fix, with exact file:line.",
         inputSchema: {
             type: "object",
             properties: {
                 ...cwdParam(),
+                scope: { type: "string", enum: ["change", "repo"], description: "'change' (default): your change, as the stop hook judges it. 'repo': the whole repository, for an audit, not a fix loop." },
                 files: { type: "array", items: { type: "string" }, description: "Optional file paths (relative to cwd) to limit scan scope for both deterministic and deep checks." },
                 deep: { type: "string", enum: ["off", "quick", "full"], description: "Deep mode: 'off' (default), 'quick' (deep enabled with lite model), 'full' (deep enabled, combine with pro=true for full deep model)." },
                 pro: { type: "boolean", description: "Use full deep model (Qwen2.5-Coder-1.5B) instead of lite (Qwen2.5-Coder-0.5B) when deep is enabled." },
@@ -86,7 +87,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "rigour_get_fix_packet",
-        description: "Call this after rigour_check returns FAIL. Returns your change's must-fix items (they block you), then optional notes, a page at a time, each with file:line and the fix. Fix every must-fix item; do not edit files outside your change unless one names them. Use next_offset for further pages, then re-run rigour_check.",
+        description: "After rigour_check FAILs: your change's must-fix items (they block you), then optional notes, paged, each with file:line and the fix. Stay in your change unless a must-fix item names a file. Page with next_offset; re-run rigour_check.",
         inputSchema: {
             type: "object",
             properties: {

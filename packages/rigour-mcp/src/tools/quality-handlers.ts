@@ -18,6 +18,8 @@ type ToolResult = { content: { type: string; text: string }[]; isError?: boolean
 type DeepMode = 'off' | 'quick' | 'full';
 
 export interface CheckArgs {
+    /** 'change' (default): the agent's change, by the stop hook's rule. 'repo': every file, for an audit. */
+    scope?: 'change' | 'repo';
     files?: string[];
     deep?: DeepMode;
     pro?: boolean;
@@ -57,15 +59,15 @@ function formatSeverityText(stats: Report['stats']): string {
 // ─── Handlers ─────────────────────────────────────────────────────
 
 /**
- * rigour_check. With no files and no model review it judges the agent's change by the rule the stop hook and the push
- * gate hold it to, so "FAIL" means the agent has something to fix, never old debt elsewhere. Named files, or a deep
- * review, check those files as they are.
+ * rigour_check. By default (scope "change", no files, no model review) it judges the agent's change by the rule the
+ * stop hook and the push gate hold it to, so "FAIL" means the agent has something to fix, never old debt elsewhere.
+ * Named files, a deep review, or scope "repo" (an audit of the whole repository) check those files as they are.
  */
 export async function handleCheck(runner: GateRunner, cwd: string, args: CheckArgs = {}, config?: Config, review: ReviewChange = changeReview): Promise<ToolResult> {
     const deepMode: DeepMode = args.deep || 'off';
     const fileTargets = args.files && args.files.length > 0 ? args.files : undefined;
     const execution = resolveDeepExecution(args);
-    if (!fileTargets && deepMode === 'off' && config) return checkChange(cwd, config, review);
+    if (args.scope !== 'repo' && !fileTargets && deepMode === 'off' && config) return checkChange(cwd, config, review);
 
     let deepOpts: DeepOptions | undefined;
     if (deepMode !== 'off') {

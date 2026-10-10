@@ -362,8 +362,9 @@ It returns plain text, not JSON, so that a large packet does not flood the agent
   shown severity and title, the check and its certainty, the exact `file:line`, the problem and the fix.
 - The call to make for the next page, or a closing line telling the agent to re-run `rigour_check`.
 
-`rigour_check` with no files reads the change the same way: `FAIL` means the agent has something to fix in its change,
-never old debt elsewhere. With `files`, or a deep review, it checks those files as they are.
+`rigour_check` reads the change the same way by default (`scope: "change"`): `FAIL` means the agent has something to
+fix in its change, never old debt elsewhere. With `files`, or a deep review, it checks those files as they are;
+`scope: "repo"` checks the whole repository, for an audit of the codebase, not for an agent's fix loop.
 
 Because each call reviews again, the items and their order can change after the agent edits files. Start again at
 `offset` 0 after editing.

@@ -269,7 +269,7 @@ name.
 | Review | `rigour_review` | Review the change before calling it done: uncommitted work, or the whole branch with `base`. Only findings on changed lines, each with file, line and a fix. With `mode: "agent"` it also returns the risky changed functions and what to check in each, for the agent to review with its own model. |
 | Review | `rigour_review_ack` | Record the agent's verdict on one of those functions (`fixed` or `no_issue`, with a note). It holds until the function's code changes. |
 | Review | `rigour_reviewer_verdict` | Read what the model [reviewer](./REVIEWER.md) last decided for the branch: items to fix, disputed items, and whether the verdict is for the current commit. Read-only. |
-| Review | `rigour_check` | With no files: the agent's change, judged as the stop hook and push gate judge it (fail means something to fix in the change). With files: those files. |
+| Review | `rigour_check` | By default the agent's change, judged as the stop hook and push gate judge it (fail means something to fix in the change). With `files`: those files. `scope: "repo"`: the whole repository, for an audit. |
 | Review | `rigour_get_fix_packet` | After a failed `rigour_check`: the change's must-fix items, then its notes, a page at a time (5 by default, at most 10), each with `file:line` and the fix. See [Fix packet](./FIX_PACKET.md). |
 | Reuse and context | `rigour_index` | Build or update the pattern index (`.rigour/patterns.json`): functions, classes, routes and signatures, embedded locally so they can be found by intent. |
 | Reuse and context | `rigour_context_scope` | Before reading source files: a small edit scope (3 to 10 files) with signatures, for a plain-language description of the task. |

@@ -144,9 +144,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         switch (name) {
             // Quality gates
             case "rigour_check": {
-                const { files, deep, pro, apiKey, provider, apiBaseUrl, modelName } = args as any;
+                const { scope, files, deep, pro, apiKey, provider, apiBaseUrl, modelName } = args as any;
                 const mcpSettings = await loadMcpSettings(cwd);
                 result = await handleCheck(runner, cwd, {
+                    scope,
                     files,
                     deep: deep ?? mcpSettings.deep_default_mode,
                     pro,

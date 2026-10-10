@@ -27,9 +27,18 @@ describe('handleCheck deep routing', () => {
         const run = vi.fn();
         const review = vi.fn().mockResolvedValue({ blocking: [{ id: 'hallucinated-imports' }], result: { advisory: [{}], fileFindings: [], preexisting: 4, report: null }, against: 'main @ abc1234', diff: '' });
         const result = await handleCheck({ run } as any, '/repo', {}, { gates: {} } as any, review);
-        expect(run).not.toHaveBeenCalled();
+        expect(run).not.toHaveBeenCalled(); // scope "change" is the default
+        expect(review).toHaveBeenCalledWith('/repo', { gates: {} });
         expect(result.content[0].text).toContain('FAIL: 1 thing to fix in your change (against main @ abc1234)');
         expect(result.content[0].text).toContain('Not yours: 4 issue(s) the code already had');
+    });
+
+    it('audits the whole repository when asked for scope "repo"', async () => {
+        const run = vi.fn().mockResolvedValue(baseReport);
+        const review = vi.fn();
+        await handleCheck({ run } as any, '/repo', { scope: 'repo' }, { gates: {} } as any, review);
+        expect(run).toHaveBeenCalledWith('/repo', undefined, undefined);
+        expect(review).not.toHaveBeenCalled();
     });
 
     it('maps quick deep mode and file scope', async () => {
