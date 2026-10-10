@@ -1,0 +1,96 @@
+{
+  "window": 100,
+  "cutoff": "2026-10-01T00:00:00Z",
+  "repos": {
+    "immich-app/immich": {
+      "prs": 100,
+      "candidates": 13,
+      "lessons": 13,
+      "withIdentifiers": 4,
+      "currentRule": {
+        "recurring": 0,
+        "verified": 0,
+        "examples": []
+      },
+      "looserRule": {
+        "pairs": 0,
+        "lessons": 0,
+        "examples": []
+      }
+    },
+    "tailscale/tailscale": {
+      "prs": 100,
+      "candidates": 66,
+      "lessons": 65,
+      "withIdentifiers": 17,
+      "currentRule": {
+        "recurring": 0,
+        "verified": 0,
+        "examples": []
+      },
+      "looserRule": {
+        "pairs": 0,
+        "lessons": 0,
+        "examples": []
+      }
+    },
+    "logto-io/logto": {
+      "prs": 100,
+      "candidates": 1136,
+      "lessons": 475,
+      "withIdentifiers": 238,
+      "currentRule": {
+        "recurring": 17,
+        "verified": 0,
+        "examples": [
+          "https://github.com/logto-io/logto/pull/9664#pullrequestreview-5307927790",
+          "https://github.com/logto-io/logto/pull/9656#pullrequestreview-5299750532",
+          "https://github.com/logto-io/logto/pull/9652#pullrequestreview-5300154759",
+          "https://github.com/logto-io/logto/pull/9652#pullrequestreview-5300154759",
+          "https://github.com/logto-io/logto/pull/9652#pullrequestreview-5300154759"
+        ]
+      },
+      "looserRule": {
+        "pairs": 84,
+        "lessons": 57,
+        "examples": [
+          {
+            "a": "https://github.com/logto-io/logto/pull/9673#discussion_r4130203559",
+            "b": "https://github.com/logto-io/logto/pull/9537#discussion_r3902053437",
+            "shared": [
+              "organizations"
+            ]
+          },
+          {
+            "a": "https://github.com/logto-io/logto/pull/9648#discussion_r4118093587",
+            "b": "https://github.com/logto-io/logto/pull/9633#discussion_r4056343222",
+            "shared": [
+              "error"
+            ]
+          },
+          {
+            "a": "https://github.com/logto-io/logto/pull/9644#discussion_r4117997295",
+            "b": "https://github.com/logto-io/logto/pull/9610#discussion_r4044280874",
+            "shared": [
+              "exp"
+            ]
+          },
+          {
+            "a": "https://github.com/logto-io/logto/pull/9643#discussion_r4069087672",
+            "b": "https://github.com/logto-io/logto/pull/9609#discussion_r4033711957",
+            "shared": [
+              "mfa"
+            ]
+          },
+          {
+            "a": "https://github.com/logto-io/logto/pull/9643#discussion_r4069087672",
+            "b": "https://github.com/logto-io/logto/pull/9582#discussion_r4002654562",
+            "shared": [
+              "mfa"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

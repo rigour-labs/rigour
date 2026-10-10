@@ -62,6 +62,7 @@ export const UNIVERSAL_CONFIG: Config = {
             insecure_randomness: true,
             command_injection: true,
             block_on_severity: 'high',
+            block: false,
         },
         frontend_secret_exposure: {
             enabled: true,
@@ -258,6 +259,7 @@ export const UNIVERSAL_CONFIG: Config = {
             check_retry_without_limit: true,
             check_circular_triggers: true,
             check_auto_restart: true,
+            block: false,
             ignore_patterns: [],
         },
         deep: {

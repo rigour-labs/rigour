@@ -58,7 +58,7 @@
         "gates.security": {
             "title": "Security patterns",
             "summary": "Scans source for injection, cross-site scripting, path traversal, hardcoded secrets, insecure randomness and similar vulnerabilities. Teams turn off a category that does not apply or change which severities are reported.",
-            "blocks": "Blocks every finding it reports"
+            "blocks": "Blocks a credential in a real secret's format; other patterns are notes unless block is on"
         },
         "gates.frontend_secret_exposure": {
             "title": "Frontend secret exposure",
@@ -173,7 +173,7 @@
         "gates.side_effect_analysis": {
             "title": "Runaway side effects",
             "summary": "Reports timers never cleared, spawned processes without lifecycle handling, I/O loops with no exit, retries without a limit, file watchers that trigger themselves, resource leaks, unbounded recursion and auto-restart loops. Teams switch off individual patterns or exclude files.",
-            "blocks": "Blocks on critical patterns (unbounded I/O loops, circular triggers, auto-restart); others advisory"
+            "blocks": "Notes by default; with block: true the critical patterns (unbounded I/O loops, circular triggers, auto-restart) block"
         },
         "gates.style_drift": {
             "title": "Style drift from project conventions",
@@ -274,6 +274,7 @@
         "gates.security.insecure_randomness": "When off, use of non-cryptographic random number generators for security values is not reported.",
         "gates.security.command_injection": "When off, shell command injection patterns are not reported by this check; the edit hook still checks for them.",
         "gates.security.block_on_severity": "Lowest severity of security finding that is reported; findings below it are dropped.",
+        "gates.security.block": "Off by default: only a credential in a format only a real secret has (AWS access key, Stripe live key, sk-/ghp_-style keys, a private key block) blocks, and every other pattern is a note, since it cannot see whether its input is trusted. On: every reported pattern blocks. The healthcare, fintech, government and devsecops presets turn it on.",
         "gates.frontend_secret_exposure.enabled": "Turns the frontend secret exposure check on or off.",
         "gates.frontend_secret_exposure.block_on_severity": "Lowest severity of exposure that is reported; findings below it are dropped, and medium or low findings that are reported do not block.",
         "gates.frontend_secret_exposure.check_process_env": "When on, secret-looking process.env references, including destructuring from process.env, are reported in frontend files.",
@@ -355,6 +356,7 @@
         "gates.semantic_bugs.enabled": "Turns the proven semantic-bug rules on or off.",
         "gates.semantic_bugs.rules": "Rule ids to run, including opt-in candidate rules and learned rules as learned/<id>; when set, only the named rules run, and when unset the default rules plus the repository's learned rules run.",
         "gates.side_effect_analysis.enabled": "Turns the runaway side-effect check on or off.",
+        "gates.side_effect_analysis.block": "Off by default: every finding is a note, since servers, consumers and daemons loop forever by design and a limit set elsewhere is not seen. On: the critical patterns (unbounded I/O loop, circular trigger, auto-restart) block.",
         "gates.side_effect_analysis.check_unbounded_timers": "Reports interval timers that are never cleared.",
         "gates.side_effect_analysis.check_unbounded_loops": "Reports loops that perform I/O with no exit condition or delay.",
         "gates.side_effect_analysis.check_process_lifecycle": "Reports spawned child processes with no exit handling, wait or kill.",

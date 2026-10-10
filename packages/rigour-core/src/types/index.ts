@@ -86,6 +86,8 @@ export const GatesSchema = z.object({
         insecure_randomness: z.boolean().optional().default(true),
         command_injection: z.boolean().optional().default(true),
         block_on_severity: z.enum(['critical', 'high', 'medium', 'low']).optional().default('high'),
+        /** Opt in: every pattern blocks. By default only a credential in a real secret's format blocks; the rest are notes. */
+        block: z.boolean().optional().default(false),
     }).optional().default({}),
     frontend_secret_exposure: z.object({
         enabled: z.boolean().optional().default(true),
@@ -307,6 +309,8 @@ export const GatesSchema = z.object({
         check_retry_without_limit: z.boolean().optional().default(true),
         check_circular_triggers: z.boolean().optional().default(true),
         check_auto_restart: z.boolean().optional().default(true),
+        /** Opt in: the critical rules (unbounded I/O loop, circular trigger, restart bomb) block. By default every finding is a note. */
+        block: z.boolean().optional().default(false),
         ignore_patterns: z.array(z.string()).optional().default([]),
     }).optional().default({}),
     // v5.1+ Style Drift Detection
