@@ -22,6 +22,25 @@ describe('buildActivity', () => {
         ]);
     });
 
+    it('names what held the agent at the stop, as the edit line names what it stopped', () => {
+        const stop = (findings: Array<{ rule: string; title: string; file: string }>) => buildActivity({ events: [{ type: 'stop_review', timestamp: '2026-10-09T10:00:00Z', blocked: true, blocking: findings.length, findings }], ledger: [], stories: [] })[0];
+        expect(stop([{ rule: 'hallucinated-imports', title: 'Hallucinated Imports', file: 'src/jobs/retry.ts', detail: "L1: import '../nope.js' — does not resolve" } as any]).text)
+            .toBe("Kept the agent working: src/jobs/retry.ts: Hallucinated Imports (L1: import '../nope.js' — does not resolve)");
+        expect(stop([{ rule: 'a', title: 'One', file: 'a.ts' }, { rule: 'b', title: 'Two', file: 'b.ts' }])).toMatchObject({ text: 'Kept the agent working: 2 problems left when it tried to finish', detail: 'a.ts: One · b.ts: Two' });
+    });
+
+    it('counts a problem stopped at the edit and again at the stop once', () => {
+        const [session] = groupSessions(buildActivity({
+            events: [
+                { type: 'hook_check', timestamp: '2026-10-09T10:00:00Z', blocked: true, files: ['src/jobs/retry.ts'], findings: [{ gate: 'hallucinated-imports', file: 'src/jobs/retry.ts', message: "Import '../nope.js' does not resolve" }] } as any,
+                { type: 'stop_review', timestamp: '2026-10-09T10:01:00Z', blocked: true, blocking: 1, findings: [{ rule: 'hallucinated-imports', title: 'Hallucinated Imports', file: 'src/jobs/retry.ts' }] },
+            ],
+            ledger: [], stories: [],
+        }));
+        expect(session.counts.stopped).toBe(1);
+        expect(session.highlights).toHaveLength(2); // both moments are still shown
+    });
+
     it('never says an edit was stopped when the hook ran without --block, or did not record it', () => {
         const check = (blocked?: boolean) => ({ type: 'hook_check', timestamp: '2026-10-09T10:00:00Z', ...(blocked === undefined ? {} : { blocked }), files: ['src/a.ts'], findings: [{ message: 'Import not found' }] }) as any;
         for (const event of [check(false), check()]) {

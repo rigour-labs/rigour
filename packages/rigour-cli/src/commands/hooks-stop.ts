@@ -55,7 +55,7 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
     try {
         const decision = await stopReview(cwd, config ?? await loadHookConfig(cwd), attempt, sessionBaseline(cwd, session));
         const nothing = decision.reviewedFiles.length === 0;
-        appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(nothing ? { nothing_to_review: true } : {}) });
+        appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(decision.held.length ? { findings: decision.held.slice(0, 20) } : {}), ...(nothing ? { nothing_to_review: true } : {}) });
         appendTaskEvent(cwd, { kind: 'stop-review', agent: tool, session, blocked: decision.block, blocking: decision.blocking, files: decision.reviewedFiles });
         if (nothing) process.stderr.write(`Rigour stop review: nothing to review against ${decision.against}.\n`);
         countUsage('stop_review', 1, { agent: tool });

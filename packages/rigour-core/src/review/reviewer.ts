@@ -722,6 +722,14 @@ function evidenceNames(text: string): Array<[string, number]> {
 
 type Decided = Accounting & { disputed: OpenItem[]; dropped: OpenItem[]; dismissed: OpenItem[] };
 
+/**
+ * Why today's caps leave no room for one more reviewer run in this repository, or nothing when they do: what the push
+ * gate asks before it starts a background review, so the agent is told a skip instead of "it runs in the background".
+ */
+export async function reviewerCapReached(cwd: string, config: Config, exec: Exec = defaultExec): Promise<string | undefined> {
+    const store = await VerdictStore.open(cwd, exec);
+    return store ? overBudget(store.spend(), resolveReviewer(config), 1) : undefined;
+}
 
 /** Whether a risk-escalated review adds judges: a human review exists, or the router finds a risky changed function. */
 function escalationFor(humanReviews: number, risky: number | undefined): { escalate: boolean; why: string } {

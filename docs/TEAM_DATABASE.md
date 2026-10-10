@@ -66,7 +66,7 @@ Lessons are encrypted at rest in the local store and queue (AES-256-GCM, see [Da
 
 ## What you need
 
-- PostgreSQL. Rigour does not check the server version. The schema uses row-level security policies, `JSONB` and `INSERT ... ON CONFLICT`.
+- PostgreSQL 13 or later, managed or self-hosted. The schema uses row-level security policies, `JSONB`, `INSERT ... ON CONFLICT`, triggers and the built-in `gen_random_uuid()` (13 and later). Rigour does not check the server version; on an older server `init-schema` fails at the first statement it cannot run.
 - An administrator login that can create a schema (and the `vector` extension, if you want pgvector).
 - One login role per person, which the administrator creates.
 - For a database that is not on `localhost`, `127.0.0.1` or `::1`: TLS. Rigour refuses a remote URL without `sslmode=require` or `sslmode=verify-full`.
@@ -84,7 +84,10 @@ rigour team init-schema \
 
 Add `--pgvector` to also create the `vector` extension, the `rigour.lesson_embeddings` table and its indexes.
 
-This creates the `rigour` schema with three tables (`meta`, `memberships`, `lessons`), turns on row-level security on each and creates the policies. It records schema version 1 in `rigour.meta`. `rigour team doctor` and `rigour team configure` check that version and refuse any other.
+This creates the `rigour` schema with its tables, turns on row-level security on each and creates the policies:
+
+- `meta`, `memberships` and `lessons`, for shared lessons. `rigour.meta` records `schema_version` 1. `rigour team doctor` and `rigour team configure` check that version and refuse any other.
+- `review_decisions` and `organization_salts`, for people's decisions on review lessons (accepting, rejecting, scoping or rewording a lesson learned from code review). `rigour.meta` records `review_decisions_version` 1. `schema_version` stays 1, so earlier Rigour versions keep working against the same database. `rigour team doctor` reports `reviewDecisions: ready`, or `missing` for a database created before them; running `init-schema` again adds them. Sharing review decisions arrives in a later version; the tables are created now so a database is ready for it.
 
 The schema is idempotent. Running `init-schema` again adds anything missing and recreates the policies without touching lessons. One exception: with `--pgvector`, it deletes embeddings of lessons that are no longer `validated` or `promoted`. Rigour has no other migration step.
 
@@ -99,16 +102,19 @@ CREATE ROLE rigour_jane LOGIN PASSWORD 'use-a-generated-password';
 GRANT USAGE ON SCHEMA rigour TO rigour_jane;
 GRANT SELECT ON rigour.meta, rigour.memberships TO rigour_jane;
 GRANT SELECT, INSERT, UPDATE ON rigour.lessons TO rigour_jane;
+GRANT SELECT ON rigour.organization_salts TO rigour_jane;
+GRANT SELECT, INSERT ON rigour.review_decisions TO rigour_jane;
 -- Only with --pgvector:
 GRANT SELECT, INSERT, UPDATE ON rigour.lesson_embeddings TO rigour_jane;
 
-INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role)
-VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme');
+INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role, display_name)
+VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 ```
 
 - `db_role` is the login role's name. Rigour matches it against the connection's `current_user`.
 - `organization_id`, `team_id` and `actor_id` are free-form ids you choose. The person configures the same three values on their machine, and the database checks them against this row.
 - `role` is `member`, `sme` or `owner` (see the table above).
+- `display_name` is optional: the name teammates see on a review decision this person shared. Use a name, not a login or an email. Without one, teammates see "a teammate".
 - A login role can belong to a team once (the primary key is `db_role, team_id`).
 
 Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-level security does not apply to a table's owner unless the table forces it, and Rigour's schema does not, so that login could read every personal lesson.
@@ -203,8 +209,10 @@ CREATE ROLE rigour_jane LOGIN PASSWORD 'jane-pass';
 GRANT USAGE ON SCHEMA rigour TO rigour_jane;
 GRANT SELECT ON rigour.meta, rigour.memberships TO rigour_jane;
 GRANT SELECT, INSERT, UPDATE ON rigour.lessons, rigour.lesson_embeddings TO rigour_jane;
-INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role)
-VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme');
+GRANT SELECT ON rigour.organization_salts TO rigour_jane;
+GRANT SELECT, INSERT ON rigour.review_decisions TO rigour_jane;
+INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role, display_name)
+VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 SQL
 
 rigour team configure \
@@ -275,6 +283,8 @@ With no paths, it uses the current repository. It queues only personal lessons, 
 ## Data and security notes
 
 - **Visibility is enforced by the database.** Row-level security lets a login read its own membership row, its own lessons, and the team's promoted lessons in its own organization and team. It lets a login write only rows whose actor is its own, and team rows only with role `sme` or `owner`. The organization, team and actor of a sent lesson come from the membership row.
+- **Review decisions are append-only.** A login can read its own team's decisions, and insert one only as `sme` or `owner` under its own actor. There is no update or delete policy, so even a login granted `UPDATE` or `DELETE` changes no row; a decision taken back is a new row. The server sets when a decision arrived and the decider's display name from the membership row; the client sets neither.
+- **Reviewer hashes.** A review decision names who raised the review point only as a hash of the login, salted with a random value per organization (`rigour.organization_salts`, created for each organization when its first membership is added). A hash from one organization never matches another's. Inside a small team, someone who can read the decisions can still guess which login a hash is by hashing each teammate's login with the salt. The hashes live only in your own database, behind row-level security.
 - **TLS.** Prefer `sslmode=verify-full`. With current versions of the PostgreSQL driver Rigour uses, `sslmode=require` is also verified as `verify-full` and prints a deprecation warning. If your host signs its certificate with its own root CA, keep verification on and point Node at the CA: `export NODE_EXTRA_CA_CERTS=/path/to/provider-ca.crt`, then run `rigour team doctor`.
 - **The URL holds a password.** `rigour team configure` saves it in `team.json` with file mode 600. A profile's `--database-url-command` keeps it in your keychain or vault instead.
 - **Local encryption.** Lesson evidence and queued items are encrypted on disk with AES-256-GCM. The key is `RIGOUR_LOCAL_CACHE_KEY` if set (base64, 32 bytes), otherwise a key Rigour creates once in `~/.rigour/team-cache.key` with file mode 600.

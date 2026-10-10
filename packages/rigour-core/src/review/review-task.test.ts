@@ -8,7 +8,7 @@ import { acknowledgeReview } from './review-ack.js';
 import { buildReviewTask } from './review-task.js';
 import { exportReviewed, readLedger, REVIEWED_FILE } from './ledger.js';
 import { reviewAckMessage } from '../hooks/stop-review.js';
-import { writeLessons } from '../review-learning/lessons.js';
+import { seedLessons } from '../review-learning/seed-lessons.test-support.js';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
@@ -60,7 +60,7 @@ describe('review task and acknowledgements', () => {
 
     it('sends a function a verified team lesson names to review, and asks whether the change repeats it', () => {
         write(AFTER.replace('name.trim()', 'name.toLocaleUpperCase()'));
-        writeLessons(repo, [{ id: 'l1', text: 'Locale casing breaks Turkish names.', file: 'sync.ts', symbols: ['toLocaleUpperCase'], state: 'verified', evidence: [{ pr: 7, comment: 'c1', author: 'r' }], createdAt: '', updatedAt: '' }]);
+        seedLessons(repo, [{ id: 'l1', text: 'Locale casing breaks Turkish names.', file: 'sync.ts', symbols: ['toLocaleUpperCase'], state: 'verified', evidence: [{ pr: 7, comment: 'c1', author: 'r' }], createdAt: '', updatedAt: '' }]);
         const task = buildReviewTask(repo, diffFromGit(repo));
         const label = task.items.find(i => i.function === 'label');
         expect(label?.questions[0]).toContain('Locale casing breaks Turkish names.');

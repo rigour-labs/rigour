@@ -3,7 +3,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { writeLessons, type ReviewLesson } from '../review-learning/lessons.js';
+import { type ReviewLesson } from '../review-learning/lessons.js';
+import { seedLessons } from '../review-learning/seed-lessons.test-support.js';
 import { readThread } from '../task/thread.js';
 import { BRIEFING_MAX_ITEMS, briefFile, briefingText, briefTask, buildBriefing, buildFileBriefing, fileBriefingText } from './briefing.js';
 
@@ -34,7 +35,7 @@ beforeEach(() => {
     write('services/billing/charge.ts', 'export const charge = 1;\n');
     git('add', '-A');
     git('commit', '-qm', 'init');
-    writeLessons(repo, [
+    seedLessons(repo, [
         lesson('v1', 'verified', 'src/jobs/retry.ts', 'Bound the retry window at both ends: `updated_at` between since and until.', ['retryJob'], 12),
         lesson('c1', 'candidate', 'src/jobs/retry.ts', 'Log every retry at debug level in `retryJob`.', ['retryJob'], 13),
         lesson('r1', 'rejected', 'src/jobs/retry.ts', 'Wrap `retryJob` in a second try/catch.', ['retryJob'], 14),

@@ -13,7 +13,8 @@ change to the learning pipeline. It costs nothing: GitHub reads and git fetches,
 
 ## A run
 
-`node scripts/learning-report/run.mjs <label> <scratch dir>` after `npm run build`:
+`npm run learning-report -- <label> <scratch dir>` (`scripts/learning-report/run.mjs`) after `npm run build` (each run works in its own folder
+under the scratch dir, `<label>-<process id>`, removed at the end, so two runs never clear each other's clones):
 
 - clones each repository blobless (`--filter=blob:none --no-checkout`: commits and trees; file contents fetched when
   read), stops it if it passes 1 GB, and deletes it as soon as the repository is done;
@@ -77,3 +78,9 @@ no rule. Results: `results/recurrence-100.json`, counts and URLs only.
 ## Report
 
 `node scripts/learning-report/report.mjs` writes `REPORT.md` from every run in `results/` and the labels.
+
+`npm run learning-report:brief-check -- <label>` (`scripts/learning-report/brief-check.mjs`), after a run, checks what the
+brief serves from that run's lessons: the real `rigour brief --files <file> --json` on each repository's 5 files with
+the most candidates a person raised, serving candidates (`review_lessons: all`). It counts items served per file (at
+most 3), uncited and broken into `results/<label>.brief.json`; the briefs themselves quote review comments, so they
+stay in the local cache (`briefs/<label>.json`, and `brief-check/<repo>.txt`, every served item one per line).

@@ -56,4 +56,27 @@ describe('team schema', () => {
         expect(TEAM_SCHEMA).toContain('CREATE POLICY memberships_read_own ON rigour.memberships FOR SELECT USING (db_role = current_user);');
         expect(TEAM_SCHEMA).toContain('CREATE POLICY meta_read ON rigour.meta FOR SELECT USING (true);');
     });
+
+    it('adds review decisions without changing the version older clients check', () => {
+        expect(TEAM_SCHEMA).toContain("VALUES ('schema_version', '1')");
+        expect(TEAM_SCHEMA).toContain("VALUES ('review_decisions_version', '1')");
+        for (const table of ['review_decisions', 'organization_salts']) {
+            expect(TEAM_SCHEMA).toContain(`ALTER TABLE rigour.${table} ENABLE ROW LEVEL SECURITY;`);
+        }
+    });
+
+    it('lets review decisions be read and inserted only, the insert only by an sme or owner under their own actor', () => {
+        const policies = [...TEAM_SCHEMA.matchAll(/CREATE POLICY (\w+) ON rigour\.review_decisions FOR (\w+)/g)].map(m => `${m[1]} ${m[2]}`);
+        expect(policies).toEqual(['review_decisions_read SELECT', 'review_decisions_insert INSERT']);
+        const insert = TEAM_SCHEMA.slice(TEAM_SCHEMA.indexOf('CREATE POLICY review_decisions_insert'));
+        expect(insert.slice(0, insert.indexOf(');'))).toContain("membership.role IN ('sme', 'owner')");
+        expect(insert.slice(0, insert.indexOf(');'))).toContain('membership.actor_id = review_decisions.actor_id');
+    });
+
+    it('stamps when a decision arrived and who made it on the server', () => {
+        const stamp = TEAM_SCHEMA.slice(TEAM_SCHEMA.indexOf('FUNCTION rigour.stamp_review_decision'), TEAM_SCHEMA.indexOf('END $$;', TEAM_SCHEMA.indexOf('FUNCTION rigour.stamp_review_decision')));
+        expect(stamp).toContain('NEW.received_at := clock_timestamp();');
+        expect(stamp).toContain('SELECT membership.display_name FROM rigour.memberships');
+        expect(TEAM_SCHEMA).toContain('BEFORE INSERT ON rigour.review_decisions');
+    });
 });

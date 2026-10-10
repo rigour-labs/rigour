@@ -266,6 +266,8 @@ and a cross-examination that would pass it is not made (its findings are shown a
 the cap as the reason). Dollars are known only after a run, so the cost cap stops new reviews once
 today's reported spend reaches it. Past a cap, a review is skipped and says why; where the team
 requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
+At a push, the agent is told so, with the cap and its key ("the model review of 1a2b3c4d5 was skipped: the daily
+cost cap is reached … (review.reviewer.max_usd_per_day)"), and no background review starts.
 One review stops at `max_usd_per_review`: it is checked before each judge, retry, cross-examination and follow-up
 the review starts, and a review stopped there keeps what it had and says the cap is why ("no other judge asked: this
 review's cost cap is reached: $3.00 of $2.00…"). The same caps hold the rule writer (`learn-reviews --rules`) and the
@@ -468,10 +470,11 @@ on its own. `rigour review --reviewer --blind` (or `RIGOUR_REVIEWER_BLIND=1`) re
 with no pull request lookup, description or human reviews. The output and the review record say "reviewed without
 pull request context", and `--json` carries `blind: true`.
 
-A point that names a path is about that file. One that names none is a **team standard**: shown
-with a change, once it is a lesson, when it shares at least two meaningful words with the change (its
-paths and the names on its added lines): up to three in the agent's question at the stop, up to
-fifteen for a judge reading the whole pull request.
+A point that names a path is about that file. One that names none has **no file**: shown with a change,
+once it is a lesson, only when it shares at least two meaningful words with the change (its paths and the
+names on its added lines), as "(no file): …": up to three in the agent's question at the stop, up to fifteen
+for a judge reading the whole pull request. It is never served to every change, and never called a team
+standard, until a person scopes it to the repository (below).
 
 **A person decides how far a lesson reaches.** `rigour learn-reviews --scope <id> --to repo` makes it a
 standard for the whole repository: it reaches every change, whatever its files or words, in the
@@ -514,6 +517,14 @@ words. A different bug nearby is never covered by it. Every later judge is told,
 review included. Commit `.rigour/dismissed-review-items.json` so the record is reviewed and shared.
 When a team turns dismissals off again, the recorded ones stop counting.
 
+
+**Two writers never overwrite each other.** The lessons file (`.rigour/review-lessons.json`, or `RIGOUR_REVIEW_LESSONS`)
+is written whole, through a temporary file, so a reader never sees half of it, and under a lock (`<file>.lock`). A person's
+decision in Studio or the CLI holds the lock only to read, change and write. A run that works for longer
+(`rigour learn-reviews`, outcomes) does not hold it while it works. When it writes, it keeps what changed meanwhile: every lesson and
+piece of evidence either side added, and each other field from the side that changed it. A lock older than 30 seconds
+was left by a writer that stopped, and is taken over; a writer that waits 10 seconds for a live one stops with an error
+rather than overwrite.
 
 ### Lessons compiled into checks
 

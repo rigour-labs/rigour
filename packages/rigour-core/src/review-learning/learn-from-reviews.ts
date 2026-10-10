@@ -96,7 +96,8 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
     const points = lessons.flatMap(l => l.evidence).filter(e => e.kind === 'point' && !known.has(e.comment));
     // Comments read before go through too: each lands on its own lesson (mergeLessons matches the comment), which
     // takes the text this version derives from it. Nothing is added twice.
-    const merged = mergeLessons(readLessons(cwd), lessons);
+    const read = readLessons(cwd);
+    const merged = mergeLessons(read, lessons);
     // Outcomes accrue after the merge: every candidate whose pull request was read this run is checked again.
     if (options.mainRef) {
         const byNumber = new Map(prs.filter(pr => pr.mergedAt).map(pr => [pr.number, pr]));
@@ -125,7 +126,8 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
         const replaced = new Set(unwritten.map(l => l.id));
         merged.lessons = [...merged.lessons.filter(l => !replaced.has(l.id)), ...written.lessons.map(l => ({ ...l, ...lessonState(l) }))];
     }
-    writeLessons(cwd, merged.lessons);
+    // Outcomes and rule writing can take long (git, a model call): a decision made meanwhile is kept, not overwritten.
+    writeLessons(cwd, merged.lessons, read);
     const promoted = { outcome: 0, correction: 0, person: 0, recurrence: 0, legacy: 0 };
     for (const l of merged.lessons) if (l.state === 'verified' && l.promotedBy) promoted[l.promotedBy]++;
     return {

@@ -8,7 +8,8 @@ import { learnFromReviews } from './learn-from-reviews.js';
 import { outcomeFor } from './outcomes.js';
 import { rulesFromReviews } from './rules-from-reviews.js';
 import { describeLesson, lessonView } from './team-lessons.js';
-import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, pendingDecision, quietBotCandidate, raisedOnlyByBots, readLessons, writeLessons, type LessonEvidence, type ReviewLesson } from './lessons.js';
+import { seedLessons } from './seed-lessons.test-support.js';
+import { acceptSuggestedText, decideLesson, isSpecific, lessonState, lessonText, lessonsFromReview, matchLessons, mergeLessons, pendingDecision, quietBotCandidate, raisedOnlyByBots, readLessons, type LessonEvidence, type ReviewLesson, updateLessons } from './lessons.js';
 import { activeLessons, lessonsForDiff, lessonsSection } from './team-lessons.js';
 
 let repo: string;
@@ -99,7 +100,7 @@ describe('lessons', () => {
         try {
             const stored = mergeLessons([], [point('This reads every row.')]).lessons;
             stored[0].evidence.push({ kind: 'accepted', pr: 1, comment: 'accepted-1', author: 'p@example.com', at: '' });
-            writeLessons(dir, mergeLessons(stored, [point('This reads every row. Filter in the query.')]).lessons);
+            seedLessons(dir, mergeLessons(stored, [point('This reads every row. Filter in the query.')]).lessons);
             const taken = acceptSuggestedText(dir, stored[0].id, 'p@example.com');
             expect([taken?.text, taken?.suggestedText, taken?.state]).toEqual(['This reads every row. Filter in the query.', undefined, 'verified']);
             expect(taken?.evidence.at(-1)).toMatchObject({ kind: 'reworded', author: 'p@example.com', detail: 'parser fix; was: This reads every row.' });
@@ -143,7 +144,7 @@ describe('lessons', () => {
         const point = (pr: number, prAuthor: string, reviewer: string): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: reviewer, prAuthor });
         const outcome: LessonEvidence = { kind: 'outcome', pr: 1, comment: 'outcome-abc', author: '', detail: 'fixed later by abc "fix: x"' };
         const stored = (id: string, evidence: LessonEvidence[], promotedBy: ReviewLesson['promotedBy']): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy, evidence, createdAt: '', updatedAt: '' });
-        writeLessons(repo, [
+        seedLessons(repo, [
             stored('only-outcome', [point(1, 'ann', 'r1'), outcome], 'outcome'),
             stored('also-recurs', [point(1, 'ann', 'r1'), point(2, 'bob', 'r2'), outcome], 'outcome'),
             stored('person', [point(1, 'ann', 'r1'), outcome, { kind: 'accepted', pr: 1, comment: 'y', author: 'lead@x' }], 'person'),
@@ -155,7 +156,7 @@ describe('lessons', () => {
         expect(recurs.evidence.some(e => e.kind === 'reclassified')).toBe(false);
         expect(person).toMatchObject({ state: 'verified', promotedBy: 'person', evidence: [point(1, 'ann', 'r1'), outcome, { kind: 'accepted' }] });
         // Kept by the next write, and never added twice.
-        writeLessons(repo, readLessons(repo));
+        updateLessons(repo, () => undefined);
         expect(readLessons(repo)[0].evidence.filter(e => e.kind === 'reclassified')).toHaveLength(1);
         // A person promoting it again is final.
         decideLesson(repo, 'only-outcome', 'accepted', 'lead@x');
@@ -165,7 +166,7 @@ describe('lessons', () => {
     it('takes a lesson only review bots promoted back to a candidate, with why, and a person with a bot too: bots never count', () => {
         const point = (pr: number, prAuthor: string, reviewer: string, source: 'person' | 'bot'): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: reviewer, source, prAuthor });
         const stored = (id: string, evidence: LessonEvidence[]): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', evidence, createdAt: '', updatedAt: '' });
-        writeLessons(repo, [
+        seedLessons(repo, [
             stored('bots', [point(1, 'ann', 'rabbit[bot]', 'bot'), point(2, 'bob', 'helper[bot]', 'bot')]),
             stored('with-person', [point(1, 'ann', 'lead', 'person'), point(2, 'bob', 'helper[bot]', 'bot')]),
         ]);
@@ -174,7 +175,7 @@ describe('lessons', () => {
         expect(bots.promotedBy).toBeUndefined();
         expect(pendingDecision(bots)?.detail).toBe('only review bots raised it (no person)');
         expect(withPerson).toMatchObject({ state: 'candidate', evidence: [{}, {}, { kind: 'reclassified', detail: 'raised by people on 1 pull request; needs 2 or more' }] });
-        writeLessons(repo, readLessons(repo));
+        updateLessons(repo, () => undefined);
         expect(readLessons(repo)[0].evidence.filter(e => e.kind === 'reclassified')).toHaveLength(1);
         decideLesson(repo, 'bots', 'accepted', 'lead@x');
         expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
@@ -184,7 +185,7 @@ describe('lessons', () => {
         const point = (pr: number, prAuthor: string, postedAt?: string): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: 'lead', source: 'person', prAuthor, ...(postedAt ? { postedAt } : {}) });
         const stored = (id: string, evidence: LessonEvidence[]): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', evidence, createdAt: '', updatedAt: '' });
         const close = [point(1, 'ann', '2026-09-01T00:00:00Z'), point(2, 'bob', '2026-09-04T00:00:00Z')];
-        writeLessons(repo, [
+        seedLessons(repo, [
             stored('close', close),
             stored('untimed', [point(1, 'ann'), point(2, 'bob')]),
             stored('scoped', [...close, { kind: 'scoped', pr: 1, comment: 'scoped-1', author: 'lead@x', detail: 'repo' }]),
@@ -210,7 +211,7 @@ describe('lessons', () => {
         const lessons = [candidate('bot-only', point('bot')), candidate('person', point('person')), candidate('both', point('bot'), point('person')), { ...candidate('standard', point('bot')), file: '', scope: 'repo' as const }];
         const change = { files: ['src/a.ts'], symbols: new Set<string>() };
         expect(matchLessons(lessons, change, { includeCandidates: true }).map(l => l.id).sort()).toEqual(['both', 'person']);
-        writeLessons(repo, lessons);
+        seedLessons(repo, lessons);
         expect(activeLessons(repo, 'all').map(l => l.id).sort()).toEqual(['both', 'person']);
         // A later fix on its lines is evidence, not a person raising it: still bot-only, still not served.
         const withLines = { ...candidate('lines', point('bot')), evidence: [point('bot'), { kind: 'lines' as const, pr: 9, comment: 'lines-9', author: '', detail: 'fixed later' }] };
@@ -235,7 +236,7 @@ describe('lessons', () => {
     });
 
     it('records a person accepting or rejecting a lesson as evidence, with who and why', () => {
-        writeLessons(repo, [{ id: 'x', text: 'Use upsert', file: 'src/orders.ts', symbols: [], state: 'candidate', evidence: [{ kind: 'point', pr: 1, comment: 'c', author: 'r' }], createdAt: '', updatedAt: '' }]);
+        seedLessons(repo, [{ id: 'x', text: 'Use upsert', file: 'src/orders.ts', symbols: [], state: 'candidate', evidence: [{ kind: 'point', pr: 1, comment: 'c', author: 'r' }], createdAt: '', updatedAt: '' }]);
         expect(decideLesson(repo, 'x', 'rejected', 'lead@x', 'we accept duplicates here')).toMatchObject({ state: 'rejected' });
         expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'rejected', author: 'lead@x', detail: 'we accept duplicates here' });
         expect(matchLessons(readLessons(repo), { files: ['src/orders.ts'], symbols: new Set() }, { includeCandidates: true })).toEqual([]); // never served as a lesson
@@ -366,6 +367,23 @@ describe('learning from merged pull requests, after the merge', () => {
     });
 });
 
+describe('a lesson with no file', () => {
+    it('reaches a change only by its words, never every change, and is never called a team standard until a person scopes it so', () => {
+        const point: LessonEvidence = { kind: 'point', pr: 4, comment: 'c4', author: 'lead', source: 'person', prAuthor: 'dev' };
+        const noFile = (id: string, text: string, state: 'candidate' | 'verified' = 'candidate', scope?: 'repo'): ReviewLesson => ({ id, text, file: '', symbols: [], state, evidence: [point], createdAt: '', updatedAt: '', ...(scope ? { scope } : {}) });
+        const lessons = [noFile('window', 'Bound both ends of every time window a scheduled job reads.'), noFile('shortcut', 'Keep keyboard shortcuts consistent across every dialog.')];
+        const jobChange = { files: ['src/jobs/scan.ts'], symbols: new Set(['timeWindowStart', 'scheduledJob']) };
+        // Served when its words are the change's, and only then: not to every change.
+        expect(matchLessons(lessons, jobChange, { includeCandidates: true }).map(l => l.id)).toEqual(['window']);
+        expect(matchLessons(lessons, { files: ['README.md'], symbols: new Set<string>() }, { includeCandidates: true })).toEqual([]);
+        expect(describeLesson(lessonView(lessons[0]))).toBe('(no file): Bound both ends of every time window a scheduled job reads. (acted on in PR #4)');
+        // A person scoping it to the repository makes it a team standard: then every change gets it, and it says so.
+        const standard = noFile('std', 'Keep keyboard shortcuts consistent across every dialog.', 'verified', 'repo');
+        expect(matchLessons([standard], { files: ['README.md'], symbols: new Set<string>() }).map(l => l.id)).toEqual(['std']);
+        expect(describeLesson(lessonView(standard))).toBe('team standard: Keep keyboard shortcuts consistent across every dialog. (acted on in PR #4)');
+    });
+});
+
 describe('team standards', () => {
     it('verifies a standard when the same point recurs in another author\'s PR, and serves it only to a change it is about', () => {
         const standard = (pr: number, text: string): ReviewLesson => ({ id: `s${pr}`, text, file: '', symbols: [], state: 'candidate', evidence: [{ kind: 'point', pr, comment: `r${pr}`, author: `reviewer${pr}`, prAuthor: `dev${pr}` }], createdAt: '', updatedAt: '' });
@@ -397,7 +415,7 @@ describe('turning reviews into rules', () => {
         expect(out.lessons[0].evidence[0].said).toBe('The invoice total is computed before the discount is applied.');
         expect(prompts[0]).toContain('"said": "npm run check: 0 errors, lint clean."');
         expect(describeLesson(lessonView({ ...out.lessons[0], evidence: [...out.lessons[0].evidence, { pr: 9, comment: 'x', author: 'sam' }] })))
-            .toBe('team standard: Apply discounts before computing an invoice total. (in their words: "The invoice total is computed before the discount is applied.") (acted on in PR #7, #9)');
+            .toBe('(no file): Apply discounts before computing an invoice total. (in their words: "The invoice total is computed before the discount is applied.") (acted on in PR #7, #9)');
     });
 
     it('never loses a point when the model cannot run, and keeps a file only when the point was about it', async () => {
