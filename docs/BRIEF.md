@@ -27,7 +27,11 @@ Rigour briefing for PROJ-123: how this team builds the code this task will likel
 
 1. Requirement rules for the task's files (worded as must, never, every, ...): a break of one blocks at review.
 2. The team's lessons for those files: verified ones, or candidates too when the team's reviewer is shown them
-   (`gates.deep.review_lessons: all`), so the agent is told what the reviewer will check.
+   (`gates.deep.review_lessons: all`), so the agent is told what the reviewer will check. A candidate is a review
+   point as its reviewer wrote it, which no person has confirmed: often a remark about that one pull request ("Is this
+   name final?", a reply to the author), not an instruction for the next task. That is why the default serves verified lessons
+   only. A new team sees few lessons in its briefings until a person confirms some (Studio, or
+   `rigour learn-reviews --promote`): by design, a person decides what the team's agents are told.
 3. Points the team settled against, so the agent neither does them nor raises them.
 4. Guidance rules.
 
