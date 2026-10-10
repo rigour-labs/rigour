@@ -258,6 +258,7 @@ export const UNIVERSAL_CONFIG: Config = {
             check_retry_without_limit: true,
             check_circular_triggers: true,
             check_auto_restart: true,
+            block: false,
             ignore_patterns: [],
         },
         deep: {
