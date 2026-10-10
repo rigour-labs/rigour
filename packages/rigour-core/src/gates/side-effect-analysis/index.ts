@@ -108,6 +108,8 @@ export interface SideEffectAnalysisConfig {
     check_retry_without_limit?: boolean;
     check_circular_triggers?: boolean;
     check_auto_restart?: boolean;
+    /** Opt in: the critical rules block. By default every finding is a note (likely): servers loop forever by design. */
+    block?: boolean;
     ignore_patterns?: string[];
 }
 
@@ -126,6 +128,7 @@ export class SideEffectAnalysisGate extends Gate {
             check_retry_without_limit: config.check_retry_without_limit ?? true,
             check_circular_triggers: config.check_circular_triggers ?? true,
             check_auto_restart: config.check_auto_restart ?? true,
+            block: config.block ?? false,
             ignore_patterns: config.ignore_patterns ?? [],
         };
     }
@@ -169,9 +172,13 @@ export class SideEffectAnalysisGate extends Gate {
             }));
         }
 
-        return violations.map(v => violationToFailure(v, (msg, files, hint, title, sl, el, sev) =>
-            this.createFailure(msg, files, hint, title, sl, el, sev as 'critical' | 'high' | 'medium' | 'low' | 'info' | undefined),
-        ));
+        // A runaway loop, a watcher feeding itself, a restart without a limit: servers, consumers and daemons do the
+        // first by design, and a debounce or limit set elsewhere is not seen. Likely, never a block, unless the team
+        // opts in; then its critical rules are proven.
+        return violations.map(v => violationToFailure(v, (msg, files, hint, title, sl, el, sev) => ({
+            ...this.createFailure(msg, files, hint, title, sl, el, sev as 'critical' | 'high' | 'medium' | 'low' | 'info' | undefined),
+            certainty: this.cfg.block && sev === 'critical' ? 'proven' as const : 'likely' as const,
+        })));
     }
 
     private scanFile(
