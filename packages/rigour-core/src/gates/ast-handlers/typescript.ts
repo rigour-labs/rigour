@@ -116,10 +116,13 @@ export class TypeScriptHandler extends ASTHandler {
 
             // === SECURITY CHECKS (Prototype Pollution) ===
 
+            // Pollution needs a WRITE through these keys with a key an attacker controls, which no rule here traces: a write is
+            // likely, a read (`Foo['prototype']`, `obj['constructor'].name`, everyday code) possible. Neither blocks.
             // Check for direct __proto__ access: obj.__proto__
             if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name) && node.name.text === '__proto__') {
                 const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                 addFailure({
+                    certainty: isWrittenThrough(node) ? 'likely' : 'possible',
                     id: 'SECURITY_PROTOTYPE_POLLUTION',
                     title: `Direct __proto__ access`,
                     details: `Prototype pollution vulnerability in ${relativePath}:${line}`,
@@ -137,6 +140,7 @@ export class TypeScriptHandler extends ASTHandler {
                 if (accessKey === '__proto__' || accessKey === 'constructor' || accessKey === 'prototype') {
                     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                     addFailure({
+                        certainty: isWrittenThrough(node) ? 'likely' : 'possible',
                         id: 'SECURITY_PROTOTYPE_POLLUTION',
                         title: `Unsafe bracket notation access to '${accessKey}'`,
                         details: `Potential prototype pollution via bracket notation in ${relativePath}:${line}`,
@@ -160,6 +164,8 @@ export class TypeScriptHandler extends ASTHandler {
                         if (ts.isObjectLiteralExpression(firstArg) && firstArg.properties.length === 0) {
                             const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
                             addFailure({
+                                // The standard immutable-copy idiom; dangerous only with untrusted parsed input, not traced here.
+                                certainty: 'possible',
                                 id: 'SECURITY_PROTOTYPE_POLLUTION_MERGE',
                                 title: `Object.assign() merge pattern`,
                                 details: `Object.assign({}, ...) can propagate prototype pollution in ${relativePath}:${line}`,
@@ -288,4 +294,12 @@ export class TypeScriptHandler extends ASTHandler {
         }
         return 'unknown';
     }
+}
+
+/** An access that is assigned through (`x.__proto__ = v`, `x['constructor'].y = v`): the access, or what it leads to, is an assignment's target. */
+function isWrittenThrough(access: ts.Node): boolean {
+    let target: ts.Node = access;
+    while (target.parent && (ts.isPropertyAccessExpression(target.parent) || ts.isElementAccessExpression(target.parent)) && target.parent.expression === target) target = target.parent;
+    const parent = target.parent;
+    return !!parent && ts.isBinaryExpression(parent) && parent.left === target && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
 }
