@@ -971,6 +971,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         process.stdout.write(JSON.stringify(result));
     }
 
+    // What the file already had before this change: said, never blocking.
+    for (const note of result.notes ?? []) process.stderr.write(`[rigour/${note.gate}] note: ${note.file}${note.line ? `:${note.line}` : ''}: ${note.message}\n`);
     if (result.status === 'fail') {
         for (const failure of result.failures) {
             const loc = failure.line ? `:${failure.line}` : '';
@@ -985,6 +987,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
 /** One verdict for a hook call that checked files in several repositories. */
 function mergeHookResults(results: HookCheckerResult[]): HookCheckerResult {
     const failures = results.flatMap(r => r.failures);
+    const notes = results.flatMap(r => r.notes ?? []);
     const status = results.some(r => r.status === 'error') ? 'error' : failures.length > 0 ? 'fail' : 'pass';
-    return { status, failures, duration_ms: Math.max(0, ...results.map(r => r.duration_ms)) };
+    return { status, failures, ...(notes.length ? { notes } : {}), duration_ms: Math.max(0, ...results.map(r => r.duration_ms)) };
 }

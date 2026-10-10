@@ -252,6 +252,11 @@ The edit hook runs a fast subset on each file an agent writes, with a default ti
 - hallucinated imports and promise safety, for JS/TS files;
 - security patterns, for every language.
 
+Only what the edit did blocks. Each file is compared with its last commit (HEAD): a finding the file already had there,
+the same check with the same message, is a note the hook prints and never blocks. File size blocks only when the change
+takes a file over `max_file_lines`; growing a file that was already over is a note, and shrinking one is no finding.
+A file git does not know yet is all the change's. Protected and governed paths always block.
+
 Files matching `ignore` in rigour.yml are skipped. If the time limit runs out before every file is checked, that is reported as a failure. Setting the hooks up is covered in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## How Rigour decides what to show

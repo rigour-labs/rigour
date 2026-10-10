@@ -232,7 +232,7 @@
         }
     },
     "keys": {
-        "gates.max_file_lines": "Maximum number of lines a file may have before it is reported as too long; the same limit is checked on every edit, and 0 turns the full-repository check off.",
+        "gates.max_file_lines": "Maximum number of lines a file may have before it is reported as too long; on every edit it blocks only an edit that takes a file over it (growing a file already over is a note), and 0 turns the full-repository check off.",
         "gates.forbid_todos": "When on, comments that start with TODO are reported, outside test files and examples.",
         "gates.forbid_fixme": "When on, comments that start with FIXME are reported, outside test files and examples.",
         "gates.required_files": "Files, relative to the repository root, that must exist; each one missing is reported, and an empty list turns the check off.",

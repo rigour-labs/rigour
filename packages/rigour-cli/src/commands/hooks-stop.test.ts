@@ -53,6 +53,17 @@ describe('rigour hooks stop', () => {
         expect(await hooksStopCommand('claude', payload, '/')).toBe('');
     }, process.platform === 'win32' ? 90_000 : 30_000); // four whole stop reviews: Windows runners took past 30 s
 
+    it('lets the agent finish a branch whose only change grows a file already over the size limit', async () => {
+        const body = (n: number) => Array.from({ length: n }, (_, i) => `// line ${i}`).join('\n');
+        write('src/big.ts', body(600));
+        git('add', '-A');
+        git('commit', '-qm', 'big');
+        git('switch', '-qc', 'grow');
+        write('src/big.ts', body(610));
+        git('commit', '-qam', 'grow');
+        expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'big' }), '/')).toBe('');
+    });
+
     it('sends Cursor a follow-up message, and stops following up at the loop limit', async () => {
         write('src/notify.ts', LEAKY);
         const reply = JSON.parse(await hooksStopCommand('cursor', JSON.stringify({ cwd: repo, status: 'completed', loop_count: 0 }), '/'));
