@@ -105,6 +105,7 @@ export const TEMPLATES: Template[] = [
                     insecure_randomness: true,
                     command_injection: true,
                     block_on_severity: 'critical',
+                    block: true, // a compliance preset: every security pattern blocks
                 },
             },
         },
@@ -130,6 +131,7 @@ export const TEMPLATES: Template[] = [
                     insecure_randomness: true,
                     command_injection: true,
                     block_on_severity: 'high',
+                    block: true, // a compliance preset: every security pattern blocks
                 },
                 agent_team: {
                     enabled: true,
@@ -163,6 +165,7 @@ export const TEMPLATES: Template[] = [
                     insecure_randomness: true,
                     command_injection: true,
                     block_on_severity: 'medium',
+                    block: true, // a compliance preset: every security pattern blocks
                 },
                 agent_team: {
                     enabled: true,
@@ -206,6 +209,7 @@ export const TEMPLATES: Template[] = [
                     insecure_randomness: true,
                     command_injection: true,
                     block_on_severity: 'high',
+                    block: true, // a compliance preset: every security pattern blocks
                 },
                 agent_team: {
                     enabled: true,
