@@ -348,15 +348,25 @@ Agents connected to Rigour's MCP server get the fix packet through `rigour_get_f
 | `offset` | integer, 0 or more | Optional | First violation to return. Default `0`. |
 | `limit` | integer, 1 to 10 | Optional | Violations per page. Default `5`. |
 
-Each call runs the gates again on the whole repository and builds the packet in memory. It does not read or write `rigour-fix-packet.json`. When everything passes, it returns `ALL QUALITY GATES PASSED.` with the score.
+Each call reviews **the agent's change** by the rule the stop hook and the push gate hold it to: the branch against main,
+else uncommitted work, with the same certainty rule, changed-line filter and severity cap as `rigour review`. Issues the
+code already had, and issues in files the change did not touch, are not in it. It does not read or write
+`rigour-fix-packet.json`.
 
-Otherwise it returns plain text, not JSON, so that a large packet does not flood the agent's context:
+It returns plain text, not JSON, so that a large packet does not flood the agent's context:
 
-- A header with the score, the number of violations, the failed gates, the page range and `next_offset` (a number, or `none` on the last page).
-- Each violation on the page, in the packet's severity order: severity and title, gate, problem, up to five locations, and up to three fix steps (or the hint when there are no steps). Long text is cut at fixed lengths and marked `[truncated]`.
-- The first five verification commands, the `do_not_touch` list, and how many files are in `allowed_scope`.
-- The call to make for the next page, or a closing line telling the agent to re-run `rigour_check` and to report a pass only after verification.
+- A header: what the change was read against, how many items must be fixed and how many are notes, the instruction (fix
+  every must-fix item, notes are optional, do not edit files outside the change unless a must-fix item names them,
+  re-run `rigour_check` after), the page range and `next_offset` (a number, or `none` on the last page).
+- **Must fix (blocks you)** first, then **Notes (optional)**, under their own headings on every page. Each item: its
+  shown severity and title, the check and its certainty, the exact `file:line`, the problem and the fix.
+- The call to make for the next page, or a closing line telling the agent to re-run `rigour_check`.
 
-Because each call scans again, the violations and their order can change after the agent edits files. Start again at `offset` 0 after editing.
+`rigour_check` reads the change the same way by default (`scope: "change"`): `FAIL` means the agent has something to
+fix in its change, never old debt elsewhere. With `files`, or a deep review, it checks those files as they are;
+`scope: "repo"` checks the whole repository, for an audit of the codebase, not for an agent's fix loop.
+
+Because each call reviews again, the items and their order can change after the agent edits files. Start again at
+`offset` 0 after editing.
 
 An `offset` or `limit` outside those ranges returns an error, and nothing is scanned.
