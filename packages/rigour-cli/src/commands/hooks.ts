@@ -583,10 +583,10 @@ function printNextSteps(tools: HookTool[], unavailableTools: Set<HookTool>): voi
  * config, each command guarded so it runs only in a repository switched on with `rigour setup`.
  * Merged into the person's existing configs like a project install; recorded in Rigour's home.
  */
-export async function installMachineHooks(options: { block?: boolean; dlp?: boolean } = {}): Promise<{ agents: HookTool[]; written: number; failed: string[] }> {
+export async function installMachineHooks(options: { block?: boolean; dlp?: boolean; brief?: boolean } = {}): Promise<{ agents: HookTool[]; written: number; failed: string[] }> {
     const checker = resolveCheckerCommand();
     const agents = installedAgents();
-    const files = agents.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false)).map(file => asUserLevel(file));
+    const files = agents.flatMap(tool => GENERATORS[tool](checker, options.block !== false, options.dlp !== false, !!options.brief)).map(file => asUserLevel(file));
     const { written, failedPaths } = await writeHookFiles(agentHome(), files, true, path.dirname(rigourUserDir()));
     return { agents, written, failed: [...failedPaths] };
 }
