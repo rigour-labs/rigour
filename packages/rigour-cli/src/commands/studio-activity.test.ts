@@ -22,6 +22,11 @@ describe('buildActivity', () => {
         ]);
     });
 
+    it("says what a briefing told the agent, rules and lessons apart, and for which files", () => {
+        const [item] = buildActivity({ events: [{ type: 'lessons_served', timestamp: '2026-10-09T10:00:00Z', via: 'brief', lessons: ['Every job takes withLock()', 'Bound the window'], rules: 1, ids: ['r1', 'l1'], files: ['src/jobs/retry.ts'] }], ledger: [], stories: [] });
+        expect(item).toMatchObject({ kind: 'taught', text: 'Briefed the agent before it wrote: 1 rule and 1 lesson for src/jobs/retry.ts', detail: 'Every job takes withLock() · Bound the window' });
+    });
+
     it('names what held the agent at the stop, as the edit line names what it stopped', () => {
         const stop = (findings: Array<{ rule: string; title: string; file: string }>) => buildActivity({ events: [{ type: 'stop_review', timestamp: '2026-10-09T10:00:00Z', blocked: true, blocking: findings.length, findings }], ledger: [], stories: [] })[0];
         expect(stop([{ rule: 'hallucinated-imports', title: 'Hallucinated Imports', file: 'src/jobs/retry.ts', detail: "L1: import '../nope.js' — does not resolve" } as any]).text)

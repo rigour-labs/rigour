@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { readAgentEvents } from '../review/effectiveness.js';
 import { type ReviewLesson } from '../review-learning/lessons.js';
 import { seedLessons } from '../review-learning/seed-lessons.test-support.js';
 import { readThread } from '../task/thread.js';
@@ -96,6 +97,21 @@ describe('the briefing', () => {
         expect(event).toMatchObject({ kind: 'brief', session: 's1', agent: 'claude', items: briefing.items.length, ids: briefing.items.map(i => i.id), files: ['src/jobs/retry.ts'] });
     });
 
+});
+
+describe('a briefing in the event log Studio reads', () => {
+    it('records what each briefing told the agent: its items by text and id, how many are rules, and the files', () => {
+        briefTask(repo, { goal: 'retry the partner job with backoff', files: ['src/jobs/retry.ts'] });
+        briefFile(repo, 'src/jobs/retry.ts', { session: 's1' });
+        const served = readAgentEvents(repo).filter(e => e.type === 'lessons_served');
+        expect(served).toHaveLength(2);
+        for (const event of served) {
+            expect(event).toMatchObject({ via: 'brief', files: ['src/jobs/retry.ts'] });
+            expect(event.ids).toHaveLength(event.lessons!.length);
+            expect(event.rules).toBeGreaterThan(0);
+            expect(event.lessons!.some(text => text.includes('withLock()'))).toBe(true);
+        }
+    });
 });
 
 describe('a briefing asked for from a subfolder', () => {

@@ -12,6 +12,7 @@ import { rulesForDiff, type RepoRule } from '../review-learning/repo-rules.js';
 import type { ReviewLesson } from '../review-learning/lessons.js';
 import { describeLesson, lessonsForDiff, lessonView, rejectedForDiff, type LessonMode } from '../review-learning/team-lessons.js';
 import { appendTaskEvent, taskOf } from '../task/thread.js';
+import { recordLessonsServed } from '../review/learning-events.js';
 
 /** The most items a briefing gives: past about ten, a briefing is a wall nobody reads. */
 export const BRIEFING_MAX_ITEMS = 10;
@@ -140,6 +141,7 @@ export function fileBriefingText(briefing: Briefing): string {
 /** Builds a file's briefing and records it on the task's thread, with the file. */
 export function briefFile(cwd: string, file: string, input: { lessons?: LessonMode; limit?: number; session?: string; agent?: string } = {}): Briefing {
     const briefing = buildFileBriefing(cwd, file, input);
+    servedInStudio(cwd, briefing);
     appendTaskEvent(cwd, { kind: 'brief', file, ...(input.session ? { session: input.session } : {}), ...(input.agent ? { agent: input.agent } : {}), items: briefing.items.length, ids: briefing.items.map(i => i.id), files: [file] });
     return briefing;
 }
@@ -149,8 +151,14 @@ export function briefTask(cwd: string, input: BriefingInput & { session?: string
     // From the repository's top: an agent started in a subfolder names files and rules as the repository does.
     const root = git(cwd, ['rev-parse', '--show-toplevel']) || cwd;
     const briefing = buildBriefing(root, input);
+    servedInStudio(root, briefing);
     appendTaskEvent(root, { kind: 'brief', ...(input.session ? { session: input.session } : {}), ...(input.agent ? { agent: input.agent } : {}), items: briefing.items.length, ids: briefing.items.map(i => i.id), files: briefing.files });
     return briefing;
+}
+
+/** What a briefing told the agent, in the event log Studio reads ("Told the agent N…"): each item by text and id. */
+function servedInStudio(cwd: string, briefing: Briefing): void {
+    recordLessonsServed(cwd, 'brief', briefing.items.map(i => i.text), { ids: briefing.items.map(i => i.id), files: briefing.files, rules: briefing.items.filter(i => i.kind === 'rule').length });
 }
 
 function ruleCite(source: string, scope?: string): string {

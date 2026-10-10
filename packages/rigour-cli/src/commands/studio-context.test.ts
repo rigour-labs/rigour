@@ -15,14 +15,16 @@ describe('buildAgentContext', () => {
             ],
             events: [
                 { type: 'lessons_served', timestamp: '2026-10-07T00:00:00Z', lessons: ['a', 'b'] },
+                // A briefing of one rule and one lesson: one more lesson told, not two.
+                { type: 'lessons_served', timestamp: '2026-10-07T01:00:00Z', via: 'brief', lessons: ['Every job takes withLock()', 'Bound the window'], rules: 1 },
                 { type: 'reuse_suggested', timestamp: '2026-10-08T00:00:00Z', planned: 'formatMoney', existing: 'formatCents in src/lib/money.ts:12', action: 'BLOCK' },
             ],
         });
         expect(ctx.week).toEqual({
-            scopes: 1, filesConsidered: 180, filesReturned: 6, tokensConsidered: 90000, tokensReturned: 4000, recalls: 1, lessonsTold: 2,
+            scopes: 1, filesConsidered: 180, filesReturned: 6, tokensConsidered: 90000, tokensReturned: 4000, recalls: 1, lessonsTold: 3,
             reuse: [{ at: '2026-10-08T00:00:00Z', planned: 'formatMoney', existing: 'formatCents in src/lib/money.ts:12', action: 'BLOCK' }],
         });
-        expect(ctx.weeks.at(-1)).toMatchObject({ scopes: 1, filesReturned: 6, filesConsidered: 180, recalls: 1, lessonsTold: 2, reuse: 1 });
+        expect(ctx.weeks.at(-1)).toMatchObject({ scopes: 1, filesReturned: 6, filesConsidered: 180, recalls: 1, lessonsTold: 3, reuse: 1 });
         expect(ctx.weeks.reduce((n, w) => n + w.scopes, 0)).toBe(2); // September 1 is inside the 8 weeks
     });
 });
