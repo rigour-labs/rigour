@@ -153,52 +153,62 @@
     "review-5164628598": {
       "pr": 9575,
       "url": "https://github.com/logto-io/logto/pull/9575#pullrequestreview-5164628598",
-      "label": "b"
+      "label": "a",
+      "recheck": "names concrete defects: a lint suppression without its reason, and verify guards that do not allow the new 403"
     },
     "review-5164375548": {
       "pr": 9575,
       "url": "https://github.com/logto-io/logto/pull/9575#pullrequestreview-5164375548",
-      "label": "b"
+      "label": "a",
+      "recheck": "asks to add the new 403 to the public response documentation"
     },
     "review-5275408105": {
       "pr": 9640,
       "url": "https://github.com/logto-io/logto/pull/9640#pullrequestreview-5275408105",
-      "label": "b"
+      "label": "a",
+      "recheck": "names a concrete defect: connector rows have click behavior that does nothing"
     },
     "review-5185720488": {
       "pr": 9589,
       "url": "https://github.com/logto-io/logto/pull/9589#pullrequestreview-5185720488",
-      "label": "b"
+      "label": "a",
+      "recheck": "names concrete defects: step-up state overwritten by stale requests, MFA completion errors unhandled"
     },
     "review-5174732750": {
       "pr": 9580,
       "url": "https://github.com/logto-io/logto/pull/9580#pullrequestreview-5174732750",
-      "label": "b"
+      "label": "a",
+      "recheck": "names concrete defects: the route guard can be bypassed, and the 403 responses are undocumented"
     },
     "review-5275632157": {
       "pr": 9645,
       "url": "https://github.com/logto-io/logto/pull/9645#pullrequestreview-5275632157",
-      "label": "b"
+      "label": "a",
+      "recheck": "names concrete defects: invalid themes discard other parameters, first paint uses stale state, a missing dev guard"
     },
     "review-5175628533": {
       "pr": 9580,
       "url": "https://github.com/logto-io/logto/pull/9580#pullrequestreview-5175628533",
-      "label": "b"
+      "label": "a",
+      "recheck": "asks to fix a Turkish sentence and to document the new 403 responses"
     },
     "review-5163803166": {
       "pr": 9575,
       "url": "https://github.com/logto-io/logto/pull/9575#pullrequestreview-5163803166",
-      "label": "b"
+      "label": "b",
+      "recheck": "lists affected areas only (MFA compatibility, captcha handling); the requests are in other comments"
     },
     "review-5206298294": {
       "pr": 9600,
       "url": "https://github.com/logto-io/logto/pull/9600#pullrequestreview-5206298294",
-      "label": "b"
+      "label": "a",
+      "recheck": "names concrete defects: key failures escape the fallback, a process-local cache serves stale licenses"
     },
     "review-5219776156": {
       "pr": 9609,
       "url": "https://github.com/logto-io/logto/pull/9609#pullrequestreview-5219776156",
-      "label": "b"
+      "label": "b",
+      "recheck": "an approval with a summary of the change; asks for nothing"
     }
   }
 }

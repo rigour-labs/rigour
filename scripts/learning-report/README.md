@@ -28,9 +28,18 @@ change to the learning pipeline. It costs nothing: GitHub reads and git fetches,
 - `sample.mjs` draws 40 candidates per repository from the baseline run with a fixed seed, and writes each
   candidate's source comments (the inline comment, or the review whose body the point is in) to
   `labels/<repo>.json`, with the comment's own text.
-- Each source comment is labelled once, before any change it measures, and never again:
-  - **a**: it asks for something a person could act on (a change, a fix, a rule, a question to answer in code);
+- Each source comment is labelled once, before any change it measures. The rubric judges the text, not its author
+  (whether a bot wrote it is counted separately):
+  - **a**: it asks for something a person could act on (a change, a fix, a rule, a question to answer in code), or
+    names a concrete defect;
   - **b**: it does not (praise, status, thanks, a summary of what the pull request does).
+- Who labelled: the AI session that builds the learning changes, in one pass, before any of them. The reviewer
+  spot-checked 30 (10 per repository) and disagreed on 2, both logto review bodies labelled b that name concrete
+  defects. All 10 logto b labels were then re-checked against the rubric; 8 became a, each with its reason in
+  `recheck`, in a commit of their own. No label changes after that.
+- The comment text the labeller read stays outside the repository (`TEXT_CACHE`, default
+  `~/Workspace/Projects/Personal/rigour-labs/notes/learning-report/`); the label files hold the URL, so anyone can
+  read the comment where it was written.
 - A run's precision is the share of its candidates, among those whose every source is labelled, that come from an
   **a** source, with a Wilson 95% interval.
 - **Looks broken** is mechanical, per run: a candidate that starts with Or / And / But, or ends on a connector
