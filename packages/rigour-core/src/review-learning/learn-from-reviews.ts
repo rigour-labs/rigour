@@ -174,7 +174,7 @@ async function mergedPrs(options: LearnFromReviewsOptions): Promise<MergedPr[]> 
             prs.push({
                 number: pr.number, mergeSha: pr.merge_commit_sha, mergedAt: pr.merged_at,
                 comments: raw.filter(c => reviewer(c.user) && postedBefore(options.until, c.created_at)).flatMap(c => toComment(pr.number, c, author, options.until)),
-                reviews: reviews.filter(r => reviewer(r.user) && postedBefore(options.until, r.submitted_at) && r.commit_id && String(r.body ?? '').trim()).map((r): ReviewBody => ({ id: String(r.id), prNumber: pr.number, commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author })),
+                reviews: reviews.filter(r => reviewer(r.user) && postedBefore(options.until, r.submitted_at) && r.commit_id && String(r.body ?? '').trim()).map((r): ReviewBody => ({ id: String(r.id), prNumber: pr.number, commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author, ...(r.submitted_at ? { postedAt: String(r.submitted_at) } : {}) })),
             });
             if (prs.length >= limit) break;
         }
@@ -207,7 +207,7 @@ async function onePr(options: LearnFromReviewsOptions, base: string, get: (url: 
         number: Number(options.pr), mergeSha: head, mergedAt: pr.merged_at ?? '',
         comments: raw.filter(c => reviewer(c.user) && before(c.created_at)).flatMap(c => toComment(Number(options.pr), c, author, options.until)),
         reviews: reviews.filter(r => reviewer(r.user) && before(r.submitted_at) && r.commit_id && String(r.body ?? '').trim())
-            .map((r): ReviewBody => ({ id: String(r.id), prNumber: Number(options.pr), commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author })),
+            .map((r): ReviewBody => ({ id: String(r.id), prNumber: Number(options.pr), commit: r.commit_id, body: String(r.body), author: String(r.user.login), source: sourceOf(r.user), prAuthor: author, ...(r.submitted_at ? { postedAt: String(r.submitted_at) } : {}) })),
     };
 }
 
@@ -231,7 +231,7 @@ function toComment(prNumber: number, c: any, prAuthor: string, until?: string): 
     if (!c.path || !end || !commit || c.in_reply_to_id) return [];
     const start = c.original_start_line ?? c.start_line ?? end;
     const edited = !!until && typeof c.updated_at === 'string' && !postedBefore(until, c.updated_at);
-    return [{ id: String(c.id), prNumber, path: c.path, start: Math.min(start, end), end, commit, body: String(c.body ?? ''), author: String(c.user?.login ?? ''), source: sourceOf(c.user), prAuthor, ...(edited ? { editedAfterUntil: true as const } : {}) }];
+    return [{ id: String(c.id), prNumber, path: c.path, start: Math.min(start, end), end, commit, body: String(c.body ?? ''), author: String(c.user?.login ?? ''), source: sourceOf(c.user), prAuthor, ...(edited ? { editedAfterUntil: true as const } : {}), ...(c.created_at ? { postedAt: String(c.created_at) } : {}) }];
 }
 
 /** A GitHub App or a bot account (`type: Bot`, or a login like `name[bot]`), else a person's login, whose text may itself be an AI's. */

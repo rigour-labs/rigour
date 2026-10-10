@@ -116,12 +116,17 @@ describe('lessons', () => {
         const lesson = (...evidence: LessonEvidence[]): ReviewLesson => ({ id: 'x', text: 'Use upsert', file: 'src/orders.ts', symbols: [], state: 'candidate', evidence, createdAt: '', updatedAt: '' });
         expect(lessonState(lesson(point(1, 'ann')))).toEqual({ state: 'candidate' });
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'ann')))).toEqual({ state: 'candidate' }); // two PRs, one author: weak, not enough
-        expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob', 'bot')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // a bot's point counts the same
+        expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob', 'bot')))).toEqual({ state: 'candidate' }); // a bot's point never counts: one person on one PR
+        expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // two people, two PRs, two authors
         expect(lessonState(lesson(point(1, 'ann', 'bot', 'rabbit[bot]'), point(2, 'bob', 'bot', 'helper[bot]')))).toEqual({ state: 'candidate' }); // two bots agreeing, no person: never verified
         const said = (e: LessonEvidence, text: string): LessonEvidence => ({ ...e, text });
         expect(lessonState(lesson(said(point(1, 'ann', 'bot', 'helper[bot]'), 'Around line 60-103: update the callers.'), said(point(2, 'bob', 'bot', 'helper[bot]'), 'Around line 12-14: update the loader.')))).toEqual({ state: 'candidate' }); // a bot rewording its own point is one source
         expect(lessonState(lesson(said(point(1, 'ann', 'bot', 'helper[bot]'), 'Consider more tests.'), said(point(2, 'bob', 'bot', 'helper[bot]'), 'Consider more tests.')))).toEqual({ state: 'candidate' }); // one bot's template on every PR is one source
-        expect(lessonState(lesson(said(point(1, 'ann', 'person', 'lead'), 'Regenerate the API client after changing the schema.'), said(point(2, 'bob', 'person', 'lead'), 'The generated client is stale again.')))).toEqual({ state: 'verified', promotedBy: 'recurrence' }); // a senior re-raising it in their own words
+        // One reviewer re-raising it: a standard only on 3 or more PRs over 7 or more days.
+        const on = (e: LessonEvidence, postedAt: string): LessonEvidence => ({ ...e, postedAt });
+        expect(lessonState(lesson(on(point(1, 'ann', 'person', 'lead'), '2026-09-01T00:00:00Z'), on(point(2, 'bob', 'person', 'lead'), '2026-09-04T00:00:00Z')))).toEqual({ state: 'candidate' });
+        expect(lessonState(lesson(on(point(1, 'ann', 'person', 'lead'), '2026-09-01T00:00:00Z'), on(point(2, 'bob', 'person', 'lead'), '2026-09-02T00:00:00Z'), on(point(3, 'cy', 'person', 'lead'), '2026-09-04T00:00:00Z')))).toEqual({ state: 'candidate' });
+        expect(lessonState(lesson(on(point(1, 'ann', 'person', 'lead'), '2026-09-01T00:00:00Z'), on(point(2, 'bob', 'person', 'lead'), '2026-09-05T00:00:00Z'), on(point(3, 'cy', 'person', 'lead'), '2026-09-10T00:00:00Z')))).toEqual({ state: 'verified', promotedBy: 'recurrence' });
         expect(lessonState(lesson(point(1, 'ann'), point(2, 'bob'), { kind: 'norule', pr: 1, comment: 'n', author: '' }))).toEqual({ state: 'candidate' }); // no rule in it: never promoted again
         const outcome: LessonEvidence = { kind: 'outcome', pr: 1, comment: 'o', author: '', detail: 'fixed later by abc' };
         const counter: LessonEvidence = { kind: 'counter', pr: 1, comment: 'k', author: '', detail: 'unchanged 40 days' };
@@ -157,7 +162,7 @@ describe('lessons', () => {
         expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
     });
 
-    it('takes a lesson only review bots promoted back to a candidate, with why, and keeps one with a person\'s point verified', () => {
+    it('takes a lesson only review bots promoted back to a candidate, with why, and a person with a bot too: bots never count', () => {
         const point = (pr: number, prAuthor: string, reviewer: string, source: 'person' | 'bot'): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: reviewer, source, prAuthor });
         const stored = (id: string, evidence: LessonEvidence[]): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', evidence, createdAt: '', updatedAt: '' });
         writeLessons(repo, [
@@ -168,11 +173,34 @@ describe('lessons', () => {
         expect(bots).toMatchObject({ state: 'candidate', evidence: [{}, {}, { kind: 'reclassified', comment: 'reclassified-bots', detail: 'only review bots raised it (no person)' }] });
         expect(bots.promotedBy).toBeUndefined();
         expect(pendingDecision(bots)?.detail).toBe('only review bots raised it (no person)');
-        expect(withPerson).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
-        expect(withPerson.evidence.some(e => e.kind === 'reclassified')).toBe(false);
+        expect(withPerson).toMatchObject({ state: 'candidate', evidence: [{}, {}, { kind: 'reclassified', detail: 'raised by people on 1 pull request; needs 2 or more' }] });
         writeLessons(repo, readLessons(repo));
         expect(readLessons(repo)[0].evidence.filter(e => e.kind === 'reclassified')).toHaveLength(1);
         decideLesson(repo, 'bots', 'accepted', 'lead@x');
+        expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
+    });
+
+    it('takes a lesson one reviewer raised too close together back to a candidate, saying the rule, and never one a person kept', () => {
+        const point = (pr: number, prAuthor: string, postedAt?: string): LessonEvidence => ({ kind: 'point', pr, comment: `c${pr}`, author: 'lead', source: 'person', prAuthor, ...(postedAt ? { postedAt } : {}) });
+        const stored = (id: string, evidence: LessonEvidence[]): ReviewLesson => ({ id, text: id, file: 'src/a.ts', symbols: [], state: 'verified', promotedBy: 'recurrence', evidence, createdAt: '', updatedAt: '' });
+        const close = [point(1, 'ann', '2026-09-01T00:00:00Z'), point(2, 'bob', '2026-09-04T00:00:00Z')];
+        writeLessons(repo, [
+            stored('close', close),
+            stored('untimed', [point(1, 'ann'), point(2, 'bob')]),
+            stored('scoped', [...close, { kind: 'scoped', pr: 1, comment: 'scoped-1', author: 'lead@x', detail: 'repo' }]),
+            stored('reworded', [...close, { kind: 'reworded', pr: 1, comment: 'reworded-1', author: 'lead@x', detail: 'parser fix; was: x' }]),
+        ]);
+        const [shut, untimed, scoped, reworded] = readLessons(repo);
+        expect(shut).toMatchObject({ state: 'candidate' });
+        expect(pendingDecision(shut)?.detail).toBe('one reviewer, 2 PRs over 3 days; needs ≥3 PRs over ≥7 days or a second reviewer');
+        expect(pendingDecision(untimed)?.detail).toBe('one reviewer, 2 PRs, when they were posted not recorded; needs ≥3 PRs over ≥7 days or a second reviewer');
+        // A person kept these: the rule does not take them back.
+        expect(scoped).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
+        expect(reworded).toMatchObject({ state: 'verified', promotedBy: 'recurrence' });
+        expect([scoped, reworded].some(l => l.evidence.some(e => e.kind === 'reclassified'))).toBe(false);
+        // Nothing is deleted, and a person can promote it again.
+        expect(shut.evidence.filter(e => e.kind === 'point')).toHaveLength(2);
+        decideLesson(repo, 'close', 'accepted', 'lead@x');
         expect(readLessons(repo)[0]).toMatchObject({ state: 'verified', promotedBy: 'person' });
     });
 
@@ -416,6 +444,9 @@ describe('learnFromReviews', () => {
         // Edited after --until: kept, marked, since only its edited text is served.
         expect(points.find(e => e.comment === '52')?.editedAfterUntil).toBe(true);
         expect(points.find(e => e.comment === '51')?.editedAfterUntil).toBeUndefined();
+        // When each point was posted is kept, for how far apart one reviewer's points are.
+        expect(points.find(e => e.comment === '51')?.postedAt).toBe('2026-08-30T00:00:00Z');
+        expect(points.find(e => e.comment === 'review-61-0')?.postedAt).toBe('2026-08-31T00:00:00Z');
     });
 
     it('compares --until as an instant: an offset reads right against UTC, and an unreadable one is refused', async () => {
