@@ -58,9 +58,30 @@ export function isPlaceholderSecret(value: string): boolean {
     return false;
 }
 
-/** Whether a key names a secret: password, secret, an API key, an auth, access or refresh token, a private, signing or encryption key. */
+/** The names of a secret, by their words: `api_key`, `apiKey`, `ApiKey`, `apikey` and `API_KEY` are all `api key`. */
+const SECRET_KEY_WORDS = ['password', 'passwd', 'pwd', 'secret', 'api key', 'api token', 'auth token', 'access token', 'refresh token',
+    'client secret', 'private key', 'signing key', 'encryption key'].map(name => name.split(' '));
+
+/** Each later word joined by an optional `_`/`-`, its first letter either case: `[_-]?[Kk]ey`. */
+const laterWords = (words: string[]) => words.slice(1).map(w => `[_-]?[${w[0].toUpperCase()}${w[0]}]${w.slice(1)}`).join('');
+const either = (forms: string[]) => `(?:${forms.join('|')})`;
+const LOWER = either(SECRET_KEY_WORDS.map(words => words[0] + laterWords(words)));
+const CAPITAL = either(SECRET_KEY_WORDS.map(words => words[0][0].toUpperCase() + words[0].slice(1) + laterWords(words)));
+const UPPER = either(SECRET_KEY_WORDS.map(words => words.map(w => w.toUpperCase()).join('[_-]?')));
+
+/**
+ * A key that ends in a secret's name, as a regular expression's source. The name starts a word or follows a `_`/`-`
+ * (`password`, `db_password`, `DB_PASSWORD`, `privateKey`), or starts at a lower-to-upper-case step (`dbPassword`,
+ * `getAccessToken`). Case-sensitive on purpose, so a name inside a longer word never counts. The caller decides
+ * what may follow the name; `passwordless`, `secretary` and `tokenizer` are never keys.
+ */
+export const SECRET_KEY_SOURCE = `(?:\\b(?:[A-Za-z0-9]+[_-])*${either([LOWER, CAPITAL, UPPER])}|\\b[A-Za-z0-9]+${CAPITAL})`;
+
+const SECRET_KEY_NAME = new RegExp(`${SECRET_KEY_SOURCE}(?![A-Za-z])`);
+
+/** Whether a key names a secret: password, secret, an API key or token, an auth, access or refresh token, a client secret, a private, signing or encryption key. */
 export function isSecretKeyName(key: string): boolean {
-    return /(?:^|[^a-z])(?:password|passwd|pwd|secret|api[_-]?key|apikey|auth[_-]?token|access[_-]?token|refresh[_-]?token|private[_-]?key|signing[_-]?key|encryption[_-]?key)(?:$|[^a-z])/i.test(key);
+    return SECRET_KEY_NAME.test(key);
 }
 
 /** Shannon entropy (bits per character): real secrets are high (>4.5), constants and names low (<3.0). */
