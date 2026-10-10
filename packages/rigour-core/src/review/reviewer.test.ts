@@ -387,9 +387,20 @@ describe('the reviewer', () => {
         const recovered = await runReviewer(repo, 'main', config, fakes(() => (++crashes === 1 ? { exitCode: 1, stdout: '', stderr: 'API error' } : JSON.stringify(EMPTY)), crashOnce), () => undefined, { force: true });
         expect(recovered.outcome).toBe('passed'); // a run that died is asked once more too
         const twice = seenNow();
-        const slipTwice = await runReviewer(repo, 'main', config, fakes(() => 'not json', twice), () => undefined, { force: true });
+        // Each fake run reports $1.50: a review cap that leaves room for all three, so only the slips decide here.
+        const roomy = ConfigSchema.parse({ ...config, review: { ...config.review, reviewer: { ...config.review.reviewer, max_usd_per_review: 10 } } });
+        const slipTwice = await runReviewer(repo, 'main', roomy, fakes(() => 'not json', twice), () => undefined, { force: true });
         expect(slipTwice).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('no valid verdict') });
         expect(twice.prompts).toHaveLength(3); // once more, then the spare judge once: never a loop
+    });
+
+    it("stops a review at its cost cap, and says the cap is why no other judge was asked", async () => {
+        const seen = seenNow();
+        // $1.50 a run against $2 a review: the retry fits ($1.50 spent), the spare judge does not ($3.00).
+        const capped = ConfigSchema.parse({ ...config, review: { ...config.review, reviewer: { ...config.review.reviewer, max_usd_per_review: 2 } } });
+        const result = await runReviewer(repo, 'main', capped, fakes(() => 'not json', seen), () => undefined, { force: true });
+        expect(seen.prompts).toHaveLength(2);
+        expect(result).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining("no other judge asked: this review's cost cap is reached: $3.00 of $2.00 spent by this review (review.reviewer.max_usd_per_review)") });
     });
 
     it('says what was asked and that nothing ran when a review ends early, with why a judge is missing', async () => {

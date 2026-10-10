@@ -8,6 +8,10 @@ import type { Config, DeepOptions, Failure, Report, Status } from '../types/inde
 import { localTier } from '../inference/types.js';
 import { Logger } from '../utils/logger.js';
 import { appendDeepRun } from '../review/deep-runs.js';
+import { overBudget } from '../review/reviewer/caps.js';
+import { defaultExec } from '../review/reviewer/exec.js';
+import { resolveReviewer } from '../review/reviewer/settings.js';
+import { VerdictStore } from '../review/reviewer/store.js';
 
 export interface DeepRunResult {
     failures: Failure[];
@@ -26,6 +30,15 @@ export async function runDeepAnalysis(
     deepOptions: DeepOptions & { onProgress?: (msg: string) => void },
 ): Promise<DeepRunResult> {
     const start = Date.now();
+    const isLocal = !deepOptions.apiKey || (deepOptions.provider || '').toLowerCase() === 'local';
+    // A cloud model is paid: it counts toward the reviewer's daily caps and its per-run cap, and stops at them.
+    const store = isLocal ? undefined : await VerdictStore.open(context.cwd, defaultExec).catch(() => undefined);
+    const settings = resolveReviewer(config);
+    const capped = store ? overBudget(store.spend(), settings, 1) : undefined;
+    if (capped) {
+        Logger.info(`Deep analysis skipped: ${capped}`);
+        return { failures: [], summary: 'SKIP', stats: { enabled: true, tier: 'cloud', skipped: `the cloud model did not run: ${capped}` } };
+    }
     const deepGate = new DeepAnalysisGate({
         options: deepOptions,
         checks: config.gates.deep?.checks,
@@ -51,7 +64,7 @@ export async function runDeepAnalysis(
     }
     // A gate that threw produced nothing: never report its last outcome as ok.
     const outcome = thrown ? { ...deepGate.getOutcome(), status: 'error' as const, error: thrown } : deepGate.getOutcome();
-    const isLocal = !deepOptions.apiKey || (deepOptions.provider || '').toLowerCase() === 'local';
+    store?.addSpend(1, outcome.usage?.costUsd);
 
     const stats: NonNullable<Report['stats']['deep']> = {
         enabled: true,

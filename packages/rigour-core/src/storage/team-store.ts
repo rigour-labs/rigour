@@ -8,7 +8,7 @@ import { diagnoseMissingMembership, explainTeamConnectionError } from './team-di
 import { rigourUserDir } from '../utils/user-state.js';
 import { withheldReason } from './team-scope.js';
 import { getRepositoryId, originOf } from './repository-origin.js';
-import { pushReviewDecisions, type DecisionPush } from './team-review-decisions.js';
+import { syncReviewDecisions, type DecisionSync } from './team-review-decisions.js';
 import { personOf } from '../utils/person.js';
 import {
     TEAM_VECTOR_SCHEMA,
@@ -291,7 +291,7 @@ function refusedRow(error: unknown): boolean {
     return typeof code === 'string' && (code === '42501' || code.startsWith('23'));
 }
 
-export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string }): Promise<{ pending: number; withheld: number; synced: number; pulled: number; decisions?: DecisionPush }> {
+export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string }): Promise<{ pending: number; withheld: number; synced: number; pulled: number; decisions?: DecisionSync }> {
     const config = await loadTeamConfiguration();
     if (!config?.databaseUrl) throw new Error('Team mode is not configured.');
     const db = await openDatabase();
@@ -310,7 +310,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string })
         const pool = new Pool({ connectionString: config.databaseUrl });
         let synced = 0;
         let pulled = 0;
-        let decisions: DecisionPush;
+        let decisions: DecisionSync;
         try {
             const membership = await pool.query(
                 `SELECT 1 FROM rigour.memberships
@@ -362,8 +362,8 @@ export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string })
                     throw error;
                 }
             }
-            // The repository this sync runs in: its people's decisions on review lessons (team-review-decisions.ts).
-            decisions = await pushReviewDecisions(pool, db, {
+            // The repository this sync runs in: its person's decisions on review lessons out, the team's in (team-review-decisions.ts).
+            decisions = await syncReviewDecisions(pool, db, {
                 cwd: options.cwd, origin: await originOf(options.cwd), repositoryId: await getRepositoryId(options.cwd),
                 person: personOf(options.cwd), scope: config,
             });

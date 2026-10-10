@@ -17,6 +17,8 @@ import fs from 'fs';
 import path from 'path';
 import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
 import { bodyPoints, withoutEmphasis } from './review-points.js';
+import { withFileLock, writeJsonAtomic } from '../utils/file-lock.js';
+import { foldTeamDecisions, readTeamDecisionCache } from './team-decisions.js';
 import { asksSomething, bodyPointPlaces, describesChange, notARequest, type NotRequestReason } from './requests.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
@@ -90,6 +92,10 @@ export interface LessonEvidence {
     text?: string;
     /** What the evidence was: the fixing commit, the window, who decided and why. */
     detail?: string;
+    /** A teammate's decision this clone received (team-decisions.ts): who, by display name, and when the team database got it. Never in the store. */
+    team?: { name: string; receivedAt: string };
+    /** Where a person decision falls among the others, set when team decisions are folded in; without it, the trail's order. Never in the store. */
+    order?: number;
     at?: string;
 }
 
@@ -129,8 +135,9 @@ export interface ReviewLesson {
 export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 'promotedBy'> {
     const kinds = new Set(lesson.evidence.map(e => e.kind));
     if (!lesson.evidence.some(e => e.kind)) return lesson.state === 'verified' ? { state: 'verified', promotedBy: lesson.promotedBy ?? 'legacy' } : { state: lesson.state };
-    const decisions = lesson.evidence.filter(e => e.kind === 'accepted' || e.kind === 'rejected');
-    const last = decisions.at(-1);
+    // The latest decision: by `order` when team decisions are folded in (team-decisions.ts), else the trail's order.
+    const last = lesson.evidence.filter(e => e.kind === 'accepted' || e.kind === 'rejected')
+        .reduce<LessonEvidence | undefined>((a, b) => (!a || (b.order ?? 0) >= (a.order ?? 0) ? b : a), undefined);
     if (last?.kind === 'rejected') return { state: 'rejected' };
     if (last?.kind === 'accepted') return { state: 'verified', promotedBy: 'person' };
     if (kinds.has('norule')) return { state: 'candidate' };
@@ -412,7 +419,7 @@ function prCount(lesson: ReviewLesson): number {
  */
 export function scopeLesson(cwd: string, id: string, scope: 'file' | 'folder' | 'repo', by: string, why = ''): ReviewLesson | undefined {
     return updateLessons(cwd, lessons => {
-        const lesson = lessons.find(l => l.id === id);
+        const lesson = storedOrAdopted(cwd, lessons, id);
         if (!lesson) return undefined;
         if (scope === 'folder' && !lesson.file) throw new Error('a team standard has no folder: scope it to the repo or leave it');
         const at = new Date().toISOString();
@@ -424,12 +431,38 @@ export function scopeLesson(cwd: string, id: string, scope: 'file' | 'folder' | 
     });
 }
 
+/**
+ * The stored lesson with this id, or one this clone knows only from its team, taken into the store so a person's
+ * decision on it is recorded here: its wording, file and points, without the team's decisions (those stay received).
+ */
+function storedOrAdopted(cwd: string, stored: ReviewLesson[], id: string): ReviewLesson | undefined {
+    const found = stored.find(l => l.id === id);
+    if (found) return found;
+    const known = readLessons(cwd).find(l => l.id === id);
+    if (!known) return undefined;
+    const adopted: ReviewLesson = { ...known, evidence: known.evidence.filter(e => !e.team).map(({ order: _order, ...e }) => e) };
+    Object.assign(adopted, lessonState(adopted));
+    stored.push(adopted);
+    return adopted;
+}
+
 /** RIGOUR_REVIEW_LESSONS points at a lessons file outside the clone (CI, or a team's shared copy). */
 export function lessonsPath(cwd: string): string {
     return process.env.RIGOUR_REVIEW_LESSONS?.trim() || path.join(cwd, STORE);
 }
 
+/**
+ * What this team knows: the store, with the decisions teammates shared folded in (team-decisions.ts). Every reader (the
+ * brief, review, Studio) reads this; a writer reads readStoredLessons, so what the team sent never enters the store.
+ */
 export function readLessons(cwd: string): ReviewLesson[] {
+    const stored = readStoredLessons(cwd);
+    const team = readTeamDecisionCache(cwd);
+    return team?.decisions.length ? foldTeamDecisions(stored, team, lessonState) : stored;
+}
+
+/** What this clone learned and decided: the store alone. */
+export function readStoredLessons(cwd: string): ReviewLesson[] {
     try {
         const parsed = JSON.parse(fs.readFileSync(lessonsPath(cwd), 'utf8'));
         return Array.isArray(parsed?.lessons) ? parsed.lessons.map(reclassified) : [];
@@ -481,50 +514,14 @@ function reclassified(lesson: ReviewLesson): ReviewLesson {
     return { ...lesson, state: 'candidate', promotedBy: undefined, evidence: [...lesson.evidence, { kind: 'reclassified', pr: lesson.evidence[0]?.pr ?? 0, comment: `reclassified-${lesson.id}`, author: '', detail, at }] };
 }
 
-/** How long a writer waits for another to finish, and when a lock is taken as left by a writer that died. */
-const LOCK_WAIT_MS = 10_000;
-const LOCK_STALE_MS = 30_000;
-const LOCK_POLL_MS = 25;
-
-/**
- * Runs `work` holding the store's lock (`<store>.lock`, created exclusively). A writer holds it only to read, change
- * and write the file, so a lock older than LOCK_STALE_MS was left by a writer that died, and is taken over. Waits at
- * most LOCK_WAIT_MS for another writer, then throws, so a decision is never silently lost.
- */
+/** Runs `work` holding the store's lock: two writers (a decision in Studio, a CLI run) never overwrite each other. */
 function withStoreLock<T>(cwd: string, work: () => T): T {
-    const file = lessonsPath(cwd);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const lock = `${file}.lock`;
-    const until = Date.now() + LOCK_WAIT_MS;
-    for (;;) {
-        try {
-            fs.closeSync(fs.openSync(lock, 'wx'));
-            break;
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-            if (Date.now() > until) throw new Error(`the review lessons store is locked by another writer (${lock}); try again`);
-            const age = Date.now() - (fs.statSync(lock, { throwIfNoEntry: false })?.mtimeMs ?? Date.now());
-            if (age > LOCK_STALE_MS) { fs.rmSync(lock, { force: true }); continue; }
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_POLL_MS);
-        }
-    }
-    try {
-        return work();
-    } finally {
-        fs.rmSync(lock, { force: true });
-    }
+    return withFileLock(lessonsPath(cwd), 'the review lessons store', work);
 }
 
 /** Writes the whole store at once: a reader sees the old file or the new one, never half of one. */
 function writeStore(cwd: string, lessons: ReviewLesson[]): void {
-    const file = lessonsPath(cwd);
-    const temp = `${file}.${process.pid}.tmp`;
-    try {
-        fs.writeFileSync(temp, JSON.stringify({ version: 1, lessons }, null, 2) + '\n');
-        fs.renameSync(temp, file);
-    } finally {
-        fs.rmSync(temp, { force: true });
-    }
+    writeJsonAtomic(lessonsPath(cwd), { version: 1, lessons });
 }
 
 /**
@@ -534,7 +531,7 @@ function writeStore(cwd: string, lessons: ReviewLesson[]): void {
  */
 export function updateLessons<T>(cwd: string, change: (lessons: ReviewLesson[]) => T): T {
     return withStoreLock(cwd, () => {
-        const lessons = readLessons(cwd);
+        const lessons = readStoredLessons(cwd);
         const result = change(lessons);
         writeStore(cwd, lessons);
         return result;
@@ -548,7 +545,7 @@ export function updateLessons<T>(cwd: string, change: (lessons: ReviewLesson[]) 
  * then worked out again from the evidence. There is no blind overwrite.
  */
 export function writeLessons(cwd: string, lessons: ReviewLesson[], read: ReviewLesson[]): void {
-    withStoreLock(cwd, () => writeStore(cwd, mergeConcurrent(read, lessons, readLessons(cwd))));
+    withStoreLock(cwd, () => writeStore(cwd, mergeConcurrent(read, lessons, readStoredLessons(cwd))));
 }
 
 /** Three-way: `ours` was made from `base`; `theirs` is the store now. */
@@ -576,7 +573,7 @@ function mergeConcurrent(base: ReviewLesson[], ours: ReviewLesson[], theirs: Rev
 /** A person's decision on a lesson, kept as evidence: accepted makes it a lesson, rejected an anti-lesson. Undefined for an unknown id. */
 export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected' | 'dismissed', by: string, why = ''): ReviewLesson | undefined {
     return updateLessons(cwd, lessons => {
-        const lesson = lessons.find(l => l.id === id);
+        const lesson = storedOrAdopted(cwd, lessons, id);
         if (!lesson) return undefined;
         const at = new Date().toISOString();
         lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
@@ -588,7 +585,7 @@ export function decideLesson(cwd: string, id: string, decision: 'accepted' | 're
 /** A person takes a decided lesson's suggested wording; who and the wording it replaced are kept as evidence. */
 export function acceptSuggestedText(cwd: string, id: string, by: string): ReviewLesson | undefined {
     return updateLessons(cwd, lessons => {
-        const lesson = lessons.find(l => l.id === id);
+        const lesson = storedOrAdopted(cwd, lessons, id);
         if (!lesson?.suggestedText) return undefined;
         const at = new Date().toISOString();
         lesson.evidence.push({ kind: 'reworded', pr: lesson.evidence[0]?.pr ?? 0, comment: `reworded-${at}`, author: by, detail: `${lesson.suggestedWhy ?? 'reworded'}; was: ${lesson.text}`, at });
