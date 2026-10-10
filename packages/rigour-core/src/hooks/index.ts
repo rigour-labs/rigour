@@ -5,7 +5,7 @@
 
 export { runHookChecker } from './checker.js';
 export type { CheckerOptions } from './checker.js';
-export { generateHookFiles, pushGateShell } from './templates.js';
+export { generateHookFiles } from './templates.js';
 export type { GeneratedHookFile } from './templates.js';
 export type { HookTool, HookCheckerResult } from './types.js';
 

@@ -35,10 +35,13 @@ Node 22.13 or later is required.
 | `rigour hooks init --tool <name>` | The repository. | The one you name: `claude`, `cursor`, `cline`, `windsurf`, or `all`; several comma-separated. |
 
 **Personal install.** The user-level files are `~/.claude/settings.json`, `~/.cursor/hooks.json`,
-`~/.codeium/windsurf/hooks.json` and `~/Documents/Cline/Hooks/`. Each hook command is wrapped in a
-guard: it looks for a `rigour-enabled` marker in the repository's git directory and exits 0 at once
-when there is none. `rigour setup` writes that marker, so the hooks run only in repositories you have
-switched on and stay silent everywhere else.
+`~/.codeium/windsurf/hooks.json` and `~/Documents/Cline/Hooks/`. Each hook command carries
+`--if-enabled`: the CLI finds the project (Claude Code's `CLAUDE_PROJECT_DIR`, else the hook payload's `cwd`, else
+where the hook started), looks for a `rigour-enabled` marker in its git directory, and exits 0 without printing
+anything when there is none. `rigour setup` writes that marker, so the hooks run only in repositories you have
+switched on and stay silent everywhere else. Every hook is a plain command, so it runs in whatever shell the agent
+uses: bash, or PowerShell (Claude Code on Windows without Git Bash). Before 6.13.0 the guard and the push gate were
+`sh -c` wrappers that PowerShell cannot run; `rigour doctor` names them, and `rigour setup` replaces them in place.
 
 **Team install.** `rigour setup --team` looks for these signs in the repository root:
 
@@ -76,7 +79,7 @@ File: `.claude/settings.json` (team) or `~/.claude/settings.json` (personal).
 | --- | --- | --- | --- |
 | `PostToolUse` | `Write\|Edit\|MultiEdit` | `<cli> hooks check --stdin`, plus `--block` when asked | Fast checks on the file just written. |
 | `Stop` | none | `<cli> hooks stop --tool claude` (timeout 120 s) | Reviews the branch against main before the agent finishes. At most three stops, then the agent may finish and the finding still blocks the push. |
-| `PreToolUse` | `Bash` | `<cli> hooks push --stdin`, inside a shell that starts it only when the command mentions `git` and `push` (timeout 1800 s) | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
+| `PreToolUse` | `Bash` | `<cli> hooks push --stdin` (timeout 1800 s); the CLI passes a command that is not a push straight through | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
 | `PreToolUse` | `.*` | `<cli> hooks check --mode dlp --stdin` | Credentials in the input of every tool call: a real secret's format denies the call, anything else is a warning the agent sees. |
 
 ### Cursor

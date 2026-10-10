@@ -60,9 +60,12 @@ function versionCheck(hooks: string, mcp: string, installed: string): SetupCheck
     const pins = (text: string, pkg: string) => [...new Set([...text.matchAll(new RegExp(`@rigour-labs/${pkg}@([0-9A-Za-z.-]+)`, 'g'))].map(m => m[1]))];
     const hookPins = pins(hooks, 'cli');
     const mcpPins = pins(mcp, 'mcp');
+    // Before 6.13.0 a personal install's guard and the push gate were `sh -c '…'` wrappers: PowerShell cannot run them.
+    const wrapped = /sh -c '[^\n]*@rigour-labs\/cli@/.test(hooks);
     if (!hookPins.length && !mcpPins.length) return undefined;
     const name = 'Agent hooks and tools run the installed Rigour';
     const stale = [
+        ...(wrapped ? ['hooks run through a shell wrapper PowerShell cannot run'] : []),
         ...hookPins.filter(v => v !== installed).map(v => `hooks run ${v}`),
         ...mcpPins.filter(v => v !== installed).map(v => (/^\d+$/.test(v) || v === 'latest' ? `the MCP server floats on @${v}` : `the MCP server runs ${v}`)),
     ];
