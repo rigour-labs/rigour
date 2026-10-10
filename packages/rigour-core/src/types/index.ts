@@ -259,9 +259,9 @@ export const GatesSchema = z.object({
         block: z.boolean().optional().default(false),
     }).optional().default({}),
     /** Query shapes that cost production: offset paging in a loop, a time window with no upper bound (review/query-patterns.ts). */
-    query_patterns: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    query_patterns: z.object({ enabled: z.boolean().optional().default(true), /** Opt in: its findings block. By default they are notes (learned from one team's review history). */ block: z.boolean().optional().default(false) }).optional().default({}),
     /** What a fix leaves half done: the narrower condition still used elsewhere, a prop wired into some sibling mounts only, an accumulator copied every step (review/partial-fixes.ts, partial-wiring.ts, loop-copies.ts). */
-    change_sweep: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    change_sweep: z.object({ enabled: z.boolean().optional().default(true), /** Opt in: its findings block. By default they are notes (learned from one team's review history). */ block: z.boolean().optional().default(false) }).optional().default({}),
     /**
      * What a change made redundant, from the project's own TypeScript (review/typed/redundancy.ts): a null filter beside a
      * range on the same column, a nullable row type the query filters non-null, an optional member every host supplies, a
@@ -278,7 +278,7 @@ export const GatesSchema = z.object({
     /** A parameter the change adds as optional that only tests omit (review/optional-params.ts). */
     optional_params: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
     /** A changed function whose body duplicates another in the files the change touched (review/duplicate-functions.ts). */
-    duplicate_functions: z.object({ enabled: z.boolean().optional().default(true) }).optional().default({}),
+    duplicate_functions: z.object({ enabled: z.boolean().optional().default(true), /** Opt in: its findings block. By default they are notes (learned from one team's review history). */ block: z.boolean().optional().default(false) }).optional().default({}),
     /** Code files the change adds that nothing imports or runs (review/orphan-files.ts). */
     orphan_files: z.object({
         enabled: z.boolean().optional().default(true),
