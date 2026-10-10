@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import { execa } from 'execa';
 import fs from 'fs';
 import path from 'path';
-import { locateTransformers, semanticRuntimeDir, TRANSFORMERS_SPEC } from '@rigour-labs/core';
+import { locateTransformers, pruneSemanticRuntime, RETIRED_TRANSFORMERS_PACKAGE, retiredSemanticRuntimeInstalled, SEMANTIC_INSTALL_ENV, semanticRuntimeDir, TRANSFORMERS_SPEC } from '@rigour-labs/core';
 
 /** What the library takes on disk, with room to spare for npm's own cache while it installs. */
 const NEEDED_BYTES = 1024 ** 3;
@@ -25,10 +25,19 @@ async function ensureSemanticRuntime(cwd: string): Promise<SemanticInstall> {
     if (free !== undefined && free < NEEDED_BYTES) return { state: 'skipped', reason: `only ${Math.round(free / 1024 ** 2)} MB free; it needs about 1 GB while installing` };
     if (!fs.existsSync(path.join(dir, 'package.json'))) fs.writeFileSync(path.join(dir, 'package.json'), '{ "name": "rigour-semantic-runtime", "private": true }\n');
     const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const result = await execa(npm, ['install', '--no-audit', '--no-fund', '--omit=dev', TRANSFORMERS_SPEC], { cwd: dir, reject: false, timeout: INSTALL_TIMEOUT_MS });
+    const result = await execa(npm, ['install', '--no-audit', '--no-fund', '--omit=dev', TRANSFORMERS_SPEC], { cwd: dir, env: SEMANTIC_INSTALL_ENV, reject: false, timeout: INSTALL_TIMEOUT_MS });
     if (result.exitCode !== 0) return { state: 'failed', reason: String(result.stderr || result.stdout || `npm exited ${result.exitCode}`).trim().split('\n').slice(-3).join(' ') };
     const where = locateTransformers(cwd);
-    return where ? { state: 'installed', where } : { state: 'failed', reason: `npm finished, but ${TRANSFORMERS_SPEC} does not resolve from ${dir}` };
+    if (!where) return { state: 'failed', reason: `npm finished, but ${TRANSFORMERS_SPEC} does not resolve from ${dir}` };
+    // The copy an earlier setup installed is never loaded again, nor are other platforms' runtimes: free their space.
+    // A failure here costs only disk.
+    if (retiredSemanticRuntimeInstalled()) await execa(npm, ['uninstall', '--no-audit', '--no-fund', RETIRED_TRANSFORMERS_PACKAGE], { cwd: dir, env: SEMANTIC_INSTALL_ENV, reject: false, timeout: INSTALL_TIMEOUT_MS });
+    try {
+        pruneSemanticRuntime(dir);
+    } catch {
+        // left in place
+    }
+    return { state: 'installed', where };
 }
 
 function freeBytes(dir: string): number | undefined {
@@ -46,7 +55,7 @@ export async function setupSemantic(cwd: string): Promise<void> {
         console.log(chalk.green('✔ Semantic search is on (local embeddings)'));
         return;
     }
-    console.log(chalk.dim('Installing semantic search: about 230 MB, once for every Rigour version on this machine (skip with --no-semantic)...'));
+    console.log(chalk.dim('Installing semantic search: about 250 MB on Linux, 280 MB on macOS, once for every Rigour version on this machine (skip with --no-semantic)...'));
     const result = await ensureSemanticRuntime(cwd);
     if (result.state === 'installed' || result.state === 'present') console.log(chalk.green('✔ Semantic search is on (local embeddings)'));
     else console.log(chalk.yellow(`Semantic search is off (${result.reason}). Recall and pattern matching use keywords until \`rigour setup\` runs again.`));
@@ -57,5 +66,7 @@ export function semanticStatusLine(cwd: string): string {
     const where = locateTransformers(cwd);
     return where
         ? chalk.green(`  ✓ Semantic search: on (${where.includes(semanticRuntimeDir()) ? "Rigour's shared copy" : 'installed with Rigour or the project'})`)
-        : chalk.yellow('  ⚠ Semantic search: off. Recall and pattern matching use keywords, which find far less. Run: rigour setup');
+        : chalk.yellow(retiredSemanticRuntimeInstalled()
+            ? `  ⚠ Semantic search: off. It moved to ${TRANSFORMERS_SPEC}; existing indexes keep working. Run: rigour setup`
+            : '  ⚠ Semantic search: off. Recall and pattern matching use keywords, which find far less. Run: rigour setup');
 }

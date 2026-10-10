@@ -41,7 +41,7 @@ rigour setup
 - installs the agent hooks **once per machine**, for the agents installed on it (Claude Code, Cursor, Windsurf, Cline), in each one's user-level config. They are merged into what you have (your settings and own hooks stay), and each starts with a guard that stays silent in any repository you have not switched on;
 - installs git's `pre-push` hook in `.git/hooks`, so every tool and your terminal go through the same gate;
 - registers Rigour's MCP server at user level for Claude Code and Cursor;
-- installs semantic search, once per machine (about 230 MB, shared by every Rigour version). It lets "have we learned this before?" and "is there already a helper for this?" work by meaning. Skip it with `--no-semantic`.
+- installs semantic search, once per machine (about 250 MB on Linux, 280 MB on macOS, shared by every Rigour version). It lets "have we learned this before?" and "is there already a helper for this?" work by meaning. Skip it with `--no-semantic`.
 
 Settings are Rigour's defaults until you want them shared. It ends by checking that each piece works.
 
