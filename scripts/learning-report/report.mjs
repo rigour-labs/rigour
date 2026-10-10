@@ -12,7 +12,7 @@ import { HELDOUT_DIR, REPOS, setPath, sourceUrl, wilson } from './common.mjs';
 function loadSet(dir) {
     const results = path.join(dir, 'results');
     const read = f => JSON.parse(fs.readFileSync(path.join(results, f), 'utf8'));
-    const runs = fs.existsSync(results) ? fs.readdirSync(results).filter(f => f.endsWith('.json') && f !== 'recurrence-100.json').map(read).sort((a, b) => a.at.localeCompare(b.at)) : [];
+    const runs = fs.existsSync(results) ? fs.readdirSync(results).filter(f => f.endsWith('.json') && f !== 'recurrence-100.json' && !f.endsWith('.brief.json')).map(read).sort((a, b) => a.at.localeCompare(b.at)) : [];
     const repos = fs.existsSync(path.join(dir, 'prs.json')) ? Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'prs.json'), 'utf8')).prs) : [];
     const labels = Object.fromEntries(repos.map(repo => {
         const file = path.join(dir, 'labels', `${repo.replace('/', '__')}.json`);
@@ -134,6 +134,17 @@ for (const repo of REPOS) {
     } else if (last?.stopped) {
         lines.push(`Stopped in ${runs.at(-1).label}: ${last.stopped}`, '');
     }
+}
+// What Phase 1's brief serves from each set's latest brief check (brief-check.mjs): counts only.
+for (const [name, dir] of [['main', setPath()], ['held out', HELDOUT_DIR]]) {
+    const results = path.join(dir, 'results');
+    const checks = fs.existsSync(results) ? fs.readdirSync(results).filter(f => f.endsWith('.brief.json')).map(f => JSON.parse(fs.readFileSync(path.join(results, f), 'utf8'))).sort((a, b) => a.at.localeCompare(b.at)) : [];
+    if (!checks.length) continue;
+    lines.push(`## What the brief serves (${name} set)`, '',
+        '`rigour brief --files <file>` on each repository\'s 5 files with the most candidates, serving candidates (review_lessons: all). At most 3 per file is the limit; every item should be cited and whole.', '',
+        '| Check | Repository | Files | Lessons served per file | Over 3 | Uncited | Look broken |', '|---|---|---|---|---|---|---|');
+    for (const check of checks) for (const [repo, r] of Object.entries(check.repos)) lines.push(`| ${check.label} | ${repo} | ${r.files} | ${r.servedPerFile.join(', ')} | ${r.overCap} | ${r.uncited} | ${r.broken} |`);
+    lines.push('');
 }
 lines.push('## Notes', '',
     '- Run-to-run noise: immich has one point more in b1 than in baseline. It is a comment posted before the cutoff and',

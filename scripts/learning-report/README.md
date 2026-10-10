@@ -13,7 +13,8 @@ change to the learning pipeline. It costs nothing: GitHub reads and git fetches,
 
 ## A run
 
-`node scripts/learning-report/run.mjs <label> <scratch dir>` after `npm run build`:
+`node scripts/learning-report/run.mjs <label> <scratch dir>` after `npm run build` (each run works in its own folder
+under the scratch dir, `<label>-<process id>`, removed at the end, so two runs never clear each other's clones):
 
 - clones each repository blobless (`--filter=blob:none --no-checkout`: commits and trees; file contents fetched when
   read), stops it if it passes 1 GB, and deletes it as soon as the repository is done;
