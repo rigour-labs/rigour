@@ -542,12 +542,13 @@ export function updateLessons<T>(cwd: string, change: (lessons: ReviewLesson[]) 
 }
 
 /**
- * Writes the store. With `read` (the lessons as this writer read them before working), what another writer changed in
- * the meantime is kept: every lesson and every piece of evidence either side added (nothing is ever removed), and for
- * each other field, this writer's value only where it changed it. The state is then worked out again from the evidence.
+ * Writes the store from `read` (the lessons as this writer read them before working) and `lessons` (what it made of
+ * them). What another writer changed in the meantime is kept: every lesson and every piece of evidence either side
+ * added (nothing is ever removed), and for each other field, this writer's value only where it changed it. The state is
+ * then worked out again from the evidence. There is no blind overwrite.
  */
-export function writeLessons(cwd: string, lessons: ReviewLesson[], read?: ReviewLesson[]): void {
-    withStoreLock(cwd, () => writeStore(cwd, read ? mergeConcurrent(read, lessons, readLessons(cwd)) : lessons));
+export function writeLessons(cwd: string, lessons: ReviewLesson[], read: ReviewLesson[]): void {
+    withStoreLock(cwd, () => writeStore(cwd, mergeConcurrent(read, lessons, readLessons(cwd))));
 }
 
 /** Three-way: `ours` was made from `base`; `theirs` is the store now. */
