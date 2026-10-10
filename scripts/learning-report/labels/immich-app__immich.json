@@ -1,0 +1,209 @@
+{
+  "repo": "immich-app/immich",
+  "seed": 20261010,
+  "sample": 40,
+  "drawnFrom": "baseline",
+  "rubric": "judge the text, not its author: a = asks for something a person could act on, or names a concrete defect; b = does not (praise, status, thanks, a summary)",
+  "sources": {
+    "3898203323": {
+      "pr": 31119,
+      "url": "https://github.com/immich-app/immich/pull/31119#discussion_r3898203323",
+      "label": "a"
+    },
+    "3898216766": {
+      "pr": 31119,
+      "url": "https://github.com/immich-app/immich/pull/31119#discussion_r3898216766",
+      "label": "a"
+    },
+    "3919383023": {
+      "pr": 31229,
+      "url": "https://github.com/immich-app/immich/pull/31229#discussion_r3919383023",
+      "label": "a"
+    },
+    "3923882666": {
+      "pr": 31239,
+      "url": "https://github.com/immich-app/immich/pull/31239#discussion_r3923882666",
+      "label": "a"
+    },
+    "3934939449": {
+      "pr": 31265,
+      "url": "https://github.com/immich-app/immich/pull/31265#discussion_r3934939449",
+      "label": "a"
+    },
+    "3958518931": {
+      "pr": 31280,
+      "url": "https://github.com/immich-app/immich/pull/31280#discussion_r3958518931",
+      "label": "b"
+    },
+    "3960327828": {
+      "pr": 31280,
+      "url": "https://github.com/immich-app/immich/pull/31280#discussion_r3960327828",
+      "label": "a"
+    },
+    "3968662343": {
+      "pr": 31146,
+      "url": "https://github.com/immich-app/immich/pull/31146#discussion_r3968662343",
+      "label": "a"
+    },
+    "3991783187": {
+      "pr": 31146,
+      "url": "https://github.com/immich-app/immich/pull/31146#discussion_r3991783187",
+      "label": "a"
+    },
+    "3991877231": {
+      "pr": 31146,
+      "url": "https://github.com/immich-app/immich/pull/31146#discussion_r3991877231",
+      "label": "a"
+    },
+    "3991902316": {
+      "pr": 31146,
+      "url": "https://github.com/immich-app/immich/pull/31146#discussion_r3991902316",
+      "label": "a"
+    },
+    "3991906380": {
+      "pr": 31146,
+      "url": "https://github.com/immich-app/immich/pull/31146#discussion_r3991906380",
+      "label": "a"
+    },
+    "3992296452": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r3992296452",
+      "label": "a"
+    },
+    "3992356412": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r3992356412",
+      "label": "a"
+    },
+    "3992359679": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r3992359679",
+      "label": "a"
+    },
+    "3992371999": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r3992371999",
+      "label": "a"
+    },
+    "3992756010": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r3992756010",
+      "label": "a"
+    },
+    "3992776348": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r3992776348",
+      "label": "a"
+    },
+    "3992788594": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r3992788594",
+      "label": "a"
+    },
+    "3992929806": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r3992929806",
+      "label": "a"
+    },
+    "4004522535": {
+      "pr": 31457,
+      "url": "https://github.com/immich-app/immich/pull/31457#discussion_r4004522535",
+      "label": "a"
+    },
+    "4006007267": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r4006007267",
+      "label": "a"
+    },
+    "4006434908": {
+      "pr": 31456,
+      "url": "https://github.com/immich-app/immich/pull/31456#discussion_r4006434908",
+      "label": "b"
+    },
+    "4019451490": {
+      "pr": 31577,
+      "url": "https://github.com/immich-app/immich/pull/31577#discussion_r4019451490",
+      "label": "a"
+    },
+    "4019467754": {
+      "pr": 31577,
+      "url": "https://github.com/immich-app/immich/pull/31577#discussion_r4019467754",
+      "label": "a"
+    },
+    "4025429895": {
+      "pr": 31606,
+      "url": "https://github.com/immich-app/immich/pull/31606#discussion_r4025429895",
+      "label": "a"
+    },
+    "4026295709": {
+      "pr": 31609,
+      "url": "https://github.com/immich-app/immich/pull/31609#discussion_r4026295709",
+      "label": "a"
+    },
+    "4026609775": {
+      "pr": 31615,
+      "url": "https://github.com/immich-app/immich/pull/31615#discussion_r4026609775",
+      "label": "a"
+    },
+    "4040030770": {
+      "pr": 31557,
+      "url": "https://github.com/immich-app/immich/pull/31557#discussion_r4040030770",
+      "label": "a"
+    },
+    "4040032645": {
+      "pr": 31557,
+      "url": "https://github.com/immich-app/immich/pull/31557#discussion_r4040032645",
+      "label": "a"
+    },
+    "4048945102": {
+      "pr": 31661,
+      "url": "https://github.com/immich-app/immich/pull/31661#discussion_r4048945102",
+      "label": "a"
+    },
+    "4074163462": {
+      "pr": 31146,
+      "url": "https://github.com/immich-app/immich/pull/31146#discussion_r4074163462",
+      "label": "a"
+    },
+    "4074169758": {
+      "pr": 31146,
+      "url": "https://github.com/immich-app/immich/pull/31146#discussion_r4074169758",
+      "label": "a"
+    },
+    "4086590463": {
+      "pr": 31753,
+      "url": "https://github.com/immich-app/immich/pull/31753#discussion_r4086590463",
+      "label": "a"
+    },
+    "4103594272": {
+      "pr": 31768,
+      "url": "https://github.com/immich-app/immich/pull/31768#discussion_r4103594272",
+      "label": "a"
+    },
+    "4103604135": {
+      "pr": 31768,
+      "url": "https://github.com/immich-app/immich/pull/31768#discussion_r4103604135",
+      "label": "a"
+    },
+    "4103609680": {
+      "pr": 31768,
+      "url": "https://github.com/immich-app/immich/pull/31768#discussion_r4103609680",
+      "label": "a"
+    },
+    "4103623187": {
+      "pr": 31768,
+      "url": "https://github.com/immich-app/immich/pull/31768#discussion_r4103623187",
+      "label": "a"
+    },
+    "4125532363": {
+      "pr": 31841,
+      "url": "https://github.com/immich-app/immich/pull/31841#discussion_r4125532363",
+      "label": "a"
+    },
+    "4142236158": {
+      "pr": 31928,
+      "url": "https://github.com/immich-app/immich/pull/31928#discussion_r4142236158",
+      "label": "a"
+    }
+  }
+}

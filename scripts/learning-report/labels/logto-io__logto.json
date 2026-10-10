@@ -1,0 +1,204 @@
+{
+  "repo": "logto-io/logto",
+  "seed": 20261010,
+  "sample": 40,
+  "drawnFrom": "baseline",
+  "rubric": "judge the text, not its author: a = asks for something a person could act on, or names a concrete defect; b = does not (praise, status, thanks, a summary)",
+  "sources": {
+    "3976864752": {
+      "pr": 9575,
+      "url": "https://github.com/logto-io/logto/pull/9575#discussion_r3976864752",
+      "label": "a"
+    },
+    "3985703522": {
+      "pr": 9580,
+      "url": "https://github.com/logto-io/logto/pull/9580#discussion_r3985703522",
+      "label": "a"
+    },
+    "3986526747": {
+      "pr": 9580,
+      "url": "https://github.com/logto-io/logto/pull/9580#discussion_r3986526747",
+      "label": "a"
+    },
+    "3987773775": {
+      "pr": 9580,
+      "url": "https://github.com/logto-io/logto/pull/9580#discussion_r3987773775",
+      "label": "a"
+    },
+    "3994901338": {
+      "pr": 9575,
+      "url": "https://github.com/logto-io/logto/pull/9575#discussion_r3994901338",
+      "label": "a"
+    },
+    "3995491755": {
+      "pr": 9582,
+      "url": "https://github.com/logto-io/logto/pull/9582#discussion_r3995491755",
+      "label": "a"
+    },
+    "3995505463": {
+      "pr": 9589,
+      "url": "https://github.com/logto-io/logto/pull/9589#discussion_r3995505463",
+      "label": "a"
+    },
+    "3995505482": {
+      "pr": 9589,
+      "url": "https://github.com/logto-io/logto/pull/9589#discussion_r3995505482",
+      "label": "a"
+    },
+    "3999942335": {
+      "pr": 9596,
+      "url": "https://github.com/logto-io/logto/pull/9596#discussion_r3999942335",
+      "label": "a"
+    },
+    "4002654562": {
+      "pr": 9582,
+      "url": "https://github.com/logto-io/logto/pull/9582#discussion_r4002654562",
+      "label": "a"
+    },
+    "4002843705": {
+      "pr": 9596,
+      "url": "https://github.com/logto-io/logto/pull/9596#discussion_r4002843705",
+      "label": "a"
+    },
+    "4003972963": {
+      "pr": 9589,
+      "url": "https://github.com/logto-io/logto/pull/9589#discussion_r4003972963",
+      "label": "a"
+    },
+    "4013860094": {
+      "pr": 9595,
+      "url": "https://github.com/logto-io/logto/pull/9595#discussion_r4013860094",
+      "label": "a"
+    },
+    "4033808669": {
+      "pr": 9605,
+      "url": "https://github.com/logto-io/logto/pull/9605#discussion_r4033808669",
+      "label": "a"
+    },
+    "4056332351": {
+      "pr": 9626,
+      "url": "https://github.com/logto-io/logto/pull/9626#discussion_r4056332351",
+      "label": "a"
+    },
+    "4056342689": {
+      "pr": 9633,
+      "url": "https://github.com/logto-io/logto/pull/9633#discussion_r4056342689",
+      "label": "a"
+    },
+    "4056343222": {
+      "pr": 9633,
+      "url": "https://github.com/logto-io/logto/pull/9633#discussion_r4056343222",
+      "label": "a"
+    },
+    "4056398890": {
+      "pr": 9632,
+      "url": "https://github.com/logto-io/logto/pull/9632#discussion_r4056398890",
+      "label": "a"
+    },
+    "4059646189": {
+      "pr": 9632,
+      "url": "https://github.com/logto-io/logto/pull/9632#discussion_r4059646189",
+      "label": "a"
+    },
+    "4059710468": {
+      "pr": 9636,
+      "url": "https://github.com/logto-io/logto/pull/9636#discussion_r4059710468",
+      "label": "a"
+    },
+    "4067827581": {
+      "pr": 9639,
+      "url": "https://github.com/logto-io/logto/pull/9639#discussion_r4067827581",
+      "label": "a"
+    },
+    "4069509404": {
+      "pr": 9640,
+      "url": "https://github.com/logto-io/logto/pull/9640#discussion_r4069509404",
+      "label": "a"
+    },
+    "4090223871": {
+      "pr": 9652,
+      "url": "https://github.com/logto-io/logto/pull/9652#discussion_r4090223871",
+      "label": "a"
+    },
+    "4091869834": {
+      "pr": 9648,
+      "url": "https://github.com/logto-io/logto/pull/9648#discussion_r4091869834",
+      "label": "a"
+    },
+    "4117997295": {
+      "pr": 9644,
+      "url": "https://github.com/logto-io/logto/pull/9644#discussion_r4117997295",
+      "label": "a"
+    },
+    "4118010919": {
+      "pr": 9643,
+      "url": "https://github.com/logto-io/logto/pull/9643#discussion_r4118010919",
+      "label": "a"
+    },
+    "4118252800": {
+      "pr": 9651,
+      "url": "https://github.com/logto-io/logto/pull/9651#discussion_r4118252800",
+      "label": "a"
+    },
+    "4140072967": {
+      "pr": 9681,
+      "url": "https://github.com/logto-io/logto/pull/9681#discussion_r4140072967",
+      "label": "a"
+    },
+    "4141538760": {
+      "pr": 9683,
+      "url": "https://github.com/logto-io/logto/pull/9683#discussion_r4141538760",
+      "label": "a"
+    },
+    "review-5164628598": {
+      "pr": 9575,
+      "url": "https://github.com/logto-io/logto/pull/9575#pullrequestreview-5164628598",
+      "label": "b"
+    },
+    "review-5164375548": {
+      "pr": 9575,
+      "url": "https://github.com/logto-io/logto/pull/9575#pullrequestreview-5164375548",
+      "label": "b"
+    },
+    "review-5275408105": {
+      "pr": 9640,
+      "url": "https://github.com/logto-io/logto/pull/9640#pullrequestreview-5275408105",
+      "label": "b"
+    },
+    "review-5185720488": {
+      "pr": 9589,
+      "url": "https://github.com/logto-io/logto/pull/9589#pullrequestreview-5185720488",
+      "label": "b"
+    },
+    "review-5174732750": {
+      "pr": 9580,
+      "url": "https://github.com/logto-io/logto/pull/9580#pullrequestreview-5174732750",
+      "label": "b"
+    },
+    "review-5275632157": {
+      "pr": 9645,
+      "url": "https://github.com/logto-io/logto/pull/9645#pullrequestreview-5275632157",
+      "label": "b"
+    },
+    "review-5175628533": {
+      "pr": 9580,
+      "url": "https://github.com/logto-io/logto/pull/9580#pullrequestreview-5175628533",
+      "label": "b"
+    },
+    "review-5163803166": {
+      "pr": 9575,
+      "url": "https://github.com/logto-io/logto/pull/9575#pullrequestreview-5163803166",
+      "label": "b"
+    },
+    "review-5206298294": {
+      "pr": 9600,
+      "url": "https://github.com/logto-io/logto/pull/9600#pullrequestreview-5206298294",
+      "label": "b"
+    },
+    "review-5219776156": {
+      "pr": 9609,
+      "url": "https://github.com/logto-io/logto/pull/9609#pullrequestreview-5219776156",
+      "label": "b"
+    }
+  }
+}
