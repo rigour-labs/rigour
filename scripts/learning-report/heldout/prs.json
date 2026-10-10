@@ -1,0 +1,31 @@
+{
+  "set": "heldout",
+  "window": {
+    "from": "2026-10-01T00:00:00Z",
+    "before": "2026-10-10T00:00:00Z"
+  },
+  "rule": "the most recent pull requests (by creation) merged from 2026-10-01T00:00:00Z before 2026-10-10T00:00:00Z with at least one review comment or non-empty review body from anyone other than the author",
+  "counts": {
+    "logto-io/logto": 20
+  },
+  "prs": {
+    "logto-io/logto": [
+      9692,
+      9694,
+      9695,
+      9696,
+      9698,
+      9699,
+      9700,
+      9701,
+      9702,
+      9703,
+      9704,
+      9705,
+      9706,
+      9707,
+      9708,
+      9710
+    ]
+  }
+}

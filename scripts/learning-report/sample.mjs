@@ -7,13 +7,10 @@
 // Usage: node scripts/learning-report/sample.mjs
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { REPOS, TEXT_CACHE, github, sourceUrl } from './common.mjs';
+import { REPOS, SAMPLE, TEXT_CACHE, github, setPath, sourceUrl } from './common.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const SAMPLE = 40;
 const SEED = 20261010;
-const baseline = JSON.parse(fs.readFileSync(path.join(here, 'results', 'baseline.json'), 'utf8'));
+const baseline = JSON.parse(fs.readFileSync(setPath('results', 'baseline.json'), 'utf8'));
 const texts = JSON.parse(fs.readFileSync(path.join(TEXT_CACHE, 'baseline.json'), 'utf8'));
 
 /** A small seeded generator (mulberry32), so the same candidates are drawn on any machine. */
@@ -28,24 +25,42 @@ function random(seed) {
 }
 
 for (const repo of REPOS) {
-    const file = path.join(here, 'labels', `${repo.replace('/', '__')}.json`);
+    const file = setPath('labels', `${repo.replace('/', '__')}.json`);
     if (fs.existsSync(file)) { console.log(`${repo}: labels exist, not redrawn`); continue; }
     const lessons = [...baseline.repos[repo].lessons].sort((a, b) => a.id.localeCompare(b.id));
     const next = random(SEED);
     for (let i = lessons.length - 1; i > 0; i--) { const j = Math.floor(next() * (i + 1)); [lessons[i], lessons[j]] = [lessons[j], lessons[i]]; }
-    const drawn = lessons.slice(0, SAMPLE);
+    // A number of candidates, or candidates in drawing order until a number of distinct source comments.
+    const drawn = [];
+    const seen = new Set();
+    for (const l of lessons) {
+        if (SAMPLE.candidates !== undefined ? drawn.length >= SAMPLE.candidates : seen.size >= SAMPLE.sources) break;
+        drawn.push(l);
+        l.sources.forEach(s => seen.add(s));
+    }
     const sources = {};
     const forLabeller = {};
     const textOf = new Map(texts[repo].map(l => [l.id, l.text]));
     for (const l of drawn) for (const source of l.sources) {
         if (sources[source]) continue;
-        const pr = l.prs[0];
-        const body = source.startsWith('review-')
-            ? (await github(`/repos/${repo}/pulls/${pr}/reviews/${source.slice(7)}`)).body
-            : (await github(`/repos/${repo}/pulls/comments/${source}`)).body;
+        // A candidate merged across pull requests lists them all: the source belongs to the one that has it.
+        let pr, body;
+        for (const candidatePr of l.prs) {
+            try {
+                body = source.startsWith('review-')
+                    ? (await github(`/repos/${repo}/pulls/${candidatePr}/reviews/${source.slice(7)}`)).body
+                    : (await github(`/repos/${repo}/pulls/comments/${source}`)).body;
+                pr = candidatePr;
+                break;
+            } catch {
+                // Not on this pull request; try the next.
+            }
+        }
+        if (pr === undefined) throw new Error(`${repo}: source ${source} is on none of ${l.prs.join(', ')}`);
         sources[source] = { pr, url: sourceUrl(repo, pr, source), label: null };
         forLabeller[source] = { body: String(body ?? ''), candidate: textOf.get(l.id) };
     }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify({ repo, seed: SEED, sample: drawn.length, drawnFrom: 'baseline', rubric: 'judge the text, not its author: a = asks for something a person could act on, or names a concrete defect; b = does not (praise, status, thanks, a summary)', sources }, null, 2) + '\n');
     fs.mkdirSync(path.join(TEXT_CACHE, 'labels'), { recursive: true });
     fs.writeFileSync(path.join(TEXT_CACHE, 'labels', `${repo.replace('/', '__')}.json`), JSON.stringify(forLabeller, null, 2) + '\n');

@@ -10,13 +10,14 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { CLONE_CAP_BYTES, CLONE_FILTER, REPOS, TEXT_CACHE, creditUnits, githubToken, looksBroken, nearDuplicates, sourceOf, sourceUrl, textHash } from './common.mjs';
+import { CLONE_CAP_BYTES, CLONE_FILTER, REPOS, TEXT_CACHE, setPath, creditUnits, githubToken, looksBroken, nearDuplicates, sourceOf, sourceUrl, textHash } from './common.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [label, scratch, ...only] = process.argv.slice(2);
 if (!label || !scratch) throw new Error('usage: run.mjs <label> <scratch dir>');
-const { learnFromReviews, readLessons } = await import(path.join(here, '../../packages/rigour-core/dist/index.js'));
-const { prs } = JSON.parse(fs.readFileSync(path.join(here, 'prs.json'), 'utf8'));
+// LEARNING_REPORT_CORE runs another build of core (another checkout's dist/index.js): the same pins, before and after a change.
+const { learnFromReviews, readLessons } = await import(process.env.LEARNING_REPORT_CORE || path.join(here, '../../packages/rigour-core/dist/index.js'));
+const { prs } = JSON.parse(fs.readFileSync(setPath('prs.json'), 'utf8'));
 const kb = dir => Number(execFileSync('du', ['-sk', dir], { encoding: 'utf8' }).split('\t')[0]);
 
 /** The labeller's unit cache for a repository (review bodies split into labelled units), if present. */
@@ -40,7 +41,7 @@ function whyCandidate(l) {
     return 'one reviewer, one wording';
 }
 
-const resultFile = path.join(here, 'results', `${label}.json`);
+const resultFile = setPath('results', `${label}.json`);
 const cacheFile = path.join(TEXT_CACHE, `${label}.json`);
 const cached = only.length && fs.existsSync(cacheFile) ? JSON.parse(fs.readFileSync(cacheFile, 'utf8')) : {};
 const result = only.length && fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : { label, at: new Date().toISOString(), repos: {} };
@@ -108,6 +109,7 @@ for (const repo of only.length ? only : REPOS) {
         fs.rmSync(store, { force: true });
     }
 }
+fs.mkdirSync(path.dirname(resultFile), { recursive: true });
 fs.writeFileSync(resultFile, JSON.stringify(result, null, 2) + '\n');
 fs.mkdirSync(TEXT_CACHE, { recursive: true });
 fs.writeFileSync(cacheFile, JSON.stringify(cached, null, 2) + '\n');

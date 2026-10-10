@@ -1,22 +1,28 @@
 #!/usr/bin/env node
 // Writes REPORT.md from every run in results/ and the labels: per repository and run, raw points (people / bots),
 // candidates, verified lessons, candidates that look broken (mechanical), and precision on the labelled sample
-// with a Wilson 95% interval. Precision counts the run's candidates whose every source comment is labelled.
+// with a Wilson 95% interval. Precision counts the run's candidates whose every source comment is labelled. The
+// held-out set (heldout/), when it has runs, is shown beside the main set's numbers.
 // Usage: node scripts/learning-report/report.mjs
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { REPOS, sourceUrl, wilson } from './common.mjs';
+import { HELDOUT_DIR, REPOS, setPath, sourceUrl, wilson } from './common.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const read = f => JSON.parse(fs.readFileSync(path.join(here, 'results', f), 'utf8'));
-const runs = fs.readdirSync(path.join(here, 'results')).filter(f => f.endsWith('.json') && f !== 'recurrence-100.json').map(read)
-    .sort((a, b) => a.at.localeCompare(b.at));
-const recurrence = fs.existsSync(path.join(here, 'results', 'recurrence-100.json')) ? read('recurrence-100.json') : undefined;
-const labels = Object.fromEntries(REPOS.map(repo => {
-    const file = path.join(here, 'labels', `${repo.replace('/', '__')}.json`);
-    return [repo, fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).sources : {}];
-}));
+/** A set's runs (oldest first), its labels by repository, and its recurrence measure, read from its folder. */
+function loadSet(dir) {
+    const results = path.join(dir, 'results');
+    const read = f => JSON.parse(fs.readFileSync(path.join(results, f), 'utf8'));
+    const runs = fs.existsSync(results) ? fs.readdirSync(results).filter(f => f.endsWith('.json') && f !== 'recurrence-100.json').map(read).sort((a, b) => a.at.localeCompare(b.at)) : [];
+    const repos = fs.existsSync(path.join(dir, 'prs.json')) ? Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'prs.json'), 'utf8')).prs) : [];
+    const labels = Object.fromEntries(repos.map(repo => {
+        const file = path.join(dir, 'labels', `${repo.replace('/', '__')}.json`);
+        return [repo, fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).sources : {}];
+    }));
+    return { runs, repos, labels, recurrence: fs.existsSync(path.join(results, 'recurrence-100.json')) ? read('recurrence-100.json') : undefined };
+}
+const main = loadSet(setPath());
+const heldout = setPath() === HELDOUT_DIR ? undefined : loadSet(HELDOUT_DIR);
+const { runs, recurrence } = main;
 const pct = x => `${Math.round(x * 100)}%`;
 
 /**
@@ -24,11 +30,11 @@ const pct = x => `${Math.round(x * 100)}%`;
  * request sources still yields a request here (an inline comment by its id; a review body by any of the same a
  * units). Matched by source and unit, not by lesson id, so a change to the text (B2) does not count as a loss.
  */
-function requestsLost(repo, first, now) {
+function requestsLost(labels, repo, first, now) {
     if (!first?.lessons || !now?.lessons) return 0;
-    const kept = new Set(now.lessons.filter(l => l.sources.every(s => labels[repo][s]) && isRequest(repo, l))
+    const kept = new Set(now.lessons.filter(l => l.sources.every(s => labels[repo][s]) && isRequest(labels, repo, l))
         .flatMap(l => l.sources.flatMap(s => (l.units?.[s] ? l.units[s].map(i => `${s}#${i}`) : [s]))));
-    return first.lessons.filter(l => l.sources.every(s => labels[repo][s]) && isRequest(repo, l))
+    return first.lessons.filter(l => l.sources.every(s => labels[repo][s]) && isRequest(labels, repo, l))
         .filter(l => !l.sources.some(s => (l.units?.[s] ? l.units[s].some(i => kept.has(`${s}#${i}`)) : kept.has(s)))).length;
 }
 
@@ -37,7 +43,7 @@ function requestsLost(repo, first, now) {
  * body by the units the candidate's text came from, all of which must be a. A candidate mixing a and b units is a
  * split defect, and one whose text matches no unit cannot be credited: both count as not a request.
  */
-function isRequest(repo, l) {
+function isRequest(labels, repo, l) {
     return l.sources.every(source => {
         const label = labels[repo][source];
         const units = l.units?.[source];
@@ -83,21 +89,36 @@ if (recurrence) {
     lines.push('');
 }
 const broken = [];
-for (const repo of REPOS) {
-    lines.push(`## ${repo}`, '', '| Run | PRs | Points (people / bots) | Skipped: not a request | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit | Requests lost vs first run |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|');
-    for (const run of runs) {
+const HEADER = ['| Run | PRs | Points (people / bots) | Skipped: not a request | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit | Requests lost vs first run |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|'];
+
+/** One table row per run of a set for a repository; candidates that look broken are collected for spot checks. */
+function runRows(set, repo) {
+    const rows = [];
+    for (const run of set.runs) {
         const r = run.repos[repo];
         if (!r?.lessons) continue;
+        const labels = set.labels;
         const labelled = r.lessons.filter(l => l.sources.length && l.sources.every(s => labels[repo][s]?.label));
-        const asks = labelled.filter(l => isRequest(repo, l)).length;
+        const asks = labelled.filter(l => isRequest(labels, repo, l)).length;
         const unmatched = labelled.filter(l => Object.values(l.units ?? {}).some(u => u.length === 0)).length;
         const [lo, hi] = wilson(asks, labelled.length);
         const cut = r.lessons.filter(l => l.broken);
         for (const l of cut) broken.push(`- ${run.label} · ${repo} · ${link(repo, l)}`);
         const skippedN = Object.values(r.skipped ?? {}).reduce((n, k) => n + k, 0);
-        const lost = run === runs[0] ? 0 : requestsLost(repo, runs[0].repos[repo], r);
-        lines.push(`| ${run.label} | ${r.prs} | ${r.points.total} (${r.points.people} / ${r.points.bots}) | ${skippedN} | ${r.candidates} | ${r.lessons.filter(l => l.bot).length} | ${r.verified} | ${cut.length} | ${labelled.length} | ${labelled.length ? `${pct(asks / labelled.length)} (${pct(lo)}–${pct(hi)})` : 'unlabelled'} | ${labelled.length - asks} | ${unmatched} | ${lost} |`);
+        const lost = run === set.runs[0] ? 0 : requestsLost(labels, repo, set.runs[0].repos[repo], r);
+        rows.push(`| ${run.label} | ${r.prs} | ${r.points.total} (${r.points.people} / ${r.points.bots}) | ${skippedN} | ${r.candidates} | ${r.lessons.filter(l => l.bot).length} | ${r.verified} | ${cut.length} | ${labelled.length} | ${labelled.length ? `${pct(asks / labelled.length)} (${pct(lo)}–${pct(hi)})` : 'unlabelled'} | ${labelled.length - asks} | ${unmatched} | ${lost} |`);
     }
+    return rows;
+}
+
+if (heldout?.runs.length) {
+    lines.push('## Held out: pull requests no pattern was written against', '',
+        'Merged after the main window, labelled (same rubric, same unit method) before any change was run on them. A change',
+        'that only fits the main set shows here as lost requests or no gain in precision.', '');
+    for (const repo of heldout.repos) lines.push(`### ${repo}`, '', ...HEADER, ...runRows(heldout, repo), '');
+}
+for (const repo of REPOS) {
+    lines.push(`## ${repo}`, '', ...HEADER, ...runRows(main, repo));
     lines.push('');
     const last = runs.at(-1)?.repos[repo];
     if (last?.lessons) {
@@ -113,5 +134,5 @@ for (const repo of REPOS) {
     }
 }
 lines.push('## Candidates that look broken (mechanical)', '', 'Starts with Or / And / But, or ends on a connector (", or", "and"). Listed for spot checks.', '', ...(broken.length ? broken : ['None.']), '');
-fs.writeFileSync(path.join(here, 'REPORT.md'), lines.join('\n'));
+fs.writeFileSync(setPath('REPORT.md'), lines.join('\n'));
 console.log(lines.slice(0, 40).join('\n'));
