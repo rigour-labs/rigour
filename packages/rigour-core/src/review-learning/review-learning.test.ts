@@ -189,6 +189,18 @@ describe('lessons', () => {
         expect(activeLessons(repo, 'verified').map(l => l.id)).toEqual(['bot-only']);
     });
 
+    it('says which account could not read the repository on a 401, 403 or 404, how to name another, and never the token', async () => {
+        for (const status of [401, 403, 404]) {
+            const denied = (async () => ({ ok: false, status, json: async () => ({}) })) as never;
+            const error = await learnFromReviews(repo, { token: 'secret-token-value', readAs: 'work-account', repo: 'acme/app', fetch: denied }).then(() => '', e => (e as Error).message);
+            expect(error).toBe(`can't read acme/app as work-account (HTTP ${status}): the account may not have access; name another with review.github_account / RIGOUR_GITHUB_ACCOUNT, or check gh auth status. Asked for /pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1.`);
+            expect(error).not.toContain('secret-token-value');
+        }
+        // Any other failure keeps the plain status.
+        const down = (async () => ({ ok: false, status: 502, json: async () => ({}) })) as never;
+        await expect(learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: down })).rejects.toThrow('GitHub /pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1: HTTP 502');
+    });
+
     it('records a person accepting or rejecting a lesson as evidence, with who and why', () => {
         writeLessons(repo, [{ id: 'x', text: 'Use upsert', file: 'src/orders.ts', symbols: [], state: 'candidate', evidence: [{ kind: 'point', pr: 1, comment: 'c', author: 'r' }], createdAt: '', updatedAt: '' }]);
         expect(decideLesson(repo, 'x', 'rejected', 'lead@x', 'we accept duplicates here')).toMatchObject({ state: 'rejected' });
