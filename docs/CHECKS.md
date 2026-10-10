@@ -150,7 +150,7 @@ At push, the tests that import changed files also run; see the toolchain below.
 | Architecture boundary | An import that a `gates.architecture.boundaries` rule denies. | JS/TS | `ast-analysis` (`ARCH_BOUNDARY`) | On when rules exist | Note |
 | Outdated syntax | `var`, `require()`, `arguments` and similar, per `staleness.rules`. | JS/TS | `ast-analysis` (`STALENESS_*`) | Off | Note |
 | Style drift | A changed or new file whose naming or error-handling style deviates by more than 25% from its language's code committed on the main branch (outside Git, a baseline file built on the first full scan). A one-word lowercase name (`run`, `data`) or a dunder (`__init__`) counts as neither camelCase nor snake_case; a private name is read without its leading underscores (`_load_rows` is snake_case). | Languages with an adapter | `style-drift` | On | Note |
-| File size | Files over `max_file_lines` (500). | Any | `file-size` | On | Note |
+| File size | Files over `max_file_lines` (500). In a review, the edit hook, the stop hook and the push gate, only a file the change took over the limit (or a new long file) is the change's. | Any | `file-size` | On | Note; a change that crosses the limit blocks with `gates.file_size.block: true` |
 | Forbidden markers | `TODO` and `FIXME` comments (`forbid_todos`, `forbid_fixme`). | Code, shell, YAML, JSON | `content-check` | On | Note |
 | Required files | Files in `required_files` that do not exist. | Any | `structure-check` | On | Note |
 | Environment | A required tool missing or at the wrong version, a required environment variable missing. | Any | `environment-alignment` | On | Note |
@@ -253,8 +253,9 @@ The edit hook runs a fast subset on each file an agent writes, with a default ti
 - security patterns, for every language.
 
 Only what the edit did blocks. Each file is compared with its last commit (HEAD): a finding the file already had there,
-the same check with the same message, is a note the hook prints and never blocks. File size blocks only when the change
-takes a file over `max_file_lines`; growing a file that was already over is a note, and shrinking one is no finding.
+the same check with the same message, is a note the hook prints and never blocks. File size is a note: a file's length
+is a team's preference. With `gates.file_size.block: true`, an edit that takes a file over `max_file_lines` (a new long
+file included) blocks; growing a file that was already over is a note either way, and shrinking one is no finding.
 A file git does not know yet is all the change's. Protected and governed paths always block.
 
 Files matching `ignore` in rigour.yml are skipped. If the time limit runs out before every file is checked, that is reported as a failure. Setting the hooks up is covered in [DEVELOPMENT.md](DEVELOPMENT.md).

@@ -53,15 +53,50 @@ describe('rigour hooks stop', () => {
         expect(await hooksStopCommand('claude', payload, '/')).toBe('');
     }, process.platform === 'win32' ? 90_000 : 30_000); // four whole stop reviews: Windows runners took past 30 s
 
-    it('lets the agent finish a branch whose only change grows a file already over the size limit', async () => {
-        const body = (n: number) => Array.from({ length: n }, (_, i) => `// line ${i}`).join('\n');
-        write('src/big.ts', body(600));
+    const lines = (n: number) => Array.from({ length: n }, (_, i) => `// line ${i}`).join('\n');
+    /** The team opts in: a change that takes a file over max_file_lines blocks. */
+    const blockOnSize = () => {
+        write('rigour.yml', 'version: 1\ngates:\n  semantic_bugs:\n    enabled: true\n  unused_exports:\n    block: true\n  file_size:\n    block: true\n');
+        git('commit', '-qam', 'block on size');
+    };
+
+    it('lets the agent finish a branch whose only change grows a file already over the size limit, with or without the opt-in', async () => {
+        write('src/big.ts', lines(600));
         git('add', '-A');
         git('commit', '-qm', 'big');
         git('switch', '-qc', 'grow');
-        write('src/big.ts', body(610));
+        write('src/big.ts', lines(610));
         git('commit', '-qam', 'grow');
         expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'big' }), '/')).toBe('');
+        blockOnSize();
+        expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'big-opt-in' }), '/')).toBe('');
+    });
+
+    it('lets a branch add a long file by default, and holds it for the length only when the team opts in', async () => {
+        git('switch', '-qc', 'long');
+        write('src/long.ts', lines(675));
+        git('add', '-A');
+        git('commit', '-qm', 'long');
+        expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'long' }), '/')).toBe('');
+        blockOnSize();
+        const held = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'long-opt-in' }), '/'));
+        expect(held.decision).toBe('block');
+        expect(held.reason).toContain('src/long.ts');
+        expect(held.reason).toContain('675 lines (max: 500)');
+    });
+
+    it('holds a branch that takes a file over the limit only when the team opts in', async () => {
+        write('src/near.ts', lines(495));
+        git('add', '-A');
+        git('commit', '-qm', 'near');
+        git('switch', '-qc', 'cross');
+        write('src/near.ts', lines(505));
+        git('commit', '-qam', 'cross');
+        expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'cross' }), '/')).toBe('');
+        blockOnSize();
+        const held = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'cross-opt-in' }), '/'));
+        expect(held.decision).toBe('block');
+        expect(held.reason).toContain('src/near.ts');
     });
 
     it('sends Cursor a follow-up message, and stops following up at the loop limit', async () => {

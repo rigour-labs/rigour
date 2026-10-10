@@ -181,8 +181,10 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
             const split = before === undefined
                 ? { blocks: fileFailures, notes: [] }
                 : splitIntroduced(fileFailures, await checkContent(before, resolved.relPath, cwd, config), resolved.content, before, config);
-            failures.push(...split.blocks);
-            notes.push(...split.notes);
+            // A file's length is a team's preference: a crossing blocks only with gates.file_size.block, else it is a note.
+            const sizeBlocks = !!config.gates.file_size?.block;
+            failures.push(...split.blocks.filter(f => sizeBlocks || f.gate !== 'file-size'));
+            notes.push(...split.blocks.filter(f => !sizeBlocks && f.gate === 'file-size'), ...split.notes);
         }
 
         if (timedOut) {
@@ -224,8 +226,8 @@ function committedContent(cwd: string, relPath: string): string | undefined {
 
 /**
  * What this change did to the file, against what it already had at HEAD. A finding the file already had (the same
- * check and message, as many times as before) is a note, never a block. A file-size finding blocks only when the
- * change crosses the limit; growing a file already over it is a note, and shrinking one is no finding at all.
+ * check and message, as many times as before) is a note, never a block. A file-size finding is the change's only when
+ * the change crosses the limit; growing a file already over it is a note, and shrinking one is no finding at all.
  */
 function splitIntroduced(after: FailureEntry[], before: FailureEntry[], afterContent: string, beforeContent: string, config: Config): { blocks: FailureEntry[]; notes: FailureEntry[] } {
     const key = (f: FailureEntry) => (f.gate === 'file-size' ? f.gate : `${f.gate}\u0000${f.message}`);
