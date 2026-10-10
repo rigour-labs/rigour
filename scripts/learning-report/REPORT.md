@@ -57,7 +57,7 @@ b1-sections on these runs no longer count as held out. A fresh held-out sample i
 
 Not verified in b3, by the first condition failed: raised on one pull request only: 61.
 
-Clone: --filter=blob:none, peak 622 MB, 455 s.
+Clone: --filter=blob:none, peak 551 MB, 425 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 0.
 
@@ -73,7 +73,7 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 
 Not verified in b3, by the first condition failed: raised on one pull request only: 54; raised only by bots: 1.
 
-Clone: --filter=blob:none, peak 299 MB, 274 s.
+Clone: --filter=blob:none, peak 252 MB, 260 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 0.
 
@@ -89,7 +89,7 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 
 Not verified in b3, by the first condition failed: raised only by bots: 103; raised on one pull request only: 96; one pull request author only: 2.
 
-Clone: --filter=blob:none, peak 523 MB, 646 s.
+Clone: --filter=blob:none, peak 498 MB, 564 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 2.
 
@@ -103,7 +103,7 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 | Check | Repository | Files | Lessons served per file | Over 3 | Uncited | Look broken |
 |---|---|---|---|---|---|---|
 | b3 | immich-app/immich | 5 | 3, 3, 3, 3, 3 | 0 | 0 | 0 |
-| b3 | tailscale/tailscale | 1 | 1 | 0 | 0 | 0 |
+| b3 | tailscale/tailscale | 5 | 3, 3, 3, 3, 3 | 0 | 0 | 0 |
 | b3 | logto-io/logto | 5 | 3, 3, 3, 3, 3 | 0 | 0 | 0 |
 
 ## What the brief serves (held out set)
@@ -119,6 +119,9 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 - Run-to-run noise: immich has one point more in b1 than in baseline. It is a comment posted before the cutoff and
   the merge whose commit fetch evidently failed in the baseline run (a comment on a commit that cannot be fetched is
   skipped) and succeeded in b1. A change that only removes points cannot add one.
+- The b3 brief check for tailscale first read 1 file, 1 lesson: its lessons store was damaged by two overlapping runs
+  writing the same scratch store. Each run now works in its own folder; re-run alone, it reads 5 files, 3 lessons each.
+  Its points and candidates were counted in memory and did not change.
 
 ## Candidates that look broken (mechanical)
 

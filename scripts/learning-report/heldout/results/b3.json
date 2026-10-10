@@ -1,6 +1,6 @@
 {
   "label": "b3",
-  "at": "2026-10-10T15:27:06.045Z",
+  "at": "2026-10-10T16:38:21.250Z",
   "repos": {
     "logto-io/logto": {
       "prs": 16,
@@ -26,7 +26,7 @@
       },
       "cloneMode": "--filter=blob:none",
       "cloneMb": 674,
-      "seconds": 181,
+      "seconds": 178,
       "notVerified": {
         "raised only by bots": 11,
         "one pull request author only": 1,

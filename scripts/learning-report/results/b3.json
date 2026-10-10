@@ -1,6 +1,6 @@
 {
   "label": "b3",
-  "at": "2026-10-10T15:30:13.437Z",
+  "at": "2026-10-10T16:41:19.840Z",
   "repos": {
     "immich-app/immich": {
       "prs": 50,
@@ -22,8 +22,8 @@
         "legacy": 0
       },
       "cloneMode": "--filter=blob:none",
-      "cloneMb": 622,
-      "seconds": 455,
+      "cloneMb": 551,
+      "seconds": 425,
       "notVerified": {
         "raised on one pull request only": 61
       },
@@ -966,8 +966,8 @@
         "legacy": 0
       },
       "cloneMode": "--filter=blob:none",
-      "cloneMb": 299,
-      "seconds": 274,
+      "cloneMb": 252,
+      "seconds": 260,
       "notVerified": {
         "raised on one pull request only": 54,
         "raised only by bots": 1
@@ -1849,8 +1849,8 @@
         "legacy": 0
       },
       "cloneMode": "--filter=blob:none",
-      "cloneMb": 523,
-      "seconds": 646,
+      "cloneMb": 498,
+      "seconds": 564,
       "notVerified": {
         "raised only by bots": 103,
         "one pull request author only": 2,

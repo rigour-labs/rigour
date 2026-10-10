@@ -1,6 +1,6 @@
 {
   "label": "b3",
-  "at": "2026-10-10T16:35:41.018Z",
+  "at": "2026-10-10T17:02:09.237Z",
   "repos": {
     "immich-app/immich": {
       "files": 5,
@@ -17,12 +17,16 @@
       "broken": 0
     },
     "tailscale/tailscale": {
-      "files": 1,
+      "files": 5,
       "servedPerFile": [
-        1
+        3,
+        3,
+        3,
+        3,
+        3
       ],
       "overCap": 0,
-      "lessonItems": 1,
+      "lessonItems": 15,
       "uncited": 0,
       "broken": 0
     },
