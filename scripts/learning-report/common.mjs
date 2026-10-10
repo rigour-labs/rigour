@@ -8,7 +8,7 @@ import path from 'path';
 /** Pull requests merged before this are the main set's input; fixed so later runs read the same thing. */
 export const CUTOFF = '2026-10-01T00:00:00Z';
 /** The held-out set's window ends here: pull requests merged after the main set, read only after the patterns were written. */
-export const HELDOUT_UNTIL = '2026-10-10T00:00:00Z';
+const HELDOUT_UNTIL = '2026-10-10T00:00:00Z';
 
 /**
  * Two sets, chosen by LEARNING_REPORT_SET:
