@@ -11,6 +11,7 @@
  */
 export const FIX_BY_TYPE: Record<string, string> = {
     hardcoded_secrets: 'Remove the secret from the code and read it from an environment variable or a secrets manager. Rotate the key: it is in the repository history now.',
+    secret_assignment: 'Do not commit the value: reference an environment variable or a secret store instead. If it is a real credential, treat it as exposed and replace it.',
     sql_injection: 'Pass the values as query parameters (placeholders or a query builder), never by joining strings into the SQL.',
     xss: 'Render the value as text (textContent, the framework\'s escaping) or sanitize it with an allow-list sanitizer before inserting HTML.',
     path_traversal: 'Resolve the path against a fixed base directory and reject it unless it stays inside that base; never pass user input to the file system as is.',
@@ -103,16 +104,27 @@ export const VULNERABILITY_PATTERNS: {
         cwe: 'CWE-22',
         languages: ['ts', 'js']
     },
-    // Hardcoded Secrets
+    // A secret in a plain assignment: a secret-named key given a literal (code, JSON, YAML, TOML, properties). The value is
+    // checked afterwards (secret-values.ts): a placeholder, a reference, a test value or a constant never fires. A secret
+    // literal has no whitespace: `hidePassword: 'Hide password'` is a UI label, not a credential.
     {
-        type: 'hardcoded_secrets',
-        // A secret literal has no whitespace: `hidePassword: 'Hide password'` is a UI label, not a credential.
-        regex: /(?:password|secret|api_key|apikey|auth_token|access_token|private_key)['"]?\s*[:=]\s*['"][^'"\s]{8,}['"]/gi, // a key may be quoted: JSON, a Python dict, a JS object
+        type: 'secret_assignment',
+        regex: /\b(?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|secret|api[_-]?key|apikey|auth[_-]?token|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|signing[_-]?key|encryption[_-]?key)\b['"]?\s*[:=]\s*['"][^'"\s]{8,}['"]/gi, // a key may be quoted: JSON, a Python dict, a JS object
         where: 'anywhere',
-        severity: 'critical',
-        description: 'Hardcoded secret detected in code',
+        severity: 'high',
+        description: 'Secret in a plain assignment',
         cwe: 'CWE-798',
-        languages: ['ts', 'js', 'py', 'java', 'go']
+        languages: ['ts', 'js', 'tsx', 'jsx', 'py', 'java', 'go', 'rb', 'php', 'cs', 'kt', 'json', 'yml', 'yaml', 'toml', 'properties', 'ini', 'env']
+    },
+    {
+        type: 'secret_assignment',
+        // A `.env` line, unquoted: `DB_PASSWORD=Xk9#mP2q…`. Upper-case keys only, at the start of a line, as .env files write them.
+        regex: /^[ \t]*(?:export[ \t]+)?[A-Z][A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|API_KEY|APIKEY|AUTH_TOKEN|ACCESS_TOKEN|PRIVATE_KEY|CLIENT_SECRET)[A-Z0-9_]*[ \t]*=[ \t]*[^\s'"#][^\s'"]{7,}(?:[ \t]+#.*)?[ \t]*$/gm, // `#` opens a comment only after whitespace
+        where: 'anywhere',
+        severity: 'high',
+        description: 'Secret in a plain assignment',
+        cwe: 'CWE-798',
+        languages: ['env', 'properties', 'ini', 'sh']
     },
     {
         type: 'hardcoded_secrets',

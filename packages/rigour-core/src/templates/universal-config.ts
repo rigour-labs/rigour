@@ -59,6 +59,7 @@ export const UNIVERSAL_CONFIG: Config = {
             xss: true,
             path_traversal: true,
             hardcoded_secrets: true,
+            secret_assignments: true,
             insecure_randomness: true,
             command_injection: true,
             block_on_severity: 'high',

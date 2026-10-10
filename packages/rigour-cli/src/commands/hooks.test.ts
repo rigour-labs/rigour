@@ -398,6 +398,14 @@ describe('which agent sent the hook payload', () => {
         expect(out.hookSpecificOutput.permissionDecisionReason).toContain(`${AWS_KEY.slice(0, 4)}****${AWS_KEY.slice(-2)}`);
     });
 
+    it("reads the tool call's own text, so a quoted password the agent writes is a warning, never a block", async () => {
+        const value = ['Xk9q', 'mP2qLw8vRt5z'].join('');
+        const out = await run(claude('PreToolUse', 'src/jobs/db.ts', `export const password = "${value}";`), { mode: 'dlp' });
+        expect(out.hookSpecificOutput.permissionDecision).toBeUndefined();
+        expect(out.hookSpecificOutput.additionalContext).toContain('not blocked');
+        expect(stdout).not.toContain(value);
+    });
+
     it('lets a credential the scan only suspects through, with a warning Claude sees', async () => {
         const out = await run(claude('PreToolUse', 'src/jobs/db.ts', 'const url = "postgres://admin:Zq8Lr2Vt9@db.example.com:5432/app";'), { mode: 'dlp' });
         expect(out.hookSpecificOutput.permissionDecision).toBeUndefined();

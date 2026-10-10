@@ -38,6 +38,7 @@ import { installGitPushHook } from './hooks-git.js';
 import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.js';
 import { agentHome, asUserLevel, installedAgents } from './personal.js';
 import { hookStdin } from './hook-input.js';
+import { loadHookConfig } from './hooks-stop.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -729,6 +730,14 @@ function claudeToolDecision(detections: any[]): { deny?: string; warning?: strin
     return seen.length ? { warning: `Rigour: possible credential${seen.length === 1 ? '' : 's'} in this tool call, not blocked:\n${seen.map(line).join('\n')}` } : {};
 }
 
+/** Every string a tool call carries (a Write's content, an Edit's new_string, a command), decoded, one per line. */
+function toolInputText(input: unknown): string {
+    if (typeof input === 'string') return input;
+    if (Array.isArray(input)) return input.map(toolInputText).filter(Boolean).join('\n');
+    if (input && typeof input === 'object') return Object.values(input).map(toolInputText).filter(Boolean).join('\n');
+    return '';
+}
+
 /** Cursor's own hook event names. Claude Code sends hook_event_name too (PreToolUse, PostToolUse, Stop, ...). */
 const CURSOR_EVENTS = new Set([
     'beforeSubmitPrompt', 'beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'beforeTabFileRead',
@@ -787,6 +796,9 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             if (isCursorHookPayload(payload)) {
                 cursorMode = true;
                 textToScan = extractCursorPromptText(payload);
+            } else if (payload && typeof payload.tool_input === 'object') {
+                // What the tool will receive, decoded: in the JSON envelope a quote is `\"`, so `password = "…"` never matched.
+                textToScan = toolInputText(payload.tool_input) || rawInput;
             }
         } catch {
             // Not JSON — scan raw text as-is
@@ -797,11 +809,14 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             return;
         }
 
+        // The team's switch for secrets in plain assignments (gates.security.secret_assignments), as the review reads it.
+        const secretAssignments = await loadHookConfig(cwd).then(c => c.gates.security?.secret_assignments, () => undefined);
         const result = scanInputForCredentials(textToScan, {
             enabled: true,
             block_on_detection: options.block ?? false,
             cwd,
             use_learned_feedback: true,
+            ...(secretAssignments === false ? { secret_assignments: false } : {}),
         });
 
         const messages = result.detections

@@ -161,6 +161,11 @@ them with a reference before they leave your machine. They are written with ever
 | Cline | `PreToolUse` | The text values of the tool input |
 | Windsurf | `pre_write_code` | The hook input before code is written |
 
+A secret-named key given a literal that is no placeholder, reference or test value (`password = "…"`,
+`DB_PASSWORD=…`) is a warning Claude sees, never a denial; `gates.security.secret_assignments: false` turns
+it off. For Claude Code the scan reads the tool call's own text (a Write's content, an Edit's new string),
+not its JSON envelope, where every quote is escaped.
+
 It looks for cloud keys (AWS, GCP service accounts, Azure), provider API keys (OpenAI, Anthropic,
 GitHub, Stripe, Twilio, Slack, SendGrid), private keys, database URLs with credentials, bearer tokens
 and JWTs, password and `.env`-style assignments, credentials in URLs, CI and registry secrets, and
