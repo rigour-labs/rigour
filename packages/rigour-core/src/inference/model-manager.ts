@@ -67,6 +67,9 @@ async function readModelMeta(filename: string): Promise<ModelCacheMetadata | nul
     }
 }
 
+/** How far a file's write time may trail the verification time and still be the file that was verified. */
+const MTIME_SLACK_MS = 2_000;
+
 /**
  * Check if a single model file is cached and valid.
  */
@@ -79,9 +82,10 @@ async function isFileCached(model: ModelInfo): Promise<boolean> {
     // the completeness check; ModelInfo sizes are display estimates that differ by version.
     const stat = await fs.stat(modelPath);
     if (metadata.sizeBytes !== stat.size) return false;
-    // verifiedAt has millisecond precision and mtimeMs a sub-millisecond fraction: compare
-    // whole milliseconds, or a file verified within the same millisecond looks modified.
-    if (new Date(metadata.verifiedAt).getTime() < Math.floor(stat.mtimeMs)) return false;
+    // A file changed after it was verified is not trusted. The two times come from different clocks: on Windows a
+    // file's write time can land a few milliseconds after the Date taken just after writing it, so a file verified a
+    // moment ago looked modified and was downloaded again on every run. Allow MTIME_SLACK_MS between them.
+    if (new Date(metadata.verifiedAt).getTime() + MTIME_SLACK_MS < Math.floor(stat.mtimeMs)) return false;
     return true;
 }
 
