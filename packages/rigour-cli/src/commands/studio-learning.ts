@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { personOf } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
@@ -37,6 +37,8 @@ export interface LessonJourney {
     suggestedText?: { text: string; why: string };
     /** How far a review lesson reaches (core scopeLesson): its file, its folder, or every change; `hasFile` false for a team standard. */
     reach?: { scope: 'file' | 'folder' | 'repo'; hasFile: boolean };
+    /** A candidate only review bots raised, nothing waiting on a person (core quietBotCandidate): hidden until a person asks to see bot points. */
+    fromBots?: true;
 }
 
 export interface StudioLearning {
@@ -93,6 +95,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             ...decisionFor(l),
             ...(l.suggestedText ? { suggestedText: { text: l.suggestedText, why: l.suggestedWhy ?? 'reworded' } } : {}),
             reach: { scope: l.scope ?? ('file' as const), hasFile: !!l.file },
+            ...(quietBotCandidate(l) ? { fromBots: true as const } : {}),
         })),
     // Lessons back to a candidate when outcomes stopped promoting come first: a person decides each once.
     ].sort((a: LessonJourney, b: LessonJourney) => Number(!!b.reclassified) - Number(!!a.reclassified) || b.learnedAt.localeCompare(a.learnedAt))
