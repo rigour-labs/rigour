@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { ASTGate } from './ast.js';
+import { mustFix } from '../review/quiet.js';
 
 describe('ASTGate ignore behavior', () => {
     let testDir: string;
@@ -139,6 +140,28 @@ describe('ASTGate ignore behavior', () => {
         expect(target).toBeDefined();
         expect(target?.severity).toBe('critical');
         expect(target?.provenance).toBe('security');
+        // A write through __proto__ is likely, not proven: no rule traces whether the key is attacker-controlled.
+        expect(target?.certainty).toBe('likely');
+        expect(mustFix(target!)).toBe(false);
+    });
+
+    it('reads a prototype access and the Object.assign copy idiom as possible, never a block', async () => {
+        const gate = new ASTGate({ ast: { max_params: 10 } } as any);
+        fs.mkdirSync(path.join(testDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(testDir, 'src', 'read.ts'), [
+            "export const kind = (o: any) => o['constructor'].name;",
+            "export const proto = (F: any) => F['prototype'];",
+            'export const copy = (a: object, b: object) => Object.assign({}, a, b);',
+            "export function setDeep(o: any) { o['constructor'].polluted = true; }",
+        ].join('\n'), 'utf-8');
+        const failures = (await gate.run({ cwd: testDir, ignore: [] })).filter(f => f.id.startsWith('SECURITY_PROTOTYPE_POLLUTION'));
+        expect(failures.map(f => [f.line, f.certainty])).toEqual([[1, 'possible'], [2, 'possible'], [3, 'possible'], [4, 'likely']]);
+        expect(failures.some(mustFix)).toBe(false);
+
+        // A team that opted in with security.block keeps the block on a write; reads and the copy idiom stay possible.
+        const strict = new ASTGate({ ast: { max_params: 10 }, security: { block: true } } as any);
+        const opted = (await strict.run({ cwd: testDir, ignore: [] })).filter(f => f.id.startsWith('SECURITY_PROTOTYPE_POLLUTION'));
+        expect(opted.map(f => [f.line, f.certainty, mustFix(f)])).toEqual([[1, 'possible', false], [2, 'possible', false], [3, 'possible', false], [4, 'proven', true]]);
     });
 
     it('does not attribute nested function complexity to parent function', async () => {

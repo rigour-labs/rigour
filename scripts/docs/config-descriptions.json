@@ -128,12 +128,12 @@
         "gates.query_patterns": {
             "title": "Costly query shapes",
             "summary": "Reports offset paging inside a loop and time windows read with a lower bound but no upper bound, on lines a change adds. Teams turn it off if they do not use query builders.",
-            "blocks": "Blocks on changed lines"
+            "blocks": "Notes by default; block: true makes them block"
         },
         "gates.change_sweep": {
             "title": "Half-finished changes",
             "summary": "Reports a fix applied at some sites while the old condition remains elsewhere, a prop added to some sibling component mounts but not others, and accumulators copied on every loop step. Teams turn it off as a whole.",
-            "blocks": "Blocks on changed lines (partial fix, partial wiring); quadratic copy is advisory"
+            "blocks": "Notes by default; block: true makes them block"
         },
         "gates.redundancy": {
             "title": "Redundant code found with the TypeScript checker",
@@ -148,7 +148,7 @@
         "gates.duplicate_functions": {
             "title": "Duplicate functions in the change",
             "summary": "Reports a function a change adds or edits whose body is the same as another function's in the files the change touched. Teams turn it off as a whole.",
-            "blocks": "Blocks on changed lines"
+            "blocks": "Notes by default; block: true makes them block"
         },
         "gates.orphan_files": {
             "title": "Files nothing uses",
@@ -274,7 +274,7 @@
         "gates.security.insecure_randomness": "When off, use of non-cryptographic random number generators for security values is not reported.",
         "gates.security.command_injection": "When off, shell command injection patterns are not reported by this check; the edit hook still checks for them.",
         "gates.security.block_on_severity": "Lowest severity of security finding that is reported; findings below it are dropped.",
-        "gates.security.block": "Off by default: only a credential in a format only a real secret has (AWS access key, Stripe live key, sk-/ghp_-style keys, a private key block) blocks, and every other pattern is a note, since it cannot see whether its input is trusted. On: every reported pattern blocks, and so does a secret-named variable referenced in client code (frontend-secret-exposure). The healthcare, fintech, government and devsecops presets turn it on.",
+        "gates.security.block": "Off by default: only a credential in a format only a real secret has (AWS access key, Stripe live key, sk-/ghp_-style keys, a private key block) blocks, and every other pattern is a note, since it cannot see whether its input is trusted. On: every reported pattern blocks, and so do a write through __proto__, constructor or prototype (ast-analysis) and a secret-named variable referenced in client code (frontend-secret-exposure). The healthcare, fintech, government and devsecops presets turn it on.",
         "gates.frontend_secret_exposure.enabled": "Turns the frontend secret exposure check on or off.",
         "gates.frontend_secret_exposure.block_on_severity": "Lowest severity of exposure that is reported; findings below it are dropped, and medium or low findings that are reported do not block.",
         "gates.frontend_secret_exposure.check_process_env": "When on, secret-looking process.env references, including destructuring from process.env, are reported in frontend files.",
@@ -340,12 +340,15 @@
         "gates.unused_exports.allow": "Export names, matched exactly, that are never reported because a framework or tool loads them by name.",
         "gates.unused_exports.block": "Make an unused export block. Off by default: it is reported as a note, since teams often approve exports kept for tests or for another export's signature.",
         "gates.query_patterns.enabled": "Turns the offset-paging and unbounded-time-window checks on or off.",
+        "gates.query_patterns.block": "Off by default: an offset-paged loop or an open-ended time window is a note, since a small or caller-bounded table is fine. On: they block.",
         "gates.change_sweep.enabled": "Turns the partial-fix, partial-wiring and quadratic-copy checks on or off together.",
+        "gates.change_sweep.block": "Off by default: a partial fix, a prop wired into some sibling mounts only, or a copied accumulator is a note, since the difference may be deliberate. On: they block.",
         "gates.redundancy.enabled": "Turns the TypeScript-checker redundancy checks on or off; they run only when the change touches non-test TypeScript files.",
         "gates.redundancy.wire_contracts": "Glob patterns for files whose types another service reads, so their properties are never reported as written but never read.",
         "gates.redundancy.schema_migrations": "Folders of SQL migrations (relative, absolute or starting with ~/, possibly in another repository) replayed in file-name order to learn which columns are NOT NULL; missing folders are skipped.",
         "gates.optional_params.enabled": "Turns the optional-only-for-tests parameter check on or off.",
         "gates.duplicate_functions.enabled": "Turns the duplicate-function check on the changed files on or off.",
+        "gates.duplicate_functions.block": "Off by default: a duplicated function body is a note, since generated code and deliberate per-module copies exist. On: it blocks.",
         "gates.orphan_files.enabled": "Turns the unused-new-file check on or off.",
         "gates.orphan_files.allow": "Glob patterns for files that are never reported because a tool loads them by path.",
         "gates.orphan_files.block": "Make an orphaned file block. Off by default: it is reported as a note.",
