@@ -411,17 +411,17 @@ function prCount(lesson: ReviewLesson): number {
  * own file, as learned). Recorded as evidence with who and why; it says nothing about whether the lesson is right.
  */
 export function scopeLesson(cwd: string, id: string, scope: 'file' | 'folder' | 'repo', by: string, why = ''): ReviewLesson | undefined {
-    const lessons = readLessons(cwd);
-    const lesson = lessons.find(l => l.id === id);
-    if (!lesson) return undefined;
-    if (scope === 'folder' && !lesson.file) throw new Error('a team standard has no folder: scope it to the repo or leave it');
-    const at = new Date().toISOString();
-    if (scope === 'file') delete lesson.scope;
-    else lesson.scope = scope;
-    lesson.evidence.push({ kind: 'scoped', pr: lesson.evidence[0]?.pr ?? 0, comment: `scoped-${at}`, author: by, detail: why ? `${scope}: ${why}` : scope, at });
-    lesson.updatedAt = at;
-    writeLessons(cwd, lessons);
-    return lesson;
+    return updateLessons(cwd, lessons => {
+        const lesson = lessons.find(l => l.id === id);
+        if (!lesson) return undefined;
+        if (scope === 'folder' && !lesson.file) throw new Error('a team standard has no folder: scope it to the repo or leave it');
+        const at = new Date().toISOString();
+        if (scope === 'file') delete lesson.scope;
+        else lesson.scope = scope;
+        lesson.evidence.push({ kind: 'scoped', pr: lesson.evidence[0]?.pr ?? 0, comment: `scoped-${at}`, author: by, detail: why ? `${scope}: ${why}` : scope, at });
+        lesson.updatedAt = at;
+        return lesson;
+    });
 }
 
 /** RIGOUR_REVIEW_LESSONS points at a lessons file outside the clone (CI, or a team's shared copy). */
@@ -481,37 +481,123 @@ function reclassified(lesson: ReviewLesson): ReviewLesson {
     return { ...lesson, state: 'candidate', promotedBy: undefined, evidence: [...lesson.evidence, { kind: 'reclassified', pr: lesson.evidence[0]?.pr ?? 0, comment: `reclassified-${lesson.id}`, author: '', detail, at }] };
 }
 
-export function writeLessons(cwd: string, lessons: ReviewLesson[]): void {
+/** How long a writer waits for another to finish, and when a lock is taken as left by a writer that died. */
+const LOCK_WAIT_MS = 10_000;
+const LOCK_STALE_MS = 30_000;
+const LOCK_POLL_MS = 25;
+
+/**
+ * Runs `work` holding the store's lock (`<store>.lock`, created exclusively). A writer holds it only to read, change
+ * and write the file, so a lock older than LOCK_STALE_MS was left by a writer that died, and is taken over. Waits at
+ * most LOCK_WAIT_MS for another writer, then throws, so a decision is never silently lost.
+ */
+function withStoreLock<T>(cwd: string, work: () => T): T {
     const file = lessonsPath(cwd);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ version: 1, lessons }, null, 2) + '\n');
+    const lock = `${file}.lock`;
+    const until = Date.now() + LOCK_WAIT_MS;
+    for (;;) {
+        try {
+            fs.closeSync(fs.openSync(lock, 'wx'));
+            break;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+            if (Date.now() > until) throw new Error(`the review lessons store is locked by another writer (${lock}); try again`);
+            const age = Date.now() - (fs.statSync(lock, { throwIfNoEntry: false })?.mtimeMs ?? Date.now());
+            if (age > LOCK_STALE_MS) { fs.rmSync(lock, { force: true }); continue; }
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_POLL_MS);
+        }
+    }
+    try {
+        return work();
+    } finally {
+        fs.rmSync(lock, { force: true });
+    }
+}
+
+/** Writes the whole store at once: a reader sees the old file or the new one, never half of one. */
+function writeStore(cwd: string, lessons: ReviewLesson[]): void {
+    const file = lessonsPath(cwd);
+    const temp = `${file}.${process.pid}.tmp`;
+    try {
+        fs.writeFileSync(temp, JSON.stringify({ version: 1, lessons }, null, 2) + '\n');
+        fs.renameSync(temp, file);
+    } finally {
+        fs.rmSync(temp, { force: true });
+    }
+}
+
+/**
+ * Reads the store, applies `change` and writes it, under the lock: two writers (a decision in Studio, a CLI run, a team
+ * sync) never overwrite each other. For short changes only; work that takes long (a model call, a git walk) reads,
+ * works, and writes with writeLessons(cwd, lessons, read).
+ */
+export function updateLessons<T>(cwd: string, change: (lessons: ReviewLesson[]) => T): T {
+    return withStoreLock(cwd, () => {
+        const lessons = readLessons(cwd);
+        const result = change(lessons);
+        writeStore(cwd, lessons);
+        return result;
+    });
+}
+
+/**
+ * Writes the store from `read` (the lessons as this writer read them before working) and `lessons` (what it made of
+ * them). What another writer changed in the meantime is kept: every lesson and every piece of evidence either side
+ * added (nothing is ever removed), and for each other field, this writer's value only where it changed it. The state is
+ * then worked out again from the evidence. There is no blind overwrite.
+ */
+export function writeLessons(cwd: string, lessons: ReviewLesson[], read: ReviewLesson[]): void {
+    withStoreLock(cwd, () => writeStore(cwd, mergeConcurrent(read, lessons, readLessons(cwd))));
+}
+
+/** Three-way: `ours` was made from `base`; `theirs` is the store now. */
+function mergeConcurrent(base: ReviewLesson[], ours: ReviewLesson[], theirs: ReviewLesson[]): ReviewLesson[] {
+    const before = new Map(base.map(l => [l.id, l]));
+    const now = new Map(theirs.map(l => [l.id, l]));
+    const merged = ours.map(mine => {
+        const current = now.get(mine.id);
+        now.delete(mine.id);
+        if (!current) return mine;
+        const was = before.get(mine.id);
+        const result: ReviewLesson = { ...current };
+        const fields = new Set([...Object.keys(mine), ...Object.keys(was ?? {})]) as Set<keyof ReviewLesson>;
+        for (const key of fields) {
+            if (key === 'evidence' || JSON.stringify(mine[key]) === JSON.stringify(was?.[key])) continue;
+            if (mine[key] === undefined) delete result[key];
+            else (result as unknown as Record<string, unknown>)[key] = mine[key];
+        }
+        result.evidence = [...current.evidence, ...mine.evidence.filter(e => !current.evidence.some(x => x.kind === e.kind && x.comment === e.comment))];
+        return { ...result, ...lessonState(result) };
+    });
+    return [...merged, ...now.values()];
 }
 
 /** A person's decision on a lesson, kept as evidence: accepted makes it a lesson, rejected an anti-lesson. Undefined for an unknown id. */
 export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected' | 'dismissed', by: string, why = ''): ReviewLesson | undefined {
-    const lessons = readLessons(cwd);
-    const lesson = lessons.find(l => l.id === id);
-    if (!lesson) return undefined;
-    const at = new Date().toISOString();
-    lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
-    Object.assign(lesson, lessonState(lesson), { updatedAt: at });
-    writeLessons(cwd, lessons);
-    return lesson;
+    return updateLessons(cwd, lessons => {
+        const lesson = lessons.find(l => l.id === id);
+        if (!lesson) return undefined;
+        const at = new Date().toISOString();
+        lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
+        Object.assign(lesson, lessonState(lesson), { updatedAt: at });
+        return lesson;
+    });
 }
 
 /** A person takes a decided lesson's suggested wording; who and the wording it replaced are kept as evidence. */
 export function acceptSuggestedText(cwd: string, id: string, by: string): ReviewLesson | undefined {
-    const lessons = readLessons(cwd);
-    const lesson = lessons.find(l => l.id === id);
-    if (!lesson?.suggestedText) return undefined;
-    const at = new Date().toISOString();
-    lesson.evidence.push({ kind: 'reworded', pr: lesson.evidence[0]?.pr ?? 0, comment: `reworded-${at}`, author: by, detail: `${lesson.suggestedWhy ?? 'reworded'}; was: ${lesson.text}`, at });
-    lesson.text = lesson.suggestedText;
-    delete lesson.suggestedText;
-    delete lesson.suggestedWhy;
-    lesson.updatedAt = at;
-    writeLessons(cwd, lessons);
-    return lesson;
+    return updateLessons(cwd, lessons => {
+        const lesson = lessons.find(l => l.id === id);
+        if (!lesson?.suggestedText) return undefined;
+        const at = new Date().toISOString();
+        lesson.evidence.push({ kind: 'reworded', pr: lesson.evidence[0]?.pr ?? 0, comment: `reworded-${at}`, author: by, detail: `${lesson.suggestedWhy ?? 'reworded'}; was: ${lesson.text}`, at });
+        lesson.text = lesson.suggestedText;
+        delete lesson.suggestedText;
+        delete lesson.suggestedWhy;
+        lesson.updatedAt = at;
+        return lesson;
+    });
 }
 
 /** An identifier specific enough to link two pieces of code: camelCase, snake_case, or long. */
