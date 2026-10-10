@@ -1,7 +1,7 @@
 import React from 'react';
 import { studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
-import { CompiledChecks, LearnsLead, LessonCard, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
+import { BotPointsToggle, CompiledChecks, LearnsLead, LessonCard, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
 import './story.css';
 
 interface LearningData {
@@ -15,6 +15,7 @@ interface LearningData {
 /** "How it learns": each lesson's path across development and the PR, and whether repeats still reach a PR. */
 export const Learning: React.FC = () => {
     const { data, error, reload } = useStudioJson<LearningData>('/api/learning');
+    const [showBots, setShowBots] = React.useState(false);
     if (error) return <div className="st-page"><div className="st-empty">Couldn't load lessons: {error}.</div></div>;
     if (!data) return <div className="st-page"><div className="st-sub">Loading…</div></div>;
     const decide = async (id: string, state: 'validated' | 'promoted' | 'rejected') => {
@@ -37,6 +38,8 @@ export const Learning: React.FC = () => {
         const res = await studioWrite('/api/compiled-checks', 'POST', JSON.stringify({ propose: true }));
         if (res.ok) reload();
     };
+    const fromBots = data.lessons.filter(l => l.fromBots).length;
+    const shown = showBots ? data.lessons : data.lessons.filter(l => !l.fromBots);
     const peak = Math.max(1, ...data.weeks.map(w => Math.max(w.stoppedInDevelopment, w.reachedPr ?? 0)));
     return (
         <div className="st-page">
@@ -66,7 +69,8 @@ export const Learning: React.FC = () => {
             <CompiledChecks checks={data.compiled ?? []} onDecide={decideCheck} onPropose={propose} />
             {data.lessons.length === 0
                 ? <div className="st-empty">No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</div>
-                : <div className="st-stack">{data.lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} onDecideReview={decideReview} onScope={scope} />)}</div>}
+                : <div className="st-stack">{shown.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} onDecideReview={decideReview} onScope={scope} />)}</div>}
+            {fromBots > 0 && <BotPointsToggle count={fromBots} shown={showBots} onToggle={() => setShowBots(!showBots)} />}
             <OtherKnowledge />
         </div>
     );

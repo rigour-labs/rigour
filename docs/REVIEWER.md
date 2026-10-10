@@ -356,7 +356,7 @@ reason and any fallback.
 
 Each judge starts from what your team already knows, written to a file it reads:
 
-- the review lessons your team verified (`gates.deep.review_lessons: all` adds candidates, `off` none), and the repository's rules, for what the change touches: up to thirty file lessons, at most three per touched file, so one file's many lessons never crowd out another file's only one, and never a lesson learned only from the pull request under review, which the judge already reads as the reviewer's own points. A lesson is context: it never blocks on its own;
+- the review lessons your team verified (`gates.deep.review_lessons: all` adds candidates, except those only review bots raised; `off` none), and the repository's rules, for what the change touches: up to thirty file lessons, at most three per touched file, so one file's many lessons never crowd out another file's only one, and never a lesson learned only from the pull request under review, which the judge already reads as the reviewer's own points. A lesson is context: it never blocks on its own;
 - findings the team settled: dismissed as not a bug, or refuted with evidence in an earlier round
   on a file that has not changed since. Judges are told not to raise them again without something new;
 - the docs that name the changed code.
@@ -380,8 +380,16 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
 - **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email;
 - **recurrence**, weak alone: the same point on two or more pull requests by different authors, raised
   independently: by different reviewers, or by one person in different words (a senior re-raising a
-  standard counts; a bot rewording its own point on every pull request does not). A point that is only
+  standard counts; a bot rewording its own point on every pull request does not). At least one of the
+  points must be a person's: review bots agreeing with each other never make a lesson. A point that is only
   a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
+
+A candidate only review bots raised is never served, not even with `gates.deep.review_lessons: all`; it
+reaches agents once a person promotes it, or a person's point joins it and recurrence promotes it. Lessons an
+earlier version promoted on bots' points alone are back to candidates, each with a `reclassified` record
+saying "only review bots raised it (no person)", in Studio and in `rigour learn-reviews --list`. Other
+candidates only review bots raised are hidden from both by default and counted ("N candidates from review
+bots, hidden"); `--include-bots` or **Show bot points** lists them. `--list --json` keeps every lesson.
 
 **What happens after the merge never promotes on its own.** A later commit on the main branch that changes the lines a point named and says it fixed something, or a revert of the pull request, is recorded on the candidate (`rigour learn-reviews` records it as `lines`). Lessons an earlier version promoted on that alone are back to candidates, each with a `reclassified` record, listed first in Studio. The [outcome loop](OUTCOMES.md) goes further: It follows a point's lines
 through every later commit as the code moves (within three lines either side, inside the window); a
