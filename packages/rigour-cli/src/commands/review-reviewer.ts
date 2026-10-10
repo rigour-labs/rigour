@@ -14,9 +14,12 @@ export function reviewerBase(cwd: string, named: string | undefined): string | u
     return named ?? branchBase(cwd)?.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '');
 }
 
-export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult, goal?: boolean, orchestrator?: boolean): Promise<ReviewerResult> {
+/** `run.blind` (or RIGOUR_REVIEWER_BLIND=1): the change alone, with no pull request lookup, description or human reviews (no GitHub CLI needed). */
+export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult, run: { goal: boolean | undefined; orchestrator: boolean | undefined; blind: boolean }): Promise<ReviewerResult> {
+    const { goal, orchestrator, blind } = run;
     if (!base) return { outcome: 'unavailable', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason: 'no base to review against: pass --base, or fetch the main branch', reviewers: [], cached: false };
-    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...(goal !== undefined ? { goal } : {}), ...(orchestrator !== undefined ? { orchestrator } : {}), ...reviewerInputs(review) });
+    const withoutPr = blind || process.env.RIGOUR_REVIEWER_BLIND === '1';
+    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...(withoutPr ? { blind: true } : {}), ...(goal !== undefined ? { goal } : {}), ...(orchestrator !== undefined ? { orchestrator } : {}), ...reviewerInputs(review) });
 }
 
 /** Verified should-fixes shown in full before the rest fold into a count. */
@@ -26,6 +29,7 @@ export function printReviewer(result: ReviewerResult, options: { notes?: boolean
     const who = result.reviewers.length ? result.reviewers.join(' + ') : 'no reviewer';
     console.log(chalk.bold('\n  Reviewer') + chalk.dim(`  ${who}${result.scope ? `, ${result.scope}${result.why ? ` (${result.why})` : ''}` : ''}${result.previousReview ? `; previous review: ${result.previousReview}` : '; no previous human review'}`));
     printMode(result);
+    if (result.blind) console.log(chalk.dim('  reviewed without pull request context: no pull request, description or human reviews read (--blind)'));
     if (result.outcome === 'unavailable') {
         console.log(chalk.red(`  No verdict: ${result.reason}. Treated as a fail.`));
         return;
@@ -80,6 +84,7 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         outcome: result.outcome,
         blocks: result.outcome === 'findings' || result.outcome === 'unavailable',
         reason: result.reason ?? null,
+        blind: !!result.blind,
         reviewers: result.reviewers,
         scope: result.scope ?? null,
         items: result.items,

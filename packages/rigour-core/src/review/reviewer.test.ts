@@ -226,6 +226,25 @@ describe('the reviewer', () => {
         expect(seen.files['previous-reviews.md']).toBe('none\n');
     });
 
+    it('with no GitHub CLI login, is unavailable with the reason; blind, it reviews the change alone and says so in the record', async () => {
+        git('checkout', '-q', '--detach'); // a worktree at a commit, as a benchmark or CI runs it
+        const seen = seenNow();
+        const inner = fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seen);
+        const noLogin: Exec = async (command, args, options) => command === 'gh'
+            ? (seen.ghArgs.push(args), { exitCode: 1, stdout: '', stderr: 'To get started with GitHub CLI, please run:  gh auth login' })
+            : inner(command, args, options);
+        const without = await runReviewer(repo, 'main', config, noLogin, () => undefined, { trigger: 'review' });
+        expect(without).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('could not look up the pull request') });
+        expect(without.blind).toBeUndefined();
+        seen.ghArgs = [];
+        const blind = await runReviewer(repo, 'main', config, noLogin, () => undefined, { trigger: 'review', blind: true });
+        expect(blind).toMatchObject({ outcome: 'passed', blind: true });
+        expect(seen.ghArgs).toEqual([]);
+        expect(blind.record?.blind).toBe(true);
+        expect(recordLines(blind.record!).join('\n')).toContain('reviewed without pull request context');
+        expect(recordIntact(blind.record!)).toBe(true);
+    });
+
     it('never passes without a verdict: a crash, a malformed answer, an unreadable pull request or no installed reviewer', async () => {
         const crashed = await runReviewer(repo, 'main', config, fakes(() => ({ exitCode: 1, stdout: '', stderr: 'API error' }), seenNow()), () => undefined);
         expect(crashed).toMatchObject({ outcome: 'unavailable', reason: expect.stringContaining('cursor: no answer (exit 1)'), mode: { degraded: expect.stringContaining('claude gave no verdict, cursor judged instead') } }); // asked twice, then the spare judge, which failed too
