@@ -171,6 +171,43 @@ export async function syncReviewDecisions(pool: DecisionPool, cache: DecisionCac
     return { ...pushed, received, ...(held ? { held } : {}) };
 }
 
+/** What the next sync would send from this repository's lessons store, read without the team database. */
+export interface DecisionPreview {
+    /** This person's decisions not sent yet: what the next sync sends when they are an sme or owner. */
+    yours: number;
+    /** Decisions in this store someone else made (a teammate who committed the store, or a decision with no git email): never sent from here, by who made them. */
+    notYours: Record<string, number>;
+    /** Why nothing from this repository would be sent. */
+    held?: string;
+}
+
+/**
+ * What `rigour team sync --dry-run` reports for review decisions: how many of this person's decisions the next sync
+ * would send (existing decisions included: the first sync is the import), and the decisions in the store it never
+ * sends because someone else made them. Local only: whether this person is an sme or owner is the team database's to say.
+ */
+export async function previewReviewDecisions(cache: DecisionCache, input: SyncInput): Promise<DecisionPreview> {
+    const { cwd, origin, repositoryId, person, scope } = input;
+    if (!origin) return { yours: 0, notYours: {}, held: 'repository has no origin remote' };
+    if (!repositoryAllowed(origin, scope)) return { yours: 0, notYours: {}, held: 'repository is not one of the team\'s repositories' };
+    const lessons = readStoredLessons(cwd);
+    const notYours = decisionsByOthers(lessons, person);
+    if (!person || person === 'unknown') return { yours: 0, notYours, held: 'no git user.email here, so no decision can be told apart as yours' };
+    const sent = new Set((await cache.all('SELECT client_key FROM review_decisions_sent WHERE repository_id = ?', repositoryId)).map(r => r.client_key));
+    return { yours: decisionRows(lessons, { repositoryId, person, salt: '' }).filter(r => !sent.has(r.clientKey)).length, notYours };
+}
+
+/** The decisions in a store someone other than `person` made, by who made them ("no git email" when no one is named). */
+function decisionsByOthers(lessons: ReviewLesson[], person: string): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const e of lessons.flatMap(l => l.evidence)) {
+        if (!e.kind || !SHARED_KINDS.has(e.kind) || (e.author && e.author === person)) continue;
+        const who = !e.author || e.author === 'unknown' ? 'no git email' : e.author;
+        counts[who] = (counts[who] ?? 0) + 1;
+    }
+    return counts;
+}
+
 /** Why this machine does not send its person's decisions, or undefined when it does. */
 function whyNotShared(person: string, role: string): string | undefined {
     if (!person || person === 'unknown') return 'no git user.email here, so no decision can be told apart as yours';
