@@ -95,7 +95,7 @@ Repository-wide checks for file length, placeholder comments and required docume
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `max_file_lines` | number | `500` | Maximum number of lines a file may have before it is reported as too long; the same limit is checked on every edit, and 0 turns the full-repository check off. |
+| `max_file_lines` | number | `500` | Maximum number of lines a file may have before it is reported as too long; on every edit it blocks only an edit that takes a file over it (growing a file already over is a note), and 0 turns the full-repository check off. |
 | `forbid_todos` | boolean | `true` | When on, comments that start with TODO are reported, outside test files and examples. |
 | `forbid_fixme` | boolean | `true` | When on, comments that start with FIXME are reported, outside test files and examples. |
 | `required_files` | list of string | see below | Files, relative to the repository root, that must exist; each one missing is reported, and an empty list turns the check off. |
@@ -285,7 +285,7 @@ Scans source for injection, cross-site scripting, path traversal, hardcoded secr
 | `xss` | boolean | `true` | When off, cross-site scripting patterns are not reported. |
 | `path_traversal` | boolean | `true` | When off, path traversal patterns are not reported. |
 | `hardcoded_secrets` | boolean | `true` | When off, secrets written into source are not reported by this check; the edit hook still checks for them. |
-| `secret_assignments` | boolean | `true` | A secret-named key (password, secret, api_key, client_secret, auth, access or refresh token, private, signing or encryption key) given a literal that is no placeholder, environment reference, test value or documented example: `password = "…"` in code, JSON, YAML or TOML, and an unquoted `DB_PASSWORD=…` line in a .env file. A note in review and a warning the agent sees before the tool call; it does not block, `security.block` included. Off: neither. |
+| `secret_assignments` | boolean | `true` | A secret-named key (password, secret, an API key or token, client secret, auth, access or refresh token, private, signing or encryption key; snake_case, kebab-case, camelCase or upper case: `db_password`, `dbPassword`, `DB_PASSWORD`) given a literal that is no placeholder, environment reference, test value or documented example: `password = "…"` in code, JSON, YAML or TOML, and an unquoted `DB_PASSWORD=…` line in a .env file. A note in review and a warning the agent sees before the tool call; it does not block, `security.block` included. Off: neither. |
 | `insecure_randomness` | boolean | `true` | When off, use of non-cryptographic random number generators for security values is not reported. |
 | `command_injection` | boolean | `true` | When off, shell command injection patterns are not reported by this check; the edit hook still checks for them. |
 | `block_on_severity` | "critical" \| "high" \| "medium" \| "low" | `"high"` | Lowest severity of security finding that is reported; findings below it are dropped. |

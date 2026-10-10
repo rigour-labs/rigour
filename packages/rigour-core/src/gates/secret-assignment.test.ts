@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SecurityPatternsGate } from './security-patterns.js';
 import { mustFix } from '../review/quiet.js';
 import { scanInputForCredentials } from '../hooks/input-validator.js';
+import { isSecretKeyName } from './secret-values.js';
 
 let dir: string;
 const write = (rel: string, body: string) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), body); };
@@ -61,5 +62,18 @@ describe('a secret in a plain assignment', () => {
         expect(scanned.detections.every(d => d.decision !== 'block')).toBe(true);
         expect(scanInputForCredentials(write, { secret_assignments: false }).status).toBe('clean');
         expect(scanInputForCredentials("const password = 'your-password';").status).toBe('clean');
+    });
+
+    it('reads camelCase keys the way Go, JS and TS write them, and never a name inside a longer word', async () => {
+        const named = ['dbPassword', 'apiToken', 'clientSecret', 'privateKey', 'getAccessToken', 'DBPassword', 'db_password', 'API_KEY', 'Secret'];
+        const words = ['keyword', 'passwordless', 'tokenizer', 'secretary', 'secretsManager', 'hidePasswordField', 'tokenCount'];
+        for (const key of named) expect(isSecretKeyName(key), key).toBe(true);
+        for (const key of words) expect(isSecretKeyName(key), key).toBe(false);
+        write('src/conf.ts', [...named, ...words].map(key => `export const ${key} = "${VALUE}";`).join('\n') + '\n');
+        const found = (await run()).filter(f => f.title === 'Security: SECRET ASSIGNMENT');
+        const lines = found.map(f => f.line).sort((a, b) => (a ?? 0) - (b ?? 0));
+        expect(lines).toEqual(named.map((_, i) => i + 1));
+        expect(scanInputForCredentials(`const dbPassword = '${VALUE}';`).status).toBe('warning');
+        expect(scanInputForCredentials(`const tokenizer = '${VALUE}';`).status).toBe('clean');
     });
 });

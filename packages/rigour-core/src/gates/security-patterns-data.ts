@@ -4,6 +4,7 @@
  * Contains OWASP rule definitions, regex pattern arrays, and
  * language-specific vulnerability patterns.
  */
+import { SECRET_KEY_SOURCE } from './secret-values.js';
 
 /**
  * What the agent is told to do about each kind of finding: every pattern type has its own, and a type without one gets
@@ -109,7 +110,7 @@ export const VULNERABILITY_PATTERNS: {
     // literal has no whitespace: `hidePassword: 'Hide password'` is a UI label, not a credential.
     {
         type: 'secret_assignment',
-        regex: /\b(?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|secret|api[_-]?key|apikey|auth[_-]?token|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|signing[_-]?key|encryption[_-]?key)\b['"]?\s*[:=]\s*['"][^'"\s]{8,}['"]/gi, // a key may be quoted: JSON, a Python dict, a JS object
+        regex: new RegExp(`${SECRET_KEY_SOURCE}\\b['"]?\\s*[:=]\\s*['"][^'"\\s]{8,}['"]`, 'g'), // a key may be quoted: JSON, a Python dict, a JS object
         where: 'anywhere',
         severity: 'high',
         description: 'Secret in a plain assignment',
