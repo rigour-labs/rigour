@@ -16,7 +16,8 @@ describe('buildWeek', () => {
             events: [],
         });
         expect(week.recordingSince).toBe('2026-09-20T00:00:00Z');
-        expect(week.stopped).toEqual({ total: 3, byStage: { edit: 1, review: 1, stop: 1, pr: 0 } });
+        // Three fixed, and one still open (caught at the edit): every problem held this week, each once.
+        expect(week.stopped).toEqual({ total: 4, fixed: 3, byStage: { edit: 2, review: 1, stop: 1, pr: 0 } });
         expect(week.agentSaidDone).toBe(1);
         expect(week.stories.map(s => s.at)).toEqual(['2026-10-07T00:00:00Z', '2026-10-06T00:00:00Z', '2026-10-05T00:00:00Z']);
         expect([week.raised, week.overruled]).toEqual([5, 1]);

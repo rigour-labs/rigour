@@ -58,8 +58,10 @@ export async function runOutcomes(cwd: string, config: Config, options: { flag?:
 function lessonEvidence(cwd: string, mainRef: string, demoteAfter: number): OutcomeEvidenceResult | undefined {
     const lessons = readLessons(cwd);
     if (lessons.length === 0) return undefined;
+    const read = structuredClone(lessons);
     const result = applyOutcomeEvidence(lessons, Object.values(readPrOutcomes(cwd).outcomes), threadReviews(cwd).applied, { demoteAfter, git: gitIn(cwd), mainRef, deadline: Date.now() + LESSON_DEADLINE_MS });
-    if (result.added) writeLessons(cwd, lessons);
+    // The git walk can take up to LESSON_DEADLINE_MS: a decision made meanwhile is kept, not overwritten.
+    if (result.added) writeLessons(cwd, lessons, read);
     return result;
 }
 

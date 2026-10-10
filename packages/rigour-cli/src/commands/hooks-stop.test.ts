@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readThread, recordSessionBaseline } from '@rigour-labs/core';
+import { readAgentEvents, readThread, recordSessionBaseline } from '@rigour-labs/core';
 import { hooksStopCommand } from './hooks-stop.js';
 
 // A credential header on a redirect-following request: a proven (verified) high finding.
@@ -41,6 +41,10 @@ describe('rigour hooks stop', () => {
         expect(first.reason).toContain('attempt 1 of 3');
         // The task's thread keeps the blocked stop review, with the agent and its session.
         expect(readThread(repo)?.events.map(e => [e.kind, e.agent, e.session, e.blocked])).toEqual([['stop-review', 'claude', 's1', true]]);
+        // Studio's event log names what held the agent: the file, the check and the problem.
+        const stop = readAgentEvents(repo).find(e => e.type === 'stop_review');
+        expect(stop?.findings?.length).toBe(stop?.blocking); // one entry per problem that held it
+        for (const held of stop?.findings ?? []) expect(held).toMatchObject({ file: 'src/notify.ts', rule: expect.any(String), title: expect.any(String) });
         for (const n of [1, 2]) {
             write('src/notify.ts', `${LEAKY}// attempt ${n}\n`); // the agent edits, still leaking
             await hooksStopCommand('claude', payload, '/');

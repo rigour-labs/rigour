@@ -148,9 +148,11 @@ export function briefFile(cwd: string, file: string, input: { lessons?: LessonMo
 
 /** Builds the briefing and records it on the task's thread (what was briefed, by id, so a later review can be read against it). */
 export function briefTask(cwd: string, input: BriefingInput & { session?: string; agent?: string }): Briefing {
-    const briefing = buildBriefing(cwd, input);
-    servedInStudio(cwd, briefing);
-    appendTaskEvent(cwd, { kind: 'brief', ...(input.session ? { session: input.session } : {}), ...(input.agent ? { agent: input.agent } : {}), items: briefing.items.length, ids: briefing.items.map(i => i.id), files: briefing.files });
+    // From the repository's top: an agent started in a subfolder names files and rules as the repository does.
+    const root = git(cwd, ['rev-parse', '--show-toplevel']) || cwd;
+    const briefing = buildBriefing(root, input);
+    servedInStudio(root, briefing);
+    appendTaskEvent(root, { kind: 'brief', ...(input.session ? { session: input.session } : {}), ...(input.agent ? { agent: input.agent } : {}), items: briefing.items.length, ids: briefing.items.map(i => i.id), files: briefing.files });
     return briefing;
 }
 

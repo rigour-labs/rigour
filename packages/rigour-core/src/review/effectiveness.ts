@@ -33,7 +33,7 @@ export interface AgentEvent {
     /** How many of a briefing's items are the repository's rules, not lessons. */
     rules?: number;
     /** pr_catches: what a branch review reported. */
-    findings?: Array<{ rule: string; title: string; file: string }>;
+    findings?: Array<{ rule: string; title: string; file: string; detail?: string }>;
     /** reuse_suggested: what the agent was about to write, what already exists, and BLOCK or WARN. */
     planned?: string;
     existing?: string;

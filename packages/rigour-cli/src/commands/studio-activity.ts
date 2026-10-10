@@ -16,9 +16,14 @@ export interface ActivityItem {
     kind: ActivityKind;
     text: string;
     detail?: string;
+    /** The problems a stopped item is about (check and file, as the open-findings ledger keys them): one problem stopped at an edit and again at the stop counts once. */
+    problems?: string[];
 }
 
-interface HookFinding { message?: string; file?: string; line?: number }
+interface HookFinding { message?: string; file?: string; line?: number; gate?: string }
+
+/** A problem as the open-findings ledger keys it: its check and its file. */
+const problemKey = (check: string | undefined, file: string | undefined) => `${check ?? '?'}:${file ?? '?'}`;
 
 export function buildActivity(input: { events: AgentEvent[]; ledger: LedgerEntry[]; stories: Story[] }): ActivityItem[] {
     const items: ActivityItem[] = [
@@ -67,10 +72,16 @@ export function groupSessions(items: ActivityItem[]): ActivitySession[] {
     }
     return sessions.map(list => {
         const counts = { stopped: 0, reported: 0, fixed: 0, checked: 0, reviewed: 0, taught: 0, pr: 0, reviewedFixed: 0 };
+        const stopped = new Set<string>();
         for (const item of list) {
+            if (item.kind === 'stopped') {
+                for (const [i, problem] of (item.problems ?? [`${item.at}#0`]).entries()) stopped.add(problem || `${item.at}#${i}`);
+                continue;
+            }
             counts[item.kind]++;
             if (item.kind === 'reviewed' && item.text.startsWith('Fixed ')) counts.reviewedFixed++;
         }
+        counts.stopped = stopped.size;
         const highlight = (i: ActivityItem) => IMPORTANT.includes(i.kind) || (i.kind === 'reviewed' && i.text.startsWith('Fixed '));
         return { start: list[list.length - 1].at, end: list[0].at, counts, highlights: list.filter(highlight), rest: list.filter(i => !highlight(i)) };
     });
@@ -87,13 +98,19 @@ function fromEvent(event: AgentEvent): ActivityItem[] {
             const found = findings.map(f => f.message).filter(Boolean).join('; ');
             // Stopped only when the hook ran with --block and said so; an event without the flag never claims a block.
             return [event.blocked
-                ? { at, kind: 'stopped', text: `Stopped an edit to ${files}: ${found}` }
+                ? { at, kind: 'stopped', text: `Stopped an edit to ${files}: ${found}`, problems: findings.map(f => problemKey(f.gate, f.file)) }
                 : { at, kind: 'reported', text: `Reported on an edit to ${files}: ${found}` }];
         }
-        case 'stop_review':
-            return [event.blocked
-                ? { at, kind: 'stopped', text: `Kept the agent working: ${count(event.blocking ?? 0, 'problem')} left when it tried to finish` }
-                : { at, kind: 'checked', text: 'The agent finished with nothing blocking' }];
+        case 'stop_review': {
+            if (!event.blocked) return [{ at, kind: 'checked', text: 'The agent finished with nothing blocking' }];
+            // What held it, as the edit line names what it stopped; an older record has only the count.
+            const held = event.findings ?? [];
+            const named = (f: { title: string; file: string; detail?: string }) => `${f.file ? `${f.file}: ` : ''}${f.title}${f.detail ? ` (${f.detail})` : ''}`;
+            if (held.length === 1 && (event.blocking ?? 1) === 1) return [{ at, kind: 'stopped', text: `Kept the agent working: ${named(held[0])}`, problems: [problemKey(held[0].rule, held[0].file)] }]; // written at the block: the "Fixed" story says when it was fixed
+            // An older record names no problems: each counts as its own.
+            const problems = held.length ? held.map(f => problemKey(f.rule, f.file)) : Array.from({ length: event.blocking ?? 1 }, (_, i) => `${at}#${i}`);
+            return [{ at, kind: 'stopped', text: `Kept the agent working: ${count(event.blocking ?? held.length, 'problem')} left when it tried to finish`, problems, ...(held.length ? { detail: held.map(named).join(' · ') } : {}) }];
+        }
         case 'lessons_served': {
             const items = event.lessons?.length ?? 0;
             if (event.via !== 'brief') return [{ at, kind: 'taught', text: `Told the agent ${count(items, 'lesson')} before it wrote`, detail: event.lessons?.join(' · ') }];
