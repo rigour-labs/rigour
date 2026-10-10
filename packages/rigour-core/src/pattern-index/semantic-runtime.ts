@@ -1,5 +1,5 @@
 /**
- * Where the local embedding library (`@huggingface/transformers`, with its ONNX runtime about 230 MB)
+ * Where the local embedding library (`@huggingface/transformers` and its ONNX runtime)
  * comes from. It is not a dependency of the npm package: npm installed it again for every
  * version a hook pinned, so a machine kept one copy per Rigour version. `rigour setup` installs it
  * once into Rigour's home, where every version finds it.
@@ -20,6 +20,46 @@ export const TRANSFORMERS_SPEC = '@huggingface/transformers@4.3.1';
 const PACKAGE = '@huggingface/transformers';
 /** What `rigour setup` installed up to 6.x: never loaded now (its image library has known vulnerabilities). */
 export const RETIRED_TRANSFORMERS_PACKAGE = '@xenova/transformers';
+
+/**
+ * The environment for installing it. The ONNX runtime's install step downloads its CUDA provider on Linux (about
+ * 260 MB); Rigour embeds on the CPU, so it is never loaded.
+ */
+export const SEMANTIC_INSTALL_ENV = { ONNXRUNTIME_NODE_INSTALL: 'skip' } as const;
+
+/**
+ * Removes the ONNX runtime's binaries for other platforms and architectures from an install (`<dir>/node_modules`):
+ * the package ships every one (about 230 MB) and loads only `bin/napi-v*\/<platform>/<arch>`. Returns the bytes freed.
+ */
+export function pruneSemanticRuntime(dir: string, platform: string = process.platform, arch: string = process.arch): number {
+    let freed = 0;
+    const remove = (target: string) => {
+        freed += sizeOf(target);
+        fs.rmSync(target, { recursive: true, force: true });
+    };
+    const bin = path.join(dir, 'node_modules', 'onnxruntime-node', 'bin');
+    for (const napi of children(bin)) {
+        for (const os of children(napi)) {
+            if (path.basename(os) !== platform) remove(os);
+            else for (const cpu of children(os)) if (path.basename(cpu) !== arch) remove(cpu);
+        }
+    }
+    return freed;
+}
+
+function children(dir: string): string[] {
+    try {
+        return fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => path.join(dir, e.name));
+    } catch {
+        return [];
+    }
+}
+
+function sizeOf(target: string): number {
+    const stat = fs.lstatSync(target);
+    if (!stat.isDirectory()) return stat.size;
+    return fs.readdirSync(target).reduce((sum, name) => sum + sizeOf(path.join(target, name)), 0);
+}
 
 /** Rigour's own copy, shared by every Rigour version on the machine (per profile home). */
 export function semanticRuntimeDir(): string {

@@ -59,7 +59,7 @@ review:
 
 | Destination | When | What is sent | How to turn it off |
 | --- | --- | --- | --- |
-| Your npm registry (`npm install @xenova/transformers@2.17.2` into `~/.rigour/runtime/semantic`) | `rigour setup`, once per machine, skipped when less than about 1 GB is free | A normal npm install, with `--no-audit --no-fund --omit=dev` | `rigour setup --no-semantic`. Recall and pattern matching then use keywords |
+| Your npm registry (`npm install @huggingface/transformers@4.3.1` into `~/.rigour/runtime/semantic`, then `npm uninstall @xenova/transformers` there when an earlier setup installed it) | `rigour setup`, once per machine, skipped when less than about 1 GB is free | A normal npm install, with `--no-audit --no-fund --omit=dev` | `rigour setup --no-semantic`. Recall and pattern matching then use keywords |
 | `huggingface.co` (the embedding model `Xenova/all-MiniLM-L6-v2`) | The first time Rigour computes an embedding after the library above is installed: indexing, recall, Studio's background index, the duplication check. The library caches it inside its own install directory | A GET by the library, whose default model host is Hugging Face | Do not install the library (`--no-semantic`) |
 | Your npm registry, through `npx --yes @rigour-labs/cli@<version>` | Every agent hook and git's pre-push hook run the CLI pinned to the version that installed them. npx resolves it through the machine's npm configuration (registry, proxy, cache) | What npm sends for a package fetch | Pre-populate the npm cache, or point npm at an internal registry |
 | Your npm registry, through `npx -y @rigour-labs/mcp@<version>` | The MCP server entry `rigour setup` registers at user level and `rigour setup --team` writes to `.mcp.json` and `.cursor/mcp.json`. The agent starts it | As above | As above |
@@ -155,7 +155,7 @@ Then:
 | Step | How |
 | --- | --- |
 | Install | From an internal npm registry or mirror. Agent hooks and the MCP entry run `npx --yes @rigour-labs/cli@<version>` and `npx -y @rigour-labs/mcp@<version>` (the same version), which must resolve there or from the npm cache |
-| Setup | `rigour setup --no-semantic` (or install `@xenova/transformers@2.17.2` from your mirror; its embedding model is still fetched from Hugging Face on first use) |
+| Setup | `rigour setup --no-semantic` (or install `@huggingface/transformers@4.3.1` from your mirror; its embedding model is still fetched from Hugging Face on first use) |
 | Model review | Leave `--deep`, `--pro`, `--max` and `-k` off. For a local model, run `rigour deep pull` (add `--pro` for the larger model) on a connected machine and copy `~/.rigour/bin` and `~/.rigour/models`, or pass `--model-path <file.gguf>` with `llama-cli` on `PATH`. For an internal endpoint, use `-k <key> --provider <name> --api-base-url <url> --model-name <model>`: an OpenAI-compatible server, or a gateway in front of Anthropic with `--provider claude` |
 | Reviewer | Keep `review.reviewer.enabled: false`, or accept that the agent CLIs reach their vendors |
 | Checks that call out | Keep `gates.deprecated_dependencies.enabled: false` (the default) or set its `registry`; do not run `rigour security-audit`, or point npm at a mirror |

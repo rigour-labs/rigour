@@ -37,7 +37,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install both versions
+      - name: Build core (the install environment and the pruning setup uses)
+        run: |
+          npx -y pnpm@10 install --frozen-lockfile --filter @rigour-labs/core...
+          npx -y pnpm@10 --filter @rigour-labs/core build
+      - name: Install both versions as rigour setup does
         env:
           OLD: ${{ inputs.old }}
           NEW: ${{ inputs.new }}
@@ -46,17 +50,19 @@ jobs:
           spec() { git show "$1:packages/rigour-core/src/pattern-index/semantic-runtime.ts" | sed -n "s/^export const TRANSFORMERS_SPEC = '\(.*\)';$/\1/p"; }
           OLD="${OLD:-$(spec origin/main)}"
           NEW="${NEW:-$(spec HEAD)}"
+          runtime="$PWD/packages/rigour-core/dist/pattern-index/semantic-runtime.js"
           for side in old new; do
             dir="$RUNNER_TEMP/$side"; mkdir -p "$dir"
             want=$([ "$side" = old ] && echo "$OLD" || echo "$NEW")
-            # The same install `rigour setup` runs (packages/rigour-cli/src/commands/semantic.ts).
-            (cd "$dir" && npm init -y >/dev/null && npm install --no-audit --no-fund --omit=dev "$want" >/dev/null)
-            echo "$side: $want, installed $(du -sh "$dir/node_modules" | cut -f1); the largest packages:"
-            (cd "$dir/node_modules" && du -sk * @*/* 2>/dev/null | sort -rn | head -5 | awk '{ printf "  %d MB  %s\n", $1 / 1024, $2 }')
+            # The same install and pruning `rigour setup` runs (packages/rigour-cli/src/commands/semantic.ts).
+            (cd "$dir" && npm init -y >/dev/null)
+            node --input-type=module -e "
+              const { execFileSync } = await import('child_process');
+              const m = await import('$runtime');
+              execFileSync('npm', ['install', '--no-audit', '--no-fund', '--omit=dev', '$want'], { cwd: '$dir', stdio: 'ignore', env: { ...process.env, ...m.SEMANTIC_INSTALL_ENV } });
+              console.log('$side: $want, pruned ' + Math.round(m.pruneSemanticRuntime('$dir') / 2 ** 20) + ' MB of other platforms');"
+            echo "  installed $(du -sh "$dir/node_modules" | cut -f1); the largest packages:"
+            (cd "$dir/node_modules" && du -sk * @*/* 2>/dev/null | sort -rn | head -5 | awk '{ printf "    %d MB  %s\n", $1 / 1024, $2 }')
           done
-      - name: The runtimes' largest files (temporary)
-        run: |
-          cd "$RUNNER_TEMP/new/node_modules"
-          find onnxruntime-node onnxruntime-web -type f -size +1M -exec du -k {} + | sort -rn | head -25 | awk '{ printf "  %d MB  %s\n", $1 / 1024, $2 }'
       - name: Compare the vectors
         run: node scripts/eval/embedding-parity.mjs "$RUNNER_TEMP/old" "$RUNNER_TEMP/new" 200

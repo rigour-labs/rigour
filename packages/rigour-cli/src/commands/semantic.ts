@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import { execa } from 'execa';
 import fs from 'fs';
 import path from 'path';
-import { locateTransformers, RETIRED_TRANSFORMERS_PACKAGE, retiredSemanticRuntimeInstalled, semanticRuntimeDir, TRANSFORMERS_SPEC } from '@rigour-labs/core';
+import { locateTransformers, pruneSemanticRuntime, RETIRED_TRANSFORMERS_PACKAGE, retiredSemanticRuntimeInstalled, SEMANTIC_INSTALL_ENV, semanticRuntimeDir, TRANSFORMERS_SPEC } from '@rigour-labs/core';
 
 /** What the library takes on disk, with room to spare for npm's own cache while it installs. */
 const NEEDED_BYTES = 1024 ** 3;
@@ -25,12 +25,18 @@ async function ensureSemanticRuntime(cwd: string): Promise<SemanticInstall> {
     if (free !== undefined && free < NEEDED_BYTES) return { state: 'skipped', reason: `only ${Math.round(free / 1024 ** 2)} MB free; it needs about 1 GB while installing` };
     if (!fs.existsSync(path.join(dir, 'package.json'))) fs.writeFileSync(path.join(dir, 'package.json'), '{ "name": "rigour-semantic-runtime", "private": true }\n');
     const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const result = await execa(npm, ['install', '--no-audit', '--no-fund', '--omit=dev', TRANSFORMERS_SPEC], { cwd: dir, reject: false, timeout: INSTALL_TIMEOUT_MS });
+    const result = await execa(npm, ['install', '--no-audit', '--no-fund', '--omit=dev', TRANSFORMERS_SPEC], { cwd: dir, env: SEMANTIC_INSTALL_ENV, reject: false, timeout: INSTALL_TIMEOUT_MS });
     if (result.exitCode !== 0) return { state: 'failed', reason: String(result.stderr || result.stdout || `npm exited ${result.exitCode}`).trim().split('\n').slice(-3).join(' ') };
     const where = locateTransformers(cwd);
     if (!where) return { state: 'failed', reason: `npm finished, but ${TRANSFORMERS_SPEC} does not resolve from ${dir}` };
-    // The copy an earlier setup installed is never loaded again: free its space. A failure here costs only disk.
-    if (retiredSemanticRuntimeInstalled()) await execa(npm, ['uninstall', '--no-audit', '--no-fund', RETIRED_TRANSFORMERS_PACKAGE], { cwd: dir, reject: false, timeout: INSTALL_TIMEOUT_MS });
+    // The copy an earlier setup installed is never loaded again, nor are other platforms' runtimes: free their space.
+    // A failure here costs only disk.
+    if (retiredSemanticRuntimeInstalled()) await execa(npm, ['uninstall', '--no-audit', '--no-fund', RETIRED_TRANSFORMERS_PACKAGE], { cwd: dir, env: SEMANTIC_INSTALL_ENV, reject: false, timeout: INSTALL_TIMEOUT_MS });
+    try {
+        pruneSemanticRuntime(dir);
+    } catch {
+        // left in place
+    }
     return { state: 'installed', where };
 }
 
