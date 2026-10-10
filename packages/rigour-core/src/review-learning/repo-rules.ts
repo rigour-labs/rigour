@@ -16,7 +16,6 @@ import { isSpecific, meaningfulWords } from './lessons.js';
 
 const RULE_FILES = ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md'];
 const RULE_DIRS = ['.cursor/rules'];
-const MAX_RULE_CHARS = 600;
 const MAX_RULES = 5;
 /** A paragraph that continues the rule before it (its reason, how to apply it, an example) rather than a rule of its own. */
 const CONTINUES = /^\**\s*(why|how to apply|example|examples|evidence|exception|exceptions|fix|note)\b\s*:?\**\s*:?/i;
@@ -87,26 +86,37 @@ function nestedRuleFiles(cwd: string): string[] {
     return listed.status === 0 ? listed.stdout.split('\0').filter(f => f && !VENDORED.test(f)) : [];
 }
 
-/** One rule per top-level bullet or paragraph; headings and import lines are not rules. */
+/** A top-level list item: a bullet or a numbered item (`1.`, `2)`). Each is a rule of its own. */
+const ITEM = /^(?:[-*]|\d+[.)])\s+/;
+
+/**
+ * One rule per top-level bullet, numbered item or paragraph; headings and import lines are not rules, and neither is
+ * a paragraph that only introduces the list after it (prose ending in a colon, right before a list item).
+ */
 export function splitRules(source: string, text: string): RepoRule[] {
-    const blocks: string[] = [];
+    const parts: Array<{ text: string; item: boolean }> = [];
     let current: string[] = [];
+    let item = false;
     const flush = () => {
         const block = current.join(' ').replace(/\s+/g, ' ').trim();
-        if (block.length >= 40) blocks.push(block);
+        if (block) parts.push({ text: block, item });
         current = [];
     };
     for (const line of text.split('\n')) {
         if (/^\s*$/.test(line) || /^#{1,6}\s/.test(line) || /^@\S+$/.test(line.trim())) {
             flush();
-        } else if (/^[-*]\s/.test(line)) {
+            item = false;
+        } else if (ITEM.test(line)) {
             flush();
-            current.push(line.replace(/^[-*]\s+/, ''));
+            item = true;
+            current.push(line.replace(ITEM, ''));
         } else {
             current.push(line.trim());
         }
     }
     flush();
+    const leadIn = (part: { text: string; item: boolean }, i: number) => !part.item && part.text.endsWith(':') && !!parts[i + 1]?.item;
+    const blocks = parts.filter((part, i) => part.text.length >= 40 && !leadIn(part, i)).map(part => part.text);
     // A "Why:" or "How to apply:" paragraph belongs to the rule above it: alone it is not checkable.
     const merged: string[] = [];
     for (const block of blocks) {
@@ -116,7 +126,8 @@ export function splitRules(source: string, text: string): RepoRule[] {
     return merged.map(block => ({
         id: crypto.createHash('sha256').update(`${source}\u0000${block.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`).digest('hex').slice(0, 10),
         source,
-        text: block.length > MAX_RULE_CHARS ? `${block.slice(0, MAX_RULE_CHARS)}…` : block,
+        // Whole: a rule cut mid-sentence is a garbled instruction to the agent. The brief's item limit bounds its size.
+        text: block,
         requirement: REQUIREMENT.test(block),
         paths: [...new Set([...block.matchAll(/`([\w@.~-]+\/[\w./@*-]*)`/g)].map(m => m[1].replace(/\*.*$/, '').replace(/^\.\//, '')))].filter(Boolean),
         symbols: [...new Set([...block.matchAll(/`([A-Za-z_$][\w$]*)(?:\(\))?`/g)].map(m => m[1]))].filter(isSpecific),
