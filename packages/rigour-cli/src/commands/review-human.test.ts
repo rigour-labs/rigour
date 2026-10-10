@@ -78,9 +78,11 @@ describe('rigour review, as a person reads it', () => {
     it('keeps notes and old-code issues to one quiet line each', () => {
         const text = show(result({ advisory: [finding(1)], fileFindings: [finding(2)], preexisting: 12, excludedOutsideChangedLines: 3 }));
         expect(text).toContain('Also seen, never blocking: 2 notes (rigour review --notes)');
-        expect(text).toContain('Not shown: 15 issues the code already had before this change');
+        expect(text).toContain('Not shown: 12 issues the code already had before this change (review.show_preexisting: true lists them).');
+        expect(text).toContain('Not shown: 3 issues on lines this change did not touch.');
         const byCheck = show(result({ preexisting: 12, excludedOutsideChangedLines: 3, preexistingByCheck: { 'ast-analysis': 11, 'file-size': 1 }, outsideChangeByCheck: { 'file-size': 2, 'style-drift': 1 } }));
-        expect(byCheck).toContain('Not shown: 15 issues the code already had before this change: ast-analysis 11, file-size 3, style-drift 1 (review.show_preexisting: true lists them).');
+        expect(byCheck).toContain('Not shown: 12 issues the code already had before this change: ast-analysis 11, file-size 1 (review.show_preexisting: true lists them).');
+        expect(byCheck).toContain('Not shown: 3 issues on lines this change did not touch: file-size 2, style-drift 1.');
         // A finding about a changed file as a whole fails its check with no row: the line names the check.
         const whole = show(result({ fileFindings: [finding(0, { id: 'style-drift', line: undefined }), finding(0, { id: 'AST_COMPLEXITY', line: undefined })] }));
         expect(whole).toContain('About a changed file as a whole: AST_COMPLEXITY 1, style-drift 1, shown with --notes.');

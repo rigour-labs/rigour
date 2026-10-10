@@ -63,11 +63,9 @@ function printFindings(result: ReviewResult, all: boolean): void {
     console.log(chalk.dim('\n  Wrong? Dismiss it once and it never comes back.\n'));
 }
 
-/** The left-out findings by check, most first (`: ast-analysis 12, file-size 1`), as `checked.preexisting` and `checked.outsideChange` give them in JSON. */
-function leftOutByCheck(result: ReviewResult): string {
-    const byCheck = new Map<string, number>();
-    for (const counts of [result.preexistingByCheck, result.outsideChangeByCheck]) for (const [check, n] of Object.entries(counts ?? {})) byCheck.set(check, (byCheck.get(check) ?? 0) + n);
-    const parts = countsByCheck(byCheck);
+/** Findings left out of the verdict, by check, most first (`: ast-analysis 12, file-size 1`), as `checked.preexisting` or `checked.outsideChange` gives them in JSON. */
+function leftOutByCheck(counts: Record<string, number> | undefined): string {
+    const parts = countsByCheck(new Map(Object.entries(counts ?? {})));
     return parts ? `: ${parts}` : '';
 }
 
@@ -93,8 +91,11 @@ function printQuietLines(result: ReviewResult, notes: boolean): void {
     if (seen) lines.push(`Also seen, never blocking: ${seen} note${seen === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
     const wholeFile = fileFindingsByCheck(result);
     if (wholeFile) lines.push(`About a changed file as a whole: ${wholeFile}${notes ? ' (listed below)' : ', shown with --notes'}.`);
-    const before = result.preexisting + result.excludedOutsideChangedLines;
-    if (before) lines.push(`Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change${leftOutByCheck(result)} (review.show_preexisting: true lists them).`);
+    // Two kinds, each with its own pointer: show_preexisting lists only the first.
+    const before = result.preexisting;
+    if (before) lines.push(`Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change${leftOutByCheck(result.preexistingByCheck)} (review.show_preexisting: true lists them).`);
+    const outside = result.excludedOutsideChangedLines;
+    if (outside) lines.push(`Not shown: ${outside} issue${outside === 1 ? '' : 's'} on lines this change did not touch${leftOutByCheck(result.outsideChangeByCheck)}.`);
     if (result.baseUnknown) lines.push('Compared with no base: HEAD already holds this diff, so findings on its lines were not checked against the code before it. Pass --base to compare.');
     if (result.hints.length) lines.push(`To confirm by hand: ${result.hints.length} hint${result.hints.length === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
     if (result.dismissed) lines.push(`Dismissed earlier as not a bug: ${result.dismissed}.`);
