@@ -54,6 +54,20 @@ describe('SecurityPatternsGate', () => {
             }
         });
 
+        it('never fires on a provider\'s documented example or placeholder key', async () => {
+            const examples = {
+                'aws-example.ts': `// e.g. ${'AKIA' + 'IOSFODNN7' + 'EXAMPLE'}\nexport const id = '${'AKIA' + 'QWERTYUIO' + 'EXAMPLE'}';\n`,
+                'stripe-x.ts': `export const key = '${'sk_' + 'live_' + 'x'.repeat(24)}';\n`,
+                'stripe-0.ts': `export const key = '${'rk_' + 'live_' + '0'.repeat(24)}';\n`,
+                'stripe-your.ts': `export const key = '${'sk_' + 'live_' + 'yourSecretKeyGoesHere1234'}';\n`,
+            };
+            // Each would match the key pattern itself: only the exclusion keeps it out.
+            const keyPattern = /\b(?:AKIA[0-9A-Z]{16}|(?:sk|rk)_live_[0-9a-zA-Z]{24,})\b/;
+            for (const body of Object.values(examples)) expect(keyPattern.test(body), body).toBe(true);
+            const found = await findings(examples);
+            expect(found.filter(f => /AWS|Stripe|Cloud/.test(f.details))).toEqual([]);
+        });
+
         it('shows string-built SQL and innerHTML as notes, never a block, unless the team opts in', async () => {
             const files = {
                 'db.ts': 'export function find(db: any, id: string) {\n  return db.query(`SELECT * FROM users WHERE id = ${id}`);\n}\n',

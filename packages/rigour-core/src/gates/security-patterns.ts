@@ -53,6 +53,15 @@ export interface SecurityPatternsConfig {
 }
 
 
+/**
+ * A provider's documented example or placeholder key, which docs, comments and SDK samples carry everywhere: AWS's
+ * `AKIAIOSFODNN7EXAMPLE` (and any key ending in EXAMPLE), Stripe's `sk_live_` followed by all x's or 0's, or a key
+ * spelling out "your". A proven pattern never fires on one.
+ */
+function isDocumentedExampleKey(match: string): boolean {
+    return /EXAMPLE$/.test(match) || /^(?:sk|rk)_live_(?:x+|0+)$/i.test(match) || /your/i.test(match);
+}
+
 export class SecurityPatternsGate extends Gate {
     private config: SecurityPatternsConfig;
     private severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -213,7 +222,7 @@ export class SecurityPatternsGate extends Gate {
             while ((match = pattern.regex.exec(content)) !== null) {
                 if (pattern.where !== 'anywhere' && !isCode(match.index)) continue;
                 // For hardcoded_secrets: filter out placeholder/dummy values and env var names
-                if (pattern.type === 'hardcoded_secrets' && this.isDummySecretValue(match[0])) {
+                if (pattern.type === 'hardcoded_secrets' && (this.isDummySecretValue(match[0]) || isDocumentedExampleKey(match[0]))) {
                     continue;
                 }
 
