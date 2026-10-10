@@ -8,7 +8,7 @@
  */
 import { spawnSync } from 'child_process';
 import path from 'path';
-import { rulesForDiff } from '../review-learning/repo-rules.js';
+import { rulesForDiff, type RepoRule } from '../review-learning/repo-rules.js';
 import type { ReviewLesson } from '../review-learning/lessons.js';
 import { describeLesson, lessonsForDiff, lessonView, rejectedForDiff, type LessonMode } from '../review-learning/team-lessons.js';
 import { appendTaskEvent, taskOf } from '../task/thread.js';
@@ -17,6 +17,10 @@ import { appendTaskEvent, taskOf } from '../task/thread.js';
 export const BRIEFING_MAX_ITEMS = 10;
 /** The most items a briefing for one file gives, the first time an agent edits it: a word in passing, not a wall. */
 export const FILE_BRIEFING_MAX_ITEMS = 3;
+/** A rule longer than this is served by its first sentence and where the whole rule is: one item never floods the briefing. */
+const ITEM_MAX_CHARS = 400;
+/** All items of a briefing together, at most: once one would pass it, the rest wait for the reviewer. */
+const BRIEFING_MAX_CHARS = 3000;
 /** The most files a briefing reads the task's likely reach from. */
 const LIKELY_FILES = 20;
 
@@ -64,15 +68,34 @@ export function buildBriefing(cwd: string, input: BriefingInput = {}): Briefing 
     const settled = rejectedForDiff(cwd, shape);
     const cited = (prs: number[]) => (prs.length ? `learned in PR ${prs.map(p => `#${p}`).join(', ')}` : 'the team\'s decision');
     const items: BriefingItem[] = [
-        ...rules.filter(r => r.requirement).map(r => ({ kind: 'rule' as const, text: r.text, cite: ruleCite(r.source, r.scope), requirement: true, id: `rule:${r.id}` })),
+        ...rules.filter(r => r.requirement).map(ruleItem),
         ...lessons.map(l => {
             const view = lessonView(l);
             return { kind: 'lesson' as const, text: describeLesson({ ...view, prs: [] }), cite: cited(view.prs), id: `lesson:${l.id}` };
         }),
         ...settled.map(l => ({ kind: 'settled' as const, text: `settled against, do not do or raise it: ${lessonView(l).text}`, cite: cited(lessonView(l).prs), id: `settled:${l.id}` })),
-        ...rules.filter(r => !r.requirement).map(r => ({ kind: 'rule' as const, text: r.text, cite: ruleCite(r.source, r.scope), id: `rule:${r.id}` })),
+        ...rules.filter(r => !r.requirement).map(ruleItem),
     ];
-    return { ...(task ? { task: task.key } : {}), goal, files, items: items.slice(0, limit) };
+    return { ...(task ? { task: task.key } : {}), goal, files, items: withinBudget(items.slice(0, limit)) };
+}
+
+/**
+ * A repository rule as a briefing item, whole when it fits; an over-long one by its first sentence and where the whole
+ * rule is (`full rule: AGENTS.md:12`), never cut mid-sentence.
+ */
+function ruleItem(r: RepoRule): BriefingItem {
+    const where = `${r.source}${r.line ? `:${r.line}` : ''}`;
+    const text = r.text.length <= ITEM_MAX_CHARS ? r.text : `${r.text.split(/(?<=[.!?])\s/)[0]} (full rule: ${where})`;
+    return { kind: 'rule', text, cite: ruleCite(r.source, r.scope), ...(r.requirement ? { requirement: true } : {}), id: `rule:${r.id}` };
+}
+
+/** Items in order while their text and citations fit BRIEFING_MAX_CHARS together; the first always. */
+function withinBudget(items: BriefingItem[]): BriefingItem[] {
+    let used = 0;
+    return items.filter((item, i) => {
+        used += item.text.length + item.cite.length;
+        return i === 0 || used <= BRIEFING_MAX_CHARS;
+    });
 }
 
 /** The briefing as an agent reads it: short, numbered, each item with where it came from. Empty when there is nothing to say. */
@@ -99,12 +122,12 @@ export function buildFileBriefing(cwd: string, file: string, input: { lessons?: 
     const settled = rejectedForDiff(cwd, shape).filter(l => l.file === file);
     const cited = (prs: number[]) => (prs.length ? `learned in PR ${prs.map(p => `#${p}`).join(', ')}` : 'the team\'s decision');
     const items: BriefingItem[] = [
-        ...rules.map(r => ({ kind: 'rule' as const, text: r.text, cite: ruleCite(r.source, r.scope), requirement: true, id: `rule:${r.id}` })),
+        ...rules.map(ruleItem),
         // This file's own lessons read as they are; a widened one says where it reaches (a folder, the team).
         ...lessons.map(l => ({ kind: 'lesson' as const, text: l.file === file && !l.scope ? lessonView(l).text : describeLesson({ ...lessonView(l), prs: [] }), cite: cited(lessonView(l).prs), id: `lesson:${l.id}` })),
         ...settled.map(l => ({ kind: 'settled' as const, text: `settled against, do not do or raise it: ${lessonView(l).text}`, cite: cited(lessonView(l).prs), id: `settled:${l.id}` })),
     ];
-    return { ...(task ? { task: task.key } : {}), goal: '', files: [file], items: items.slice(0, limit) };
+    return { ...(task ? { task: task.key } : {}), goal: '', files: [file], items: withinBudget(items.slice(0, limit)) };
 }
 
 /** A file's briefing as an agent reads it, just before it edits that file. Empty when there is nothing to say. */
