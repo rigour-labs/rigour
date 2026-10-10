@@ -31,6 +31,8 @@ export interface SecurityVulnerability {
     match: string;
     description: string;
     cwe?: string;
+    /** The pattern is a credential format only a real secret has (security-patterns-data.ts `proven`). */
+    proven?: true;
 }
 
 export interface SecurityPatternsConfig {
@@ -46,6 +48,8 @@ export interface SecurityPatternsConfig {
     unsafe_output?: boolean;
     missing_input_validation?: boolean;
     block_on_severity?: 'critical' | 'high' | 'medium' | 'low';
+    /** Opt in: every pattern blocks, not only the credential formats. */
+    block?: boolean;
 }
 
 
@@ -68,6 +72,7 @@ export class SecurityPatternsGate extends Gate {
             unsafe_output: config.unsafe_output ?? true,
             missing_input_validation: config.missing_input_validation ?? true,
             block_on_severity: config.block_on_severity ?? 'high',
+            block: config.block ?? false,
         };
     }
 
@@ -128,15 +133,20 @@ export class SecurityPatternsGate extends Gate {
 
         for (const vuln of filteredVulns) {
             if (this.severityOrder[vuln.severity] <= blockThreshold) {
-                failures.push(this.createFailure(
-                    `[${vuln.cwe}] ${vuln.description}`,
-                    [vuln.file],
-                    `Found: "${vuln.match.slice(0, 60)}..." - Use parameterized queries/sanitization.`,
-                    `Security: ${vuln.type.replace('_', ' ').toUpperCase()}`,
-                    vuln.line,
-                    vuln.line,
-                    vuln.severity
-                ));
+                // A credential format is the fact itself: proven. Every other pattern cannot see whether its input is
+                // trusted (a constant, an allow-listed value): likely, unless the team opts in (security.block).
+                failures.push({
+                    ...this.createFailure(
+                        `[${vuln.cwe}] ${vuln.description}`,
+                        [vuln.file],
+                        `Found: "${vuln.match.slice(0, 60)}..." - Use parameterized queries/sanitization.`,
+                        `Security: ${vuln.type.replace('_', ' ').toUpperCase()}`,
+                        vuln.line,
+                        vuln.line,
+                        vuln.severity
+                    ),
+                    certainty: vuln.proven || this.config.block ? 'proven' : 'likely',
+                });
             }
         }
 
@@ -224,6 +234,7 @@ export class SecurityPatternsGate extends Gate {
                     match: match[0],
                     description: pattern.description,
                     cwe: pattern.cwe,
+                    ...(pattern.proven ? { proven: true as const } : {}),
                 });
             }
         }

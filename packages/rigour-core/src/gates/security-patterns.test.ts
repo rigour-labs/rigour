@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SecurityPatternsGate, checkSecurityPatterns } from './security-patterns.js';
+import { mustFix } from '../review/quiet.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -26,6 +27,46 @@ describe('SecurityPatternsGate', () => {
             const gate = new SecurityPatternsGate({ enabled: false });
             const failures = await gate.run({ cwd: testDir });
             expect(failures).toEqual([]);
+        });
+    });
+
+    describe('what blocks', () => {
+        // Built at run time: no credential-shaped literal is kept in the repository.
+        const AWS = 'AKIA' + 'Q7XJ4P2M8K3L5N9R';
+        const STRIPE = 'sk_' + 'live_' + '9fQ2xWm4Lp8Zr7Tn3Kb6Vd1Y';
+        const KEY = '-----BEGIN ' + 'RSA PRIVATE KEY-----';
+        const findings = async (files: Record<string, string>, config = {}) => {
+            fs.mkdirSync(path.join(testDir, 'src'), { recursive: true });
+            for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(testDir, 'src', name), body);
+            return new SecurityPatternsGate(config).run({ cwd: testDir });
+        };
+
+        it('blocks on a credential in a format only a real secret has', async () => {
+            const found = await findings({
+                'aws.ts': `export const id = '${AWS}';\n`,
+                'pay.ts': `export const key = '${STRIPE}';\n`,
+                'key.ts': `export const pem = \`${KEY}\nMIIE\`;\n`,
+            });
+            for (const file of ['src/aws.ts', 'src/pay.ts', 'src/key.ts']) {
+                const f = found.find(x => x.files?.[0] === file);
+                expect(f, file).toMatchObject({ certainty: 'proven' });
+                expect(mustFix(f!), file).toBe(true);
+            }
+        });
+
+        it('shows string-built SQL and innerHTML as notes, never a block, unless the team opts in', async () => {
+            const files = {
+                'db.ts': 'export function find(db: any, id: string) {\n  return db.query(`SELECT * FROM users WHERE id = ${id}`);\n}\n',
+                'view.ts': 'export function show(el: any, html: string) {\n  el.innerHTML = html;\n}\n',
+            };
+            const found = await findings(files);
+            for (const file of ['src/db.ts', 'src/view.ts']) {
+                const f = found.find(x => x.files?.[0] === file);
+                expect(f, file).toMatchObject({ certainty: 'likely' });
+                expect(mustFix(f!), file).toBe(false);
+            }
+            const opted = await findings(files, { block: true });
+            expect(opted.filter(f => f.files?.[0] === 'src/db.ts').every(mustFix)).toBe(true);
         });
     });
 

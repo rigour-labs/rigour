@@ -86,6 +86,8 @@ export const GatesSchema = z.object({
         insecure_randomness: z.boolean().optional().default(true),
         command_injection: z.boolean().optional().default(true),
         block_on_severity: z.enum(['critical', 'high', 'medium', 'low']).optional().default('high'),
+        /** Opt in: every pattern blocks. By default only a credential in a real secret's format blocks; the rest are notes. */
+        block: z.boolean().optional().default(false),
     }).optional().default({}),
     frontend_secret_exposure: z.object({
         enabled: z.boolean().optional().default(true),
