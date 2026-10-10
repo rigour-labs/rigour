@@ -412,6 +412,12 @@ measurement never sees the future. The pull request's author commenting on their
 a review point. GitHub is read as the account in `review.github_account` (or an explicit
 `GITHUB_TOKEN`), never silently as another signed-in account.
 
+**Without GitHub.** The reviewer looks up the change's pull request with the GitHub CLI. When it cannot (no
+`gh`, not signed in, or a GitLab or Bitbucket repository), it reports no verdict and says why: it never falls back
+on its own. `rigour review --reviewer --blind` (or `RIGOUR_REVIEWER_BLIND=1`) reviews the change alone instead,
+with no pull request lookup, description or human reviews. The output and the review record say "reviewed without
+pull request context", and `--json` carries `blind: true`.
+
 A point that names a path is about that file. One that names none is a **team standard**: shown
 with a change, once it is a lesson, when it shares at least two meaningful words with the change (its
 paths and the names on its added lines): up to three in the agent's question at the stop, up to

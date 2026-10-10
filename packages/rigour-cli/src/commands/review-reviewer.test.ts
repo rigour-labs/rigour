@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReviewerResult } from '@rigour-labs/core';
-import { printReviewer, reviewerJson } from './review-reviewer.js';
+
+const asked = vi.hoisted(() => ({ options: [] as unknown[] }));
+vi.mock('@rigour-labs/core', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@rigour-labs/core')>()),
+    reviewerInputs: () => ({}),
+    runReviewer: async (_cwd: string, _base: string, _config: unknown, _exec: unknown, _progress: unknown, options: unknown) => { asked.options.push(options); return { outcome: 'passed' }; },
+}));
+
+const { printReviewer, reviewerFor, reviewerJson } = await import('./review-reviewer.js');
 
 let out: string[];
 beforeEach(() => {
@@ -73,5 +81,25 @@ describe('rigour review --status', () => {
             log.mockRestore();
             fs.rmSync(repo, { recursive: true, force: true });
         }
+    });
+});
+
+describe('the reviewer without pull request context', () => {
+    it('is asked for with --blind or RIGOUR_REVIEWER_BLIND=1, and never otherwise', async () => {
+        const review = {} as any;
+        asked.options = [];
+        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: true });
+        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: false });
+        vi.stubEnv('RIGOUR_REVIEWER_BLIND', '1');
+        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: false });
+        vi.unstubAllEnvs();
+        expect(asked.options.map(o => (o as { blind?: boolean }).blind)).toEqual([true, undefined, true]);
+    });
+
+    it('says so in the output and the JSON', () => {
+        printReviewer({ ...base, outcome: 'passed', items: [], blind: true });
+        expect(out.join('\n')).toContain('reviewed without pull request context');
+        expect(reviewerJson({ ...base, blind: true })).toMatchObject({ blind: true });
+        expect(reviewerJson(base)).toMatchObject({ blind: false });
     });
 });
