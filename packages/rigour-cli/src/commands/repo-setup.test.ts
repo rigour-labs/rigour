@@ -22,7 +22,7 @@ describe('checkRepoSetup', () => {
 
     it('calls out the old hook that checked nothing', async () => {
         write('.claude/settings.json', 'rigour hooks check --files "$TOOL_INPUT_file_path"');
-        expect(await byId('edit')).toMatchObject({ state: 'broken', fix: 'rigour hooks init --force' });
+        expect(await byId('edit')).toMatchObject({ state: 'broken', fix: 'rigour setup' }); // setup migrates a personal install too
     });
 
     it('finds the PR workflow and reports what is missing', async () => {

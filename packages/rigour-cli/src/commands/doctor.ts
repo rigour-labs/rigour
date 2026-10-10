@@ -4,6 +4,7 @@ import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, legacyStateNote, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
+import { configMigrations } from './setup-migrations.js';
 import { selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 import { semanticStatusLine } from './semantic.js';
 
@@ -156,6 +157,11 @@ export async function printRepoSetup(cwd: string): Promise<void> {
     for (const check of await checkRepoSetup(cwd)) {
         console.log(`  ${MARK[check.state]} ${check.name}: ${chalk.dim(check.detail)}`);
         if (check.fix && check.state !== 'working') console.log(chalk.dim(`      fix: ${check.fix}`));
+    }
+    // Settings an older Rigour wrote that no longer mean what they say: loud, since nothing else reports them.
+    for (const migration of configMigrations(cwd)) {
+        console.log(`  ${chalk.red('✘')} ${chalk.red(migration.problem)}`);
+        console.log(chalk.dim(`      fix: ${migration.automatic ? 'rigour setup' : 'edit rigour.yml'}`));
     }
     console.log('');
 }

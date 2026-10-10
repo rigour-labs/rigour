@@ -872,8 +872,13 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         : (options.files ?? '').split(',').map(f => f.trim()).filter(Boolean);
 
     if (files.length === 0) {
+        // The old edit hook passes "$TOOL_INPUT_file_path", which the agent never sets: an empty --files. Say so on every
+        // edit, with a non-zero exit the agent shows the person, until it is migrated; it never blocks the edit.
+        if (!options.stdin && options.files !== undefined) {
+            process.stderr.write('[rigour] This edit hook is the old form: it passes a variable the agent never sets, so no edit is checked. Run: rigour setup\n');
+            process.exitCode = 1;
+        } else if (!cursorMode) process.stderr.write('[rigour] hooks check: no file in the hook input, nothing checked\n');
         // Nothing was checked: never report pass, or a hook wired to the wrong input looks healthy.
-        if (!cursorMode) process.stderr.write('[rigour] hooks check: no file in the hook input, nothing checked\n');
         process.stdout.write(JSON.stringify(cursorMode ? { continue: true } : { status: 'skipped', reason: 'no files', failures: [], duration_ms: 0 }));
         return;
     }
