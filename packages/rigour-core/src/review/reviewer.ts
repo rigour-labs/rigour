@@ -31,7 +31,7 @@ import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/p
 import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { changedUnits, coverageStep, followUpPrompt, unaccounted, unitLabel, unitsText, type ChangedUnit, type Coverage } from './reviewer/coverage.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
-import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, triage, type Pass } from './reviewer/triage.js';
+import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, touchesData, triage, type Pass } from './reviewer/triage.js';
 import { chooseTier, type TierDecision } from './reviewer/tiering.js';
 import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
@@ -504,7 +504,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         prior.units = units;
         const unitsFile = units.length ? file('changed-units.txt', unitsText(units, offered!.total - units.length)) : undefined;
         if (unitsFile) inlineInputs.push({ path: unitsFile, text: unitsText(units, offered!.total - units.length) });
-        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}), ...(unitsFile ? { coverageBlock: coverageStep(unitsFile) } : {}), reviewPoints: reviewPointsOn });
+        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}), ...(unitsFile ? { coverageBlock: coverageStep(unitsFile) } : {}), reviewPoints: reviewPointsOn, dataAccess: touchesData(deltaDiff ? parseHunks(deltaDiff) : hunks) });
         progress(`Rigour reviewer: reviewing ${head.slice(0, 9)} against ${base} (${scope}: ${why}; ${reviews.count} human review(s), written by ${[...authors].join(', ') || 'a person'}) with ${reviewers.join(', ')}`);
         const started = Date.now();
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);

@@ -9,6 +9,8 @@ import { changedLinesByFile, parseDiff, removedByFile } from '../../utils/diff.j
 
 /** The most units one review accounts for: past it, the rest are listed as not offered, ranked by risk and size. */
 const MAX_UNITS = 25;
+/** How many added lines one point of the risk router's score is worth when ranking units. */
+const RISK_WEIGHT = 5;
 
 export interface ChangedUnit {
     file: string;
@@ -46,7 +48,8 @@ const PARSEABLE = /\.(?:[cm]?[jt]sx?)$/i;
 export function changedUnits(cwd: string, diff: string): { units: ChangedUnit[]; total: number } {
     const changed = parseDiff(diff);
     const lines = changedLinesByFile(changed);
-    const parsed = rankChangedFunctions(cwd, lines, removedByFile(diff)).map(f => ({ unit: { file: f.file, name: f.name, start: f.start, end: f.end }, weight: 1_000 + f.score }));
+    // One scale for both kinds: the lines a unit adds, plus its risk where the language parses (RISK_WEIGHT lines a point).
+    const parsed = rankChangedFunctions(cwd, lines, removedByFile(diff)).map(f => ({ unit: { file: f.file, name: f.name, start: f.start, end: f.end }, weight: (lines[f.file] ?? []).filter(l => l >= f.start && l <= f.end).length + RISK_WEIGHT * f.score }));
     const parsedFiles = new Set(parsed.map(p => p.unit.file));
     const hunks = hunkUnits(diff).filter(h => !PARSEABLE.test(h.unit.file) || !parsedFiles.has(h.unit.file));
     const all = [...parsed, ...hunks].filter(u => !SKIP.test(u.unit.file)).sort((a, b) => b.weight - a.weight || a.unit.file.localeCompare(b.unit.file) || a.unit.start - b.unit.start);

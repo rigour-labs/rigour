@@ -305,7 +305,7 @@ describe('the reviewer', () => {
         const result = await runReviewer(repo, 'main', goalConfig, fakes(answer, seen, { ...PR, body }), () => undefined, { force: true });
         // Only what a model must judge: the item naming a file is the deterministic check's.
         expect(seen.files['declared-goal.md']).toBe('- [done] the job takes the lock before it reads\n- [invariant] a second run never sends twice\n');
-        expect(seen.prompts[0]).toContain('12. The declared goal.');
+        expect(seen.prompts[0]).toContain('The declared goal. The pull request description declares');
         expect(seen.prompts[0]).toContain('"goal":[{"item"');
         expect(result.items).toEqual([]);
         expect(result.advisory.map(i => [i.class, i.issue])).toEqual([['goal', 'the description\'s goal is not met: the job takes the lock before it reads']]);
@@ -698,6 +698,19 @@ describe('cheap-model-first tiering', () => {
     it('is off without a cheap model', async () => {
         const result = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { force: true });
         expect(result.mode?.tier).toBeUndefined();
+    });
+});
+
+describe('the steps the reviewer is given', () => {
+    it('puts the general review right after prior points, and asks for the data passes only when the change touches data', async () => {
+        const seen = seenNow();
+        await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), seen, null), () => undefined, { force: true });
+        expect(seen.prompts[0]).toContain('2. Review the diff the way this code\'s human reviewers do.');
+        // src/job.ts returns a constant: no read, no write, so no read trace or journey. Nested scans apply to any code.
+        expect(seen.prompts[0]).not.toContain('Read trace.');
+        expect(seen.prompts[0]).not.toContain('Journey.');
+        expect(seen.prompts[0]).toContain('Complexity.');
+        expect(seen.prompts[0]).toContain('Sibling parity.');
     });
 });
 
