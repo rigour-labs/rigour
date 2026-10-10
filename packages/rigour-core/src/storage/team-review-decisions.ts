@@ -8,10 +8,13 @@
  * review points it was learned from as pull request, comment id, person or bot, and the reviewer as a salted hash.
  * Never a path, a login, code, or a review comment's text.
  */
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { lessonsPath, readLessons, type LessonEvidence, type ReviewLesson } from '../review-learning/lessons.js';
+import { lessonsPath, readStoredLessons, type LessonEvidence, type ReviewLesson } from '../review-learning/lessons.js';
+import { mineKey, teamDecisionCachePath, type ReceivedDecision, type TeamDecisionCache } from '../review-learning/team-decisions.js';
+import { withFileLock, writeJsonAtomic } from '../utils/file-lock.js';
 import { repositoryAllowed, type TeamScope } from './team-scope.js';
 
 /** A person's decisions that are shared. A correction is not: it is learned from the person's own edit, and its text is the code they changed. */
@@ -26,6 +29,8 @@ const MAX_ROWS = 200;
 export interface DecisionRow {
     lessonId: string;
     kind: string;
+    /** The local evidence's key (its `comment`): how a decision that comes back is matched to it. Never sent. */
+    comment: string;
     decidedAt: string;
     detail: string;
     clientKey: string;
@@ -82,6 +87,7 @@ export function decisionRows(lessons: ReviewLesson[], context: { repositoryId: s
             rows.push({
                 lessonId: lesson.id,
                 kind,
+                comment: e.comment,
                 decidedAt: at,
                 detail: reason(e),
                 clientKey: sha256(context.repositoryId, lesson.id, kind, e.comment, context.person),
@@ -109,10 +115,12 @@ export interface DecisionCache {
     run(sql: string, ...params: unknown[]): Promise<unknown>;
 }
 
-export interface DecisionPush {
+export interface DecisionSync {
     sent: number;
     refused: number;
-    /** Why nothing was sent from this repository, when nothing could be. */
+    /** Teammates' decisions received this sync. */
+    received: number;
+    /** Why this machine does not share its person's decisions for this repository, when it does not. */
     held?: string;
 }
 
@@ -122,30 +130,32 @@ function refusedRow(error: unknown): boolean {
     return typeof code === 'string' && (code === '42501' || code.startsWith('23'));
 }
 
-/**
- * Sends this repository's decisions by `person` that were not sent before. Called by the team sync with the
- * repository it runs in. Reads the store only when it changed since the last push (size and modification time).
- */
-export async function pushReviewDecisions(pool: DecisionPool, cache: DecisionCache, input: {
+type SyncInput = {
     cwd: string;
     origin: string | undefined;
     repositoryId: string;
     person: string;
     scope: TeamScope & { teamId: string; actorId: string };
-}): Promise<DecisionPush> {
-    const { cwd, origin, repositoryId, person, scope } = input;
-    if (!origin) return { sent: 0, refused: 0, held: 'repository has no origin remote' };
-    if (!repositoryAllowed(origin, scope)) return { sent: 0, refused: 0, held: 'repository is not one of the team\'s repositories' };
-    const store = fs.statSync(lessonsPath(cwd), { throwIfNoEntry: false });
-    if (!store) return { sent: 0, refused: 0 };
-    const mark = `review_decisions_pushed:${scope.organizationId}/${scope.teamId}/${repositoryId}`;
-    const stamp = `${store.size}:${store.mtimeMs}`;
-    if ((await cache.get('SELECT value FROM meta WHERE key = ?', mark))?.value === stamp) return { sent: 0, refused: 0 };
+};
 
-    if (!person || person === 'unknown') return { sent: 0, refused: 0, held: 'no git user.email here, so no decision can be told apart as yours' };
+/** At most this many teammates' decisions a sync receives; the rest come with the next. */
+const MAX_RECEIVED = 500;
+/** How far before the newest decision received a sync reads again: a row can commit after a later one was read. */
+const RECEIVE_OVERLAP_MS = 15 * 60_000;
+
+/**
+ * The review decisions of the repository the team sync runs in, both ways: sends this person's decisions not sent
+ * before (only from an sme or owner), then receives the team's into the repository's cache under the Rigour home
+ * (team-decisions.ts), with whether this machine shares and why not. A repository that is not one of the team's
+ * neither sends nor receives, and gets no cache: absent is "not sharing".
+ */
+export async function syncReviewDecisions(pool: DecisionPool, cache: DecisionCache, input: SyncInput): Promise<DecisionSync> {
+    const { origin, scope } = input;
+    if (!origin) return { sent: 0, refused: 0, received: 0, held: 'repository has no origin remote' };
+    if (!repositoryAllowed(origin, scope)) return { sent: 0, refused: 0, received: 0, held: 'repository is not one of the team\'s repositories' };
     // The version first: a database from before review decisions has no salts table to read.
     const version = await pool.query(`SELECT value FROM rigour.meta WHERE key = 'review_decisions_version'`);
-    if (version.rows[0]?.value !== '1') return { sent: 0, refused: 0, held: 'the team database has no review decisions yet: run rigour team init-schema' };
+    if (version.rows[0]?.value !== '1') return { sent: 0, refused: 0, received: 0, held: 'the team database has no review decisions yet: run rigour team init-schema' };
     const membership = await pool.query(
         `SELECT membership.role, salts.salt
          FROM rigour.memberships membership
@@ -154,10 +164,30 @@ export async function pushReviewDecisions(pool: DecisionPool, cache: DecisionCac
         [scope.organizationId, scope.teamId, scope.actorId],
     );
     const row = membership.rows[0];
-    if (!row?.salt) return { sent: 0, refused: 0, held: 'no membership for this login in this organization and team' };
-    if (row.role !== 'sme' && row.role !== 'owner') return { sent: 0, refused: 0, held: 'a member\'s decisions stay on this machine: an sme or owner shares them' };
+    if (!row?.salt) return { sent: 0, refused: 0, received: 0, held: 'no membership for this login in this organization and team' };
+    const held = whyNotShared(input.person, row.role);
+    const pushed = held ? { sent: 0, refused: 0 } : await push(pool, cache, input, row.salt);
+    const received = await receive(pool, cache, input, row.salt, held);
+    return { ...pushed, received, ...(held ? { held } : {}) };
+}
 
-    const rows = decisionRows(readLessons(cwd), { repositoryId, person, salt: row.salt });
+/** Why this machine does not send its person's decisions, or undefined when it does. */
+function whyNotShared(person: string, role: string): string | undefined {
+    if (!person || person === 'unknown') return 'no git user.email here, so no decision can be told apart as yours';
+    if (role !== 'sme' && role !== 'owner') return 'a member\'s decisions stay on this machine: an sme or owner shares them';
+    return undefined;
+}
+
+/** Sends this person's decisions not sent before. Reads the store only when it changed since the last push (size and modification time). */
+async function push(pool: DecisionPool, cache: DecisionCache, input: SyncInput, salt: string): Promise<{ sent: number; refused: number }> {
+    const { cwd, repositoryId, person, scope } = input;
+    const store = fs.statSync(lessonsPath(cwd), { throwIfNoEntry: false });
+    if (!store) return { sent: 0, refused: 0 };
+    const mark = `review_decisions_pushed:${scope.organizationId}/${scope.teamId}/${repositoryId}`;
+    const stamp = `${store.size}:${store.mtimeMs}`;
+    if ((await cache.get('SELECT value FROM meta WHERE key = ?', mark))?.value === stamp) return { sent: 0, refused: 0 };
+
+    const rows = decisionRows(readStoredLessons(cwd), { repositoryId, person, salt });
     const known = new Set((await cache.all('SELECT client_key FROM review_decisions_sent WHERE repository_id = ?', repositoryId)).map(r => r.client_key));
     const unsent = rows.filter(r => !known.has(r.clientKey));
     let sent = 0;
@@ -184,4 +214,66 @@ export async function pushReviewDecisions(pool: DecisionPool, cache: DecisionCac
     // The store is marked pushed only when everything in it went: a capped push reads it again next time.
     if (unsent.length <= MAX_ROWS) await cache.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', mark, stamp);
     return { sent, refused };
+}
+
+/** For each tracked file, its hash as a decision carries it: how a teammate's lesson finds its file here. */
+function trackedByHash(cwd: string, repositoryId: string): Map<string, string> {
+    const files = new Map<string, string>();
+    try {
+        for (const file of execFileSync('git', ['ls-files', '-z'], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\0').filter(Boolean)) {
+            files.set(sha256(repositoryId, file), file);
+        }
+    } catch {
+        // Not a checkout git can list: a teammate's lesson keeps no file and is served by its words.
+    }
+    return files;
+}
+
+/** Receives the team's decisions on this repository since the last sync into the repository's cache. Returns how many. */
+async function receive(pool: DecisionPool, cache: DecisionCache, input: SyncInput, salt: string, held: string | undefined): Promise<number> {
+    const { cwd, repositoryId, person, scope } = input;
+    const mark = `review_decisions_received:${scope.organizationId}/${scope.teamId}/${repositoryId}`;
+    const last = Date.parse((await cache.get('SELECT value FROM meta WHERE key = ?', mark))?.value ?? '') || 0;
+    const result = await pool.query(
+        `SELECT id::text AS id, lesson_id, kind, actor_name, client_key, decided_at, received_at, detail, payload
+         FROM rigour.review_decisions
+         WHERE organization_id = $1 AND team_id = $2 AND repository_id = $3 AND received_at > $4
+         ORDER BY received_at, id
+         LIMIT $5`,
+        [scope.organizationId, scope.teamId, repositoryId, new Date(Math.max(0, last - RECEIVE_OVERLAP_MS)).toISOString(), MAX_RECEIVED],
+    );
+    const iso = (value: unknown) => new Date(value as string).toISOString();
+    // This person's own rows coming back: matched to their local decision, which now orders by when the team got it.
+    const sentKeys = new Set((await cache.all('SELECT client_key FROM review_decisions_sent WHERE repository_id = ?', repositoryId)).map(r => r.client_key));
+    const ownRows = result.rows.filter(r => sentKeys.has(r.client_key));
+    const own = ownRows.length ? new Map(decisionRows(readStoredLessons(cwd), { repositoryId, person, salt }).map(r => [r.clientKey, mineKey(r.lessonId, r.kind, r.comment)])) : new Map<string, string>();
+    const theirs = result.rows.filter(r => !sentKeys.has(r.client_key));
+    const files = theirs.some(r => r.payload?.file) ? trackedByHash(cwd, repositoryId) : new Map<string, string>();
+    const decisions: ReceivedDecision[] = theirs.map(r => ({
+        id: r.id, lessonId: r.lesson_id, kind: r.kind, ...(r.actor_name ? { name: r.actor_name } : {}),
+        decidedAt: iso(r.decided_at), receivedAt: iso(r.received_at), detail: r.detail ?? '',
+        ...(r.payload?.text !== undefined ? { text: r.payload.text } : {}),
+        ...(r.payload?.scope ? { scope: r.payload.scope } : {}),
+        ...(r.payload?.file && files.has(r.payload.file) ? { file: files.get(r.payload.file) } : {}),
+        points: (r.payload?.points ?? []).map((p: { pr: number; comment: string; source: 'person' | 'bot' }) => ({ pr: p.pr, comment: p.comment, source: p.source })),
+    }));
+    const file = teamDecisionCachePath(repositoryId);
+    withFileLock(file, 'the team decisions cache', () => {
+        let current: TeamDecisionCache = { version: 1, sharing: { shares: false }, decisions: [], mine: {} };
+        try {
+            const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+            if (parsed?.version === 1) current = parsed;
+        } catch { /* the first sync */ }
+        const byId = new Map(current.decisions.map(d => [d.id, d]));
+        for (const d of decisions) byId.set(d.id, d);
+        for (const r of ownRows) {
+            const key = own.get(r.client_key);
+            if (key) current.mine[key] = iso(r.received_at);
+        }
+        current.decisions = [...byId.values()];
+        current.sharing = held ? { shares: false, reason: held } : { shares: true, person };
+        writeJsonAtomic(file, current, 0o600);
+    });
+    if (result.rows.length) await cache.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', mark, iso(result.rows.at(-1).received_at));
+    return decisions.length;
 }
