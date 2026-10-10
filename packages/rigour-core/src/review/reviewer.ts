@@ -609,7 +609,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         }
         // One part too: every item is tagged with who found it. No part (nothing for a model to review): an empty verdict.
         const merged: Verdict = parts.length ? mergeVerdicts(parts) : { prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [], reviewers: [] };
-        if (units.length) merged.coverage = await accountForUnits(merged, units, offered!.total - units.length, async missing => {
+        // A "finding" entry counts only for a finding that survives the same validation as everything shown (quote at the line).
+        const survivors = (v: Verdict) => { const a = account(v, previousOpen, verify, prior); return [...a.open, ...a.advisory, ...a.notes].filter(i => i.kind === 'finding'); };
+        if (units.length) merged.coverage = await accountForUnits(merged, units, offered!.total - units.length, survivors, async missing => {
             // One follow-up run for the units the answer left out, inside the caps; what it finds counts like any finding.
             if (overBudget(store.spend(), settings, 1)) return undefined;
             const judge = reviewers[0];
@@ -838,8 +840,8 @@ function sameBlobs(a: Record<string, string>, b: Record<string, string>): boolea
  * undefined when the caps leave none), whose findings and entries join the verdict; any still left out are not
  * reviewed, and said so.
  */
-async function accountForUnits(verdict: Verdict, units: ChangedUnit[], notOffered: number, ask: (missing: ChangedUnit[]) => Promise<Verdict | undefined>): Promise<Coverage> {
-    let missing = unaccounted(units, verdict.functions ?? []);
+async function accountForUnits(verdict: Verdict, units: ChangedUnit[], notOffered: number, survivors: (verdict: Verdict) => Array<{ file?: string; line?: number }>, ask: (missing: ChangedUnit[]) => Promise<Verdict | undefined>): Promise<Coverage> {
+    let missing = unaccounted(units, verdict.functions ?? [], survivors(verdict));
     let followUp = false;
     if (missing.length) {
         const more = await ask(missing);
@@ -848,7 +850,7 @@ async function accountForUnits(verdict: Verdict, units: ChangedUnit[], notOffere
             verdict.functions = [...(verdict.functions ?? []), ...(more.functions ?? []).map(f => ({ ...f, reviewer: more.reviewer }))];
             verdict.findings = [...verdict.findings, ...more.findings.map(f => ({ ...f, reviewer: more.reviewer }))];
             verdict.reviewers = [...(verdict.reviewers ?? []), { reviewer: `${more.reviewer} coverage`, ...(more.cost_usd !== undefined ? { cost_usd: more.cost_usd } : {}), ...(more.tokens ? { tokens: more.tokens } : {}) }];
-            missing = unaccounted(units, verdict.functions);
+            missing = unaccounted(units, verdict.functions, survivors(verdict));
         }
     }
     return { units: units.length, notOffered, accounted: units.length - missing.length, notReviewed: missing.map(unitLabel), followUp };

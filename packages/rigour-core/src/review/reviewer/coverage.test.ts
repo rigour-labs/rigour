@@ -46,6 +46,22 @@ describe('changed units', () => {
         expect(unaccounted(units, [
             { file: 'a.go', unit: 'Close', status: 'fine', note: 'unlocks on every path' },
             { file: 'b.ts', unit: 'load', status: 'fine', note: '' },
-        ]).map(u => u.name)).toEqual(['load']);
+        ], []).map(u => u.name)).toEqual(['load']);
+    });
+
+    it('lets one entry account for one unit: a short name matching several units of a file accounts for none of them', () => {
+        const units = ['handleOpen', 'handleClose', 'handleRead'].map((name, i) => ({ file: 'a.ts', name, start: i * 10 + 1, end: i * 10 + 5 }));
+        expect(unaccounted(units, [{ file: 'a.ts', unit: 'handle', status: 'fine', note: 'checked' }], [])).toHaveLength(3);
+        // Exact names match one each; the same entry twice still accounts for one.
+        const twice = { file: 'a.ts', unit: 'handleRead', status: 'fine' as const, note: 'checked' };
+        expect(unaccounted(units, [twice, twice], []).map(u => u.name)).toEqual(['handleOpen', 'handleClose']);
+    });
+
+    it('counts a "finding" entry only for a surviving finding inside the unit\'s lines', () => {
+        const units = [{ file: 'a.ts', name: 'load', start: 10, end: 20 }];
+        const entry = { file: 'a.ts', unit: 'load', status: 'finding' as const, note: 'the unbounded read' };
+        expect(unaccounted(units, [entry], [])).toHaveLength(1);
+        expect(unaccounted(units, [entry], [{ file: 'a.ts', line: 40 }])).toHaveLength(1);
+        expect(unaccounted(units, [entry], [{ file: 'a.ts', line: 22 }])).toHaveLength(0); // within the slack
     });
 });

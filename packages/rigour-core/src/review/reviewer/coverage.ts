@@ -125,10 +125,33 @@ Your final message must be ONLY this JSON, starting with { and ending with }:
  "findings":[{"class":"...","severity":"blocking"|"should","file":"...","line":0,"issue":"...","why":"...","input":"...","consequence":"...","quote":"...","absent":"..."}]}`;
 }
 
-/** The units no answer accounted for, matched by file and by name (as listed, or as the judge shortened it). */
-export function unaccounted(units: ChangedUnit[], checks: UnitCheck[]): ChangedUnit[] {
-    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
-    return units.filter(u => !checks.some(c => c.file === u.file && c.note?.trim() && (norm(c.unit) === norm(u.name) || norm(u.name).includes(norm(c.unit)) && norm(c.unit).length >= 3)));
+/** How far outside a unit's lines a finding may sit and still be about it (a hunk's edges are approximate). */
+const LINE_SLACK = 3;
+
+/**
+ * The units no answer accounted for. One entry accounts for one unit: the unit of that file with the same name, else
+ * the only one of that file's remaining units whose name contains it. An entry needs a note; a "finding" entry also
+ * needs a finding that survived validation (`findings`), in that file and within the unit's lines.
+ */
+export function unaccounted(units: ChangedUnit[], checks: UnitCheck[], findings: Array<{ file?: string; line?: number }>): ChangedUnit[] {
+    const norm = (s: string) => (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const supported = (c: UnitCheck, u: ChangedUnit) => c.status === 'fine'
+        || findings.some(f => f.file === u.file && f.line !== undefined && f.line >= u.start - LINE_SLACK && f.line <= u.end + LINE_SLACK);
+    const left = [...units];
+    const usable = checks.filter(c => c.note?.trim() && c.unit?.trim());
+    const used = new Set<UnitCheck>();
+    const take = (c: UnitCheck, u: ChangedUnit | undefined) => {
+        if (!u) return;
+        left.splice(left.indexOf(u), 1);
+        used.add(c);
+    };
+    for (const c of usable) take(c, left.find(u => u.file === c.file && norm(u.name) === norm(c.unit) && supported(c, u)));
+    for (const c of usable) {
+        if (used.has(c) || norm(c.unit).length < 3) continue;
+        const candidates = left.filter(u => u.file === c.file && norm(u.name).includes(norm(c.unit)) && supported(c, u));
+        if (candidates.length === 1) take(c, candidates[0]);
+    }
+    return left;
 }
 
 export function unitLabel(u: ChangedUnit): string {

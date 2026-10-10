@@ -724,6 +724,14 @@ describe('coverage: every changed unit accounted for', () => {
         expect(result.record?.judges.map(j => j.reviewer)).toContain('claude coverage');
     });
 
+    it('does not count a "finding" entry with no finding behind it: asks again, then says not reviewed', async () => {
+        const seen = seenNow();
+        const claimed = { ...EMPTY, functions: [{ file: 'src/job.ts', unit: 'job', status: 'finding', note: 'the unbounded read' }] };
+        const result = await runReviewer(repo, 'main', covering, fakes(() => JSON.stringify(claimed), seen, null), () => undefined, { force: true });
+        expect(seen.prompts).toHaveLength(2);
+        expect(result.coverage).toMatchObject({ accounted: 0, notReviewed: ['src/job.ts :: job'], followUp: true });
+    });
+
     it('says a unit was not reviewed when the follow-up leaves it out too, never that it passed', async () => {
         const result = await runReviewer(repo, 'main', covering, fakes(() => JSON.stringify(EMPTY), seenNow(), null), () => undefined, { force: true });
         expect(result.coverage).toMatchObject({ units: 1, accounted: 0, notReviewed: ['src/job.ts :: job'], followUp: true });
