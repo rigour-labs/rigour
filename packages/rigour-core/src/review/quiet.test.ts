@@ -47,7 +47,9 @@ describe('quiet by default', () => {
         expect(at({ severity: 'high', provenance: 'ai-drift' })).toBe('medium'); // a non-blocking guess
         expect(at({ severity: 'critical', provenance: 'ai-drift', certainty: 'likely' })).toBe('medium');
         expect(at({ id: 'semantic-bugs', severity: 'high' })).toBe('high'); // it blocks: its own
-        expect(at({ severity: 'critical', provenance: 'security', certainty: 'likely' })).toBe('critical'); // security keeps its impact
+        expect(at({ severity: 'critical', provenance: 'security', certainty: 'likely' })).toBe('high'); // a security note: at most high
+        expect(at({ severity: 'high', provenance: 'security', certainty: 'likely' })).toBe('high');
+        expect(at({ severity: 'critical', provenance: 'security', certainty: 'proven' })).toBe('critical'); // it blocks: its own
         expect(at({ severity: 'low', provenance: 'ai-drift' })).toBe('low');
     });
 

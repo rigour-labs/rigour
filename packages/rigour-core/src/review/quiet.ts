@@ -46,13 +46,14 @@ export function mustFix(failure: Failure): boolean {
 }
 
 /**
- * The severity a person is shown. A finding that blocks, or a security one, keeps its own. Any other finding is a guess
- * at intent (a heuristic) and is shown at most medium: "high" means an impact Rigour stands behind, not a pattern's
- * label for one.
+ * The severity a person is shown. A finding that blocks keeps its own. A security finding that does not block is shown
+ * at most high: "critical" is kept for what blocks. Any other finding is a guess at intent (a heuristic) and is shown at
+ * most medium: "high" means an impact Rigour stands behind, not a pattern's label for one.
  */
 export function shownSeverity(failure: Failure): NonNullable<Failure['severity']> {
     const severity = failure.severity ?? 'medium';
-    if (mustFix(failure) || failure.provenance === 'security') return severity;
+    if (mustFix(failure)) return severity;
+    if (failure.provenance === 'security') return severity === 'critical' ? 'high' : severity;
     return severity === 'critical' || severity === 'high' ? 'medium' : severity;
 }
 
