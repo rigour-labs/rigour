@@ -527,7 +527,7 @@ export const studioCommand = new Command('studio')
         spawn(process.execPath, [new URL('./studio-index-worker.js', import.meta.url).pathname, cwd], { stdio: ['ignore', 'ignore', 'inherit'] }).unref();
         const syncTimer = setInterval(() => {
             void loadTeamConfiguration().then((config) => {
-                if (config) return syncTeamOutbox().catch(() => undefined);
+                if (config) return syncTeamOutbox({ cwd }).catch(() => undefined);
                 return undefined;
             });
         }, 30_000);

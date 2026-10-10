@@ -7,6 +7,9 @@ import { TEAM_SCHEMA } from './team-schema.js';
 import { diagnoseMissingMembership, explainTeamConnectionError } from './team-diagnostics.js';
 import { rigourUserDir } from '../utils/user-state.js';
 import { withheldReason } from './team-scope.js';
+import { getRepositoryId, originOf } from './repository-origin.js';
+import { pushReviewDecisions, type DecisionPush } from './team-review-decisions.js';
+import { personOf } from '../utils/person.js';
 import {
     TEAM_VECTOR_SCHEMA,
     backfillConfiguredTeamEmbeddings,
@@ -288,7 +291,7 @@ function refusedRow(error: unknown): boolean {
     return typeof code === 'string' && (code === '42501' || code.startsWith('23'));
 }
 
-export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promise<{ pending: number; withheld: number; synced: number; pulled: number }> {
+export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string }): Promise<{ pending: number; withheld: number; synced: number; pulled: number; decisions?: DecisionPush }> {
     const config = await loadTeamConfiguration();
     if (!config?.databaseUrl) throw new Error('Team mode is not configured.');
     const db = await openDatabase();
@@ -307,6 +310,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
         const pool = new Pool({ connectionString: config.databaseUrl });
         let synced = 0;
         let pulled = 0;
+        let decisions: DecisionPush;
         try {
             const membership = await pool.query(
                 `SELECT 1 FROM rigour.memberships
@@ -358,6 +362,11 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
                     throw error;
                 }
             }
+            // The repository this sync runs in: its people's decisions on review lessons (team-review-decisions.ts).
+            decisions = await pushReviewDecisions(pool, db, {
+                cwd: options.cwd, origin: await originOf(options.cwd), repositoryId: await getRepositoryId(options.cwd),
+                person: personOf(options.cwd), scope: config,
+            });
             // Only what changed since the last pull, less a margin: updated_at comes from each member's clock, and
             // re-reading a few minutes is harmless (the local write is an upsert) where a skewed clock would lose a lesson.
             const mark = `team_pulled:${config.organizationId}/${config.teamId}/${config.actorId}`;
@@ -395,7 +404,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
         } finally {
             await pool.end();
         }
-        return { pending: pending.length, withheld: held.length, synced, pulled };
+        return { pending: pending.length, withheld: held.length, synced, pulled, decisions };
     } finally {
         await db.close();
     }
