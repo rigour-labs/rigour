@@ -10,7 +10,7 @@ import { defaultExec, githubEnv, GH_TIMEOUT_MS, type Exec } from '../review/revi
 import { resolveSwitch, type ResolvedSwitch } from '../switches.js';
 import { checkRunsCi, readPrOutcomes, updatePrOutcomes, type PrOutcome } from './outcome.js';
 import { applyOutcomeEvidence, type OutcomeEvidenceResult } from '../review-learning/outcome-evidence.js';
-import { readLessons, writeLessons } from '../review-learning/lessons.js';
+import { readLessons, readStoredLessons, writeLessons } from '../review-learning/lessons.js';
 import { gitIn } from '../review-learning/acted-on.js';
 import { eventsOfKind } from '../task/thread.js';
 import { outcomeMetrics, type OutcomeMetrics, type PrReviews } from './metrics.js';
@@ -56,7 +56,7 @@ export async function runOutcomes(cwd: string, config: Config, options: { flag?:
 
 /** Every record kept (not only this run's) against the team's lessons, and the reviews that found a lesson repeated; written only when something changed. */
 function lessonEvidence(cwd: string, mainRef: string, demoteAfter: number): OutcomeEvidenceResult | undefined {
-    const lessons = readLessons(cwd);
+    const lessons = readStoredLessons(cwd);
     if (lessons.length === 0) return undefined;
     const read = structuredClone(lessons);
     const result = applyOutcomeEvidence(lessons, Object.values(readPrOutcomes(cwd).outcomes), threadReviews(cwd).applied, { demoteAfter, git: gitIn(cwd), mainRef, deadline: Date.now() + LESSON_DEADLINE_MS });

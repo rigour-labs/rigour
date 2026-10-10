@@ -15,7 +15,7 @@ import { outcomeFor, revertOf } from './outcomes.js';
 import fs from 'fs';
 import path from 'path';
 import type { NotRequestReason } from './requests.js';
-import { lessonFromComment, lessonsFromReview, lessonsPath, lessonState, mergeLessons, readLessons, writeLessons, type ReviewLesson } from './lessons.js';
+import { lessonFromComment, lessonsFromReview, lessonsPath, lessonState, mergeLessons, readStoredLessons, writeLessons, type ReviewLesson } from './lessons.js';
 import { rulesFromReviews, type RuleWriter } from './rules-from-reviews.js';
 
 type Fetch = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
@@ -92,11 +92,11 @@ export async function learnFromReviews(cwd: string, options: LearnFromReviewsOpt
             lessons.push(...lessonsFromReview(review, changedSince(git, review.commit, pr.mergeSha), undefined, onSkip));
         }
     }
-    const known = new Set(readLessons(cwd).flatMap(l => l.evidence.map(e => e.comment)));
+    const known = new Set(readStoredLessons(cwd).flatMap(l => l.evidence.map(e => e.comment)));
     const points = lessons.flatMap(l => l.evidence).filter(e => e.kind === 'point' && !known.has(e.comment));
     // Comments read before go through too: each lands on its own lesson (mergeLessons matches the comment), which
     // takes the text this version derives from it. Nothing is added twice.
-    const read = readLessons(cwd);
+    const read = readStoredLessons(cwd);
     const merged = mergeLessons(read, lessons);
     // Outcomes accrue after the merge: every candidate whose pull request was read this run is checked again.
     if (options.mainRef) {
