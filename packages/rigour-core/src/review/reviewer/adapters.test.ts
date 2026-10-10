@@ -20,7 +20,7 @@ describe('reading an agent CLI\'s answer', () => {
 
     it('takes Claude Code\'s result, its cost and its tokens', () => {
         const out = JSON.stringify({ result: '{"prior_points":[]}', total_cost_usd: 0.42, usage: { input_tokens: 10, cache_read_input_tokens: 900, cache_creation_input_tokens: 90, output_tokens: 300 } });
-        expect(ADAPTERS.claude.answer(out)).toEqual({ text: '{"prior_points":[]}', costUsd: 0.42, tokens: { input: 1000, output: 300 } });
+        expect(ADAPTERS.claude.answer(out)).toEqual({ text: '{"prior_points":[]}', costUsd: 0.42, tokens: { input: 1000, output: 300, cacheRead: 900, cacheWrite: 90 } }); // the cache's share of the input, kept apart
     });
 
     it('falls back to the raw output when it is not what the CLI usually prints', () => {

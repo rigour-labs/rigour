@@ -64,7 +64,8 @@ export function printReviewer(result: ReviewerResult, options: { notes?: boolean
     if (result.record?.coverage) console.log(chalk.dim(`  ${coverageLine(result.record.coverage)}`));
     if (result.rules?.checked) console.log(chalk.dim(`  repository rules answered: ${result.rules.checked} (${result.rules.broken} broken, ${result.rules.followed} followed, ${result.rules.notApplicable} not applicable)`));
     if (result.record && result.recordPath) console.log(chalk.dim(`  record: ${result.recordPath} (integrity ${result.record.integrity.slice(0, 16)})`));
-    const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens` : '';
+    const cached = result.tokens?.cacheRead ? ` (${result.tokens.cacheRead.toLocaleString('en-US')} read from cache)` : '';
+    const tokens = result.tokens ? `, ${(result.tokens.input + result.tokens.output).toLocaleString('en-US')} tokens${cached}` : '';
     // What every run of this review cost, failed ones included (the verdict's judges alone would under-count it).
     const spent = result.spentUsd ?? result.costUsd;
     const cost = `${spent !== undefined ? `, $${spent.toFixed(2)}` : ''}${tokens}`;

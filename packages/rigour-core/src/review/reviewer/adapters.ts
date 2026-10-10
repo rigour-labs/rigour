@@ -40,7 +40,15 @@ export interface RunTrace {
     usage: { input: number; cacheRead: number; cacheWrite: number; output: number };
     calls: Array<{ turn: number; tool: string; target: string; resultChars: number; category?: 'rigour-input' | 'changed-file' | 'other-file' | 'git' | 'search' | 'other' }>;
 }
-export interface Tokens { input: number; output: number }
+/** `input` is every input token; `cacheRead` and `cacheWrite` are the parts of it read from and written to the cache. */
+export interface Tokens { input: number; output: number; cacheRead?: number; cacheWrite?: number }
+
+/** Input tokens with the cache's share of them, when there is one. */
+function withCache(fresh: unknown, cacheRead: unknown, cacheWrite: unknown, output: unknown): Tokens {
+    const read = n(cacheRead);
+    const write = n(cacheWrite);
+    return { input: n(fresh) + read + write, output: n(output), ...(read ? { cacheRead: read } : {}), ...(write ? { cacheWrite: write } : {}) };
+}
 
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
@@ -137,7 +145,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
                 return {
                     text: String(parsed.result ?? ''),
                     ...(typeof parsed.cost_usd === 'number' ? { costUsd: parsed.cost_usd } : {}),
-                    tokens: { input: n(u.input) + n(u.cacheRead) + n(u.cacheWrite), output: n(u.output) },
+                    tokens: withCache(u.input, u.cacheRead, u.cacheWrite, u.output),
                     ...(parsed.trace ? { trace: parsed.trace } : {}),
                 };
             } catch {
@@ -267,7 +275,7 @@ function claudeAnswer(stdout: string): { text: string } & Spend {
     return {
         text: String(result.result ?? ''),
         ...(typeof result.total_cost_usd === 'number' ? { costUsd: result.total_cost_usd } : {}),
-        ...(usage ? { tokens: { input: n(usage.input_tokens) + n(usage.cache_read_input_tokens) + n(usage.cache_creation_input_tokens), output: n(usage.output_tokens) } } : {}),
+        ...(usage ? { tokens: withCache(usage.input_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens, usage.output_tokens) } : {}),
         ...(trace ? { trace } : {}),
     };
 }
