@@ -55,11 +55,12 @@ export interface SecurityPatternsConfig {
 
 /**
  * A provider's documented example or placeholder key, which docs, comments and SDK samples carry everywhere: AWS's
- * `AKIAIOSFODNN7EXAMPLE` (and any key ending in EXAMPLE), Stripe's `sk_live_` followed by all x's or 0's, or a key
- * spelling out "your". A proven pattern never fires on one.
+ * `AKIAIOSFODNN7EXAMPLE` (an AWS key ending in EXAMPLE), or a Stripe live key of all x's or 0's or spelling out
+ * "your". A proven pattern never fires on one.
  */
 function isDocumentedExampleKey(match: string): boolean {
-    return /EXAMPLE$/.test(match) || /^(?:sk|rk)_live_(?:x+|0+)$/i.test(match) || /your/i.test(match);
+    // Each exclusion is scoped to its own key shape: a random token (ghp_, sk-) can contain "your" by chance.
+    return /^AKIA[0-9A-Z]*EXAMPLE$/.test(match) || /^(?:sk|rk)_live_(?:x+|0+)$/i.test(match) || /^(?:sk|rk)_live_\w*your/i.test(match);
 }
 
 export class SecurityPatternsGate extends Gate {

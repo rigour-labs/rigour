@@ -68,6 +68,18 @@ describe('SecurityPatternsGate', () => {
             expect(found.filter(f => /AWS|Stripe|Cloud/.test(f.details))).toEqual([]);
         });
 
+        it('still blocks a real key whose random text happens to contain "your" or "EXAMPLE"', async () => {
+            const found = await findings({
+                'gh.ts': `export const t = '${'ghp_' + 'Ab3YoUrQ9xLm2Pz7Kd4Wn8Rt'}';\n`,
+                'pem.ts': `export const pem = \`${'-----BEGIN ' + 'PRIVATE KEY-----'}\nMIIEvYoUrQIBADANBgkq\`;\n`,
+            });
+            for (const file of ['src/gh.ts', 'src/pem.ts']) {
+                const f = found.find(x => x.files?.[0] === file);
+                expect(f, file).toMatchObject({ certainty: 'proven' });
+                expect(mustFix(f!), file).toBe(true);
+            }
+        });
+
         it('shows string-built SQL and innerHTML as notes, never a block, unless the team opts in', async () => {
             const files = {
                 'db.ts': 'export function find(db: any, id: string) {\n  return db.query(`SELECT * FROM users WHERE id = ${id}`);\n}\n',
