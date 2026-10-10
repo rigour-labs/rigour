@@ -10,7 +10,7 @@
 import chalk from 'chalk';
 import fs from 'fs';
 import path from 'path';
-import { findingKey, type QualityReceipt, type ReviewResult } from '@rigour-labs/core';
+import { findingKey, gateOf, type QualityReceipt, type ReviewResult } from '@rigour-labs/core';
 import { enabledHere } from './personal.js';
 import { printReceipt } from './review-receipt.js';
 
@@ -67,8 +67,23 @@ function printFindings(result: ReviewResult, all: boolean): void {
 function leftOutByCheck(result: ReviewResult): string {
     const byCheck = new Map<string, number>();
     for (const counts of [result.preexistingByCheck, result.outsideChangeByCheck]) for (const [check, n] of Object.entries(counts ?? {})) byCheck.set(check, (byCheck.get(check) ?? 0) + n);
-    const parts = [...byCheck].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([check, n]) => `${check} ${n}`);
-    return parts.length ? `: ${parts.join(', ')}` : '';
+    const parts = countsByCheck(byCheck);
+    return parts ? `: ${parts}` : '';
+}
+
+/** `ast-analysis 12, file-size 3`: most first, then by name. */
+function countsByCheck(byCheck: Map<string, number>): string {
+    return [...byCheck].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([check, n]) => `${check} ${n}`).join(', ');
+}
+
+/** Findings about a changed file as a whole (no line), by the check that gave them: they fail their check without a row of their own. */
+function fileFindingsByCheck(result: ReviewResult): string {
+    const byCheck = new Map<string, number>();
+    for (const f of result.fileFindings) {
+        const check = gateOf(f) ?? f.id;
+        byCheck.set(check, (byCheck.get(check) ?? 0) + 1);
+    }
+    return countsByCheck(byCheck);
 }
 
 /** One line each, in plain words, for what was seen and never blocks. */
@@ -76,6 +91,8 @@ function printQuietLines(result: ReviewResult, notes: boolean): void {
     const lines: string[] = [];
     const seen = result.advisory.length + result.fileFindings.length;
     if (seen) lines.push(`Also seen, never blocking: ${seen} note${seen === 1 ? '' : 's'}${notes ? '' : ' (rigour review --notes)'}`);
+    const wholeFile = fileFindingsByCheck(result);
+    if (wholeFile) lines.push(`About a changed file as a whole: ${wholeFile}${notes ? ' (listed below)' : ', shown with --notes'}.`);
     const before = result.preexisting + result.excludedOutsideChangedLines;
     if (before) lines.push(`Not shown: ${before} issue${before === 1 ? '' : 's'} the code already had before this change${leftOutByCheck(result)} (review.show_preexisting: true lists them).`);
     if (result.baseUnknown) lines.push('Compared with no base: HEAD already holds this diff, so findings on its lines were not checked against the code before it. Pass --base to compare.');
