@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SecurityPatternsGate, checkSecurityPatterns, securityHint } from './security-patterns.js';
+import { SecurityPatternsGate, checkSecurityPatterns } from './security-patterns.js';
 import { FIX_BY_TYPE, FIX_UNKNOWN, VULNERABILITY_PATTERNS } from './security-patterns-data.js';
 import { mustFix } from '../review/quiet.js';
 import * as fs from 'fs';
@@ -340,19 +340,27 @@ describe('SecurityPatternsGate', () => {
 });
 
 describe('what a security finding tells the agent to do', () => {
-    it('gives every pattern type its own fix, never another type\'s', () => {
+    it("gives every pattern type its own fix, never another type's", () => {
         const types = [...new Set(VULNERABILITY_PATTERNS.map(p => p.type))];
         for (const type of types) expect(FIX_BY_TYPE[type], type).toBeDefined();
         expect(new Set(types.map(type => FIX_BY_TYPE[type])).size).toBe(types.length); // no two types share advice
-        expect(securityHint({ type: 'hardcoded_secrets', match: 'x' })).not.toMatch(/parameter/i);
-        expect(securityHint({ type: 'hardcoded_secrets', match: 'x' })).toMatch(/environment variable or a secrets manager.*Rotate/);
-        expect(securityHint({ type: 'sql_injection', match: 'x' })).toMatch(/query parameters/);
-        expect(securityHint({ type: 'something_new', match: 'x' })).toContain(FIX_UNKNOWN);
+        expect(FIX_BY_TYPE.hardcoded_secrets).not.toMatch(/parameter/i);
+        expect(FIX_BY_TYPE.sql_injection).toMatch(/query parameters/);
+        expect(FIX_UNKNOWN).not.toMatch(/parameter|escape|environment/i);
     });
 
-    it('shows a found secret by its first characters only', () => {
-        const key = ['AKIA', 'Z9Y8X7W6V5U4T3Q2'].join('');
-        const hint = securityHint({ type: 'hardcoded_secrets', match: `const k = "${key}"` });
-        expect(hint).not.toContain(key);
+    it('tells a hard-coded key to move to the environment and rotate, and never repeats the key', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'security-hint-'));
+        try {
+            const key = ['AKIA', 'Z9Y8X7W6V5U4T3Q2'].join('');
+            fs.mkdirSync(path.join(dir, 'src'));
+            fs.writeFileSync(path.join(dir, 'src', 'config.ts'), `export const awsKey = "${key}";\n`);
+            const [finding] = await new SecurityPatternsGate({}).run({ cwd: dir, ignore: [] } as any);
+            expect(finding.hint).toMatch(/environment variable or a secrets manager.*Rotate/);
+            expect(finding.hint).not.toMatch(/parameter/i);
+            expect(JSON.stringify(finding)).not.toContain(key);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

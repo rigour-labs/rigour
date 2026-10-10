@@ -36,7 +36,7 @@ export interface SecurityVulnerability {
 }
 
 /** The fix for this kind of finding, after what was found; a secret is shown by its first characters only. */
-export function securityHint(vuln: Pick<SecurityVulnerability, 'type' | 'match'>): string {
+function securityHint(vuln: Pick<SecurityVulnerability, 'type' | 'match'>): string {
     const found = vuln.type === 'hardcoded_secrets' ? `${vuln.match.slice(0, 4)}…` : `${vuln.match.slice(0, 60)}…`;
     return `Found: "${found}". ${FIX_BY_TYPE[vuln.type] ?? FIX_UNKNOWN}`;
 }
