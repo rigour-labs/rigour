@@ -132,12 +132,19 @@ export interface ReviewLesson {
  * holds a candidate back; recurrence across pull requests and authors is enough only without it. An outcome is
  * evidence, never a promotion. A record from before evidence kinds keeps the state it had.
  */
+/**
+ * The person decision that settles a lesson's state: the last accepted or rejected, by `order` when team decisions are
+ * folded in (team-decisions.ts), else the trail's order.
+ */
+export function lastDecision(lesson: ReviewLesson): LessonEvidence | undefined {
+    return lesson.evidence.filter(e => e.kind === 'accepted' || e.kind === 'rejected')
+        .reduce<LessonEvidence | undefined>((a, b) => (!a || (b.order ?? 0) >= (a.order ?? 0) ? b : a), undefined);
+}
+
 export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 'promotedBy'> {
     const kinds = new Set(lesson.evidence.map(e => e.kind));
     if (!lesson.evidence.some(e => e.kind)) return lesson.state === 'verified' ? { state: 'verified', promotedBy: lesson.promotedBy ?? 'legacy' } : { state: lesson.state };
-    // The latest decision: by `order` when team decisions are folded in (team-decisions.ts), else the trail's order.
-    const last = lesson.evidence.filter(e => e.kind === 'accepted' || e.kind === 'rejected')
-        .reduce<LessonEvidence | undefined>((a, b) => (!a || (b.order ?? 0) >= (a.order ?? 0) ? b : a), undefined);
+    const last = lastDecision(lesson);
     if (last?.kind === 'rejected') return { state: 'rejected' };
     if (last?.kind === 'accepted') return { state: 'verified', promotedBy: 'person' };
     if (kinds.has('norule')) return { state: 'candidate' };

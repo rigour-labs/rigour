@@ -258,7 +258,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
             semantic,
             reviewDecisions,
             message: reviewDecisions === 'ready'
-                ? 'PostgreSQL team mode is healthy.'
+                ? 'PostgreSQL team mode is healthy. A clone receives the team\'s decisions on review lessons at its first sync (`rigour team sync`, or the next Rigour tool call).'
                 : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.',
         };
     } catch (error) {
