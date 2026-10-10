@@ -97,3 +97,59 @@ export function nearDuplicates(lessons) {
     }
     return pairs.sort((x, y) => y[2] - x[2]);
 }
+
+/**
+ * A review body's units, the granularity its labels use: each non-empty line once HTML markup is removed, a prose
+ * line with several sentences split into them, and a fenced code block as one unit. Deterministic, so unit indices
+ * in labels/ stay valid against the same body.
+ */
+export function unitsOf(body) {
+    const units = [];
+    let fence;
+    for (const raw of String(body ?? '').replace(/<!--[\s\S]*?-->/g, '').split('\n')) {
+        const line = raw.replace(/<[^>]+>/g, '').trim();
+        if (/^```/.test(line)) {
+            if (fence === undefined) { fence = [line]; continue; }
+            units.push([...fence, line].join('\n'));
+            fence = undefined;
+            continue;
+        }
+        if (fence !== undefined) { fence.push(line); continue; }
+        if (!line || /^\|?\s*:?-{3,}/.test(line) || /^(-{3,}|\*{3,})$/.test(line)) continue;
+        const sentences = line.startsWith('|') ? [line] : line.split(/(?<=[.!?])\s+(?=[A-Z`*])/);
+        for (const sentence of sentences) if (sentence.trim()) units.push(sentence.trim());
+    }
+    if (fence !== undefined) units.push(fence.join('\n'));
+    return units;
+}
+
+const norm = text => String(text ?? '').toLowerCase().replace(/[^a-z0-9_]+/g, ' ').trim();
+
+/**
+ * The units of a body a candidate's text came from: units contained in the text, or the unit that contains it, or
+ * else the units sharing most of its words. Used to credit a candidate by its units' labels.
+ */
+export function unitsFor(text, units) {
+    const t = norm(text);
+    if (!t) return [];
+    const inside = units.map((u, i) => [norm(u), i]).filter(([u]) => u && (t.includes(u) || u.includes(t))).map(([, i]) => i);
+    if (inside.length) return inside;
+    const tw = new Set(t.split(' '));
+    return units.map((u, i) => {
+        const uw = norm(u).split(' ').filter(Boolean);
+        return [uw.filter(w => tw.has(w)).length / Math.max(1, Math.min(uw.length, tw.size)), i];
+    }).filter(([score]) => score >= 0.6).map(([, i]) => i);
+}
+
+/**
+ * For each review-body source of a candidate whose units are labelled (in the labeller's cache), the indices of the
+ * units its text came from. Indices only: the text never leaves the cache.
+ */
+export function creditUnits(text, sources, unitCache) {
+    const credited = {};
+    for (const source of sources) {
+        const units = unitCache?.[source]?.units;
+        if (source.startsWith('review-') && units) credited[source] = unitsFor(text, units);
+    }
+    return credited;
+}

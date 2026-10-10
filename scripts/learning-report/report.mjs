@@ -18,6 +18,20 @@ const labels = Object.fromEntries(REPOS.map(repo => {
     return [repo, fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).sources : {}];
 }));
 const pct = x => `${Math.round(x * 100)}%`;
+
+/**
+ * A labelled candidate is a request only if every source it came from is: an inline comment by its label, a review
+ * body by the units the candidate's text came from, all of which must be a. A candidate mixing a and b units is a
+ * split defect, and one whose text matches no unit cannot be credited: both count as not a request.
+ */
+function isRequest(repo, l) {
+    return l.sources.every(source => {
+        const label = labels[repo][source];
+        const units = l.units?.[source];
+        if (label.units && units) return units.length > 0 && units.every(i => label.units[i] === 'a');
+        return label.label === 'a';
+    });
+}
 /** A candidate as a link to its first source comment and its file: the text itself is never in the repository. */
 const link = (repo, l) => `[${l.file || '(no file)'}](${sourceUrl(repo, l.prs[0], l.sources[0])})`;
 
@@ -57,16 +71,17 @@ if (recurrence) {
 }
 const broken = [];
 for (const repo of REPOS) {
-    lines.push(`## ${repo}`, '', '| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request |', '|---|---|---|---|---|---|---|---|---|---|');
+    lines.push(`## ${repo}`, '', '| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit |', '|---|---|---|---|---|---|---|---|---|---|---|');
     for (const run of runs) {
         const r = run.repos[repo];
         if (!r?.lessons) continue;
         const labelled = r.lessons.filter(l => l.sources.length && l.sources.every(s => labels[repo][s]?.label));
-        const asks = labelled.filter(l => l.sources.some(s => labels[repo][s].label === 'a')).length;
+        const asks = labelled.filter(l => isRequest(repo, l)).length;
+        const unmatched = labelled.filter(l => Object.values(l.units ?? {}).some(u => u.length === 0)).length;
         const [lo, hi] = wilson(asks, labelled.length);
         const cut = r.lessons.filter(l => l.broken);
         for (const l of cut) broken.push(`- ${run.label} · ${repo} · ${link(repo, l)}`);
-        lines.push(`| ${run.label} | ${r.prs} | ${r.points.total} (${r.points.people} / ${r.points.bots}) | ${r.candidates} | ${r.lessons.filter(l => l.bot).length} | ${r.verified} | ${cut.length} | ${labelled.length} | ${labelled.length ? `${pct(asks / labelled.length)} (${pct(lo)}–${pct(hi)})` : 'unlabelled'} | ${labelled.length - asks} |`);
+        lines.push(`| ${run.label} | ${r.prs} | ${r.points.total} (${r.points.people} / ${r.points.bots}) | ${r.candidates} | ${r.lessons.filter(l => l.bot).length} | ${r.verified} | ${cut.length} | ${labelled.length} | ${labelled.length ? `${pct(asks / labelled.length)} (${pct(lo)}–${pct(hi)})` : 'unlabelled'} | ${labelled.length - asks} | ${unmatched} |`);
     }
     lines.push('');
     const last = runs.at(-1)?.repos[repo];

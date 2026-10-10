@@ -31,9 +31,9 @@ From the GitHub API only, no clone: a comment's identifiers come from its own te
 
 ## immich-app/immich
 
-| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request |
-|---|---|---|---|---|---|---|---|---|---|
-| baseline | 50 | 60 (60 / 0) | 60 | 0 | 0 | 0 | 40 | 95% (83%–99%) | 2 |
+| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit |
+|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 50 | 60 (60 / 0) | 60 | 0 | 0 | 0 | 40 | 95% (83%–99%) | 2 | 0 |
 
 Not verified in baseline, by the first condition failed: raised on one pull request only: 60.
 
@@ -44,9 +44,9 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 
 ## tailscale/tailscale
 
-| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request |
-|---|---|---|---|---|---|---|---|---|---|
-| baseline | 40 | 56 (54 / 2) | 55 | 1 | 0 | 1 | 43 | 95% (85%–99%) | 2 |
+| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit |
+|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 40 | 56 (54 / 2) | 55 | 1 | 0 | 1 | 43 | 95% (85%–99%) | 2 | 0 |
 
 Not verified in baseline, by the first condition failed: raised on one pull request only: 54; raised only by bots: 1.
 
@@ -57,9 +57,9 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 
 ## logto-io/logto
 
-| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request |
-|---|---|---|---|---|---|---|---|---|---|
-| baseline | 40 | 448 (99 / 349) | 255 | 157 | 0 | 0 | 64 | 89% (79%–95%) | 7 |
+| Run | PRs | Points (people / bots) | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit |
+|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 40 | 448 (99 / 349) | 255 | 157 | 0 | 0 | 64 | 70% (58%–80%) | 19 | 0 |
 
 Not verified in baseline, by the first condition failed: raised only by bots: 157; raised on one pull request only: 96; one pull request author only: 2.
 
