@@ -68,6 +68,14 @@ describe('repository rules', () => {
         expect(splitRules('AGENTS.md', long)[0].text).toBe(long);
         // The same list with bullets, and a lead-in with no blank line before it, read the same way.
         expect(splitRules('AGENTS.md', numbered.replace(/^\d\. /gm, '- ').replace(':\n\n', ':\n')).map(r => r.text)).toHaveLength(6);
+        // A lead-in that asks something, before items too short to be rules: the lead-in and its items are one rule.
+        expect(splitRules('AGENTS.md', 'Every job in `src/jobs/` must call one of these before its first read:\n1. `withLock()`\n2. `withLease()`').map(r => r.text))
+            .toEqual(['Every job in `src/jobs/` must call one of these before its first read: `withLock()`; `withLease()`']);
+        // A lead-in that asks something, before items that are rules: it stays a rule, and so does each item.
+        expect(splitRules('AGENTS.md', 'Agents working in this repository must follow these rules:\n- Never read a whole table in a request handler: page it.\n- Bound both ends of every time window a scheduled job reads.').map(r => r.text))
+            .toEqual(['Agents working in this repository must follow these rules:', 'Never read a whole table in a request handler: page it.', 'Bound both ends of every time window a scheduled job reads.']);
+        // Each rule knows its line, for pointing at it.
+        expect(splitRules('AGENTS.md', numbered).map(r => r.line)).toEqual([3, 4, 5, 7, 8, 9]);
         // A paragraph that does not introduce a list is a rule, colon or not.
         expect(splitRules('AGENTS.md', 'Release notes are written for the people who upgrade, not for us:\n\nKeep them short.').map(r => r.text)).toEqual(['Release notes are written for the people who upgrade, not for us:']);
     });
