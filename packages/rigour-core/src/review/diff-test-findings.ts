@@ -42,3 +42,12 @@ function toFailure(change: BehaviourChange): Failure {
         verified: true,
     };
 }
+
+/**
+ * A function that behaves differently is a proven difference, not a proven defect: an intended change differs too. It
+ * blocks only when the change declares behaviour it keeps (an invariant in its goal); otherwise it is likely, shown,
+ * never a block.
+ */
+export function withDiffTestCertainty(failures: Failure[], declaresInvariant: boolean): Failure[] {
+    return failures.map(f => ({ ...f, certainty: declaresInvariant ? 'proven' : 'likely' }));
+}

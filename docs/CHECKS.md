@@ -60,7 +60,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 | Check | What it finds | Languages | Gate id | Default | Blocks |
 |:---|:---|:---|:---|:---|:---|
 | Semantic bugs | Type-aware rules that trace a value from where it enters to where it does harm, across files. See [Semantic rules](#semantic-rules). | JS/TS | `semantic-bugs` | On | Yes |
-| Behaviour change | Runs changed exported functions before and after the change and reports inputs whose result changed. `rigour review --diff-tests` with `--max` or `-k`; vitest or jest packages. | JS/TS | `diff-tests` | On request | Yes |
+| Behaviour change | Runs changed exported functions before and after the change and reports inputs whose result changed. `rigour review --diff-tests` with `--max` or `-k`; vitest or jest packages. | JS/TS | `diff-tests` | On request | Note, since an intended change also changes behaviour; blocks when the pull request's goal declares an invariant ([GOAL.md](GOAL.md)) |
 | Partial fix | A change adds a broader condition, but the narrower one it replaces is still tested elsewhere in the same folder. | JS/TS, Svelte | `partial-fix` | On (`change_sweep`) | Yes |
 | Partial wiring | A change adds a prop to some mounts of a component, and a sibling mount of the same kind (agreeing on a literal prop in at least three files) still lacks it. | Svelte, JSX/TSX | `partial-wiring` | On (`change_sweep`) | Yes |
 | Logic drift | A comparison operator changed in a function (`>=` became `>`) compared with the main branch. Return and branch count changes are opt-in (`track_returns`, `track_branches`). | Languages with an adapter (see below) | `logic-drift` | On | Note |

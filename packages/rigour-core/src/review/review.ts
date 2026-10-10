@@ -19,7 +19,7 @@ import { isGeneratedFile, withoutGenerated } from './generated-files.js';
 import { findingKey, isProven, quietSplit } from './quiet.js';
 import { checkId, rememberReported } from './check-outcomes.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
-import { diffTestFailures } from './diff-test-findings.js';
+import { diffTestFailures, withDiffTestCertainty } from './diff-test-findings.js';
 import { migrationOrderFailures } from './migration-order.js';
 import { compiledChecksOn } from '../review-learning/compiled-lessons.js';
 import { settledChecks, type CoveredLesson } from './settled-checks.js';
@@ -126,7 +126,8 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     // The team's `commands:` run at push (toolchain.ts), where a failure blocks; here they would only cost time.
     const report = await new GateRunner({ ...input.config, commands: {} }).run(input.cwd, await normalizeScopePatterns(input.cwd, targets), deep);
     const { preexisting, byCheck: preexistingByCheck = {}, baseUnknown } = await dropPreexisting(input, report, targets);
-    if (input.diffTests && deep) report.failures.push(...await diffTestFailures(input.cwd, input.source, deep));
+    const goal = input.goalDescription !== undefined ? parseGoal(input.goalDescription, fileNames(input.cwd, diff)) : undefined;
+    if (input.diffTests && deep) report.failures.push(...withDiffTestCertainty(await diffTestFailures(input.cwd, input.source, deep), !!goal?.invariants.length));
     // The review's own checks, each recorded in the summary beside the gates, so a report says everything that ran.
     const reviewCheck = (id: string, key: keyof Config['gates'], failures: Failure[]) => {
         const enabled = (input.config.gates[key] as { enabled?: boolean } | undefined)?.enabled;
@@ -153,7 +154,6 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const outsideChangeByCheck = passChecksOnlyLeftOut(report, split.outsideFindings, report.failures.filter(f => !outside.has(f)));
     const deepError = deepAnalysisError(report);
     // The goal's findings are about the change as a whole (a file it should not touch, an item it never did), not a line, so they skip the changed-line split.
-    const goal = input.goalDescription !== undefined ? parseGoal(input.goalDescription, fileNames(input.cwd, diff)) : undefined;
     const checkedGoal = goal && hasCheckableGoal(goal) ? goal : undefined;
     const goalFindings = checkedGoal ? goalFailures(checkedGoal, changedLines, diff, file => isGeneratedFile(input.cwd, file)) : [];
     if (checkedGoal) report.summary.goal = goalFindings.length ? 'FAIL' : 'PASS';
