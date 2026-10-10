@@ -22,10 +22,11 @@ Rigour reviewed this branch against origin/main: 10 commits, 86 files, 3 s.
     not a bug? rigour dismiss 3f9a1c2e7b4d8a60 --reason "…"
 
 Also seen, never blocking: 4 notes (rigour review --notes)
-Not shown: 15 issues the code already had before this change (review.show_preexisting: true lists them).
+Not shown: 12 issues the code already had before this change: ast-analysis 9, file-size 3 (review.show_preexisting: true lists them).
+Not shown: 3 issues on lines this change did not touch: style-drift 2, logic-drift 1.
 ```
 
-The verdict is one of three: things to fix (at most five shown, `--all` for the rest), nothing to fix in what the branch changed, or not finished, with the one command that finishes it (usually installing your dependencies so the type checks can run). Problems the code already had before the branch are counted, never listed. It writes nothing to your project except Rigour's own state folder, `.rigour/`. If what it shows is not worth your time, stop here.
+The verdict is one of three: things to fix (at most five shown, `--all` for the rest), nothing to fix in what the branch changed, or not finished, with the one command that finishes it (usually installing your dependencies so the type checks can run). Problems the code already had before the branch, and problems on lines it did not touch, are counted by check, never listed. It writes nothing to your project except Rigour's own state folder, `.rigour/`. If what it shows is not worth your time, stop here.
 
 ## 2. Set it up
 
