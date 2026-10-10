@@ -436,4 +436,27 @@ describe('learnFromReviews', () => {
         const audit = fs.readFileSync(path.join(repo, '.rigour', 'review-rules-log.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
         expect(audit.map(a => [a.said, a.rule])).toEqual([[upsert.text, 'Make every write idempotent on retry.']]);
     });
+
+    it('skips points that ask for nothing, counts them by why, and keeps the request beside them', async () => {
+        write(V1);
+        const reviewed = commit('pr head');
+        write(V2);
+        const merged = commit('address review');
+        const api = 'https://api.github.com/repos/acme/app';
+        const pages: Record<string, unknown> = {
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`]: [{ number: 9, merged_at: '2026-09-02T00:00:00Z', merge_commit_sha: merged, user: { login: 'dev' } }],
+            [`${api}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=2`]: [],
+            [`${api}/pulls/9/comments?per_page=100`]: [
+                { id: 31, path: 'src/orders.ts', original_line: 2, original_commit_id: reviewed, body: 'LGTM, thanks for the quick turnaround!', user: { login: 'priya' } },
+            ],
+            [`${api}/pulls/9/reviews?per_page=100`]: [
+                { id: 41, commit_id: reviewed, user: { login: 'review-helper[bot]', type: 'Bot' }, body: '### Changes recommended\n\n**Changes:**\n- Adds caching for the order list.\n- Updates the order schema and its tests.\n- Bound the retry loop in src/orders.ts: it never stops on a permanent error.\n- **Files reviewed:** 3/3 changed files' },
+            ],
+        };
+        const fetchImpl = async (url: string) => ({ ok: url in pages, status: url in pages ? 200 : 404, json: async () => pages[url] });
+        const result = await learnFromReviews(repo, { token: 't', repo: 'acme/app', fetch: fetchImpl });
+        expect(result.skipped).toEqual({ 'describes the change': 2, 'review tool status': 1, 'praise or thanks': 1 });
+        expect(result.candidates).toEqual({ person: 0, bot: 1 });
+        expect(readLessons(repo).map(l => l.text)).toEqual(['Bound the retry loop in src/orders.ts: it never stops on a permanent error.']);
+    });
 });

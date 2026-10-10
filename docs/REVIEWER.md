@@ -390,7 +390,12 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   independently: by different reviewers, or by one person in different words (a senior re-raising a
   standard counts; a bot rewording its own point on every pull request does not). At least one of the
   points must be a person's: review bots agreeing with each other never make a lesson. A point that is only
-  a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate.
+  a file path, or a bot's line-range scaffolding with nothing after it, is never a candidate. Neither is a
+  point that asks for nothing: a review tool's status and scaffolding (a verdict banner, an overview heading,
+  "Files reviewed"), a line describing what the pull request does ("Adds caching for…"), praise or thanks, or a
+  status report ("all tests passing"). It is skipped only when it carries no sign of a request (an instruction,
+  a modal, a question, a "but"); when unsure it is kept. `rigour learn-reviews` counts them: "N skipped: not a
+  request", by why.
 
 A candidate only review bots raised is never served, not even with `gates.deep.review_lessons: all`; it
 reaches agents once a person promotes it, or a person's point joins it and recurrence promotes it. Lessons an
