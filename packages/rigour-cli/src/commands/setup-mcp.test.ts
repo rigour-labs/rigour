@@ -61,16 +61,23 @@ describe('rigour setup registers the MCP server', () => {
 });
 
 describe('a personal install', () => {
-    /** A Claude CLI that answers `mcp get rigour` with `registered`, and logs every call: a .cmd on Windows, as npm installs it there. */
+    /**
+     * A Claude CLI that answers `mcp get rigour` with `registered`, and logs every call: a Node script behind the shim npm
+     * installs (`claude.cmd` on Windows), so its arguments arrive as they would from the real one on every platform.
+     */
     const fakeClaude = (registered: string) => {
         const log = path.join(root, 'calls.log');
+        const script = path.join(root, 'claude.js');
+        fs.writeFileSync(script, `const fs = require('fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, args.join(' ') + '\\n');
+if (args[0] === 'mcp' && args[1] === 'get') console.log(${JSON.stringify(registered)});
+`);
         const windows = process.platform === 'win32';
-        const script = path.join(root, windows ? 'claude.cmd' : 'claude');
-        fs.writeFileSync(script, windows
-            ? `@echo off\r\n>>"${log}" echo %*\r\nif "%1 %2"=="mcp get" (echo ${registered}& exit /b 0)\r\nexit /b 0\r\n`
-            : `#!/bin/sh\necho "$@" >> '${log}'\n[ "$1 $2" = "mcp get" ] && { echo '${registered}'; exit 0; }\nexit 0\n`, { mode: 0o755 });
-        process.env.RIGOUR_CLAUDE_CLI = script;
-        return () => fs.readFileSync(log, 'utf8').replace(/\r/g, '').replace(/ +$/gm, '');
+        const shim = path.join(root, windows ? 'claude.cmd' : 'claude');
+        fs.writeFileSync(shim, windows ? `@"${process.execPath}" "${script}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`, { mode: 0o755 });
+        process.env.RIGOUR_CLAUDE_CLI = shim;
+        return () => fs.readFileSync(log, 'utf8');
     };
     const server = { command: 'npx', args: ['-y', '@rigour-labs/mcp@6.13.0'] };
 
