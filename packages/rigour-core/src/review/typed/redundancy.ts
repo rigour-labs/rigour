@@ -237,7 +237,10 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
                 const isArg = ts.isCallExpression(p) && p.arguments.includes(node);
                 const stringified = ts.isTemplateSpan(p) || (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.PlusToken);
                 if (!isArg && !stringified) return;
-                const ty = (ts.isObjectLiteralExpression(node) && checker.getContextualType(node)) || checker.getTypeAtLocation(node);
+                // An object literal's declared target names its type, unless the callee takes anything (`Response.json(data: any)`):
+                // then the literal's own type is what leaves.
+                const declared = ts.isObjectLiteralExpression(node) ? checker.getContextualType(node) : undefined;
+                const ty = declared && !(declared.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) ? declared : checker.getTypeAtLocation(node);
                 if (!mentionsType(t, ty)) return;
                 if (stringified) {
                     found = `string building at ${at(node)}`;
