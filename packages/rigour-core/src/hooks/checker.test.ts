@@ -271,6 +271,14 @@ describe('runHookChecker on a file the repository already has', () => {
         expect(result.failures.map(f => f.gate)).toEqual(['file-size']);
     });
 
+    it('still notes a problem the file already had when the edit moves it down', async () => {
+        const body = [...Array.from({ length: 9 }, (_, i) => `export const v${i} = ${i};`), "import { gone } from './gone';", 'export const a = gone;'].join('\n');
+        commit('moved.ts', body);
+        const result = await check('moved.ts', `export const t0 = 0;\nexport const t1 = 1;\nexport const t2 = 2;\n${body}`);
+        expect(result.status).toBe('pass');
+        expect(result.notes).toEqual([expect.objectContaining({ gate: 'hallucinated-imports', line: 13 })]);
+    });
+
     it('notes an import the file already had that resolves to nothing, and blocks one the edit adds', async () => {
         commit('a.ts', "import { gone } from './gone';\nexport const a = gone;\n");
         const kept = await check('a.ts', "import { gone } from './gone';\nexport const a = gone;\nexport const b = 2;\n");
