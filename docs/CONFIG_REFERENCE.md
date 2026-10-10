@@ -455,7 +455,7 @@ Reports promise chains without a catch, async functions that never await, HTTP c
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Turns the async and error-handling safety check on or off. |
 | `check_unhandled_then` | boolean | `true` | Reports JavaScript and TypeScript .then() chains that have no .catch() and are not inside a try block. |
-| `check_unsafe_parse` | boolean | `false` | Reports JSON parsing outside error handling in each supported language; off by default because it cannot tell trusted input from untrusted input. |
+| `check_unsafe_parse` | boolean | `false` | Reports JSON parsing outside error handling in each supported language; off by default because it cannot tell trusted input from untrusted input. Test files, in any language, are never reported: there an uncaught parse error is the test failing. |
 | `check_async_without_await` | boolean | `true` | Reports async functions that never use await, in JavaScript, TypeScript, Python and C#. |
 | `check_unsafe_fetch` | boolean | `true` | Reports HTTP calls (such as fetch or axios) made without error handling or a status check. |
 | `ignore_patterns` | list of string | `[]` | Regular expressions matched against file paths; matching files are not scanned by this check. |

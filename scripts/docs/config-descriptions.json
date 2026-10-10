@@ -299,7 +299,7 @@
         "gates.context_window_artifacts.signals_required": "Number of separate degradation signals a file must show to be reported; lower it to make the check more sensitive.",
         "gates.promise_safety.enabled": "Turns the async and error-handling safety check on or off.",
         "gates.promise_safety.check_unhandled_then": "Reports JavaScript and TypeScript .then() chains that have no .catch() and are not inside a try block.",
-        "gates.promise_safety.check_unsafe_parse": "Reports JSON parsing outside error handling in each supported language; off by default because it cannot tell trusted input from untrusted input.",
+        "gates.promise_safety.check_unsafe_parse": "Reports JSON parsing outside error handling in each supported language; off by default because it cannot tell trusted input from untrusted input. Test files, in any language, are never reported: there an uncaught parse error is the test failing.",
         "gates.promise_safety.check_async_without_await": "Reports async functions that never use await, in JavaScript, TypeScript, Python and C#.",
         "gates.promise_safety.check_unsafe_fetch": "Reports HTTP calls (such as fetch or axios) made without error handling or a status check.",
         "gates.promise_safety.ignore_patterns": "Regular expressions matched against file paths; matching files are not scanned by this check.",
