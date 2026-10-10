@@ -299,7 +299,7 @@ This shape is not the report's `failures[]` shape. It is built by `toReviewFindi
 |:---|:---|:---|:---|
 | `id` | string | Always | The gate that raised it. |
 | `gate` | string | Always | The finding's title (the report's `title`, not the gate id). |
-| `severity` | string | Always | Severity; `medium` when none was given. |
+| `severity` | string | Always | Severity; `medium` when none was given. A finding that does not block and is not a security finding is shown at most `medium`: a heuristic's "high" is a guess at intent, not an impact Rigour stands behind. |
 | `provenance` | string | Always | Provenance; `traditional` when none was given. |
 | `message` | string | Always | The report's `details`. |
 | `file` | string | Always | The first file; empty when there is none. |

@@ -12,7 +12,7 @@ One rule decides what blocks, in `packages/rigour-core/src/review/quiet.ts` (`mu
 - Its severity is `critical`.
 - Its severity is `high` and it was verified (the semantic rules and verified model findings set this), or it came from a security check.
 
-Everything else is a **note**: listed with `rigour review --notes`, never deciding the verdict.
+Everything else is a **note**: listed with `rigour review --notes`, never deciding the verdict. A note that is not a security finding is shown at most `medium`, whatever its check's own label: "high" in a review means an impact Rigour stands behind.
 
 Three more things can block, outside that rule:
 
