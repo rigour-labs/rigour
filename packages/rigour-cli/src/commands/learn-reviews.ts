@@ -10,7 +10,7 @@
 import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
-import { personOf } from './git-identity.js';
+import { decider } from './git-identity.js';
 import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubReader, learnFromReviews, lessonsPath, pendingDecision, quietBotCandidate, readLessons, type LessonEvidence, type ReviewLesson, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
@@ -145,14 +145,21 @@ function decideCheck(cwd: string, id: string, state: 'active' | 'withdrawn'): vo
     }
 }
 
+/** Who decides, or undefined after saying why not (exit code 1): a decision always carries who made it. */
+function deciderOrExit(cwd: string): string | undefined {
+    try {
+        return decider(cwd);
+    } catch (e: any) {
+        console.error(chalk.red(e.message));
+        process.exitCode = 1;
+        return undefined;
+    }
+}
+
 function decideCheckOrThrow(cwd: string, id: string, state: 'active' | 'withdrawn'): void {
     // Who decided is committed with the check: a decision with no one to name is refused, never recorded empty.
-    const by = personOf(cwd);
-    if (by === 'unknown') {
-        console.error(chalk.red('No git email is set in this checkout (git config user.email): who approves or takes back a compiled check is committed with it.'));
-        process.exitCode = 1;
-        return;
-    }
+    const by = deciderOrExit(cwd);
+    if (!by) return;
     const check = decideCompiledCheck(cwd, id, state, by);
     if (!check) {
         console.error(chalk.red(`No compiled check ${id}.`));
@@ -169,9 +176,11 @@ function scope(cwd: string, id: string, to: string | undefined, why?: string): v
         process.exitCode = 1;
         return;
     }
+    const by = deciderOrExit(cwd);
+    if (!by) return;
     let lesson;
     try {
-        lesson = scopeLesson(cwd, id, to, personOf(cwd), why);
+        lesson = scopeLesson(cwd, id, to, by, why);
     } catch (e: any) {
         console.error(chalk.red(e.message));
         process.exitCode = 1;
@@ -188,7 +197,9 @@ function scope(cwd: string, id: string, to: string | undefined, why?: string): v
 
 /** A person takes the suggested wording of a lesson they decided; the old wording is kept as evidence. */
 function useWording(cwd: string, id: string): void {
-    const lesson = acceptSuggestedText(cwd, id, personOf(cwd));
+    const by = deciderOrExit(cwd);
+    if (!by) return;
+    const lesson = acceptSuggestedText(cwd, id, by);
     if (!lesson) {
         console.error(chalk.red(`No lesson ${id} with a suggested wording.`));
         process.exitCode = 1;
@@ -199,7 +210,9 @@ function useWording(cwd: string, id: string): void {
 
 /** A person's decision, kept as evidence with who made it (their git email) and why. */
 function decide(cwd: string, id: string, decision: 'accepted' | 'rejected', why?: string): void {
-    const lesson = decideLesson(cwd, id, decision, personOf(cwd), why);
+    const by = deciderOrExit(cwd);
+    if (!by) return;
+    const lesson = decideLesson(cwd, id, decision, by, why);
     if (!lesson) {
         console.error(chalk.red(`No lesson ${id}.`));
         process.exitCode = 1;

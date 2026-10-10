@@ -37,8 +37,19 @@ describe('rigour learn-reviews --compile', () => {
         vi.spyOn(console, 'log').mockImplementation(() => undefined);
         await learnReviewsCommand(repo, { compile: true });
         await learnReviewsCommand(repo, { approveCheck: 'c-L1' });
-        expect(err.mock.calls.flat().join('\n')).toContain('No git email is set');
+        expect(err.mock.calls.flat().join('\n')).toContain('no git email is set in this checkout (git config user.email)');
         expect(readCompiledChecks(repo)[0].state).toBe('proposed');
+        process.exitCode = 0;
+    });
+
+    it('refuses a promote or reject with no git email, so no decision is recorded as nobody', async () => {
+        execFileSync('git', ['-C', repo, 'config', 'user.email', '']);
+        const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const before = readLessons(repo)[0].evidence.length;
+        await learnReviewsCommand(repo, { reject: 'L1' });
+        expect(err.mock.calls.flat().join('\n')).toContain('no git email is set in this checkout (git config user.email)');
+        expect(process.exitCode).toBe(1);
+        expect(readLessons(repo)[0].evidence).toHaveLength(before);
         process.exitCode = 0;
     });
 });

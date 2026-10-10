@@ -106,10 +106,10 @@ teamCommand
 
 teamCommand
     .command('sync')
-    .description("Send queued lessons from the team's repositories, and receive the team's")
+    .description("Send queued lessons from the team's repositories, and your decisions on this repository's review lessons; receive the team's")
     .option('--dry-run', 'Report pending records without sending them')
     .action(async (options) => {
-        const result = await syncTeamOutbox({ dryRun: Boolean(options.dryRun) });
+        const result = await syncTeamOutbox({ dryRun: Boolean(options.dryRun), cwd: process.cwd() });
         console.log(JSON.stringify(result, null, 2));
     });
 

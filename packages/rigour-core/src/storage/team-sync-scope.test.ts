@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** The outbox and repositories a machine holds, and what reached the team database. */
 const state = vi.hoisted(() => ({ outbox: [] as any[], repos: new Map<string, string>(), sent: [] as string[], refuse: new Set<string>(), meta: new Map<string, string>(), remote: [] as any[], since: [] as number[] }));
@@ -40,6 +43,8 @@ vi.mock('pg', () => ({
 }));
 
 const { syncTeamOutbox } = await import('./team-store.js');
+/** A folder with no git: review decisions are held back before any query. */
+const NO_GIT = fs.mkdtempSync(path.join(os.tmpdir(), 'team-sync-'));
 
 const queue = (id: string, repositoryId: string, visibility: string) =>
     state.outbox.push({ id: `outbox-${id}`, payload_json: JSON.stringify({ id, repositoryId, visibility, evidence: {} }), synced_at: null });
@@ -61,20 +66,21 @@ beforeEach(() => {
     queue('l-unknown', 'r-gone', 'team');
 });
 afterEach(() => { process.env = { ...saved }; });
+afterAll(() => fs.rmSync(NO_GIT, { recursive: true, force: true }));
 
 describe('team sync scope', () => {
     it("sends only the team's own shared lessons and says what it kept back", async () => {
-        expect(await syncTeamOutbox({ dryRun: true })).toMatchObject({ pending: 1, withheld: 3 });
+        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 1, withheld: 3 });
         expect(state.sent).toEqual([]);
 
-        const result = await syncTeamOutbox();
-        expect(result).toMatchObject({ synced: 1, withheld: 3 });
+        const result = await syncTeamOutbox({ cwd: NO_GIT });
+        expect(result).toMatchObject({ synced: 1, withheld: 3, decisions: { sent: 0, held: 'repository has no origin remote' } });
         expect(state.sent).toEqual(['l-team']);
         const reasons = Object.fromEntries(state.outbox.map(o => [o.id, o.last_error]));
         expect(reasons['outbox-l-other']).toContain('github.com/other-org/app');
         expect(reasons['outbox-l-personal']).toContain('personal lesson');
         expect(reasons['outbox-l-unknown']).toContain('repository unknown');
-        expect(await syncTeamOutbox({ dryRun: true })).toMatchObject({ pending: 0, withheld: 0 }); // never retried
+        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 0, withheld: 0 }); // never retried
     });
 
     it('sets aside a lesson the database refuses and sends the rest of the queue', async () => {
@@ -83,25 +89,25 @@ describe('team sync scope', () => {
         queue('l-team', 'r-team', 'team');
         state.refuse.add('l-refused');
 
-        expect(await syncTeamOutbox()).toMatchObject({ synced: 1 });
+        expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ synced: 1 });
         expect(state.sent).toEqual(['l-team']);
         expect(state.outbox.find(o => o.id === 'outbox-l-refused').last_error).toContain('refused by the team database: new row violates row-level security');
-        expect(await syncTeamOutbox({ dryRun: true })).toMatchObject({ pending: 0 }); // not tried again
+        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 0 }); // not tried again
     });
 
     it('pulls only what changed since the last pull, re-reading a margin for slow clocks', async () => {
         const lesson = (id: string, updated: number) => ({ id, repository_id: 'r-team', actor_id: 'dev-2', team_id: 'web', visibility: 'team', state: 'promoted', kind: 'k', subject: 's', evidence_json: {}, confidence: 1, source: 'x', supersedes_id: null, created_at: updated, updated_at: updated });
         const HOUR = 3_600_000;
         state.remote = [lesson('a', 10 * HOUR), lesson('b', 20 * HOUR)];
-        expect(await syncTeamOutbox()).toMatchObject({ pulled: 2 });
+        expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ pulled: 2 });
         expect(state.since).toEqual([0]); // the first pull reads everything
 
-        expect(await syncTeamOutbox()).toMatchObject({ pulled: 1 }); // only b, inside the 15-minute margin
+        expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ pulled: 1 }); // only b, inside the 15-minute margin
         expect(state.since[1]).toBe(20 * HOUR - 15 * 60_000);
     });
 
     it('sends nothing when the team lists no repositories', async () => {
         delete process.env.RIGOUR_TEAM_REPOSITORIES;
-        expect(await syncTeamOutbox({ dryRun: true })).toMatchObject({ pending: 0, withheld: 4 });
+        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 0, withheld: 4 });
     });
 });

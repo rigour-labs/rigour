@@ -251,13 +251,14 @@ step, because it turns a personal install into the team's.
   model, which cannot see a cheap model's lower price, only the extra runs an escalation adds. Don't rely on it until a backtest on your own history shows what the cheap
   model misses.
 
-**Daily caps**, per repository, unset by default:
+**Caps**, per repository, on by default (a team raises them in `rigour.yml`):
 
 ```yaml
 review:
   reviewer:
-    max_runs_per_day: 40     # agent runs, judges and cross-examinations alike
-    max_usd_per_day: 15      # dollars the CLIs reported (Claude Code reports them; Codex reports tokens)
+    max_runs_per_day: 40     # the default: agent runs, judges and cross-examinations alike
+    max_usd_per_day: 10      # the default: dollars the CLIs and APIs reported (Claude Code reports them; Codex reports tokens)
+    max_usd_per_review: 2    # the default: what one review may spend
 ```
 
 Runs are counted before any judge starts, so a review that would pass the run cap does not start,
@@ -267,6 +268,11 @@ today's reported spend reaches it. Past a cap, a review is skipped and says why;
 requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
 At a push, the agent is told so, with the cap and its key ("the model review of 1a2b3c4d5 was skipped: the daily
 cost cap is reached … (review.reviewer.max_usd_per_day)"), and no background review starts.
+One review stops at `max_usd_per_review`: it is checked before each judge, retry, cross-examination and follow-up
+the review starts, and a review stopped there keeps what it had and says the cap is why ("no other judge asked: this
+review's cost cap is reached: $3.00 of $2.00…"). The same caps hold the rule writer (`learn-reviews --rules`) and the
+deep review's cloud model (`rigour check --deep` with a key), whose spend counts toward them: past a cap, the cloud
+model does not start and the output says "Deep review skipped:" with the cap.
 A judge whose answer is not a valid verdict (malformed or cut off) is asked once more, inside the caps;
 a review with no valid verdict after that is unavailable. A person may set a lower cap for their own
 runs, never a higher one. `rigour review --status` and
@@ -407,7 +413,9 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
   change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
-- **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email;
+- **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email. Every decision (promote,
+  reject, dismiss, scope, rewording, a compiled check), in the CLI or Studio, is refused when no git email is set in the
+  checkout: a decision recorded as nobody would never reach the team (see [the team database](TEAM_DATABASE.md));
 - **recurrence**, weak alone: the same point raised by people (review bots never count) on two or more pull
   requests by different authors, and raised by two or more different reviewers, or by one reviewer on three or
   more pull requests at least seven days apart (by when each point was posted). A lesson an earlier version
@@ -476,7 +484,7 @@ briefing, the briefing on a file's first edit and the judge's context. Up to ten
 served, the most-raised first. `--to folder` reaches every change in the lesson's folder; `--to file`
 takes it back to its own file. Studio's lesson card does the same (**Make team standard**, **Folder only**,
 **This file only**) and shows how far each lesson reaches. Each is recorded with your git email and `--why`
-(refused in Studio without one); a scope says how far a
+(refused without one); a scope says how far a
 lesson reaches, never whether it is right, so only a lesson (not a candidate) is served. `--list` shows
 each scope.
 
