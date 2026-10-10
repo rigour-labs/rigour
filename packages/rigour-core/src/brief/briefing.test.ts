@@ -97,6 +97,17 @@ describe('the briefing', () => {
 
 });
 
+describe('a briefing asked for from a subfolder', () => {
+    it('names files and rules as the repository does, so a folder rule still applies', () => {
+        const fromRoot = briefTask(repo, { goal: 'retry the partner job with backoff' });
+        const fromSub = briefTask(path.join(repo, 'src'), { goal: 'retry the partner job with backoff' });
+        expect(fromSub.files).toEqual(fromRoot.files);
+        expect(fromSub.files).toContain('src/jobs/retry.ts'); // not jobs/retry.ts
+        expect(fromSub.items.map(i => i.text)).toEqual(fromRoot.items.map(i => i.text));
+        expect(fromSub.items.some(i => i.text.includes('withLock()'))).toBe(true);
+    });
+});
+
 describe("a file's briefing, on the agent's first edit of it", () => {
     it("gives at most three items: the file's requirement rules, its lessons and settled points; never guidance or another file's", () => {
         const briefing = buildFileBriefing(repo, 'src/jobs/retry.ts');
