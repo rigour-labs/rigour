@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { acceptSuggestedText, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { personOf } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
@@ -35,6 +35,8 @@ export interface LessonJourney {
     reclassified?: { detail: string; evidence: string[] };
     /** A corrected wording for a review lesson a person decided, waiting for them (core acceptSuggestedText). */
     suggestedText?: { text: string; why: string };
+    /** How far a review lesson reaches (core scopeLesson): its file, its folder, or every change; `hasFile` false for a team standard. */
+    reach?: { scope: 'file' | 'folder' | 'repo'; hasFile: boolean };
 }
 
 export interface StudioLearning {
@@ -90,6 +92,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             reachedPr: null,
             ...decisionFor(l),
             ...(l.suggestedText ? { suggestedText: { text: l.suggestedText, why: l.suggestedWhy ?? 'reworded' } } : {}),
+            reach: { scope: l.scope ?? ('file' as const), hasFile: !!l.file },
         })),
     // Lessons back to a candidate when outcomes stopped promoting come first: a person decides each once.
     ].sort((a: LessonJourney, b: LessonJourney) => Number(!!b.reclassified) - Number(!!a.reclassified) || b.learnedAt.localeCompare(a.learnedAt))
@@ -128,13 +131,32 @@ function decisionFor(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 't
     return { canDecide: false };
 }
 
+/** The reason a person gave in Studio, else that they decided there. */
+function studioWhy(why: unknown): string {
+    return typeof why === 'string' && why.trim() ? why.trim() : 'decided in Studio';
+}
+
 /** A person's decision on a review lesson from Studio, recorded as `rigour learn-reviews --promote / --reject` records it: with their git email, and final. */
 export function decideReviewLesson(cwd: string, body: unknown): { id: string; state: string } {
     const { id, decision, why } = (body ?? {}) as { id?: unknown; decision?: unknown; why?: unknown };
     if (typeof id !== 'string' || !/^[0-9a-f]{12}$/.test(id)) throw new Error('a review lesson id (12 hex characters) is required');
     if (decision === 'reworded') return rewordFromStudio(cwd, id);
-    if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'dismissed') throw new Error('decision is accepted, rejected, dismissed or reworded');
-    const lesson = decideLesson(cwd, id, decision, personOf(cwd), typeof why === 'string' && why.trim() ? why.trim() : 'decided in Studio');
+    if (decision === 'scope') return scopeFromStudio(cwd, id, (body as { to?: unknown }).to, why);
+    if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'dismissed') throw new Error('decision is accepted, rejected, dismissed, reworded or scope');
+    const lesson = decideLesson(cwd, id, decision, personOf(cwd), studioWhy(why));
+    if (!lesson) throw new Error(`no review lesson ${id}`);
+    return { id: lesson.id, state: lesson.state };
+}
+
+/**
+ * A person sets how far a review lesson reaches from Studio, as `rigour learn-reviews --scope` records it: with their
+ * git email, so with no git email set it is refused, like a compiled check's decision.
+ */
+function scopeFromStudio(cwd: string, id: string, to: unknown, why: unknown): { id: string; state: string } {
+    if (to !== 'file' && to !== 'folder' && to !== 'repo') throw new Error('to is file, folder or repo');
+    const by = personOf(cwd);
+    if (by === 'unknown') throw new Error('no git email is set in this checkout (git config user.email): who decides how far a lesson reaches is recorded with it');
+    const lesson = scopeLesson(cwd, id, to, by, studioWhy(why));
     if (!lesson) throw new Error(`no review lesson ${id}`);
     return { id: lesson.id, state: lesson.state };
 }

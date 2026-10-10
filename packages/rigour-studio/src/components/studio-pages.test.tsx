@@ -195,6 +195,28 @@ describe('a corrected wording, on the learning page', () => {
     });
 });
 
+describe('how far a lesson reaches, on the learning page', () => {
+    const base = { id: 'd1b2c3d4e5f6', text: 'Filter in the query.', origin: 'pr', learnedFrom: 'At PR #1, from r1', state: 'verified', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: false };
+    it('shows the reach and offers the other two', () => {
+        const out = html(<LessonCard lesson={{ ...base, reach: { scope: 'file', hasFile: true } } as any} onDecide={() => undefined} onScope={() => undefined} />);
+        expect(out).toContain('reaches: its file');
+        expect(out).toContain('Make team standard');
+        expect(out).toContain('Folder only');
+        expect(out).not.toContain('This file only');
+    });
+
+    it('offers a team standard no folder, and one widened to the repo a way back', () => {
+        const standard = html(<LessonCard lesson={{ ...base, reach: { scope: 'file', hasFile: false } } as any} onDecide={() => undefined} onScope={() => undefined} />);
+        expect(standard).toContain('reaches: changes it is about');
+        expect(standard).toContain('Make team standard');
+        expect(standard).not.toContain('Folder only');
+        const widened = html(<LessonCard lesson={{ ...base, reach: { scope: 'repo', hasFile: true } } as any} onDecide={() => undefined} onScope={() => undefined} />);
+        expect(widened).toContain('reaches: team standard');
+        expect(widened).toContain('This file only');
+        expect(widened).not.toContain('Make team standard');
+    });
+});
+
 describe('lessons compiled into checks, on the learning page', () => {
     it('shows what a check reports, its history as counts with a rate only from ten, who approved it, and the decision a person can make', () => {
         const out = html(<CompiledChecks checks={[

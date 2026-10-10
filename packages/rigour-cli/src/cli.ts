@@ -431,6 +431,8 @@ program
     .option('--promote <id>', 'Accept a candidate as a lesson (recorded as your decision)')
     .option('--reject <id>', 'Reject a candidate or lesson: the judges are told this team decided against it')
     .option('--why <text>', 'Why, recorded with --promote or --reject')
+    .option('--scope <id>', 'Set how far a lesson reaches, with --to: its file, its folder, or every change (a team standard); recorded as your decision')
+    .option('--to <reach>', 'With --scope: file, folder or repo')
     .option('--use-wording <id>', 'Take the corrected wording a newer version suggests for a lesson you decided (the old wording is kept as evidence)')
     .option('--compile', 'Propose a deterministic check for each verified lesson a template fits, and list the compiled checks')
     .option('--approve-check <id>', 'Approve a compiled check: it runs on every review (a note unless gates.compiled_lessons.block)')

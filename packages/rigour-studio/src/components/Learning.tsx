@@ -25,6 +25,10 @@ export const Learning: React.FC = () => {
         const res = await studioWrite('/api/review-lessons', 'POST', JSON.stringify({ id, decision }));
         if (res.ok) reload();
     };
+    const scope = async (id: string, to: 'file' | 'folder' | 'repo') => {
+        const res = await studioWrite('/api/review-lessons', 'POST', JSON.stringify({ id, decision: 'scope', to }));
+        if (res.ok) reload(); else window.alert((await res.json().catch(() => ({}))).error ?? 'Could not record the decision.');
+    };
     const decideCheck = async (id: string, state: 'active' | 'withdrawn') => {
         const res = await studioWrite('/api/compiled-checks', 'POST', JSON.stringify({ id, state }));
         if (res.ok) reload(); else window.alert((await res.json().catch(() => ({}))).error ?? 'Could not record the decision.');
@@ -62,7 +66,7 @@ export const Learning: React.FC = () => {
             <CompiledChecks checks={data.compiled ?? []} onDecide={decideCheck} onPropose={propose} />
             {data.lessons.length === 0
                 ? <div className="st-empty">No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</div>
-                : <div className="st-stack">{data.lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} onDecideReview={decideReview} />)}</div>}
+                : <div className="st-stack">{data.lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} onDecideReview={decideReview} onScope={scope} />)}</div>}
             <OtherKnowledge />
         </div>
     );

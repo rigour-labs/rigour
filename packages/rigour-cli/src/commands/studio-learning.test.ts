@@ -85,7 +85,7 @@ describe('a review lesson evidence took back', () => {
             const decision = readLessons(repo)[0].evidence.at(-1);
             expect(decision).toMatchObject({ kind: 'accepted', author: 'lead@team.example', detail: 'decided in Studio' });
             expect(() => decideReviewLesson(repo, { id: 'nope', decision: 'accepted' })).toThrow('12 hex characters');
-            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'validated' })).toThrow('accepted, rejected, dismissed or reworded');
+            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'validated' })).toThrow('accepted, rejected, dismissed, reworded or scope');
             expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'reworded' })).toThrow('with a suggested wording');
             expect(() => decideReviewLesson(repo, { id: 'ffffffffffff', decision: 'accepted' })).toThrow('no review lesson');
         } finally {
@@ -182,6 +182,38 @@ describe('a corrected wording for a lesson a person decided', () => {
             expect(decideReviewLesson(repo, { id: 'c1b2c3d4e5f6', decision: 'reworded' })).toEqual({ id: 'c1b2c3d4e5f6', state: 'verified' });
             expect(readLessons(repo)[0]).toMatchObject({ text: 'This reads every row. Filter in the query.' });
             expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'reworded', author: 'lead@team.example', detail: 'parser fix; was: This reads every row.' });
+        } finally {
+            fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('how far a review lesson reaches, from Studio', () => {
+    const fileLesson: ReviewLesson = {
+        id: 'd1b2c3d4e5f6', text: 'Filter in the query.', file: 'src/orders.ts', symbols: [], state: 'verified', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+        evidence: [{ kind: 'point', pr: 1, comment: 'c1', author: 'r1' }],
+    };
+    it('shows the reach on the lesson, and a team standard has no folder to choose', () => {
+        const [file] = buildLearning({ now, lessons: [], reviewLessons: [fileLesson], stories: [], events: [] }).lessons;
+        expect(file.reach).toEqual({ scope: 'file', hasFile: true });
+        const [standard] = buildLearning({ now, lessons: [], reviewLessons: [{ ...fileLesson, file: '', scope: 'repo' }], stories: [], events: [] }).lessons;
+        expect(standard.reach).toEqual({ scope: 'repo', hasFile: false });
+    });
+
+    it('records a scope with the person\'s git email, and refuses one without an email or with an unknown reach', () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-scope-'));
+        try {
+            execFileSync('git', ['-C', repo, 'init', '-q']);
+            execFileSync('git', ['-C', repo, 'config', 'user.email', 'lead@team.example']);
+            fs.mkdirSync(path.join(repo, '.rigour'));
+            fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [fileLesson] }));
+            expect(decideReviewLesson(repo, { id: 'd1b2c3d4e5f6', decision: 'scope', to: 'repo' })).toEqual({ id: 'd1b2c3d4e5f6', state: 'verified' });
+            expect(readLessons(repo)[0]).toMatchObject({ scope: 'repo' });
+            expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'scoped', author: 'lead@team.example', detail: 'repo: decided in Studio' });
+            expect(() => decideReviewLesson(repo, { id: 'd1b2c3d4e5f6', decision: 'scope', to: 'everywhere' })).toThrow('to is file, folder or repo');
+            execFileSync('git', ['-C', repo, 'config', 'user.email', '']);
+            expect(() => decideReviewLesson(repo, { id: 'd1b2c3d4e5f6', decision: 'scope', to: 'file' })).toThrow('no git email is set');
+            expect(readLessons(repo)[0].scope).toBe('repo'); // refused: nothing changed
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
         }
