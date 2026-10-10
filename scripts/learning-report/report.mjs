@@ -133,6 +133,10 @@ for (const repo of REPOS) {
         lines.push(`Stopped in ${runs.at(-1).label}: ${last.stopped}`, '');
     }
 }
+lines.push('## Notes', '',
+    '- Run-to-run noise: immich has one point more in b1 than in baseline. It is a comment posted before the cutoff and',
+    '  the merge whose commit fetch evidently failed in the baseline run (a comment on a commit that cannot be fetched is',
+    '  skipped) and succeeded in b1. A change that only removes points cannot add one.', '');
 lines.push('## Candidates that look broken (mechanical)', '', 'Starts with Or / And / But, or ends on a connector (", or", "and"). Listed for spot checks.', '', ...(broken.length ? broken : ['None.']), '');
 fs.writeFileSync(setPath('REPORT.md'), lines.join('\n'));
 console.log(lines.slice(0, 40).join('\n'));

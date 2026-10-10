@@ -29,6 +29,18 @@ From the GitHub API only, no clone: a comment's identifiers come from its own te
 - logto-io/logto: https://github.com/logto-io/logto/pull/9643#discussion_r4069087672 ↔ https://github.com/logto-io/logto/pull/9609#discussion_r4033711957 (shared: `mfa`)
 - logto-io/logto: https://github.com/logto-io/logto/pull/9643#discussion_r4069087672 ↔ https://github.com/logto-io/logto/pull/9582#discussion_r4002654562 (shared: `mfa`)
 
+## Held out: pull requests no pattern was written against
+
+Merged after the main window, labelled (same rubric, same unit method) before any change was run on them. A change
+that only fits the main set shows here as lost requests or no gain in precision.
+
+### logto-io/logto
+
+| Run | PRs | Points (people / bots) | Skipped: not a request | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit | Requests lost vs first run |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 16 | 78 (4 / 74) | 0 | 54 | 51 | 0 | 0 | 52 | 23% (14%–36%) | 40 | 0 | 0 |
+| b1 | 16 | 52 (4 / 48) | 26 | 29 | 26 | 0 | 0 | 27 | 44% (28%–63%) | 15 | 0 | 0 |
+
 ## immich-app/immich
 
 | Run | PRs | Points (people / bots) | Skipped: not a request | Candidates | Bot-only candidates | Verified | Looks broken | Labelled candidates | Precision (95% CI) | Not a request | Matched no unit | Requests lost vs first run |
@@ -38,7 +50,7 @@ From the GitHub API only, no clone: a comment's identifiers come from its own te
 
 Not verified in b1, by the first condition failed: raised on one pull request only: 61.
 
-Clone: --filter=blob:none, peak 552 MB, 431 s.
+Clone: --filter=blob:none, peak 548 MB, 428 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 0.
 
@@ -52,7 +64,7 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 
 Not verified in b1, by the first condition failed: raised on one pull request only: 54; raised only by bots: 1.
 
-Clone: --filter=blob:none, peak 254 MB, 291 s.
+Clone: --filter=blob:none, peak 254 MB, 267 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 0.
 
@@ -66,12 +78,18 @@ Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any 
 
 Not verified in b1, by the first condition failed: raised only by bots: 111; raised on one pull request only: 96; one pull request author only: 2.
 
-Clone: --filter=blob:none, peak 505 MB, 563 s.
+Clone: --filter=blob:none, peak 524 MB, 556 s.
 
 Near-duplicate candidates on different pull requests (word overlap ≥ 0.5, any file): 2.
 
 - 0.75 · [.changeset/purple-eels-shave.md](https://github.com/logto-io/logto/pull/9586#discussion_r4002574024) ↔ [.changeset/lucky-spoons-itch.md](https://github.com/logto-io/logto/pull/9597#discussion_r4002570474)
 - 0.54 · [packages/console/src/cloud/pages/ConsoleSso/index.tsx](https://github.com/logto-io/logto/pull/9640#discussion_r4080011249) ↔ [packages/console/src/cloud/pages/ConsoleSso/Details/index.tsx](https://github.com/logto-io/logto/pull/9652#discussion_r4090223871)
+
+## Notes
+
+- Run-to-run noise: immich has one point more in b1 than in baseline. It is a comment posted before the cutoff and
+  the merge whose commit fetch evidently failed in the baseline run (a comment on a commit that cannot be fetched is
+  skipped) and succeeded in b1. A change that only removes points cannot add one.
 
 ## Candidates that look broken (mechanical)
 
