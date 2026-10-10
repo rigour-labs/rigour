@@ -16,7 +16,7 @@ import { deepAnalysisError } from '../utils/deep-status.js';
 import { splitByChangedLines } from './changed-lines.js';
 import { changedFunctionSpans } from './changed-function-spans.js';
 import { isGeneratedFile, withoutGenerated } from './generated-files.js';
-import { findingKey, isProven, quietSplit } from './quiet.js';
+import { findingKey, isProven, quietSplit, shownSeverity } from './quiet.js';
 import { checkId, rememberReported } from './check-outcomes.js';
 import { diffFromGit, type DiffSource } from './git-diff.js';
 import { diffTestFailures, withDiffTestCertainty } from './diff-test-findings.js';
@@ -260,7 +260,7 @@ export function toReviewFinding(failure: Failure): ReviewFinding {
     return {
         id: failure.id,
         gate: failure.title,
-        severity: failure.severity || 'medium',
+        severity: shownSeverity(failure),
         provenance: failure.provenance || 'traditional',
         message: failure.details,
         key: findingKey(failure),

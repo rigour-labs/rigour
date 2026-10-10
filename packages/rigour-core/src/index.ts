@@ -16,7 +16,7 @@ export { locateTransformers, semanticRuntimeDir, semanticRuntimeInstalled, TRANS
 export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, type ReviewFinding } from './review/review.js';
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
 export { isControlFile, mergeBaseOf, readStateFile } from './review/trusted-state.js';
-export { dismissFinding, dismissedKeys, findingKey, isProven, mustFix, quietSplit, DISMISSED_FILE } from './review/quiet.js';
+export { dismissFinding, dismissedKeys, findingKey, isProven, mustFix, quietSplit, shownSeverity, DISMISSED_FILE } from './review/quiet.js';
 export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest, LEDGER_PATH, type Ledger, type RoundResult } from './review/backtest.js';
 export { scaffoldLedger } from './review/backtest-init.js';
 export type { CiResult, FollowUp, PrOutcome } from './outcomes/outcome.js';

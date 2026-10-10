@@ -45,6 +45,18 @@ export function mustFix(failure: Failure): boolean {
     return isProven(failure) || severity === 'critical' || (severity === 'high' && (failure.verified === true || failure.provenance === 'security'));
 }
 
+/**
+ * The severity a person is shown. A finding that blocks keeps its own. A security finding that does not block is shown
+ * at most high: "critical" is kept for what blocks. Any other finding is a guess at intent (a heuristic) and is shown at
+ * most medium: "high" means an impact Rigour stands behind, not a pattern's label for one.
+ */
+export function shownSeverity(failure: Failure): NonNullable<Failure['severity']> {
+    const severity = failure.severity ?? 'medium';
+    if (mustFix(failure)) return severity;
+    if (failure.provenance === 'security') return severity === 'critical' ? 'high' : severity;
+    return severity === 'critical' || severity === 'high' ? 'medium' : severity;
+}
+
 /** The same finding across runs and pushes: gate, file and message, never the line (lines move). */
 export function findingKey(failure: Failure): string {
     return crypto.createHash('sha256').update(`${failure.id}\u0000${failure.files?.[0] ?? ''}\u0000${failure.details}`).digest('hex').slice(0, 16);
