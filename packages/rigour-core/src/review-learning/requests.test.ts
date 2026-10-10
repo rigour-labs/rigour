@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { lessonsFromReview } from './lessons.js';
 import { notARequest } from './requests.js';
 
 describe('a review point that asks for nothing', () => {
@@ -36,6 +37,43 @@ describe('a review point that asks for nothing', () => {
         // Everything else reads the same on a line and in a body.
         expect(notARequest('LGTM, thanks!', 'inline')).toBe('praise or thanks');
         expect(notARequest('All 214 tests passing on the latest push.', 'inline')).toBe('status report');
+    });
+});
+
+
+describe('a review body read by its structure', () => {
+    const review = (body: string, source: 'bot' | 'person') => ({ id: '9', prNumber: 3, commit: 'c', body, author: source === 'bot' ? 'review-helper[bot]' : 'lead', source, prAuthor: 'dev' });
+    const learn = (body: string, source: 'bot' | 'person' = 'bot') => {
+        const skipped: string[] = [];
+        const kept = lessonsFromReview(review(body, source), [], undefined, why => skipped.push(why)).map(l => l.text);
+        return { kept, skipped };
+    };
+
+    it('reads the list under a change-summary heading as a description, whatever its verbs, and keeps a finding under another heading', () => {
+        const { kept, skipped } = learn('### Changes recommended\n\n**Changes:**\n- Bridges the old and new role types.\n- Converts six license fields into table rows.\n- Opens the setup page in a new tab.\n\n### Findings\n- The retry loop never stops on a permanent error.');
+        expect(skipped).toEqual(['describes the change', 'describes the change', 'describes the change']);
+        expect(kept).toEqual(['The retry loop never stops on a permanent error.']);
+    });
+
+    it('reads a collapsed block about the tool itself as tool status, imperatives and all', () => {
+        const { kept, skipped } = learn('### Automated review\n\n<details> <summary>About ReviewBot in GitHub</summary>\n\nReviews are triggered when you\n- Open a pull request for review\n- Mark a draft as ready\n</details>');
+        expect(skipped).toEqual(['review tool status', 'review tool status']);
+        expect(kept).toEqual([]);
+    });
+
+    it('keeps findings in a collapsed block that is not about the tool, and a summary bullet that asks for something', () => {
+        expect(learn('<details>\n<summary>Review details</summary>\n\n### Suppressed comments (1)\n* This loop has no upper bound; cap the retries.\n</details>').kept)
+            .toEqual(['This loop has no upper bound; cap the retries.']);
+        const { kept, skipped } = learn('## Summary\n- Please add a test for the empty list.\n- Splits the parser into two files.');
+        expect(kept).toEqual(['Please add a test for the empty list.']);
+        expect(skipped).toEqual(['describes the change']);
+    });
+
+    it('keeps a defect stated plainly under a person\'s Summary heading, and skips it in a bot\'s', () => {
+        // No ask word in it ("never" would be one, and is kept anywhere).
+        const body = '## Summary\n- The retry loop exits on a 500 without logging the body.\n- Splits the parser into two files.';
+        expect(learn(body, 'person')).toEqual({ kept: ['The retry loop exits on a 500 without logging the body.'], skipped: ['describes the change'] });
+        expect(learn(body, 'bot')).toEqual({ kept: [], skipped: ['describes the change', 'describes the change'] });
     });
 });
 

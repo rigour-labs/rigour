@@ -114,7 +114,9 @@ function runRows(set, repo) {
 if (heldout?.runs.length) {
     lines.push('## Held out: pull requests no pattern was written against', '',
         'Merged after the main window, labelled (same rubric, same unit method) before any change was run on them. A change',
-        'that only fits the main set shows here as lost requests or no gain in precision.', '');
+        'that only fits the main set shows here as lost requests or no gain in precision.', '',
+        '**Seen since b1.** The section-aware change (b1-sections) was written after reading what B1 left here, so from',
+        'b1-sections on these runs no longer count as held out. A fresh held-out sample is drawn for the last B change.', '');
     for (const repo of heldout.repos) lines.push(`### ${repo}`, '', ...HEADER, ...runRows(heldout, repo), '');
 }
 for (const repo of REPOS) {
