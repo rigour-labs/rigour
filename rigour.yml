@@ -10,9 +10,6 @@ gates:
     block: true
   orphan_files:
     block: true
-    # The learning-quality report's scripts run by path (scripts/learning-report/README.md).
-    allow:
-      - scripts/learning-report/*.mjs
   forbid_todos: true
   forbid_fixme: true
   required_files:
