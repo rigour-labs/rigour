@@ -90,10 +90,14 @@ function fromEvent(event: AgentEvent): ActivityItem[] {
                 ? { at, kind: 'stopped', text: `Stopped an edit to ${files}: ${found}` }
                 : { at, kind: 'reported', text: `Reported on an edit to ${files}: ${found}` }];
         }
-        case 'stop_review':
-            return [event.blocked
-                ? { at, kind: 'stopped', text: `Kept the agent working: ${count(event.blocking ?? 0, 'problem')} left when it tried to finish` }
-                : { at, kind: 'checked', text: 'The agent finished with nothing blocking' }];
+        case 'stop_review': {
+            if (!event.blocked) return [{ at, kind: 'checked', text: 'The agent finished with nothing blocking' }];
+            // What held it, as the edit line names what it stopped; an older record has only the count.
+            const held = event.findings ?? [];
+            const named = (f: { title: string; file: string; detail?: string }) => `${f.file ? `${f.file}: ` : ''}${f.title}${f.detail ? ` (${f.detail})` : ''}`;
+            if (held.length === 1 && (event.blocking ?? 1) === 1) return [{ at, kind: 'stopped', text: `Kept the agent working: ${named(held[0])}` }]; // written at the block: the "Fixed" story says when it was fixed
+            return [{ at, kind: 'stopped', text: `Kept the agent working: ${count(event.blocking ?? held.length, 'problem')} left when it tried to finish`, ...(held.length ? { detail: held.map(named).join(' · ') } : {}) }];
+        }
         case 'lessons_served':
             return [{ at, kind: 'taught', text: `Told the agent ${count(event.lessons?.length ?? 0, 'lesson')} before it wrote`, detail: event.lessons?.join(' · ') }];
         case 'pr_catches':
