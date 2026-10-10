@@ -307,3 +307,32 @@ describe('teammates\' decisions, from Studio\'s data', () => {
         }
     });
 });
+
+describe('a fresh review candidate, from Studio\'s data', () => {
+    it('is something a person can decide; a verified lesson is not', () => {
+        const fresh: ReviewLesson = { id: 'c1b2c3d4e5f6', text: 'Filter in the query.', file: 'src/orders.ts', symbols: [], state: 'candidate', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z', evidence: [{ kind: 'point', pr: 1, comment: 'c1', author: 'r1', source: 'person' }] };
+        const [candidate, verified] = buildLearning({ now, lessons: [], reviewLessons: [fresh, { ...fresh, id: 'c2b2c3d4e5f6', text: 'Bound the window.', state: 'verified', evidence: [...fresh.evidence, { kind: 'accepted', pr: 1, comment: 'a', author: 'lead@team.example' }] }], stories: [], events: [] }).lessons
+            .sort((a, b) => a.id.localeCompare(b.id));
+        expect(candidate).toMatchObject({ id: 'c1b2c3d4e5f6', canDecide: true });
+        expect(candidate.takenBack ?? candidate.suggested ?? candidate.reclassified).toBeUndefined();
+        expect(verified).toMatchObject({ id: 'c2b2c3d4e5f6', canDecide: false });
+    });
+
+    it('Promote from Studio makes it a lesson under the person\'s git email; without one it is refused', () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-fresh-'));
+        try {
+            execFileSync('git', ['-C', repo, 'init', '-q']);
+            fs.mkdirSync(path.join(repo, '.rigour'));
+            fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [
+                { id: 'c1b2c3d4e5f6', text: 'Filter in the query.', file: 'src/orders.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '', evidence: [{ kind: 'point', pr: 1, comment: 'c1', author: 'r1', source: 'person' }] },
+            ] }));
+            execFileSync('git', ['-C', repo, 'config', 'user.email', '']);
+            expect(() => decideReviewLesson(repo, { id: 'c1b2c3d4e5f6', decision: 'accepted' })).toThrow('no git email is set in this checkout (git config user.email)');
+            execFileSync('git', ['-C', repo, 'config', 'user.email', 'lead@team.example']);
+            expect(decideReviewLesson(repo, { id: 'c1b2c3d4e5f6', decision: 'accepted' })).toEqual({ id: 'c1b2c3d4e5f6', state: 'verified' });
+            expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'accepted', author: 'lead@team.example', detail: 'decided in Studio' });
+        } finally {
+            fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
+});

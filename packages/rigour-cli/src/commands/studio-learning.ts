@@ -145,14 +145,15 @@ function learnedFromPoints(points: ReviewLesson['evidence']): string {
 /**
  * What a person can decide on a review lesson, from the last of its evidence and decisions: taken back by evidence
  * (promote it again, or drop it), back to a candidate when outcomes stopped promoting (promote it again, or dismiss),
- * or a candidate with a later fix on its lines (promote it, or dismiss the evidence).
+ * a candidate with a later fix on its lines (promote it, or dismiss the evidence), or any other candidate (promote it,
+ * or reject it): a person confirming a review point is how it becomes a lesson.
  */
 function decisionFor(lesson: ReviewLesson): Pick<LessonJourney, 'canDecide' | 'takenBack' | 'suggested' | 'reclassified'> {
     const last = pendingDecision(lesson);
     if (last?.kind === 'reclassified') return { canDecide: true, reclassified: { detail: last.detail ?? '', evidence: lesson.evidence.filter(e => e.kind === 'outcome' || e.kind === 'lines').map(e => e.detail ?? '').filter(Boolean) } };
     if (last?.kind === 'demoted') return { canDecide: true, takenBack: { detail: last.detail ?? '', prs: lesson.evidence.filter(e => e.kind === 'against').map(e => e.pr), at: last.at ?? '' } };
     if (last?.kind === 'lines') return { canDecide: true, suggested: { detail: last.detail ?? '', pr: last.pr, at: last.at ?? '' } };
-    return { canDecide: false };
+    return { canDecide: lesson.state === 'candidate' };
 }
 
 /** The reason a person gave in Studio, else that they decided there. */
