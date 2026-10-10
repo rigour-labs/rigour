@@ -182,3 +182,5 @@ export type { CheckpointMetric } from './storage/index.js';
 export type { CursorUsageSyncOptions } from './services/cursor-usage-client.js';
 export { appendTaskEvent, readThread, taskOf, threadText, threadsDir, THREADS_DIR, type TaskEvent, type TaskEventKind, type ThreadEvent } from './task/thread.js';
 export { briefFile, briefingText, briefTask, buildBriefing, buildFileBriefing, fileBriefingText, BRIEFING_MAX_ITEMS, FILE_BRIEFING_MAX_ITEMS, type Briefing, type BriefingInput, type BriefingItem } from './brief/briefing.js';
+export { personOf } from './utils/person.js';
+export { decisionRows } from './storage/team-review-decisions.js';

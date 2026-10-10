@@ -206,6 +206,15 @@ CREATE TABLE IF NOT EXISTS sync_outbox (
     synced_at INTEGER
 );
 
+-- Review decisions this machine sent to the team (or the team database refused), by key: never sent twice.
+CREATE TABLE IF NOT EXISTS review_decisions_sent (
+    client_key TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    sent_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_review_decisions_sent_repo ON review_decisions_sent(repository_id);
+
 -- Stable repository registry used by cross-project learning and graph views.
 CREATE TABLE IF NOT EXISTS repositories (
     id TEXT PRIMARY KEY,
@@ -523,6 +532,18 @@ async function runMigrations(db: RigourDB): Promise<void> {
             CREATE INDEX IF NOT EXISTS idx_checkpoint_metrics_repo ON checkpoint_metrics(repository_id, created_at);
         `);
         await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '8')");
+    }
+    if (current < 9) {
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS review_decisions_sent (
+                client_key TEXT PRIMARY KEY,
+                repository_id TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                sent_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_review_decisions_sent_repo ON review_decisions_sent(repository_id);
+        `);
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '9')");
     }
 }
 

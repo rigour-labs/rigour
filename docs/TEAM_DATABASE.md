@@ -58,6 +58,33 @@ For each lesson that is sent, the database receives:
 | `evidence_json` | For a memory: its key, value and when it was shared. For a fix lesson: the rule, the file paths fixed, and up to five examples with up to 300 characters of the finding's detail each |
 | `created_at`, `updated_at` | Timestamps |
 
+### Your decisions on review lessons
+
+`rigour team sync`, the MCP server after each tool call, and Studio every 30 seconds also send the decisions you made on
+the review lessons of the repository they run in (`.rigour/review-lessons.json`): accepting, rejecting, dismissing,
+scoping or rewording a lesson, and approving or taking back a check compiled from one. They are read from the lessons
+file, so a decision made offline or before team mode is sent on the next sync. Each is sent once; the file is read
+again only when it changed. Teammates receiving them arrives in a later version.
+
+A decision is sent only when all of these hold:
+
+1. The repository's `origin` matches `--repositories`, as for lessons.
+2. The decision is yours: recorded under this checkout's `git config user.email`. A decision someone else made in the same clone is never sent under your name.
+3. Your membership's role is `sme` or `owner`. A `member`'s decisions stay on the machine (`rigour team sync` says so under `decisions.held`).
+4. The database has the review decision tables (`rigour team doctor` reports `reviewDecisions: ready`).
+
+A correction (a lesson learned from your own edit of what an agent wrote) is not sent: its text is the code you changed.
+
+For each decision, the database receives the lesson's id, the kind of decision, when it was made, your reason (at
+most 500 characters; a rewording's previous wording is left out), and:
+
+| Field | What it holds |
+| --- | --- |
+| `payload.text` | The lesson's wording, only for a decision that approves it (accepted, reworded, a compiled check approved), at most 400 characters |
+| `payload.scope` | For a scope decision: `file`, `folder` or `repo` |
+| `payload.file`, `payload.folder` | SHA-256 hashes of the repository id and the lesson's file or folder, never the path |
+| `payload.points` | For each review point the lesson was learned from: pull request number, comment id, `person` or `bot`, when it was posted, and the reviewer as a hash of the login salted per organization (see [Data and security notes](#data-and-security-notes)). Never the comment's text |
+
 With pgvector, an embedding row is added for each validated or promoted lesson: the lesson id, the same ids as above, the model name, a SHA-256 hash of the embedded text and a 384-number vector. The vector is computed on your machine.
 
 Never sent: source code, diffs, file contents, prompts, agent transcripts, the interaction log Rigour keeps of tool calls, memories saved with scope `repo` or `user`, findings and review results. A memory in which Rigour's credential scan finds a secret is refused before it is stored, so it cannot be shared.
@@ -87,7 +114,7 @@ Add `--pgvector` to also create the `vector` extension, the `rigour.lesson_embed
 This creates the `rigour` schema with its tables, turns on row-level security on each and creates the policies:
 
 - `meta`, `memberships` and `lessons`, for shared lessons. `rigour.meta` records `schema_version` 1. `rigour team doctor` and `rigour team configure` check that version and refuse any other.
-- `review_decisions` and `organization_salts`, for people's decisions on review lessons (accepting, rejecting, scoping or rewording a lesson learned from code review). `rigour.meta` records `review_decisions_version` 1. `schema_version` stays 1, so earlier Rigour versions keep working against the same database. `rigour team doctor` reports `reviewDecisions: ready`, or `missing` for a database created before them; running `init-schema` again adds them. Sharing review decisions arrives in a later version; the tables are created now so a database is ready for it.
+- `review_decisions` and `organization_salts`, for people's decisions on review lessons (accepting, rejecting, scoping or rewording a lesson learned from code review). `rigour.meta` records `review_decisions_version` 1. `schema_version` stays 1, so earlier Rigour versions keep working against the same database. `rigour team doctor` reports `reviewDecisions: ready`, or `missing` for a database created before them; running `init-schema` again adds them. An `sme` or `owner` sends their decisions (see [Your decisions on review lessons](#your-decisions-on-review-lessons)); teammates receiving them arrives in a later version.
 
 The schema is idempotent. Running `init-schema` again adds anything missing and recreates the policies without touching lessons. One exception: with `--pgvector`, it deletes embeddings of lessons that are no longer `validated` or `promoted`. Rigour has no other migration step.
 

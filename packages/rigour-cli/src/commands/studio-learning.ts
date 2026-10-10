@@ -8,7 +8,7 @@
  * recorded on another machine (CI) never reach this one.
  */
 import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
-import { personOf } from './git-identity.js';
+import { decider } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -146,7 +146,7 @@ export function decideReviewLesson(cwd: string, body: unknown): { id: string; st
     if (decision === 'reworded') return rewordFromStudio(cwd, id);
     if (decision === 'scope') return scopeFromStudio(cwd, id, (body as { to?: unknown }).to, why);
     if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'dismissed') throw new Error('decision is accepted, rejected, dismissed, reworded or scope');
-    const lesson = decideLesson(cwd, id, decision, personOf(cwd), studioWhy(why));
+    const lesson = decideLesson(cwd, id, decision, decider(cwd), studioWhy(why));
     if (!lesson) throw new Error(`no review lesson ${id}`);
     return { id: lesson.id, state: lesson.state };
 }
@@ -157,16 +157,14 @@ export function decideReviewLesson(cwd: string, body: unknown): { id: string; st
  */
 function scopeFromStudio(cwd: string, id: string, to: unknown, why: unknown): { id: string; state: string } {
     if (to !== 'file' && to !== 'folder' && to !== 'repo') throw new Error('to is file, folder or repo');
-    const by = personOf(cwd);
-    if (by === 'unknown') throw new Error('no git email is set in this checkout (git config user.email): who decides how far a lesson reaches is recorded with it');
-    const lesson = scopeLesson(cwd, id, to, by, studioWhy(why));
+    const lesson = scopeLesson(cwd, id, to, decider(cwd), studioWhy(why));
     if (!lesson) throw new Error(`no review lesson ${id}`);
     return { id: lesson.id, state: lesson.state };
 }
 
 /** A person takes a decided lesson's suggested wording from Studio, recorded as `--use-wording` records it. */
 function rewordFromStudio(cwd: string, id: string): { id: string; state: string } {
-    const lesson = acceptSuggestedText(cwd, id, personOf(cwd));
+    const lesson = acceptSuggestedText(cwd, id, decider(cwd));
     if (!lesson) throw new Error(`no review lesson ${id} with a suggested wording`);
     return { id: lesson.id, state: lesson.state };
 }
@@ -179,8 +177,7 @@ export function decideCompiledCheckFromStudio(cwd: string, body: unknown): Compi
     const { id, state } = (body ?? {}) as { id?: unknown; state?: unknown };
     if (typeof id !== 'string' || !/^c-[\w-]+$/.test(id)) throw new Error('a compiled check id is required');
     if (state !== 'active' && state !== 'withdrawn') throw new Error('state is active or withdrawn');
-    const by = personOf(cwd);
-    if (by === 'unknown') throw new Error('no git email is set in this checkout (git config user.email): who decides a compiled check is committed with it');
+    const by = decider(cwd);
     const check = decideCompiledCheck(cwd, id, state, by);
     if (!check) throw new Error(`no compiled check ${id}`);
     return check;
