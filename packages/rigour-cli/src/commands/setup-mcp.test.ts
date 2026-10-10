@@ -61,13 +61,16 @@ describe('rigour setup registers the MCP server', () => {
 });
 
 describe('a personal install', () => {
-    /** A Claude CLI that answers `mcp get rigour` with `registered`, and logs every call. */
+    /** A Claude CLI that answers `mcp get rigour` with `registered`, and logs every call: a .cmd on Windows, as npm installs it there. */
     const fakeClaude = (registered: string) => {
         const log = path.join(root, 'calls.log');
-        const script = path.join(root, 'claude');
-        fs.writeFileSync(script, `#!/bin/sh\necho "$@" >> '${log}'\n[ "$1 $2" = "mcp get" ] && { echo '${registered}'; exit 0; }\nexit 0\n`, { mode: 0o755 });
+        const windows = process.platform === 'win32';
+        const script = path.join(root, windows ? 'claude.cmd' : 'claude');
+        fs.writeFileSync(script, windows
+            ? `@echo off\r\n>>"${log}" echo %*\r\nif "%1 %2"=="mcp get" (echo ${registered}& exit /b 0)\r\nexit /b 0\r\n`
+            : `#!/bin/sh\necho "$@" >> '${log}'\n[ "$1 $2" = "mcp get" ] && { echo '${registered}'; exit 0; }\nexit 0\n`, { mode: 0o755 });
         process.env.RIGOUR_CLAUDE_CLI = script;
-        return () => fs.readFileSync(log, 'utf8');
+        return () => fs.readFileSync(log, 'utf8').replace(/\r/g, '').replace(/ +$/gm, '');
     };
     const server = { command: 'npx', args: ['-y', '@rigour-labs/mcp@6.13.0'] };
 
