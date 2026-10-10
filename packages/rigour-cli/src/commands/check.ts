@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR, exitCodeFor } from './exit-codes.js';
 import { deepProvider } from './deep-provider.js';
 import { UsageError } from './review-config.js';
+import { scoreNote } from './score-note.js';
 
 export interface CheckOptions {
     ci?: boolean;
@@ -112,6 +113,8 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                     }
 
                     console.log(chalk.dim(`\nFinished in ${result.checkMs}ms (cached) | Score: ${result.report.stats.score ?? '?'}/100`));
+                    const cachedNote = scoreNote(result.report.stats.score);
+                    if (cachedNote) console.log(chalk.dim(cachedNote));
                     process.exit(result.report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
                 }
             } catch {
@@ -283,6 +286,8 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
             footerParts.push(`Score: ${report.stats.score}/100`);
         }
         console.log(chalk.dim('\n' + footerParts.join(' | ')));
+        const note = scoreNote(report.stats.score);
+        if (note) console.log(chalk.dim(note));
 
         process.exit(exitCodeFor(report));
 

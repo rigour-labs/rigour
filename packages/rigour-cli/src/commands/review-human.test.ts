@@ -91,6 +91,18 @@ describe('rigour review, as a person reads it', () => {
         expect(show(result({ advisory: [finding(1)] }), { notes: true })).toContain('src/a.ts:1  export f1 is used nowhere');
     });
 
+    it('lists each note under its own line with --notes, never under a "Not shown" line', () => {
+        const hint = 'nested-scan src/a.ts:9: confirm the sizes';
+        show(result({ advisory: [finding(1)], fileFindings: [finding(0, { id: 'style-drift', line: undefined, title: 'naming drifts' })], hints: [hint], preexisting: 12, excludedOutsideChangedLines: 3 }), { notes: true });
+        const at = (text: string) => out.findIndex(l => l.includes(text));
+        expect(out[at('Also seen, never blocking: 2 notes') + 1]).toBe('    src/a.ts:1  export f1 is used nowhere');
+        expect(out[at('Of these, about a changed file as a whole: style-drift 1') + 1]).toBe('    src/a.ts:?  naming drifts');
+        expect(out[at('To confirm by hand: 1 hint') + 1]).toBe(`    ${hint}`);
+        // Nothing indented follows a "Not shown" line: it lists nothing.
+        for (const i of out.flatMap((l, k) => (l.startsWith('Not shown') ? [k] : []))) expect(out[i + 1] ?? '').not.toMatch(/^ {2}/);
+        expect(at('Not shown')).toBeGreaterThan(at('To confirm by hand'));
+    });
+
     it('says when a diff was compared with no base, so old-code issues are shown', () => {
         expect(show(result({ baseUnknown: true }))).toContain('Compared with no base: HEAD already holds this diff');
         out = [];

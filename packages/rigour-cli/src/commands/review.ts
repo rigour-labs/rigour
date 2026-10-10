@@ -28,6 +28,7 @@ import { loadConfig, UsageError } from './review-config.js';
 import { deepProvider } from './deep-provider.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
 import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR } from './exit-codes.js';
+import { scoreNote } from './score-note.js';
 
 export interface ReviewOptions {
     json?: boolean;
@@ -255,14 +256,17 @@ function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiRevie
 function printCi(result: ReviewResult): void {
     const score = result.report?.stats.score;
     const scoreStr = score !== undefined ? ` (${score}/100)` : '';
+    const note = scoreNote(score, true);
     if (result.findings.length === 0) {
         console.log(`${result.status === 'ERROR' ? 'ERROR' : 'PASS'}${scoreStr}`);
+        if (note) console.log(`  ${note}`);
         return;
     }
     console.log(`FAIL: ${result.findings.length} violation(s) on changed lines${scoreStr}`);
     for (const f of result.findings) {
         console.log(`  - [${(f.severity || 'medium').toUpperCase()}] ${f.files?.[0] || ''}:${f.line ?? '?'} ${f.title}`);
     }
+    if (note) console.log(`  ${note}`);
 }
 
 /** Without a model, point at the risky changed functions a person or their agent should still check. */
