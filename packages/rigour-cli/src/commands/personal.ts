@@ -15,7 +15,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { rigourUserDir } from '@rigour-labs/core';
-import { isEmptyConfig, readInstallRecord, recordCreated, unchangedSinceInstall, withoutRigour } from './install-record.js';
+import { isEmptyConfig, isRigourMcpEntry, readInstallRecord, recordCreated, unchangedSinceInstall, withoutRigour } from './install-record.js';
 
 const MARKER = 'rigour-enabled';
 
@@ -136,7 +136,7 @@ export function asUserLevel<T extends { path: string; content: string }>(file: T
     return { ...file, path: target, content: JSON.stringify(guard(JSON.parse(file.content)), null, 4) };
 }
 
-export type McpState = 'added' | 'present' | 'removed' | 'absent' | 'no CLI';
+export type McpState = 'added' | 'updated' | 'present' | 'removed' | 'absent' | 'no CLI';
 
 /**
  * The Rigour MCP server at user level: Claude Code through its own `claude mcp add --scope user`
@@ -145,8 +145,14 @@ export type McpState = 'added' | 'present' | 'removed' | 'absent' | 'no CLI';
 export function registerUserMcp(server: { command: string; args: string[] }): { claude: McpState; cursor: McpState } {
     let claude: McpState = 'no CLI';
     if (spawnSync(claudeCli(), ['--version'], { encoding: 'utf8' }).status === 0) {
-        if (spawnSync(claudeCli(), ['mcp', 'get', 'rigour'], { encoding: 'utf8' }).status === 0) claude = 'present';
-        else claude = spawnSync(claudeCli(), ['mcp', 'add', '--scope', 'user', 'rigour', '--', server.command, ...server.args], { encoding: 'utf8' }).status === 0 ? 'added' : 'no CLI';
+        const add = () => spawnSync(claudeCli(), ['mcp', 'add', '--scope', 'user', 'rigour', '--', server.command, ...server.args], { encoding: 'utf8' }).status === 0;
+        const get = spawnSync(claudeCli(), ['mcp', 'get', 'rigour'], { encoding: 'utf8' });
+        if (get.status !== 0) claude = add() ? 'added' : 'no CLI';
+        // Rigour's own registration at another version is moved to this one, as the hooks are; one the person changed stays.
+        else if (/@rigour-labs\/mcp/.test(get.stdout) && !get.stdout.includes(server.args[server.args.length - 1])) {
+            spawnSync(claudeCli(), ['mcp', 'remove', '--scope', 'user', 'rigour'], { encoding: 'utf8' });
+            claude = add() ? 'updated' : 'no CLI';
+        } else claude = 'present';
     }
     if (!installedAgents().includes('cursor')) return { claude, cursor: 'absent' };
     const cursorFile = path.join(agentHome(), '.cursor', 'mcp.json');
@@ -159,13 +165,14 @@ export function registerUserMcp(server: { command: string; args: string[] }): { 
             return { claude, cursor: 'absent' }; // not valid JSON: the person's to fix, not Rigour's to replace
         }
     }
-    if (config?.mcpServers?.rigour) return { claude, cursor: 'present' };
+    const current = config?.mcpServers?.rigour;
+    if (current && (JSON.stringify(current) === JSON.stringify(server) || !isRigourMcpEntry(current))) return { claude, cursor: 'present' };
     config.mcpServers = { ...(config.mcpServers ?? {}), rigour: server };
     fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
     const content = JSON.stringify(config, null, 4) + '\n';
     fs.writeFileSync(cursorFile, content);
     if (!existed) recordCreated(path.dirname(rigourUserDir()), path.relative(agentHome(), cursorFile), content);
-    return { claude, cursor: 'added' };
+    return { claude, cursor: current ? 'updated' : 'added' };
 }
 
 /**

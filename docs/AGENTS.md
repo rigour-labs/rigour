@@ -14,7 +14,7 @@ tool, and what to do when something does not fire. Setting Rigour up is covered 
 
 | Agent | After every edit | Before "done" | Before push | Credential warnings (DLP) | MCP server written by setup |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | yes | yes | yes, in the agent and through git | yes, before every tool call | yes |
+| Claude Code | yes | yes | yes, in the agent and through git | yes, before every tool call | yes, in a new or an existing repository |
 | Cursor | yes | yes | yes, through git | yes, before a prompt is sent | yes |
 | Cline | yes | no | yes, through git | yes, before every tool call | no |
 | Windsurf | yes | no | yes, through git | yes, before code is written | no |
@@ -219,11 +219,13 @@ client that starts stdio servers can be given the same command.
 `<server>` is:
 
 ```bash
-npx -y @rigour-labs/mcp@<major>
+npx -y @rigour-labs/mcp@<version>
 ```
 
-`<major>` is the major version of the CLI that wrote it. Fixes arrive without editing the config; a
-breaking major release does not. When the CLI runs from a source checkout, the config points at that
+`<version>` is the exact version of the CLI that wrote it, the same version every hook pins the CLI to, so
+the agent's tools and its hooks always come from one release. `rigour setup` writes it, and re-running
+setup after an upgrade moves both. An entry you changed yourself (another command or path) is left as
+it is. When the CLI runs from a source checkout, the config points at that
 checkout's `packages/rigour-mcp/dist/index.js` with `node` instead. `rigour uninstall --machine`
 removes the user-level registrations.
 
@@ -247,7 +249,7 @@ name.
   "mcpServers": {
     "rigour": {
       "command": "npx",
-      "args": ["-y", "@rigour-labs/mcp@<major>"],
+      "args": ["-y", "@rigour-labs/mcp@<version>"],
       "env": { "RIGOUR_MCP_TOOLS": "governance" }
     }
   }

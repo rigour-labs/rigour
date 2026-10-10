@@ -19,7 +19,7 @@ import path from 'path';
 import { printRepoSetup } from './doctor.js';
 import { installGitPushHook } from './hooks-git.js';
 import { hooksInitCommand, installMachineHooks, pinnedCliCommand } from './hooks.js';
-import { initCommand, resolveMCPServerConfig } from './init.js';
+import { initCommand, registerProjectMcp, resolveMCPServerConfig } from './init.js';
 import { writeAgentInstructions } from './init-handshake.js';
 import { disableHere, enableHere, registerUserMcp } from './personal.js';
 import { applyConfigMigrations } from './setup-migrations.js';
@@ -69,6 +69,7 @@ async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {
     if (fs.existsSync(path.join(cwd, 'rigour.yml'))) {
         // The same options the team's install was written with, so a teammate's setup changes no committed file.
         await hooksInitCommand(cwd, { block: true, dlp: true });
+        await registerProjectMcp(cwd);
         if (options.instructions) await writeAgentInstructions(cwd);
     } else await initCommand(cwd, { instructions: options.instructions });
 }
