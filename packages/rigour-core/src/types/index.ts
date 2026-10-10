@@ -552,6 +552,8 @@ export const FailureSchema = z.object({
      * bad the defect would be, never whether it blocks. Unset: the gate-level rule decides (review/quiet.ts mustFix).
      */
     certainty: z.enum(['proven', 'likely', 'possible']).optional(),
+    /** Every line a finding that groups a file's violations names: one on a changed line puts it in the change, anchored there (review/changed-lines.ts). */
+    lines: z.array(z.number()).optional(),
 });
 export type Failure = z.infer<typeof FailureSchema>;
 

@@ -375,7 +375,7 @@ export class PromiseSafetyGate extends Gate {
             const details = fileViolations.map(v => `  L${v.line}: [${v.type}] ${v.reason}`).join('\n');
             const hasHighSev = fileViolations.some(v => v.type !== 'async-no-await');
             const severity = hasHighSev ? 'high' : 'medium';
-            failures.push(this.createFailure(
+            failures.push({ ...this.createFailure(
                 `Unsafe async/error patterns in ${file}:\n${details}`,
                 [file],
                 `Review and fix async/error handling patterns.`,
@@ -383,7 +383,7 @@ export class PromiseSafetyGate extends Gate {
                 fileViolations[0].line,
                 undefined,
                 severity as any
-            ));
+            ), lines: fileViolations.map(item => item.line) });
         }
         return failures;
     }
