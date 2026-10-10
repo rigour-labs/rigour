@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { readCompiledChecks, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { decisionRows, personOf, readCompiledChecks, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { buildLearning, decideCompiledCheckFromStudio, decideReviewLesson, proposeChecksFromStudio, readableFixLesson } from './studio-learning.js';
 
 const now = new Date('2026-10-09T12:00:00Z');
@@ -234,6 +234,35 @@ describe('how far a review lesson reaches, from Studio', () => {
             execFileSync('git', ['-C', repo, 'config', 'user.email', '']);
             expect(() => decideReviewLesson(repo, { id: 'd1b2c3d4e5f6', decision: 'scope', to: 'file' })).toThrow('no git email is set');
             expect(readLessons(repo)[0].scope).toBe('repo'); // refused: nothing changed
+        } finally {
+            fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('a decision made in Studio is one the team sync sends', () => {
+    it('records every Studio decision under the git email the sync matches as yours', () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-sync-'));
+        try {
+            execFileSync('git', ['-C', repo, 'init', '-q']);
+            execFileSync('git', ['-C', repo, 'config', 'user.email', 'lead@team.example']);
+            fs.mkdirSync(path.join(repo, '.rigour'));
+            const candidate = (id: string, extra: Partial<ReviewLesson> = {}): ReviewLesson => ({
+                id, text: 'Filter in the query.', file: 'src/orders.ts', symbols: [], state: 'candidate', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+                evidence: [{ kind: 'point', pr: 1, comment: `c-${id}`, author: 'reviewer', source: 'person' }], ...extra,
+            });
+            fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [
+                candidate('e1b2c3d4e5f6'), candidate('e2b2c3d4e5f6'), candidate('e3b2c3d4e5f6', { suggestedText: 'Filter rows in the query.', suggestedWhy: 'clearer' }),
+            ] }));
+            decideReviewLesson(repo, { id: 'e1b2c3d4e5f6', decision: 'accepted' });
+            decideReviewLesson(repo, { id: 'e2b2c3d4e5f6', decision: 'rejected', why: 'one-off' });
+            decideReviewLesson(repo, { id: 'e2b2c3d4e5f6', decision: 'scope', to: 'repo' });
+            decideReviewLesson(repo, { id: 'e3b2c3d4e5f6', decision: 'reworded' });
+
+            const rows = decisionRows(readLessons(repo), { repositoryId: 'r', person: personOf(repo), salt: 's' });
+            expect(rows.map(r => [r.lessonId, r.kind]).sort()).toEqual([
+                ['e1b2c3d4e5f6', 'accepted'], ['e2b2c3d4e5f6', 'rejected'], ['e2b2c3d4e5f6', 'scoped'], ['e3b2c3d4e5f6', 'reworded'],
+            ]);
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
         }
