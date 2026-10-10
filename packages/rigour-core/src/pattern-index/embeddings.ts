@@ -39,7 +39,8 @@ async function getPipeline() {
                 return null;
             }
             // Using a compact but high-quality model for local embeddings
-            embeddingPipeline = await transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+            // The model's 8-bit weights, which the library loaded by default before version 3 and every index was built with.
+            embeddingPipeline = await transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' });
         } catch (error) {
             embeddingUnavailable = true;
             console.warn('Semantic enrichment is degraded; structural and text retrieval remain available.');

@@ -57,6 +57,15 @@ To try your build on a repository: `node packages/rigour-cli/dist/bin.js review 
 4. Test that it finds the defect, stays silent on the fixed code, and stays silent on look-alikes.
 5. Add a row for it to [What Rigour checks](docs/CHECKS.md).
 
+### Upgrading the embedding library
+
+`rigour setup` installs one exact version of the embedding library (`TRANSFORMERS_SPEC` in
+`packages/rigour-core/src/pattern-index/semantic-runtime.ts`), and indexes on users' machines hold vectors it computed.
+A push that changes it runs [Embedding parity](.github/workflows/embedding-parity.yml), which embeds 200 lines of
+this repository with the version on `main` and with the new one, on Linux and macOS, and prints each install's size.
+When the lowest cosine is at least 0.99, the index version stays. Below that, raise `EMBEDDING_TEXT_VERSION` in
+`embeddings.ts` so every index is rebuilt on first use, and say so in the release note.
+
 ## Pull requests and releases
 
 Open pull requests against `next`. Their titles follow [conventional commits](https://www.conventionalcommits.org)

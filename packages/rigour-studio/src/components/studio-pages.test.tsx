@@ -379,3 +379,15 @@ describe('candidates from review bots, on the learning page', () => {
         expect(html(<BotPointsToggle count={1} shown onToggle={() => undefined} />)).toContain('>Hide bot points<');
     });
 });
+
+describe('a teammate\'s decision, on the learning page', () => {
+    it('shows each team decision by display name, and says when the team\'s later decision settled it against yours', () => {
+        const out = html(<LessonCard lesson={{ id: 'e1b2c3d4e5f6', text: 'filter in the query', origin: 'pr', learnedFrom: 'At PR #7, from r', state: 'rejected', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: false, team: {
+            decisions: [{ kind: 'rejected', name: 'Omar K.', at: '2026-10-09T08:00:00Z', detail: 'one-off for that endpoint' }],
+            overruled: { yours: 'accepted', team: { kind: 'rejected', name: 'Omar K.', at: '2026-10-09T08:00:00Z' }, yoursOnly: 'no git user.email here' },
+        } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(out).toContain('the team decided');
+        expect(out).toContain('You accepted it (yours only: no git user.email here); Omar K. rejected it on 2026-10-09');
+        expect(out).toContain('Omar K. (team) rejected it on 2026-10-09: one-off for that endpoint');
+    });
+});

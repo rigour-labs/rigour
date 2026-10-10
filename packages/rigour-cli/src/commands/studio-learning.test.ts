@@ -1,10 +1,11 @@
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { decisionRows, personOf, readCompiledChecks, readLessons, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
-import { buildLearning, decideCompiledCheckFromStudio, decideReviewLesson, proposeChecksFromStudio, readableFixLesson } from './studio-learning.js';
+import { buildLearning, decideCompiledCheckFromStudio, loadLearning, decideReviewLesson, proposeChecksFromStudio, readableFixLesson } from './studio-learning.js';
 
 const now = new Date('2026-10-09T12:00:00Z');
 const lesson: LessonRecord = {
@@ -269,6 +270,40 @@ describe('a decision made in Studio is one the team sync sends', () => {
             ]);
         } finally {
             fs.rmSync(repo, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('teammates\' decisions, from Studio\'s data', () => {
+    it('lists each team decision, and a later team decision that settled a lesson against mine with why mine is not shared', async () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-team-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-team-home-'));
+        const saved = process.env.RIGOUR_HOME;
+        process.env.RIGOUR_HOME = home;
+        try {
+            execFileSync('git', ['-C', repo, 'init', '-q']);
+            execFileSync('git', ['-C', repo, 'remote', 'add', 'origin', 'https://github.com/acme/api']);
+            fs.mkdirSync(path.join(repo, '.rigour'));
+            fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{
+                id: 'f1b2c3d4e5f6', text: 'Filter in the query.', file: 'src/orders.ts', symbols: [], state: 'verified', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+                evidence: [{ kind: 'point', pr: 1, comment: 'c1', author: 'r1', source: 'person' }, { kind: 'accepted', pr: 1, comment: 'accepted-1', author: 'me@team.example', at: '2026-10-01T00:00:00Z' }],
+            }] }));
+            // Where the team sync keeps them: the Rigour home, by repository id (the SHA-256 of the origin).
+            const cache = path.join(home, '.rigour', 'team-decisions', `${createHash('sha256').update('https://github.com/acme/api').digest('hex')}.json`);
+            fs.mkdirSync(path.dirname(cache), { recursive: true });
+            fs.writeFileSync(cache, JSON.stringify({ version: 1, sharing: { shares: false, reason: 'member' }, mine: {}, decisions: [
+                { id: 'r1', lessonId: 'f1b2c3d4e5f6', kind: 'rejected', name: 'Omar K.', decidedAt: '2026-10-02T00:00:00Z', receivedAt: '2026-10-02T00:00:01Z', detail: 'one-off', points: [] },
+            ] }));
+            const journey = (await loadLearning(repo, now)).lessons.find(l => l.id === 'f1b2c3d4e5f6')!;
+            expect(journey.state).toBe('rejected');
+            expect(journey.team).toEqual({
+                decisions: [{ kind: 'rejected', name: 'Omar K.', at: '2026-10-02T00:00:01Z', detail: 'one-off' }],
+                overruled: { yours: 'accepted', team: { kind: 'rejected', name: 'Omar K.', at: '2026-10-02T00:00:01Z' }, yoursOnly: 'member' },
+            });
+        } finally {
+            if (saved === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = saved;
+            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
         }
     });
 });

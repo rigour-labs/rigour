@@ -12,7 +12,7 @@ export * from './utils/logger.js';
 export { normalizeScopePatterns, isScoped } from './utils/scope.js';
 export { deepAnalysisError } from './utils/deep-status.js';
 export { rigourUserDir, repoStateDir, legacyStateNote } from './utils/user-state.js';
-export { locateTransformers, semanticRuntimeDir, semanticRuntimeInstalled, TRANSFORMERS_SPEC } from './pattern-index/semantic-runtime.js';
+export { locateTransformers, pruneSemanticRuntime, RETIRED_TRANSFORMERS_PACKAGE, retiredSemanticRuntimeInstalled, SEMANTIC_INSTALL_ENV, semanticRuntimeDir, semanticRuntimeInstalled, TRANSFORMERS_SPEC } from './pattern-index/semantic-runtime.js';
 export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, type ReviewFinding } from './review/review.js';
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
 export { isControlFile, mergeBaseOf, readStateFile } from './review/trusted-state.js';
@@ -49,7 +49,7 @@ export { decideCompiledCheck, proposeCompiledChecks, readCompiledChecks, suspens
 export { ruleWriterFor } from './review/reviewer/rule-writer.js';
 export { backtestLast, formatLast, scoreLast, LAST_LEDGER_PATH, type LastReport } from './review/backtest-last.js';
 export { buildRecord, coverageLine, recordLines, recordIntact, type ReviewRecord } from './review/reviewer/record.js';
-export { readLessons, writeLessons, decideLesson, acceptSuggestedText, scopeLesson, lessonState, pendingDecision, quietBotCandidate, matchLessons, lessonText, lessonsPath, type ReviewLesson, type LessonEvidence } from './review-learning/lessons.js';
+export { readLessons, writeLessons, decideLesson, acceptSuggestedText, scopeLesson, lessonState, lastDecision, pendingDecision, quietBotCandidate, matchLessons, lessonText, lessonsPath, type ReviewLesson, type LessonEvidence } from './review-learning/lessons.js';
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
 export { recordAgentWrites, captureHumanEdits } from './review-learning/human-edits.js';
 export { readRepoRules, rulesForDiff, rulesSection, splitRules, type RepoRule } from './review-learning/repo-rules.js';
@@ -184,3 +184,4 @@ export { appendTaskEvent, readThread, taskOf, threadText, threadsDir, THREADS_DI
 export { briefFile, briefingText, briefTask, buildBriefing, buildFileBriefing, fileBriefingText, BRIEFING_MAX_ITEMS, FILE_BRIEFING_MAX_ITEMS, type Briefing, type BriefingInput, type BriefingItem } from './brief/briefing.js';
 export { personOf } from './utils/person.js';
 export { decisionRows } from './storage/team-review-decisions.js';
+export { readTeamDecisionCache, type TeamDecisionCache } from './review-learning/team-decisions.js';

@@ -43,6 +43,10 @@ rule over 400 characters is served as its first sentence and where the whole rul
 and a briefing stops adding items once they reach 3,000 characters together. A rule from a folder's own rules file (`services/billing/AGENTS.md`)
 is briefed only for a task in that folder. When nothing applies, the briefing is empty, never padded.
 
+A lesson is cited by the pull requests it was learned in. With a [team database](./TEAM_DATABASE.md), one a teammate
+approved or rejected also says who, by the display name the team database holds, never a login or an email:
+`(learned in PR #12, approved by Jane D. (team))`; "a teammate" when the administrator set no name.
+
 ## The goal and the files
 
 A briefing is read from the repository's top, wherever in it the agent or the command starts, so a session started in

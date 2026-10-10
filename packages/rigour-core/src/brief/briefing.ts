@@ -9,7 +9,7 @@
 import { spawnSync } from 'child_process';
 import path from 'path';
 import { rulesForDiff, type RepoRule } from '../review-learning/repo-rules.js';
-import type { ReviewLesson } from '../review-learning/lessons.js';
+import { lastDecision, type ReviewLesson } from '../review-learning/lessons.js';
 import { describeLesson, lessonsForDiff, lessonView, rejectedForDiff, type LessonMode } from '../review-learning/team-lessons.js';
 import { appendTaskEvent, taskOf } from '../task/thread.js';
 import { recordLessonsServed } from '../review/learning-events.js';
@@ -67,17 +67,27 @@ export function buildBriefing(cwd: string, input: BriefingInput = {}): Briefing 
     const rules = rulesForDiff(cwd, shape, true, limit, true);
     const lessons = lessonsForDiff(cwd, shape, input.lessons ?? 'verified', 5, limit, 3).filter(l => l.state === 'verified' || input.lessons === 'all');
     const settled = rejectedForDiff(cwd, shape);
-    const cited = (prs: number[]) => (prs.length ? `learned in PR ${prs.map(p => `#${p}`).join(', ')}` : 'the team\'s decision');
     const items: BriefingItem[] = [
         ...rules.filter(r => r.requirement).map(ruleItem),
         ...lessons.map(l => {
             const view = lessonView(l);
-            return { kind: 'lesson' as const, text: describeLesson({ ...view, prs: [] }), cite: cited(view.prs), id: `lesson:${l.id}` };
+            return { kind: 'lesson' as const, text: describeLesson({ ...view, prs: [] }), cite: lessonCite(l), id: `lesson:${l.id}` };
         }),
-        ...settled.map(l => ({ kind: 'settled' as const, text: `settled against, do not do or raise it: ${lessonView(l).text}`, cite: cited(lessonView(l).prs), id: `settled:${l.id}` })),
+        ...settled.map(l => ({ kind: 'settled' as const, text: `settled against, do not do or raise it: ${lessonView(l).text}`, cite: lessonCite(l), id: `settled:${l.id}` })),
         ...rules.filter(r => !r.requirement).map(ruleItem),
     ];
     return { ...(task ? { task: task.key } : {}), goal, files, items: withinBudget(items.slice(0, limit)) };
+}
+
+/**
+ * Where a lesson came from: the pull requests it was learned in, and the teammate who approved or rejected it when a
+ * team decision settled it (the display name the team database holds, never a login or an email).
+ */
+function lessonCite(l: ReviewLesson): string {
+    const prs = lessonView(l).prs;
+    const decision = lastDecision(l);
+    const team = decision?.team ? `${decision.kind === 'rejected' ? 'rejected' : 'approved'} by ${decision.team.name} (team)` : '';
+    return [prs.length ? `learned in PR ${prs.map(p => `#${p}`).join(', ')}` : '', team].filter(Boolean).join(', ') || 'the team\'s decision';
 }
 
 /**
@@ -121,12 +131,11 @@ export function buildFileBriefing(cwd: string, file: string, input: { lessons?: 
     const reaches = (l: ReviewLesson) => l.file === file || l.scope === 'repo' || (l.scope === 'folder' && file.startsWith(`${path.posix.dirname(l.file)}/`));
     const lessons = lessonsForDiff(cwd, shape, mode, 0, BRIEFING_MAX_ITEMS, BRIEFING_MAX_ITEMS).filter(l => reaches(l) && (l.state === 'verified' || mode === 'all'));
     const settled = rejectedForDiff(cwd, shape).filter(l => l.file === file);
-    const cited = (prs: number[]) => (prs.length ? `learned in PR ${prs.map(p => `#${p}`).join(', ')}` : 'the team\'s decision');
     const items: BriefingItem[] = [
         ...rules.map(ruleItem),
         // This file's own lessons read as they are; a widened one says where it reaches (a folder, the team).
-        ...lessons.map(l => ({ kind: 'lesson' as const, text: l.file === file && !l.scope ? lessonView(l).text : describeLesson({ ...lessonView(l), prs: [] }), cite: cited(lessonView(l).prs), id: `lesson:${l.id}` })),
-        ...settled.map(l => ({ kind: 'settled' as const, text: `settled against, do not do or raise it: ${lessonView(l).text}`, cite: cited(lessonView(l).prs), id: `settled:${l.id}` })),
+        ...lessons.map(l => ({ kind: 'lesson' as const, text: l.file === file && !l.scope ? lessonView(l).text : describeLesson({ ...lessonView(l), prs: [] }), cite: lessonCite(l), id: `lesson:${l.id}` })),
+        ...settled.map(l => ({ kind: 'settled' as const, text: `settled against, do not do or raise it: ${lessonView(l).text}`, cite: lessonCite(l), id: `settled:${l.id}` })),
     ];
     return { ...(task ? { task: task.key } : {}), goal: '', files: [file], items: withinBudget(items.slice(0, limit)) };
 }
