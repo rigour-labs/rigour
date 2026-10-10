@@ -8,7 +8,8 @@
  * - contextFindings: deep findings elsewhere in a changed file; returned so
  *   nothing the model found disappears, never blocking.
  * - unlocated: no file at all; counted, never shown as a changed-line finding.
- * - outside: any other finding on an unchanged line; counted.
+ * - outside: any other finding on an unchanged line; counted, and kept in
+ *   outsideFindings so a check whose findings are all here can say so.
  *
  * The CLI, the MCP tool and the GitHub integration all use this, so the same
  * change gets the same verdict everywhere.
@@ -23,29 +24,35 @@ export interface ChangedLineSplit {
     contextFindings: Failure[];
     unlocated: number;
     outside: number;
+    outsideFindings: Failure[];
 }
 
 export function splitByChangedLines(
     failures: Failure[], changedLines: Record<string, Set<number>>, spans: Record<string, LineSpan[]> = {},
     removed: Record<string, RemovedBlock[]> = {},
 ): ChangedLineSplit {
-    const split: ChangedLineSplit = { findings: [], fileFindings: [], contextFindings: [], unlocated: 0, outside: 0 };
+    const split: ChangedLineSplit = { findings: [], fileFindings: [], contextFindings: [], unlocated: 0, outside: 0, outsideFindings: [] };
     for (const failure of failures) {
         const files = failure.files ?? [];
         if (files.length === 0) {
             split.unlocated++;
         } else if (failure.line === undefined) {
             if (files.some(file => changedLines[file])) split.fileFindings.push(failure);
-            else split.outside++;
+            else leftOutside(split, failure);
         } else if (files.some(file => changedLines[file]?.has(failure.line as number) || removedInside(failure, removed[file]))) {
             split.findings.push(failure);
         } else if (failure.provenance === 'deep-analysis') {
             placeDeepFinding(failure, files, changedLines, spans, split);
         } else {
-            split.outside++;
+            leftOutside(split, failure);
         }
     }
     return split;
+}
+
+function leftOutside(split: ChangedLineSplit, failure: Failure): void {
+    split.outside++;
+    split.outsideFindings.push(failure);
 }
 
 function placeDeepFinding(

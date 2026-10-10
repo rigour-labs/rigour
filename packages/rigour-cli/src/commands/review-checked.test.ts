@@ -8,7 +8,7 @@ import { whatWasChecked } from './review-checked.js';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
-const result = { report: { summary: { 'hallucinated-imports': 'PASS', 'unused-exports': 'FAIL', 'ast-analysis': 'PASS' } }, preexistingByCheck: { 'ast-analysis': 2 } } as unknown as ReviewResult;
+const result = { report: { summary: { 'hallucinated-imports': 'PASS', 'unused-exports': 'FAIL', 'ast-analysis': 'PASS' } }, preexistingByCheck: { 'ast-analysis': 2 }, outsideChangeByCheck: { 'structure-check': 1 } } as unknown as ReviewResult;
 
 beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'checked-'));
@@ -39,6 +39,7 @@ describe('what a review checked', () => {
             config: 'defaults',
             checks: { 'hallucinated-imports': 'PASS', 'unused-exports': 'FAIL', 'ast-analysis': 'PASS' },
             preexisting: { 'ast-analysis': 2 }, // a check that passed for this change, and what the base already had
+            outsideChange: { 'structure-check': 1 }, // and what sat only on lines the change did not touch
         });
     });
 
