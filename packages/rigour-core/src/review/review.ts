@@ -137,14 +137,17 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     reviewCheck('unused-exports', 'unused_exports', unusedExportFailures(input.cwd, diff, input.config));
     reviewCheck('orphan-files', 'orphan_files', orphanFileFailures(input.cwd, diff, input.config));
     reviewCheck('compiled-lessons', 'compiled_lessons', compiled.failures);
-    reviewCheck('query-patterns', 'query_patterns', queryPatternFailures(input.cwd, changedLines, input.config));
+    // Checks learned from one team's review history: good lessons, not facts about any repository. Likely, shown, never
+    // a block, unless the team opts in with the check's `block` (then proven).
+    const optIn = (failures: Failure[], block: boolean | undefined): Failure[] => failures.map(f => ({ ...f, certainty: block ? 'proven' : 'likely' }));
+    reviewCheck('query-patterns', 'query_patterns', optIn(queryPatternFailures(input.cwd, changedLines, input.config), input.config.gates.query_patterns?.block));
     reviewCheck('optional-params', 'optional_params', optionalParamFailures(input.cwd, changedLines, input.config));
-    reviewCheck('duplicate-functions', 'duplicate_functions', duplicateFunctionFailures(input.cwd, changedLines, input.config));
-    reviewCheck('change-sweep', 'change_sweep', [
+    reviewCheck('duplicate-functions', 'duplicate_functions', optIn(duplicateFunctionFailures(input.cwd, changedLines, input.config), input.config.gates.duplicate_functions?.block));
+    reviewCheck('change-sweep', 'change_sweep', optIn([
         ...loopCopyFailures(input.cwd, changedLines, input.config),
         ...partialFixFailures(input.cwd, changedLines, input.config),
         ...partialWiringFailures(input.cwd, changedLines, input.config),
-    ]);
+    ], input.config.gates.change_sweep?.block));
     const typed: Redundancy = input.typed ? typedChecks(input.cwd, changedLines, input.config) : { failures: [], hints: [] };
     if (typed.error) report.summary[TYPED_CHECKS] = 'ERROR'; // a check that could not run is a crashed gate, never a pass
     else if (input.typed) reviewCheck('redundancy', 'redundancy', typed.failures);
