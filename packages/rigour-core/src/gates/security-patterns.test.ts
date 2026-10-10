@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SecurityPatternsGate, checkSecurityPatterns } from './security-patterns.js';
+import { FIX_BY_TYPE, FIX_UNKNOWN, VULNERABILITY_PATTERNS } from './security-patterns-data.js';
 import { mustFix } from '../review/quiet.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -335,5 +336,31 @@ describe('SecurityPatternsGate', () => {
             const failures = await gate.run({ cwd: testDir });
             expect(failures).toHaveLength(0);
         });
+    });
+});
+
+describe('what a security finding tells the agent to do', () => {
+    it("gives every pattern type its own fix, never another type's", () => {
+        const types = [...new Set(VULNERABILITY_PATTERNS.map(p => p.type))];
+        for (const type of types) expect(FIX_BY_TYPE[type], type).toBeDefined();
+        expect(new Set(types.map(type => FIX_BY_TYPE[type])).size).toBe(types.length); // no two types share advice
+        expect(FIX_BY_TYPE.hardcoded_secrets).not.toMatch(/parameter/i);
+        expect(FIX_BY_TYPE.sql_injection).toMatch(/query parameters/);
+        expect(FIX_UNKNOWN).not.toMatch(/parameter|escape|environment/i);
+    });
+
+    it('tells a hard-coded key to move to the environment and rotate, and never repeats the key', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'security-hint-'));
+        try {
+            const key = ['AKIA', 'Z9Y8X7W6V5U4T3Q2'].join('');
+            fs.mkdirSync(path.join(dir, 'src'));
+            fs.writeFileSync(path.join(dir, 'src', 'config.ts'), `export const awsKey = "${key}";\n`);
+            const [finding] = await new SecurityPatternsGate({}).run({ cwd: dir, ignore: [] } as any);
+            expect(finding.hint).toMatch(/environment variable or a secrets manager.*Rotate/);
+            expect(finding.hint).not.toMatch(/parameter/i);
+            expect(JSON.stringify(finding)).not.toContain(key);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

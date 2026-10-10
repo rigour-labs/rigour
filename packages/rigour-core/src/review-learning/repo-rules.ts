@@ -16,7 +16,6 @@ import { isSpecific, meaningfulWords } from './lessons.js';
 
 const RULE_FILES = ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md'];
 const RULE_DIRS = ['.cursor/rules'];
-const MAX_RULE_CHARS = 600;
 const MAX_RULES = 5;
 /** A paragraph that continues the rule before it (its reason, how to apply it, an example) rather than a rule of its own. */
 const CONTINUES = /^\**\s*(why|how to apply|example|examples|evidence|exception|exceptions|fix|note)\b\s*:?\**\s*:?/i;
@@ -36,6 +35,8 @@ export interface RepoRule {
     symbols: string[];
     /** Worded as a requirement: a break can block. Guidance otherwise: a break is shown. */
     requirement: boolean;
+    /** The line in its source the rule starts on, for pointing at the full rule. */
+    line?: number;
 }
 
 /** The most rule files read, imports included: a loop or a sprawling import tree stops here. */
@@ -87,36 +88,75 @@ function nestedRuleFiles(cwd: string): string[] {
     return listed.status === 0 ? listed.stdout.split('\0').filter(f => f && !VENDORED.test(f)) : [];
 }
 
-/** One rule per top-level bullet or paragraph; headings and import lines are not rules. */
+/** A top-level list item: a bullet or a numbered item (`1.`, `2)`). Each is a rule of its own. */
+const ITEM = /^(?:[-*]|\d+[.)])\s+/;
+/** A rule is at least this long; a shorter list item is a part of the sentence that introduces its list. */
+const MIN_RULE_CHARS = 40;
+/** A lead-in that asks something of the reader ("must call one of these:") is a rule, not prose. */
+const ASKS = new RegExp(`${REQUIREMENT.source}|\\bshould\\b`, 'i');
+
+/**
+ * One rule per top-level bullet, numbered item or paragraph; headings and import lines are not rules. A paragraph
+ * ending in a colon right before a list introduces it: when the items are too short to be rules alone ("withLock()"),
+ * the lead-in and its items are one rule; when they are rules, the lead-in is a rule of its own only if it asks
+ * something (must, never, should…), and otherwise it is prose ("The rules below:") and not a rule.
+ */
 export function splitRules(source: string, text: string): RepoRule[] {
-    const blocks: string[] = [];
+    const parts: Array<{ text: string; item: boolean; line: number }> = [];
     let current: string[] = [];
+    let start = 0;
+    let item = false;
     const flush = () => {
         const block = current.join(' ').replace(/\s+/g, ' ').trim();
-        if (block.length >= 40) blocks.push(block);
+        if (block) parts.push({ text: block, item, line: start });
         current = [];
     };
-    for (const line of text.split('\n')) {
+    text.split('\n').forEach((line, i) => {
         if (/^\s*$/.test(line) || /^#{1,6}\s/.test(line) || /^@\S+$/.test(line.trim())) {
             flush();
-        } else if (/^[-*]\s/.test(line)) {
+            item = false;
+        } else if (ITEM.test(line)) {
             flush();
-            current.push(line.replace(/^[-*]\s+/, ''));
+            item = true;
+            start = i + 1;
+            current.push(line.replace(ITEM, ''));
         } else {
+            if (!current.length) start = i + 1;
             current.push(line.trim());
         }
-    }
+    });
     flush();
+    const kept: Array<{ text: string; line: number }> = [];
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const leadIn = !part.item && part.text.endsWith(':') && !!parts[i + 1]?.item;
+        if (!leadIn) {
+            if (part.text.length >= MIN_RULE_CHARS) kept.push(part);
+            continue;
+        }
+        let j = i + 1;
+        while (parts[j]?.item) j++;
+        const items = parts.slice(i + 1, j);
+        if (items.every(it => it.text.length < MIN_RULE_CHARS)) {
+            kept.push({ text: `${part.text} ${items.map(it => it.text).join('; ')}`, line: part.line });
+            i = j - 1;
+        } else if (ASKS.test(part.text) && part.text.length >= MIN_RULE_CHARS) {
+            kept.push(part);
+        }
+    }
+    const blocks = kept;
     // A "Why:" or "How to apply:" paragraph belongs to the rule above it: alone it is not checkable.
-    const merged: string[] = [];
+    const merged: Array<{ text: string; line: number }> = [];
     for (const block of blocks) {
-        if (CONTINUES.test(block) && merged.length) merged[merged.length - 1] = `${merged[merged.length - 1]} ${block}`;
+        if (CONTINUES.test(block.text) && merged.length) merged[merged.length - 1] = { ...merged[merged.length - 1], text: `${merged[merged.length - 1].text} ${block.text}` };
         else merged.push(block);
     }
-    return merged.map(block => ({
+    return merged.map(({ text: block, line }) => ({
         id: crypto.createHash('sha256').update(`${source}\u0000${block.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`).digest('hex').slice(0, 10),
         source,
-        text: block.length > MAX_RULE_CHARS ? `${block.slice(0, MAX_RULE_CHARS)}…` : block,
+        // Whole: a rule cut mid-sentence is a garbled instruction. The brief serves an over-long one by its first sentence and line.
+        text: block,
+        line,
         requirement: REQUIREMENT.test(block),
         paths: [...new Set([...block.matchAll(/`([\w@.~-]+\/[\w./@*-]*)`/g)].map(m => m[1].replace(/\*.*$/, '').replace(/^\.\//, '')))].filter(Boolean),
         symbols: [...new Set([...block.matchAll(/`([A-Za-z_$][\w$]*)(?:\(\))?`/g)].map(m => m[1]))].filter(isSpecific),

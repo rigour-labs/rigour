@@ -114,4 +114,17 @@ describe("a file's briefing, on the agent's first edit of it", () => {
         briefFile(repo, 'src/jobs/retry.ts', { session: 's9', agent: 'claude' });
         expect(readThread(repo)!.events[0]).toMatchObject({ kind: 'brief', file: 'src/jobs/retry.ts', session: 's9', items: 3, files: ['src/jobs/retry.ts'] });
     });
+
+    it('serves an over-long rule by its first sentence and where the whole rule is, and keeps the briefing within its budget', () => {
+        const long = `Every job in \`src/jobs/\` must page its reads with a keyset. ${'It reads the last key it saw, never an offset, and stops at the page size it was given. '.repeat(6)}`;
+        write('AGENTS.md', `# Jobs\n\n${long}\n`);
+        const items = buildFileBriefing(repo, 'src/jobs/retry.ts').items.filter(i => i.kind === 'rule');
+        expect(items[0].text).toBe('Every job in `src/jobs/` must page its reads with a keyset. (full rule: AGENTS.md:3)');
+        // Ten rules near the per-item limit pass the briefing's budget: the rest wait for the reviewer.
+        write('AGENTS.md', Array.from({ length: 10 }, (_, i) => `- Rule ${i}: every job in \`src/jobs/\` must ${'check its inputs and its limits before it reads or writes anything '.repeat(5)}`).join('\n'));
+        const briefing = buildBriefing(repo, { files: ['src/jobs/retry.ts'], goal: 'retry' });
+        expect(briefing.items.length).toBeLessThan(10);
+        expect(briefing.items.reduce((n, i) => n + i.text.length + i.cite.length, 0)).toBeLessThanOrEqual(3000);
+    });
 });
+

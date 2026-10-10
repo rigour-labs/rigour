@@ -15,7 +15,7 @@
  */
 import { createHash } from 'crypto';
 import type { Config, Failure } from '../types/index.js';
-import { reviewChange } from '../review/review.js';
+import { reviewChange, type ReviewResult } from '../review/review.js';
 import { buildReviewTask, type ReviewTaskItem } from '../review/review-task.js';
 import { diffFromGit, type DiffSource } from '../review/git-diff.js';
 import { branchBase } from '../gates/logic-drift-git-base.js';
@@ -53,20 +53,38 @@ function stopSource(cwd: string, sessionBaseline?: string): { source: DiffSource
         : { source: { mode: 'working' }, against: 'uncommitted work' };
 }
 
-/** `sessionBaseline`: the commit the session started from, used on main (session-state.ts). */
-export async function stopReview(cwd: string, config: Config, attempt: number, sessionBaseline?: string): Promise<StopDecision> {
+/** The agent's change judged by the rule that holds it: what blocks it, the review behind that, and what it was read against. */
+export interface ChangeReview {
+    result: ReviewResult;
+    /** What stops the agent: findings to fix on the change, branch checks, and checks that could not run. */
+    blocking: Failure[];
+    against: string;
+    diff: string;
+    goalDescription?: string;
+}
+
+/**
+ * The agent's change as the stop hook and the push gate judge it: the branch against main, else the session's start,
+ * else uncommitted work. The fix packet and rigour_check read the same, so the agent is told exactly what holds it.
+ */
+export async function changeReview(cwd: string, config: Config, sessionBaseline?: string): Promise<ChangeReview> {
     const { source, against } = stopSource(cwd, sessionBaseline);
     const diff = diffFromGit(cwd, source);
     const goalDescription = await hookGoalDescription(cwd, config);
     const result = await reviewChange({ cwd, config, diff, source, ...(goalDescription !== undefined ? { goalDescription } : {}) });
-    recordGoal(cwd, 'stop', goalDescription, result);
     const branch = branchBase(cwd);
     const whole = branch && !branch.onMain ? branchFailures(cwd, branch.base, branch.mainRef, config) : [];
     // A check that could not run is never a pass; the attempt cap keeps a broken environment from looping forever.
     const crashed: Failure[] = result.status === 'ERROR'
         ? result.gateErrors.map(id => ({ id, title: 'A check could not run', details: id === 'typed-checks-unavailable' && result.typedError ? result.typedError : `${id} crashed instead of running`, severity: 'high', files: [], hint: 'Fix the environment (dependencies, generated config), then try again.' }))
         : [];
-    const blocking = [...result.findings, ...whole, ...crashed];
+    return { result, blocking: [...result.findings, ...whole, ...crashed], against, diff, ...(goalDescription !== undefined ? { goalDescription } : {}) };
+}
+
+/** `sessionBaseline`: the commit the session started from, used on main (session-state.ts). */
+export async function stopReview(cwd: string, config: Config, attempt: number, sessionBaseline?: string): Promise<StopDecision> {
+    const { result, blocking, against, diff, goalDescription } = await changeReview(cwd, config, sessionBaseline);
+    recordGoal(cwd, 'stop', goalDescription, result);
     const task = buildReviewTask(cwd, diff, config.gates.deep?.router, config.gates.deep?.review_lessons, config.gates.deep?.repo_rules ?? false);
     const unreviewed = config.hooks?.require_review_ack ? task.items : [];
     const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines), against, guidance: teamGuidance(task) };

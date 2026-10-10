@@ -271,8 +271,8 @@ name.
 | Review | `rigour_review` | Review the change before calling it done: uncommitted work, or the whole branch with `base`. Only findings on changed lines, each with file, line and a fix. With `mode: "agent"` it also returns the risky changed functions and what to check in each, for the agent to review with its own model. |
 | Review | `rigour_review_ack` | Record the agent's verdict on one of those functions (`fixed` or `no_issue`, with a note). It holds until the function's code changes. |
 | Review | `rigour_reviewer_verdict` | Read what the model [reviewer](./REVIEWER.md) last decided for the branch: items to fix, disputed items, and whether the verdict is for the current commit. Read-only. |
-| Review | `rigour_check` | Run the quality checks on the project or on given files; returns pass or fail. |
-| Review | `rigour_get_fix_packet` | After a failed `rigour_check`: the violations a page at a time (5 by default, at most 10), with locations and fix instructions. See [Fix packet](./FIX_PACKET.md). |
+| Review | `rigour_check` | By default the agent's change, judged as the stop hook and push gate judge it (fail means something to fix in the change). With `files`: those files. `scope: "repo"`: the whole repository, for an audit. |
+| Review | `rigour_get_fix_packet` | After a failed `rigour_check`: the change's must-fix items, then its notes, a page at a time (5 by default, at most 10), each with `file:line` and the fix. See [Fix packet](./FIX_PACKET.md). |
 | Reuse and context | `rigour_index` | Build or update the pattern index (`.rigour/patterns.json`): functions, classes, routes and signatures, embedded locally so they can be found by intent. |
 | Reuse and context | `rigour_context_scope` | Before reading source files: a small edit scope (3 to 10 files) with signatures, for a plain-language description of the task. |
 | Reuse and context | `rigour_check_pattern` | Before writing a new function, component, hook or class: whether one already exists (by name, intent or signature), and known vulnerabilities. Refuses writes to protected paths such as `.github/` and `rigour.yml`. |
@@ -334,6 +334,9 @@ not seen firing), broken, or missing, with the command that fixes it:
 - the stop hook;
 - the MCP server, found in `.mcp.json`, `~/.claude.json` or `~/.cursor/mcp.json`, or seen through tool
   calls;
+- whether the agent hooks and the MCP server run the Rigour that is installed. Each pins a version, so an upgrade
+  reaches them only when `rigour setup` rewrites the pin; doctor names the pinned and the installed version (fix:
+  `rigour setup`). An MCP entry on a floating major (`@rigour-labs/mcp@6`, written before 6.13.0) is called out too;
 - the pull request workflow;
 - settings an older Rigour wrote that no longer do what they say:
   - a `rigour.yml` made from a preset that blocks on every security finding (healthcare, fintech,

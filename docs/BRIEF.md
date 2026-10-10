@@ -31,7 +31,12 @@ Rigour briefing for PROJ-123: how this team builds the code this task will likel
 3. Points the team settled against, so the agent neither does them nor raises them.
 4. Guidance rules.
 
-At most `brief.max_items` (default and ceiling 10). A rule from a folder's own rules file (`services/billing/AGENTS.md`)
+At most `brief.max_items` (default and ceiling 10). A rules file is read one rule per top-level bullet, numbered
+item or paragraph, never cut mid-sentence. A paragraph that introduces a list ("…must call one of these:") joins its
+items as one rule when they are too short to be rules alone (`withLock()`); before items that are rules, it is a rule
+of its own only if it asks something (must, never, should…), and otherwise it is not a rule ("The rules below:"). A
+rule over 400 characters is served as its first sentence and where the whole rule is (`full rule: AGENTS.md:12`),
+and a briefing stops adding items once they reach 3,000 characters together. A rule from a folder's own rules file (`services/billing/AGENTS.md`)
 is briefed only for a task in that folder. When nothing applies, the briefing is empty, never padded.
 
 ## The goal and the files

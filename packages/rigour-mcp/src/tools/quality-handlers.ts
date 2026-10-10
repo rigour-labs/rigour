@@ -6,15 +6,20 @@
  *
  * @since v2.17.0 — extracted from monolithic index.ts
  */
-import { GateRunner, Report, renderMcpHeadline } from "@rigour-labs/core";
-import type { Config, DeepOptions } from "@rigour-labs/core";
+import { GateRunner, Report, changeReview, renderMcpHeadline } from "@rigour-labs/core";
+import type { ChangeReview, Config, DeepOptions } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
-import { DEFAULT_FIX_PACKET_PAGE_SIZE, MAX_FIX_PACKET_PAGE_SIZE, formatFixPacketPage } from './fix-packet-format.js';
+import { DEFAULT_FIX_PACKET_PAGE_SIZE, FIX_PACKET_INSTRUCTION, MAX_FIX_PACKET_PAGE_SIZE, formatFixPacketPage } from './fix-packet-format.js';
+
+/** The agent's change as the stop hook judges it; a parameter so tests need no repository. */
+export type ReviewChange = (cwd: string, config: Config) => Promise<ChangeReview>;
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean; _rigour_report?: Report };
 type DeepMode = 'off' | 'quick' | 'full';
 
 export interface CheckArgs {
+    /** 'change' (default): the agent's change, by the stop hook's rule. 'repo': every file, for an audit. */
+    scope?: 'change' | 'repo';
     files?: string[];
     deep?: DeepMode;
     pro?: boolean;
@@ -53,10 +58,16 @@ function formatSeverityText(stats: Report['stats']): string {
 
 // ─── Handlers ─────────────────────────────────────────────────────
 
-export async function handleCheck(runner: GateRunner, cwd: string, args: CheckArgs = {}): Promise<ToolResult> {
+/**
+ * rigour_check. By default (scope "change", no files, no model review) it judges the agent's change by the rule the
+ * stop hook and the push gate hold it to, so "FAIL" means the agent has something to fix, never old debt elsewhere.
+ * Named files, a deep review, or scope "repo" (an audit of the whole repository) check those files as they are.
+ */
+export async function handleCheck(runner: GateRunner, cwd: string, args: CheckArgs = {}, config?: Config, review: ReviewChange = changeReview): Promise<ToolResult> {
     const deepMode: DeepMode = args.deep || 'off';
     const fileTargets = args.files && args.files.length > 0 ? args.files : undefined;
     const execution = resolveDeepExecution(args);
+    if (args.scope !== 'repo' && !fileTargets && deepMode === 'off' && config) return checkChange(cwd, config, review);
 
     let deepOpts: DeepOptions | undefined;
     if (deepMode !== 'off') {
@@ -110,6 +121,26 @@ export async function handleCheck(runner: GateRunner, cwd: string, args: CheckAr
     return result;
 }
 
+async function checkChange(cwd: string, config: Config, review: ReviewChange): Promise<ToolResult> {
+    notifyProgress("info", "Checking your change...");
+    const change = await review(cwd, config);
+    const must = change.blocking.length;
+    const notes = change.result.advisory.length + change.result.fileFindings.length;
+    const verdict = must
+        ? `FAIL: ${must} thing${must === 1 ? '' : 's'} to fix in your change (against ${change.against}); they block you at the stop hook and the push gate.`
+        : `PASS: nothing in your change (against ${change.against}) blocks you.`;
+    notifyProgress(must ? "warning" : "info", verdict);
+    const text = [
+        verdict,
+        notes ? `Notes on your change, optional: ${notes}.` : '',
+        must || notes ? `rigour_get_fix_packet lists them, must-fix first. ${FIX_PACKET_INSTRUCTION}` : '',
+        change.result.preexisting ? `Not yours: ${change.result.preexisting} issue(s) the code already had before your change; leave them.` : '',
+    ].filter(Boolean).join('\n');
+    const result: ToolResult = { content: [{ type: 'text', text }] };
+    if (change.result.report) result._rigour_report = change.result.report;
+    return result;
+}
+
 export async function handleExplain(runner: GateRunner, cwd: string): Promise<ToolResult> {
     const report = await runner.run(cwd);
 
@@ -153,11 +184,12 @@ export async function handleStatus(runner: GateRunner, cwd: string): Promise<Too
     };
 }
 
+/** The agent's work order for its change: what blocks it, then the optional notes, by the stop hook's own rule. */
 export async function handleGetFixPacket(
-    runner: GateRunner,
     cwd: string,
     config: Config,
     args: { offset?: number; limit?: number } = {},
+    review: ReviewChange = changeReview,
 ): Promise<ToolResult> {
     const offset = args.offset ?? 0;
     const limit = args.limit ?? DEFAULT_FIX_PACKET_PAGE_SIZE;
@@ -165,25 +197,9 @@ export async function handleGetFixPacket(
         || limit < 1 || limit > MAX_FIX_PACKET_PAGE_SIZE) {
         return { isError: true, content: [{ type: 'text', text: 'offset must be a nonnegative integer and limit must be an integer from 1 to 10.' }] };
     }
-
-    const report = await runner.run(cwd);
-
-    if (report.status === "PASS") {
-        const passScore = report.stats.score !== undefined ? ` Score: ${report.stats.score}/100.` : '';
-        return {
-            content: [{ type: "text", text: `ALL QUALITY GATES PASSED.${passScore} The current state meets the required engineering standards.` }],
-        };
-    }
-
-    notifyProgress("info", `Generating fix packet for ${report.failures.length} violations...`);
-
-    const { FixPacketService } = await import("@rigour-labs/core");
-    const fixPacketService = new FixPacketService();
-    const fixPacket = fixPacketService.generate(report, config);
-
-    return {
-        content: [{ type: "text", text: formatFixPacketPage(fixPacket, report, offset, limit) }],
-    };
+    const change = await review(cwd, config);
+    notifyProgress("info", `Fix packet: ${change.blocking.length} must fix in your change`);
+    return { content: [{ type: "text", text: formatFixPacketPage(change, offset, limit) }] };
 }
 
 export function handleListGates(config: Config): ToolResult {
