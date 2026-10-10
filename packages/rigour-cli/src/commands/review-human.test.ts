@@ -81,6 +81,10 @@ describe('rigour review, as a person reads it', () => {
         expect(text).toContain('Not shown: 15 issues the code already had before this change');
         const byCheck = show(result({ preexisting: 12, excludedOutsideChangedLines: 3, preexistingByCheck: { 'ast-analysis': 11, 'file-size': 1 }, outsideChangeByCheck: { 'file-size': 2, 'style-drift': 1 } }));
         expect(byCheck).toContain('Not shown: 15 issues the code already had before this change: ast-analysis 11, file-size 3, style-drift 1 (review.show_preexisting: true lists them).');
+        // A finding about a changed file as a whole fails its check with no row: the line names the check.
+        const whole = show(result({ fileFindings: [finding(0, { id: 'style-drift', line: undefined }), finding(0, { id: 'AST_COMPLEXITY', line: undefined })] }));
+        expect(whole).toContain('About a changed file as a whole: AST_COMPLEXITY 1, style-drift 1, shown with --notes.');
+        expect(show(result({ fileFindings: [finding(0, { id: 'style-drift', line: undefined })] }), { notes: true })).toContain('About a changed file as a whole: style-drift 1 (listed below).');
         expect(text).not.toContain('export f1');
         expect(show(result({ advisory: [finding(1)] }), { notes: true })).toContain('src/a.ts:1  export f1 is used nowhere');
     });
