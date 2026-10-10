@@ -137,6 +137,71 @@ export const marked = (rows: R[]) => h(rows).filter(r => r.p?.x).length;
         expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual(['A.y']);
     }, 60_000);
 
+    it('follows a Map round trip, an async return and an inline Response.json to the serialiser: every field of the carried type is a hint', async () => {
+        // The field shape: A is written into a Map, read back as A | undefined, spread into R (whose p is a same-shape
+        // inline type, declared in another module), returned from an async function, and serialised inline.
+        write('tsconfig.json', '{"compilerOptions":{"strict":true,"module":"esnext","target":"es2022","lib":["es2022","dom"],"moduleResolution":"bundler","skipLibCheck":true},"include":["src"]}\n');
+        write('src/contracts.ts', 'export interface R { id: string; label: string; p?: { x: string; y: number } }\n');
+        write('src/lookup.ts', `import type { R } from './contracts';
+export interface A { x: string; y: number }
+function f(e: number): string { return String(e); }
+function g(ids: string[]): Map<string, A> {
+    const m = new Map<string, A>();
+    ids.forEach((id, e) => { m.set(id, { x: f(e), y: e }); });
+    return m;
+}
+export async function h(rows: R[], onErr = (_e: unknown) => {}): Promise<R[]> {
+    let m = new Map<string, A>();
+    try { m = g(rows.map(r => r.id)); } catch (e) { onErr(e); }
+    return rows.map(r => { const id = r.id; const a = id ? m.get(id) : undefined; return a ? { ...r, p: a } : r; });
+}
+`);
+        write('src/handlers.ts', `import { h } from './lookup';
+import type { R } from './contracts';
+const init = { status: 200 };
+export async function list(rows: R[]): Promise<Response> {
+    const results = await h(rows);
+    return Response.json({ ok: true, count: results.length, results }, init);
+}
+export async function one(row: R): Promise<Response> {
+    const [result] = await h([row]);
+    return Response.json({ ok: true, label: row.label, result }, init);
+}
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'the field shape');
+        const result = await review();
+        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual([]);
+        const hints = result.hints.filter(h => h.startsWith('write-only-property src/lookup.ts'));
+        expect(hints).toEqual([expect.stringContaining('A.x is set by 1 host(s)'), expect.stringContaining('A.y is set by 1 host(s)')]);
+        expect(hints[0]).toMatch(/Response\.json\(\) at src\/handlers\.ts:\d+, carried as R/);
+    }, 60_000);
+
+    it('still blocks the fields in the same shape when the handlers only count the rows and nothing is serialised', async () => {
+        write('tsconfig.json', '{"compilerOptions":{"strict":true,"module":"esnext","target":"es2022","lib":["es2022","dom"],"moduleResolution":"bundler","skipLibCheck":true},"include":["src"]}\n');
+        write('src/contracts.ts', 'export interface R { id: string; label: string; p?: { x: string; y: number } }\n');
+        write('src/lookup.ts', `import type { R } from './contracts';
+export interface A { x: string; y: number }
+function g(ids: string[]): Map<string, A> {
+    const m = new Map<string, A>();
+    ids.forEach((id, e) => { m.set(id, { x: String(e), y: e }); });
+    return m;
+}
+export async function h(rows: R[]): Promise<R[]> {
+    const m = g(rows.map(r => r.id));
+    return rows.map(r => { const a = m.get(r.id); return a ? { ...r, p: a } : r; });
+}
+`);
+        write('src/handlers.ts', `import { h } from './lookup';
+import type { R } from './contracts';
+export async function count(rows: R[]): Promise<number> { return (await h(rows)).filter(r => r.label).length; }
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'the field shape, never serialised');
+        const result = await review();
+        expect(result.findings.filter(f => f.id === 'write-only-property').map(f => f.details.match(/`([^`]+)`/)![1])).toEqual(expect.arrayContaining(['A.x', 'A.y']));
+    }, 60_000);
+
     it('still blocks a field of a value carried as another type when that type never leaves the program', async () => {
         write('src/types.ts', 'export interface A { x: string; y: string }\n');
         write('src/rows.ts', 'export interface R { id: string; p?: { x: string; y: string } }\n');
