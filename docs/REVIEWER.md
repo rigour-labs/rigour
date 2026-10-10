@@ -405,7 +405,9 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
   change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
-- **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email;
+- **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email. Every decision (promote,
+  reject, dismiss, scope, rewording, a compiled check), in the CLI or Studio, is refused when no git email is set in the
+  checkout: a decision recorded as nobody would never reach the team (see [the team database](TEAM_DATABASE.md));
 - **recurrence**, weak alone: the same point raised by people (review bots never count) on two or more pull
   requests by different authors, and raised by two or more different reviewers, or by one reviewer on three or
   more pull requests at least seven days apart (by when each point was posted). A lesson an earlier version
@@ -473,7 +475,7 @@ briefing, the briefing on a file's first edit and the judge's context. Up to ten
 served, the most-raised first. `--to folder` reaches every change in the lesson's folder; `--to file`
 takes it back to its own file. Studio's lesson card does the same (**Make team standard**, **Folder only**,
 **This file only**) and shows how far each lesson reaches. Each is recorded with your git email and `--why`
-(refused in Studio without one); a scope says how far a
+(refused without one); a scope says how far a
 lesson reaches, never whether it is right, so only a lesson (not a candidate) is served. `--list` shows
 each scope.
 
