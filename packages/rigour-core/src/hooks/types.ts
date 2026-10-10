@@ -17,5 +17,7 @@ export interface HookCheckerResult {
         severity: string;
         line?: number;
     }>;
+    /** Findings the file already had before this change (at HEAD): shown, never blocking. */
+    notes?: HookCheckerResult['failures'];
     duration_ms: number;
 }

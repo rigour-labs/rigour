@@ -8,6 +8,7 @@
  *
  */
 
+import { spawnSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
@@ -78,13 +79,20 @@ async function resolveFile(filePath: string, cwd: string): Promise<{ absPath: st
  */
 async function checkFile(content: string, relPath: string, cwd: string, config: Config): Promise<FailureEntry[]> {
     const failures: FailureEntry[] = [];
-    const lines = content.split('\n');
 
     // Gate 0a: Protected paths — BLOCK writes to .github/, rigour.yml, etc.
     checkProtectedPaths(relPath, config, failures);
 
     // Gate 0b: Memory & Skills Governance — block writes to agent-native memory paths
     checkGovernance(content, relPath, config, failures);
+
+    return [...failures, ...await checkContent(content, relPath, cwd, config)];
+}
+
+/** The gates that judge what the file holds rather than the write itself: run on the file before the change too. */
+async function checkContent(content: string, relPath: string, cwd: string, config: Config): Promise<FailureEntry[]> {
+    const failures: FailureEntry[] = [];
+    const lines = content.split('\n');
 
     // Gate 1: File size
     const maxLines = config.gates.max_file_lines ?? 500;
@@ -123,6 +131,7 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
     const start = Date.now();
     const { cwd, files, timeout_ms = 5000, agentId } = options;
     const failures: FailureEntry[] = [];
+    const notes: FailureEntry[] = [];
     let timedOut = false;
 
     try {
@@ -168,7 +177,12 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
             }
 
             const fileFailures = await checkFile(resolved.content, resolved.relPath, cwd, config);
-            failures.push(...fileFailures);
+            const before = committedContent(cwd, resolved.relPath);
+            const split = before === undefined
+                ? { blocks: fileFailures, notes: [] }
+                : splitIntroduced(fileFailures, await checkContent(before, resolved.relPath, cwd, config), resolved.content, before, config);
+            failures.push(...split.blocks);
+            notes.push(...split.notes);
         }
 
         if (timedOut) {
@@ -183,6 +197,7 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
         return {
             status: failures.length > 0 ? 'fail' : 'pass',
             failures,
+            ...(notes.length ? { notes } : {}),
             duration_ms: Date.now() - start,
         };
 
@@ -199,6 +214,40 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
             duration_ms: Date.now() - start,
         };
     }
+}
+
+/** The file as last committed (HEAD), or undefined when it is new, outside git, or git cannot say: then every finding is the change's. */
+function committedContent(cwd: string, relPath: string): string | undefined {
+    const result = spawnSync('git', ['show', `HEAD:./${relPath.split(path.sep).join('/')}`], { cwd, encoding: 'utf8', timeout: 2000, maxBuffer: 32 * 1024 * 1024 });
+    return result.status === 0 ? result.stdout : undefined;
+}
+
+/**
+ * What this change did to the file, against what it already had at HEAD. A finding the file already had (the same
+ * check and message, as many times as before) is a note, never a block. A file-size finding blocks only when the
+ * change crosses the limit; growing a file already over it is a note, and shrinking one is no finding at all.
+ */
+function splitIntroduced(after: FailureEntry[], before: FailureEntry[], afterContent: string, beforeContent: string, config: Config): { blocks: FailureEntry[]; notes: FailureEntry[] } {
+    const key = (f: FailureEntry) => (f.gate === 'file-size' ? f.gate : `${f.gate}\u0000${f.message}`);
+    const already = new Map<string, number>();
+    for (const f of before) already.set(key(f), (already.get(key(f)) ?? 0) + 1);
+    const blocks: FailureEntry[] = [];
+    const notes: FailureEntry[] = [];
+    for (const f of after) {
+        const left = already.get(key(f)) ?? 0;
+        if (left === 0) {
+            blocks.push(f);
+            continue;
+        }
+        already.set(key(f), left - 1);
+        if (f.gate !== 'file-size') {
+            notes.push(f);
+            continue;
+        }
+        const [was, now] = [beforeContent.split('\n').length, afterContent.split('\n').length];
+        if (now > was) notes.push({ ...f, message: `File grew from ${was} to ${now} lines (max: ${config.gates.max_file_lines ?? 500}); it was over the limit before this change` });
+    }
+    return { blocks, notes };
 }
 
 /**

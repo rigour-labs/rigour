@@ -95,7 +95,7 @@ Repository-wide checks for file length, placeholder comments and required docume
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `max_file_lines` | number | `500` | Maximum number of lines a file may have before it is reported as too long; the same limit is checked on every edit, and 0 turns the full-repository check off. |
+| `max_file_lines` | number | `500` | Maximum number of lines a file may have before it is reported as too long; on every edit it blocks only an edit that takes a file over it (growing a file already over is a note), and 0 turns the full-repository check off. |
 | `forbid_todos` | boolean | `true` | When on, comments that start with TODO are reported, outside test files and examples. |
 | `forbid_fixme` | boolean | `true` | When on, comments that start with FIXME are reported, outside test files and examples. |
 | `required_files` | list of string | see below | Files, relative to the repository root, that must exist; each one missing is reported, and an empty list turns the check off. |
