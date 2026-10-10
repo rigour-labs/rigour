@@ -391,3 +391,21 @@ describe('a teammate\'s decision, on the learning page', () => {
         expect(out).toContain('Omar K. (team) rejected it on 2026-10-09: one-off for that endpoint');
     });
 });
+
+describe('a fresh review candidate, on the learning page', () => {
+    it('offers Promote and Drop, and each is a review decision', () => {
+        const decided: string[] = [];
+        const lesson = { id: 'c1b2c3d4e5f6', text: 'filter in the query', origin: 'pr', learnedFrom: 'At PR #7, from r', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true } as any;
+        const out = html(<LessonCard lesson={lesson} onDecide={() => decided.push('memory')} onDecideReview={(_id, d) => decided.push(d)} />);
+        expect(out).toContain('From review, not confirmed yet.');
+        expect(out).toContain('>Promote</button>');
+        expect(out).toContain('>Drop</button>');
+        expect(out).not.toContain('Keep');
+        const card = LessonCard({ lesson, onDecide: () => decided.push('memory'), onDecideReview: (_id: string, d: string) => decided.push(d) } as any) as any;
+        const buttons: any[] = [];
+        const walk = (node: any) => { if (!node || typeof node !== 'object') return; if (Array.isArray(node)) return node.forEach(walk); if (node.type === 'button') buttons.push(node); walk(node.props?.children); };
+        walk(card);
+        buttons.filter(b => b.props.children === 'Promote' || b.props.children === 'Drop').forEach(b => b.props.onClick());
+        expect(decided).toEqual(['accepted', 'rejected']);
+    });
+});

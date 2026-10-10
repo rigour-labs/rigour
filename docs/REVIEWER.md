@@ -413,7 +413,8 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
   change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
-- **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email. Every decision (promote,
+- **a person's decision**: `--promote <id>` (with `--why`), or **Promote** on the candidate's card in Studio's **How it
+  learns** (**Drop** rejects it), recorded with their git email. Every decision (promote,
   reject, dismiss, scope, rewording, a compiled check), in the CLI or Studio, is refused when no git email is set in the
   checkout: a decision recorded as nobody would never reach the team (see [the team database](TEAM_DATABASE.md));
 - **recurrence**, weak alone: the same point raised by people (review bots never count) on two or more pull

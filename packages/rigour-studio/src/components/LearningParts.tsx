@@ -130,7 +130,14 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
                 </div>
             </div>
         )}
-        {lesson.canDecide && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
+        {lesson.canDecide && lesson.origin === 'pr' && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
+            <div className="st-row" style={{ marginTop: 14 }}>
+                <span className="st-sub">From review, not confirmed yet. Is this how your team works, so agents get told?</span>
+                <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
+                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'rejected')} type="button">Drop</button>
+            </div>
+        )}
+        {lesson.canDecide && lesson.origin !== 'pr' && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
             <div className="st-row" style={{ marginTop: 14 }}>
                 <span className="st-sub">{lesson.scope === 'team' ? 'Shared by a teammate. Give it to everyone\'s agents?' : 'Seen once. Keep it so your agents get told?'}</span>
                 <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>
