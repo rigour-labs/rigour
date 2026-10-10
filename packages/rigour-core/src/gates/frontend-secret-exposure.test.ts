@@ -42,6 +42,14 @@ describe('FrontendSecretExposureGate', () => {
             expect(mustFix(at('src/lib/shared.ts')!)).toBe(false);
         });
 
+        it('never fires on a provider\'s documented example or placeholder key in client code', async () => {
+            put('src/components/Aws.tsx', `export const id = '${'AKIA' + 'IOSFODNN7' + 'EXAMPLE'}';\n`);
+            put('src/components/StripeX.tsx', `export const key = '${'sk_' + 'live_' + 'x'.repeat(24)}';\n`);
+            put('src/components/StripeYour.tsx', `export const key = '${'sk_' + 'live_' + 'yourSecretKeyGoesHere1234'}';\n`);
+            const at = await byFile();
+            for (const file of ['src/components/Aws.tsx', 'src/components/StripeX.tsx', 'src/components/StripeYour.tsx']) expect(at(file), file).toBeUndefined();
+        });
+
         it('blocks a secret-named variable in client code when the team set security.block', async () => {
             put('src/components/Checkout.tsx', 'export const key = process.env.STRIPE_SECRET_KEY;\n');
             const at = await byFile(true);

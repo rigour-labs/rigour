@@ -16,6 +16,7 @@
  */
 
 import { Gate, GateContext } from './base.js';
+import { isDocumentedExampleKey } from './security-patterns.js';
 import { Failure, Provenance } from '../types/index.js';
 import { FileScanner } from '../utils/scanner.js';
 import { Logger } from '../utils/logger.js';
@@ -250,7 +251,7 @@ export class FrontendSecretExposureGate extends Gate {
                 let m: RegExpExecArray | null;
                 while ((m = pattern.regex.exec(line)) !== null) {
                     // Skip dummy/placeholder values and test-mode keys
-                    if (this.isDummyValue(m[0])) continue;
+                    if (this.isDummyValue(m[0]) || isDocumentedExampleKey(m[0])) continue;
                     if (/(?:sk_test_|pk_test_|_test_|_sandbox_)/i.test(m[0])) continue;
 
                     out.push({
