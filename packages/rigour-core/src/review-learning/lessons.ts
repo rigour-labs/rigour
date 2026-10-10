@@ -17,7 +17,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
 import { bodyPoints, withoutEmphasis } from './review-points.js';
-import { asksSomething, bodyPointPlaces, notARequest, type NotRequestReason } from './requests.js';
+import { asksSomething, bodyPointPlaces, describesChange, notARequest, type NotRequestReason } from './requests.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
 const MAX_TEXT = 220;
@@ -229,9 +229,12 @@ export function lessonsFromReview(review: ReviewBody, changedAfter: string[], at
         const text = pointText(withoutEmphasis(point)).slice(0, MAX_TEXT).trim();
         if (text.length < 12) return [];
         // The point's own shape first (a tool's status line is that wherever it sits); then its place: a tool's help
-        // block is never review, and a change summary's bullet is a description unless it asks for something.
+        // block is never review, and a change summary's bullet is a description unless it asks for something. A
+        // person's "## Summary" often lists defects as plain statements, so there the bullet must also read as a
+        // description; in a bot's body the place is enough.
         const own = notARequest(point, 'body');
-        const placed = places[i] === 'review tool status' || (places[i] && !asksSomething(point)) ? places[i] : undefined;
+        const summarised = places[i] === 'describes the change' && !asksSomething(point) && (review.source === 'bot' || describesChange(point));
+        const placed = places[i] === 'review tool status' || summarised ? places[i] : undefined;
         const skip = own === 'review tool status' ? own : placed ?? own;
         if (skip) {
             onSkip?.(skip);

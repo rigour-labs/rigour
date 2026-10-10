@@ -42,10 +42,10 @@ describe('a review point that asks for nothing', () => {
 
 
 describe('a review body read by its structure', () => {
-    const review = (body: string) => ({ id: '9', prNumber: 3, commit: 'c', body, author: 'review-helper[bot]', source: 'bot' as const, prAuthor: 'dev' });
-    const learn = (body: string) => {
+    const review = (body: string, source: 'bot' | 'person') => ({ id: '9', prNumber: 3, commit: 'c', body, author: source === 'bot' ? 'review-helper[bot]' : 'lead', source, prAuthor: 'dev' });
+    const learn = (body: string, source: 'bot' | 'person' = 'bot') => {
         const skipped: string[] = [];
-        const kept = lessonsFromReview(review(body), [], undefined, why => skipped.push(why)).map(l => l.text);
+        const kept = lessonsFromReview(review(body, source), [], undefined, why => skipped.push(why)).map(l => l.text);
         return { kept, skipped };
     };
 
@@ -68,4 +68,12 @@ describe('a review body read by its structure', () => {
         expect(kept).toEqual(['Please add a test for the empty list.']);
         expect(skipped).toEqual(['describes the change']);
     });
+
+    it('keeps a defect stated plainly under a person\'s Summary heading, and skips it in a bot\'s', () => {
+        // No ask word in it ("never" would be one, and is kept anywhere).
+        const body = '## Summary\n- The retry loop exits on a 500 without logging the body.\n- Splits the parser into two files.';
+        expect(learn(body, 'person')).toEqual({ kept: ['The retry loop exits on a 500 without logging the body.'], skipped: ['describes the change'] });
+        expect(learn(body, 'bot')).toEqual({ kept: [], skipped: ['describes the change', 'describes the change'] });
+    });
 });
+

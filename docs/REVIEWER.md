@@ -413,8 +413,9 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   status report ("all tests passing"). It is skipped only when it carries no sign of a request (an instruction,
   a modal, a question, a "but"); when unsure it is kept. In a review body, structure counts too: the list under a
   change-summary heading ("Changes", "What changed", "Summary", "Overview") describes the change, whatever its
-  verbs, unless a bullet asks for something; a collapsed block about the tool itself ("About…", "How to…") is the
-  tool's own help. `rigour learn-reviews` counts them: "N skipped: not a
+  verbs, unless a bullet asks for something; in a person's review, where a "Summary" often lists defects as plain
+  statements, a bullet there is skipped only if it also reads as a description ("Splits the parser…"). A collapsed
+  block about the tool itself ("About…", "How to…") is the tool's own help. `rigour learn-reviews` counts them: "N skipped: not a
   request", by why.
 
 A candidate only review bots raised is never served, not even with `gates.deep.review_lessons: all`; it

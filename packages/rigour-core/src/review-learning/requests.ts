@@ -45,6 +45,11 @@ function plain(text: string): string {
 /** Where a point was made: a comment on lines of code, or a review body (where a tool or the author summarises). */
 export type PointPlace = 'inline' | 'body';
 
+/** Whether a point reads as a description of the change: a third-person verb first ("Adds…", "Splits…"). */
+export function describesChange(point: string): boolean {
+    return DESCRIBES.test(plain(point));
+}
+
 /** Whether a point carries a sign of a request: an instruction, a modal, a question, a contrast. */
 export function asksSomething(point: string): boolean {
     return ASKS.test(plain(point));
@@ -58,7 +63,7 @@ export function notARequest(point: string, place: PointPlace): NotRequestReason 
     if (asksSomething(text)) return undefined;
     if (STATUS.test(text)) return 'status report';
     if (PRAISE.test(text)) return 'praise or thanks';
-    if (place === 'body' && DESCRIBES.test(text)) return 'describes the change';
+    if (place === 'body' && describesChange(text)) return 'describes the change';
     return undefined;
 }
 
