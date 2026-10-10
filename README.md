@@ -144,7 +144,7 @@ Rigour is free. With an agent you need nothing else: the checks run locally, and
 | If you want to… | Read |
 | --- | --- |
 | Install and run Rigour step by step | [Get started](docs/QUICK_START.md) |
-| See what changed in this release, and how to upgrade | [Release notes](docs/releases/6.8.0.md) |
+| See what changed in this release, and how to upgrade | [Release notes](docs/releases/6.13.0.md) |
 | Know what to do with a finding while you work | [During development](docs/DEVELOPMENT.md) |
 | Set it up for a whole team | [Team setup](docs/TEAM_SETUP.md) |
 | Review every pull request in CI | [Pull requests and CI](docs/CI.md) |
