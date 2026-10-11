@@ -4,7 +4,7 @@
  */
 
 /** The indent a JSON file uses: from its first indented line; 2 spaces when it has none or there is no file yet. */
-export function jsonIndent(existing?: string): string | number {
+function jsonIndent(existing?: string): string | number {
     return existing?.match(/\n([ \t]+)\S/)?.[1] ?? 2;
 }
 
