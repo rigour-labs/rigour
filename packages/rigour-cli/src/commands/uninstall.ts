@@ -17,11 +17,10 @@
  * `--dry-run` says what would happen and changes nothing.
  */
 import chalk from 'chalk';
-import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { jsonText } from './json-file.js';
-import { APPENDED_COMMENT } from './hooks-git.js';
+import { APPENDED_COMMENT, pushHookTarget } from './hooks-git.js';
 import { disableHere, enabledHere, uninstallMachine } from './personal.js';
 import { setReportOnlyHere } from './report-only.js';
 import { isEmptyConfig, isRigourScript, readInstallRecord, unchangedSinceInstall, withoutRigour } from './install-record.js';
@@ -101,23 +100,13 @@ export function uninstall(cwd: string, options: UninstallOptions = {}): Uninstal
 }
 
 function gitHook(cwd: string, act: (change: string, run: () => void) => void, report: UninstallReport): void {
-    const hooksDir = git(cwd, ['rev-parse', '--git-path', 'hooks']);
-    const top = git(cwd, ['rev-parse', '--show-toplevel']);
-    const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
-    if (!hooksDir || !top || !common) return;
-    const file = path.resolve(cwd, hooksDir, 'pre-push');
-    if (!fs.existsSync(file)) return;
+    // Where the gate was put (hooks-git.ts): git's hook, or the tracked script a tool such as husky runs.
+    const target = pushHookTarget(cwd);
+    if (!target || !fs.existsSync(target.file)) return;
+    const file = target.file;
     const text = fs.readFileSync(file, 'utf8');
     if (!/hooks push --git/.test(text)) return;
-    const real = (p: string) => {
-        try {
-            return fs.realpathSync.native(p);
-        } catch {
-            return p;
-        }
-    };
-    const home = real(path.dirname(file));
-    if (![top, common].some(dir => home === real(dir) || home.startsWith(`${real(dir)}${path.sep}`))) {
+    if (target.managed === 'outside') {
         report.kept.push(`${file}: managed outside this repository; remove its Rigour line yourself`);
         return;
     }
@@ -161,10 +150,6 @@ function removeEmptyDirs(cwd: string, changes: string[]): void {
     }
 }
 
-function git(cwd: string, args: string[]): string | undefined {
-    const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
-    return result.status === 0 ? result.stdout.trim() : undefined;
-}
 
 export function uninstallCommand(cwd: string, options: UninstallOptions): number {
     const report = uninstall(cwd, options);

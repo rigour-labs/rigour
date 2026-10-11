@@ -18,42 +18,90 @@ import { pushGate } from './hooks-push.js';
 
 const MARK = 'rigour hooks push --git';
 
-export interface GitHookInstall { path: string; action: 'installed' | 'appended' | 'present' | 'no repository' | 'managed elsewhere' }
+/**
+ * `add line`: Rigour leaves the file as it is and the person adds the line (`pushGateLine`): a tool manages it, or its
+ * script hands over with `exec`, so a line appended after it would never run.
+ */
+export interface GitHookInstall { path: string; action: 'installed' | 'appended' | 'present' | 'no repository' | 'managed elsewhere' | 'add line'; reason?: string }
 
 /**
- * Writes (or completes) the pre-push hook where this repository's git looks for it. A hooks
- * directory outside the repository (a machine-wide `core.hooksPath`) belongs to whoever set it:
- * Rigour names it and leaves it alone. So does a personal install (`workingTree: false`) whose hooks
- * live in the working tree (Husky's `.husky/`): those files are committed, and personal means
- * nothing in the working tree.
+ * Where this repository's push gate belongs, and who else manages it:
+ * - git's own hooks directory (`.git/hooks`): `file` is the hook itself;
+ * - a hooks directory in the working tree (`core.hooksPath`, as husky sets it): `file` is the tracked script git runs,
+ *   never a generated one. Husky 9 points git at `.husky/_`, generated stubs that run the tracked `.husky/pre-push`, and
+ *   rewrites them on every install: that script is the one to complete;
+ * - a hooks directory outside the repository (a machine-wide `core.hooksPath`): someone else's.
  */
-export function installGitPushHook(cwd: string, rigourCommand: string, options: { workingTree?: boolean } = {}): GitHookInstall {
+export interface PushHookTarget { file: string; managed?: 'husky' | 'working tree' | 'outside' }
+
+export function pushHookTarget(cwd: string): PushHookTarget | undefined {
     const hooksDir = gitOutput(cwd, ['rev-parse', '--git-path', 'hooks']);
     const top = gitOutput(cwd, ['rev-parse', '--show-toplevel']);
     const gitDir = gitOutput(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
-    if (!hooksDir || !top || !gitDir) return { path: '', action: 'no repository' };
-    const file = path.resolve(cwd, hooksDir, 'pre-push');
-    // Compared as real paths: a temp directory and git's view of it can spell the same place differently.
-    const real = (p: string) => {
+    if (!hooksDir || !top || !gitDir) return undefined;
+    const dir = path.resolve(cwd, hooksDir);
+    // Compared as real paths: a temp directory and git's view of it can spell the same place differently. A folder not
+    // made yet (husky's `_` in a fresh worktree) is its nearest existing parent's real path plus the rest.
+    const real = (p: string): string => {
         try {
             return fs.realpathSync.native(p);
         } catch {
-            return p;
+            const parent = path.dirname(p);
+            return parent === p ? p : path.join(real(parent), path.basename(p));
         }
     };
-    const home = real(path.dirname(file));
-    const inside = (dir: string) => home === real(dir) || home.startsWith(`${real(dir)}${path.sep}`);
-    if (!inside(gitDir) && (!inside(top) || options.workingTree === false)) return { path: file, action: 'managed elsewhere' };
-    const line = `${rigourCommand} ${MARK.replace('rigour ', '')} "$@"`;
-    if (fs.existsSync(file)) {
-        const text = fs.readFileSync(file, 'utf8');
-        if (text.includes(MARK.replace('rigour ', ''))) return { path: file, action: 'present' };
-        fs.appendFileSync(file, `${text.endsWith('\n') ? '' : '\n'}\n${APPENDED_COMMENT}\n${line} || exit $?\n`);
+    const inside = (parent: string) => real(dir) === real(parent) || real(dir).startsWith(`${real(parent)}${path.sep}`);
+    if (inside(gitDir)) return { file: path.join(dir, 'pre-push') };
+    if (!inside(top)) return { file: path.join(dir, 'pre-push'), managed: 'outside' };
+    if (path.basename(dir) === '_') return { file: path.join(path.dirname(dir), 'pre-push'), managed: 'husky' }; // husky 9
+    const husky = fs.existsSync(path.join(dir, '_', 'husky.sh')) || path.basename(dir) === '.husky'; // husky 4-8: scripts tracked here
+    return { file: path.join(dir, 'pre-push'), managed: husky ? 'husky' : 'working tree' };
+}
+
+/** The line that runs the push gate from another tool's pre-push script. */
+export function pushGateLine(rigourCommand: string): string {
+    return `${rigourCommand} ${MARK.replace('rigour ', '')} "$@" || exit $?`;
+}
+
+/** Whether a line appended to this script would run: not after a top-level `exec`, which hands the process over. */
+function appendRuns(script: string): boolean {
+    return !script.split('\n').some(line => /^exec\s/.test(line.trim()));
+}
+
+/**
+ * Writes (or completes) the pre-push hook git runs. Another tool's hook is never replaced: a script Rigour can safely
+ * extend gets one line; otherwise the person is given the line to add. A hooks directory outside the repository, and a
+ * tool-managed one in a personal install (nothing in the working tree), are left alone and named.
+ */
+export function installGitPushHook(cwd: string, rigourCommand: string, options: { workingTree?: boolean } = {}): GitHookInstall {
+    const target = pushHookTarget(cwd);
+    if (!target) return { path: '', action: 'no repository' };
+    const file = target.file;
+    if (target.managed === 'outside') return { path: file, action: 'managed elsewhere' };
+    const exists = fs.existsSync(file);
+    const text = exists ? fs.readFileSync(file, 'utf8') : '';
+    if (text.includes(MARK.replace('rigour ', ''))) return { path: file, action: 'present' };
+    if (target.managed) {
+        // The tracked script: a team install completes it (and commits it); a personal one touches nothing in the tree.
+        if (options.workingTree === false) return { path: file, action: 'add line', reason: `${target.managed === 'husky' ? 'husky' : 'core.hooksPath'} runs it from the working tree, and a personal install writes nothing there` };
+        if (!exists && target.managed !== 'husky') return { path: file, action: 'add line', reason: 'core.hooksPath points into the working tree, and the script there is the team\'s to create' };
+    }
+    if (exists) {
+        if (!appendRuns(text)) return { path: file, action: 'add line', reason: 'it hands over with exec, so a line after it would never run' };
+        fs.appendFileSync(file, `${text.endsWith('\n') ? '' : '\n'}\n${APPENDED_COMMENT}\n${pushGateLine(rigourCommand)}\n`);
         return { path: file, action: 'appended' };
     }
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, gitHookScript(line), { mode: 0o755 });
+    fs.writeFileSync(file, gitHookScript(`${rigourCommand} ${MARK.replace('rigour ', '')} "$@"`), { mode: 0o755 });
     return { path: file, action: 'installed' };
+}
+
+/** What setup and `hooks init` say about the push gate: done, or the line the person adds and why. */
+export function describePushGate(result: GitHookInstall, rigourCommand: string): { ok: boolean; text: string } | undefined {
+    if (result.action === 'no repository') return undefined;
+    if (result.action === 'managed elsewhere') return { ok: false, text: `Git pre-push hooks are managed outside this repository (${result.path}); Rigour leaves that file alone. To gate every push there, add: ${pushGateLine(rigourCommand)}` };
+    if (result.action === 'add line') return { ok: false, text: `Rigour leaves ${result.path} as it is (${result.reason}). To gate every push, add this line to it: ${pushGateLine(rigourCommand)}` };
+    return { ok: true, text: `Push gate: git's pre-push hook (${result.action}, ${result.path})` };
 }
 
 /** The whole pre-push hook Rigour writes when the repository has none. */

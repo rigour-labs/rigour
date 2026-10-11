@@ -398,7 +398,20 @@ export function mcpPackageSpec(cliVersion: string): string {
 /** Whether an existing `rigour` server entry stays as it is: the same as the one to write, or one the person changed. */
 function keepMcpEntry(current: unknown, wanted: { command: string; args: string[] }, force?: boolean): boolean {
     if (!current || force) return false;
-    return JSON.stringify(current) === JSON.stringify(wanted) || !isRigourMcpEntry(current);
+    const entry = current as { command?: unknown; args?: unknown };
+    const pinned = entry.command === wanted.command && JSON.stringify(entry.args) === JSON.stringify(wanted.args);
+    return pinned || !isRigourMcpEntry(current);
+}
+
+/**
+ * Rigour's server entry, pinned to this version: only `command` and `args` are Rigour's to set. Every other key the
+ * team put on the entry (its `env`: a working folder, the tool groups it uses, a telemetry choice) is kept, as hooks are.
+ */
+function pinnedMcpEntry(current: unknown, wanted: { command: string; args: string[] }): { entry: Record<string, unknown>; kept: boolean } {
+    const others = current && typeof current === 'object' ? { ...(current as Record<string, unknown>) } : {};
+    delete others.command;
+    delete others.args;
+    return { entry: { ...others, command: wanted.command, args: wanted.args }, kept: Object.keys(others).length > 0 };
 }
 
 /** `rigour setup` on a repository that already has rigour.yml: the MCP server for its agents, written or re-pinned. */
@@ -451,11 +464,12 @@ async function setupCursorMCP(
 
     const created = !(await fs.pathExists(mcpPath));
     if (!existing.mcpServers) existing.mcpServers = {};
-    existing.mcpServers.rigour = serverConfig;
+    const { entry, kept } = pinnedMcpEntry(existing.mcpServers.rigour, serverConfig);
+    existing.mcpServers.rigour = entry;
 
     await fs.writeFile(mcpPath, jsonText(existing, before));
     if (created) recordCreated(cwd, path.join('.cursor', 'mcp.json'), await fs.readFile(mcpPath, 'utf-8'));
-    console.log(chalk.green('✔ Registered Rigour MCP server (.cursor/mcp.json)'));
+    console.log(chalk.green(`✔ Registered Rigour MCP server (.cursor/mcp.json${kept ? ', your other settings kept' : ''})`));
 }
 
 /**
@@ -482,7 +496,8 @@ async function setupClaudeMCP(
         if (keepMcpEntry(existing?.mcpServers?.rigour, serverConfig, force)) return;
     }
     if (!existing.mcpServers) existing.mcpServers = {};
-    existing.mcpServers.rigour = serverConfig;
+    const { entry, kept } = pinnedMcpEntry(existing.mcpServers.rigour, serverConfig);
+    existing.mcpServers.rigour = entry;
     await fs.writeFile(mcpPath, jsonText(existing, before));
     if (created) recordCreated(cwd, '.mcp.json', await fs.readFile(mcpPath, 'utf-8'));
 
@@ -499,5 +514,5 @@ async function setupClaudeMCP(
     } catch {
         // no settings file, or not ours to repair
     }
-    console.log(chalk.green('✔ Registered Rigour MCP server (.mcp.json)'));
+    console.log(chalk.green(`✔ Registered Rigour MCP server (.mcp.json${kept ? ', your other settings kept' : ''})`));
 }
