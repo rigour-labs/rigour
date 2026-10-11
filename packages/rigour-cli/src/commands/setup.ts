@@ -22,7 +22,7 @@ import { installGitPushHook } from './hooks-git.js';
 import { hooksInitCommand, installMachineHooks, pinnedCliCommand, projectHookPaths } from './hooks.js';
 import { initCommand, registerProjectMcp, resolveMCPServerConfig } from './init.js';
 import { writeAgentInstructions } from './init-handshake.js';
-import { disableHere, enableHere, registerUserMcp } from './personal.js';
+import { disableHere, enableHere, MCP_NAME_TAKEN, registerUserMcp } from './personal.js';
 import { applyConfigMigrations, isOldEditHook } from './setup-migrations.js';
 import { getCliVersion } from '../utils/cli-version.js';
 import { setupSemantic } from './semantic.js';
@@ -75,6 +75,7 @@ async function personalSetup(cwd: string, brief: boolean): Promise<void> {
     else if (push.action !== 'no repository') console.log(chalk.green(`✔ Push gate: git's pre-push hook (${push.action})`));
     if (mcp.claude === 'no CLI') console.log(chalk.yellow(`Claude Code MCP: add it with ${chalk.cyan(`claude mcp add --scope user rigour -- ${[resolveMCPServerConfig().command, ...resolveMCPServerConfig().args].join(' ')}`)}`));
     else console.log(chalk.green(`✔ Rigour tools for agents (MCP): Claude Code ${mcp.claude}, Cursor ${mcp.cursor}`));
+    for (const [agent, state] of [['Claude Code', mcp.claude], ['Cursor', mcp.cursor]] as const) if (state === 'taken') console.log(chalk.yellow(`${agent}: ${MCP_NAME_TAKEN}.`));
 }
 
 async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {

@@ -46,6 +46,12 @@ export function isRigourMcpEntry(entry: unknown): boolean {
     return e?.command === 'npx' && Array.isArray(e.args) && e.args.some(a => typeof a === 'string' && a.startsWith('@rigour-labs/mcp'));
 }
 
+/** Whether an MCP server entry, or `claude mcp get`'s description of one, runs Rigour's server: the package, or a checkout's build. */
+export function namesRigourMcp(entry: unknown): boolean {
+    const text = typeof entry === 'string' ? entry : JSON.stringify(entry ?? '');
+    return /@rigour-labs\/mcp|rigour-mcp[\\/]+dist/.test(text);
+}
+
 /** A hook script Rigour wrote (the Cline hooks): it names Rigour in its header or runs the Rigour CLI. */
 export function isRigourScript(text: string): boolean {
     return /hook for Rigour|@rigour-labs\/cli/.test(text) || isRigourCommand(text);

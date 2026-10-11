@@ -7,8 +7,15 @@ import { checkRepoSetup } from './repo-setup.js';
 
 let cwd: string;
 const write = (rel: string, body: string) => { fs.mkdirSync(path.dirname(path.join(cwd, rel)), { recursive: true }); fs.writeFileSync(path.join(cwd, rel), body); };
-beforeEach(() => { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'setup-')); });
-afterEach(() => fs.rmSync(cwd, { recursive: true, force: true }));
+const savedAgentHome = process.env.RIGOUR_AGENT_HOME;
+beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'setup-'));
+    process.env.RIGOUR_AGENT_HOME = path.join(cwd, '.agent-home'); // the user-level agent configs: never the real ones
+});
+afterEach(() => {
+    if (savedAgentHome === undefined) delete process.env.RIGOUR_AGENT_HOME; else process.env.RIGOUR_AGENT_HOME = savedAgentHome;
+    fs.rmSync(cwd, { recursive: true, force: true });
+});
 const now = new Date('2026-10-09T12:00:00Z');
 const byId = async (id: string) => (await checkRepoSetup(cwd, now, [])).find(c => c.id === id)!;
 
@@ -64,5 +71,16 @@ describe('checkRepoSetup', () => {
         expect((await checkRepoSetup(cwd, now, [])).find(c => c.id === 'mcp')!.state).toBe('missing');
         const call = { toolName: 'rigour_review', cacheStatus: 'none' as const, candidateTokens: 0, returnedTokens: 0, createdAt: Date.parse('2026-10-09T11:30:00Z') };
         expect((await checkRepoSetup(cwd, now, [call])).find(c => c.id === 'mcp')).toMatchObject({ state: 'working', detail: '1 tool call this week · last 30 min ago' });
+    });
+
+    it("says when a user-level MCP server named rigour is not Rigour's", async () => {
+        const home = process.env.RIGOUR_AGENT_HOME!;
+        fs.mkdirSync(home, { recursive: true });
+        {
+            fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { rigour: { command: 'node', args: ['/opt/rigor-metrics/server.js'] } } }));
+            expect(await byId('mcp')).toMatchObject({ state: 'broken', detail: "Claude Code: a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again" });
+            fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@7.0.0'] } } }));
+            expect((await byId('mcp')).state).not.toBe('broken');
+        }
     });
 });
