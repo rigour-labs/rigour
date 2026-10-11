@@ -414,8 +414,17 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
   change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
 - **a person's decision**: `--promote <id>` (with `--why`), or **Promote** on the candidate's card in Studio's **How it
-  learns** (**Drop** rejects it), recorded with their git email. Every decision (promote,
-  reject, dismiss, scope, rewording, a compiled check), in the CLI or Studio, is refused when no git email is set in the
+  learns**, recorded with their git email. Three outcomes, distinct:
+  - **promote** (`--promote`, **Promote**): a lesson; agents are told it;
+  - **reject** (`--reject`, **Drop**): the team decided against it; the judges are told so, and the brief lists it as
+    settled against. Use it for a practice the team opposes;
+  - **not a rule** (`--not-a-rule`, **Not a rule**): a one-off for that pull request (refresh a description, agree an
+    order with another pull request), not a practice either way. The lesson is dropped: never served, and the judges
+    are told nothing.
+
+  Any of the three can be taken back (`--take-back <id>`, **Take back** on the card): the lesson is a candidate again,
+  and the decision stays in its history. Every decision (promote,
+  reject, not a rule, take back, dismiss, scope, rewording, a compiled check), in the CLI or Studio, is refused when no git email is set in the
   checkout: a decision recorded as nobody would never reach the team (see [the team database](TEAM_DATABASE.md));
 - **recurrence**, weak alone: the same point raised by people (review bots never count) on two or more pull
   requests by different authors, and raised by two or more different reviewers, or by one reviewer on three or

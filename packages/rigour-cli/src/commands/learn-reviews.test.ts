@@ -134,3 +134,19 @@ describe('rigour learn-reviews --list', () => {
     });
 });
 
+describe('rigour learn-reviews --not-a-rule and --take-back', () => {
+    it('drops a one-off as not a rule, and takes a rejection back to a candidate', async () => {
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { notARule: 'L1', why: 'a task for that pull request' });
+        expect(readLessons(repo)[0].state).toBe('dropped');
+        expect(out.mock.calls.flat().join('\n')).toContain('the judges are told nothing');
+        await learnReviewsCommand(repo, { takeBack: 'L1', why: 'changed my mind' });
+        expect(readLessons(repo)[0].state).toBe('candidate');
+        expect(readLessons(repo)[0].evidence.slice(-2).map(e => e.kind)).toEqual(['not-a-rule', 'took-back']);
+        const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { takeBack: 'L1' });
+        expect(err.mock.calls.flat().join('\n')).toContain('has no decision to take back');
+        expect(process.exitCode).toBe(1);
+        process.exitCode = 0;
+    });
+});

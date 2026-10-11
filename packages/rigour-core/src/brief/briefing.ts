@@ -86,7 +86,8 @@ export function buildBriefing(cwd: string, input: BriefingInput = {}): Briefing 
 function lessonCite(l: ReviewLesson): string {
     const prs = lessonView(l).prs;
     const decision = lastDecision(l);
-    const team = decision?.team ? `${decision.kind === 'rejected' ? 'rejected' : 'approved'} by ${decision.team.name} (team)` : '';
+    const verb = decision?.kind === 'accepted' ? 'approved' : decision?.kind === 'rejected' ? 'rejected' : undefined;
+    const team = decision?.team && verb ? `${verb} by ${decision.team.name} (team)` : '';
     return [prs.length ? `learned in PR ${prs.map(p => `#${p}`).join(', ')}` : '', team].filter(Boolean).join(', ') || 'the team\'s decision';
 }
 

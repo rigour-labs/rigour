@@ -45,7 +45,7 @@ rigour setup
 
 Settings are Rigour's defaults until you want them shared. It ends by checking that each piece works.
 
-**For a team:** `rigour setup --team` commits Rigour to the repository instead: `rigour.yml`, the hooks of the agents the repository uses and the MCP server in `.mcp.json`, so everyone who clones gets the same gate. Configs you already have are merged into, never replaced. A repository that already commits a `rigour.yml` gets the team setup automatically. See [Team setup](./TEAM_SETUP.md).
+**For a team:** `rigour setup --team` commits Rigour to the repository instead: `rigour.yml`, the hooks of the agents the repository uses and the MCP server in `.mcp.json`, so everyone who clones gets the same gate. Configs you already have are merged into, never replaced. Only `--team` writes into the repository: where the team has already committed Rigour's hooks, a plain `rigour setup` leaves every file as committed and says which ones. See [Team setup](./TEAM_SETUP.md).
 
 ## 3. Work as usual
 

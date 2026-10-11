@@ -18,8 +18,8 @@ import { repositoryIdSync } from '../storage/repository-origin.js';
 import { rigourUserDir } from '../utils/user-state.js';
 import type { LessonEvidence, ReviewLesson } from './lessons.js';
 
-export type SharedDecisionKind = 'accepted' | 'rejected' | 'dismissed' | 'scoped' | 'reworded' | 'compiled';
-const PERSON_DECISIONS = new Set<string>(['accepted', 'rejected', 'dismissed', 'scoped', 'reworded', 'compiled']);
+export type SharedDecisionKind = 'accepted' | 'rejected' | 'dismissed' | 'scoped' | 'reworded' | 'compiled' | 'not-a-rule' | 'took-back';
+const PERSON_DECISIONS = new Set<string>(['accepted', 'rejected', 'dismissed', 'scoped', 'reworded', 'compiled', 'not-a-rule', 'took-back']);
 
 /** One decision a teammate shared, as this clone keeps it. */
 export interface ReceivedDecision {
