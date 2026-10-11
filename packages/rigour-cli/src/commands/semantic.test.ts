@@ -16,6 +16,9 @@ vi.mock('@rigour-labs/core', async (importOriginal) => {
     return { ...actual, locateTransformers: () => (npm.installed ? path.join(actual.semanticRuntimeDir(), 'node_modules', 'x.js') : undefined) };
 });
 
+const prompt = vi.hoisted(() => ({ answer: true, asked: [] as string[] }));
+vi.mock('@inquirer/prompts', () => ({ confirm: vi.fn(async ({ message }: { message: string }) => { prompt.asked.push(message); return prompt.answer; }) }));
+
 import { semanticRuntimeDir, TRANSFORMERS_SPEC } from '@rigour-labs/core';
 import { setupSemantic } from './semantic.js';
 
@@ -54,5 +57,46 @@ describe('rigour setup, semantic search', () => {
         fs.writeFileSync(path.join(old, 'package.json'), '{}');
         await setupSemantic(home);
         expect(npm.calls.map(c => c.args.slice(0, 1).concat(c.args.slice(-1)))).toEqual([['install', TRANSFORMERS_SPEC], ['uninstall', '@xenova/transformers']]);
+    });
+});
+
+describe('rigour setup, semantic search, at a terminal', () => {
+    const tty = (on: boolean) => {
+        for (const stream of [process.stdin, process.stdout]) Object.defineProperty(stream, 'isTTY', { value: on, configurable: true });
+        vi.stubEnv('CI', '');
+    };
+    afterEach(() => {
+        tty(false);
+        vi.unstubAllEnvs();
+        prompt.asked = [];
+        prompt.answer = true;
+    });
+
+    it('asks first, with the size, and installs nothing when the person says no', async () => {
+        tty(true);
+        prompt.answer = false;
+        await setupSemantic(home);
+        expect(prompt.asked).toEqual([expect.stringContaining('about 250 MB on Linux, 280 MB on macOS')]);
+        expect(npm.calls).toEqual([]);
+    });
+
+    it('installs when the person says yes, the default', async () => {
+        tty(true);
+        await setupSemantic(home);
+        expect(prompt.asked).toHaveLength(1);
+        expect(npm.calls.map(c => c.args[0])).toEqual(['install']);
+    });
+
+    it('never asks a script, a pipe or CI: it installs as before', async () => {
+        tty(false);
+        await setupSemantic(home);
+        expect(prompt.asked).toEqual([]);
+        expect(npm.calls.map(c => c.args[0])).toEqual(['install']);
+        tty(true);
+        vi.stubEnv('CI', 'true');
+        npm.calls = [];
+        npm.installed = false;
+        await setupSemantic(home);
+        expect(prompt.asked).toEqual([]);
     });
 });
