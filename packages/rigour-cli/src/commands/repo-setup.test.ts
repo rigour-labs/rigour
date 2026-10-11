@@ -81,6 +81,11 @@ describe('checkRepoSetup', () => {
             expect(await byId('mcp')).toMatchObject({ state: 'broken', detail: "Claude Code: a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again" });
             fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@7.0.0'] } } }));
             expect((await byId('mcp')).state).not.toBe('broken');
+            // Both agents' servers hold the name: one run names both, so fixing one does not reveal the other next time.
+            fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { rigour: { command: 'node', args: ['/opt/rigor-metrics/server.js'] } } }));
+            fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
+            fs.writeFileSync(path.join(home, '.cursor/mcp.json'), JSON.stringify({ mcpServers: { rigour: { command: 'python', args: ['-m', 'rigor_metrics'] } } }));
+            expect(await byId('mcp')).toMatchObject({ state: 'broken', detail: "Claude Code and Cursor: a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again" });
         }
     });
 });
