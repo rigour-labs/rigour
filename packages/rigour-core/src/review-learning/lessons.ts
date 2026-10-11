@@ -54,7 +54,11 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *   outcome   a later commit fixed the lines the point named, or the pull request was reverted;
  *   counter   the lines shipped unchanged and nothing needed fixing within the window;
  *   correction  a person changed what an agent wrote (human-edits.ts): heavily weighted, it makes a lesson;
- *   accepted / rejected   a person decided (`rigour learn-reviews --promote / --reject`);
+ *   accepted / rejected   a person decided (`rigour learn-reviews --promote / --reject`): rejected tells the judges the
+ *             team decided against it;
+ *   not-a-rule a person judged it a one-off for that pull request, not a practice either way (`--not-a-rule`): the
+ *             lesson is dropped, never served and never told to the judges as rejected;
+ *   took-back a person took back the last decision (`--take-back`): a candidate again, nothing deleted;
  *   norule    the rule writer found no rule in it (a report, a template, a one-off): never promoted again;
  *   followup  a later fix touched the point's file, with nothing else to show it was this point (outcome-evidence.ts):
  *             recorded, never enough on its own;
@@ -67,7 +71,7 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *             until a person promotes it.
  * A record from before evidence kinds has none: it is a `point`.
  */
-export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled' | 'reworded' | 'scoped';
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'not-a-rule' | 'took-back' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled' | 'reworded' | 'scoped';
 
 export interface LessonEvidence {
     kind?: EvidenceKind;
@@ -105,7 +109,8 @@ export interface ReviewLesson {
     file: string;
     symbols: string[];
     /** `rejected`: an anti-lesson, a point the team decided against. */
-    state: 'candidate' | 'verified' | 'rejected';
+    /** dropped: a person judged it not a rule (a one-off task for one pull request); kept, never served. */
+    state: 'candidate' | 'verified' | 'rejected' | 'dropped';
     /** Which evidence made it a lesson. */
     promotedBy?: 'outcome' | 'correction' | 'person' | 'recurrence' | 'legacy';
     /**
@@ -132,12 +137,15 @@ export interface ReviewLesson {
  * holds a candidate back; recurrence across pull requests and authors is enough only without it. An outcome is
  * evidence, never a promotion. A record from before evidence kinds keeps the state it had.
  */
+/** The person decisions that settle a lesson's state. */
+const STATE_DECISIONS = new Set<EvidenceKind>(['accepted', 'rejected', 'not-a-rule', 'took-back']);
+
 /**
- * The person decision that settles a lesson's state: the last accepted or rejected, by `order` when team decisions are
- * folded in (team-decisions.ts), else the trail's order.
+ * The person decision that settles a lesson's state: the last accepted, rejected, not-a-rule or took-back, by `order`
+ * when team decisions are folded in (team-decisions.ts), else the trail's order.
  */
 export function lastDecision(lesson: ReviewLesson): LessonEvidence | undefined {
-    return lesson.evidence.filter(e => e.kind === 'accepted' || e.kind === 'rejected')
+    return lesson.evidence.filter(e => e.kind && STATE_DECISIONS.has(e.kind))
         .reduce<LessonEvidence | undefined>((a, b) => (!a || (b.order ?? 0) >= (a.order ?? 0) ? b : a), undefined);
 }
 
@@ -147,6 +155,9 @@ export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 
     const last = lastDecision(lesson);
     if (last?.kind === 'rejected') return { state: 'rejected' };
     if (last?.kind === 'accepted') return { state: 'verified', promotedBy: 'person' };
+    if (last?.kind === 'not-a-rule') return { state: 'dropped' };
+    // Taken back: undecided again, as a person said; evidence does not decide over them until they or someone decides.
+    if (last?.kind === 'took-back') return { state: 'candidate' };
     if (kinds.has('norule')) return { state: 'candidate' };
     // Taken back by evidence (outcome-evidence.ts): a person's decision above is the only way back.
     if (kinds.has('demoted')) return { state: 'candidate' };
@@ -485,7 +496,7 @@ export function readStoredLessons(cwd: string): ReviewLesson[] {
  */
 export function pendingDecision(lesson: ReviewLesson): LessonEvidence | undefined {
     if (lesson.state !== 'candidate') return undefined;
-    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'reclassified' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed').at(-1);
+    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'reclassified' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed' || e.kind === 'not-a-rule' || e.kind === 'took-back').at(-1);
     return last?.kind === 'demoted' || last?.kind === 'lines' || last?.kind === 'reclassified' ? last : undefined;
 }
 
@@ -577,16 +588,27 @@ function mergeConcurrent(base: ReviewLesson[], ours: ReviewLesson[], theirs: Rev
     return [...merged, ...now.values()];
 }
 
-/** A person's decision on a lesson, kept as evidence: accepted makes it a lesson, rejected an anti-lesson. Undefined for an unknown id. */
-export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected' | 'dismissed', by: string, why = ''): ReviewLesson | undefined {
+/**
+ * A person's decision on a lesson, kept as evidence: accepted makes it a lesson, rejected an anti-lesson the judges are
+ * told about, not-a-rule drops it (a one-off, not a practice either way), dismissed sets evidence aside, and took-back
+ * returns a decided lesson to a candidate. Undefined for an unknown id; took-back throws when nothing was decided.
+ */
+export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back', by: string, why = ''): ReviewLesson | undefined {
     return updateLessons(cwd, lessons => {
         const lesson = storedOrAdopted(cwd, lessons, id);
         if (!lesson) return undefined;
+        if (decision === 'took-back' && !takeBackable(lesson)) throw new Error(`lesson ${id} has no decision to take back`);
         const at = new Date().toISOString();
         lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
         Object.assign(lesson, lessonState(lesson), { updatedAt: at });
         return lesson;
     });
+}
+
+/** Whether a person's last decision on a lesson (accepted, rejected or not a rule) can be taken back. */
+export function takeBackable(lesson: ReviewLesson): boolean {
+    const last = lastDecision(lesson);
+    return !!last && last.kind !== 'took-back';
 }
 
 /** A person takes a decided lesson's suggested wording; who and the wording it replaced are kept as evidence. */

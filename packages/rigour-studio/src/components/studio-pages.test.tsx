@@ -409,3 +409,17 @@ describe('a fresh review candidate, on the learning page', () => {
         expect(decided).toEqual(['accepted', 'rejected']);
     });
 });
+
+describe('not a rule and take back, on the learning page', () => {
+    it('offers Not a rule beside Promote and Drop on a candidate, and Take back on a decided lesson', () => {
+        const base = { id: 'd1b2c3d4e5f6', text: 'refresh the description', origin: 'pr', learnedFrom: 'At PR #7, from r', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null } as any;
+        const fresh = html(<LessonCard lesson={{ ...base, state: 'candidate', canDecide: true }} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(fresh).toContain('>Not a rule</button>');
+        expect(fresh).toContain('Drop tells agents the team decided against it');
+        const decided = html(<LessonCard lesson={{ ...base, state: 'rejected', canDecide: false, canTakeBack: true }} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(decided).toContain('Dropped: agents are told the team decided against it.');
+        expect(decided).toContain('>Take back</button>');
+        const dropped = html(<LessonCard lesson={{ ...base, state: 'dropped', canDecide: false, canTakeBack: true }} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(dropped).toContain('Not a rule: never told to agents.');
+    });
+});

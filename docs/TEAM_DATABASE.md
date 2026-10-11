@@ -61,8 +61,12 @@ For each lesson that is sent, the database receives:
 ### Your decisions on review lessons
 
 `rigour team sync`, the MCP server after each tool call, and Studio every 30 seconds also send the decisions you made on
-the review lessons of the repository they run in (`.rigour/review-lessons.json`): accepting, rejecting, dismissing,
-scoping or rewording a lesson, and approving or taking back a check compiled from one. They are read from the lessons
+the review lessons of the repository they run in (`.rigour/review-lessons.json`): accepting, rejecting, judging not a
+rule, taking a decision back, dismissing, scoping or rewording a lesson, and approving or taking back a check compiled
+from one. A later decision supersedes an earlier one under the latest-wins rule below, so a decision taken back before
+or after a sync stays taken back for everyone. "Not a rule" and "take back" need a database whose `init-schema` ran on
+this version (`review_decision_kinds_version` 2): on an older one they wait unsent, counted as `decisions.waiting`, until
+the administrator runs `rigour team init-schema` again, which widens the table in place. They are read from the lessons
 file, so a decision made offline or before team mode is sent on the next sync. Each is sent once; the file is read
 again only when it changed. The same sync receives your teammates' decisions (see [Your team's decisions on review lessons](#your-teams-decisions-on-review-lessons)).
 
@@ -143,7 +147,8 @@ with no help from us; run end to end on a test database, the commands take a few
    written to it.
 7. **Bring in the decisions people already made.** In each of the team's repositories, each `sme` or `owner` runs
    `rigour team sync --dry-run` and reads `decisions`: `yours` is how many of their own decisions on review lessons the
-   first sync sends; `notYours` lists, by git email, decisions in that clone someone else made, which are never sent
+   first sync sends, and `yoursByKind` the same by kind (a rejection taken back shows as one `rejected` and one
+   `took-back`); `notYours` lists, by git email, decisions in that clone someone else made, which are never sent
    from it (that person sends them from their own clone). Then `rigour team sync`. There is no separate import: the
    first sync is it, and each decision is sent once.
 8. **See it on a teammate's machine**, after `rigour team sync` in a clone of the same repository (a `member`'s sync
@@ -344,6 +349,7 @@ Rigour shares nothing it cannot account for, and never blocks your work on the d
   - `a member's decisions stay on this machine: an sme or owner shares them`: by design; an `sme` or `owner` can make the same decision in their clone.
   - `no git user.email here, …`: set `git config user.email` in the checkout. Without it, Rigour refuses new decisions too, so none is recorded as nobody.
   - `the team database has no review decisions yet: run rigour team init-schema`: the administrator runs it again.
+  - `decisions.waiting` is above 0: your "not a rule" or "take back" decisions wait for a database that takes them; the administrator runs `rigour team init-schema` again, and the next sync sends them.
   - `no membership for this login in this organization and team`: the ids in `rigour team configure` and the membership row differ.
 - **A teammate's lesson shows no file.** Its file hash matched no file tracked in this checkout (a rename, or not checked out). The lesson is still served by its words.
 - **Embedding model unavailable.** The lesson is sent without an embedding. Search by meaning returns `degraded` and an empty list; everything else works.

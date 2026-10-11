@@ -95,12 +95,15 @@ describe('the review decisions sync', () => {
     });
 
     /** A team database and a local cache in memory. `remote` holds the team's rows; an insert adds one, stamped by the "server". */
-    function fakes(role = 'sme', version: string | null = '1', refuse?: string) {
+    function fakes(role = 'sme', version: string | null = '1', refuse?: string, kindsVersion: string | null = '2') {
         const remote: any[] = [];
         let clock = Date.parse('2026-02-01T00:00:00Z');
         const pool: DecisionPool = {
             query: async (sql, params = []) => {
-                if (sql.includes("key = 'review_decisions_version'")) return { rows: version ? [{ value: version }] : [], rowCount: 1 };
+                if (sql.includes("'review_decisions_version'")) {
+                    const rows = [...(version ? [{ key: 'review_decisions_version', value: version }] : []), ...(kindsVersion ? [{ key: 'review_decision_kinds_version', value: kindsVersion }] : [])];
+                    return { rows, rowCount: rows.length };
+                }
                 if (sql.includes('FROM rigour.memberships')) return { rows: [{ role, salt: 'org-salt' }], rowCount: 1 };
                 if (sql.includes('FROM rigour.review_decisions')) {
                     const rows = remote.filter(r => Date.parse(r.received_at) > Date.parse(String(params[3])));
@@ -199,11 +202,35 @@ describe('the review decisions sync', () => {
         ];
         fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [lesson({ evidence })] }));
         const f = fakes();
-        expect(await previewReviewDecisions(f.cache, input())).toEqual({ yours: 1, notYours: { 'teammate@example.com': 1, 'no git email': 1 } });
+        expect(await previewReviewDecisions(f.cache, input())).toEqual({ yours: 1, yoursByKind: { accepted: 1 }, notYours: { 'teammate@example.com': 1, 'no git email': 1 } });
         expect(f.remote).toHaveLength(0); // a dry run sends nothing
         await syncReviewDecisions(f.pool, f.cache, input());
         expect((await previewReviewDecisions(f.cache, input())).yours).toBe(0);
         expect((await previewReviewDecisions(f.cache, input({ origin: 'https://github.com/other/api' }))).held).toMatch(/not one of the team's repositories/);
+    });
+
+    it('reject then take back: a dry run lists one took-back row for the lesson, and the sync sends both', async () => {
+        const evidence = [...lesson().evidence.slice(0, 2),
+            { kind: 'rejected' as const, pr: 7, comment: 'rejected-1', author: ME, at: '2026-01-03T00:00:00Z' },
+            { kind: 'took-back' as const, pr: 7, comment: 'took-back-1', author: ME, at: '2026-01-04T00:00:00Z' }];
+        fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [lesson({ evidence, state: 'candidate' })] }));
+        const f = fakes();
+        expect(await previewReviewDecisions(f.cache, input())).toMatchObject({ yours: 2, yoursByKind: { rejected: 1, 'took-back': 1 } });
+        expect(await syncReviewDecisions(f.pool, f.cache, input())).toMatchObject({ sent: 2 });
+        expect(f.remote.map(r => r.kind)).toEqual(['rejected', 'took-back']);
+    });
+
+    it('holds not-a-rule and took-back, unsent and unmarked, until the team database takes them', async () => {
+        const evidence = [...lesson().evidence.slice(0, 2), { kind: 'not-a-rule' as const, pr: 7, comment: 'not-a-rule-1', author: ME, at: '2026-01-03T00:00:00Z' }];
+        fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [lesson({ evidence, state: 'dropped' })] }));
+        const older = fakes('sme', '1', undefined, null);
+        expect(await syncReviewDecisions(older.pool, older.cache, input())).toMatchObject({ sent: 0, waiting: 1 });
+        expect(older.remote).toHaveLength(0);
+        expect(older.sent.size).toBe(0);
+        const upgraded = fakes();
+        expect(await syncReviewDecisions(upgraded.pool, upgraded.cache, input())).toMatchObject({ sent: 1 });
+        expect(upgraded.remote[0]).toMatchObject({ kind: 'not-a-rule', lesson_id: 'a1b2c3d4e5f6' });
+        expect(upgraded.remote[0].payload.text).toBeUndefined(); // not-a-rule approves no wording
     });
 
     it('sets a refused row aside with its reason and does not stop; anything else stops and keeps the decision', async () => {
