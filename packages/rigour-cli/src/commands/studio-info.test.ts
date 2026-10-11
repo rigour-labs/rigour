@@ -7,7 +7,7 @@ import { repoName } from './studio-info.js';
 
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-info-')); });
-afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe("Studio's name for the repository", () => {
     it('is the origin remote\'s repository name, over https or ssh, never a path or a package name', () => {

@@ -42,7 +42,7 @@ beforeEach(() => {
     git('commit', '-qm', 'base');
     git('checkout', '-qb', 'feature');
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 const review = (cfg = config()) => reviewChange({ cwd: repo, config: cfg, source: { mode: 'base', base: 'main' }, typed: true });
 
@@ -491,7 +491,7 @@ export const db = {
         git('add', '-A');
         git('commit', '-qm', 'client');
     });
-    afterEach(() => { fs.rmSync(migrations, { recursive: true, force: true }); });
+    afterEach(() => { fs.rmSync(migrations, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
     it('notes the nullable member the change declared, never blocking, and skips nullable columns and aliases', async () => {
         write('src/sets.ts', `import { db } from './sb';

@@ -71,8 +71,8 @@ describe('deciding on a lesson known only from the team', () => {
     });
     afterEach(() => {
         if (saved === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = saved;
-        fs.rmSync(repo, { recursive: true, force: true });
-        fs.rmSync(home, { recursive: true, force: true });
+        fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     it('is served from the team, and a person\'s decision on it takes it into the store without the team\'s rows', () => {

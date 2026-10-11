@@ -142,7 +142,7 @@ describe('promotion by the point\'s own lines', () => {
             return { sha, at: when, subject, files, fix: /fix/i.test(subject) };
         });
         const rec = record(7, { mergeSha, mergedAt: at(-1), windowEnd: at(29), followUps });
-        return { dir, l, rec, git: gitIn(dir), cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+        return { dir, l, rec, git: gitIn(dir), cleanup: () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
     }
     const lines = (change: Record<number, string>) => Array.from({ length: 10 }, (_, i) => change[i + 1] ?? `line ${i + 1}`);
 

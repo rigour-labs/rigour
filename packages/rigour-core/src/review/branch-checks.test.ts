@@ -26,7 +26,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'init');
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('branch checks', () => {
     it('reports the files that conflict with main, and nothing when it merges cleanly', () => {

@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     if (savedAgentHome === undefined) delete process.env.RIGOUR_AGENT_HOME; else process.env.RIGOUR_AGENT_HOME = savedAgentHome;
-    fs.rmSync(cwd, { recursive: true, force: true });
+    fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 const now = new Date('2026-10-09T12:00:00Z');
 const byId = async (id: string) => (await checkRepoSetup(cwd, now, [])).find(c => c.id === id)!;

@@ -50,7 +50,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     vi.restoreAllMocks();
-    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('rigour uninstall', () => {

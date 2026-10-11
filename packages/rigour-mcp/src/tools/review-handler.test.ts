@@ -23,7 +23,7 @@ describe('rigour_review', () => {
         git('add', '-A');
         git('commit', '-qm', 'init');
     });
-    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
     it('reviews the uncommitted work without being given a diff', async () => {
         fs.mkdirSync(path.join(repo, 'src'));

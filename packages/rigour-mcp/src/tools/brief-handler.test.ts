@@ -12,7 +12,7 @@ beforeEach(() => {
     execFileSync('git', ['-C', repo, 'init', '-q', '-b', 'feat/retry']);
     fs.writeFileSync(path.join(repo, 'AGENTS.md'), '- Every job in `src/jobs/` must take `withLock()` before its first read; a job that reads first double-sends.\n');
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe('rigour_brief', () => {
     it('briefs any agent from its goal and files, and says so when the team switched briefings off', () => {

@@ -23,7 +23,7 @@ beforeEach(() => {
     fs.mkdirSync(path.join(repo, '.cursor/rules'), { recursive: true });
     fs.writeFileSync(path.join(repo, '.cursor/rules/ui.mdc'), 'Never set `fullWidth` on `<Button>`; use `maxWidth` caps instead of stretching.\n');
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 const diff = (file: string, added: string) => `+++ b/${file}\n@@ -1,0 +1,1 @@\n+${added}\n`;
 

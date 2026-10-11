@@ -27,7 +27,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'init');
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 // Risky: a data write. Low risk: a formatter. Each in its own function.
 const RISKY = (n: number) => `export async function saveRefund${n}(db: any, cents: number) {\n  return db.insert({ cents: cents + ${n} });\n}\n`;

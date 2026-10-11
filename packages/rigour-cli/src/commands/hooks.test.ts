@@ -38,7 +38,7 @@ describe('hooksInitCommand', () => {
     });
 
     afterEach(() => {
-        fs.rmSync(testDir, { recursive: true, force: true });
+        fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         vi.restoreAllMocks();
     });
 
@@ -164,7 +164,7 @@ describe('hooksInitCommand — DLP integration', () => {
     });
 
     afterEach(() => {
-        fs.rmSync(testDir, { recursive: true, force: true });
+        fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         vi.restoreAllMocks();
     });
 
@@ -248,7 +248,7 @@ describe('hooksCheckCommand', () => {
     });
 
     afterEach(() => {
-        fs.rmSync(testDir, { recursive: true, force: true });
+        fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         vi.restoreAllMocks();
     });
 
@@ -383,7 +383,7 @@ describe('which agent sent the hook payload', () => {
         Object.defineProperty(process, 'stdin', originalStdin);
         process.exitCode = originalExitCode;
         vi.restoreAllMocks();
-        fs.rmSync(repo, { recursive: true, force: true });
+        fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     /** Runs the hook with this payload on stdin, as the agent runs it; returns what it wrote to stdout, parsed. */

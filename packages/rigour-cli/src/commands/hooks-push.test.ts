@@ -64,7 +64,7 @@ describe('rigour hooks push', () => {
         git('commit', '-qm', 'init');
         git('checkout', '-q', '-b', 'feature');
     });
-    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
     it('in report-only, lets a push through and says what would have stopped it, by the team\'s switch or the person\'s', async () => {
         write('src/util.ts', 'export const used = 1;\nexport const forgotten = 2;\n');
@@ -122,7 +122,7 @@ describe('rigour hooks push', () => {
             expect((await push()).exitCode).toBe(0);
         } finally {
             for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
-            fs.rmSync(bin, { recursive: true, force: true });
+            fs.rmSync(bin, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 

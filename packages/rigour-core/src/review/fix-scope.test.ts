@@ -61,7 +61,7 @@ beforeEach(() => {
         { id: 10, pull_request_review_id: 2, user: user('author'), path: 'src/temp.ts', body: 'my own note' },
     ];
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 const fixScope = (cwd: string, named: { review?: number }, run: Exec) => scopeWith(cwd, { pr: undefined, review: named.review, githubAccount: undefined }, run);
 

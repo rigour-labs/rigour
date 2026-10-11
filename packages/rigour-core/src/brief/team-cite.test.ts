@@ -45,8 +45,8 @@ describe('the brief cites a team decision by the teammate\'s display name', () =
     });
     afterEach(() => {
         if (saved === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = saved;
-        fs.rmSync(repo, { recursive: true, force: true });
-        fs.rmSync(home, { recursive: true, force: true });
+        fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     it('approved or rejected by a teammate says who, by display name; a local decision cites its pull requests only', () => {

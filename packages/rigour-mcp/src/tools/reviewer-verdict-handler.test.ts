@@ -23,7 +23,7 @@ beforeEach(() => {
     head = git('rev-parse', 'HEAD');
     reviewStatus.mockReset();
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe('rigour_reviewer_verdict', () => {
     it('says there is no verdict yet, and how one is made', async () => {

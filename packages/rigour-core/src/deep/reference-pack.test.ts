@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildReferencePack } from './reference-pack.js';
 
 let repo: string | undefined;
-afterEach(() => { if (repo) fs.rmSync(repo, { recursive: true, force: true }); repo = undefined; });
+afterEach(() => { if (repo) fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); repo = undefined; });
 
 function project(): string {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'reference-pack-'));

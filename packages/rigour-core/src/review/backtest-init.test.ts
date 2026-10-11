@@ -48,7 +48,7 @@ beforeEach(() => {
     git('add', '-A');
     execFileSync('git', ['-C', repo, 'commit', '-qm', 'main as of the review'], { env: { ...process.env, GIT_COMMITTER_DATE: '2026-04-12T09:00:00Z', GIT_AUTHOR_DATE: '2026-04-12T09:00:00Z' } });
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('rigour backtest init', () => {
     it('takes the base from where the reviewed commit left main, not from main as of the review', async () => {
