@@ -68,3 +68,21 @@ describe('rigour setup replaces the old shell wrappers in place', () => {
     });
 });
 
+describe('rigour setup --report-only and --block', () => {
+    const marker = () => path.join(repo, '.git', 'rigour-report-only');
+    it("sets the person's switch in the git directory, and --block clears it", async () => {
+        await setupCommand(repo, { semantic: false, reportOnly: true });
+        expect(fs.existsSync(marker())).toBe(true);
+        expect(fs.existsSync(path.join(repo, 'rigour.yml'))).toBe(false); // nothing in the working tree
+        await setupCommand(repo, { semantic: false, block: true });
+        expect(fs.existsSync(marker())).toBe(false);
+    });
+
+    it("with --team, writes the team's switch into rigour.yml, and --block takes it out", async () => {
+        fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\n');
+        await setupCommand(repo, { semantic: false, team: true, reportOnly: true });
+        expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).toContain('report_only: true');
+        await setupCommand(repo, { semantic: false, team: true, block: true });
+        expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).not.toContain('report_only');
+    });
+});

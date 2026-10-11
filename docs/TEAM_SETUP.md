@@ -23,6 +23,8 @@ One person, once, on a branch:
 rigour setup --team
 ```
 
+For the team's first week, `rigour setup --team --report-only` sets `hooks.report_only: true` in `rigour.yml`: every gate says what it would have blocked and blocks nothing (a real credential is still refused). Later, `rigour setup --team --block` takes it out, in a commit everyone gets.
+
 This writes, for you to commit:
 
 | File | What it is |

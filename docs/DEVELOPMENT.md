@@ -38,6 +38,8 @@ the pull request bot:
   (`rigour review --notes`), never as work.
 - **Only your change:** problems the code already had before your branch are counted, not listed.
   You are never asked to fix someone else's old code to get yours in.
+- **Report only, for a first week:** with `rigour setup --report-only` nothing blocks; each moment says
+  what it would have blocked. `rigour setup --block` turns blocking back on.
 
 ## Reviewing a change yourself
 

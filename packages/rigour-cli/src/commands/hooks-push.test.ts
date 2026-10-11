@@ -5,6 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readThread } from '@rigour-labs/core';
 import { hooksPushCommand, isPush, pushHookOutput, pushTarget } from './hooks-push.js';
+import { setReportOnlyHere } from './report-only.js';
 
 // The reviewer's daily cap, as the push gate asks it; each test says what today's spend leaves.
 const cap = vi.hoisted(() => ({ reason: undefined as string | undefined }));
@@ -64,6 +65,22 @@ describe('rigour hooks push', () => {
         git('checkout', '-q', '-b', 'feature');
     });
     afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+
+    it('in report-only, lets a push through and says what would have stopped it, by the team\'s switch or the person\'s', async () => {
+        write('src/util.ts', 'export const used = 1;\nexport const forgotten = 2;\n');
+        git('commit', '-qam', 'adds an export nothing uses');
+        expect((await push()).exitCode).toBe(2);
+        setReportOnlyHere(repo, true); // the person's switch, in the git directory
+        const reported = await push();
+        expect(reported.exitCode).toBe(0);
+        expect(reported.message).toContain('Rigour (report only; nothing was blocked');
+        expect(reported.message).toContain('the push would have been blocked');
+        expect(pushHookOutput(reported, true).stderr).toContain('would have been blocked'); // git's pre-push: the terminal
+        expect(pushHookOutput(reported, false).stdout).toContain('would have been blocked'); // the agent: context it sees
+        setReportOnlyHere(repo, false);
+        write('rigour.yml', 'version: 1\ngates:\n  unused_exports:\n    block: true\nhooks:\n  report_only: true\n'); // the team's switch
+        expect((await push()).exitCode).toBe(0);
+    });
 
     it('blocks a push that leaves the scope its open pull request declares, and checks nothing without one', async () => {
         // A gh of our own on PATH: `pr view` answers with an open pull request, or fails.

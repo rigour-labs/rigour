@@ -284,6 +284,7 @@ export const UNIVERSAL_CONFIG: Config = {
     },
     hooks: {
         require_review_ack: false,
+        report_only: false,
     },
     output: {
         report_path: 'rigour-report.json',
