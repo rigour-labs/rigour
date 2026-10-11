@@ -478,6 +478,12 @@ const GENERATORS: Record<HookTool, (checker: CheckerCommandSpec, block: boolean,
     windsurf: generateWindsurfHooks,
 };
 
+/** Every project file Rigour's hooks are written to, for every agent: what a team commits when it installs Rigour. */
+export function projectHookPaths(): string[] {
+    const checker = resolveCheckerCommand();
+    return [...new Set((Object.keys(GENERATORS) as HookTool[]).flatMap(tool => GENERATORS[tool](checker, true).map(file => file.path)))];
+}
+
 // ── File writing ─────────────────────────────────────────────────────
 
 function printDryRun(files: GeneratedFile[]): void {

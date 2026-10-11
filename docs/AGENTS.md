@@ -54,9 +54,9 @@ uses: bash, or PowerShell (Claude Code on Windows without Git Bash). Before 6.13
 
 When none is present it falls back to the terminal it runs in (for example, `TERM_PROGRAM` naming
 Cursor), and then to Claude Code. An `AGENTS.md`, `.gemini/` or `.vscode/` is recognised, but those
-agents get no hooks. In a repository that already commits a `rigour.yml`, `rigour setup` writes the
-hooks for the agents it detects (the same signs, plus `.cursorrules`), with the same options the team's
-install used, so a teammate's setup changes no committed file.
+agents get no hooks. `rigour setup --team` writes the hooks for the agents it detects (the same signs,
+plus `.cursorrules`). In a repository that commits Rigour's hooks already, a plain `rigour setup` leaves
+them as committed and changes no file in the working tree.
 
 **Adding an agent later.** `rigour hooks init --tool cursor` writes Cursor's hooks into the
 repository. `--dry-run` lists the files without writing them. `--force` replaces a hook script Rigour
@@ -204,7 +204,7 @@ does not need to be told about Rigour for it to work.
 - `CLAUDE.md`, one line: `@AGENTS.md`, so Claude Code reads the same file.
 
 Where you already have them, Rigour keeps yours and prints what to add (`--force` replaces them). In a
-repository that already commits a `rigour.yml`, `rigour setup --instructions` writes them the same way.
+repository that commits Rigour's hooks already, `rigour setup --instructions` writes them the same way.
 If you keep your own `AGENTS.md`, paste this section into it:
 
 ```markdown

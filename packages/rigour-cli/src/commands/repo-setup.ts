@@ -40,11 +40,13 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
         { name: 'Windsurf', config: read('.windsurf/hooks.json') + home('.codeium/windsurf/hooks.json') },
     ].filter(a => a.config);
     const mcpConfig = read('.mcp.json') + read('.cursor/mcp.json') + home('.claude.json') + home('.cursor/mcp.json');
-    const version = versionCheck(agents.map(a => a.config).join('\n'), mcpConfig, installed);
+    // The repository's own committed install: only `rigour setup --team` changes it (a plain setup leaves it as committed).
+    const setup = !personal && /rigour/i.test(agents.map(a => a.config).join('\n')) ? 'rigour setup --team' : 'rigour setup';
+    const version = versionCheck(agents.map(a => a.config).join('\n'), mcpConfig, installed, setup);
     return [
         configCheck(cwd, personal),
-        editCheck(agents, now, events),
-        stopCheck(agents.map(a => a.config).join('\n'), now, events),
+        editCheck(agents, now, events, setup),
+        stopCheck(agents.map(a => a.config).join('\n'), now, events, setup),
         mcpCheck(mcpConfig, now, calls),
         ...(version ? [version] : []),
         prCheck(cwd),
@@ -56,7 +58,7 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
  * (`@rigour-labs/cli@6.12.4`), so an upgrade reaches them only when `rigour setup` rewrites the pin.
  * Nothing to say when nothing pins a version (a source checkout runs its own build).
  */
-function versionCheck(hooks: string, mcp: string, installed: string): SetupCheck | undefined {
+function versionCheck(hooks: string, mcp: string, installed: string, setup: string): SetupCheck | undefined {
     const pins = (text: string, pkg: string) => [...new Set([...text.matchAll(new RegExp(`@rigour-labs/${pkg}@([0-9A-Za-z.-]+)`, 'g'))].map(m => m[1]))];
     const hookPins = pins(hooks, 'cli');
     const mcpPins = pins(mcp, 'mcp');
@@ -70,7 +72,7 @@ function versionCheck(hooks: string, mcp: string, installed: string): SetupCheck
         ...mcpPins.filter(v => v !== installed).map(v => (/^\d+$/.test(v) || v === 'latest' ? `the MCP server floats on @${v}` : `the MCP server runs ${v}`)),
     ];
     return stale.length
-        ? { id: 'version', name, state: 'broken', detail: `${stale.join(', ')}; installed is ${installed}`, fix: 'rigour setup' }
+        ? { id: 'version', name, state: 'broken', detail: `${stale.join(', ')}; installed is ${installed}`, fix: setup }
         : { id: 'version', name, state: 'working', detail: installed };
 }
 
@@ -82,21 +84,21 @@ function configCheck(cwd: string, personal: boolean): SetupCheck {
 }
 
 /** One check for every agent's edit hook: events do not say which agent fired them, so counts are not split. */
-function editCheck(agents: Array<{ name: string; config: string }>, now: Date, events: AgentEvent[]): SetupCheck {
+function editCheck(agents: Array<{ name: string; config: string }>, now: Date, events: AgentEvent[], setup: string): SetupCheck {
     const wired = agents.filter(a => a.config.includes('hooks check'));
     const name = wired.length ? `Checks ${listOf(wired.map(a => a.name))} as it writes` : 'Checks your agent as it writes';
-    if (wired.length === 0) return { id: 'edit', name, state: 'missing', detail: 'No edit hook configured', fix: 'rigour setup' };
+    if (wired.length === 0) return { id: 'edit', name, state: 'missing', detail: 'No edit hook configured', fix: setup };
     const broken = wired.find(a => isOldEditHook(a.config));
     if (broken) {
         // setup rewrites Rigour's own entries where they live (the project, or the machine for a personal install).
-        return { id: 'edit', name, state: 'broken', detail: `The ${broken.name} hook is the old form: it reads a variable the agent never sets, so no edit is checked`, fix: 'rigour setup' };
+        return { id: 'edit', name, state: 'broken', detail: `The ${broken.name} hook is the old form: it reads a variable the agent never sets, so no edit is checked`, fix: setup };
     }
     return fired('edit', name, events.filter(e => e.type === 'hook_check'), now, 'edit checks');
 }
 
-function stopCheck(config: string, now: Date, events: AgentEvent[]): SetupCheck {
+function stopCheck(config: string, now: Date, events: AgentEvent[], setup: string): SetupCheck {
     const name = 'Stops an agent finishing with a known bug';
-    if (!config.includes('hooks stop')) return { id: 'stop', name, state: 'missing', detail: 'No stop hook configured', fix: 'rigour setup' };
+    if (!config.includes('hooks stop')) return { id: 'stop', name, state: 'missing', detail: 'No stop hook configured', fix: setup };
     return fired('stop', name, events.filter(e => e.type === 'stop_review'), now, 'finish checks');
 }
 

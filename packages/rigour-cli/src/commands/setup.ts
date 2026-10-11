@@ -5,9 +5,10 @@
  * at user level, guarded so they run only where Rigour is switched on; this repository is switched
  * on inside its git directory (personal.ts). For trying Rigour, or using it alone.
  *
- * Team (`--team`, or a repository that already commits a rigour.yml): rigour.yml, the project's
- * agent hooks and its MCP server are written into the repository, so everyone who clones gets the
- * same gate. Agent instruction files only with `--instructions`.
+ * Team (`--team`): rigour.yml, the project's agent hooks and its MCP server are written into the
+ * repository, so everyone who clones gets the same gate. Agent instruction files only with
+ * `--instructions`. Only `--team` ever writes into the working tree: in a repository that commits its
+ * own Rigour hooks, a plain `rigour setup` leaves every file as committed (the team's install runs).
  *
  * Both install semantic search once per machine (semantic.ts) unless --no-semantic, end with the
  * same checks as `rigour doctor`, and are taken back out by `rigour uninstall`.
@@ -18,7 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { printRepoSetup } from './doctor.js';
 import { installGitPushHook } from './hooks-git.js';
-import { hooksInitCommand, installMachineHooks, pinnedCliCommand } from './hooks.js';
+import { hooksInitCommand, installMachineHooks, pinnedCliCommand, projectHookPaths } from './hooks.js';
 import { initCommand, registerProjectMcp, resolveMCPServerConfig } from './init.js';
 import { writeAgentInstructions } from './init-handshake.js';
 import { disableHere, enableHere, registerUserMcp } from './personal.js';
@@ -36,11 +37,21 @@ export interface SetupOptions {
 }
 
 export async function setupCommand(cwd = process.cwd(), options: SetupOptions = {}): Promise<void> {
-    const team = options.team || committedConfig(cwd);
-    console.log(chalk.bold.cyan(`\nRigour setup (${team ? 'team: committed to this repository' : 'personal: nothing in your working tree'})\n`));
-    if (team) await teamSetup(cwd, options);
-    else await personalSetup(cwd, options.brief !== false);
-    for (const change of applyConfigMigrations(cwd)) console.log(chalk.green(`✔ Migrated ${change}`));
+    const team = !!options.team;
+    const committed = team ? [] : committedRigourHooks(cwd);
+    const mode = team ? 'team: committed to this repository' : committed.length ? "the team's install: nothing in your working tree" : 'personal: nothing in your working tree';
+    console.log(chalk.bold.cyan(`\nRigour setup (${mode})\n`));
+    if (team) {
+        const touched = trackedFiles(cwd, ['rigour.yml', ...rigourInstallPaths()]);
+        if (touched.length) console.log(chalk.yellow(`Writes into these committed files (commit the result so everyone gets it): ${touched.join(', ')}\n`));
+        await teamSetup(cwd, options);
+    } else if (committed.length) await leaveTeamInstall(cwd, committed, !!options.instructions);
+    else {
+        if (trackedFiles(cwd, ['rigour.yml']).length) console.log(chalk.dim('This repository commits rigour.yml; `rigour setup --team` commits hooks for everyone. This setup is yours alone.\n'));
+        await personalSetup(cwd, options.brief !== false);
+    }
+    // rigour.yml is the team's file: only --team changes it (doctor's checks below name what is due).
+    if (team) for (const change of applyConfigMigrations(cwd)) console.log(chalk.green(`✔ Migrated ${change}`));
     if (options.semantic !== false) await setupSemantic(cwd);
     await printRepoSetup(cwd);
     console.log(`See what Rigour does as your agents work: ${chalk.cyan('rigour studio')}`);
@@ -76,7 +87,41 @@ async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {
     } else await initCommand(cwd, { instructions: options.instructions, brief: options.brief !== false });
 }
 
-/** A rigour.yml the repository tracks: the team has adopted Rigour, so setup completes their install. */
-function committedConfig(cwd: string): boolean {
-    return spawnSync('git', ['ls-files', '--error-unmatch', 'rigour.yml'], { cwd, encoding: 'utf8' }).status === 0;
+/**
+ * The team's install, as committed here: tracked project hook and MCP files that run Rigour. Their agents already run
+ * them, so a person's setup changes none of them, and personal hooks beside them would run every check twice.
+ */
+async function leaveTeamInstall(cwd: string, committed: string[], instructions: boolean): Promise<void> {
+    disableHere(cwd, false);
+    console.log(chalk.green('✔ This repository commits its own Rigour install, and your agents run it. Left as committed:'));
+    for (const file of committed) console.log(chalk.dim(`    ${file}`));
+    console.log(chalk.dim('  To change it for everyone: rigour setup --team, then commit the result.'));
+    // This clone's own: git's pre-push hook lives in the git directory, never in the working tree.
+    const push = installGitPushHook(cwd, pinnedCliCommand(), { workingTree: false });
+    if (push.action === 'managed elsewhere') console.log(chalk.yellow(`Git pre-push hooks are managed outside this repository (${push.path}); add: ${pinnedCliCommand()} hooks push --git "$@" || exit $?`));
+    else if (push.action !== 'no repository') console.log(chalk.green(`✔ Push gate: git's pre-push hook (${push.action})`));
+    // Asked for by name: written only where the repository has none, so no committed file changes.
+    if (instructions) await writeAgentInstructions(cwd);
+}
+
+/** Where a team's Rigour install lives in the repository: the project hook and MCP configs. */
+function rigourInstallPaths(): string[] {
+    return [...projectHookPaths(), '.mcp.json', '.cursor/mcp.json'];
+}
+
+/** Which of these paths git tracks here. */
+function trackedFiles(cwd: string, paths: string[]): string[] {
+    const tracked = spawnSync('git', ['ls-files', '--', ...paths], { cwd, encoding: 'utf8' });
+    return tracked.status === 0 ? tracked.stdout.split('\n').filter(Boolean) : [];
+}
+
+/** The tracked files of a team's Rigour install: project hook and MCP configs that name Rigour. */
+function committedRigourHooks(cwd: string): string[] {
+    return trackedFiles(cwd, rigourInstallPaths()).filter(file => {
+        try {
+            return /rigour/i.test(fs.readFileSync(path.join(cwd, file), 'utf8'));
+        } catch {
+            return false;
+        }
+    });
 }
