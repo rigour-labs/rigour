@@ -28,7 +28,7 @@ describe('runHookChecker', () => {
     });
 
     afterEach(() => {
-        fs.rmSync(testDir, { recursive: true, force: true });
+        fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     it('should return pass for clean files', async () => {
@@ -245,7 +245,7 @@ describe('runHookChecker on a file the repository already has', () => {
         git('config', 'commit.gpgsign', 'false');
         commit('rigour.yml', yaml.stringify({ version: 1, gates: { max_file_lines: 500 } }));
     });
-    afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+    afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
     /** The team opts in: a change that takes a file over the limit blocks. */
     const blockOnSize = () => commit('rigour.yml', yaml.stringify({ version: 1, gates: { max_file_lines: 500, file_size: { block: true } } }));

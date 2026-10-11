@@ -7,7 +7,7 @@ import { exportTrainingSitesCommand } from './export-training-sites.js';
 
 describe('rigour export-training-sites', () => {
     let repo: string | undefined;
-    afterEach(() => { if (repo) fs.rmSync(repo, { recursive: true, force: true }); repo = undefined; vi.restoreAllMocks(); });
+    afterEach(() => { if (repo) fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); repo = undefined; vi.restoreAllMocks(); });
 
     it('writes one JSON line per awaited call in tracked source files, skipping tests', () => {
         repo = fs.mkdtempSync(path.join(os.tmpdir(), 'sites-cli-'));

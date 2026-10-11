@@ -42,8 +42,8 @@ beforeEach(() => {
     git('commit', '-qm', 'init');
 });
 afterEach(() => {
-    fs.rmSync(repo, { recursive: true, force: true });
-    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('the edit check sees what a shell command wrote', () => {

@@ -22,7 +22,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'retry');
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe("the agent's work order follows the rule that holds it", () => {
     it('lists the change\'s proven issue as must-fix, and nothing from the untouched file', async () => {

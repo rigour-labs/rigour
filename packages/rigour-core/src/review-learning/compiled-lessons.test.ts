@@ -10,7 +10,7 @@ import { appendTaskEvent } from '../task/thread.js';
 
 let cwd: string;
 beforeEach(() => { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'compiled-lessons-')); });
-afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 /** A lesson on `file` naming `symbols`, whose evidence is a point plus `kinds`. */
 function lesson(id: string, text: string, symbols: string[], kinds: string[], file = 'src/load.ts'): ReviewLesson {

@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     for (const [key, value] of Object.entries(savedEnv)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
-    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('the goal at a stop or a push', () => {
@@ -81,11 +81,11 @@ describe('the goal at a stop or a push', () => {
 
     it('checks nothing, and never throws, with no pull request, a closed one, or gh failing', async () => {
         for (const reply of ['none', 'fail', { state: 'MERGED', body: '## Scope\n- `src/`' }] as const) {
-            fs.rmSync(path.join(repo, '.git', 'rigour'), { recursive: true, force: true });
+            fs.rmSync(path.join(repo, '.git', 'rigour'), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
             expect(await hookGoalDescription(repo, on, gh(reply, []))).toBeUndefined();
         }
         const throwing: Exec = async () => { throw new Error('spawn gh ENOENT'); };
-        fs.rmSync(path.join(repo, '.git', 'rigour'), { recursive: true, force: true });
+        fs.rmSync(path.join(repo, '.git', 'rigour'), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         expect(await hookGoalDescription(repo, on, throwing)).toBeUndefined();
     });
 

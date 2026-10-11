@@ -21,7 +21,7 @@ describe('not a rule, and taking a decision back', () => {
         execFileSync('git', ['-C', repo, 'init', '-q']);
         seedLessons(repo, [candidate('a1b2c3d4e5f6', 'Bring the import script to the new shape.'), candidate('b1b2c3d4e5f6', 'Use an upsert keyed on the order id.')]);
     });
-    afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+    afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
     const served = () => [
         ...buildFileBriefing(repo, 'src/orders.ts', { lessons: 'all' }).items,

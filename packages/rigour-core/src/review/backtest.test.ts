@@ -97,7 +97,7 @@ describe('rigour backtest on a repository', () => {
     });
     afterEach(() => {
         try { git('worktree', 'prune'); } catch { /* the repository may be gone */ }
-        fs.rmSync(repo, { recursive: true, force: true });
+        fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     it('hides the review itself for a round, and shows the approval for an approved head', async () => {

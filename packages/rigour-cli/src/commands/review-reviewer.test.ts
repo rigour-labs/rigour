@@ -79,7 +79,7 @@ describe('rigour review --status', () => {
             expect(JSON.parse(String(log.mock.calls[0][0]))).toMatchObject({ branch: 'main' });
         } finally {
             log.mockRestore();
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });

@@ -23,7 +23,7 @@ beforeEach(() => {
 afterEach(() => {
     vi.restoreAllMocks();
     delete process.env.RIGOUR_BRIEF;
-    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('the prompt hook', () => {

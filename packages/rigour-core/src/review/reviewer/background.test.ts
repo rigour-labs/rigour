@@ -55,7 +55,7 @@ beforeEach(() => {
 afterEach(() => {
     process.env.PATH = originalPath;
     try { git('worktree', 'prune'); } catch { /* gone */ }
-    for (const dir of [repo, bin]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [repo, bin]) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('the background review', () => {

@@ -90,8 +90,8 @@ describe('the review decisions sync', () => {
     });
     afterEach(() => {
         if (saved === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = saved;
-        fs.rmSync(repo, { recursive: true, force: true });
-        fs.rmSync(home, { recursive: true, force: true });
+        fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     /** A team database and a local cache in memory. `remote` holds the team's rows; an insert adds one, stamped by the "server". */

@@ -21,7 +21,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'base');
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('a person editing what the agent wrote', () => {
     it('becomes a lesson with correction evidence, taken once', () => {

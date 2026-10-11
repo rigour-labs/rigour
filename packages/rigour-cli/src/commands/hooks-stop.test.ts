@@ -31,7 +31,7 @@ describe('rigour hooks stop', () => {
         git('add', '-A');
         git('commit', '-qm', 'init');
     });
-    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); vi.restoreAllMocks(); });
+    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); vi.restoreAllMocks(); });
 
     it('keeps Claude working on a proven finding, then gives up after three attempts', async () => {
         write('src/notify.ts', LEAKY);
@@ -147,7 +147,7 @@ describe('rigour hooks stop', () => {
         expect(first).toMatchObject({ decision: 'block' });
         expect(first.reason).toContain('Rigour could not review this change');
         expect(await hooksStopCommand('claude', payload, '/')).toBe('');
-        fs.rmSync(notARepo, { recursive: true, force: true });
+        fs.rmSync(notARepo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     it('still reviews what the session committed', async () => {
@@ -241,6 +241,6 @@ describe('the agent fix loop', () => {
         expect(JSON.parse(fs.readFileSync(path.join(repo, '.rigour', 'rules', rules[0]), 'utf8')).pattern)
             .toMatchObject({ template: 'require-option', property: 'redirect', value: 'manual' });
         expect(fs.readdirSync(path.join(repo, '.rigour', 'agent-fixes', 'resolved'))).toEqual([]);
-        fs.rmSync(repo, { recursive: true, force: true });
+        fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 });

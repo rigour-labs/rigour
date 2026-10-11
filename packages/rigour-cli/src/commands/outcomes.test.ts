@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     if (saved.RIGOUR_OUTCOMES === undefined) delete process.env.RIGOUR_OUTCOMES; else process.env.RIGOUR_OUTCOMES = saved.RIGOUR_OUTCOMES;
-    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     vi.restoreAllMocks();
 });
 

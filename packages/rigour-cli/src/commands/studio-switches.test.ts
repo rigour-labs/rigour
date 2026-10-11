@@ -22,7 +22,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     if (savedHome === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = savedHome;
-    for (const dir of [repo, home]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [repo, home]) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('a switch in Studio: the goal check', () => {

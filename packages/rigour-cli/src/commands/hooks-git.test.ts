@@ -24,7 +24,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'init');
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('the git pre-push hook', () => {
     it('is installed where git looks, once, and completes a hook another tool owns instead of replacing it', () => {
@@ -50,7 +50,7 @@ describe('the git pre-push hook', () => {
         git('config', 'core.hooksPath', elsewhere);
         expect(installGitPushHook(repo, 'rigour')).toEqual({ path: path.join(elsewhere, 'pre-push'), action: 'managed elsewhere' });
         expect(fs.readFileSync(path.join(elsewhere, 'pre-push'), 'utf8')).toBe('#!/bin/sh\nexit 0\n');
-        fs.rmSync(elsewhere, { recursive: true, force: true });
+        fs.rmSync(elsewhere, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     it('refuses a push from a tree with uncommitted changes to tracked files, and lets a branch deletion through', async () => {
@@ -84,7 +84,7 @@ describe('the git pre-push hook', () => {
             expect(pushed.stderr).toContain('the push would have been blocked');
             expect(execFileSync('git', ['-C', remote, 'rev-parse', '--verify', '-q', 'refs/heads/feature'], { encoding: 'utf8' }).trim()).toBe(git('rev-parse', 'HEAD'));
         } finally {
-            fs.rmSync(remote, { recursive: true, force: true });
+            fs.rmSync(remote, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     }, 120_000);
 
@@ -114,7 +114,7 @@ describe("doctor's push-gate self-test", () => {
             expect(home(doctor)).toBe(path.join(root, 'other', '.rigour')); // inherited as is, the scratch push would run as other
             expect(home(pinnedHomeEnv(doctor))).toBe(path.join(root, 'acme', '.rigour'));
         } finally {
-            fs.rmSync(root, { recursive: true, force: true });
+            fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });

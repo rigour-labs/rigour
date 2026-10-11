@@ -13,7 +13,7 @@ const repo = (name: string) => {
     return fs.realpathSync.native(dir);
 };
 beforeEach(() => { base = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-repos-')); });
-afterEach(() => fs.rmSync(base, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe('groupFilesByRepo', () => {
     it("checks each file in its own repository, not the session's", () => {

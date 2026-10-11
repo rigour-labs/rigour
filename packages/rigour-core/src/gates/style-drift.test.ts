@@ -9,7 +9,7 @@ describe('StyleDriftGate', () => {
     let cwd: string;
 
     beforeEach(() => { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'style-drift-')); });
-    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true }); });
+    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
     it('does not compare default imports against unrelated named imports', async () => {
         const src = path.join(cwd, 'src');
@@ -50,7 +50,7 @@ describe('StyleDriftGate in a git checkout', () => {
         git('commit', '-qm', 'base');
         git('checkout', '-qb', 'feature');
     });
-    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true }); });
+    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
     it('gives a clean tree the same verdict after any number of runs on a dirty one, and writes nothing', async () => {
         write('svc_0.py', snake(0) + 'extra_rows = []\n'); // one changed file, so there is something to compare

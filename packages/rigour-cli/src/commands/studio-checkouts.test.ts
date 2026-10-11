@@ -12,7 +12,7 @@ beforeEach(() => {
     execFileSync('git', ['-C', repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init']);
     fs.mkdirSync(path.join(repo, '.rigour'));
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe('checkoutRoots', () => {
     it('lists each checkout once, however the folder is spelled', () => {

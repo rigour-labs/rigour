@@ -20,7 +20,7 @@ describe('LogicDriftGate Git baseline', () => {
         git('commit', '-qm', 'base');
     });
 
-    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true }); });
+    afterEach(() => { fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
     it('reports a branch mutation consistently and clears it after merge', async () => {
         const gate = new LogicDriftGate();

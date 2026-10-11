@@ -16,6 +16,13 @@ process.env.RIGOUR_PROFILES = path.join(process.env.RIGOUR_HOME, 'no-profiles.js
 process.env.RIGOUR_AGENT_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-agent-home-'));
 // And no test ever runs the person's real Claude Code CLI.
 process.env.RIGOUR_CLAUDE_CLI = path.join(process.env.RIGOUR_AGENT_HOME, 'no-claude-cli');
+// git run by a test, or by the code under test, never starts its own garbage collection or maintenance: a git still
+// writing pack files after a test races the test's cleanup of its temporary repository (ENOTEMPTY on .git/objects/pack).
+process.env.GIT_CONFIG_COUNT = '2';
+process.env.GIT_CONFIG_KEY_0 = 'gc.auto';
+process.env.GIT_CONFIG_VALUE_0 = '0';
+process.env.GIT_CONFIG_KEY_1 = 'maintenance.auto';
+process.env.GIT_CONFIG_VALUE_1 = 'false';
 
 // Mock Transformers.js to avoid native binary dependency issues and speed up tests
 vi.mock('@xenova/transformers', () => ({

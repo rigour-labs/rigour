@@ -42,7 +42,7 @@ beforeEach(() => {
         lesson('r1', 'rejected', 'src/jobs/retry.ts', 'Wrap `retryJob` in a second try/catch.', ['retryJob'], 14),
     ]);
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe('the briefing', () => {
     it("gives the files' requirement rules first, then verified lessons, settled points, then guidance, each cited; never a candidate", () => {

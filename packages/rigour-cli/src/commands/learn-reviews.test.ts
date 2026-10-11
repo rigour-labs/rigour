@@ -17,7 +17,7 @@ beforeEach(() => {
         evidence: [{ kind: 'point', pr: 1, comment: 'p', author: 'r' }, { kind: 'accepted', pr: 1, comment: 'a', author: 'ana@example.com' }],
     }] }));
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); vi.restoreAllMocks(); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); vi.restoreAllMocks(); });
 
 describe('rigour learn-reviews --compile', () => {
     it('proposes a check, runs it only once a person approves it, and records who took it back', async () => {

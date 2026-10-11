@@ -98,7 +98,7 @@ describe('what a judge knows besides the repository', () => {
         } finally {
             if (saved === undefined) delete process.env.CODEX_HOME;
             else process.env.CODEX_HOME = saved;
-            fs.rmSync(home, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });

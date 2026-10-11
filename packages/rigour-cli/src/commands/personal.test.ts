@@ -72,7 +72,7 @@ afterEach(() => {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
     }
-    for (const dir of [repo, home, bin]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [repo, home, bin]) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('the switch for a repository', () => {

@@ -16,7 +16,7 @@ const repo = (rel: string, remote?: string) => {
 };
 
 beforeEach(() => { root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'profiles-'))); });
-afterEach(() => { process.env = { ...saved }; fs.rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { process.env = { ...saved }; fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('profiles', () => {
     it('matches a repository by path prefix or by origin remote', () => {
