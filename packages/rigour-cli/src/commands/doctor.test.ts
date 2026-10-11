@@ -39,6 +39,7 @@ describe('rigour doctor and a RIGOUR_HOME ending in .rigour', () => {
             fs.mkdirSync(bin);
             fs.writeFileSync(path.join(bin, process.platform === 'win32' ? 'rigour.cmd' : 'rigour'), process.platform === 'win32' ? '@echo 6.11.0\r\n' : '#!/bin/sh\necho 6.11.0\n', { mode: 0o755 });
             vi.stubEnv('PATH', `${bin}${path.delimiter}${process.env.PATH}`);
+            vi.stubEnv('RIGOUR_AGENT_HOME', home); // the user-level agent configs: never the real ones
             const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
             await doctorCommand({}, home);
             const printed = out.mock.calls.flat().join('\n');

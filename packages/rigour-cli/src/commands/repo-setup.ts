@@ -7,7 +7,8 @@ import fs from 'fs';
 import path from 'path';
 import { getContextEvents, type AgentEvent, type ContextEvent } from '@rigour-labs/core';
 import { resolveMCPServerConfig } from './init.js';
-import { agentHome, enabledHere } from './personal.js';
+import { agentHome, enabledHere, MCP_NAME_TAKEN } from './personal.js';
+import { namesRigourMcp } from './install-record.js';
 import { isOldEditHook } from './setup-migrations.js';
 import { getCliVersion } from '../utils/cli-version.js';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
@@ -47,7 +48,7 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
         configCheck(cwd, personal),
         editCheck(agents, now, events, setup),
         stopCheck(agents.map(a => a.config).join('\n'), now, events, setup),
-        mcpCheck(mcpConfig, now, calls),
+        mcpCheck(mcpConfig, now, calls, nameTaken(readFrom(agentHome()))),
         ...(version ? [version] : []),
         prCheck(cwd),
     ];
@@ -102,8 +103,22 @@ function stopCheck(config: string, now: Date, events: AgentEvent[], setup: strin
     return fired('stop', name, events.filter(e => e.type === 'stop_review'), now, 'finish checks');
 }
 
-function mcpCheck(mcpJson: string, now: Date, calls: ContextEvent[]): SetupCheck {
+/** Which agent's user-level config holds a server named rigour that is not Rigour's (personal.ts MCP_NAME_TAKEN). */
+function nameTaken(home: (rel: string) => string): string | undefined {
+    for (const [agent, rel] of [['Claude Code', '.claude.json'], ['Cursor', '.cursor/mcp.json']] as const) {
+        try {
+            const entry = JSON.parse(home(rel) || '{}')?.mcpServers?.rigour;
+            if (entry && !namesRigourMcp(entry)) return agent;
+        } catch {
+            // not JSON: not Rigour's to judge
+        }
+    }
+    return undefined;
+}
+
+function mcpCheck(mcpJson: string, now: Date, calls: ContextEvent[], taken?: string): SetupCheck {
     const name = 'Rigour tools for agents (MCP)';
+    if (taken) return { id: 'mcp', name, state: 'broken', detail: `${taken}: ${MCP_NAME_TAKEN}`, fix: 'rename the other server, then rigour setup' };
     if (!mcpJson.includes('rigour') && calls.length === 0) {
         return { id: 'mcp', name, state: 'missing', detail: 'Agents cannot ask Rigour for review tasks or lessons', fix: `claude mcp add --scope user rigour -- ${[resolveMCPServerConfig().command, ...resolveMCPServerConfig().args].join(' ')}` };
     }

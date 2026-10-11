@@ -88,11 +88,11 @@ if (args[0] === 'mcp' && args[1] === 'get') console.log(${JSON.stringify(registe
         expect(calls()).toMatch(/^mcp add --scope user rigour -- npx -y @rigour-labs\/mcp@6\.13\.0$/m);
     });
 
-    it('leaves it when it is already this version, or the person changed it', () => {
+    it('leaves it when it is already this version, and never registers over a server that does not run Rigour', () => {
         const calls = fakeClaude('rigour: npx -y @rigour-labs/mcp@6.13.0');
         expect(registerUserMcp(server).claude).toBe('present');
-        fakeClaude('rigour: node /opt/my-rigour-mcp.js');
-        expect(registerUserMcp(server).claude).toBe('present');
+        fakeClaude('rigour: node /opt/my-rigour-mcp.js'); // the name, held by a command that does not run Rigour's server
+        expect(registerUserMcp(server).claude).toBe('taken');
         expect(calls()).not.toMatch(/mcp (add|remove)/);
     });
 });

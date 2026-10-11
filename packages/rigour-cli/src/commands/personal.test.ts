@@ -30,8 +30,9 @@ const [a, b, c, , e] = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');
 const servers = () => fs.existsSync(${JSON.stringify(servers)}) ? fs.readFileSync(${JSON.stringify(servers)}, 'utf8').split('\\n') : [];
 if (a === '--version') { console.log('9.9.9 (Claude Code)'); process.exit(0); }
-if (a === 'mcp' && b === 'get') process.exit(servers().includes(c) ? 0 : 1);
-if (a === 'mcp' && b === 'add') { fs.appendFileSync(${JSON.stringify(servers)}, e + '\\n'); process.exit(0); }
+const described = ${JSON.stringify(servers)} + '.desc';
+if (a === 'mcp' && b === 'get') { if (!servers().includes(c)) process.exit(1); if (fs.existsSync(described)) console.log(fs.readFileSync(described, 'utf8')); process.exit(0); }
+if (a === 'mcp' && b === 'add') { fs.appendFileSync(${JSON.stringify(servers)}, e + '\\n'); fs.writeFileSync(described, process.argv.slice(2).join(' ')); process.exit(0); }
 if (a === 'mcp' && b === 'remove') { fs.writeFileSync(${JSON.stringify(servers)}, ''); process.exit(0); }
 process.exit(1);
 `);
@@ -243,5 +244,24 @@ describe('rigour setup, personal, with git hooks kept in the repository', () => 
         expect(fs.readFileSync(path.join(repo, '.husky/pre-push'), 'utf8')).toBe('npm test\n');
         expect(git('status', '--porcelain', '--untracked-files=all')).toBe('');
         expect(vi.mocked(console.log).mock.calls.flat().join('\n')).toContain('hooks push --git "$@" || exit $?');
+    });
+});
+
+describe('rigour setup and a user-level MCP server named rigour that is not Rigour\'s', () => {
+    it('registers nothing over it, and says to rename it, for Claude Code and for Cursor', async () => {
+        const calls = fakeClaude();
+        // Someone else's server holds the name, in Claude Code and in Cursor.
+        fs.writeFileSync(path.join(bin, 'claude-mcp.txt'), 'rigour\n');
+        fs.writeFileSync(path.join(bin, 'claude-mcp.txt.desc'), 'rigour:\n  Scope: User\n  Command: node\n  Args: /opt/rigor-metrics/server.js');
+        fs.mkdirSync(atHome('.cursor'), { recursive: true });
+        fs.writeFileSync(atHome('.cursor/mcp.json'), JSON.stringify({ mcpServers: { rigour: { command: 'python', args: ['-m', 'rigor_metrics'] } } }));
+        const log = vi.spyOn(console, 'log').mockImplementation(() => { });
+        await setupCommand(repo, { semantic: false });
+        const printed = log.mock.calls.map(call => String(call[0])).join('\n');
+        expect(printed).toContain("Claude Code: a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again.");
+        expect(printed).toContain("Cursor: a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again.");
+        expect(fs.readFileSync(calls, 'utf8')).not.toContain('mcp add');
+        expect(JSON.parse(fs.readFileSync(atHome('.cursor/mcp.json'), 'utf8')).mcpServers.rigour.command).toBe('python');
+        log.mockRestore();
     });
 });

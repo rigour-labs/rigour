@@ -16,7 +16,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { rigourUserDir } from '@rigour-labs/core';
-import { isEmptyConfig, isRigourMcpEntry, readInstallRecord, recordCreated, unchangedSinceInstall, withoutRigour } from './install-record.js';
+import { isEmptyConfig, isRigourMcpEntry, namesRigourMcp, readInstallRecord, recordCreated, unchangedSinceInstall, withoutRigour } from './install-record.js';
 
 const MARKER = 'rigour-enabled';
 
@@ -145,7 +145,11 @@ export function asUserLevel<T extends { path: string; content: string }>(file: T
     return { ...file, path: target, content: JSON.stringify(guard(JSON.parse(file.content)), null, 4) };
 }
 
-export type McpState = 'added' | 'updated' | 'present' | 'removed' | 'absent' | 'no CLI';
+/** `taken`: a user-level server named rigour that is not Rigour's; Rigour's is not registered over it. */
+export type McpState = 'added' | 'updated' | 'present' | 'removed' | 'absent' | 'no CLI' | 'taken';
+
+/** What setup and doctor say when another server holds the name. */
+export const MCP_NAME_TAKEN = "a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again";
 
 /**
  * The Rigour MCP server at user level: Claude Code through its own `claude mcp add --scope user`
@@ -157,6 +161,8 @@ export function registerUserMcp(server: { command: string; args: string[] }): { 
         const add = () => claude(['mcp', 'add', '--scope', 'user', 'rigour', '--', server.command, ...server.args]).ok;
         const get = claude(['mcp', 'get', 'rigour']);
         if (!get.ok) state = add() ? 'added' : 'no CLI';
+        // Another server holds the name: Rigour's is not registered over it, and the person is told.
+        else if (!namesRigourMcp(get.stdout)) state = 'taken';
         // Rigour's own registration at another version is moved to this one, as the hooks are; one the person changed stays.
         else if (/@rigour-labs\/mcp/.test(get.stdout) && !get.stdout.includes(server.args[server.args.length - 1])) {
             claude(['mcp', 'remove', '--scope', 'user', 'rigour']);
@@ -175,6 +181,7 @@ export function registerUserMcp(server: { command: string; args: string[] }): { 
         }
     }
     const current = config?.mcpServers?.rigour;
+    if (current && !namesRigourMcp(current)) return { claude: state, cursor: 'taken' };
     if (current && (JSON.stringify(current) === JSON.stringify(server) || !isRigourMcpEntry(current))) return { claude: state, cursor: 'present' };
     config.mcpServers = { ...(config.mcpServers ?? {}), rigour: server };
     fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
