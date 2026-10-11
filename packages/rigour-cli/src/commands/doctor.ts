@@ -5,7 +5,8 @@ import { execFileSync } from 'child_process';
 import { applyStateMerge, cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, legacyStateNote, planStateMerge, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
 import { configMigrations } from './setup-migrations.js';
-import { selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
+import { pushGateLine, pushHookTarget, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
+import { pinnedCliCommand } from './hooks.js';
 import { semanticStatusLine } from './semantic.js';
 
 function runText(command: string, args: string[]): string {
@@ -173,11 +174,20 @@ const size = (bytes: number) => (bytes >= GB ? `${(bytes / GB).toFixed(1)} GB` :
 /** The database's size, and the cache rows nothing reads any more, with the command that removes them. */
 /** When this repository has the git pre-push hook: prove it with a real push to a scratch remote, since "it printed blocked" is not evidence. */
 async function printPushGate(cwd: string): Promise<void> {
-    const hooksDir = runText('git', ['-C', cwd, 'rev-parse', '--git-path', 'hooks']);
-    if (!hooksDir) return;
-    const hook = path.resolve(cwd, hooksDir, 'pre-push');
+    const target = pushHookTarget(cwd);
+    if (!target) return;
     console.log(chalk.bold('Push Gate'));
-    if (!fs.existsSync(hook) || !fs.readFileSync(hook, 'utf8').includes('hooks push --git')) {
+    const present = fs.existsSync(target.file) && fs.readFileSync(target.file, 'utf8').includes('hooks push --git');
+    if (target.managed === 'husky' || target.managed === 'working tree') {
+        // A tool runs the tracked script: the gate is the Rigour line in it, never a file Rigour writes beside it.
+        const by = target.managed === 'husky' ? 'husky' : 'core.hooksPath';
+        const where = path.relative(cwd, target.file);
+        if (!present) {
+            console.log(chalk.red(`  ✘ Push gate: managed by ${by}; the Rigour line is absent from ${where}. Add: ${pushGateLine(pinnedCliCommand())}\n`));
+            return;
+        }
+        console.log(chalk.green(`  ✓ Push gate: managed by ${by}; the Rigour line is present in ${where}.`));
+    } else if (!present) {
         console.log(chalk.yellow('  ⚠ No git pre-push hook: only agents with Rigour hooks are gated. Run: rigour hooks init\n'));
         return;
     }

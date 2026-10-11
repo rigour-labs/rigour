@@ -6,7 +6,8 @@ import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pinnedHomeEnv } from '@rigour-labs/core/profile';
 import { setReportOnlyHere } from './report-only.js';
-import { gitPushGateCommand, installGitPushHook, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
+import { gitPushGateCommand, installGitPushHook, pushHookTarget, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
+import { uninstall } from './uninstall.js';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
@@ -116,5 +117,65 @@ describe("doctor's push-gate self-test", () => {
         } finally {
             fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
+    });
+});
+
+describe('the push gate where a tool manages git hooks', () => {
+    const LINE = 'rigour hooks push --git "$@" || exit $?';
+    const read = (rel: string) => fs.readFileSync(path.join(repo, rel), 'utf8');
+    /** Husky 9: git runs `.husky/_`, generated stubs that run the tracked `.husky/pre-push`. */
+    const husky9 = (generated = true) => {
+        fs.mkdirSync(path.join(repo, '.husky'), { recursive: true });
+        fs.writeFileSync(path.join(repo, '.husky/pre-push'), 'npm test\n');
+        if (generated) {
+            fs.mkdirSync(path.join(repo, '.husky/_'));
+            fs.writeFileSync(path.join(repo, '.husky/_/h'), '#!/usr/bin/env sh\n# husky\n');
+            fs.writeFileSync(path.join(repo, '.husky/_/pre-push'), '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n');
+        }
+        git('config', 'core.hooksPath', '.husky/_');
+    };
+
+    it("never writes into husky's generated folder: personal setup gives the line, a team install completes the tracked script", () => {
+        husky9();
+        expect(pushHookTarget(repo)).toEqual({ file: path.join(repo, '.husky/pre-push'), managed: 'husky' });
+        const personal = installGitPushHook(repo, 'rigour', { workingTree: false });
+        expect(personal).toMatchObject({ action: 'add line', path: path.join(repo, '.husky/pre-push') });
+        expect(read('.husky/pre-push')).toBe('npm test\n');
+        const team = installGitPushHook(repo, 'rigour');
+        expect(team).toMatchObject({ action: 'appended', path: path.join(repo, '.husky/pre-push') });
+        expect(read('.husky/pre-push')).toContain(`npm test\n\n# Rigour push gate`);
+        expect(read('.husky/pre-push')).toContain(LINE);
+        expect(read('.husky/_/pre-push')).toBe('#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n'); // husky's stub, untouched
+        // rigour uninstall takes its line back out of the tracked script.
+        uninstall(repo);
+        expect(read('.husky/pre-push')).toBe('npm test\n');
+    });
+
+    it("in a fresh worktree whose generated folder does not exist yet, creates nothing there", () => {
+        husky9(false);
+        expect(installGitPushHook(repo, 'rigour').action).toBe('appended');
+        expect(fs.existsSync(path.join(repo, '.husky/_'))).toBe(false);
+        // With husky configured and no tracked pre-push yet, a team install creates the tracked one.
+        fs.rmSync(path.join(repo, '.husky/pre-push'));
+        expect(installGitPushHook(repo, 'rigour')).toMatchObject({ action: 'installed', path: path.join(repo, '.husky/pre-push') });
+        expect(fs.existsSync(path.join(repo, '.husky/_'))).toBe(false);
+    });
+
+    it("never replaces another tool's hook in .git/hooks: one that hands over with exec gets no line after it", () => {
+        const hook = path.join(repo, '.git/hooks/pre-push');
+        fs.mkdirSync(path.dirname(hook), { recursive: true });
+        fs.writeFileSync(hook, '#!/bin/sh\nexec lefthook run pre-push "$@"\n');
+        expect(installGitPushHook(repo, 'rigour')).toMatchObject({ action: 'add line', reason: expect.stringContaining('exec') });
+        expect(fs.readFileSync(hook, 'utf8')).toBe('#!/bin/sh\nexec lefthook run pre-push "$@"\n');
+    });
+
+    it("says in doctor when husky runs the hooks and Rigour's line is missing from its script", async () => {
+        husky9();
+        const { doctorCommand } = await import('./doctor.js');
+        const log: string[] = [];
+        const spy = (await import('vitest')).vi.spyOn(console, 'log').mockImplementation((line: unknown) => { log.push(String(line)); });
+        await doctorCommand({}, repo).catch(() => undefined);
+        spy.mockRestore();
+        expect(log.join('\n')).toContain('Push gate: managed by husky; the Rigour line is absent from');
     });
 });
