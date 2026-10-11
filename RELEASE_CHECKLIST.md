@@ -17,6 +17,10 @@ This checklist is release-blocking for end-user readiness.
    - an upgrade from the current `latest`: a repository set up with it opens with the new version, nothing it wrote lost;
    - no credential-shaped string in any published tarball.
    **Distribution Smoke** installs the exact version with `npx` and `npm i -g` on Linux, macOS and Windows.
+   **Global upgrade (macOS)** upgrades a global install in place from the current `latest` to this version, on Node 24
+   and 26, with npm's default prefix and a Homebrew-style one, and checks that `rigour` is still on PATH and runs. It is
+   report-only (it never blocks a release) and records the npm and Node versions in its summary: a failure there is
+   most likely npm's in-place replace, to reproduce minimally and take to npm.
 3. **A pull request from `next` into `main`**, merged by a maintainer once the candidate's gates are green, is the
    decision to release. Before merging it, the maintainer runs their own confidentiality sweep locally on the
    candidate's tarballs (`npm pack @rigour-labs/<package>@next`): a check for anything that must never be published,
