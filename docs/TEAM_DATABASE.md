@@ -41,7 +41,7 @@ If a `member`'s agent saves a memory with scope `team`, the database refuses it.
 Rigour sends a queued lesson only when all of these hold:
 
 1. Team mode is configured on the machine.
-2. The lesson's repository has an `origin` remote that matches one of the team's repositories (`--repositories`). A pattern ending in `/*` matches every repository under that owner (`github.com/acme/*`); anything else must match exactly (`github.com/acme/api`). Matching ignores the scheme, any `user@` part and case.
+2. The lesson's repository has an `origin` remote that matches one of the team's repositories (`--repositories`). A pattern ending in `/*` matches every repository under that owner (`github.com/acme/*`); anything else must match exactly (`github.com/acme/api`). Matching ignores the scheme, any `user@` part and case. An `origin` on an SSH host alias (`git@work-github:acme/api`, with `Host work-github` / `HostName github.com` in your ssh config) is compared as the host the alias names, which Rigour reads with `ssh -G` (it connects to nothing). A pattern with no host (`acme/*`, `acme/api`) matches the owner and repository on any host. The `not one of the team's repositories` message names what was compared.
 3. The lesson is `team`, or it is `personal` and `--sync-personal` is set.
 
 With no `--repositories`, nothing is sent. A repository with no `origin` remote is recorded by its local path, so a remote pattern never matches it. A lesson that fails these rules is marked `not sent: <reason>` in the local queue and is never retried, even if you later add its repository to the list. A later change to the same lesson queues it again and is judged by the rules at that time.
