@@ -1,9 +1,11 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { pinnedHomeEnv } from '@rigour-labs/core/profile';
+import { setReportOnlyHere } from './report-only.js';
 import { gitPushGateCommand, installGitPushHook, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 
 let repo: string;
@@ -62,9 +64,57 @@ describe('the git pre-push hook', () => {
         expect(deletion).toEqual({ exitCode: 0, message: '' });
     });
 
+    it('in report-only, lets a real git push through and says on the terminal what would have stopped it', () => {
+        const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'report-remote-'));
+        try {
+            execFileSync('git', ['init', '-q', '--bare', remote]);
+            git('remote', 'add', 'origin', remote);
+            fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\ngates:\n  unused_exports:\n    block: true\n');
+            fs.writeFileSync(path.join(repo, '.gitignore'), '.rigour/\n');
+            git('add', '-A');
+            git('commit', '-qm', 'team');
+            git('push', '-q', 'origin', 'HEAD:main');
+            git('checkout', '-qb', 'feature');
+            installGitPushHook(repo, selfTestCommand(bin));
+            fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 1;\nexport const forgotten = 2;\n');
+            git('commit', '-qam', 'adds an export nothing uses');
+            setReportOnlyHere(repo, true);
+            const pushed = spawnSync('git', ['push', 'origin', 'feature'], { cwd: repo, encoding: 'utf8', env: { ...process.env, RIGOUR_TELEMETRY: '0' } });
+            expect(pushed.status).toBe(0);
+            expect(pushed.stderr).toContain('the push would have been blocked');
+            expect(execFileSync('git', ['-C', remote, 'rev-parse', '--verify', '-q', 'refs/heads/feature'], { encoding: 'utf8' }).trim()).toBe(git('rev-parse', 'HEAD'));
+        } finally {
+            fs.rmSync(remote, { recursive: true, force: true });
+        }
+    }, 120_000);
+
     it('holds under a real git push: a change the gate must refuse is refused, the fix lands, read from the remote', async () => {
         const result = await selfTestGitPushHook(selfTestCommand(bin));
         expect(result.steps.join('\n')).toContain('was refused');
         expect(result).toMatchObject({ ok: true });
     }, 120_000);
+});
+
+describe("doctor's push-gate self-test", () => {
+    it("keeps the repository's profile home in its scratch clone, even where another profile matches the temp folder", () => {
+        const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'self-test-profiles-')));
+        const scratch = path.join(root, 'scratch');
+        fs.mkdirSync(scratch);
+        const profiles = path.join(root, 'profiles.json');
+        // acme is the repository's; other's match covers the temp folder the scratch clone lives in, with its own team.
+        fs.writeFileSync(profiles, JSON.stringify({ profiles: [
+            { name: 'acme', match: [repo], home: path.join(root, 'acme') },
+            { name: 'other', match: [root], home: path.join(root, 'other'), team: { organization: 'otherorg', team: 't', actor: 'a' } },
+        ] }));
+        // What doctor's process holds after applying acme for the repository (profile.ts applyProfile).
+        const doctor = { ...process.env, HOME: root, RIGOUR_AGENT_HOME: root, RIGOUR_PROFILES: profiles, RIGOUR_PROFILE: 'acme', RIGOUR_HOME: path.join(root, 'acme') };
+        // The home the CLI runs under there: `profile which` prints it on its home line.
+        const home = (env: NodeJS.ProcessEnv) => execFileSync(process.execPath, [bin, 'profile', 'which'], { cwd: scratch, env, encoding: 'utf8' }).match(/home: (.+)/)?.[1].trim();
+        try {
+            expect(home(doctor)).toBe(path.join(root, 'other', '.rigour')); // inherited as is, the scratch push would run as other
+            expect(home(pinnedHomeEnv(doctor))).toBe(path.join(root, 'acme', '.rigour'));
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
 });

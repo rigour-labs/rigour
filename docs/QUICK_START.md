@@ -45,6 +45,8 @@ rigour setup
 
 Settings are Rigour's defaults until you want them shared. It ends by checking that each piece works.
 
+**Your first week: `rigour setup --report-only`.** The edit check, the stop review and the push gate (git's `pre-push` hook too) say what they would have blocked and let the work through, so you see what Rigour would stop before it stops anything. A real credential is still refused. When you trust what it reports, run `rigour setup --block`. The switch is a marker in `.git/`, per repository; with `--team` it is `hooks.report_only` in `rigour.yml`, for everyone.
+
 **For a team:** `rigour setup --team` commits Rigour to the repository instead: `rigour.yml`, the hooks of the agents the repository uses and the MCP server in `.mcp.json`, so everyone who clones gets the same gate. Configs you already have are merged into, never replaced. Only `--team` writes into the repository: where the team has already committed Rigour's hooks, a plain `rigour setup` leaves every file as committed and says which ones. See [Team setup](./TEAM_SETUP.md).
 
 ## 3. Work as usual

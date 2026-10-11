@@ -26,6 +26,8 @@ import { disableHere, enableHere, registerUserMcp } from './personal.js';
 import { applyConfigMigrations, isOldEditHook } from './setup-migrations.js';
 import { getCliVersion } from '../utils/cli-version.js';
 import { setupSemantic } from './semantic.js';
+import { setReportOnlyHere, TEAM_REQUIRES_BLOCKING } from './report-only.js';
+import yaml from 'yaml';
 
 const AGENT_NAME = { claude: 'Claude Code', cursor: 'Cursor', cline: 'Cline', windsurf: 'Windsurf' } as const;
 
@@ -35,6 +37,10 @@ export interface SetupOptions {
     brief?: boolean;
     team?: boolean;
     instructions?: boolean;
+    /** A team's first week: every gate says what it would have blocked and blocks nothing (report-only.ts). */
+    reportOnly?: boolean;
+    /** Every gate blocks again (clears report-only). */
+    block?: boolean;
 }
 
 export async function setupCommand(cwd = process.cwd(), options: SetupOptions = {}): Promise<void> {
@@ -53,6 +59,7 @@ export async function setupCommand(cwd = process.cwd(), options: SetupOptions = 
     }
     // rigour.yml is the team's file: only --team changes it (doctor's checks below name what is due).
     if (team) for (const change of applyConfigMigrations(cwd)) console.log(chalk.green(`✔ Migrated ${change}`));
+    if (options.reportOnly || options.block) setGateMode(cwd, team, !!options.reportOnly);
     if (options.semantic !== false) await setupSemantic(cwd);
     await printRepoSetup(cwd);
     console.log(`See what Rigour does as your agents work: ${chalk.cyan('rigour studio')}`);
@@ -86,6 +93,28 @@ async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {
         await registerProjectMcp(cwd);
         if (options.instructions) await writeAgentInstructions(cwd);
     } else await initCommand(cwd, { instructions: options.instructions, brief: options.brief !== false });
+}
+
+/**
+ * Report-only or blocking, for this repository: the person's switch in the git directory, and with --team the team's
+ * in rigour.yml (`hooks.report_only`: true, or false with --block), so everyone who clones starts the same way.
+ */
+function setGateMode(cwd: string, team: boolean, report: boolean): void {
+    setReportOnlyHere(cwd, report);
+    const file = path.join(cwd, 'rigour.yml');
+    if (!team && report && fs.existsSync(file) && yaml.parse(fs.readFileSync(file, 'utf8'))?.hooks?.report_only === false) {
+        console.log(chalk.yellow(TEAM_REQUIRES_BLOCKING));
+        return;
+    }
+    if (team && fs.existsSync(file)) {
+        const doc = yaml.parseDocument(fs.readFileSync(file, 'utf8'));
+        // A team that turns blocking on means block: an explicit false, the floor no person's switch lowers.
+        doc.setIn(['hooks', 'report_only'], report);
+        fs.writeFileSync(file, doc.toString());
+    }
+    console.log(report
+        ? chalk.green(`✔ Report only: the edit check, the stop review and the push gate say what they would block and block nothing${team ? ' (hooks.report_only in rigour.yml)' : ''}. A real credential is still refused. Make them block: rigour setup${team ? ' --team' : ''} --block`)
+        : chalk.green('✔ The edit check, the stop review and the push gate block again.'));
 }
 
 /**

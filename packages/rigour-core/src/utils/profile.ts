@@ -90,6 +90,17 @@ export function applyProfile(cwd: string, profiles?: RigourProfile[]): RigourPro
     return profile;
 }
 
+/**
+ * This process's environment for a child that must keep its Rigour home wherever it starts: the home made explicit,
+ * with no RIGOUR_PROFILE, which is a home chosen for the run that no profile replaces (applyProfile). For a child
+ * started in a folder another profile matches, such as doctor's scratch clone in the temp folder: without this it
+ * would apply that profile, with its home and team.
+ */
+export function pinnedHomeEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+    const { RIGOUR_PROFILE: _applied, ...rest } = env;
+    return { ...rest, RIGOUR_HOME: env.RIGOUR_HOME || os.homedir() };
+}
+
 /** Why this process must not act for `cwd` (it belongs to another profile than the one applied at start), or null. */
 export function profileMismatch(cwd: string, profiles?: RigourProfile[]): string | null {
     const belongs = profileFor(cwd, profiles)?.name;

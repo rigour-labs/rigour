@@ -5,6 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readAgentEvents, readThread, recordSessionBaseline } from '@rigour-labs/core';
 import { hooksStopCommand } from './hooks-stop.js';
+import { setReportOnlyHere } from './report-only.js';
 
 // A credential header on a redirect-following request: a proven (verified) high finding.
 const LEAKY = "export async function notify(endpoint: string, signature: string) {\n  return fetch(endpoint, { method: 'POST', headers: { 'x-hook-signature': signature } });\n}\n";
@@ -97,6 +98,16 @@ describe('rigour hooks stop', () => {
         const held = JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'cross-opt-in' }), '/'));
         expect(held.decision).toBe('block');
         expect(held.reason).toContain('src/near.ts');
+    });
+
+    it('in report-only, lets the agent finish and says what would have held it', async () => {
+        write('src/notify.ts', LEAKY);
+        setReportOnlyHere(repo, true);
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        expect(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'report' }), '/')).toBe('');
+        expect(stderr.mock.calls.map(call => String(call[0])).join('')).toContain('the agent would have been held to fix');
+        setReportOnlyHere(repo, false);
+        expect(JSON.parse(await hooksStopCommand('claude', JSON.stringify({ cwd: repo, session_id: 'report-off' }), '/')).decision).toBe('block');
     });
 
     it('sends Cursor a follow-up message, and stops following up at the loop limit', async () => {
