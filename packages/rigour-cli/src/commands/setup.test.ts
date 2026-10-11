@@ -84,7 +84,8 @@ describe('rigour setup --report-only and --block', () => {
         expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).toContain('report_only: true');
         await setupCommand(repo, { semantic: false, team: true, block: true });
         expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).not.toContain('report_only');
-
+    });
+});
 
 describe('rigour setup without --team never writes into the working tree', () => {
     const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
