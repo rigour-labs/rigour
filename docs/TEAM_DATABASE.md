@@ -343,6 +343,7 @@ Rigour shares nothing it cannot account for, and never blocks your work on the d
 - **A remote URL without TLS.** Refused before any connection.
 - **Membership missing.** `configure` saves nothing; `sync` stops before sending anything.
 - **The database refuses one lesson** (row-level security, a constraint). That item is set aside, marked `refused by the team database: <reason>`, and the rest of the queue is sent.
+- **Your login lacks a grant.** The sync stops with one line naming the table and the `GRANT` the administrator runs (for example `your login lacks SELECT on rigour.organization_salts; ask the administrator to run: GRANT SELECT ON rigour.organization_salts TO "rigour_jane";`). Nothing is set aside: once granted, the next sync sends it all. `rigour team doctor` reports the same before the first sync (`reviewDecisions: missing grant`).
 - **Database unreachable or a send fails.** The item stays queued, its attempt count and error are recorded, and the sync stops. The next sync retries from the oldest item. The MCP server and Studio ignore sync errors, so checks, hooks, reviews and local learning carry on. Studio shows `offline` with the number queued.
 - **Review decisions not sent**, with the reason under `decisions.held` in `rigour team sync`:
   - `repository is not one of the team's repositories` or `repository has no origin remote`: the repository neither sends nor receives. Add it to `--repositories` if it should.

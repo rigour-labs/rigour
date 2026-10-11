@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diagnoseMissingMembership, explainTeamConnectionError, type QueryablePool } from './team-diagnostics.js';
+import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, refusedRow, type QueryablePool } from './team-diagnostics.js';
 import { TEAM_SCHEMA } from './team-schema.js';
 
 function pool(rows: Array<Record<string, unknown>> | Error): QueryablePool {
@@ -84,5 +84,32 @@ describe('team schema', () => {
         expect(TEAM_SCHEMA).toContain('ALTER TABLE rigour.review_decisions DROP CONSTRAINT IF EXISTS review_decisions_kind_check;');
         expect(TEAM_SCHEMA).toContain("'not-a-rule', 'took-back'))");
         expect(TEAM_SCHEMA).toContain("VALUES ('review_decision_kinds_version', '2')");
+    });
+});
+
+describe('a sync failure, in one line', () => {
+    const URL = 'postgresql://rigour_jane:secret@db.example.com:5432/rigour?sslmode=verify-full';
+    const denied = (table: string) => Object.assign(new Error(`permission denied for table ${table}`), { code: '42501', severity: 'ERROR', routine: 'aclcheck_error', stack: 'error: …\n    at Parser.parseErrorMessage (…)' });
+
+    it('names the missing grant and the GRANT to run, never the password or a stack', () => {
+        const line = explainSyncError(denied('organization_salts'), URL);
+        expect(line).toBe('your login lacks SELECT on rigour.organization_salts; ask the administrator to run: GRANT SELECT ON rigour.organization_salts TO "rigour_jane";');
+        expect(explainSyncError(denied('review_decisions'), URL)).toContain('GRANT SELECT, INSERT ON rigour.review_decisions TO "rigour_jane";');
+        expect(explainSyncError(Object.assign(new Error('permission denied for schema rigour'), { code: '42501' }), URL)).toContain('GRANT USAGE ON SCHEMA rigour TO "rigour_jane";');
+        for (const out of [line, explainSyncError(new Error('boom'), URL)]) {
+            expect(out).not.toContain('secret');
+            expect(out).not.toContain('\n');
+        }
+    });
+
+    it('passes connection problems through as their own explanation', () => {
+        expect(explainSyncError({ code: 'ECONNREFUSED', message: 'connect ECONNREFUSED' }, URL)).toContain('Cannot reach the team database');
+    });
+
+    it('sets aside only a row Postgres refused for itself: row-level security or a constraint, never a missing grant', () => {
+        expect(refusedRow(Object.assign(new Error('new row violates row-level security policy for table "review_decisions"'), { code: '42501' }))).toBe(true);
+        expect(refusedRow({ code: '23514', message: 'violates check constraint' })).toBe(true);
+        expect(refusedRow(denied('review_decisions'))).toBe(false);
+        expect(refusedRow({ code: 'ECONNRESET' })).toBe(false);
     });
 });

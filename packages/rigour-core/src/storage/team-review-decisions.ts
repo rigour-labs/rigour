@@ -15,6 +15,7 @@ import path from 'path';
 import { lessonsPath, readStoredLessons, type LessonEvidence, type ReviewLesson } from '../review-learning/lessons.js';
 import { mineKey, teamDecisionCachePath, type ReceivedDecision, type TeamDecisionCache } from '../review-learning/team-decisions.js';
 import { withFileLock, writeJsonAtomic } from '../utils/file-lock.js';
+import { refusedRow } from './team-diagnostics.js';
 import { repositoryAllowed, type TeamScope } from './team-scope.js';
 
 /** A person's decisions that are shared. A correction is not: it is learned from the person's own edit, and its text is the code they changed. */
@@ -128,11 +129,6 @@ export interface DecisionSync {
     held?: string;
 }
 
-/** Postgres refused the row itself: row-level security or a constraint. It would refuse it every time. */
-function refusedRow(error: unknown): boolean {
-    const code = (error as { code?: unknown })?.code;
-    return typeof code === 'string' && (code === '42501' || code.startsWith('23'));
-}
 
 type SyncInput = {
     cwd: string;
