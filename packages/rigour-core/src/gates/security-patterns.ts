@@ -173,8 +173,7 @@ export class SecurityPatternsGate extends Gate {
                         vuln.line,
                         vuln.severity
                     ),
-                    // A plain assignment stays a note even under security.block until its false-positive rate is measured.
-                    certainty: vuln.proven || (this.config.block && vuln.type !== 'secret_assignment') ? 'proven' : 'likely',
+                    certainty: vuln.proven || this.config.block ? 'proven' : 'likely',
                 });
             }
         }
