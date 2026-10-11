@@ -78,6 +78,12 @@ describe('rigour setup --report-only and --block', () => {
         expect(fs.existsSync(marker())).toBe(false);
     });
 
+    it("says so, and sets nothing, where the team's rigour.yml requires blocking", async () => {
+        fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\nhooks:\n  report_only: false\n');
+        await setupCommand(repo, { semantic: false, reportOnly: true });
+        expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).join('\n')).toContain("the team's rigour.yml requires blocking here");
+    });
+
     it("with --team, writes the team's switch into rigour.yml, and --block takes it out", async () => {
         fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\n');
         await setupCommand(repo, { semantic: false, team: true, reportOnly: true });

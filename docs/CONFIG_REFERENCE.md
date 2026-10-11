@@ -852,7 +852,7 @@ Settings for the hooks Rigour installs into coding agents. Installation itself i
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `require_review_ack` | boolean | `false` | When true, the agent stop hook holds the agent until each risky changed function has been acknowledged with rigour_review_ack. |
-| `report_only` | boolean | `false` | A team's first week: the edit check, the stop review and the push gate (git's pre-push hook too) say what they would have blocked and block nothing. A real credential is still refused before a tool call. `rigour setup --team --report-only` sets it; `rigour setup --team --block` takes it out. A person can set the same for one repository with `rigour setup --report-only` (a marker in .git, nothing committed). |
+| `report_only` | boolean | none | A team's first week: the edit check, the stop review and the push gate (git's pre-push hook too) say what they would have blocked and block nothing. A real credential is still refused before a tool call. `rigour setup --team --report-only` sets it; `rigour setup --team --block` takes it out. Unset, a person can choose it for their clone with `rigour setup --report-only` (a marker in .git, nothing committed); an explicit `false` is the team's floor, which no person's switch lowers. |
 
 ## Output
 

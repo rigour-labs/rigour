@@ -26,7 +26,7 @@ import { disableHere, enableHere, registerUserMcp } from './personal.js';
 import { applyConfigMigrations, isOldEditHook } from './setup-migrations.js';
 import { getCliVersion } from '../utils/cli-version.js';
 import { setupSemantic } from './semantic.js';
-import { setReportOnlyHere } from './report-only.js';
+import { setReportOnlyHere, TEAM_REQUIRES_BLOCKING } from './report-only.js';
 import yaml from 'yaml';
 
 const AGENT_NAME = { claude: 'Claude Code', cursor: 'Cursor', cline: 'Cline', windsurf: 'Windsurf' } as const;
@@ -102,6 +102,10 @@ async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {
 function setGateMode(cwd: string, team: boolean, report: boolean): void {
     setReportOnlyHere(cwd, report);
     const file = path.join(cwd, 'rigour.yml');
+    if (!team && report && fs.existsSync(file) && yaml.parse(fs.readFileSync(file, 'utf8'))?.hooks?.report_only === false) {
+        console.log(chalk.yellow(TEAM_REQUIRES_BLOCKING));
+        return;
+    }
     if (team && fs.existsSync(file)) {
         const doc = yaml.parseDocument(fs.readFileSync(file, 'utf8'));
         if (report) doc.setIn(['hooks', 'report_only'], true);

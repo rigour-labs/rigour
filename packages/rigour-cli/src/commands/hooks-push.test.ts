@@ -82,6 +82,17 @@ describe('rigour hooks push', () => {
         expect((await push()).exitCode).toBe(0);
     });
 
+    it("never lets a person's report-only lower a team that requires blocking", async () => {
+        write('src/util.ts', 'export const used = 1;\nexport const forgotten = 2;\n');
+        git('commit', '-qam', 'adds an export nothing uses');
+        write('rigour.yml', 'version: 1\ngates:\n  unused_exports:\n    block: true\nhooks:\n  report_only: false\n'); // the team's floor
+        setReportOnlyHere(repo, true);
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        expect((await push()).exitCode).toBe(2);
+        expect(stderr.mock.calls.map(call => String(call[0])).join('')).toContain("the team's rigour.yml requires blocking here");
+        stderr.mockRestore();
+    });
+
     it('blocks a push that leaves the scope its open pull request declares, and checks nothing without one', async () => {
         // A gh of our own on PATH: `pr view` answers with an open pull request, or fails.
         const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-gh-'));

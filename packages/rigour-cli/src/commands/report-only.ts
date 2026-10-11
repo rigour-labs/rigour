@@ -22,12 +22,21 @@ function markerPath(cwd: string): string | undefined {
     return common.status === 0 ? path.join(common.stdout.trim(), MARKER) : undefined;
 }
 
-/** Whether this repository's gates only report. */
+/**
+ * Whether this repository's gates only report. The team's rigour.yml decides when it says either way: an explicit
+ * `hooks.report_only: false` is a floor a person's switch never lowers, as with the reviewer's caps. Unset, the
+ * person's switch applies.
+ */
 export function reportOnly(cwd: string, config?: Config): boolean {
-    if (config?.hooks?.report_only) return true;
+    const team = config?.hooks?.report_only;
     const marker = markerPath(cwd);
-    return !!marker && fs.existsSync(marker);
+    const personal = !!marker && fs.existsSync(marker);
+    if (team === false && personal) process.stderr.write(`${TEAM_REQUIRES_BLOCKING}\n`);
+    return team ?? personal;
 }
+
+/** What a person's switch says where the team's rigour.yml requires blocking. */
+export const TEAM_REQUIRES_BLOCKING = "Rigour: report-only is on for this clone, but the team's rigour.yml requires blocking here (hooks.report_only: false), so the gates block.";
 
 /** Sets or clears the person's switch for this repository; false outside a git repository. */
 export function setReportOnlyHere(cwd: string, on: boolean): boolean {
