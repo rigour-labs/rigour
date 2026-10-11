@@ -52,3 +52,34 @@ describe('rigour doctor and a RIGOUR_HOME ending in .rigour', () => {
         }
     }, 60_000);
 });
+
+describe('rigour doctor --merge-state', () => {
+    it('is a dry run by default that names what moves and the rigour.db caveat, and --yes does it', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-state-'));
+        const outer = path.join(root, '.rigour');
+        const live = path.join(outer, '.rigour');
+        fs.mkdirSync(path.join(outer, 'models'), { recursive: true });
+        fs.writeFileSync(path.join(outer, 'models', 'lite.gguf'), 'old');
+        fs.writeFileSync(path.join(outer, 'rigour.db'), 'old');
+        fs.mkdirSync(live, { recursive: true });
+        fs.writeFileSync(path.join(live, 'rigour.db'), 'live');
+        const saved = process.env.RIGOUR_HOME;
+        process.env.RIGOUR_HOME = outer;
+        const log = vi.spyOn(console, 'log').mockImplementation(() => { });
+        try {
+            await doctorCommand({ mergeState: true });
+            const printed = log.mock.calls.map(call => String(call[0])).join('\n');
+            expect(printed).toContain('move   models into the live directory');
+            expect(printed).toContain('not merged row by row');
+            expect(printed).toContain('Nothing changed (a dry run)');
+            expect(fs.existsSync(path.join(outer, 'models'))).toBe(true);
+            await doctorCommand({ mergeState: true, yes: true });
+            expect(fs.existsSync(path.join(live, 'models', 'lite.gguf'))).toBe(true);
+            expect(fs.readFileSync(path.join(live, 'rigour.db'), 'utf8')).toBe('live');
+        } finally {
+            log.mockRestore();
+            if (saved === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = saved;
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+});

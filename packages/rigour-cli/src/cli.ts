@@ -264,7 +264,9 @@ program
     .command('doctor')
     .description('Check that Rigour is wired up and firing here, and that the install is healthy')
     .option('--clean-cache', 'Remove context-cache rows Rigour no longer reads, and shrink the database when the disk has room')
-    .action(async (options: { cleanCache?: boolean }) => {
+    .option('--merge-state', 'Merge what a home ending in .rigour from before 6.11.1 left over into the live state directory (a dry run; add --yes)')
+    .option('--yes', 'With --merge-state: do it')
+    .action(async (options: { cleanCache?: boolean; mergeState?: boolean; yes?: boolean }) => {
         await doctorCommand(options);
     });
 
