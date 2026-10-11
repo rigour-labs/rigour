@@ -134,7 +134,8 @@ function originRemote(cwd: string): string | undefined {
     return result.status === 0 && result.stdout.trim() ? hostPath(result.stdout) : undefined;
 }
 
-function expandHome(entry: string): string {
+/** A path with a leading `~` made absolute. */
+export function expandHome(entry: string): string {
     return entry.replace(/^~(?=$|[\\/])/, os.homedir());
 }
 

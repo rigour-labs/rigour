@@ -109,7 +109,7 @@ describe('the review decisions sync', () => {
                     const rows = remote.filter(r => Date.parse(r.received_at) > Date.parse(String(params[3])));
                     return { rows, rowCount: rows.length };
                 }
-                if (refuse) throw Object.assign(new Error('refused'), { code: refuse });
+                if (refuse) throw Object.assign(new Error(refuse === '42501' ? 'refused: new row violates row-level security policy for table "review_decisions"' : 'refused'), { code: refuse });
                 remote.push({ id: `row-${remote.length + 1}`, lesson_id: params[3], kind: params[4], actor_name: 'Jane D.', client_key: params[6], decided_at: params[7], received_at: new Date(clock += 1000).toISOString(), detail: params[8], payload: JSON.parse(String(params[9])) });
                 return { rows: [], rowCount: 1 };
             },
