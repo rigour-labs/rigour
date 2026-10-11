@@ -77,9 +77,9 @@ File: `.claude/settings.json` (team) or `~/.claude/settings.json` (personal).
 
 | Event | Matcher | Command | What it does |
 | --- | --- | --- | --- |
-| `PostToolUse` | `Write\|Edit\|MultiEdit` | `<cli> hooks check --stdin`, plus `--block` when asked | Fast checks on the file just written. |
+| `PostToolUse` | `Write\|Edit\|MultiEdit\|NotebookEdit\|Bash` | `<cli> hooks check --stdin`, plus `--block` when asked | Fast checks on every file just written, whichever tool wrote it. For a shell command, the files are found from the working tree, not the command: those git shows as changed or new and written since the call started (the `PreToolUse` Bash hook records when). A shell command that writes nothing costs one `git status` and says nothing. |
 | `Stop` | none | `<cli> hooks stop --tool claude` (timeout 120 s) | Reviews the branch against main before the agent finishes. At most three stops, then the agent may finish and the finding still blocks the push. |
-| `PreToolUse` | `Bash` | `<cli> hooks push --stdin` (timeout 1800 s); the CLI passes a command that is not a push straight through | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
+| `PreToolUse` | `Bash` | `<cli> hooks push --stdin` (timeout 1800 s); the CLI passes a command that is not a push straight through, after noting when the call started (for the edit check after it) | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
 | `PreToolUse` | `.*` | `<cli> hooks check --mode dlp --stdin` | Credentials in the input of every tool call: a real secret's format denies the call, anything else is a warning the agent sees. |
 
 ### Cursor

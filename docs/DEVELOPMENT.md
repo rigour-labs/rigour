@@ -10,7 +10,7 @@ one before.
 
 | Moment | What runs | What happens on a problem |
 | --- | --- | --- |
-| **After every edit** | Fast checks on the file the agent just changed: secrets, imports and APIs that do not exist, unsafe promises, security patterns. Under a second or two. | The agent sees the finding at once and fixes it in the same turn. |
+| **After every edit** | Fast checks on each file the agent just changed, whichever tool changed it: in Claude Code an Edit or Write, a notebook edit, or a shell command (a heredoc, a redirect, `sed -i`, a formatter). Secrets, imports and APIs that do not exist, unsafe promises, security patterns. Under a second or two. | The agent sees the finding at once and fixes it in the same turn. |
 | **Before the agent says "done"** | The whole branch against main: findings on the lines it changed, code nothing uses, risky query shapes, a merge conflict with main. | The agent is told what to fix and keeps working, at most three times, so it can never loop forever. |
 | **Before `git push`** | The same branch review, plus your own formatter, linter, type check and the tests that touch the change. Optionally the model [reviewer](./REVIEWER.md). | The push is refused, with one line per problem. |
 
