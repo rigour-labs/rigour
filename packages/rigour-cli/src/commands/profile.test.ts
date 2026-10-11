@@ -1,0 +1,41 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readProfiles } from '@rigour-labs/core/profile';
+import { profileAddCommand } from './profile.js';
+
+let root: string;
+const saved = process.env.RIGOUR_PROFILES;
+beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'profile-add-'));
+    process.env.RIGOUR_PROFILES = path.join(root, 'profiles.json');
+    vi.spyOn(console, 'log').mockImplementation(() => { });
+});
+afterEach(() => {
+    if (saved === undefined) delete process.env.RIGOUR_PROFILES; else process.env.RIGOUR_PROFILES = saved;
+    vi.restoreAllMocks();
+    fs.rmSync(root, { recursive: true, force: true });
+});
+
+describe('rigour profile add --home', () => {
+    it('keeps a new home ending in .rigour as one directory: the folder itself holds the state', () => {
+        profileAddCommand('acme', { match: '~/work/acme', home: path.join(root, 'acme', '.rigour') });
+        expect(readProfiles()[0].home).toBe(path.join(root, 'acme'));
+        expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).join('\n')).toContain(`Its state: ${path.join(root, 'acme', '.rigour')}`);
+    });
+
+    it('keeps a home from before 6.11.1 as given, where its live state is nested', () => {
+        const home = path.join(root, 'old', '.rigour');
+        fs.mkdirSync(path.join(home, '.rigour'), { recursive: true });
+        fs.writeFileSync(path.join(home, '.rigour', 'rigour.db'), '');
+        profileAddCommand('old', { match: '~/work/old', home });
+        expect(readProfiles()[0].home).toBe(home);
+        expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).join('\n')).toContain(`Its state: ${path.join(home, '.rigour')}`);
+    });
+
+    it('leaves a home that does not end in .rigour as given', () => {
+        profileAddCommand('beta', { match: '~/work/beta', home: path.join(root, 'beta') });
+        expect(readProfiles()[0].home).toBe(path.join(root, 'beta'));
+    });
+});

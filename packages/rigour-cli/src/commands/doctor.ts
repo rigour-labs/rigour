@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
-import { cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, legacyStateNote, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
+import { applyStateMerge, cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, legacyStateNote, planStateMerge, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
 import { configMigrations } from './setup-migrations.js';
 import { selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
@@ -66,9 +66,10 @@ export function hasVersionShadowing(versions: string[]): boolean {
     return new Set(normalized).size > 1;
 }
 
-export async function doctorCommand(options: { cleanCache?: boolean } = {}, cwd = process.cwd()): Promise<void> {
+export async function doctorCommand(options: { cleanCache?: boolean; mergeState?: boolean; yes?: boolean } = {}, cwd = process.cwd()): Promise<void> {
     console.log(chalk.bold.cyan('\nRigour Doctor\n'));
     if (options.cleanCache) return cleanCache();
+    if (options.mergeState) return mergeState(!!options.yes);
     await printRepoSetup(cwd);
     console.log(semanticStatusLine(cwd) + '\n');
     await printPushGate(cwd);
@@ -183,6 +184,24 @@ async function printPushGate(cwd: string): Promise<void> {
     const test = await selfTestGitPushHook(selfTestCommand());
     for (const step of test.steps) console.log(chalk.dim(`  - ${step}`));
     console.log(test.ok ? chalk.green('  ✓ The push gate holds under a real git push.\n') : chalk.red('  ✘ The push gate does not hold.\n'));
+}
+
+/** `--merge-state`: what an old home ending in .rigour left outside the live state directory, merged in; a dry run unless --yes. */
+function mergeState(yes: boolean): void {
+    const plan = planStateMerge();
+    if (!plan) return void console.log(chalk.green('Nothing to merge: Rigour keeps its state in one directory here.\n'));
+    console.log(`Live state: ${plan.live}\nLeft over in: ${plan.outer}\n`);
+    for (const step of plan.steps) {
+        console.log(step.action === 'move'
+            ? `  move   ${path.relative(plan.outer, step.from)} into the live directory`
+            : `  keep the live ${path.relative(plan.outer, step.from)}; rename the left-over one to ${path.basename(step.to)}`);
+    }
+    if (plan.steps.some(step => path.basename(step.from) === 'rigour.db' && step.action === 'aside')) {
+        console.log(chalk.yellow('\n  rigour.db is in both: the live one stays in use and the left-over one is kept, renamed, not merged row by row. Its old memory and lessons are not in the live database.'));
+    }
+    if (!yes) return void console.log(chalk.dim('\nNothing changed (a dry run). To do it: rigour doctor --merge-state --yes. Nothing is deleted or overwritten.\n'));
+    applyStateMerge(plan.steps);
+    console.log(chalk.green(`\nMerged: ${plan.steps.length} entr${plan.steps.length === 1 ? 'y' : 'ies'}. Nothing was deleted.\n`));
 }
 
 async function printDatabaseHealth(): Promise<void> {

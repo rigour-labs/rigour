@@ -11,7 +11,7 @@ export { FrontendSecretExposureGate } from './gates/frontend-secret-exposure.js'
 export * from './utils/logger.js';
 export { normalizeScopePatterns, isScoped } from './utils/scope.js';
 export { deepAnalysisError } from './utils/deep-status.js';
-export { rigourUserDir, repoStateDir, legacyStateNote } from './utils/user-state.js';
+export { homeFor, rigourUserDir, repoStateDir, legacyStateNote, planStateMerge, applyStateMerge, type StateMergeStep } from './utils/user-state.js';
 export { locateTransformers, pruneSemanticRuntime, RETIRED_TRANSFORMERS_PACKAGE, retiredSemanticRuntimeInstalled, SEMANTIC_INSTALL_ENV, semanticRuntimeDir, semanticRuntimeInstalled, TRANSFORMERS_SPEC } from './pattern-index/semantic-runtime.js';
 export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, type ReviewFinding } from './review/review.js';
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
