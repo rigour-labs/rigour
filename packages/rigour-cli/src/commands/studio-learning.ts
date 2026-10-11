@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, lastDecision, readTeamDecisionCache, type TeamDecisionCache, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, lastDecision, takeBackable, readTeamDecisionCache, type TeamDecisionCache, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { decider } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 
@@ -39,6 +39,8 @@ export interface LessonJourney {
     reach?: { scope: 'file' | 'folder' | 'repo'; hasFile: boolean };
     /** A candidate only review bots raised, nothing waiting on a person (core quietBotCandidate): hidden until a person asks to see bot points. */
     fromBots?: true;
+    /** A person's last decision on a review lesson (promoted, rejected, not a rule) can be taken back to a candidate (core takeBackable). */
+    canTakeBack?: true;
     /**
      * Teammates' decisions on a review lesson, received from the team database (core team-decisions.ts): each with the
      * teammate's display name and when the team database got it; and, when a later team decision settled the lesson
@@ -105,6 +107,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             ...(l.suggestedText ? { suggestedText: { text: l.suggestedText, why: l.suggestedWhy ?? 'reworded' } } : {}),
             reach: { scope: l.scope ?? ('file' as const), hasFile: !!l.file },
             ...(quietBotCandidate(l) ? { fromBots: true as const } : {}),
+            ...(takeBackable(l) ? { canTakeBack: true as const } : {}),
         })),
     // Lessons back to a candidate when outcomes stopped promoting come first: a person decides each once.
     ].sort((a: LessonJourney, b: LessonJourney) => Number(!!b.reclassified) - Number(!!a.reclassified) || b.learnedAt.localeCompare(a.learnedAt))
@@ -161,14 +164,18 @@ function studioWhy(why: unknown): string {
     return typeof why === 'string' && why.trim() ? why.trim() : 'decided in Studio';
 }
 
+/** The decisions Studio records on a review lesson, as `rigour learn-reviews` does. */
+type ReviewDecision = 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back';
+const REVIEW_DECISIONS = new Set<ReviewDecision>(['accepted', 'rejected', 'dismissed', 'not-a-rule', 'took-back']);
+
 /** A person's decision on a review lesson from Studio, recorded as `rigour learn-reviews --promote / --reject` records it: with their git email, and final. */
 export function decideReviewLesson(cwd: string, body: unknown): { id: string; state: string } {
     const { id, decision, why } = (body ?? {}) as { id?: unknown; decision?: unknown; why?: unknown };
     if (typeof id !== 'string' || !/^[0-9a-f]{12}$/.test(id)) throw new Error('a review lesson id (12 hex characters) is required');
     if (decision === 'reworded') return rewordFromStudio(cwd, id);
     if (decision === 'scope') return scopeFromStudio(cwd, id, (body as { to?: unknown }).to, why);
-    if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'dismissed') throw new Error('decision is accepted, rejected, dismissed, reworded or scope');
-    const lesson = decideLesson(cwd, id, decision, decider(cwd), studioWhy(why));
+    if (!REVIEW_DECISIONS.has(decision as ReviewDecision)) throw new Error('decision is accepted, rejected, dismissed, not-a-rule, took-back, reworded or scope');
+    const lesson = decideLesson(cwd, id, decision as ReviewDecision, decider(cwd), studioWhy(why));
     if (!lesson) throw new Error(`no review lesson ${id}`);
     return { id: lesson.id, state: lesson.state };
 }

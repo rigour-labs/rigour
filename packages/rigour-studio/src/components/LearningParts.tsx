@@ -35,6 +35,8 @@ export interface Journey {
     reach?: { scope: 'file' | 'folder' | 'repo'; hasFile: boolean };
     /** A candidate only review bots raised, with nothing waiting on a person: hidden until a person asks to see bot points. */
     fromBots?: true;
+    /** A person's last decision on this review lesson (promoted, rejected, not a rule) can be taken back to a candidate. */
+    canTakeBack?: true;
     /** Teammates' decisions on this lesson, by display name; and a later team decision that settled it against yours. */
     team?: {
         decisions: Array<{ kind: string; name: string; at: string; detail?: string }>;
@@ -42,8 +44,11 @@ export interface Journey {
     };
 }
 
+/** What a decided review lesson is, beside its Take back. */
+const TAKE_BACK_SAYS: Record<string, string> = { verified: 'Promoted: agents are told it.', rejected: 'Dropped: agents are told the team decided against it.', dropped: 'Not a rule: never told to agents.' };
+
 /** A teammate's decision, in words. */
-const TEAM_VERB: Record<string, string> = { accepted: 'accepted', rejected: 'rejected', dismissed: 'dismissed', scoped: 'set how far it reaches', reworded: 'reworded', compiled: 'decided its compiled check' };
+const TEAM_VERB: Record<string, string> = { accepted: 'accepted', rejected: 'rejected', dismissed: 'dismissed', scoped: 'set how far it reaches', reworded: 'reworded', compiled: 'decided its compiled check', 'not-a-rule': 'judged not a rule', 'took-back': 'took back the decision on' };
 const day = (iso: string) => iso.slice(0, 10);
 
 /** The team's decisions on a lesson, and, when a later one settled it against yours, both. */
@@ -76,7 +81,7 @@ export const BotPointsToggle: React.FC<{ count: number; shown: boolean; onToggle
 /** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
 const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);
 
-export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'reworded') => void; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void }> = ({ lesson, onDecide, onDecideReview, onScope }) => (
+export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back' | 'reworded') => void; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void }> = ({ lesson, onDecide, onDecideReview, onScope }) => (
     <div className="st-card">
         <div className="st-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{inlineCode(lesson.text)}</div>
@@ -132,9 +137,16 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         )}
         {lesson.canDecide && lesson.origin === 'pr' && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
             <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">From review, not confirmed yet. Is this how your team works, so agents get told?</span>
+                <span className="st-sub">From review, not confirmed yet. Is this how your team works, so agents get told? A one-off task for that pull request is not a rule; Drop tells agents the team decided against it.</span>
                 <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
-                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'rejected')} type="button">Drop</button>
+                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'not-a-rule')} type="button">Not a rule</button>
+                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'rejected')} type="button" title="Agents are told the team decided against this">Drop</button>
+            </div>
+        )}
+        {lesson.canTakeBack && (
+            <div className="st-row" style={{ marginTop: 14 }}>
+                <span className="st-sub">{TAKE_BACK_SAYS[lesson.state] ?? 'Decided.'} Changed your mind? Taking it back makes it a candidate again; the decision stays in its history.</span>
+                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'took-back')} type="button">Take back</button>
             </div>
         )}
         {lesson.canDecide && lesson.origin !== 'pr' && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (

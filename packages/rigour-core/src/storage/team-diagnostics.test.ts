@@ -79,4 +79,10 @@ describe('team schema', () => {
         expect(stamp).toContain('SELECT membership.display_name FROM rigour.memberships');
         expect(TEAM_SCHEMA).toContain('BEFORE INSERT ON rigour.review_decisions');
     });
+
+    it('widens the decision kinds in place, and says so, so a client sends not-a-rule and took-back only then', () => {
+        expect(TEAM_SCHEMA).toContain('ALTER TABLE rigour.review_decisions DROP CONSTRAINT IF EXISTS review_decisions_kind_check;');
+        expect(TEAM_SCHEMA).toContain("'not-a-rule', 'took-back'))");
+        expect(TEAM_SCHEMA).toContain("VALUES ('review_decision_kinds_version', '2')");
+    });
 });

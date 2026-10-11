@@ -169,6 +169,13 @@ CREATE POLICY review_decisions_insert ON rigour.review_decisions FOR INSERT WITH
 );
 INSERT INTO rigour.meta (key, value) VALUES ('schema_version', '1')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+-- The decisions a row may carry, widened in place (a table made before 'not-a-rule' and 'took-back' gets them too).
+-- review_decision_kinds_version 2 says so: a client sends those two kinds only then, and holds them otherwise.
+ALTER TABLE rigour.review_decisions DROP CONSTRAINT IF EXISTS review_decisions_kind_check;
+ALTER TABLE rigour.review_decisions ADD CONSTRAINT review_decisions_kind_check
+    CHECK (kind IN ('accepted', 'rejected', 'dismissed', 'scoped', 'reworded', 'correction', 'compiled', 'not-a-rule', 'took-back'));
 INSERT INTO rigour.meta (key, value) VALUES ('review_decisions_version', '1')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+INSERT INTO rigour.meta (key, value) VALUES ('review_decision_kinds_version', '2')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 `;
