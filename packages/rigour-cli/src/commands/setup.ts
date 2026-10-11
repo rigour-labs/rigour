@@ -97,7 +97,7 @@ async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {
 
 /**
  * Report-only or blocking, for this repository: the person's switch in the git directory, and with --team the team's
- * in rigour.yml (`hooks.report_only`), so everyone who clones starts the same way.
+ * in rigour.yml (`hooks.report_only`: true, or false with --block), so everyone who clones starts the same way.
  */
 function setGateMode(cwd: string, team: boolean, report: boolean): void {
     setReportOnlyHere(cwd, report);
@@ -108,8 +108,8 @@ function setGateMode(cwd: string, team: boolean, report: boolean): void {
     }
     if (team && fs.existsSync(file)) {
         const doc = yaml.parseDocument(fs.readFileSync(file, 'utf8'));
-        if (report) doc.setIn(['hooks', 'report_only'], true);
-        else doc.deleteIn(['hooks', 'report_only']);
+        // A team that turns blocking on means block: an explicit false, the floor no person's switch lowers.
+        doc.setIn(['hooks', 'report_only'], report);
         fs.writeFileSync(file, doc.toString());
     }
     console.log(report

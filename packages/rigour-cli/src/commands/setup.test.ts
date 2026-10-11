@@ -84,12 +84,12 @@ describe('rigour setup --report-only and --block', () => {
         expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).join('\n')).toContain("the team's rigour.yml requires blocking here");
     });
 
-    it("with --team, writes the team's switch into rigour.yml, and --block takes it out", async () => {
+    it("with --team, writes the team's switch into rigour.yml, and --block writes the floor", async () => {
         fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\n');
         await setupCommand(repo, { semantic: false, team: true, reportOnly: true });
         expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).toContain('report_only: true');
         await setupCommand(repo, { semantic: false, team: true, block: true });
-        expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).not.toContain('report_only');
+        expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).toContain('report_only: false'); // no person's switch lowers it
     });
 });
 
