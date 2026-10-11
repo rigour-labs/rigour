@@ -35,6 +35,8 @@ npm install -g @rigour-labs/cli     # or: brew install rigour-labs/tap/rigour
 rigour setup
 ```
 
+If `npm install -g` fails with `ENOTEMPTY`, or finishes with no `rigour` command, another npm process ran at the same time (an editor's or another terminal's install). Run `npm uninstall -g @rigour-labs/cli`, then `npm install -g @rigour-labs/cli` again.
+
 `rigour setup` is **personal** by default: nothing in your working tree, nothing to commit. It:
 
 - switches Rigour on for this repository with a marker inside `.git/`, and adds `.rigour/` to `.git/info/exclude` (not your `.gitignore`);
