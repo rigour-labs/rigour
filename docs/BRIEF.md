@@ -31,7 +31,9 @@ Rigour briefing for PROJ-123: how this team builds the code this task will likel
    point as its reviewer wrote it, which no person has confirmed: often a remark about that one pull request ("Is this
    name final?", a reply to the author), not an instruction for the next task. That is why the default serves verified lessons
    only. A new team sees few lessons in its briefings until a person confirms some (Studio, or
-   `rigour learn-reviews --promote`): by design, a person decides what the team's agents are told.
+   `rigour learn-reviews --promote`): by design, a person decides what the team's agents are told. Candidates and
+   lessons live in the checkout (`.rigour/review-lessons.json`), so a throwaway worktree briefs with none until
+   `rigour learn-reviews` runs there (see [REVIEWER.md](./REVIEWER.md#how-it-learns)).
 3. Points the team settled against, so the agent neither does them nor raises them.
 4. Guidance rules.
 
