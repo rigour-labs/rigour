@@ -16,7 +16,7 @@ import { lessonsPath, readStoredLessons, type LessonEvidence, type ReviewLesson 
 import { mineKey, teamDecisionCachePath, type ReceivedDecision, type TeamDecisionCache } from '../review-learning/team-decisions.js';
 import { withFileLock, writeJsonAtomic } from '../utils/file-lock.js';
 import { refusedRow } from './team-diagnostics.js';
-import { repositoryAllowed, type TeamScope } from './team-scope.js';
+import { notTheTeamsRepository, repositoryAllowed, type TeamScope } from './team-scope.js';
 
 /** A person's decisions that are shared. A correction is not: it is learned from the person's own edit, and its text is the code they changed. */
 const SHARED_KINDS = new Set<LessonEvidence['kind']>(['accepted', 'rejected', 'dismissed', 'scoped', 'reworded', 'compiled', 'not-a-rule', 'took-back']);
@@ -152,7 +152,7 @@ const RECEIVE_OVERLAP_MS = 15 * 60_000;
 export async function syncReviewDecisions(pool: DecisionPool, cache: DecisionCache, input: SyncInput): Promise<DecisionSync> {
     const { origin, scope } = input;
     if (!origin) return { sent: 0, refused: 0, received: 0, held: 'repository has no origin remote' };
-    if (!repositoryAllowed(origin, scope)) return { sent: 0, refused: 0, received: 0, held: 'repository is not one of the team\'s repositories' };
+    if (!repositoryAllowed(origin, scope)) return { sent: 0, refused: 0, received: 0, held: notTheTeamsRepository(origin, scope) };
     // The version first: a database from before review decisions has no salts table to read.
     const meta = new Map((await pool.query(`SELECT key, value FROM rigour.meta WHERE key IN ('review_decisions_version', 'review_decision_kinds_version')`)).rows.map(r => [r.key, r.value]));
     if (meta.get('review_decisions_version') !== '1') return { sent: 0, refused: 0, received: 0, held: 'the team database has no review decisions yet: run rigour team init-schema' };
@@ -192,7 +192,7 @@ export interface DecisionPreview {
 export async function previewReviewDecisions(cache: DecisionCache, input: SyncInput): Promise<DecisionPreview> {
     const { cwd, origin, repositoryId, person, scope } = input;
     if (!origin) return { yours: 0, yoursByKind: {}, notYours: {}, held: 'repository has no origin remote' };
-    if (!repositoryAllowed(origin, scope)) return { yours: 0, yoursByKind: {}, notYours: {}, held: 'repository is not one of the team\'s repositories' };
+    if (!repositoryAllowed(origin, scope)) return { yours: 0, yoursByKind: {}, notYours: {}, held: notTheTeamsRepository(origin, scope) };
     const lessons = readStoredLessons(cwd);
     const notYours = decisionsByOthers(lessons, person);
     if (!person || person === 'unknown') return { yours: 0, yoursByKind: {}, notYours, held: 'no git user.email here, so no decision can be told apart as yours' };
