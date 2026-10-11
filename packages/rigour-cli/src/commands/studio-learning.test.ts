@@ -86,7 +86,7 @@ describe('a review lesson evidence took back', () => {
             const decision = readLessons(repo)[0].evidence.at(-1);
             expect(decision).toMatchObject({ kind: 'accepted', author: 'lead@team.example', detail: 'decided in Studio' });
             expect(() => decideReviewLesson(repo, { id: 'nope', decision: 'accepted' })).toThrow('12 hex characters');
-            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'validated' })).toThrow('accepted, rejected, dismissed, reworded or scope');
+            expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'validated' })).toThrow('accepted, rejected, dismissed, not-a-rule, took-back, reworded or scope');
             expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'reworded' })).toThrow('with a suggested wording');
             expect(() => decideReviewLesson(repo, { id: 'ffffffffffff', decision: 'accepted' })).toThrow('no review lesson');
         } finally {
