@@ -4,6 +4,7 @@
  * meaning. `rigour setup` installs it unless asked not to, or the disk is too full; nothing else
  * ever does, so a hook or an MCP call never waits on a download.
  */
+import { confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { execa } from 'execa';
 import fs from 'fs';
@@ -49,13 +50,26 @@ function freeBytes(dir: string): number | undefined {
     }
 }
 
+/** What semantic search takes on disk, as measured per platform after setup's pruning (semantic-runtime.ts). */
+const SIZE = 'about 250 MB on Linux, 280 MB on macOS';
+
+/** A person at a terminal, not a script, a pipe or CI. */
+function interactive(): boolean {
+    return !!process.stdin.isTTY && !!process.stdout.isTTY && !process.env.CI;
+}
+
 /** The setup step, as a person reads it. */
 export async function setupSemantic(cwd: string): Promise<void> {
     if (locateTransformers(cwd)) {
         console.log(chalk.green('✔ Semantic search is on (local embeddings)'));
         return;
     }
-    console.log(chalk.dim('Installing semantic search: about 250 MB on Linux, 280 MB on macOS, once for every Rigour version on this machine (skip with --no-semantic)...'));
+    // A person at a terminal says yes before a download this size; a script or CI installs as before (--no-semantic skips it).
+    if (interactive() && !await confirm({ message: `Install semantic search? ${SIZE}, once for every Rigour version on this machine. It lets recall and "is there already a helper for this?" work by meaning.`, default: true })) {
+        console.log(chalk.yellow('Semantic search is off. Recall and pattern matching use keywords until `rigour setup` installs it.'));
+        return;
+    }
+    console.log(chalk.dim(`Installing semantic search: ${SIZE}, once for every Rigour version on this machine (skip with --no-semantic)...`));
     const result = await ensureSemanticRuntime(cwd);
     if (result.state === 'installed' || result.state === 'present') console.log(chalk.green('✔ Semantic search is on (local embeddings)'));
     else console.log(chalk.yellow(`Semantic search is off (${result.reason}). Recall and pattern matching use keywords until \`rigour setup\` runs again.`));

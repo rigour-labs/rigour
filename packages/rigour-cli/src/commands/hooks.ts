@@ -39,6 +39,9 @@ import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.
 import { agentHome, asUserLevel, installedAgents } from './personal.js';
 import { hookStdin } from './hook-input.js';
 import { loadHookConfig } from './hooks-stop.js';
+import { REPORT_ONLY_PREFIX, reportOnly } from './report-only.js';
+import { filesWrittenSince, toolCallId } from './shell-writes.js';
+import { repositoryOf } from './hooks-push.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -240,8 +243,9 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
     const blockFlag = block ? ' --block' : '';
     const checkerCommand = checkerToShellCommand(checker);
     const hooks: Record<string, unknown[]> = {
+        // Every write is checked, whichever tool made it: a shell command's writes too (shell-writes.ts).
         PostToolUse: [{
-            matcher: "Write|Edit|MultiEdit",
+            matcher: "Write|Edit|MultiEdit|NotebookEdit|Bash",
             hooks: [{
                 type: "command" as const,
                 command: `${checkerCommand} --stdin${blockFlag}`,
@@ -700,6 +704,7 @@ export function parseStdinFiles(input: string): string[] {
             const ti = payload.tool_input;
             if (typeof ti === 'object' && ti !== null) {
                 if (ti.file_path) return [ti.file_path];
+                if (ti.notebook_path) return [ti.notebook_path]; // Claude Code NotebookEdit
                 if (ti.path) return [ti.path];
             }
         }
@@ -888,6 +893,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
     let cursorMode = false;
 
     let hookSession: string | undefined;
+    let shellWrites: string[] | undefined;
     if (options.stdin) {
         rawStdin = await hookStdin();
         // Detect Cursor/IDE hook payload format
@@ -902,15 +908,23 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
                 recordSessionBaseline(cwd, session);
                 hookSession = session;
             }
+            // A shell call: the files it wrote, found from the working tree, not the command (shell-writes.ts).
+            if (payload.tool_name === 'Bash') {
+                const repo = repositoryOf(typeof payload.cwd === 'string' ? payload.cwd : cwd);
+                const call = toolCallId(payload);
+                shellWrites = repo && call ? filesWrittenSince(repo, call) ?? [] : [];
+            }
         } catch (parseErr: any) {
             // Not valid JSON — log for debugging (stderr only, stdout must stay clean)
             process.stderr.write(`[rigour-hook-debug] stdin JSON parse failed: ${parseErr?.message?.slice(0, 100)}\n`);
         }
     }
 
-    const files = options.stdin
+    // A shell call that wrote nothing: nothing to check, and nothing to say.
+    if (shellWrites && shellWrites.length === 0) return;
+    const files = shellWrites ?? (options.stdin
         ? parseStdinFiles(rawStdin)
-        : (options.files ?? '').split(',').map(f => f.trim()).filter(Boolean);
+        : (options.files ?? '').split(',').map(f => f.trim()).filter(Boolean));
 
     if (files.length === 0) {
         // The old edit hook passes "$TOOL_INPUT_file_path", which the agent never sets: an empty --files. Say so on every
@@ -930,6 +944,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         result: await runHookChecker({ cwd: group.root, files: group.files, timeout_ms: Number.isFinite(timeout) ? timeout : 5000, agentId }),
     })));
     const result = mergeHookResults(runs.map(r => r.result));
+    // A team's first week: the findings are said, and the edit goes through (report-only.ts).
+    const blocking = !!options.block && !(await Promise.all(runs.map(async run => reportOnly(run.root, await loadHookConfig(run.root).catch(() => undefined))))).some(Boolean);
 
     const counted = { agent: cursorMode ? 'cursor' : agentId };
     countUsage('hook_check', 1, counted);
@@ -949,8 +965,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             }),
             logStudioEvent(root, {
                 type: 'hook_check', requestId, outcome, status: repoResult.status, agentId,
-                // Only a --block hook stops the edit; without it the findings are reported and the agent carries on.
-                blocked: !!options.block && repoResult.status === 'fail',
+                // Only a --block hook stops the edit; without it (or in report-only) the findings are reported and the agent carries on.
+                blocked: blocking && repoResult.status === 'fail',
                 files: repoFiles, summary: `${repoFiles.length} file(s), ${repoResult.failures.length} finding(s)`,
                 findings: repoResult.failures.slice(0, 10).map(f => ({ gate: f.gate, file: f.file, line: f.line, message: f.message, severity: f.severity })),
             }),
@@ -967,7 +983,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
                 })
                 .join('\n');
             process.stdout.write(JSON.stringify({
-                continue: !options.block, // block mode = stop, otherwise warn
+                continue: !blocking, // block mode = stop, otherwise warn
                 user_message: `⚠️ Rigour: ${result.failures.length} issue(s) found:\n${messages}`,
             }));
         } else {
@@ -984,9 +1000,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             const loc = failure.line ? `:${failure.line}` : '';
             process.stderr.write(`[rigour/${failure.gate}] ${failure.file}${loc}: ${failure.message}\n`);
         }
-        if (options.block) {
-            process.exitCode = 2;
-        }
+        if (blocking) process.exitCode = 2;
+        else if (options.block) process.stderr.write(`${REPORT_ONLY_PREFIX} the edit would have been blocked for the above.\n`);
     }
 }
 

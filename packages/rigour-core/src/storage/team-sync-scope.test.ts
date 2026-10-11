@@ -4,7 +4,7 @@ import path from 'path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** The outbox and repositories a machine holds, and what reached the team database. */
-const state = vi.hoisted(() => ({ outbox: [] as any[], repos: new Map<string, string>(), sent: [] as string[], refuse: new Set<string>(), meta: new Map<string, string>(), remote: [] as any[], since: [] as number[] }));
+const state = vi.hoisted(() => ({ outbox: [] as any[], repos: new Map<string, string>(), sent: [] as string[], refuse: new Set<string>(), noGrant: false, meta: new Map<string, string>(), remote: [] as any[], since: [] as number[] }));
 
 vi.mock('./db.js', () => ({
     openDatabase: async () => ({
@@ -28,6 +28,7 @@ vi.mock('pg', () => ({
     Pool: class {
         async query(sql: string, params: any[]) {
             if (sql.includes('INSERT INTO rigour.lessons')) {
+                if (state.noGrant) throw Object.assign(new Error('permission denied for table lessons'), { code: '42501' });
                 if (state.refuse.has(params[0])) throw Object.assign(new Error('new row violates row-level security policy for table "lessons"'), { code: '42501' });
                 state.sent.push(params[0]);
                 return { rowCount: 1, rows: [] };
@@ -58,7 +59,7 @@ const saved = { ...process.env };
 beforeEach(() => {
     Object.assign(process.env, TEAM_ENV);
     delete process.env.RIGOUR_TEAM_SYNC_PERSONAL;
-    state.outbox = []; state.sent = []; state.refuse = new Set(); state.meta = new Map(); state.remote = []; state.since = [];
+    state.outbox = []; state.sent = []; state.refuse = new Set(); state.noGrant = false; state.meta = new Map(); state.remote = []; state.since = [];
     state.repos = new Map([['r-team', 'https://github.com/acme/web'], ['r-other', 'https://github.com/other-org/app']]);
     queue('l-team', 'r-team', 'team');
     queue('l-other', 'r-other', 'team');
@@ -104,6 +105,14 @@ describe('team sync scope', () => {
 
         expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ pulled: 1 }); // only b, inside the 15-minute margin
         expect(state.since[1]).toBe(20 * HOUR - 15 * 60_000);
+    });
+
+    it('stops on a missing grant with one line and the GRANT, and keeps the lesson queued to send once granted', async () => {
+        state.noGrant = true;
+        await expect(syncTeamOutbox({ cwd: NO_GIT })).rejects.toThrow('your login lacks SELECT, INSERT, UPDATE on rigour.lessons; ask the administrator to run: GRANT SELECT, INSERT, UPDATE ON rigour.lessons TO "<your login>";');
+        expect(state.outbox.find(o => o.id === 'outbox-l-team').synced_at).toBeNull();
+        state.noGrant = false;
+        expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ synced: 1 });
     });
 
     it('sends nothing when the team lists no repositories', async () => {

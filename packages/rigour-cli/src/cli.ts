@@ -250,7 +250,13 @@ program
     .option('--instructions', 'With --team: also write AGENTS.md, and a one-line CLAUDE.md that imports it, where the project has none')
     .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
     .option('--no-brief', 'Do not brief the agent with the team\'s rules and lessons (on by default: from each session\'s first prompt, and on the first edit of each file)')
-    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean; brief?: boolean }) => {
+    .option('--report-only', 'A team\'s first week: the edit check, the stop review and the push gate (git\'s pre-push hook too) say what they would block and block nothing. A real credential is still refused. With --team, for everyone (rigour.yml)')
+    .option('--block', 'Make the gates block again after --report-only')
+    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean; brief?: boolean; reportOnly?: boolean; block?: boolean }) => {
+        if (options.reportOnly && options.block) {
+            console.error('Choose one: --report-only or --block.');
+            process.exit(2);
+        }
         await setupCommand(process.cwd(), options);
     });
 
@@ -258,7 +264,9 @@ program
     .command('doctor')
     .description('Check that Rigour is wired up and firing here, and that the install is healthy')
     .option('--clean-cache', 'Remove context-cache rows Rigour no longer reads, and shrink the database when the disk has room')
-    .action(async (options: { cleanCache?: boolean }) => {
+    .option('--merge-state', 'Merge what a home ending in .rigour from before 6.11.1 left over into the live state directory (a dry run; add --yes)')
+    .option('--yes', 'With --merge-state: do it')
+    .action(async (options: { cleanCache?: boolean; mergeState?: boolean; yes?: boolean }) => {
         await doctorCommand(options);
     });
 

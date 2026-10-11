@@ -375,6 +375,11 @@ export const CommandsSchema = z.object({
 export const HooksSchema = z.object({
     /** Stop hook: hold "done" until the agent acknowledges each risky changed function (rigour_review_ack). */
     require_review_ack: z.boolean().optional().default(false),
+    /**
+     * A team's first week: every gate (edit, stop, push) says what it would have blocked and blocks nothing. Unset, a
+     * person may choose report-only for their clone; an explicit false is the team's floor, which no person's switch lowers.
+     */
+    report_only: z.boolean().optional(),
 }).optional().default({});
 
 export const ConfigSchema = z.object({

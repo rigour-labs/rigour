@@ -41,9 +41,11 @@ rigour setup
 - installs the agent hooks **once per machine**, for the agents installed on it (Claude Code, Cursor, Windsurf, Cline), in each one's user-level config. They are merged into what you have (your settings and own hooks stay), and each starts with a guard that stays silent in any repository you have not switched on;
 - installs git's `pre-push` hook in `.git/hooks`, so every tool and your terminal go through the same gate;
 - registers Rigour's MCP server at user level for Claude Code and Cursor;
-- installs semantic search, once per machine (about 250 MB on Linux, 280 MB on macOS, shared by every Rigour version). It lets "have we learned this before?" and "is there already a helper for this?" work by meaning. Skip it with `--no-semantic`.
+- installs semantic search, once per machine (about 250 MB on Linux, 280 MB on macOS, shared by every Rigour version). It lets "have we learned this before?" and "is there already a helper for this?" work by meaning. At a terminal, setup asks first, with the size (yes by default); a script or CI installs it without asking. Skip it with `--no-semantic`.
 
 Settings are Rigour's defaults until you want them shared. It ends by checking that each piece works.
+
+**Your first week: `rigour setup --report-only`.** The edit check, the stop review and the push gate (git's `pre-push` hook too) say what they would have blocked and let the work through, so you see what Rigour would stop before it stops anything. A real credential is still refused. When you trust what it reports, run `rigour setup --block`. The switch is a marker in `.git/`, per repository; with `--team` it is `hooks.report_only` in `rigour.yml`, for everyone.
 
 **For a team:** `rigour setup --team` commits Rigour to the repository instead: `rigour.yml`, the hooks of the agents the repository uses and the MCP server in `.mcp.json`, so everyone who clones gets the same gate. Configs you already have are merged into, never replaced. Only `--team` writes into the repository: where the team has already committed Rigour's hooks, a plain `rigour setup` leaves every file as committed and says which ones. See [Team setup](./TEAM_SETUP.md).
 

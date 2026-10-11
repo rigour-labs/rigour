@@ -22,6 +22,7 @@ import fs from 'fs';
 import path from 'path';
 import { APPENDED_COMMENT } from './hooks-git.js';
 import { disableHere, enabledHere, uninstallMachine } from './personal.js';
+import { setReportOnlyHere } from './report-only.js';
 import { isEmptyConfig, isRigourScript, readInstallRecord, unchangedSinceInstall, withoutRigour } from './install-record.js';
 import { GITIGNORE_PATTERNS } from './init.js';
 
@@ -79,7 +80,7 @@ export function uninstall(cwd: string, options: UninstallOptions = {}): Uninstal
 
     gitHook(cwd, act, report);
     // A personal install: the switch inside the git directory (and its exclude line, with .rigour/ itself).
-    if (enabledHere(cwd)) act('switch Rigour off for this repository (personal install)', () => disableHere(cwd, !!options.all));
+    if (enabledHere(cwd)) act('switch Rigour off for this repository (personal install)', () => { disableHere(cwd, !!options.all); setReportOnlyHere(cwd, false); });
     else if (options.all && !options.dryRun) disableHere(cwd, true);
     if (options.machine) for (const change of uninstallMachine(!!options.dryRun)) report.changes.push(change);
 

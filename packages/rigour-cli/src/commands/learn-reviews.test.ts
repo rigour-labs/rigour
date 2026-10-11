@@ -150,3 +150,20 @@ describe('rigour learn-reviews --not-a-rule and --take-back', () => {
         process.exitCode = 0;
     });
 });
+
+describe('a bot point with a later fix on its lines, in the people list', () => {
+    it('stays hidden and counted under bots: the source-less outcome record never makes it a person\'s (6.12.4 leak shape)', async () => {
+        fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{
+            id: 'B1', text: 'Consider guarding the null.', file: 'src/load.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '',
+            evidence: [
+                { kind: 'point', pr: 3, comment: 'c-bot', author: 'review-tool[bot]', source: 'bot' },
+                { kind: 'lines', pr: 3, comment: 'lines-3', author: '', detail: 'fixed later by abc123' },
+            ],
+        }] }));
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { list: true });
+        const listed = out.mock.calls.flat().join('\n');
+        expect(listed).not.toContain('B1');
+        expect(listed).toContain('1 candidate(s) from review bots, hidden');
+    });
+});
