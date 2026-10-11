@@ -39,6 +39,7 @@ import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.
 import { agentHome, asUserLevel, installedAgents } from './personal.js';
 import { hookStdin } from './hook-input.js';
 import { loadHookConfig } from './hooks-stop.js';
+import { REPORT_ONLY_PREFIX, reportOnly } from './report-only.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -930,6 +931,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         result: await runHookChecker({ cwd: group.root, files: group.files, timeout_ms: Number.isFinite(timeout) ? timeout : 5000, agentId }),
     })));
     const result = mergeHookResults(runs.map(r => r.result));
+    // A team's first week: the findings are said, and the edit goes through (report-only.ts).
+    const blocking = !!options.block && !(await Promise.all(runs.map(async run => reportOnly(run.root, await loadHookConfig(run.root).catch(() => undefined))))).some(Boolean);
 
     const counted = { agent: cursorMode ? 'cursor' : agentId };
     countUsage('hook_check', 1, counted);
@@ -949,8 +952,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             }),
             logStudioEvent(root, {
                 type: 'hook_check', requestId, outcome, status: repoResult.status, agentId,
-                // Only a --block hook stops the edit; without it the findings are reported and the agent carries on.
-                blocked: !!options.block && repoResult.status === 'fail',
+                // Only a --block hook stops the edit; without it (or in report-only) the findings are reported and the agent carries on.
+                blocked: blocking && repoResult.status === 'fail',
                 files: repoFiles, summary: `${repoFiles.length} file(s), ${repoResult.failures.length} finding(s)`,
                 findings: repoResult.failures.slice(0, 10).map(f => ({ gate: f.gate, file: f.file, line: f.line, message: f.message, severity: f.severity })),
             }),
@@ -967,7 +970,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
                 })
                 .join('\n');
             process.stdout.write(JSON.stringify({
-                continue: !options.block, // block mode = stop, otherwise warn
+                continue: !blocking, // block mode = stop, otherwise warn
                 user_message: `⚠️ Rigour: ${result.failures.length} issue(s) found:\n${messages}`,
             }));
         } else {
@@ -984,9 +987,8 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             const loc = failure.line ? `:${failure.line}` : '';
             process.stderr.write(`[rigour/${failure.gate}] ${failure.file}${loc}: ${failure.message}\n`);
         }
-        if (options.block) {
-            process.exitCode = 2;
-        }
+        if (blocking) process.exitCode = 2;
+        else if (options.block) process.stderr.write(`${REPORT_ONLY_PREFIX} the edit would have been blocked for the above.\n`);
     }
 }
 

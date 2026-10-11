@@ -68,6 +68,30 @@ describe('rigour setup replaces the old shell wrappers in place', () => {
     });
 });
 
+describe('rigour setup --report-only and --block', () => {
+    const marker = () => path.join(repo, '.git', 'rigour-report-only');
+    it("sets the person's switch in the git directory, and --block clears it", async () => {
+        await setupCommand(repo, { semantic: false, reportOnly: true });
+        expect(fs.existsSync(marker())).toBe(true);
+        expect(fs.existsSync(path.join(repo, 'rigour.yml'))).toBe(false); // nothing in the working tree
+        await setupCommand(repo, { semantic: false, block: true });
+        expect(fs.existsSync(marker())).toBe(false);
+    });
+
+    it("says so, and sets nothing, where the team's rigour.yml requires blocking", async () => {
+        fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\nhooks:\n  report_only: false\n');
+        await setupCommand(repo, { semantic: false, reportOnly: true });
+        expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).join('\n')).toContain("the team's rigour.yml requires blocking here");
+    });
+
+    it("with --team, writes the team's switch into rigour.yml, and --block writes the floor", async () => {
+        fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\n');
+        await setupCommand(repo, { semantic: false, team: true, reportOnly: true });
+        expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).toContain('report_only: true');
+        await setupCommand(repo, { semantic: false, team: true, block: true });
+        expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).toContain('report_only: false'); // no person's switch lowers it
+    });
+});
 
 describe('rigour setup without --team never writes into the working tree', () => {
     const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });

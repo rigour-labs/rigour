@@ -1,10 +1,11 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pinnedHomeEnv } from '@rigour-labs/core/profile';
+import { setReportOnlyHere } from './report-only.js';
 import { gitPushGateCommand, installGitPushHook, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 
 let repo: string;
@@ -62,6 +63,30 @@ describe('the git pre-push hook', () => {
         const deletion = await gitPushGateCommand('(delete) 0000000000000000000000000000000000000000 refs/heads/old 1234567890123456789012345678901234567890\n', repo);
         expect(deletion).toEqual({ exitCode: 0, message: '' });
     });
+
+    it('in report-only, lets a real git push through and says on the terminal what would have stopped it', () => {
+        const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'report-remote-'));
+        try {
+            execFileSync('git', ['init', '-q', '--bare', remote]);
+            git('remote', 'add', 'origin', remote);
+            fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\ngates:\n  unused_exports:\n    block: true\n');
+            fs.writeFileSync(path.join(repo, '.gitignore'), '.rigour/\n');
+            git('add', '-A');
+            git('commit', '-qm', 'team');
+            git('push', '-q', 'origin', 'HEAD:main');
+            git('checkout', '-qb', 'feature');
+            installGitPushHook(repo, selfTestCommand(bin));
+            fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 1;\nexport const forgotten = 2;\n');
+            git('commit', '-qam', 'adds an export nothing uses');
+            setReportOnlyHere(repo, true);
+            const pushed = spawnSync('git', ['push', 'origin', 'feature'], { cwd: repo, encoding: 'utf8', env: { ...process.env, RIGOUR_TELEMETRY: '0' } });
+            expect(pushed.status).toBe(0);
+            expect(pushed.stderr).toContain('the push would have been blocked');
+            expect(execFileSync('git', ['-C', remote, 'rev-parse', '--verify', '-q', 'refs/heads/feature'], { encoding: 'utf8' }).trim()).toBe(git('rev-parse', 'HEAD'));
+        } finally {
+            fs.rmSync(remote, { recursive: true, force: true });
+        }
+    }, 120_000);
 
     it('holds under a real git push: a change the gate must refuse is refused, the fix lands, read from the remote', async () => {
         const result = await selfTestGitPushHook(selfTestCommand(bin));
