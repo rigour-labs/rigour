@@ -85,8 +85,8 @@ export async function missingReviewDecisionGrants(pool: QueryablePool, databaseR
     return grants.length ? `missing grant for review decisions: ask the administrator to run: ${grants.join(' ')}` : undefined;
 }
 
-/** What each team table needs for a member's sync, as the guide grants it. */
-const TABLE_GRANTS: Record<string, string> = {
+/** What each team table needs for a member's sync, as the guide grants it (and `rigour team init-schema` grants). */
+export const TABLE_GRANTS: Record<string, string> = {
     meta: 'SELECT', memberships: 'SELECT', lessons: 'SELECT, INSERT, UPDATE', lesson_embeddings: 'SELECT, INSERT, UPDATE',
     organization_salts: 'SELECT', review_decisions: 'SELECT, INSERT',
 };
