@@ -532,11 +532,16 @@ async function writeHookFiles(
             }
             continue;
         }
-        // A script of the person's own is never overwritten, --force or not; Rigour's own is refreshed.
-        if (exists && (!force || !isRigourScript(await fs.readFile(fullPath, 'utf-8')))) {
-            console.log(chalk.yellow(`  SKIP ${file.path} (already exists${force ? ' and is not Rigour\'s' : ', use --force to overwrite'})`));
-            skipped++;
-            continue;
+        // A script of the person's own is never overwritten, --force or not. Rigour's own (Cline's hooks) is refreshed, as
+        // a JSON config's Rigour entries are: setup moves its pinned version, and leaves it untouched when it is current.
+        if (exists) {
+            const current = await fs.readFile(fullPath, 'utf-8');
+            if (!isRigourScript(current)) {
+                console.log(chalk.yellow(`  SKIP ${file.path} (already exists and is not Rigour's, so Rigour leaves it alone)`));
+                skipped++;
+                continue;
+            }
+            if (current === file.content) continue;
         }
 
         try {
@@ -550,7 +555,7 @@ async function writeHookFiles(
                 await fs.chmod(fullPath, 0o755);
             }
 
-            console.log(chalk.green(`  CREATE ${file.path}`));
+            console.log(chalk.green(`  ${exists ? 'UPDATE' : 'CREATE'} ${file.path}`));
             console.log(chalk.dim(`         ${file.description}`));
             written++;
         } catch (error) {
