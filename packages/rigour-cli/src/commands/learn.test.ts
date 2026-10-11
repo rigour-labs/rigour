@@ -9,8 +9,8 @@ const AFTER = "export async function post(url: string, init: RequestInit) {\n  r
 
 describe('learnCommand', () => {
     let cwd: string;
-    let log: MockInstance<unknown[], void>;
-    let error: MockInstance<unknown[], void>;
+    let log: MockInstance<(...args: unknown[]) => void>;
+    let error: MockInstance<(...args: unknown[]) => void>;
     beforeEach(() => {
         cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'learn-cli-'));
         fs.mkdirSync(path.join(cwd, 'src'));

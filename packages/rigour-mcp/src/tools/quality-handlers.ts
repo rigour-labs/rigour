@@ -104,6 +104,7 @@ export async function handleCheck(runner: GateRunner, cwd: string, args: CheckAr
     const deepText = deepMode === 'off'
         ? ''
         : `\nDeep: ${deepMode} | Execution: ${execution.isLocal ? 'local' : 'cloud'}${report.stats.deep?.model ? ` | Model: ${report.stats.deep.model}` : ''}` +
+          `${report.stats.deep?.skipped ? `\nDeep review skipped: ${report.stats.deep.skipped}` : ''}` +
           `${execution.isLocal
               ? '\nPrivacy: Local sidecar/model execution. Code remains on this machine.'
               : `\nPrivacy: Cloud provider execution. Code context may be sent to ${execution.provider} API.`}`;

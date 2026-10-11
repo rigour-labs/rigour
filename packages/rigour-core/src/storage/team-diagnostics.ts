@@ -64,3 +64,67 @@ export async function diagnoseMissingMembership(pool: QueryablePool): Promise<st
     return 'This database role has no membership for the configured organization, team and actor. '
         + 'Ask the administrator to add it (see docs/TEAM_DATABASE.md).';
 }
+
+/**
+ * The grants a login needs for review decisions, missing ones only, as the GRANT the administrator runs; undefined when
+ * none is missing. Everyone reads rigour.organization_salts and rigour.review_decisions; only an sme or owner sends.
+ */
+export async function missingReviewDecisionGrants(pool: QueryablePool, databaseRole: string, role: string): Promise<string | undefined> {
+    const { rows } = await pool.query(
+        `SELECT has_table_privilege('rigour.organization_salts', 'SELECT') AS salts_select,
+                has_table_privilege('rigour.review_decisions', 'SELECT') AS decisions_select,
+                has_table_privilege('rigour.review_decisions', 'INSERT') AS decisions_insert`,
+    );
+    const granted = rows[0] ?? {};
+    const login = `"${databaseRole.replace(/"/g, '""')}"`;
+    const grants = [
+        ...(granted.salts_select ? [] : [`GRANT SELECT ON rigour.organization_salts TO ${login};`]),
+        ...(granted.decisions_select && (granted.decisions_insert || (role !== 'sme' && role !== 'owner')) ? []
+            : [`GRANT ${role === 'sme' || role === 'owner' ? 'SELECT, INSERT' : 'SELECT'} ON rigour.review_decisions TO ${login};`]),
+    ];
+    return grants.length ? `missing grant for review decisions: ask the administrator to run: ${grants.join(' ')}` : undefined;
+}
+
+/** What each team table needs for a member's sync, as the guide grants it. */
+const TABLE_GRANTS: Record<string, string> = {
+    meta: 'SELECT', memberships: 'SELECT', lessons: 'SELECT, INSERT, UPDATE', lesson_embeddings: 'SELECT, INSERT, UPDATE',
+    organization_salts: 'SELECT', review_decisions: 'SELECT, INSERT',
+};
+
+/**
+ * Postgres refused this one row: row-level security on it, or a constraint (class 23). It would refuse it every time, so
+ * the row is set aside. A missing grant is not this: it refuses every row, so the sync stops and tries again later.
+ */
+export function refusedRow(error: unknown): boolean {
+    const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+    if (typeof code !== 'string') return false;
+    return code.startsWith('23') || (code === '42501' && /row-level security/i.test(String(message ?? '')));
+}
+
+/** The login in a team database URL, for the GRANT an administrator runs. */
+function loginOf(databaseUrl: string | undefined): string {
+    try {
+        return decodeURIComponent(new URL(databaseUrl ?? '').username) || '<your login>';
+    } catch {
+        return '<your login>';
+    }
+}
+
+/**
+ * A sync failure as one line: a missing grant or schema access as the GRANT to run; a connection or schema problem as
+ * explainTeamConnectionError says it; anything else by its message alone, never a stack or the driver's fields.
+ */
+export function explainSyncError(error: unknown, databaseUrl: string | undefined): string {
+    const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+    const text = String(message ?? error);
+    if (code === '42501') {
+        const login = `"${loginOf(databaseUrl).replace(/"/g, '""')}"`;
+        const table = /permission denied for (?:table|relation) (?:rigour\.)?(\w+)/i.exec(text)?.[1];
+        if (table) {
+            const grant = TABLE_GRANTS[table] ?? 'SELECT';
+            return `your login lacks ${grant} on rigour.${table}; ask the administrator to run: GRANT ${grant} ON rigour.${table} TO ${login};`;
+        }
+        if (/permission denied for schema/i.test(text)) return `your login lacks USAGE on the rigour schema; ask the administrator to run: GRANT USAGE ON SCHEMA rigour TO ${login};`;
+    }
+    return explainTeamConnectionError(error).split('\n')[0];
+}

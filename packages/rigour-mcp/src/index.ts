@@ -286,7 +286,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 summary: result?._guidance?.recommendation,
                 ...interactionMetadata(args),
             });
-            void syncTeamOutbox().catch(() => undefined);
+            void syncTeamOutbox({ cwd }).catch(() => undefined);
         } catch {
             // Learning is evidence collection and must not block governance tools.
         }

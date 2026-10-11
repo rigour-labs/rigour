@@ -17,7 +17,7 @@ import { backtestCommand, backtestInitCommand } from './commands/backtest.js';
 import { threadCommand } from './commands/thread.js';
 import { outcomesCommand } from './commands/outcomes.js';
 import { briefCommand, hooksBriefCommand, hooksBriefFileCommand } from './commands/brief.js';
-import { hooksPushCommand } from './commands/hooks-push.js';
+import { hooksPushCommand, pushHookOutput } from './commands/hooks-push.js';
 import { hooksReviewBackgroundCommand } from './commands/hooks-review-background.js';
 import { gitPushGateCommand, selfTestCommand, selfTestGitPushHook } from './commands/hooks-git.js';
 import { profileAddCommand, profileListCommand, profileWhichCommand } from './commands/profile.js';
@@ -250,7 +250,13 @@ program
     .option('--instructions', 'With --team: also write AGENTS.md, and a one-line CLAUDE.md that imports it, where the project has none')
     .option('--no-semantic', 'Skip installing semantic search (recall and pattern matching then use keywords)')
     .option('--no-brief', 'Do not brief the agent with the team\'s rules and lessons (on by default: from each session\'s first prompt, and on the first edit of each file)')
-    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean; brief?: boolean }) => {
+    .option('--report-only', 'A team\'s first week: the edit check, the stop review and the push gate (git\'s pre-push hook too) say what they would block and block nothing. A real credential is still refused. With --team, for everyone (rigour.yml)')
+    .option('--block', 'Make the gates block again after --report-only')
+    .action(async (options: { semantic?: boolean; team?: boolean; instructions?: boolean; brief?: boolean; reportOnly?: boolean; block?: boolean }) => {
+        if (options.reportOnly && options.block) {
+            console.error('Choose one: --report-only or --block.');
+            process.exit(2);
+        }
         await setupCommand(process.cwd(), options);
     });
 
@@ -258,7 +264,9 @@ program
     .command('doctor')
     .description('Check that Rigour is wired up and firing here, and that the install is healthy')
     .option('--clean-cache', 'Remove context-cache rows Rigour no longer reads, and shrink the database when the disk has room')
-    .action(async (options: { cleanCache?: boolean }) => {
+    .option('--merge-state', 'Merge what a home ending in .rigour from before 6.11.1 left over into the live state directory (a dry run; add --yes)')
+    .option('--yes', 'With --merge-state: do it')
+    .action(async (options: { cleanCache?: boolean; mergeState?: boolean; yes?: boolean }) => {
         await doctorCommand(options);
     });
 
@@ -434,7 +442,9 @@ program
     .option('--include-bots', 'With --list: also list candidates only review bots raised (hidden by default)')
     .option('--promote <id>', 'Accept a candidate as a lesson (recorded as your decision)')
     .option('--reject <id>', 'Reject a candidate or lesson: the judges are told this team decided against it')
-    .option('--why <text>', 'Why, recorded with --promote or --reject')
+    .option('--not-a-rule <id>', 'Drop a candidate that is a one-off for its pull request, not a practice either way: never served, the judges are told nothing')
+    .option('--take-back <id>', 'Take back the last decision on a lesson (promote, reject or not a rule): a candidate again; the decision stays in its history')
+    .option('--why <text>', 'Why, recorded with --promote, --reject, --not-a-rule or --take-back')
     .option('--scope <id>', 'Set how far a lesson reaches, with --to: its file, its folder, or every change (a team standard); recorded as your decision')
     .option('--to <reach>', 'With --scope: file, folder or repo')
     .option('--use-wording <id>', 'Take the corrected wording a newer version suggests for a lesson you decided (the old wording is kept as evidence)')
@@ -655,7 +665,9 @@ hooksCmd
     .action(async (options: { git?: boolean }) => {
         const stdin = await hookStdin();
         const result = options.git ? await gitPushGateCommand(stdin, process.cwd()) : await hooksPushCommand(stdin, process.cwd());
-        if (result.message) process.stderr.write(result.message + '\n');
+        const out = pushHookOutput(result, !!options.git);
+        if (out.stdout) process.stdout.write(out.stdout + '\n');
+        if (out.stderr) process.stderr.write(out.stderr + '\n');
         process.exit(result.exitCode);
     });
 

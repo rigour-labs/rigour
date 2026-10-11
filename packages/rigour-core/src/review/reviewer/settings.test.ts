@@ -61,7 +61,7 @@ describe('the reviewer settings a run uses', () => {
         expect(higher.max_runs_per_day).toBe(20);
         expect(higher.refused).toEqual(['max_runs_per_day 50 (user) refused: rigour.yml caps it at 20']);
         expect(resolveReviewer(team(), {}, { max_usd_per_day: 2 }, {})).toMatchObject({ max_usd_per_day: 2 }); // no team cap: yours
-        expect(resolveReviewer(team(), {}, undefined, {}).max_runs_per_day).toBeUndefined(); // unset by default
+        expect(resolveReviewer(team(), {}, undefined, {})).toMatchObject({ max_runs_per_day: 40, max_usd_per_day: 10, max_usd_per_review: 2 }); // on by default; a team raises them in rigour.yml
     });
 });
 

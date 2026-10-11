@@ -17,6 +17,8 @@ import fs from 'fs';
 import path from 'path';
 import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
 import { bodyPoints, withoutEmphasis } from './review-points.js';
+import { withFileLock, writeJsonAtomic } from '../utils/file-lock.js';
+import { foldTeamDecisions, readTeamDecisionCache } from './team-decisions.js';
 import { asksSomething, bodyPointPlaces, describesChange, notARequest, type NotRequestReason } from './requests.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
@@ -52,7 +54,11 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *   outcome   a later commit fixed the lines the point named, or the pull request was reverted;
  *   counter   the lines shipped unchanged and nothing needed fixing within the window;
  *   correction  a person changed what an agent wrote (human-edits.ts): heavily weighted, it makes a lesson;
- *   accepted / rejected   a person decided (`rigour learn-reviews --promote / --reject`);
+ *   accepted / rejected   a person decided (`rigour learn-reviews --promote / --reject`): rejected tells the judges the
+ *             team decided against it;
+ *   not-a-rule a person judged it a one-off for that pull request, not a practice either way (`--not-a-rule`): the
+ *             lesson is dropped, never served and never told to the judges as rejected;
+ *   took-back a person took back the last decision (`--take-back`): a candidate again, nothing deleted;
  *   norule    the rule writer found no rule in it (a report, a template, a one-off): never promoted again;
  *   followup  a later fix touched the point's file, with nothing else to show it was this point (outcome-evidence.ts):
  *             recorded, never enough on its own;
@@ -65,7 +71,7 @@ const NOT_SYMBOLS = new Set(['this', 'that', 'with', 'from', 'return', 'const', 
  *             until a person promotes it.
  * A record from before evidence kinds has none: it is a `point`.
  */
-export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled' | 'reworded' | 'scoped';
+export type EvidenceKind = 'point' | 'outcome' | 'counter' | 'correction' | 'accepted' | 'rejected' | 'not-a-rule' | 'took-back' | 'norule' | 'followup' | 'lines' | 'dismissed' | 'against' | 'demoted' | 'reclassified' | 'compiled' | 'reworded' | 'scoped';
 
 export interface LessonEvidence {
     kind?: EvidenceKind;
@@ -90,6 +96,10 @@ export interface LessonEvidence {
     text?: string;
     /** What the evidence was: the fixing commit, the window, who decided and why. */
     detail?: string;
+    /** A teammate's decision this clone received (team-decisions.ts): who, by display name, and when the team database got it. Never in the store. */
+    team?: { name: string; receivedAt: string };
+    /** Where a person decision falls among the others, set when team decisions are folded in; without it, the trail's order. Never in the store. */
+    order?: number;
     at?: string;
 }
 
@@ -99,7 +109,8 @@ export interface ReviewLesson {
     file: string;
     symbols: string[];
     /** `rejected`: an anti-lesson, a point the team decided against. */
-    state: 'candidate' | 'verified' | 'rejected';
+    /** dropped: a person judged it not a rule (a one-off task for one pull request); kept, never served. */
+    state: 'candidate' | 'verified' | 'rejected' | 'dropped';
     /** Which evidence made it a lesson. */
     promotedBy?: 'outcome' | 'correction' | 'person' | 'recurrence' | 'legacy';
     /**
@@ -126,13 +137,27 @@ export interface ReviewLesson {
  * holds a candidate back; recurrence across pull requests and authors is enough only without it. An outcome is
  * evidence, never a promotion. A record from before evidence kinds keeps the state it had.
  */
+/** The person decisions that settle a lesson's state. */
+const STATE_DECISIONS = new Set<EvidenceKind>(['accepted', 'rejected', 'not-a-rule', 'took-back']);
+
+/**
+ * The person decision that settles a lesson's state: the last accepted, rejected, not-a-rule or took-back, by `order`
+ * when team decisions are folded in (team-decisions.ts), else the trail's order.
+ */
+export function lastDecision(lesson: ReviewLesson): LessonEvidence | undefined {
+    return lesson.evidence.filter(e => e.kind && STATE_DECISIONS.has(e.kind))
+        .reduce<LessonEvidence | undefined>((a, b) => (!a || (b.order ?? 0) >= (a.order ?? 0) ? b : a), undefined);
+}
+
 export function lessonState(lesson: ReviewLesson): Pick<ReviewLesson, 'state' | 'promotedBy'> {
     const kinds = new Set(lesson.evidence.map(e => e.kind));
     if (!lesson.evidence.some(e => e.kind)) return lesson.state === 'verified' ? { state: 'verified', promotedBy: lesson.promotedBy ?? 'legacy' } : { state: lesson.state };
-    const decisions = lesson.evidence.filter(e => e.kind === 'accepted' || e.kind === 'rejected');
-    const last = decisions.at(-1);
+    const last = lastDecision(lesson);
     if (last?.kind === 'rejected') return { state: 'rejected' };
     if (last?.kind === 'accepted') return { state: 'verified', promotedBy: 'person' };
+    if (last?.kind === 'not-a-rule') return { state: 'dropped' };
+    // Taken back: undecided again, as a person said; evidence does not decide over them until they or someone decides.
+    if (last?.kind === 'took-back') return { state: 'candidate' };
     if (kinds.has('norule')) return { state: 'candidate' };
     // Taken back by evidence (outcome-evidence.ts): a person's decision above is the only way back.
     if (kinds.has('demoted')) return { state: 'candidate' };
@@ -411,17 +436,32 @@ function prCount(lesson: ReviewLesson): number {
  * own file, as learned). Recorded as evidence with who and why; it says nothing about whether the lesson is right.
  */
 export function scopeLesson(cwd: string, id: string, scope: 'file' | 'folder' | 'repo', by: string, why = ''): ReviewLesson | undefined {
-    const lessons = readLessons(cwd);
-    const lesson = lessons.find(l => l.id === id);
-    if (!lesson) return undefined;
-    if (scope === 'folder' && !lesson.file) throw new Error('a team standard has no folder: scope it to the repo or leave it');
-    const at = new Date().toISOString();
-    if (scope === 'file') delete lesson.scope;
-    else lesson.scope = scope;
-    lesson.evidence.push({ kind: 'scoped', pr: lesson.evidence[0]?.pr ?? 0, comment: `scoped-${at}`, author: by, detail: why ? `${scope}: ${why}` : scope, at });
-    lesson.updatedAt = at;
-    writeLessons(cwd, lessons);
-    return lesson;
+    return updateLessons(cwd, lessons => {
+        const lesson = storedOrAdopted(cwd, lessons, id);
+        if (!lesson) return undefined;
+        if (scope === 'folder' && !lesson.file) throw new Error('a team standard has no folder: scope it to the repo or leave it');
+        const at = new Date().toISOString();
+        if (scope === 'file') delete lesson.scope;
+        else lesson.scope = scope;
+        lesson.evidence.push({ kind: 'scoped', pr: lesson.evidence[0]?.pr ?? 0, comment: `scoped-${at}`, author: by, detail: why ? `${scope}: ${why}` : scope, at });
+        lesson.updatedAt = at;
+        return lesson;
+    });
+}
+
+/**
+ * The stored lesson with this id, or one this clone knows only from its team, taken into the store so a person's
+ * decision on it is recorded here: its wording, file and points, without the team's decisions (those stay received).
+ */
+function storedOrAdopted(cwd: string, stored: ReviewLesson[], id: string): ReviewLesson | undefined {
+    const found = stored.find(l => l.id === id);
+    if (found) return found;
+    const known = readLessons(cwd).find(l => l.id === id);
+    if (!known) return undefined;
+    const adopted: ReviewLesson = { ...known, evidence: known.evidence.filter(e => !e.team).map(({ order: _order, ...e }) => e) };
+    Object.assign(adopted, lessonState(adopted));
+    stored.push(adopted);
+    return adopted;
 }
 
 /** RIGOUR_REVIEW_LESSONS points at a lessons file outside the clone (CI, or a team's shared copy). */
@@ -429,7 +469,18 @@ export function lessonsPath(cwd: string): string {
     return process.env.RIGOUR_REVIEW_LESSONS?.trim() || path.join(cwd, STORE);
 }
 
+/**
+ * What this team knows: the store, with the decisions teammates shared folded in (team-decisions.ts). Every reader (the
+ * brief, review, Studio) reads this; a writer reads readStoredLessons, so what the team sent never enters the store.
+ */
 export function readLessons(cwd: string): ReviewLesson[] {
+    const stored = readStoredLessons(cwd);
+    const team = readTeamDecisionCache(cwd);
+    return team?.decisions.length ? foldTeamDecisions(stored, team, lessonState) : stored;
+}
+
+/** What this clone learned and decided: the store alone. */
+export function readStoredLessons(cwd: string): ReviewLesson[] {
     try {
         const parsed = JSON.parse(fs.readFileSync(lessonsPath(cwd), 'utf8'));
         return Array.isArray(parsed?.lessons) ? parsed.lessons.map(reclassified) : [];
@@ -445,7 +496,7 @@ export function readLessons(cwd: string): ReviewLesson[] {
  */
 export function pendingDecision(lesson: ReviewLesson): LessonEvidence | undefined {
     if (lesson.state !== 'candidate') return undefined;
-    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'reclassified' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed').at(-1);
+    const last = lesson.evidence.filter(e => e.kind === 'demoted' || e.kind === 'lines' || e.kind === 'reclassified' || e.kind === 'accepted' || e.kind === 'rejected' || e.kind === 'dismissed' || e.kind === 'not-a-rule' || e.kind === 'took-back').at(-1);
     return last?.kind === 'demoted' || last?.kind === 'lines' || last?.kind === 'reclassified' ? last : undefined;
 }
 
@@ -481,37 +532,98 @@ function reclassified(lesson: ReviewLesson): ReviewLesson {
     return { ...lesson, state: 'candidate', promotedBy: undefined, evidence: [...lesson.evidence, { kind: 'reclassified', pr: lesson.evidence[0]?.pr ?? 0, comment: `reclassified-${lesson.id}`, author: '', detail, at }] };
 }
 
-export function writeLessons(cwd: string, lessons: ReviewLesson[]): void {
-    const file = lessonsPath(cwd);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ version: 1, lessons }, null, 2) + '\n');
+/** Runs `work` holding the store's lock: two writers (a decision in Studio, a CLI run) never overwrite each other. */
+function withStoreLock<T>(cwd: string, work: () => T): T {
+    return withFileLock(lessonsPath(cwd), 'the review lessons store', work);
 }
 
-/** A person's decision on a lesson, kept as evidence: accepted makes it a lesson, rejected an anti-lesson. Undefined for an unknown id. */
-export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected' | 'dismissed', by: string, why = ''): ReviewLesson | undefined {
-    const lessons = readLessons(cwd);
-    const lesson = lessons.find(l => l.id === id);
-    if (!lesson) return undefined;
-    const at = new Date().toISOString();
-    lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
-    Object.assign(lesson, lessonState(lesson), { updatedAt: at });
-    writeLessons(cwd, lessons);
-    return lesson;
+/** Writes the whole store at once: a reader sees the old file or the new one, never half of one. */
+function writeStore(cwd: string, lessons: ReviewLesson[]): void {
+    writeJsonAtomic(lessonsPath(cwd), { version: 1, lessons });
+}
+
+/**
+ * Reads the store, applies `change` and writes it, under the lock: two writers (a decision in Studio, a CLI run, a team
+ * sync) never overwrite each other. For short changes only; work that takes long (a model call, a git walk) reads,
+ * works, and writes with writeLessons(cwd, lessons, read).
+ */
+export function updateLessons<T>(cwd: string, change: (lessons: ReviewLesson[]) => T): T {
+    return withStoreLock(cwd, () => {
+        const lessons = readStoredLessons(cwd);
+        const result = change(lessons);
+        writeStore(cwd, lessons);
+        return result;
+    });
+}
+
+/**
+ * Writes the store from `read` (the lessons as this writer read them before working) and `lessons` (what it made of
+ * them). What another writer changed in the meantime is kept: every lesson and every piece of evidence either side
+ * added (nothing is ever removed), and for each other field, this writer's value only where it changed it. The state is
+ * then worked out again from the evidence. There is no blind overwrite.
+ */
+export function writeLessons(cwd: string, lessons: ReviewLesson[], read: ReviewLesson[]): void {
+    withStoreLock(cwd, () => writeStore(cwd, mergeConcurrent(read, lessons, readStoredLessons(cwd))));
+}
+
+/** Three-way: `ours` was made from `base`; `theirs` is the store now. */
+function mergeConcurrent(base: ReviewLesson[], ours: ReviewLesson[], theirs: ReviewLesson[]): ReviewLesson[] {
+    const before = new Map(base.map(l => [l.id, l]));
+    const now = new Map(theirs.map(l => [l.id, l]));
+    const merged = ours.map(mine => {
+        const current = now.get(mine.id);
+        now.delete(mine.id);
+        if (!current) return mine;
+        const was = before.get(mine.id);
+        const result: ReviewLesson = { ...current };
+        const fields = new Set([...Object.keys(mine), ...Object.keys(was ?? {})]) as Set<keyof ReviewLesson>;
+        for (const key of fields) {
+            if (key === 'evidence' || JSON.stringify(mine[key]) === JSON.stringify(was?.[key])) continue;
+            if (mine[key] === undefined) delete result[key];
+            else (result as unknown as Record<string, unknown>)[key] = mine[key];
+        }
+        result.evidence = [...current.evidence, ...mine.evidence.filter(e => !current.evidence.some(x => x.kind === e.kind && x.comment === e.comment))];
+        return { ...result, ...lessonState(result) };
+    });
+    return [...merged, ...now.values()];
+}
+
+/**
+ * A person's decision on a lesson, kept as evidence: accepted makes it a lesson, rejected an anti-lesson the judges are
+ * told about, not-a-rule drops it (a one-off, not a practice either way), dismissed sets evidence aside, and took-back
+ * returns a decided lesson to a candidate. Undefined for an unknown id; took-back throws when nothing was decided.
+ */
+export function decideLesson(cwd: string, id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back', by: string, why = ''): ReviewLesson | undefined {
+    return updateLessons(cwd, lessons => {
+        const lesson = storedOrAdopted(cwd, lessons, id);
+        if (!lesson) return undefined;
+        if (decision === 'took-back' && !takeBackable(lesson)) throw new Error(`lesson ${id} has no decision to take back`);
+        const at = new Date().toISOString();
+        lesson.evidence.push({ kind: decision, pr: lesson.evidence[0]?.pr ?? 0, comment: `${decision}-${at}`, author: by, detail: why, at });
+        Object.assign(lesson, lessonState(lesson), { updatedAt: at });
+        return lesson;
+    });
+}
+
+/** Whether a person's last decision on a lesson (accepted, rejected or not a rule) can be taken back. */
+export function takeBackable(lesson: ReviewLesson): boolean {
+    const last = lastDecision(lesson);
+    return !!last && last.kind !== 'took-back';
 }
 
 /** A person takes a decided lesson's suggested wording; who and the wording it replaced are kept as evidence. */
 export function acceptSuggestedText(cwd: string, id: string, by: string): ReviewLesson | undefined {
-    const lessons = readLessons(cwd);
-    const lesson = lessons.find(l => l.id === id);
-    if (!lesson?.suggestedText) return undefined;
-    const at = new Date().toISOString();
-    lesson.evidence.push({ kind: 'reworded', pr: lesson.evidence[0]?.pr ?? 0, comment: `reworded-${at}`, author: by, detail: `${lesson.suggestedWhy ?? 'reworded'}; was: ${lesson.text}`, at });
-    lesson.text = lesson.suggestedText;
-    delete lesson.suggestedText;
-    delete lesson.suggestedWhy;
-    lesson.updatedAt = at;
-    writeLessons(cwd, lessons);
-    return lesson;
+    return updateLessons(cwd, lessons => {
+        const lesson = storedOrAdopted(cwd, lessons, id);
+        if (!lesson?.suggestedText) return undefined;
+        const at = new Date().toISOString();
+        lesson.evidence.push({ kind: 'reworded', pr: lesson.evidence[0]?.pr ?? 0, comment: `reworded-${at}`, author: by, detail: `${lesson.suggestedWhy ?? 'reworded'}; was: ${lesson.text}`, at });
+        lesson.text = lesson.suggestedText;
+        delete lesson.suggestedText;
+        delete lesson.suggestedWhy;
+        lesson.updatedAt = at;
+        return lesson;
+    });
 }
 
 /** An identifier specific enough to link two pieces of code: camelCase, snake_case, or long. */

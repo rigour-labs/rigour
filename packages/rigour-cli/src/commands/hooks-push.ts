@@ -17,10 +17,12 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    appendTaskEvent, branchBase, branchFailures, captureHumanEdits, diffFromGit, hookGoalDescription, itemLine, recordGoal, mergeBaseOf, resolveReviewer, reviewChange, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
+    appendTaskEvent, branchBase, branchFailures, captureHumanEdits, diffFromGit, hookGoalDescription, itemLine, recordGoal, mergeBaseOf, resolveReviewer, reviewChange, reviewerCapReached, reviewerInputs, reviewerBlocks, runReviewer, runToolchain, startBackgroundReview,
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
+import { recordToolStart, toolCallId } from './shell-writes.js';
+import { REPORT_ONLY_PREFIX, reportOnly } from './report-only.js';
 
 export interface PushGateResult {
     /** 0 lets the push run; 2 blocks it. */
@@ -31,11 +33,26 @@ export interface PushGateResult {
 
 export async function hooksPushCommand(stdin: string, fallbackCwd: string): Promise<PushGateResult> {
     const payload = parse(stdin);
+    // Every shell call: when it started, so the edit check after it finds the files it wrote (shell-writes.ts).
+    const started = repositoryOf(payload.cwd ?? fallbackCwd);
+    const call = toolCallId(payload);
+    if (started && call) recordToolStart(started, call);
     const command = String(payload.tool_input?.command ?? '');
     if (!isPush(command)) return { exitCode: 0, message: '' };
     const repo = repositoryOf(pushTarget(command) ?? payload.cwd ?? fallbackCwd);
     if (!repo) return { exitCode: 0, message: '' };
     return pushGate(repo);
+}
+
+/**
+ * Where a push gate's message goes. Claude Code feeds a block's stderr (exit 2) back to the agent but shows no one the stderr
+ * of a hook that exits 0, so a note on a push that goes ahead (a review starting, or skipped by a cap) is PreToolUse context
+ * on stdout. git's pre-push hook speaks to the person at the terminal: stderr.
+ */
+export function pushHookOutput(result: { exitCode: number; message: string }, git: boolean): { stdout?: string; stderr?: string } {
+    if (!result.message) return {};
+    if (git || result.exitCode !== 0) return { stderr: result.message };
+    return { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: result.message } }) };
 }
 
 /** The gate itself, on the repository's branch against main: shared by the agent hook and git's pre-push (hooks-git.ts). */
@@ -56,9 +73,12 @@ export async function pushGate(dir: string): Promise<PushGateResult> {
     if (failures.lines.length === 0) return { exitCode: 0, message: await backgroundReviewNote(repo, branch.mainRef, config) };
     const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-push-')), 'gates.log');
     fs.writeFileSync(log, failures.log.join('\n\n'));
+    const against = `${path.basename(repo)} against ${branch.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '')} (full output: ${log})`;
+    // A team's first week: the push goes ahead, and the agent and the terminal are told what would have stopped it.
+    if (reportOnly(repo, config)) return { exitCode: 0, message: [`${REPORT_ONLY_PREFIX} the push would have been blocked: ${failures.lines.length} check(s) failed for ${against}:`, ...failures.lines].join('\n') };
     return {
         exitCode: 2,
-        message: [`Push blocked: ${failures.lines.length} check(s) failed for ${path.basename(repo)} against ${branch.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '')} (full output: ${log}). Fix each, then push again:`, ...failures.lines].join('\n'),
+        message: [`Push blocked: ${failures.lines.length} check(s) failed for ${against}. Fix each, then push again:`, ...failures.lines].join('\n'),
     };
 }
 
@@ -99,6 +119,9 @@ async function backgroundReviewNote(repo: string, mainRef: string, config: Confi
     const branch = gitOutput(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
     if (!head || !branch || branch === 'HEAD') return '';
     const base = mainRef.replace(/^refs\/(remotes\/|heads\/)/, '');
+    // A reached cap is said, never hidden behind "it runs in the background": that run would only skip.
+    const capped = await reviewerCapReached(repo, config).catch(() => undefined);
+    if (capped) return `Rigour: the model review of ${head.slice(0, 9)} was skipped: ${capped}.`;
     const log = await startBackgroundReview(repo, { head, branch, base }, [process.execPath, process.argv[1], 'hooks', 'review-background', '--commit', head, '--branch', branch, '--base', base]);
     return log ? `Rigour: the model review of ${head.slice(0, 9)} runs in the background (rigour review --status; log: ${log}). Run \`rigour review --reviewer --full\` before asking for a human review.` : '';
 }
@@ -133,12 +156,13 @@ export function pushTarget(command: string): string | undefined {
     return dir?.replace(/^~(?=\/|$)/, os.homedir());
 }
 
-function repositoryOf(dir: string): string | undefined {
+/** The repository a directory is in, or undefined outside one. */
+export function repositoryOf(dir: string): string | undefined {
     const result = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' });
     return result.status === 0 ? result.stdout.trim() : undefined;
 }
 
-function parse(stdin: string): { cwd?: string; tool_input?: { command?: unknown } } {
+function parse(stdin: string): { cwd?: string; tool_use_id?: unknown; session_id?: unknown; tool_input?: { command?: unknown } } {
     try {
         const parsed = JSON.parse(stdin || '{}');
         return parsed && typeof parsed === 'object' ? parsed : {};

@@ -176,7 +176,7 @@ describe('git-backed review', () => {
         write('src/more.ts', LEAKY);
         git('add', '-N', 'src/more.ts');
         expect((await reviewChange({ cwd: repo, config, diff: git('diff'), source: { mode: 'working' } })).baseUnknown).toBeUndefined();
-    });
+    }, 30_000); // three whole reviews of a real git repository: about a second here, past 5 s under a loaded full run
 
     it('tells the deep review what the compiled checks found and which lessons they covered, only where they ran', async () => {
         write('src/load.ts', 'export const ok = 1;\n');

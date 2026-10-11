@@ -10,7 +10,7 @@
 import { execFileSync } from 'child_process';
 import chalk from 'chalk';
 import path from 'path';
-import { personOf } from './git-identity.js';
+import { decider } from './git-identity.js';
 import { acceptSuggestedText, scopeLesson, branchBase, decideCompiledCheck, decideLesson, defaultExec, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, githubReader, learnFromReviews, lessonsPath, pendingDecision, quietBotCandidate, readLessons, type LessonEvidence, type ReviewLesson, ruleWriterFor, ConfigSchema, type Config } from '@rigour-labs/core';
 import { loadConfig } from './review-config.js';
 
@@ -20,6 +20,8 @@ export interface LearnReviewsOptions {
     limit?: string;
     promote?: string;
     reject?: string;
+    notARule?: string;
+    takeBack?: string;
     why?: string;
     list?: boolean;
     /** With --list: also list candidates only review bots raised (hidden by default, and counted). */
@@ -43,6 +45,8 @@ export interface LearnReviewsOptions {
 export async function learnReviewsCommand(cwd: string, options: LearnReviewsOptions): Promise<void> {
     if (options.promote) return decide(cwd, options.promote, 'accepted', options.why);
     if (options.reject) return decide(cwd, options.reject, 'rejected', options.why);
+    if (options.notARule) return decide(cwd, options.notARule, 'not-a-rule', options.why);
+    if (options.takeBack) return decide(cwd, options.takeBack, 'took-back', options.why);
     if (options.list) return list(cwd, options.json, options.includeBots);
     if (options.useWording) return useWording(cwd, options.useWording);
     if (options.scope) return scope(cwd, options.scope, options.to, options.why);
@@ -97,10 +101,10 @@ function list(cwd: string, json?: boolean, includeBots?: boolean): void {
 }
 
 function printLesson(l: ReviewLesson): void {
-    const label = { verified: chalk.green('lesson   '), candidate: chalk.yellow('candidate'), rejected: chalk.red('rejected ') };
+    const label = { verified: chalk.green('lesson   '), candidate: chalk.yellow('candidate'), rejected: chalk.red('rejected '), dropped: chalk.dim('not a rule') };
     const prs = [...new Set(l.evidence.map(e => `#${e.pr}`))].join(', ');
     const by = chalk.dim(`${l.promotedBy ? ` [${l.promotedBy}]` : ''}${l.scope ? ` [${l.scope === 'repo' ? 'every change' : 'its folder'}]` : ''}`);
-    console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(team standard)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
+    console.log(`${label[l.state]} ${chalk.dim(l.id)} ${l.file || '(no file)'}: ${l.text}${by} ${chalk.dim(`(${prs})`)}`);
     const pending = pendingDecision(l);
     if (pending) console.log(chalk.yellow(`          ${pendingReason(pending)}`));
     if (l.suggestedText) console.log(chalk.cyan(`          corrected wording (${l.suggestedWhy ?? 'reworded'}): ${l.suggestedText}`) + chalk.dim(`  take it: rigour learn-reviews --use-wording ${l.id}`));
@@ -145,14 +149,21 @@ function decideCheck(cwd: string, id: string, state: 'active' | 'withdrawn'): vo
     }
 }
 
+/** Who decides, or undefined after saying why not (exit code 1): a decision always carries who made it. */
+function deciderOrExit(cwd: string): string | undefined {
+    try {
+        return decider(cwd);
+    } catch (e: any) {
+        console.error(chalk.red(e.message));
+        process.exitCode = 1;
+        return undefined;
+    }
+}
+
 function decideCheckOrThrow(cwd: string, id: string, state: 'active' | 'withdrawn'): void {
     // Who decided is committed with the check: a decision with no one to name is refused, never recorded empty.
-    const by = personOf(cwd);
-    if (by === 'unknown') {
-        console.error(chalk.red('No git email is set in this checkout (git config user.email): who approves or takes back a compiled check is committed with it.'));
-        process.exitCode = 1;
-        return;
-    }
+    const by = deciderOrExit(cwd);
+    if (!by) return;
     const check = decideCompiledCheck(cwd, id, state, by);
     if (!check) {
         console.error(chalk.red(`No compiled check ${id}.`));
@@ -169,9 +180,11 @@ function scope(cwd: string, id: string, to: string | undefined, why?: string): v
         process.exitCode = 1;
         return;
     }
+    const by = deciderOrExit(cwd);
+    if (!by) return;
     let lesson;
     try {
-        lesson = scopeLesson(cwd, id, to, personOf(cwd), why);
+        lesson = scopeLesson(cwd, id, to, by, why);
     } catch (e: any) {
         console.error(chalk.red(e.message));
         process.exitCode = 1;
@@ -188,7 +201,9 @@ function scope(cwd: string, id: string, to: string | undefined, why?: string): v
 
 /** A person takes the suggested wording of a lesson they decided; the old wording is kept as evidence. */
 function useWording(cwd: string, id: string): void {
-    const lesson = acceptSuggestedText(cwd, id, personOf(cwd));
+    const by = deciderOrExit(cwd);
+    if (!by) return;
+    const lesson = acceptSuggestedText(cwd, id, by);
     if (!lesson) {
         console.error(chalk.red(`No lesson ${id} with a suggested wording.`));
         process.exitCode = 1;
@@ -198,14 +213,31 @@ function useWording(cwd: string, id: string): void {
 }
 
 /** A person's decision, kept as evidence with who made it (their git email) and why. */
-function decide(cwd: string, id: string, decision: 'accepted' | 'rejected', why?: string): void {
-    const lesson = decideLesson(cwd, id, decision, personOf(cwd), why);
+/** What each decision tells the person it did. */
+const DECIDED: Record<'accepted' | 'rejected' | 'not-a-rule' | 'took-back', (text: string) => string> = {
+    accepted: text => chalk.green(`✔ A lesson now: ${text}`),
+    rejected: text => chalk.yellow(`✔ Rejected: ${text}. The judges are told this team decided against it.`),
+    'not-a-rule': text => chalk.dim(`✔ Not a rule (a one-off for that pull request): ${text}. Never served, and the judges are told nothing.`),
+    'took-back': text => chalk.yellow(`✔ Taken back, a candidate again: ${text}. The earlier decision is kept in its history.`),
+};
+
+function decide(cwd: string, id: string, decision: 'accepted' | 'rejected' | 'not-a-rule' | 'took-back', why?: string): void {
+    const by = deciderOrExit(cwd);
+    if (!by) return;
+    let lesson;
+    try {
+        lesson = decideLesson(cwd, id, decision, by, why);
+    } catch (e: any) {
+        console.error(chalk.red(e.message));
+        process.exitCode = 1;
+        return;
+    }
     if (!lesson) {
         console.error(chalk.red(`No lesson ${id}.`));
         process.exitCode = 1;
         return;
     }
-    console.log(decision === 'accepted' ? chalk.green(`✔ A lesson now: ${lesson.text}`) : chalk.yellow(`✔ Rejected: ${lesson.text}. The judges are told this team decided against it.`));
+    console.log(DECIDED[decision](lesson.text));
 }
 
 /** The repository's rigour.yml, or the defaults when it cannot be read (no rigour.yml is the defaults already). */

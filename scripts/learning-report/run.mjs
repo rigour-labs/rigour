@@ -13,8 +13,12 @@ import { fileURLToPath } from 'url';
 import { CLONE_CAP_BYTES, CLONE_FILTER, REPOS, TEXT_CACHE, setPath, creditUnits, githubToken, looksBroken, nearDuplicates, sourceOf, sourceUrl, textHash } from './common.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const [label, scratch, ...only] = process.argv.slice(2);
-if (!label || !scratch) throw new Error('usage: run.mjs <label> <scratch dir>');
+const [label, scratchRoot, ...only] = process.argv.slice(2);
+if (!label || !scratchRoot) throw new Error('usage: run.mjs <label> <scratch dir>');
+// Each run works in its own folder under the scratch dir, named by its label and process, so two runs never clear
+// each other's clone or store.
+const scratch = path.join(scratchRoot, `${label}-${process.pid}`);
+fs.mkdirSync(scratch, { recursive: true });
 // LEARNING_REPORT_CORE runs another build of core (another checkout's dist/index.js): the same pins, before and after a change.
 const { learnFromReviews, readLessons } = await import(process.env.LEARNING_REPORT_CORE || path.join(here, '../../packages/rigour-core/dist/index.js'));
 const { prs } = JSON.parse(fs.readFileSync(setPath('prs.json'), 'utf8'));
@@ -106,6 +110,11 @@ for (const repo of only.length ? only : REPOS) {
         console.log(error.message);
     } finally {
         fs.rmSync(clone, { recursive: true, force: true });
+        // The store itself, for brief-check.mjs: it holds comment text, so it stays in the cache, never the repository.
+        if (fs.existsSync(store)) {
+            fs.mkdirSync(path.join(TEXT_CACHE, 'stores', label), { recursive: true });
+            fs.copyFileSync(store, path.join(TEXT_CACHE, 'stores', label, `${repo.replace('/', '__')}.json`));
+        }
         fs.rmSync(store, { force: true });
     }
 }
@@ -113,3 +122,4 @@ fs.mkdirSync(path.dirname(resultFile), { recursive: true });
 fs.writeFileSync(resultFile, JSON.stringify(result, null, 2) + '\n');
 fs.mkdirSync(TEXT_CACHE, { recursive: true });
 fs.writeFileSync(cacheFile, JSON.stringify(cached, null, 2) + '\n');
+fs.rmSync(scratch, { recursive: true, force: true });

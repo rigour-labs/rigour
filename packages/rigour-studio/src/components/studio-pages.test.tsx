@@ -379,3 +379,47 @@ describe('candidates from review bots, on the learning page', () => {
         expect(html(<BotPointsToggle count={1} shown onToggle={() => undefined} />)).toContain('>Hide bot points<');
     });
 });
+
+describe('a teammate\'s decision, on the learning page', () => {
+    it('shows each team decision by display name, and says when the team\'s later decision settled it against yours', () => {
+        const out = html(<LessonCard lesson={{ id: 'e1b2c3d4e5f6', text: 'filter in the query', origin: 'pr', learnedFrom: 'At PR #7, from r', state: 'rejected', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: false, team: {
+            decisions: [{ kind: 'rejected', name: 'Omar K.', at: '2026-10-09T08:00:00Z', detail: 'one-off for that endpoint' }],
+            overruled: { yours: 'accepted', team: { kind: 'rejected', name: 'Omar K.', at: '2026-10-09T08:00:00Z' }, yoursOnly: 'no git user.email here' },
+        } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(out).toContain('the team decided');
+        expect(out).toContain('You accepted it (yours only: no git user.email here); Omar K. rejected it on 2026-10-09');
+        expect(out).toContain('Omar K. (team) rejected it on 2026-10-09: one-off for that endpoint');
+    });
+});
+
+describe('a fresh review candidate, on the learning page', () => {
+    it('offers Promote and Drop, and each is a review decision', () => {
+        const decided: string[] = [];
+        const lesson = { id: 'c1b2c3d4e5f6', text: 'filter in the query', origin: 'pr', learnedFrom: 'At PR #7, from r', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true } as any;
+        const out = html(<LessonCard lesson={lesson} onDecide={() => decided.push('memory')} onDecideReview={(_id, d) => decided.push(d)} />);
+        expect(out).toContain('From review, not confirmed yet.');
+        expect(out).toContain('>Promote</button>');
+        expect(out).toContain('>Drop</button>');
+        expect(out).not.toContain('Keep');
+        const card = LessonCard({ lesson, onDecide: () => decided.push('memory'), onDecideReview: (_id: string, d: string) => decided.push(d) } as any) as any;
+        const buttons: any[] = [];
+        const walk = (node: any) => { if (!node || typeof node !== 'object') return; if (Array.isArray(node)) return node.forEach(walk); if (node.type === 'button') buttons.push(node); walk(node.props?.children); };
+        walk(card);
+        buttons.filter(b => b.props.children === 'Promote' || b.props.children === 'Drop').forEach(b => b.props.onClick());
+        expect(decided).toEqual(['accepted', 'rejected']);
+    });
+});
+
+describe('not a rule and take back, on the learning page', () => {
+    it('offers Not a rule beside Promote and Drop on a candidate, and Take back on a decided lesson', () => {
+        const base = { id: 'd1b2c3d4e5f6', text: 'refresh the description', origin: 'pr', learnedFrom: 'At PR #7, from r', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null } as any;
+        const fresh = html(<LessonCard lesson={{ ...base, state: 'candidate', canDecide: true }} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(fresh).toContain('>Not a rule</button>');
+        expect(fresh).toContain('Drop tells agents the team decided against it');
+        const decided = html(<LessonCard lesson={{ ...base, state: 'rejected', canDecide: false, canTakeBack: true }} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(decided).toContain('Dropped: agents are told the team decided against it.');
+        expect(decided).toContain('>Take back</button>');
+        const dropped = html(<LessonCard lesson={{ ...base, state: 'dropped', canDecide: false, canTakeBack: true }} onDecide={() => undefined} onDecideReview={() => undefined} />);
+        expect(dropped).toContain('Not a rule: never told to agents.');
+    });
+});

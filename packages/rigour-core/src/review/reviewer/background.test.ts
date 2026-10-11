@@ -115,3 +115,16 @@ function alive(pid: number): boolean {
         return false;
     }
 }
+
+describe("the push gate's question before a background review", () => {
+    it('says why today\'s cap leaves no room for one more run, and nothing while there is room', async () => {
+        const { reviewerCapReached } = await import('../reviewer.js');
+        const capped = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, max_runs_per_day: 1, max_usd_per_day: 5 } } });
+        expect(await reviewerCapReached(repo, capped, exec)).toBeUndefined();
+        (await VerdictStore.open(repo, exec))!.addSpend(1, 0.4);
+        expect(await reviewerCapReached(repo, capped, exec)).toBe('the daily run cap is reached: 1 of 1 agent runs used today in this repository, and this needs 1 more (review.reviewer.max_runs_per_day)');
+        const dollars = ConfigSchema.parse({ version: 1, review: { reviewer: { enabled: true, max_usd_per_day: 0.3 } } });
+        expect(await reviewerCapReached(repo, dollars, exec)).toContain('(review.reviewer.max_usd_per_day)');
+    });
+});
+

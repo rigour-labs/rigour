@@ -301,6 +301,19 @@ describe('hooksCheckCommand', () => {
         process.exitCode = originalExitCode;
     });
 
+    it('in report-only, says the edit would have been blocked and lets it through', async () => {
+        fs.writeFileSync(path.join(testDir, 'rigour.yml'), 'version: 1\nhooks:\n  report_only: true\n');
+        fs.writeFileSync(path.join(testDir, 'bad.ts'), "const password = 'abcdefghijklmnopqrstuvwxyz12345';\n");
+        vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const originalExitCode = process.exitCode;
+        process.exitCode = undefined;
+        await hooksCheckCommand(testDir, { files: 'bad.ts', block: true });
+        expect(process.exitCode).toBeUndefined();
+        expect(stderrSpy.mock.calls.map(call => String(call[0])).join('')).toContain('Rigour (report only; nothing was blocked');
+        process.exitCode = originalExitCode;
+    });
+
     it('records a block on the edit check only when the hook ran with --block', async () => {
         fs.writeFileSync(path.join(testDir, 'bad.ts'), "const password = 'abcdefghijklmnopqrstuvwxyz12345';\n");
         vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -396,6 +409,14 @@ describe('which agent sent the hook payload', () => {
         expect(out.hookSpecificOutput).toMatchObject({ hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: expect.stringContaining('[aws_access_key]') });
         expect(stdout).not.toContain(AWS_KEY); // the reason and the result carry the redacted form only
         expect(out.hookSpecificOutput.permissionDecisionReason).toContain(`${AWS_KEY.slice(0, 4)}****${AWS_KEY.slice(-2)}`);
+    });
+
+    it("reads the tool call's own text, so a quoted password the agent writes is a warning, never a block", async () => {
+        const value = ['Xk9q', 'mP2qLw8vRt5z'].join('');
+        const out = await run(claude('PreToolUse', 'src/jobs/db.ts', `export const password = "${value}";`), { mode: 'dlp' });
+        expect(out.hookSpecificOutput.permissionDecision).toBeUndefined();
+        expect(out.hookSpecificOutput.additionalContext).toContain('not blocked');
+        expect(stdout).not.toContain(value);
     });
 
     it('lets a credential the scan only suspects through, with a warning Claude sees', async () => {

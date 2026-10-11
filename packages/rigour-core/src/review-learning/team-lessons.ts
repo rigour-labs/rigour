@@ -49,12 +49,13 @@ export function lessonView(l: ReviewLesson): LessonView {
 
 /**
  * One line per lesson: where it applies, the rule, and, when a model wrote the rule from a person's
- * point, their own words, so anyone can see when the rule went beyond what was said.
+ * point, their own words, so anyone can see when the rule went beyond what was said. Only a lesson a person
+ * made the repository's standard says "team standard"; one with no file reached this change by its words.
  */
 export function describeLesson(l: LessonView): string {
     const where = l.scope === 'repo' ? `team standard${l.file ? ` (learned on ${l.file})` : ''}: `
         : l.scope === 'folder' ? `${path.posix.dirname(l.file)}/ (every file): `
-        : l.file ? `${l.file}: ` : 'team standard: ';
+        : l.file ? `${l.file}: ` : '(no file): ';
     const said = l.said ? ` (in their words: "${l.said}")` : '';
     const prs = l.prs.length ? ` (acted on in PR ${l.prs.map(p => `#${p}`).join(', ')})` : '';
     return `${where}${l.text}${said}${prs}`;

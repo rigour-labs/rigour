@@ -4,9 +4,12 @@ import path from 'path';
 import { openDatabase } from './db.js';
 import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js';
 import { TEAM_SCHEMA } from './team-schema.js';
-import { diagnoseMissingMembership, explainTeamConnectionError } from './team-diagnostics.js';
+import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, missingReviewDecisionGrants, refusedRow } from './team-diagnostics.js';
 import { rigourUserDir } from '../utils/user-state.js';
 import { withheldReason } from './team-scope.js';
+import { getRepositoryId, originOf } from './repository-origin.js';
+import { previewReviewDecisions, syncReviewDecisions, type DecisionPreview, type DecisionSync } from './team-review-decisions.js';
+import { personOf } from '../utils/person.js';
 import {
     TEAM_VECTOR_SCHEMA,
     backfillConfiguredTeamEmbeddings,
@@ -55,6 +58,9 @@ export interface TeamModeStatus {
 
 export interface TeamDoctorResult extends TeamModeStatus {
     schemaVersion?: number;
+    /** Whether the database can hold shared review decisions: `missing` until the administrator runs init-schema again. */
+    /** `missing grant`: the tables are there, but this login cannot use them; the message has the GRANT to run. */
+    reviewDecisions?: 'ready' | 'missing' | 'missing grant';
     databaseRole?: string;
     permissions?: string[];
 }
@@ -229,6 +235,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
         const result = await pool.query(
             `SELECT current_user AS database_role,
                     (SELECT value::integer FROM rigour.meta WHERE key = 'schema_version') AS schema_version,
+                    (SELECT value::integer FROM rigour.meta WHERE key = 'review_decisions_version') AS review_decisions_version,
                     role
              FROM rigour.memberships
              WHERE db_role = current_user AND team_id = $1 AND actor_id = $2 AND organization_id = $3`,
@@ -238,6 +245,10 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
         const schemaVersion = Number(result.rows[0].schema_version);
         if (schemaVersion !== 1) return offline(`Incompatible team schema version ${schemaVersion}; expected 1.`);
         const semantic = resolved.semantic ? await getTeamSemanticHealth(pool, resolved) : undefined;
+        const role = String(result.rows[0].role);
+        const tables = Number(result.rows[0].review_decisions_version) === 1;
+        const missingGrant = tables ? await missingReviewDecisionGrants(pool, String(result.rows[0].database_role), role) : undefined;
+        const reviewDecisions = !tables ? 'missing' : missingGrant ? 'missing grant' : 'ready';
         return {
             mode: 'team',
             connectivity: 'online',
@@ -247,9 +258,14 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
             queuedChanges: await queuedChanges(),
             schemaVersion,
             databaseRole: String(result.rows[0].database_role),
-            permissions: [String(result.rows[0].role)],
+            permissions: [role],
             semantic,
-            message: 'PostgreSQL team mode is healthy.',
+            reviewDecisions,
+            message: reviewDecisions === 'ready'
+                ? 'PostgreSQL team mode is healthy. A clone receives the team\'s decisions on review lessons at its first sync (`rigour team sync`, or the next Rigour tool call).'
+                : reviewDecisions === 'missing grant'
+                    ? `PostgreSQL team mode is healthy for lessons, but review decisions are not: ${missingGrant}`
+                    : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.',
         };
     } catch (error) {
         return offline(explainTeamConnectionError(error));
@@ -275,13 +291,22 @@ async function splitOutbox(db: { get(sql: string, ...params: unknown[]): Promise
 /** How far before the last pull a sync reads again, for members whose clocks run behind. */
 const PULL_OVERLAP_MS = 15 * 60_000;
 
-/** Postgres refused the row itself: insufficient privilege (row-level security) or an integrity constraint (class 23). */
-function refusedRow(error: unknown): boolean {
-    const code = (error as { code?: unknown })?.code;
-    return typeof code === 'string' && (code === '42501' || code.startsWith('23'));
+
+type SyncResult = { pending: number; withheld: number; synced: number; pulled: number; decisions: DecisionSync | DecisionPreview };
+
+/**
+ * Sends what this machine may share and receives the team's. A failure comes out as one line (a missing grant as the
+ * GRANT to run), never the driver's stack; the original stays as its `cause`.
+ */
+export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string }): Promise<SyncResult> {
+    try {
+        return await syncOnce(options);
+    } catch (error) {
+        throw new Error(explainSyncError(error, (await loadTeamConfiguration().catch(() => undefined))?.databaseUrl), { cause: error });
+    }
 }
 
-export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promise<{ pending: number; withheld: number; synced: number; pulled: number }> {
+async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<SyncResult> {
     const config = await loadTeamConfiguration();
     if (!config?.databaseUrl) throw new Error('Team mode is not configured.');
     const db = await openDatabase();
@@ -291,7 +316,8 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
             `SELECT * FROM sync_outbox WHERE synced_at IS NULL ORDER BY created_at ASC LIMIT 200`,
         );
         const { sendable: pending, held } = await splitOutbox(db, queued, config);
-        if (options.dryRun) return { pending: pending.length, withheld: held.length, synced: 0, pulled: 0 };
+        const decisionInput = { cwd: options.cwd, origin: await originOf(options.cwd), repositoryId: await getRepositoryId(options.cwd), person: personOf(options.cwd), scope: config };
+        if (options.dryRun) return { pending: pending.length, withheld: held.length, synced: 0, pulled: 0, decisions: await previewReviewDecisions(db, decisionInput) };
         for (const item of held) {
             await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = ? WHERE id = ?', Date.now(), `not sent: ${item.reason}`, item.id);
         }
@@ -300,6 +326,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
         const pool = new Pool({ connectionString: config.databaseUrl });
         let synced = 0;
         let pulled = 0;
+        let decisions: DecisionSync;
         try {
             const membership = await pool.query(
                 `SELECT 1 FROM rigour.memberships
@@ -351,6 +378,8 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
                     throw error;
                 }
             }
+            // The repository this sync runs in: its person's decisions on review lessons out, the team's in (team-review-decisions.ts).
+            decisions = await syncReviewDecisions(pool, db, decisionInput);
             // Only what changed since the last pull, less a margin: updated_at comes from each member's clock, and
             // re-reading a few minutes is harmless (the local write is an upsert) where a skewed clock would lose a lesson.
             const mark = `team_pulled:${config.organizationId}/${config.teamId}/${config.actorId}`;
@@ -388,7 +417,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean } = {}): Promis
         } finally {
             await pool.end();
         }
-        return { pending: pending.length, withheld: held.length, synced, pulled };
+        return { pending: pending.length, withheld: held.length, synced, pulled, decisions };
     } finally {
         await db.close();
     }

@@ -18,7 +18,7 @@ rigour profile list
 ```
 
 - `--match`: path prefixes or origin remotes (`github.com/acme/*` for every repository under an owner, or an exact `github.com/acme/api`). The first profile that matches wins.
-- `--home`: where this profile's `.rigour/` lives: memory, lessons, settings and keys, telemetry, review state. A path ending in `.rigour` is that folder itself.
+- `--home`: where this profile's `.rigour/` lives: memory, lessons, settings and keys, telemetry, review state. A path ending in `.rigour` is that folder itself, so the state is always in one directory; `profile add` prints which. A home from before 6.11.1 that already holds state one level deeper (`<home>/.rigour`) keeps using it. If `rigour doctor` says state is in both, `rigour doctor --merge-state` lists how the left-over files would join the live ones (a dry run) and `--yes` does it: nothing is deleted or overwritten, and a file both hold keeps the live one, the other renamed `<name>.merged-<date>`.
 - Team settings come from the profile only. Any `RIGOUR_TEAM_*` or `RIGOUR_ORGANIZATION_ID` inherited from your shell is cleared, so another organization's team can never apply. `--database-url-command` prints the database URL when Rigour needs it (from a keychain or a vault); the URL is never written to the file.
 - `--github-account`: the account whose token fetches a pull request's previous review for the reviewer (`gh auth token --user`).
 
@@ -30,3 +30,4 @@ Profiles live in `~/.rigour/profiles.json` in your real home (or `RIGOUR_PROFILE
 - **The MCP server** applies the profile of the repository it serves (`RIGOUR_CWD`, else where it started), and refuses a tool call for a repository of another profile. A single server registered globally answers only for its own profile, never with the wrong memory or team.
 - **Team sync** sends only lessons from the team's own repositories (`--repositories`); everything else stays on the machine. See [Team database](./TEAM_DATABASE.md).
 - `RIGOUR_USER_MEMORY=off` keeps a server out of the memories you keep for all your repositories.
+- **`rigour doctor`'s push-gate self-test** pushes from a scratch clone in the temp folder, under the home of the repository you ran it in. A profile whose match covers the temp folder never applies to it, so another organization's home or team is never used.

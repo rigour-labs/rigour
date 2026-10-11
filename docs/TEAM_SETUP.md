@@ -13,7 +13,7 @@ same record of what was judged not a bug. For trying Rigour on your own first, s
 | Settings | Rigour's defaults, plus your own | The committed `rigour.yml`, plus each person's own where the team allows |
 | Typical use | Trying Rigour; a repository that is not yours | A team that has decided to use it |
 
-A repository that already commits a `rigour.yml` is set up as a team repository automatically.
+Only `--team` writes into the repository. Once a team has committed Rigour's hooks, a teammate's plain `rigour setup` leaves every committed file as it is (`git status` stays clean), names the files it left, and installs only this clone's git pre-push hook. To change the team's install (a newer pinned version, another agent), run `rigour setup --team` and commit the result.
 
 ## Set it up for the team
 
@@ -22,6 +22,8 @@ One person, once, on a branch:
 ```bash
 rigour setup --team
 ```
+
+For the team's first week, `rigour setup --team --report-only` sets `hooks.report_only: true` in `rigour.yml`: every gate says what it would have blocked and blocks nothing (a real credential is still refused). Later, `rigour setup --team --block` sets it to `false`, in a commit everyone gets: the gates block, and no person's own `--report-only` lowers that.
 
 This writes, for you to commit:
 

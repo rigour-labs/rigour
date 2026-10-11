@@ -28,7 +28,11 @@ export interface StudioWeek {
     to: string;
     needs: Array<{ file: string; rule: string; title: string; openedAt: string; stage?: CatchStage }>;
     stories: Story[];
-    stopped: { total: number; byStage: Record<CatchStage, number> };
+    /**
+     * Problems Rigour held an agent on this week during development, each counted once, at the stage that caught it first
+     * (an edit, then the stop on the same problem, is one problem caught at the edit); `fixed` of them were fixed since.
+     */
+    stopped: { total: number; fixed: number; byStage: Record<CatchStage, number> };
     /** Times an agent tried to finish with a problem Rigour proved, and then fixed it. */
     agentSaidDone: number;
     /** Findings branch reviews reported this week; null when no branch review was ever recorded here. */
@@ -42,8 +46,11 @@ export function buildWeek(input: WeekInputs): StudioWeek {
     const from = new Date(input.now.getTime() - WEEK_MS);
     const inWeek = (at: string) => Date.parse(at) >= from.getTime() && Date.parse(at) <= input.now.getTime();
     const stories = input.stories.filter(s => DEVELOPMENT.includes(s.stage) && inWeek(s.at));
+    // Still open: caught this week and not fixed yet. A fixed one is a story; the ledger keys both by check and file.
+    const caught = input.open.filter(o => inWeek(o.openedAt) && DEVELOPMENT.includes(o.stage ?? 'edit'));
     const byStage = { edit: 0, review: 0, stop: 0, pr: 0 } as Record<CatchStage, number>;
     for (const story of stories) byStage[story.stage]++;
+    for (const open of caught) byStage[open.stage ?? 'edit']++;
     const overruled = input.dismissals.filter(d => inWeek(d.at)).length;
     const openedThisWeek = input.open.filter(o => inWeek(o.openedAt)).length;
     const prEvents = input.events.filter(e => e.type === 'pr_catches');
@@ -53,7 +60,7 @@ export function buildWeek(input: WeekInputs): StudioWeek {
         to: input.now.toISOString(),
         needs: input.open.map(o => ({ ...o, title: o.title ?? o.rule })),
         stories: [...stories].reverse().slice(0, MAX_STORIES),
-        stopped: { total: stories.length, byStage },
+        stopped: { total: stories.length + caught.length, fixed: stories.length, byStage },
         agentSaidDone: byStage.stop,
         prCatches: prEvents.length === 0 ? null : prEvents.filter(e => e.timestamp && inWeek(e.timestamp)).reduce((n, e) => n + (e.findings?.length ?? 0), 0),
         raised: stories.length + overruled + openedThisWeek,

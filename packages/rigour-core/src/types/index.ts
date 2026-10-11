@@ -5,6 +5,8 @@ const ModelName = z.string().regex(/^[\w.:/@][\w.:/@-]*$/, 'a model name (letter
 
 export const GatesSchema = z.object({
     max_file_lines: z.number().optional().default(500),
+    /** Opt in: a change that takes a file over max_file_lines blocks. By default it is a note: a file's length is a team's preference. */
+    file_size: z.object({ block: z.boolean().optional().default(false) }).optional().default({}),
     forbid_todos: z.boolean().optional().default(true),
     forbid_fixme: z.boolean().optional().default(true),
     required_files: z.array(z.string()).optional().default([
@@ -83,6 +85,11 @@ export const GatesSchema = z.object({
         xss: z.boolean().optional().default(true),
         path_traversal: z.boolean().optional().default(true),
         hardcoded_secrets: z.boolean().optional().default(true),
+        /**
+         * A secret-named key given a literal that is no placeholder, reference or test value (`password = "…"`,
+         * `DB_PASSWORD=…`, in code, JSON, YAML, .env): a note in review, and a warning the agent sees before the tool call.
+         */
+        secret_assignments: z.boolean().optional().default(true),
         insecure_randomness: z.boolean().optional().default(true),
         command_injection: z.boolean().optional().default(true),
         block_on_severity: z.enum(['critical', 'high', 'medium', 'low']).optional().default('high'),
@@ -368,6 +375,11 @@ export const CommandsSchema = z.object({
 export const HooksSchema = z.object({
     /** Stop hook: hold "done" until the agent acknowledges each risky changed function (rigour_review_ack). */
     require_review_ack: z.boolean().optional().default(false),
+    /**
+     * A team's first week: every gate (edit, stop, push) says what it would have blocked and blocks nothing. Unset, a
+     * person may choose report-only for their clone; an explicit false is the team's floor, which no person's switch lowers.
+     */
+    report_only: z.boolean().optional(),
 }).optional().default({});
 
 export const ConfigSchema = z.object({
@@ -465,12 +477,18 @@ export const ConfigSchema = z.object({
             /** Findings cross-examined per review at most; the rest are shown as disputed. */
             panel_max_items: z.number().int().positive().optional().default(20),
             /**
-             * Spending caps per repository and local day, unset by default. Runs are checked before any judge starts
-             * (a cross-examination counts too); dollars are the ones the CLIs reported, so a cap stops new reviews once
-             * reached. Past a cap a review is skipped, or unavailable when the team requires the reviewer.
+             * Spending caps per repository and local day (40 runs, $10 by default; a team raises them here). Runs are
+             * checked before any judge starts (a cross-examination counts too, and the deep review's cloud model);
+             * dollars are the ones the CLIs and APIs reported, so a cap stops new runs once reached. Past a cap a review
+             * is skipped, or unavailable when the team requires the reviewer.
              */
-            max_runs_per_day: z.number().int().positive().optional(),
-            max_usd_per_day: z.number().positive().optional(),
+            max_runs_per_day: z.number().int().positive().optional().default(40),
+            max_usd_per_day: z.number().positive().optional().default(10),
+            /**
+             * Dollars one review may spend ($2 by default), checked before each judge, retry, cross-examination and
+             * follow-up it starts: past it, the review stops there, says why, and records what it had.
+             */
+            max_usd_per_review: z.number().positive().optional().default(2),
             /** Judges in a full or panel review, each from a different vendor; capped by the vendors installed. */
             judges: z.union([z.literal(2), z.literal(3)]).optional().default(2),
             /**
@@ -593,6 +611,8 @@ export const ReportSchema = z.object({
             enabled: z.boolean(),
             /** ok: every inference ran; partial: some failed; error: deep did not run. */
             status: z.enum(['ok', 'partial', 'error']).optional(),
+            /** Why a cloud deep run did not start: a spending cap (review/reviewer/caps.ts). */
+            skipped: z.string().optional(),
             mode: z.enum(['facts', 'code']).optional(),
             tier: z.enum(['deep', 'lite', 'legacy', 'max', 'cloud']).optional(),
             model: z.string().optional(),

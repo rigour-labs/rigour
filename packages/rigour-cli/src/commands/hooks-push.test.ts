@@ -2,9 +2,24 @@ import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readThread } from '@rigour-labs/core';
-import { hooksPushCommand, isPush, pushTarget } from './hooks-push.js';
+import { hooksPushCommand, isPush, pushHookOutput, pushTarget } from './hooks-push.js';
+import { setReportOnlyHere } from './report-only.js';
+
+// The reviewer's daily cap, as the push gate asks it; each test says what today's spend leaves.
+const cap = vi.hoisted(() => ({ reason: undefined as string | undefined }));
+vi.mock('@rigour-labs/core', async (importOriginal) => ({ ...(await importOriginal<typeof import('@rigour-labs/core')>()), reviewerCapReached: async () => cap.reason }));
+
+describe("where the push gate's message goes", () => {
+    it('gives the agent a note on a push that goes ahead as context it sees, and a block on stderr', () => {
+        const note = 'Rigour: the model review of abc1234ef was skipped: the daily run cap is reached.';
+        expect(JSON.parse(pushHookOutput({ exitCode: 0, message: note }, false).stdout!)).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: note } });
+        expect(pushHookOutput({ exitCode: 2, message: 'blocked' }, false)).toEqual({ stderr: 'blocked' }); // Claude Code feeds exit 2's stderr back
+        expect(pushHookOutput({ exitCode: 0, message: note }, true)).toEqual({ stderr: note }); // git's pre-push: the person at the terminal
+        expect(pushHookOutput({ exitCode: 0, message: '' }, false)).toEqual({});
+    });
+});
 
 describe('push command parsing', () => {
     it('acts on a real push only', () => {
@@ -51,6 +66,33 @@ describe('rigour hooks push', () => {
     });
     afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
 
+    it('in report-only, lets a push through and says what would have stopped it, by the team\'s switch or the person\'s', async () => {
+        write('src/util.ts', 'export const used = 1;\nexport const forgotten = 2;\n');
+        git('commit', '-qam', 'adds an export nothing uses');
+        expect((await push()).exitCode).toBe(2);
+        setReportOnlyHere(repo, true); // the person's switch, in the git directory
+        const reported = await push();
+        expect(reported.exitCode).toBe(0);
+        expect(reported.message).toContain('Rigour (report only; nothing was blocked');
+        expect(reported.message).toContain('the push would have been blocked');
+        expect(pushHookOutput(reported, true).stderr).toContain('would have been blocked'); // git's pre-push: the terminal
+        expect(pushHookOutput(reported, false).stdout).toContain('would have been blocked'); // the agent: context it sees
+        setReportOnlyHere(repo, false);
+        write('rigour.yml', 'version: 1\ngates:\n  unused_exports:\n    block: true\nhooks:\n  report_only: true\n'); // the team's switch
+        expect((await push()).exitCode).toBe(0);
+    });
+
+    it("never lets a person's report-only lower a team that requires blocking", async () => {
+        write('src/util.ts', 'export const used = 1;\nexport const forgotten = 2;\n');
+        git('commit', '-qam', 'adds an export nothing uses');
+        write('rigour.yml', 'version: 1\ngates:\n  unused_exports:\n    block: true\nhooks:\n  report_only: false\n'); // the team's floor
+        setReportOnlyHere(repo, true);
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        expect((await push()).exitCode).toBe(2);
+        expect(stderr.mock.calls.map(call => String(call[0])).join('')).toContain("the team's rigour.yml requires blocking here");
+        stderr.mockRestore();
+    });
+
     it('blocks a push that leaves the scope its open pull request declares, and checks nothing without one', async () => {
         // A gh of our own on PATH: `pr view` answers with an open pull request, or fails.
         const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-gh-'));
@@ -81,6 +123,20 @@ describe('rigour hooks push', () => {
         } finally {
             for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
             fs.rmSync(bin, { recursive: true, force: true });
+        }
+    });
+
+    it('tells the agent a reached cap skipped the model review, and starts nothing', async () => {
+        write('rigour.yml', 'version: 1\nreview:\n  reviewer:\n    enabled: true\n    max_usd_per_day: 1\n');
+        git('commit', '-qam', 'reviewer on');
+        cap.reason = 'the daily cost cap is reached: $1.20 of $1.00 reported today in this repository (review.reviewer.max_usd_per_day)';
+        try {
+            const result = await push();
+            expect(result.exitCode).toBe(0); // a skipped review never blocks the push
+            expect(result.message).toMatch(/^Rigour: the model review of [0-9a-f]{9} was skipped: the daily cost cap is reached: \$1\.20 of \$1\.00 .*\(review\.reviewer\.max_usd_per_day\)\.$/);
+            expect(result.message).not.toContain('runs in the background');
+        } finally {
+            cap.reason = undefined;
         }
     });
 

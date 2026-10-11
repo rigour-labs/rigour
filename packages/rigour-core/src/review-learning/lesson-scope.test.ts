@@ -3,7 +3,8 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildFileBriefing, fileBriefingText } from '../brief/briefing.js';
-import { matchLessons, readLessons, scopeLesson, writeLessons, type ReviewLesson } from './lessons.js';
+import { matchLessons, readLessons, scopeLesson, type ReviewLesson } from './lessons.js';
+import { seedLessons } from './seed-lessons.test-support.js';
 
 const REPO_STANDARDS = 10; // the cap lessons.ts serves
 import { describeLesson, lessonsForDiff, lessonView } from './team-lessons.js';
@@ -46,7 +47,7 @@ describe('a person scoping a lesson', () => {
     afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
 
     it('is recorded with who and why, can be taken back to the file, and a team standard has no folder', () => {
-        writeLessons(repo, [lesson('scan', 'src/orders.ts', 'Filter in the query.', [1]), lesson('std', '', 'Bound every window.', [2])]);
+        seedLessons(repo, [lesson('scan', 'src/orders.ts', 'Filter in the query.', [1]), lesson('std', '', 'Bound every window.', [2])]);
         expect(scopeLesson(repo, 'scan', 'repo', 'lead@team.example', 'the reviewer raises it everywhere')?.scope).toBe('repo');
         expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'scoped', author: 'lead@team.example', detail: 'repo: the reviewer raises it everywhere' });
         expect(readLessons(repo)[0].state).toBe('verified'); // a scope says nothing about whether it is right
@@ -56,7 +57,7 @@ describe('a person scoping a lesson', () => {
     });
 
     it("reaches the brief on a new file's first edit and the judge's lessons for a change to it", () => {
-        writeLessons(repo, [lesson('scan', 'src/orders.ts', 'Filter in the query, not after a full read.', [1, 6], { scope: 'repo' }), lesson('echo', 'src/inventory.ts', 'Pick the fields you log.', [2])]);
+        seedLessons(repo, [lesson('scan', 'src/orders.ts', 'Filter in the query, not after a full read.', [1, 6], { scope: 'repo' }), lesson('echo', 'src/inventory.ts', 'Pick the fields you log.', [2])]);
         expect(fileBriefingText(buildFileBriefing(repo, 'src/reports.ts'))).toBe([
             'Rigour, before you edit src/reports.ts: what this team asks of this file.',
             '1. team standard (learned on src/orders.ts): Filter in the query, not after a full read. (learned in PR #1, #6)',

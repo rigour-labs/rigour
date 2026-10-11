@@ -19,7 +19,7 @@ import path from 'path';
 import micromatch from 'micromatch';
 import type { Config, Failure } from '../types/index.js';
 import { execFileSync } from 'child_process';
-import { lessonState, readLessons, writeLessons, type ReviewLesson } from './lessons.js';
+import { lessonState, readLessons, updateLessons, type ReviewLesson } from './lessons.js';
 import type { CoveredLesson } from '../review/settled-checks.js';
 import { branchBase } from '../gates/logic-drift-git-base.js';
 import { threadReviews } from '../outcomes/run.js';
@@ -116,19 +116,17 @@ export function decideCompiledCheck(cwd: string, id: string, state: 'active' | '
     const checks = readCompiledChecks(cwd);
     const check = checks.find(c => c.id === id);
     if (!check) return undefined;
-    const lessons = readLessons(cwd);
-    const lesson = lessons.find(l => l.id === check.lessonId);
-    if (state === 'active' && !(lesson && compilable(lesson))) throw new Error(`lesson ${check.lessonId} no longer qualifies (rejected, taken back, or gone): its check cannot run`);
-    const at = new Date().toISOString();
-    check.history = [...(check.history ?? []), { state, by, at }];
-    Object.assign(check, { state, by, at });
-    writeCompiledChecks(cwd, checks);
-    // The lesson keeps the decision too: what its check did is part of its trail.
-    if (lesson) {
-        lesson.evidence.push({ kind: 'compiled', pr: lesson.evidence[0]?.pr ?? 0, comment: `compiled-${check.id}-${at}`, author: by, detail: `${state === 'active' ? 'approved' : 'took back'} compiled check ${check.id}`, at });
-        writeLessons(cwd, lessons);
-    }
-    return check;
+    return updateLessons(cwd, lessons => {
+        const lesson = lessons.find(l => l.id === check.lessonId);
+        if (state === 'active' && !(lesson && compilable(lesson))) throw new Error(`lesson ${check.lessonId} no longer qualifies (rejected, taken back, or gone): its check cannot run`);
+        const at = new Date().toISOString();
+        check.history = [...(check.history ?? []), { state, by, at }];
+        Object.assign(check, { state, by, at });
+        writeCompiledChecks(cwd, checks);
+        // The lesson keeps the decision too: what its check did is part of its trail.
+        if (lesson) lesson.evidence.push({ kind: 'compiled', pr: lesson.evidence[0]?.pr ?? 0, comment: `compiled-${check.id}-${at}`, author: by, detail: `${state === 'active' ? 'approved' : 'took back'} compiled check ${check.id}`, at });
+        return check;
+    });
 }
 
 /**

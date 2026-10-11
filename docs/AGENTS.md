@@ -54,9 +54,9 @@ uses: bash, or PowerShell (Claude Code on Windows without Git Bash). Before 6.13
 
 When none is present it falls back to the terminal it runs in (for example, `TERM_PROGRAM` naming
 Cursor), and then to Claude Code. An `AGENTS.md`, `.gemini/` or `.vscode/` is recognised, but those
-agents get no hooks. In a repository that already commits a `rigour.yml`, `rigour setup` writes the
-hooks for the agents it detects (the same signs, plus `.cursorrules`), with the same options the team's
-install used, so a teammate's setup changes no committed file.
+agents get no hooks. `rigour setup --team` writes the hooks for the agents it detects (the same signs,
+plus `.cursorrules`). In a repository that commits Rigour's hooks already, a plain `rigour setup` leaves
+them as committed and changes no file in the working tree.
 
 **Adding an agent later.** `rigour hooks init --tool cursor` writes Cursor's hooks into the
 repository. `--dry-run` lists the files without writing them. `--force` replaces a hook script Rigour
@@ -77,9 +77,9 @@ File: `.claude/settings.json` (team) or `~/.claude/settings.json` (personal).
 
 | Event | Matcher | Command | What it does |
 | --- | --- | --- | --- |
-| `PostToolUse` | `Write\|Edit\|MultiEdit` | `<cli> hooks check --stdin`, plus `--block` when asked | Fast checks on the file just written. |
+| `PostToolUse` | `Write\|Edit\|MultiEdit\|NotebookEdit\|Bash` | `<cli> hooks check --stdin`, plus `--block` when asked | Fast checks on every file just written, whichever tool wrote it. For a shell command, the files are found from the working tree, not the command: those git shows as changed or new and written since the call started (the `PreToolUse` Bash hook records when). A shell command that writes nothing costs one `git status` and says nothing. |
 | `Stop` | none | `<cli> hooks stop --tool claude` (timeout 120 s) | Reviews the branch against main before the agent finishes. At most three stops, then the agent may finish and the finding still blocks the push. |
-| `PreToolUse` | `Bash` | `<cli> hooks push --stdin` (timeout 1800 s); the CLI passes a command that is not a push straight through | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
+| `PreToolUse` | `Bash` | `<cli> hooks push --stdin` (timeout 1800 s); the CLI passes a command that is not a push straight through, after noting when the call started (for the edit check after it) | The push gate. A failure exits 2 and the agent is told each problem. `git push --dry-run` and every other command pass untouched. |
 | `PreToolUse` | `.*` | `<cli> hooks check --mode dlp --stdin` | Credentials in the input of every tool call: a real secret's format denies the call, anything else is a warning the agent sees. |
 
 ### Cursor
@@ -161,6 +161,11 @@ them with a reference before they leave your machine. They are written with ever
 | Cline | `PreToolUse` | The text values of the tool input |
 | Windsurf | `pre_write_code` | The hook input before code is written |
 
+A secret-named key given a literal that is no placeholder, reference or test value (`password = "…"`,
+`DB_PASSWORD=…`) is a warning Claude sees, never a denial; `gates.security.secret_assignments: false` turns
+it off. For Claude Code the scan reads the tool call's own text (a Write's content, an Edit's new string),
+not its JSON envelope, where every quote is escaped.
+
 It looks for cloud keys (AWS, GCP service accounts, Azure), provider API keys (OpenAI, Anthropic,
 GitHub, Stripe, Twilio, Slack, SendGrid), private keys, database URLs with credentials, bearer tokens
 and JWTs, password and `.env`-style assignments, credentials in URLs, CI and registry secrets, and
@@ -199,7 +204,7 @@ does not need to be told about Rigour for it to work.
 - `CLAUDE.md`, one line: `@AGENTS.md`, so Claude Code reads the same file.
 
 Where you already have them, Rigour keeps yours and prints what to add (`--force` replaces them). In a
-repository that already commits a `rigour.yml`, `rigour setup --instructions` writes them the same way.
+repository that commits Rigour's hooks already, `rigour setup --instructions` writes them the same way.
 If you keep your own `AGENTS.md`, paste this section into it:
 
 ```markdown
@@ -219,7 +224,7 @@ This repository uses Rigour. Its hooks check your work after each edit, before y
 
 | Install | Claude Code | Cursor |
 | --- | --- | --- |
-| Personal (`rigour setup`) | `claude mcp add --scope user rigour -- <server>`. Needs the `claude` CLI on `PATH`; if it is missing, setup prints the command to run. A server already registered as `rigour` is left as it is. | Merged into `~/.cursor/mcp.json` under `mcpServers.rigour`, only when Cursor is installed. An existing `rigour` entry is left as it is. |
+| Personal (`rigour setup`) | `claude mcp add --scope user rigour -- <server>`. Needs the `claude` CLI on `PATH`; if it is missing, setup prints the command to run. A server already registered as `rigour` is left as it is; if it is not Rigour's, setup and `rigour doctor` say so and ask you to rename it, since Rigour's tools are not registered over it. | Merged into `~/.cursor/mcp.json` under `mcpServers.rigour`, only when Cursor is installed. An existing `rigour` entry is left as it is. |
 | Team (`rigour setup --team`) | `.mcp.json` at the repository root, under `mcpServers.rigour`. An existing `rigour` entry is kept. An `.mcp.json` that is not valid JSON is left alone. | `.cursor/mcp.json`, under `mcpServers.rigour`. An existing `rigour` entry is kept. A file that is not valid JSON is left alone. |
 
 Setup writes no MCP config for Cline, Windsurf or Codex. The server speaks MCP over stdio, so any

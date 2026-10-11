@@ -10,6 +10,11 @@ import chalk from 'chalk';
 import { briefFile, briefingText, briefTask, fileBriefingText, threadsDir, type Briefing } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
 
+/** The repository's top, where its rigour.yml, rules and briefing state live; the directory itself outside a repository. */
+function repositoryRoot(dir: string): string {
+    return gitOut(dir, ['rev-parse', '--show-toplevel']) || dir;
+}
+
 /** Whether briefings are switched off here: the team's rigour.yml or the person's environment. */
 async function briefingOff(cwd: string): Promise<{ off: boolean; max: number; lessons?: 'verified' | 'all' | 'off' }> {
     if (/^(0|false|off|no)$/i.test(process.env.RIGOUR_BRIEF?.trim() ?? '')) return { off: true, max: 0 };
@@ -23,7 +28,8 @@ async function briefingOff(cwd: string): Promise<{ off: boolean; max: number; le
 }
 
 /** `rigour brief [goal]`: the briefing for the task in this checkout, as text or JSON. The goal, else the pull request's title and description, else the branch. */
-export async function briefCommand(cwd: string, goal: string | undefined, options: { files?: string; json?: boolean }): Promise<number> {
+export async function briefCommand(start: string, goal: string | undefined, options: { files?: string; json?: boolean }): Promise<number> {
+    const cwd = repositoryRoot(start);
     const { off, max, lessons } = await briefingOff(cwd);
     if (off) {
         if (options.json) console.log(JSON.stringify({ off: true, items: [] }));
@@ -48,7 +54,7 @@ export async function hooksBriefCommand(stdin: string, fallbackCwd: string): Pro
     } catch {
         return '';
     }
-    const cwd = payload.cwd || fallbackCwd;
+    const cwd = repositoryRoot(payload.cwd || fallbackCwd);
     const session = payload.session_id;
     const { off, max, lessons } = await briefingOff(cwd);
     if (off || !session || briefedAlready(cwd, session)) return '';

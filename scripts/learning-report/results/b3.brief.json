@@ -1,0 +1,48 @@
+{
+  "label": "b3",
+  "at": "2026-10-10T17:02:09.237Z",
+  "repos": {
+    "immich-app/immich": {
+      "files": 5,
+      "servedPerFile": [
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "overCap": 0,
+      "lessonItems": 15,
+      "uncited": 0,
+      "broken": 0
+    },
+    "tailscale/tailscale": {
+      "files": 5,
+      "servedPerFile": [
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "overCap": 0,
+      "lessonItems": 15,
+      "uncited": 0,
+      "broken": 0
+    },
+    "logto-io/logto": {
+      "files": 5,
+      "servedPerFile": [
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "overCap": 0,
+      "lessonItems": 17,
+      "uncited": 0,
+      "broken": 0
+    }
+  }
+}

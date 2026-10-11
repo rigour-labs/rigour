@@ -13,6 +13,7 @@ import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { pinnedHomeEnv } from '@rigour-labs/core/profile';
 import { pushGate } from './hooks-push.js';
 
 const MARK = 'rigour hooks push --git';
@@ -105,17 +106,18 @@ export async function selfTestGitPushHook(rigourCommand: string): Promise<SelfTe
         git(clone, ['commit', '-qm', 'base']);
         git(clone, ['push', '-q', '-u', 'origin', 'HEAD:main']);
         git(clone, ['checkout', '-qb', 'feature']);
+        // The clone is in the temp folder, where another profile may match: the pushes keep this repository's home.
         const installed = installGitPushHook(clone, rigourCommand);
         steps.push(`hook ${installed.action} at ${installed.path}`);
         fs.writeFileSync(path.join(clone, 'src/util.ts'), 'export const used = 1;\nexport const forgotten = 2;\n');
         git(clone, ['commit', '-qam', 'adds an export nothing uses']);
-        const refused = spawnSync('git', ['push', 'origin', 'feature'], { cwd: clone, encoding: 'utf8', env: { ...process.env, RIGOUR_TELEMETRY: '0' } });
+        const refused = spawnSync('git', ['push', 'origin', 'feature'], { cwd: clone, encoding: 'utf8', env: { ...pinnedHomeEnv(), RIGOUR_TELEMETRY: '0' } });
         const refusedRef = gitOutput(remote, ['rev-parse', '--verify', '-q', 'refs/heads/feature']);
         if (refused.status === 0 || refusedRef) return { ok: false, steps: [...steps, `FAIL: a push with an unused export went through (git exit ${refused.status}; remote has feature: ${!!refusedRef})\n${(refused.stderr || '').trim().slice(-600)}`] };
         steps.push(`a push with an unused export was refused (git exit ${refused.status}); the remote has no feature branch`);
         fs.writeFileSync(path.join(clone, 'src/util.ts'), 'export const used = 1;\n');
         git(clone, ['commit', '-qam', 'fix']);
-        const accepted = spawnSync('git', ['push', 'origin', 'feature'], { cwd: clone, encoding: 'utf8', env: { ...process.env, RIGOUR_TELEMETRY: '0' } });
+        const accepted = spawnSync('git', ['push', 'origin', 'feature'], { cwd: clone, encoding: 'utf8', env: { ...pinnedHomeEnv(), RIGOUR_TELEMETRY: '0' } });
         const acceptedRef = gitOutput(remote, ['rev-parse', '--verify', '-q', 'refs/heads/feature']);
         if (accepted.status !== 0 || acceptedRef !== gitOutput(clone, ['rev-parse', 'HEAD'])) return { ok: false, steps: [...steps, `FAIL: the fixed push did not land (git exit ${accepted.status})\n${(accepted.stderr || '').trim().slice(-600)}`] };
         steps.push('the fixed push landed; the remote has the commit');

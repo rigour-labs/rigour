@@ -5,6 +5,9 @@ import { openDatabase } from './db.js';
 import { encryptLocalPayload } from './local-encryption.js';
 import { lessonRowToRecord as rowToLesson } from './lesson-record.js';
 import { loadTeamConfiguration } from './team-store.js';
+import { getRepositoryId, originOf } from './repository-origin.js';
+
+export { getRepositoryId };
 
 export type LessonState = 'candidate' | 'validated' | 'promoted' | 'rejected' | 'superseded';
 export type LessonVisibility = 'personal' | 'team';
@@ -90,48 +93,10 @@ export async function countInteractionEvidence(cwd: string): Promise<number> {
     }
 }
 
-function normalizeRemote(remote: string): string {
-    return remote.trim().replace(/^git@([^:]+):/, 'https://$1/').replace(/\.git$/, '').toLowerCase();
-}
-
-async function readGitConfig(cwd: string): Promise<string> {
-    const dotGit = path.join(cwd, '.git');
-    const stat = await fs.stat(dotGit);
-    if (stat.isDirectory()) return fs.readFile(path.join(dotGit, 'config'), 'utf8');
-    const pointer = await fs.readFile(dotGit, 'utf8');
-    const match = pointer.match(/^gitdir:\s*(.+)$/m);
-    if (!match) throw new Error('Invalid Git directory pointer.');
-    const gitDir = path.resolve(cwd, match[1].trim());
-    try {
-        return await fs.readFile(path.join(gitDir, 'config'), 'utf8');
-    } catch {
-        // Linked worktrees usually keep the shared remote configuration here.
-        const commonDir = (await fs.readFile(path.join(gitDir, 'commondir'), 'utf8')).trim();
-        return fs.readFile(path.resolve(gitDir, commonDir, 'config'), 'utf8');
-    }
-}
-
-export async function getRepositoryId(cwd: string): Promise<string> {
-    let identity = path.resolve(cwd);
-    try {
-        const config = await readGitConfig(cwd);
-        const remote = config.match(/\[remote\s+"origin"\][\s\S]*?url\s*=\s*([^\n]+)/)?.[1];
-        if (remote) identity = normalizeRemote(remote);
-    } catch {
-        // Non-git workspaces retain a stable path-derived local identity.
-    }
-    return createHash('sha256').update(identity).digest('hex');
-}
 
 export async function registerRepository(db: { run(sql: string, ...params: unknown[]): Promise<unknown> }, cwd: string, repositoryId: string): Promise<void> {
-    let canonicalUri = path.resolve(cwd);
-    try {
-        const config = await readGitConfig(cwd);
-        const remote = config.match(/\[remote\s+"origin"\][\s\S]*?url\s*=\s*([^\n]+)/)?.[1];
-        if (remote) canonicalUri = normalizeRemote(remote);
-    } catch {
-        // Non-git workspaces use their resolved path as the canonical local identity.
-    }
+    // Non-git workspaces use their resolved path as the canonical local identity.
+    const canonicalUri = (await originOf(cwd)) ?? path.resolve(cwd);
     const remoteName = canonicalUri.split('/').filter(Boolean).at(-1);
     await db.run(
         `INSERT INTO repositories (id, canonical_uri, display_name, last_seen) VALUES (?, ?, ?, ?)

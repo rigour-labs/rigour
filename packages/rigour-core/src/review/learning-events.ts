@@ -9,13 +9,22 @@ import { appendAgentEvent } from './effectiveness.js';
 import { countUsage } from '../telemetry/telemetry.js';
 import { telemetryCheckId } from '../telemetry/check-ids.js';
 
-export type LessonChannel = 'recall' | 'context' | 'review';
+export type LessonChannel = 'recall' | 'context' | 'review' | 'brief';
 const MAX_LISTED = 20;
 
-/** Lessons an agent was given before or while writing code. Nothing is written when none were. */
-export function recordLessonsServed(cwd: string, via: LessonChannel, subjects: string[]): void {
+/**
+ * Lessons (and, from a briefing, rules) an agent was given before or while writing code. `ids` and `files` say which items
+ * and for which files, when the channel knows them (a briefing). Nothing is written when none were.
+ */
+export function recordLessonsServed(cwd: string, via: LessonChannel, subjects: string[], detail: { ids?: string[]; files?: string[]; rules?: number } = {}): void {
     const unique = [...new Set(subjects.filter(Boolean))].slice(0, MAX_LISTED);
-    if (unique.length) appendAgentEvent(cwd, { type: 'lessons_served', via, lessons: unique });
+    if (!unique.length) return;
+    appendAgentEvent(cwd, {
+        type: 'lessons_served', via, lessons: unique,
+        ...(detail.ids?.length ? { ids: detail.ids.slice(0, MAX_LISTED) } : {}),
+        ...(detail.files?.length ? { files: detail.files.slice(0, MAX_LISTED) } : {}),
+        ...(detail.rules ? { rules: detail.rules } : {}),
+    });
 }
 
 /** Findings a review of a whole branch (what a PR contains) reported. Nothing is written when clean. */

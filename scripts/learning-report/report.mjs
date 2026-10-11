@@ -12,7 +12,7 @@ import { HELDOUT_DIR, REPOS, setPath, sourceUrl, wilson } from './common.mjs';
 function loadSet(dir) {
     const results = path.join(dir, 'results');
     const read = f => JSON.parse(fs.readFileSync(path.join(results, f), 'utf8'));
-    const runs = fs.existsSync(results) ? fs.readdirSync(results).filter(f => f.endsWith('.json') && f !== 'recurrence-100.json').map(read).sort((a, b) => a.at.localeCompare(b.at)) : [];
+    const runs = fs.existsSync(results) ? fs.readdirSync(results).filter(f => f.endsWith('.json') && f !== 'recurrence-100.json' && !f.endsWith('.brief.json')).map(read).sort((a, b) => a.at.localeCompare(b.at)) : [];
     const repos = fs.existsSync(path.join(dir, 'prs.json')) ? Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'prs.json'), 'utf8')).prs) : [];
     const labels = Object.fromEntries(repos.map(repo => {
         const file = path.join(dir, 'labels', `${repo.replace('/', '__')}.json`);
@@ -135,10 +135,24 @@ for (const repo of REPOS) {
         lines.push(`Stopped in ${runs.at(-1).label}: ${last.stopped}`, '');
     }
 }
+// What Phase 1's brief serves from each set's latest brief check (brief-check.mjs): counts only.
+for (const [name, dir] of [['main', setPath()], ['held out', HELDOUT_DIR]]) {
+    const results = path.join(dir, 'results');
+    const checks = fs.existsSync(results) ? fs.readdirSync(results).filter(f => f.endsWith('.brief.json')).map(f => JSON.parse(fs.readFileSync(path.join(results, f), 'utf8'))).sort((a, b) => a.at.localeCompare(b.at)) : [];
+    if (!checks.length) continue;
+    lines.push(`## What the brief serves (${name} set)`, '',
+        '`rigour brief --files <file>` on each repository\'s 5 files with the most candidates, serving candidates (review_lessons: all). At most 3 per file is the limit; every item should be cited and whole.', '',
+        '| Check | Repository | Files | Lessons served per file | Over 3 | Uncited | Look broken |', '|---|---|---|---|---|---|---|');
+    for (const check of checks) for (const [repo, r] of Object.entries(check.repos)) lines.push(`| ${check.label} | ${repo} | ${r.files} | ${r.servedPerFile.join(', ')} | ${r.overCap} | ${r.uncited} | ${r.broken} |`);
+    lines.push('');
+}
 lines.push('## Notes', '',
     '- Run-to-run noise: immich has one point more in b1 than in baseline. It is a comment posted before the cutoff and',
     '  the merge whose commit fetch evidently failed in the baseline run (a comment on a commit that cannot be fetched is',
-    '  skipped) and succeeded in b1. A change that only removes points cannot add one.', '');
+    '  skipped) and succeeded in b1. A change that only removes points cannot add one.',
+    '- The b3 brief check for tailscale first read 1 file, 1 lesson: its lessons store was damaged by two overlapping runs',
+    '  writing the same scratch store. Each run now works in its own folder; re-run alone, it reads 5 files, 3 lessons each.',
+    '  Its points and candidates were counted in memory and did not change.', '');
 lines.push('## Candidates that look broken (mechanical)', '', 'Starts with Or / And / But, or ends on a connector (", or", "and"). Listed for spot checks.', '', ...(broken.length ? broken : ['None.']), '');
 fs.writeFileSync(setPath('REPORT.md'), lines.join('\n'));
 console.log(lines.slice(0, 40).join('\n'));

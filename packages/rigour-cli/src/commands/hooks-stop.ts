@@ -20,6 +20,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
+import { REPORT_ONLY_PREFIX, reportOnly } from './report-only.js';
 import {
     alreadyReviewed, appendAgentEvent, appendTaskEvent, clearStopAttempts, ConfigSchema, countUsage, nextStopAttempt, recordFixLessons, recordReviewed, recordReviewOutcome, workFingerprint,
     sessionBaseline, STOP_MAX_ATTEMPTS, stopReview, teamMessage, untaught, recordTaught, captureHumanEdits, type Config,
@@ -53,9 +54,14 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
     const attempt = nextStopAttempt(cwd, session);
     if (attempt > STOP_MAX_ATTEMPTS) return '';
     try {
-        const decision = await stopReview(cwd, config ?? await loadHookConfig(cwd), attempt, sessionBaseline(cwd, session));
+        const loaded = config ?? await loadHookConfig(cwd);
+        const review = await stopReview(cwd, loaded, attempt, sessionBaseline(cwd, session));
+        // A team's first week: what would have held the agent is said, and the agent finishes (report-only.ts).
+        const reporting = review.block && reportOnly(cwd, loaded);
+        if (reporting) process.stderr.write(`${REPORT_ONLY_PREFIX} the agent would have been held to fix:\n${review.message}\n`);
+        const decision = reporting ? { ...review, block: false } : review;
         const nothing = decision.reviewedFiles.length === 0;
-        appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(nothing ? { nothing_to_review: true } : {}) });
+        appendAgentEvent(cwd, { type: 'stop_review', tool, session, blocked: decision.block, blocking: decision.blocking, against: decision.against, ...(decision.held.length ? { findings: decision.held.slice(0, 20) } : {}), ...(nothing ? { nothing_to_review: true } : {}) });
         appendTaskEvent(cwd, { kind: 'stop-review', agent: tool, session, blocked: decision.block, blocking: decision.blocking, files: decision.reviewedFiles });
         if (nothing) process.stderr.write(`Rigour stop review: nothing to review against ${decision.against}.\n`);
         countUsage('stop_review', 1, { agent: tool });
@@ -74,7 +80,7 @@ export async function hooksStopCommand(tool: StopTool, stdin: string, fallbackCw
         recordTaught(cwd, session, fresh);
         if (!decision.block) {
             clearStopAttempts(cwd, session);
-            return guidance.length ? blockWith(tool, teamMessage(guidance)) : '';
+            return guidance.length && !reportOnly(cwd, loaded) ? blockWith(tool, teamMessage(guidance)) : '';
         }
         return blockWith(tool, guidance.length ? `${decision.message}\n\n${teamMessage(guidance)}` : decision.message);
     } catch (error) {

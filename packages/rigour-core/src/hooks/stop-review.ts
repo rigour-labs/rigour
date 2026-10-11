@@ -31,6 +31,8 @@ export interface StopDecision {
     /** What the agent is told when blocked; empty otherwise. */
     message: string;
     blocking: number;
+    /** What held the agent: each blocking problem's check, title and file (findings, branch checks, checks that could not run). */
+    held: Array<{ rule: string; title: string; file: string; detail?: string }>;
     /** Every finding on changed lines, and the files the review covered (for fix capture). */
     findings: Failure[];
     reviewedFiles: string[];
@@ -88,12 +90,21 @@ export async function stopReview(cwd: string, config: Config, attempt: number, s
     const task = buildReviewTask(cwd, diff, config.gates.deep?.router, config.gates.deep?.review_lessons, config.gates.deep?.repo_rules ?? false);
     const unreviewed = config.hooks?.require_review_ack ? task.items : [];
     const reviewed = { findings: result.findings, reviewedFiles: Object.keys(result.changedLines), against, guidance: teamGuidance(task) };
-    if (blocking.length === 0 && unreviewed.length === 0) return { block: false, message: '', blocking: 0, ...reviewed };
+    if (blocking.length === 0 && unreviewed.length === 0) return { block: false, message: '', blocking: 0, held: [], ...reviewed };
     const message = [
         ...(blocking.length ? [stopMessage(blocking, attempt)] : []),
         ...(unreviewed.length ? [reviewAckMessage(unreviewed, attempt)] : []),
     ].join('\n\n');
-    return { block: true, message, blocking: blocking.length + unreviewed.length, ...reviewed };
+    return { block: true, message, blocking: blocking.length + unreviewed.length, held: blocking.map(heldProblem), ...reviewed };
+}
+
+/** A blocking problem as Studio names it: its check, title and file, and the line of its details that says what is wrong. */
+function heldProblem(f: Failure): { rule: string; title: string; file: string; detail?: string } {
+    // A check's details often open with a header ("Hallucinated imports in a.ts:") and then the specifics, one per line.
+    const lines = (f.details ?? '').split('\n').map(l => l.trim()).filter(Boolean);
+    const specific = lines.length > 1 ? lines[1] : lines[0];
+    const detail = specific && specific !== f.title ? (specific.length > 160 ? `${specific.slice(0, 157)}...` : specific) : undefined;
+    return { rule: f.id, title: f.title, file: f.files?.[0] ?? '', ...(detail ? { detail } : {}) };
 }
 
 /** Each lesson and rule once, keyed by its text so the same one is never asked twice in a session. */

@@ -47,6 +47,18 @@ describe('the rule writer', () => {
         expect(calls[0].unset).toContain('RIGOUR_API_KEY');
     });
 
+    it("stops one rule-writing run at its cost cap, and a later run starts afresh", async () => {
+        const calls: Array<{ args: string[]; unset?: string[] }> = [];
+        const config = ConfigSchema.parse({ version: 1, review: { reviewer: { reviewers: ['claude'], max_usd_per_day: 100, max_usd_per_review: 1 } } });
+        const write = (await ruleWriterFor(repo, config, fake(calls)))!;
+        expect(await write('first')).toBe('{"rules":[]}');
+        expect(await write('second')).toBe('{"rules":[]}'); // $0.60 spent by this run: under its $1 cap
+        expect(await write('third')).toBeUndefined(); // $1.20: this run's cap, no call made
+        const later = (await ruleWriterFor(repo, config, fake(calls)))!;
+        expect(await later('fourth')).toBe('{"rules":[]}'); // the day's caps still have room
+        expect(calls).toHaveLength(3);
+    });
+
     it('is not available when no reviewer CLI is installed', async () => {
         const config = ConfigSchema.parse({ version: 1, review: { reviewer: { reviewers: ['codex'] } } });
         expect(await ruleWriterFor(repo, config, fake([]))).toBeUndefined();

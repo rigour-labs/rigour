@@ -142,9 +142,9 @@ describe('scanInputForCredentials — Tokens', () => {
 // ── Generic Patterns ─────────────────────────────────────────────
 
 describe('scanInputForCredentials — Generic patterns', () => {
-    it('allows ambiguous short password assignment without high entropy', () => {
-        const result = scanInputForCredentials("password = 'WinterAccess987!'");
-        expect(result.status).toBe('clean');
+    it('warns on a password literal that is no placeholder, and stays quiet when the team turns the check off', () => {
+        expect(scanInputForCredentials("password = 'WinterAccess987!'").status).toBe('warning');
+        expect(scanInputForCredentials("password = 'WinterAccess987!'", { secret_assignments: false }).status).toBe('clean');
     });
 
     it('allows placeholder api_key assignment', () => {

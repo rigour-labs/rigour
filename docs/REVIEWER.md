@@ -251,13 +251,14 @@ step, because it turns a personal install into the team's.
   model, which cannot see a cheap model's lower price, only the extra runs an escalation adds. Don't rely on it until a backtest on your own history shows what the cheap
   model misses.
 
-**Daily caps**, per repository, unset by default:
+**Caps**, per repository, on by default (a team raises them in `rigour.yml`):
 
 ```yaml
 review:
   reviewer:
-    max_runs_per_day: 40     # agent runs, judges and cross-examinations alike
-    max_usd_per_day: 15      # dollars the CLIs reported (Claude Code reports them; Codex reports tokens)
+    max_runs_per_day: 40     # the default: agent runs, judges and cross-examinations alike
+    max_usd_per_day: 10      # the default: dollars the CLIs and APIs reported (Claude Code reports them; Codex reports tokens)
+    max_usd_per_review: 2    # the default: what one review may spend
 ```
 
 Runs are counted before any judge starts, so a review that would pass the run cap does not start,
@@ -265,6 +266,13 @@ and a cross-examination that would pass it is not made (its findings are shown a
 the cap as the reason). Dollars are known only after a run, so the cost cap stops new reviews once
 today's reported spend reaches it. Past a cap, a review is skipped and says why; where the team
 requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
+At a push, the agent is told so, with the cap and its key ("the model review of 1a2b3c4d5 was skipped: the daily
+cost cap is reached … (review.reviewer.max_usd_per_day)"), and no background review starts.
+One review stops at `max_usd_per_review`: it is checked before each judge, retry, cross-examination and follow-up
+the review starts, and a review stopped there keeps what it had and says the cap is why ("no other judge asked: this
+review's cost cap is reached: $3.00 of $2.00…"). The same caps hold the rule writer (`learn-reviews --rules`) and the
+deep review's cloud model (`rigour check --deep` with a key), whose spend counts toward them: past a cap, the cloud
+model does not start and the output says "Deep review skipped:" with the cap.
 A judge whose answer is not a valid verdict (malformed or cut off) is asked once more, inside the caps;
 a review with no valid verdict after that is unavailable. A person may set a lower cap for their own
 runs, never a higher one. `rigour review --status` and
@@ -405,7 +413,19 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   the agent left it (in `.rigour/agent-writes/`, ignored by git); at the stop and the push, a file that
   now reads differently, other than by whitespace or a git checkout or pull, becomes a lesson with the
   change as its words. The rule writer then states the rule behind it, or finds none in a cosmetic edit;
-- **a person's decision**: `--promote <id>` (with `--why`), recorded with their git email;
+- **a person's decision**: `--promote <id>` (with `--why`), or **Promote** on the candidate's card in Studio's **How it
+  learns**, recorded with their git email. Three outcomes, distinct:
+  - **promote** (`--promote`, **Promote**): a lesson; agents are told it;
+  - **reject** (`--reject`, **Drop**): the team decided against it; the judges are told so, and the brief lists it as
+    settled against. Use it for a practice the team opposes;
+  - **not a rule** (`--not-a-rule`, **Not a rule**): a one-off for that pull request (refresh a description, agree an
+    order with another pull request), not a practice either way. The lesson is dropped: never served, and the judges
+    are told nothing.
+
+  Any of the three can be taken back (`--take-back <id>`, **Take back** on the card): the lesson is a candidate again,
+  and the decision stays in its history. Every decision (promote,
+  reject, not a rule, take back, dismiss, scope, rewording, a compiled check), in the CLI or Studio, is refused when no git email is set in the
+  checkout: a decision recorded as nobody would never reach the team (see [the team database](TEAM_DATABASE.md));
 - **recurrence**, weak alone: the same point raised by people (review bots never count) on two or more pull
   requests by different authors, and raised by two or more different reviewers, or by one reviewer on three or
   more pull requests at least seven days apart (by when each point was posted). A lesson an earlier version
@@ -422,6 +442,12 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   statements, a bullet there is skipped only if it also reads as a description ("Splits the parser…"). A collapsed
   block about the tool itself ("About…", "How to…") is the tool's own help. `rigour learn-reviews` counts them: "N skipped: not a
   request", by why.
+
+**Where they are kept: in the checkout, not in Rigour's home.** Candidates and lessons are written to the checkout's
+`.rigour/review-lessons.json` (or `RIGOUR_REVIEW_LESSONS`), not to your Rigour home or profile home. A throwaway
+worktree or a fresh clone starts with none: run `rigour learn-reviews` where you will work, and decide on candidates
+there. Decisions you make in a checkout you then delete are lost unless a team database received them first
+(`rigour team sync`), or you committed the file.
 
 A candidate only review bots raised is never served, not even with `gates.deep.review_lessons: all`; it
 reaches agents once a person promotes it, or a person's point joins it and recurrence promotes it. Lessons an
@@ -462,10 +488,11 @@ on its own. `rigour review --reviewer --blind` (or `RIGOUR_REVIEWER_BLIND=1`) re
 with no pull request lookup, description or human reviews. The output and the review record say "reviewed without
 pull request context", and `--json` carries `blind: true`.
 
-A point that names a path is about that file. One that names none is a **team standard**: shown
-with a change, once it is a lesson, when it shares at least two meaningful words with the change (its
-paths and the names on its added lines): up to three in the agent's question at the stop, up to
-fifteen for a judge reading the whole pull request.
+A point that names a path is about that file. One that names none has **no file**: shown with a change,
+once it is a lesson, only when it shares at least two meaningful words with the change (its paths and the
+names on its added lines), as "(no file): …": up to three in the agent's question at the stop, up to fifteen
+for a judge reading the whole pull request. It is never served to every change, and never called a team
+standard, until a person scopes it to the repository (below).
 
 **A person decides how far a lesson reaches.** `rigour learn-reviews --scope <id> --to repo` makes it a
 standard for the whole repository: it reaches every change, whatever its files or words, in the
@@ -473,7 +500,7 @@ briefing, the briefing on a file's first edit and the judge's context. Up to ten
 served, the most-raised first. `--to folder` reaches every change in the lesson's folder; `--to file`
 takes it back to its own file. Studio's lesson card does the same (**Make team standard**, **Folder only**,
 **This file only**) and shows how far each lesson reaches. Each is recorded with your git email and `--why`
-(refused in Studio without one); a scope says how far a
+(refused without one); a scope says how far a
 lesson reaches, never whether it is right, so only a lesson (not a candidate) is served. `--list` shows
 each scope.
 
@@ -508,6 +535,14 @@ words. A different bug nearby is never covered by it. Every later judge is told,
 review included. Commit `.rigour/dismissed-review-items.json` so the record is reviewed and shared.
 When a team turns dismissals off again, the recorded ones stop counting.
 
+
+**Two writers never overwrite each other.** The lessons file (`.rigour/review-lessons.json`, or `RIGOUR_REVIEW_LESSONS`)
+is written whole, through a temporary file, so a reader never sees half of it, and under a lock (`<file>.lock`). A person's
+decision in Studio or the CLI holds the lock only to read, change and write. A run that works for longer
+(`rigour learn-reviews`, outcomes) does not hold it while it works. When it writes, it keeps what changed meanwhile: every lesson and
+piece of evidence either side added, and each other field from the side that changed it. A lock older than 30 seconds
+was left by a writer that stopped, and is taken over; a writer that waits 10 seconds for a live one stops with an error
+rather than overwrite.
 
 ### Lessons compiled into checks
 

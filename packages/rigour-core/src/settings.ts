@@ -72,6 +72,7 @@ export interface UserReviewerSettings {
   /** A lower cap for your own runs; never above the team's. */
   max_runs_per_day?: number;
   max_usd_per_day?: number;
+  max_usd_per_review?: number;
   reviewers?: string[];
   models?: Record<string, string>;
 }

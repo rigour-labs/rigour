@@ -37,8 +37,19 @@ describe('rigour learn-reviews --compile', () => {
         vi.spyOn(console, 'log').mockImplementation(() => undefined);
         await learnReviewsCommand(repo, { compile: true });
         await learnReviewsCommand(repo, { approveCheck: 'c-L1' });
-        expect(err.mock.calls.flat().join('\n')).toContain('No git email is set');
+        expect(err.mock.calls.flat().join('\n')).toContain('no git email is set in this checkout (git config user.email)');
         expect(readCompiledChecks(repo)[0].state).toBe('proposed');
+        process.exitCode = 0;
+    });
+
+    it('refuses a promote or reject with no git email, so no decision is recorded as nobody', async () => {
+        execFileSync('git', ['-C', repo, 'config', 'user.email', '']);
+        const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const before = readLessons(repo)[0].evidence.length;
+        await learnReviewsCommand(repo, { reject: 'L1' });
+        expect(err.mock.calls.flat().join('\n')).toContain('no git email is set in this checkout (git config user.email)');
+        expect(process.exitCode).toBe(1);
+        expect(readLessons(repo)[0].evidence).toHaveLength(before);
         process.exitCode = 0;
     });
 });
@@ -123,3 +134,36 @@ describe('rigour learn-reviews --list', () => {
     });
 });
 
+describe('rigour learn-reviews --not-a-rule and --take-back', () => {
+    it('drops a one-off as not a rule, and takes a rejection back to a candidate', async () => {
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { notARule: 'L1', why: 'a task for that pull request' });
+        expect(readLessons(repo)[0].state).toBe('dropped');
+        expect(out.mock.calls.flat().join('\n')).toContain('the judges are told nothing');
+        await learnReviewsCommand(repo, { takeBack: 'L1', why: 'changed my mind' });
+        expect(readLessons(repo)[0].state).toBe('candidate');
+        expect(readLessons(repo)[0].evidence.slice(-2).map(e => e.kind)).toEqual(['not-a-rule', 'took-back']);
+        const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { takeBack: 'L1' });
+        expect(err.mock.calls.flat().join('\n')).toContain('has no decision to take back');
+        expect(process.exitCode).toBe(1);
+        process.exitCode = 0;
+    });
+});
+
+describe('a bot point with a later fix on its lines, in the people list', () => {
+    it('stays hidden and counted under bots: the source-less outcome record never makes it a person\'s (6.12.4 leak shape)', async () => {
+        fs.writeFileSync(path.join(repo, '.rigour', 'review-lessons.json'), JSON.stringify({ version: 1, lessons: [{
+            id: 'B1', text: 'Consider guarding the null.', file: 'src/load.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '',
+            evidence: [
+                { kind: 'point', pr: 3, comment: 'c-bot', author: 'review-tool[bot]', source: 'bot' },
+                { kind: 'lines', pr: 3, comment: 'lines-3', author: '', detail: 'fixed later by abc123' },
+            ],
+        }] }));
+        const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await learnReviewsCommand(repo, { list: true });
+        const listed = out.mock.calls.flat().join('\n');
+        expect(listed).not.toContain('B1');
+        expect(listed).toContain('1 candidate(s) from review bots, hidden');
+    });
+});

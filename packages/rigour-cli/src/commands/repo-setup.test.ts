@@ -7,8 +7,15 @@ import { checkRepoSetup } from './repo-setup.js';
 
 let cwd: string;
 const write = (rel: string, body: string) => { fs.mkdirSync(path.dirname(path.join(cwd, rel)), { recursive: true }); fs.writeFileSync(path.join(cwd, rel), body); };
-beforeEach(() => { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'setup-')); });
-afterEach(() => fs.rmSync(cwd, { recursive: true, force: true }));
+const savedAgentHome = process.env.RIGOUR_AGENT_HOME;
+beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'setup-'));
+    process.env.RIGOUR_AGENT_HOME = path.join(cwd, '.agent-home'); // the user-level agent configs: never the real ones
+});
+afterEach(() => {
+    if (savedAgentHome === undefined) delete process.env.RIGOUR_AGENT_HOME; else process.env.RIGOUR_AGENT_HOME = savedAgentHome;
+    fs.rmSync(cwd, { recursive: true, force: true });
+});
 const now = new Date('2026-10-09T12:00:00Z');
 const byId = async (id: string) => (await checkRepoSetup(cwd, now, [])).find(c => c.id === id)!;
 
@@ -22,7 +29,7 @@ describe('checkRepoSetup', () => {
 
     it('calls out the old hook that checked nothing', async () => {
         write('.claude/settings.json', 'rigour hooks check --files "$TOOL_INPUT_file_path"');
-        expect(await byId('edit')).toMatchObject({ state: 'broken', fix: 'rigour setup' }); // setup migrates a personal install too
+        expect(await byId('edit')).toMatchObject({ state: 'broken', fix: 'rigour setup --team' }); // a committed install: only --team rewrites it
     });
 
     it('says when the agent hooks or the MCP server run another Rigour than the one installed', async () => {
@@ -33,7 +40,7 @@ describe('checkRepoSetup', () => {
         expect(await version()).toMatchObject({ state: 'working', detail: '6.13.0' });
         write('.claude/settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ command: 'npx --yes @rigour-labs/cli@6.12.4 hooks stop --tool claude' }] }] } }));
         write('.mcp.json', JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@6'] } } }));
-        expect(await version()).toMatchObject({ state: 'broken', detail: 'hooks run 6.12.4, the MCP server floats on @6; installed is 6.13.0', fix: 'rigour setup' });
+        expect(await version()).toMatchObject({ state: 'broken', detail: 'hooks run 6.12.4, the MCP server floats on @6; installed is 6.13.0', fix: 'rigour setup --team' }); // the project's own hooks
         // An old shell wrapper is called out even at the installed version.
         write('.claude/settings.json', JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ command: `sh -c 'payload=$(cat); case "$payload" in *git*push*) printf "%s" "$payload" | npx --yes @rigour-labs/cli@6.13.0 hooks push --stdin ;; esac'` }] }] } }));
         write('.mcp.json', JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@6.13.0'] } } }));
@@ -64,5 +71,16 @@ describe('checkRepoSetup', () => {
         expect((await checkRepoSetup(cwd, now, [])).find(c => c.id === 'mcp')!.state).toBe('missing');
         const call = { toolName: 'rigour_review', cacheStatus: 'none' as const, candidateTokens: 0, returnedTokens: 0, createdAt: Date.parse('2026-10-09T11:30:00Z') };
         expect((await checkRepoSetup(cwd, now, [call])).find(c => c.id === 'mcp')).toMatchObject({ state: 'working', detail: '1 tool call this week · last 30 min ago' });
+    });
+
+    it("says when a user-level MCP server named rigour is not Rigour's", async () => {
+        const home = process.env.RIGOUR_AGENT_HOME!;
+        fs.mkdirSync(home, { recursive: true });
+        {
+            fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { rigour: { command: 'node', args: ['/opt/rigor-metrics/server.js'] } } }));
+            expect(await byId('mcp')).toMatchObject({ state: 'broken', detail: "Claude Code: a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again" });
+            fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@7.0.0'] } } }));
+            expect((await byId('mcp')).state).not.toBe('broken');
+        }
     });
 });

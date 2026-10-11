@@ -58,15 +58,113 @@ For each lesson that is sent, the database receives:
 | `evidence_json` | For a memory: its key, value and when it was shared. For a fix lesson: the rule, the file paths fixed, and up to five examples with up to 300 characters of the finding's detail each |
 | `created_at`, `updated_at` | Timestamps |
 
+### Your decisions on review lessons
+
+`rigour team sync`, the MCP server after each tool call, and Studio every 30 seconds also send the decisions you made on
+the review lessons of the repository they run in (`.rigour/review-lessons.json`): accepting, rejecting, judging not a
+rule, taking a decision back, dismissing, scoping or rewording a lesson, and approving or taking back a check compiled
+from one. A later decision supersedes an earlier one under the latest-wins rule below, so a decision taken back before
+or after a sync stays taken back for everyone. "Not a rule" and "take back" need a database whose `init-schema` ran on
+this version (`review_decision_kinds_version` 2): on an older one they wait unsent, counted as `decisions.waiting`, until
+the administrator runs `rigour team init-schema` again, which widens the table in place. They are read from the lessons
+file, so a decision made offline or before team mode is sent on the next sync. Each is sent once; the file is read
+again only when it changed. The same sync receives your teammates' decisions (see [Your team's decisions on review lessons](#your-teams-decisions-on-review-lessons)).
+
+A decision is sent only when all of these hold:
+
+1. The repository's `origin` matches `--repositories`, as for lessons.
+2. The decision is yours: recorded under this checkout's `git config user.email`. A decision someone else made in the same clone is never sent under your name.
+3. Your membership's role is `sme` or `owner`. A `member`'s decisions stay on the machine (`rigour team sync` says so under `decisions.held`).
+4. The database has the review decision tables (`rigour team doctor` reports `reviewDecisions: ready`).
+
+A correction (a lesson learned from your own edit of what an agent wrote) is not sent: its text is the code you changed.
+
+For each decision, the database receives the lesson's id, the kind of decision, when it was made, your reason (at
+most 500 characters; a rewording's previous wording is left out), and:
+
+| Field | What it holds |
+| --- | --- |
+| `payload.text` | The lesson's wording, only for a decision that approves it (accepted, reworded, a compiled check approved), at most 400 characters |
+| `payload.scope` | For a scope decision: `file`, `folder` or `repo` |
+| `payload.file`, `payload.folder` | SHA-256 hashes of the repository id and the lesson's file or folder, never the path |
+| `payload.points` | For each review point the lesson was learned from: pull request number, comment id, `person` or `bot`, when it was posted, and the reviewer as a hash of the login salted per organization (see [Data and security notes](#data-and-security-notes)). Never the comment's text |
+
+### Your team's decisions on review lessons
+
+The same sync receives the decisions your teammates shared on this repository's review lessons, at most 500 per sync,
+for listed repositories only: a repository that is not one of the team's neither sends nor receives. They are kept
+on your machine under the Rigour home (`~/.rigour/team-decisions/<repository id>.json`, file mode 600), never in the
+repository's `.rigour/review-lessons.json`, so teammates' names and decisions never reach git history even when a team
+commits that file. A fresh clone has none until its first sync.
+
+Every reader (the brief, review, Studio, `rigour learn-reviews --list`) sees the lessons with the team's decisions folded
+in: each received decision is on its lesson's trail with the teammate's display name, and a lesson this clone never
+learned is added from the wording they approved, its file found by hashing this checkout's tracked files. For each
+question (accepted or rejected, how far it reaches, its wording) the latest person decision wins:
+
+- a teammate's decision, and a decision of yours already sent, count from when the team database received it;
+- a decision of yours this machine will still send (an `sme` or `owner` in a listed repository) holds until it comes back;
+- a decision this machine never sends (a `member`'s) counts from when it was made, so a later team decision wins on
+  that machine.
+
+The brief cites a lesson a teammate settled with their display name ("approved by Jane D. (team)"). Studio's **How it learns** shows each team decision on the lesson's card ("Omar K. (team) rejected it on 2026-10-09: …"), and when a later team decision settled a lesson against your own, says so ("the team decided"), with why your decision is yours only when this machine does not share it. `rigour team
+doctor` says that a clone receives the team's decisions at its first sync. Evidence (a later fix, recurrence) never
+overrides a person. Deciding on a lesson known only from the team takes it into
+the repository's lessons file first (its wording, file and review points, without the team's decisions), and records
+your decision there.
+
 With pgvector, an embedding row is added for each validated or promoted lesson: the lesson id, the same ids as above, the model name, a SHA-256 hash of the embedded text and a 384-number vector. The vector is computed on your machine.
 
 Never sent: source code, diffs, file contents, prompts, agent transcripts, the interaction log Rigour keeps of tool calls, memories saved with scope `repo` or `user`, findings and review results. A memory in which Rigour's credential scan finds a secret is refused before it is stored, so it cannot be shared.
 
 Lessons are encrypted at rest in the local store and queue (AES-256-GCM, see [Data and security notes](#data-and-security-notes)). They are decrypted before they are sent, so the database holds them as plain JSON. Protect it accordingly.
 
+## Set up a team, start to finish
+
+Your team brings its own PostgreSQL; Rigour never hosts one. One administrator and each teammate follow these steps,
+with no help from us; run end to end on a test database, the commands take a few minutes. Each step links to its details below.
+
+1. **A PostgreSQL 13 or later database**, managed (any host's PostgreSQL service) or self-hosted, reachable from each
+   teammate's machine over TLS. Note its administrator URL. See [What you need](#what-you-need).
+2. **The schema**, as the administrator: `rigour team init-schema --database-url '<administrator URL>'`. Run it again
+   after upgrading Rigour; it only adds what is missing. See [Create the schema](#1-create-the-schema).
+3. **A login and a membership per person**, as the administrator, in SQL: the login, its grants, and one row in
+   `rigour.memberships` with the person's role and a display name. Give `sme` or `owner` to whoever decides what the
+   team's agents are told (they approve lessons and share decisions); `member` to everyone else. See
+   [Create a login and a membership](#2-create-a-login-and-a-membership-for-each-person).
+4. **Each teammate configures their machine** with their own URL, the three ids from their row, and the team's
+   repositories: `rigour team configure --database-url '<their URL>' --organization <id> --team <id> --actor <id>
+   --repositories 'github.com/<owner>/*'`. Without `--repositories`, nothing is shared. See
+   [Set up each teammate](#set-up-each-teammate).
+5. **Each teammate checks**: `rigour team doctor` says `connectivity: online`, the role under `permissions`
+   (`["sme"]`), and `reviewDecisions: ready`. See [When something fails](#when-something-fails) for each message.
+6. **Learn the repository's review lessons**, if no one has yet: in a clone, `rigour learn-reviews` reads the merged
+   pull requests' review comments (the last 100; `--pr <n>` reads one) and keeps what people asked for as candidates.
+   It reads GitHub, so it needs read access: `gh auth login`, or `GITHUB_TOKEN`. A candidate becomes a lesson when an
+   `sme` or `owner` confirms it: `rigour learn-reviews --list`, then `--promote <id> --why "…"` (or `--reject`), or
+   **How it learns** in `rigour studio`. Each clone can learn the same candidates from GitHub itself, so
+   `.rigour/review-lessons.json` need not be committed; committing it is harmless, since teammates' decisions are never
+   written to it.
+7. **Bring in the decisions people already made.** In each of the team's repositories, each `sme` or `owner` runs
+   `rigour team sync --dry-run` and reads `decisions`: `yours` is how many of their own decisions on review lessons the
+   first sync sends, and `yoursByKind` the same by kind (a rejection taken back shows as one `rejected` and one
+   `took-back`); `notYours` lists, by git email, decisions in that clone someone else made, which are never sent
+   from it (that person sends them from their own clone). Then `rigour team sync`. There is no separate import: the
+   first sync is it, and each decision is sent once.
+8. **See it on a teammate's machine**, after `rigour team sync` in a clone of the same repository (a `member`'s sync
+   says its own decisions are `held`; that is expected): `rigour learn-reviews --list` lists the lesson, `rigour brief
+   --files <its file>` cites it ("learned in PR #12, approved by Jane D. (team)"), and `rigour studio` → **How it
+   learns** shows the decision on the lesson's card by display name and date. A rejection of a lesson that clone never
+   learned has no wording to show, so it shows nowhere there until the clone learns that lesson itself.
+
+**An empty brief at first is expected.** The brief serves verified lessons only (see [the brief](./BRIEF.md)), and a
+lesson learned from review comments is verified only when a person confirms it (`rigour learn-reviews --promote`, or
+Studio) or the same point recurs from different people. Until someone confirms lessons, teammates' briefings carry the
+repository's rules and few lessons, by design: a person decides what the team's agents are told.
+
 ## What you need
 
-- PostgreSQL. Rigour does not check the server version. The schema uses row-level security policies, `JSONB` and `INSERT ... ON CONFLICT`.
+- PostgreSQL 13 or later, managed or self-hosted. The schema uses row-level security policies, `JSONB`, `INSERT ... ON CONFLICT`, triggers and the built-in `gen_random_uuid()` (13 and later). Rigour does not check the server version; on an older server `init-schema` fails at the first statement it cannot run.
 - An administrator login that can create a schema (and the `vector` extension, if you want pgvector).
 - One login role per person, which the administrator creates.
 - For a database that is not on `localhost`, `127.0.0.1` or `::1`: TLS. Rigour refuses a remote URL without `sslmode=require` or `sslmode=verify-full`.
@@ -84,7 +182,10 @@ rigour team init-schema \
 
 Add `--pgvector` to also create the `vector` extension, the `rigour.lesson_embeddings` table and its indexes.
 
-This creates the `rigour` schema with three tables (`meta`, `memberships`, `lessons`), turns on row-level security on each and creates the policies. It records schema version 1 in `rigour.meta`. `rigour team doctor` and `rigour team configure` check that version and refuse any other.
+This creates the `rigour` schema with its tables, turns on row-level security on each and creates the policies:
+
+- `meta`, `memberships` and `lessons`, for shared lessons. `rigour.meta` records `schema_version` 1. `rigour team doctor` and `rigour team configure` check that version and refuse any other.
+- `review_decisions` and `organization_salts`, for people's decisions on review lessons (accepting, rejecting, scoping or rewording a lesson learned from code review). `rigour.meta` records `review_decisions_version` 1. `schema_version` stays 1, so earlier Rigour versions keep working against the same database. `rigour team doctor` reports `reviewDecisions: ready`; `missing` for a database created before them (running `init-schema` again adds them); or `missing grant` when the tables are there but your login cannot use them, with the `GRANT` the administrator runs (every login reads both tables; an `sme` or `owner` also inserts into `review_decisions`, as in [step 2](#2-create-a-login-and-a-membership-for-each-person)). An `sme` or `owner` sends their decisions and every member receives them (see [Your decisions on review lessons](#your-decisions-on-review-lessons)).
 
 The schema is idempotent. Running `init-schema` again adds anything missing and recreates the policies without touching lessons. One exception: with `--pgvector`, it deletes embeddings of lessons that are no longer `validated` or `promoted`. Rigour has no other migration step.
 
@@ -99,16 +200,19 @@ CREATE ROLE rigour_jane LOGIN PASSWORD 'use-a-generated-password';
 GRANT USAGE ON SCHEMA rigour TO rigour_jane;
 GRANT SELECT ON rigour.meta, rigour.memberships TO rigour_jane;
 GRANT SELECT, INSERT, UPDATE ON rigour.lessons TO rigour_jane;
+GRANT SELECT ON rigour.organization_salts TO rigour_jane;
+GRANT SELECT, INSERT ON rigour.review_decisions TO rigour_jane;
 -- Only with --pgvector:
 GRANT SELECT, INSERT, UPDATE ON rigour.lesson_embeddings TO rigour_jane;
 
-INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role)
-VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme');
+INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role, display_name)
+VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 ```
 
 - `db_role` is the login role's name. Rigour matches it against the connection's `current_user`.
 - `organization_id`, `team_id` and `actor_id` are free-form ids you choose. The person configures the same three values on their machine, and the database checks them against this row.
 - `role` is `member`, `sme` or `owner` (see the table above).
+- `display_name` is optional: the name teammates see on a review decision this person shared. Use a name, not a login or an email. Without one, teammates see "a teammate".
 - A login role can belong to a team once (the primary key is `db_role, team_id`).
 
 Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-level security does not apply to a table's owner unless the table forces it, and Rigour's schema does not, so that login could read every personal lesson.
@@ -116,6 +220,8 @@ Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-lev
 ### 3. Give each person their connection URL
 
 Each person needs a URL with their own login, for example `postgresql://rigour_jane:PASSWORD@db.example.com:5432/rigour?sslmode=verify-full`, and the three ids from their membership row. Store it where your team keeps secrets; a profile can read it from there (see below).
+
+**Percent-encode the password.** A password with a character that means something in a URL (`@ : / ? # [ ] % &` and space) must be percent-encoded in the URL, or the URL is read wrongly: Node's URL parser, which Rigour uses, and `psql`'s libpq split an unencoded URL differently, so the same URL can work in one and fail in the other. For the password `p@ss:w#rd/1`, the URL is `postgresql://rigour_jane:p%40ss%3Aw%23rd%2F1@db.example.com:5432/rigour?sslmode=verify-full`. To encode one: `node -e 'console.log(encodeURIComponent(process.argv[1]))' 'p@ss:w#rd/1'`. Generated passwords of letters and digits need none.
 
 ## Set up each teammate
 
@@ -186,7 +292,7 @@ Failures come with the fix: an untrusted certificate chain, an unreachable host,
 rigour team sync --dry-run
 ```
 
-This does not connect. It reports how many queued items would be sent (`pending`) and how many would stay on the machine (`withheld`). A real `rigour team sync` also reports `synced` (sent) and `pulled` (received).
+This does not connect. It reports how many queued items would be sent (`pending`) and how many would stay on the machine (`withheld`), and, under `decisions`, how many of your decisions on this repository's review lessons the next sync sends (`yours`) and which in the clone someone else made (`notYours`). A real `rigour team sync` also reports `synced` (sent), `pulled` (received) and, under `decisions`, `sent`, `received` and any `held` reason.
 
 ### End to end, on a local database
 
@@ -203,8 +309,10 @@ CREATE ROLE rigour_jane LOGIN PASSWORD 'jane-pass';
 GRANT USAGE ON SCHEMA rigour TO rigour_jane;
 GRANT SELECT ON rigour.meta, rigour.memberships TO rigour_jane;
 GRANT SELECT, INSERT, UPDATE ON rigour.lessons, rigour.lesson_embeddings TO rigour_jane;
-INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role)
-VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme');
+GRANT SELECT ON rigour.organization_salts TO rigour_jane;
+GRANT SELECT, INSERT ON rigour.review_decisions TO rigour_jane;
+INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role, display_name)
+VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 SQL
 
 rigour team configure \
@@ -237,7 +345,16 @@ Rigour shares nothing it cannot account for, and never blocks your work on the d
 - **A remote URL without TLS.** Refused before any connection.
 - **Membership missing.** `configure` saves nothing; `sync` stops before sending anything.
 - **The database refuses one lesson** (row-level security, a constraint). That item is set aside, marked `refused by the team database: <reason>`, and the rest of the queue is sent.
+- **Your login lacks a grant.** The sync stops with one line naming the table and the `GRANT` the administrator runs (for example `your login lacks SELECT on rigour.organization_salts; ask the administrator to run: GRANT SELECT ON rigour.organization_salts TO "rigour_jane";`). Nothing is set aside: once granted, the next sync sends it all. `rigour team doctor` reports the same before the first sync (`reviewDecisions: missing grant`).
 - **Database unreachable or a send fails.** The item stays queued, its attempt count and error are recorded, and the sync stops. The next sync retries from the oldest item. The MCP server and Studio ignore sync errors, so checks, hooks, reviews and local learning carry on. Studio shows `offline` with the number queued.
+- **Review decisions not sent**, with the reason under `decisions.held` in `rigour team sync`:
+  - `repository is not one of the team's repositories` or `repository has no origin remote`: the repository neither sends nor receives. Add it to `--repositories` if it should.
+  - `a member's decisions stay on this machine: an sme or owner shares them`: by design; an `sme` or `owner` can make the same decision in their clone.
+  - `no git user.email here, …`: set `git config user.email` in the checkout. Without it, Rigour refuses new decisions too, so none is recorded as nobody.
+  - `the team database has no review decisions yet: run rigour team init-schema`: the administrator runs it again.
+  - `decisions.waiting` is above 0: your "not a rule" or "take back" decisions wait for a database that takes them; the administrator runs `rigour team init-schema` again, and the next sync sends them.
+  - `no membership for this login in this organization and team`: the ids in `rigour team configure` and the membership row differ.
+- **A teammate's lesson shows no file.** Its file hash matched no file tracked in this checkout (a rename, or not checked out). The lesson is still served by its words.
 - **Embedding model unavailable.** The lesson is sent without an embedding. Search by meaning returns `degraded` and an empty list; everything else works.
 
 ## Search by meaning with pgvector
@@ -254,6 +371,8 @@ rigour team semantic-search 'safe database migration'   # what agents would be o
 `semantic-backfill` embeds only lessons whose actor is you. `semantic-search` returns at most 25 candidates and an empty list until someone has sent a validated or promoted lesson. Do not insert made-up lessons to fill it.
 
 ## Bring in lessons from before team mode
+
+Decisions on review lessons need no import: the first sync sends the ones already in the repository's lessons file (see [Set up a team, start to finish](#set-up-a-team-start-to-finish), step 7).
 
 Lessons learned before you configured team mode are not queued. To queue a repository's personal lessons:
 
@@ -275,7 +394,11 @@ With no paths, it uses the current repository. It queues only personal lessons, 
 ## Data and security notes
 
 - **Visibility is enforced by the database.** Row-level security lets a login read its own membership row, its own lessons, and the team's promoted lessons in its own organization and team. It lets a login write only rows whose actor is its own, and team rows only with role `sme` or `owner`. The organization, team and actor of a sent lesson come from the membership row.
-- **TLS.** Prefer `sslmode=verify-full`. With current versions of the PostgreSQL driver Rigour uses, `sslmode=require` is also verified as `verify-full` and prints a deprecation warning. If your host signs its certificate with its own root CA, keep verification on and point Node at the CA: `export NODE_EXTRA_CA_CERTS=/path/to/provider-ca.crt`, then run `rigour team doctor`.
+- **Review decisions are append-only.** A login can read its own team's decisions, and insert one only as `sme` or `owner` under its own actor. There is no update or delete policy, so even a login granted `UPDATE` or `DELETE` changes no row; a decision taken back is a new row. The server sets when a decision arrived and the decider's display name from the membership row; the client sets neither.
+- **Reviewer hashes.** A review decision names who raised the review point only as a hash of the login, salted with a random value per organization (`rigour.organization_salts`, created for each organization when its first membership is added). A hash from one organization never matches another's. Inside a small team, someone who can read the decisions can still guess which login a hash is by hashing each teammate's login with the salt. The hashes live only in your own database, behind row-level security.
+- **TLS.** Prefer `sslmode=verify-full`. With current versions of the PostgreSQL driver Rigour uses, `sslmode=require` is also verified as `verify-full` and prints a deprecation warning. If your host signs its certificate with its own root CA, keep verification on and point Node at the CA: `export NODE_EXTRA_CA_CERTS=/path/to/provider-ca.crt`, then run `rigour team doctor`. Two workarounds until Rigour can scope these per profile:
+  - **The CA for every Rigour run.** Node reads `NODE_EXTRA_CA_CERTS` only when it starts, and the MCP server and hooks start from your agent, not your shell. Set it where your agent's process inherits it (your login shell's profile, or your OS's per-user environment), then restart the agent. It adds that CA for every Node program you run, not only Rigour.
+  - **A certificate for a name you do not connect to.** Some providers' certificates name a DNS name that does not resolve from your network (an internal name, or a name for a different endpoint than the one you connect to). With `verify-full` the host in the URL must match the certificate. Map the certificate's name to the server's address in your hosts file (`/etc/hosts`, or `C:\Windows\System32\drivers\etc\hosts`), for example `203.0.113.10  db-internal.provider.example`, and use that name in the URL. Keep `verify-full`; do not turn verification off.
 - **The URL holds a password.** `rigour team configure` saves it in `team.json` with file mode 600. A profile's `--database-url-command` keeps it in your keychain or vault instead.
 - **Local encryption.** Lesson evidence and queued items are encrypted on disk with AES-256-GCM. The key is `RIGOUR_LOCAL_CACHE_KEY` if set (base64, 32 bytes), otherwise a key Rigour creates once in `~/.rigour/team-cache.key` with file mode 600.
 - **Load on the database.** A sync reads only lessons changed since that machine's last pull, through the index `rigour.lessons (organization_id, team_id, updated_at)`. The first sync on a machine reads everything it may see. The MCP server syncs after each tool call and Studio every 30 seconds. A database created by an earlier version gets the index when the administrator runs `rigour team init-schema` again.

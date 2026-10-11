@@ -70,7 +70,7 @@ rigour setup                           # in your repository
 
 `rigour setup` connects Rigour to your agents, installs the three moments, and checks that everything works. By default it is **personal: nothing in your working tree**. The agent hooks are installed once per machine and stay silent in any repository you have not switched on, and switching this one on writes only inside `.git/`. When your team wants it for everyone who clones, `rigour setup --team` commits it to the repository instead. Either way it merges into the agent configs you already have rather than replacing them. Changed your mind? `rigour uninstall` takes out exactly what it put in. [Get started](docs/QUICK_START.md) walks through it.
 
-Rigour is about 70 MB per version. Semantic search (about 230 MB) is installed once per machine by `rigour setup` and shared by every version; skip it with `--no-semantic`.
+Rigour is about 70 MB per version. Semantic search (about 250 MB on Linux, 280 MB on macOS) is installed once per machine by `rigour setup` and shared by every version; skip it with `--no-semantic`.
 
 Using Claude Code? The plugin does all of it:
 
@@ -144,7 +144,7 @@ Rigour is free. With an agent you need nothing else: the checks run locally, and
 | If you want to… | Read |
 | --- | --- |
 | Install and run Rigour step by step | [Get started](docs/QUICK_START.md) |
-| See what changed in this release, and how to upgrade | [Release notes](docs/releases/6.8.0.md) |
+| See what changed in this release, and how to upgrade | [Release notes](docs/releases/6.13.0.md) |
 | Know what to do with a finding while you work | [During development](docs/DEVELOPMENT.md) |
 | Set it up for a whole team | [Team setup](docs/TEAM_SETUP.md) |
 | Review every pull request in CI | [Pull requests and CI](docs/CI.md) |

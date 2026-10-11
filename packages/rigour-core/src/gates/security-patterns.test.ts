@@ -116,7 +116,9 @@ describe('SecurityPatternsGate', () => {
 
         it('still flags what is about strings: a secret in a literal, one written inside a string, a bare token', async () => {
             const found = await scan('config.py', 'api_key = "sk-abcdefghijklmnopqrstuvwxyz123456"\nENV = "api_key=\'Xk9pQ2vL8mZr4Tw7\'"\nTOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"\n');
-            expect(found.filter(([type]) => type === 'hardcoded_secrets').map(([, line]) => line).sort()).toEqual([1, 1, 2, 3]);
+            // A provider-format key is a hard-coded secret; a secret-named key given a literal is a plain assignment.
+            expect(found.filter(([type]) => type === 'hardcoded_secrets').map(([, line]) => line).sort()).toEqual([1, 3]);
+            expect(found.filter(([type]) => type === 'secret_assignment').map(([, line]) => line).sort()).toEqual([1, 2]);
         });
     });
 
@@ -125,7 +127,7 @@ describe('SecurityPatternsGate', () => {
             const scan = async (name: string, body: string) => {
                 const filePath = path.join(testDir, name);
                 fs.writeFileSync(filePath, body);
-                return (await checkSecurityPatterns(filePath)).filter(v => v.type === 'hardcoded_secrets').map(v => v.line);
+                return (await checkSecurityPatterns(filePath)).filter(v => v.type === 'secret_assignment').map(v => v.line);
             };
             expect(await scan('creds.ts', 'export const creds = {"password": "Xk9pQ2vL8mZr4Tw7"};\n')).toEqual([1]);
             expect(await scan('settings.py', "SETTINGS = {'api_key': 'Xk9pQ2vL8mZr4Tw7'}\n")).toEqual([1]);
@@ -227,7 +229,7 @@ describe('SecurityPatternsGate', () => {
             `);
 
             const vulns = await checkSecurityPatterns(filePath);
-            expect(vulns.some(v => v.type === 'hardcoded_secrets')).toBe(true);
+            expect(vulns.some(v => v.type === 'secret_assignment')).toBe(true);
         });
     });
 

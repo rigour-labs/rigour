@@ -27,7 +27,13 @@ Rigour briefing for PROJ-123: how this team builds the code this task will likel
 
 1. Requirement rules for the task's files (worded as must, never, every, ...): a break of one blocks at review.
 2. The team's lessons for those files: verified ones, or candidates too when the team's reviewer is shown them
-   (`gates.deep.review_lessons: all`), so the agent is told what the reviewer will check.
+   (`gates.deep.review_lessons: all`), so the agent is told what the reviewer will check. A candidate is a review
+   point as its reviewer wrote it, which no person has confirmed: often a remark about that one pull request ("Is this
+   name final?", a reply to the author), not an instruction for the next task. That is why the default serves verified lessons
+   only. A new team sees few lessons in its briefings until a person confirms some (Studio, or
+   `rigour learn-reviews --promote`): by design, a person decides what the team's agents are told. Candidates and
+   lessons live in the checkout (`.rigour/review-lessons.json`), so a throwaway worktree briefs with none until
+   `rigour learn-reviews` runs there (see [REVIEWER.md](./REVIEWER.md#how-it-learns)).
 3. Points the team settled against, so the agent neither does them nor raises them.
 4. Guidance rules.
 
@@ -39,7 +45,14 @@ rule over 400 characters is served as its first sentence and where the whole rul
 and a briefing stops adding items once they reach 3,000 characters together. A rule from a folder's own rules file (`services/billing/AGENTS.md`)
 is briefed only for a task in that folder. When nothing applies, the briefing is empty, never padded.
 
+A lesson is cited by the pull requests it was learned in. With a [team database](./TEAM_DATABASE.md), one a teammate
+approved or rejected also says who, by the display name the team database holds, never a login or an email:
+`(learned in PR #12, approved by Jane D. (team))`; "a teammate" when the administrator set no name.
+
 ## The goal and the files
+
+A briefing is read from the repository's top, wherever in it the agent or the command starts, so a session started in
+a subfolder is briefed with the same rules and lessons, and the same `rigour.yml` switch, as one started at the root.
 
 The goal is what the task is for: the session's first prompt (the hook), the argument or tool parameter (`rigour brief`,
 `rigour_brief`), else the pull request's title and description (`rigour brief`, when `gh` can read them within five

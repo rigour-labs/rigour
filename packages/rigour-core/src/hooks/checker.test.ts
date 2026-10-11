@@ -7,6 +7,7 @@ import { runHookChecker } from './checker.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execFileSync } from 'child_process';
 import yaml from 'yaml';
 
 describe('runHookChecker', () => {
@@ -77,8 +78,12 @@ describe('runHookChecker', () => {
         fs.writeFileSync(filePath, lines.join('\n'));
 
         const result = await runHookChecker({ cwd: testDir, files: [filePath] });
-        expect(result.status).toBe('fail');
-        expect(result.failures.some(f => f.gate === 'file-size')).toBe(true);
+        expect(result.status).toBe('pass'); // a file's length is a note unless the team opts in
+        expect(result.notes?.some(f => f.gate === 'file-size')).toBe(true);
+        fs.writeFileSync(path.join(testDir, 'rigour.yml'), yaml.stringify({ version: 1, gates: { max_file_lines: 50, file_size: { block: true } } }));
+        const blocked = await runHookChecker({ cwd: testDir, files: [filePath] });
+        expect(blocked.status).toBe('fail');
+        expect(blocked.failures.some(f => f.gate === 'file-size')).toBe(true);
     });
 
     it('should detect hardcoded secrets', async () => {
@@ -215,5 +220,94 @@ describe('runHookChecker', () => {
         const result = await runHookChecker({ cwd: testDir, files: [filePath] });
         const importFailures = result.failures.filter(f => f.gate === 'hallucinated-imports');
         expect(importFailures).toHaveLength(0);
+    });
+});
+
+describe('runHookChecker on a file the repository already has', () => {
+    let repo: string;
+    const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+    const lines = (n: number, prefix = 'export const x') => Array.from({ length: n }, (_, i) => `${prefix}${i} = ${i};`).join('\n');
+    const commit = (rel: string, body: string) => {
+        fs.writeFileSync(path.join(repo, rel), body);
+        git('add', '-A');
+        git('commit', '-qm', rel);
+    };
+    const check = (rel: string, body: string) => {
+        fs.writeFileSync(path.join(repo, rel), body);
+        return runHookChecker({ cwd: repo, files: [path.join(repo, rel)] });
+    };
+
+    beforeEach(() => {
+        repo = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-checker-git-'));
+        git('init', '-q', '-b', 'main');
+        git('config', 'user.email', 't@example.com');
+        git('config', 'user.name', 't');
+        git('config', 'commit.gpgsign', 'false');
+        commit('rigour.yml', yaml.stringify({ version: 1, gates: { max_file_lines: 500 } }));
+    });
+    afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+
+    /** The team opts in: a change that takes a file over the limit blocks. */
+    const blockOnSize = () => commit('rigour.yml', yaml.stringify({ version: 1, gates: { max_file_lines: 500, file_size: { block: true } } }));
+
+    it('notes a file that was already over the limit and grew, without blocking, with or without the opt-in', async () => {
+        commit('big.ts', lines(600));
+        for (const optIn of [false, true]) {
+            if (optIn) {
+                fs.writeFileSync(path.join(repo, 'big.ts'), lines(600)); // back to the committed 600 before the config commit
+                blockOnSize();
+            }
+            const result = await check('big.ts', lines(610));
+            expect(result.status).toBe('pass');
+            expect(result.failures).toEqual([]);
+            expect(result.notes).toEqual([expect.objectContaining({ gate: 'file-size', file: 'big.ts', message: expect.stringContaining('grew from 600 to 610 lines') })]);
+        }
+    });
+
+    it('notes an edit that takes a file over the limit, and blocks it when the team opts in', async () => {
+        commit('near.ts', lines(495));
+        const noted = await check('near.ts', lines(505));
+        expect(noted.status).toBe('pass');
+        expect(noted.notes).toEqual([expect.objectContaining({ gate: 'file-size', message: 'File has 505 lines (max: 500)' })]);
+        fs.writeFileSync(path.join(repo, 'near.ts'), lines(495));
+        blockOnSize();
+        const blocked = await check('near.ts', lines(505));
+        expect(blocked.status).toBe('fail');
+        expect(blocked.failures).toEqual([expect.objectContaining({ gate: 'file-size', message: 'File has 505 lines (max: 500)' })]);
+    });
+
+    it('says nothing when a file over the limit shrinks', async () => {
+        commit('big.ts', lines(600));
+        const result = await check('big.ts', lines(590));
+        expect(result.status).toBe('pass');
+        expect(result.failures).toEqual([]);
+        expect(result.notes).toBeUndefined();
+    });
+
+    it('notes a new file over the limit, and blocks it when the team opts in', async () => {
+        const noted = await check('new.ts', lines(675));
+        expect(noted.status).toBe('pass');
+        expect(noted.notes?.map(f => f.gate)).toEqual(['file-size']);
+        blockOnSize();
+        const blocked = await check('new2.ts', lines(675));
+        expect(blocked.failures.map(f => f.gate)).toEqual(['file-size']);
+    });
+
+    it('still notes a problem the file already had when the edit moves it down', async () => {
+        const body = [...Array.from({ length: 9 }, (_, i) => `export const v${i} = ${i};`), "import { gone } from './gone';", 'export const a = gone;'].join('\n');
+        commit('moved.ts', body);
+        const result = await check('moved.ts', `export const t0 = 0;\nexport const t1 = 1;\nexport const t2 = 2;\n${body}`);
+        expect(result.status).toBe('pass');
+        expect(result.notes).toEqual([expect.objectContaining({ gate: 'hallucinated-imports', line: 13 })]);
+    });
+
+    it('notes an import the file already had that resolves to nothing, and blocks one the edit adds', async () => {
+        commit('a.ts', "import { gone } from './gone';\nexport const a = gone;\n");
+        const kept = await check('a.ts', "import { gone } from './gone';\nexport const a = gone;\nexport const b = 2;\n");
+        expect(kept.status).toBe('pass');
+        expect(kept.notes?.map(f => f.gate)).toEqual(['hallucinated-imports']);
+        const added = await check('a.ts', "import { gone } from './gone';\nimport { lost } from './lost';\nexport const a = gone ?? lost;\n");
+        expect(added.status).toBe('fail');
+        expect(added.failures.map(f => f.message)).toEqual([expect.stringContaining("'./lost'")]);
     });
 });

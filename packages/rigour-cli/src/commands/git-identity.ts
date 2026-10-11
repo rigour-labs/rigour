@@ -1,10 +1,11 @@
-/** Who a person's decision is recorded as: their git email in the checkout, or `unknown` without one. */
-import { execFileSync } from 'child_process';
+import { personOf } from '@rigour-labs/core';
 
-export function personOf(cwd: string): string {
-    try {
-        return execFileSync('git', ['config', 'user.email'], { cwd, encoding: 'utf8' }).trim() || 'unknown';
-    } catch {
-        return 'unknown'; // no git identity: recorded as unknown
-    }
+/** Every decision path refuses with this: a decision recorded as nobody would never reach the team. */
+const NO_GIT_EMAIL = 'no git email is set in this checkout (git config user.email)';
+
+/** Who a person's decision is recorded as: their git email in the checkout, the one the team sync matches. Throws without one. */
+export function decider(cwd: string): string {
+    const by = personOf(cwd);
+    if (by === 'unknown') throw new Error(NO_GIT_EMAIL);
+    return by;
 }
