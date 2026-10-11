@@ -109,8 +109,13 @@ teamCommand
     .description("Send queued lessons from the team's repositories, and your decisions on this repository's review lessons; receive the team's")
     .option('--dry-run', 'Report pending records without sending them')
     .action(async (options) => {
-        const result = await syncTeamOutbox({ dryRun: Boolean(options.dryRun), cwd: process.cwd() });
-        console.log(JSON.stringify(result, null, 2));
+        try {
+            console.log(JSON.stringify(await syncTeamOutbox({ dryRun: Boolean(options.dryRun), cwd: process.cwd() }), null, 2));
+        } catch (error) {
+            // One line, with the fix when there is one; never the database driver's stack.
+            console.error(chalk.red(`Team sync failed: ${error instanceof Error ? error.message : String(error)}`));
+            process.exitCode = 1;
+        }
     });
 
 /** Initialize the schema, or print why it failed (with the fix) and set exit code 1. */
