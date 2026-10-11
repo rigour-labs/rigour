@@ -44,6 +44,15 @@ describe('rigour setup registers the MCP server', () => {
         expect(mcp()).toEqual({ rigour: resolveMCPServerConfig(), db: { command: 'db-mcp', args: [] } });
     });
 
+    it("keeps the team's env and other keys on Rigour's entry, and moves only the pin", async () => {
+        const env = { RIGOUR_CWD: '.', RIGOUR_MCP_TOOLS: 'core,team,review', RIGOUR_TELEMETRY: '1' };
+        fs.writeFileSync(path.join(repo, '.mcp.json'), JSON.stringify({ mcpServers: { rigour: { type: 'stdio', command: 'npx', args: ['-y', '@rigour-labs/mcp@6.13.0'], env, timeout: 30 } } }));
+        await setupCommand(repo, { team: true, semantic: false });
+        const { command, args } = resolveMCPServerConfig();
+        expect(mcp().rigour).toEqual({ type: 'stdio', env, timeout: 30, command, args });
+        expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).join('\n')).toContain('your other settings kept');
+    });
+
     it('leaves an entry the person changed', async () => {
         const own = { command: 'node', args: ['/opt/my-rigour-mcp.js'] };
         fs.writeFileSync(path.join(repo, '.mcp.json'), JSON.stringify({ mcpServers: { rigour: own } }));

@@ -18,7 +18,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { printRepoSetup } from './doctor.js';
-import { installGitPushHook } from './hooks-git.js';
+import { describePushGate, installGitPushHook, pushHookTarget } from './hooks-git.js';
 import { hooksInitCommand, installMachineHooks, pinnedCliCommand, projectHookPaths } from './hooks.js';
 import { initCommand, registerProjectMcp, resolveMCPServerConfig } from './init.js';
 import { writeAgentInstructions } from './init-handshake.js';
@@ -49,7 +49,9 @@ export async function setupCommand(cwd = process.cwd(), options: SetupOptions = 
     const mode = team ? 'team: committed to this repository' : committed.length ? "the team's install: nothing in your working tree" : 'personal: nothing in your working tree';
     console.log(chalk.bold.cyan(`\nRigour setup (${mode})\n`));
     if (team) {
-        const touched = trackedFiles(cwd, ['rigour.yml', ...rigourInstallPaths()]);
+        const script = pushHookTarget(cwd);
+        const hookScript = script?.managed && script.managed !== 'outside' ? [path.relative(cwd, script.file)] : [];
+        const touched = trackedFiles(cwd, ['rigour.yml', ...rigourInstallPaths(), ...hookScript]);
         if (touched.length) console.log(chalk.yellow(`Writes into these committed files (commit the result so everyone gets it): ${touched.join(', ')}\n`));
         await teamSetup(cwd, options);
     } else if (committed.length) await leaveTeamInstall(cwd, committed, !!options.instructions);
@@ -78,8 +80,8 @@ async function personalSetup(cwd: string, brief: boolean): Promise<void> {
     console.log(chalk.green('✔ Switched on for this repository (a marker and .rigour/ in .git/info/exclude; nothing to commit)'));
     console.log(chalk.green(`✔ Agent hooks for ${hooks.agents.map(agent => AGENT_NAME[agent]).join(', ')}, the agents installed here, once per machine (${hooks.written} config(s) merged or written; they stay silent in repositories you have not switched on)`));
     for (const failed of hooks.failed) console.log(chalk.yellow(`  Left alone: ~/${failed} is not valid JSON`));
-    if (push.action === 'managed elsewhere') console.log(chalk.yellow(`Git pre-push hooks are managed outside this repository (${push.path}); add: ${pinnedCliCommand()} hooks push --git "$@" || exit $?`));
-    else if (push.action !== 'no repository') console.log(chalk.green(`✔ Push gate: git's pre-push hook (${push.action})`));
+    const gate = describePushGate(push, pinnedCliCommand());
+    if (gate) console.log(gate.ok ? chalk.green(`✔ ${gate.text}`) : chalk.yellow(gate.text));
     if (mcp.claude === 'no CLI') console.log(chalk.yellow(`Claude Code MCP: add it with ${chalk.cyan(`claude mcp add --scope user rigour -- ${[resolveMCPServerConfig().command, ...resolveMCPServerConfig().args].join(' ')}`)}`));
     else console.log(chalk.green(`✔ Rigour tools for agents (MCP): Claude Code ${mcp.claude}, Cursor ${mcp.cursor}`));
     for (const [agent, state] of [['Claude Code', mcp.claude], ['Cursor', mcp.cursor]] as const) if (state === 'taken') console.log(chalk.yellow(`${agent}: ${MCP_NAME_TAKEN}.`));
@@ -137,8 +139,8 @@ async function leaveTeamInstall(cwd: string, committed: string[], instructions: 
     } else console.log(chalk.dim('  To change it for everyone: rigour setup --team, then commit the result.'));
     // This clone's own: git's pre-push hook lives in the git directory, never in the working tree.
     const push = installGitPushHook(cwd, pinnedCliCommand(), { workingTree: false });
-    if (push.action === 'managed elsewhere') console.log(chalk.yellow(`Git pre-push hooks are managed outside this repository (${push.path}); add: ${pinnedCliCommand()} hooks push --git "$@" || exit $?`));
-    else if (push.action !== 'no repository') console.log(chalk.green(`✔ Push gate: git's pre-push hook (${push.action}); the only thing installed here`));
+    const gate = describePushGate(push, pinnedCliCommand());
+    if (gate) console.log(gate.ok ? chalk.green(`✔ ${gate.text}; the only thing installed here`) : chalk.yellow(gate.text));
     // Asked for by name: written only where the repository has none, so no committed file changes.
     if (instructions) await writeAgentInstructions(cwd);
 }
