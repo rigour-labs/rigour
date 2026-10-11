@@ -40,6 +40,8 @@ import { agentHome, asUserLevel, installedAgents } from './personal.js';
 import { hookStdin } from './hook-input.js';
 import { loadHookConfig } from './hooks-stop.js';
 import { REPORT_ONLY_PREFIX, reportOnly } from './report-only.js';
+import { filesWrittenSince, toolCallId } from './shell-writes.js';
+import { repositoryOf } from './hooks-push.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -241,8 +243,9 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
     const blockFlag = block ? ' --block' : '';
     const checkerCommand = checkerToShellCommand(checker);
     const hooks: Record<string, unknown[]> = {
+        // Every write is checked, whichever tool made it: a shell command's writes too (shell-writes.ts).
         PostToolUse: [{
-            matcher: "Write|Edit|MultiEdit",
+            matcher: "Write|Edit|MultiEdit|NotebookEdit|Bash",
             hooks: [{
                 type: "command" as const,
                 command: `${checkerCommand} --stdin${blockFlag}`,
@@ -701,6 +704,7 @@ export function parseStdinFiles(input: string): string[] {
             const ti = payload.tool_input;
             if (typeof ti === 'object' && ti !== null) {
                 if (ti.file_path) return [ti.file_path];
+                if (ti.notebook_path) return [ti.notebook_path]; // Claude Code NotebookEdit
                 if (ti.path) return [ti.path];
             }
         }
@@ -889,6 +893,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
     let cursorMode = false;
 
     let hookSession: string | undefined;
+    let shellWrites: string[] | undefined;
     if (options.stdin) {
         rawStdin = await hookStdin();
         // Detect Cursor/IDE hook payload format
@@ -903,15 +908,23 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
                 recordSessionBaseline(cwd, session);
                 hookSession = session;
             }
+            // A shell call: the files it wrote, found from the working tree, not the command (shell-writes.ts).
+            if (payload.tool_name === 'Bash') {
+                const repo = repositoryOf(typeof payload.cwd === 'string' ? payload.cwd : cwd);
+                const call = toolCallId(payload);
+                shellWrites = repo && call ? filesWrittenSince(repo, call) ?? [] : [];
+            }
         } catch (parseErr: any) {
             // Not valid JSON — log for debugging (stderr only, stdout must stay clean)
             process.stderr.write(`[rigour-hook-debug] stdin JSON parse failed: ${parseErr?.message?.slice(0, 100)}\n`);
         }
     }
 
-    const files = options.stdin
+    // A shell call that wrote nothing: nothing to check, and nothing to say.
+    if (shellWrites && shellWrites.length === 0) return;
+    const files = shellWrites ?? (options.stdin
         ? parseStdinFiles(rawStdin)
-        : (options.files ?? '').split(',').map(f => f.trim()).filter(Boolean);
+        : (options.files ?? '').split(',').map(f => f.trim()).filter(Boolean));
 
     if (files.length === 0) {
         // The old edit hook passes "$TOOL_INPUT_file_path", which the agent never sets: an empty --files. Say so on every
