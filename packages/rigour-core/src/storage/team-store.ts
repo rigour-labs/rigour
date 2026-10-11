@@ -4,7 +4,7 @@ import path from 'path';
 import { openDatabase } from './db.js';
 import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js';
 import { TEAM_SCHEMA } from './team-schema.js';
-import { diagnoseMissingMembership, explainTeamConnectionError } from './team-diagnostics.js';
+import { diagnoseMissingMembership, explainTeamConnectionError, missingReviewDecisionGrants } from './team-diagnostics.js';
 import { rigourUserDir } from '../utils/user-state.js';
 import { withheldReason } from './team-scope.js';
 import { getRepositoryId, originOf } from './repository-origin.js';
@@ -59,7 +59,8 @@ export interface TeamModeStatus {
 export interface TeamDoctorResult extends TeamModeStatus {
     schemaVersion?: number;
     /** Whether the database can hold shared review decisions: `missing` until the administrator runs init-schema again. */
-    reviewDecisions?: 'ready' | 'missing';
+    /** `missing grant`: the tables are there, but this login cannot use them; the message has the GRANT to run. */
+    reviewDecisions?: 'ready' | 'missing' | 'missing grant';
     databaseRole?: string;
     permissions?: string[];
 }
@@ -244,7 +245,10 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
         const schemaVersion = Number(result.rows[0].schema_version);
         if (schemaVersion !== 1) return offline(`Incompatible team schema version ${schemaVersion}; expected 1.`);
         const semantic = resolved.semantic ? await getTeamSemanticHealth(pool, resolved) : undefined;
-        const reviewDecisions = Number(result.rows[0].review_decisions_version) === 1 ? 'ready' : 'missing';
+        const role = String(result.rows[0].role);
+        const tables = Number(result.rows[0].review_decisions_version) === 1;
+        const missingGrant = tables ? await missingReviewDecisionGrants(pool, String(result.rows[0].database_role), role) : undefined;
+        const reviewDecisions = !tables ? 'missing' : missingGrant ? 'missing grant' : 'ready';
         return {
             mode: 'team',
             connectivity: 'online',
@@ -254,12 +258,14 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
             queuedChanges: await queuedChanges(),
             schemaVersion,
             databaseRole: String(result.rows[0].database_role),
-            permissions: [String(result.rows[0].role)],
+            permissions: [role],
             semantic,
             reviewDecisions,
             message: reviewDecisions === 'ready'
                 ? 'PostgreSQL team mode is healthy. A clone receives the team\'s decisions on review lessons at its first sync (`rigour team sync`, or the next Rigour tool call).'
-                : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.',
+                : reviewDecisions === 'missing grant'
+                    ? `PostgreSQL team mode is healthy for lessons, but review decisions are not: ${missingGrant}`
+                    : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.',
         };
     } catch (error) {
         return offline(explainTeamConnectionError(error));
