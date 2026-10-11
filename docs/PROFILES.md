@@ -30,3 +30,4 @@ Profiles live in `~/.rigour/profiles.json` in your real home (or `RIGOUR_PROFILE
 - **The MCP server** applies the profile of the repository it serves (`RIGOUR_CWD`, else where it started), and refuses a tool call for a repository of another profile. A single server registered globally answers only for its own profile, never with the wrong memory or team.
 - **Team sync** sends only lessons from the team's own repositories (`--repositories`); everything else stays on the machine. See [Team database](./TEAM_DATABASE.md).
 - `RIGOUR_USER_MEMORY=off` keeps a server out of the memories you keep for all your repositories.
+- **`rigour doctor`'s push-gate self-test** pushes from a scratch clone in the temp folder, under the home of the repository you ran it in. A profile whose match covers the temp folder never applies to it, so another organization's home or team is never used.
