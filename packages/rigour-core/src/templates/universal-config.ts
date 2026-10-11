@@ -4,6 +4,7 @@ export const UNIVERSAL_CONFIG: Config = {
     commands: {},
     gates: {
         max_file_lines: 500,
+        file_size: { block: false },
         forbid_todos: true,
         forbid_fixme: true,
         required_files: ['docs/SPEC.md', 'docs/ARCH.md', 'docs/DECISIONS.md', 'docs/TASKS.md'],
