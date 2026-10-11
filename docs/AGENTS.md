@@ -133,12 +133,16 @@ included):
 
 - No `pre-push` hook yet: Rigour writes one that runs `<cli> hooks push --git "$@"`.
 - A `pre-push` hook another tool wrote: Rigour appends a comment and that one line, ending in
-  `|| exit $?`.
+  `|| exit $?`. It never replaces that hook, and when the hook hands over with `exec` (a line after it
+  would never run) Rigour leaves it as it is and prints the line to add yourself.
 - A hooks directory outside the repository, such as a machine-wide `core.hooksPath`: Rigour leaves it
   alone and prints the line to add yourself.
-- A hooks directory committed in the repository, such as Husky's `.husky/`: a team install appends the
-  line there, for you to commit; a personal install leaves it alone and prints the line, since a
-  personal install changes nothing in the working tree.
+- A hooks directory in the repository that a tool manages, such as Husky's: Rigour never writes into
+  a generated folder (Husky 9 points git at `.husky/_`, stubs it rewrites on every install that run the
+  tracked `.husky/pre-push`). A team install appends the line to the tracked script, which setup lists
+  among the committed files it writes, and creates `.husky/pre-push` only when Husky is set up and the
+  file is missing. A personal install leaves it alone and prints the line, since a personal install
+  changes nothing in the working tree. `rigour uninstall` takes the line back out.
 
 The hook gates the commit git is about to send. It refuses a push while tracked files have
 uncommitted changes, since it would otherwise check code the push does not carry. Deleting a remote
@@ -357,7 +361,8 @@ The old edit hook also says so itself: on every edit it prints that it checks no
 `rigour setup`, and exits 1, which the agent shows you without stopping the edit.
 
 When the clone has Rigour's `pre-push` hook, doctor also runs the same real-push test as
-`rigour hooks selftest`.
+`rigour hooks selftest`. Where Husky or another tool runs the hooks from the working tree, doctor says
+so and whether Rigour's line is in the script it runs (`✘` with the line to add when it is not).
 
 ### A hook does not fire
 
