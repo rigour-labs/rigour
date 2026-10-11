@@ -230,7 +230,7 @@ This repository uses Rigour. Its hooks check your work after each edit, before y
 
 | Install | Claude Code | Cursor |
 | --- | --- | --- |
-| Personal (`rigour setup`) | `claude mcp add --scope user rigour -- <server>`. Needs the `claude` CLI on `PATH`; if it is missing, setup prints the command to run. A server already registered as `rigour` is left as it is; if it is not Rigour's, setup and `rigour doctor` say so and ask you to rename it, since Rigour's tools are not registered over it. | Merged into `~/.cursor/mcp.json` under `mcpServers.rigour`, only when Cursor is installed. An existing `rigour` entry is left as it is. |
+| Personal (`rigour setup`) | `claude mcp add --scope user rigour -- <server>`. Needs the `claude` CLI on `PATH`; if it is missing, setup prints the command to run. A server already registered as `rigour` is left as it is; if it is not Rigour's, setup and `rigour doctor` say so, naming every agent whose server holds the name, and ask you to rename it, since Rigour's tools are not registered over it. | Merged into `~/.cursor/mcp.json` under `mcpServers.rigour`, only when Cursor is installed. An existing `rigour` entry is left as it is. |
 | Team (`rigour setup --team`) | `.mcp.json` at the repository root, under `mcpServers.rigour`. Rigour's own entry is moved to this version: only its `command` and `args` change, and its `env` and any other keys stay. An entry that runs something else is kept as it is. An `.mcp.json` that is not valid JSON is left alone. | `.cursor/mcp.json`, under `mcpServers.rigour`, the same way. A file that is not valid JSON is left alone. |
 
 Setup writes no MCP config for Cline, Windsurf or Codex. The server speaks MCP over stdio, so any
