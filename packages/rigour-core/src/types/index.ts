@@ -5,6 +5,8 @@ const ModelName = z.string().regex(/^[\w.:/@][\w.:/@-]*$/, 'a model name (letter
 
 export const GatesSchema = z.object({
     max_file_lines: z.number().optional().default(500),
+    /** Opt in: a change that takes a file over max_file_lines blocks. By default it is a note: a file's length is a team's preference. */
+    file_size: z.object({ block: z.boolean().optional().default(false) }).optional().default({}),
     forbid_todos: z.boolean().optional().default(true),
     forbid_fixme: z.boolean().optional().default(true),
     required_files: z.array(z.string()).optional().default([

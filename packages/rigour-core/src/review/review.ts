@@ -34,6 +34,7 @@ import { partialFixFailures } from './partial-fixes.js';
 import { partialWiringFailures } from './partial-wiring.js';
 import { isControlFile } from './trusted-state.js';
 import { baseCommit, baseFindings, splitIntroduced } from './baseline.js';
+import { fileSizeFailures } from './file-size.js';
 import { goalFailures, hasCheckableGoal, parseGoal, type Goal } from '../goal/goal.js';
 
 export interface ReviewInput {
@@ -149,6 +150,8 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         ...partialFixFailures(input.cwd, changedLines, input.config),
         ...partialWiringFailures(input.cwd, changedLines, input.config),
     ], input.config.gates.change_sweep?.block));
+    // A file this change took over the size limit: a note, or a block with gates.file_size.block (file-size.ts).
+    report.failures.push(...fileSizeFailures(input.cwd, changedLines, baseCommit(input.cwd, input.source ?? (input.diff ? undefined : { mode: 'working' })), input.config));
     const typed: Redundancy = input.typed ? typedChecks(input.cwd, changedLines, input.config) : { failures: [], hints: [] };
     if (typed.error) report.summary[TYPED_CHECKS] = 'ERROR'; // a check that could not run is a crashed gate, never a pass
     else if (input.typed) reviewCheck('redundancy', 'redundancy', typed.failures);

@@ -232,7 +232,8 @@
         }
     },
     "keys": {
-        "gates.max_file_lines": "Maximum number of lines a file may have before it is reported as too long; on every edit it blocks only an edit that takes a file over it (growing a file already over is a note), and 0 turns the full-repository check off.",
+        "gates.max_file_lines": "Maximum number of lines a file may have before it is reported as too long. A note by default (see `gates.file_size.block`); 0 turns the full-repository check off.",
+        "gates.file_size.block": "A change that takes a file over `max_file_lines` (a new long file included) blocks the edit, the agent's stop and the push. Growing a file that was already over never blocks. Off by default: a file's length is a team's preference, so it is a note.",
         "gates.forbid_todos": "When on, comments that start with TODO are reported, outside test files and examples.",
         "gates.forbid_fixme": "When on, comments that start with FIXME are reported, outside test files and examples.",
         "gates.required_files": "Files, relative to the repository root, that must exist; each one missing is reported, and an empty list turns the check off.",
