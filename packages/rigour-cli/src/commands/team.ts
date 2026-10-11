@@ -121,7 +121,11 @@ teamCommand
 /** Initialize the schema, or print why it failed (with the fix) and set exit code 1. */
 async function initializeSchemaOrReport(databaseUrl: string, pgvector: boolean): Promise<boolean> {
     try {
-        await initializeTeamSchema(databaseUrl, { pgvector });
+        const grants = await initializeTeamSchema(databaseUrl, { pgvector });
+        // What every member login can now use, so no GRANT is left for doctor to find after an upgrade.
+        for (const { role, statements } of grants.granted) console.log(chalk.green(`Granted ${role}: ${statements.length - 1} table(s) and the schema, as a member's sync needs.`));
+        if (grants.manual.length) console.log(chalk.yellow(`This login may not grant on every table; ask the administrator to run:\n  ${grants.manual.join('\n  ')}`));
+        if (!grants.granted.length && !grants.manual.length) console.log(chalk.dim('No member logins yet: grant each one as the team database guide shows when you add it.'));
         return true;
     } catch (error) {
         console.error(chalk.red(`Schema initialization failed. ${explainTeamConnectionError(error)}`));

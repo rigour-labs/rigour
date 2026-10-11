@@ -4,7 +4,7 @@ import path from 'path';
 import { openDatabase } from './db.js';
 import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js';
 import { TEAM_SCHEMA } from './team-schema.js';
-import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, missingReviewDecisionGrants, refusedRow } from './team-diagnostics.js';
+import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, missingReviewDecisionGrants, refusedRow, TABLE_GRANTS } from './team-diagnostics.js';
 import { rigourUserDir } from '../utils/user-state.js';
 import { withheldReason } from './team-scope.js';
 import { getRepositoryId, originOf } from './repository-origin.js';
@@ -176,16 +176,51 @@ async function queuedChanges(): Promise<number> {
     }
 }
 
-export async function initializeTeamSchema(databaseUrl: string, options: { pgvector?: boolean } = {}): Promise<void> {
+/** What init-schema granted, to whom, and the GRANTs it could not run itself (its login is not the tables' owner). */
+export interface SchemaGrants {
+    granted: Array<{ role: string; statements: string[] }>;
+    manual: string[];
+}
+
+export async function initializeTeamSchema(databaseUrl: string, options: { pgvector?: boolean } = {}): Promise<SchemaGrants> {
     validateTeamDatabaseUrl(databaseUrl);
     const { Pool } = await loadPg();
     const pool = new Pool({ connectionString: databaseUrl });
     try {
         await pool.query(TEAM_SCHEMA);
         if (options.pgvector) await pool.query(TEAM_VECTOR_SCHEMA);
+        return await grantMembers(pool);
     } finally {
         await pool.end();
     }
+}
+
+/**
+ * Every member login the schema knows (rigour.memberships) gets what a sync needs on every team table there is, as the
+ * guide grants it: a table this version adds is usable at once, with no GRANT left for doctor to find. A GRANT this
+ * login may not run is returned for the administrator instead.
+ */
+async function grantMembers(pool: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> }): Promise<SchemaGrants> {
+    const roles = (await pool.query('SELECT DISTINCT db_role::text AS role FROM rigour.memberships ORDER BY 1')).rows.map(row => String(row.role));
+    const tables = Object.keys(TABLE_GRANTS);
+    const present = new Set((await pool.query(`SELECT name FROM unnest($1::text[]) AS name WHERE to_regclass('rigour.' || name) IS NOT NULL`, [tables])).rows.map(row => String(row.name)));
+    const result: SchemaGrants = { granted: [], manual: [] };
+    for (const role of roles) {
+        const quoted = `"${role.replace(/"/g, '""')}"`;
+        const statements = [`GRANT USAGE ON SCHEMA rigour TO ${quoted};`, ...tables.filter(table => present.has(table)).map(table => `GRANT ${TABLE_GRANTS[table]} ON rigour.${table} TO ${quoted};`)];
+        const done: string[] = [];
+        for (const statement of statements) {
+            try {
+                await pool.query(statement);
+                done.push(statement);
+            } catch (error) {
+                if ((error as { code?: unknown })?.code !== '42501') throw error; // insufficient_privilege: the administrator's to run
+                result.manual.push(statement);
+            }
+        }
+        if (done.length) result.granted.push({ role, statements: done });
+    }
+    return result;
 }
 
 export async function getTeamModeStatus(): Promise<TeamModeStatus> {
