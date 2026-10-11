@@ -193,8 +193,8 @@ function mergeState(yes: boolean): void {
     console.log(`Live state: ${plan.live}\nLeft over in: ${plan.outer}\n`);
     for (const step of plan.steps) {
         console.log(step.action === 'move'
-            ? `  move   ${path.relative(plan.outer, step.from)} into the live directory`
-            : `  keep the live ${path.relative(plan.outer, step.from)}; rename the left-over one to ${path.basename(step.to)}`);
+            ? `  move   ${step.rel} into the live directory`
+            : `  keep the live ${step.rel}; rename the left-over one to ${path.basename(step.to)}`);
     }
     if (plan.steps.some(step => path.basename(step.from) === 'rigour.db' && step.action === 'aside')) {
         console.log(chalk.yellow('\n  rigour.db is in both: the live one stays in use and the left-over one is kept, renamed, not merged row by row. Its old memory and lessons are not in the live database.'));

@@ -50,6 +50,8 @@ export interface StateMergeStep {
     action: 'move' | 'aside';
     from: string;
     to: string;
+    /** The entry, relative to the left-over directory and `/`-separated: how the plan reads, the same on every OS. */
+    rel: string;
 }
 
 /**
@@ -70,9 +72,10 @@ export function planStateMerge(date = new Date().toISOString().slice(0, 10)): { 
             if ((top && name === '.rigour') || /\.merged-\d{4}-\d{2}-\d{2}$/.test(name)) continue;
             const source = path.join(from, name);
             const target = path.join(into, name);
-            if (!fs.existsSync(target)) steps.push({ action: 'move', from: source, to: target });
+            const rel = path.relative(outer, source).split(path.sep).join('/');
+            if (!fs.existsSync(target)) steps.push({ action: 'move', from: source, to: target, rel });
             else if (isDirectory(source) && isDirectory(target)) walk(source, target, false);
-            else steps.push({ action: 'aside', from: source, to: `${source}.merged-${date}` });
+            else steps.push({ action: 'aside', from: source, to: `${source}.merged-${date}`, rel });
         }
     };
     walk(outer, live, true);

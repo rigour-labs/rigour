@@ -70,7 +70,7 @@ describe('rigour doctor --merge-state', () => {
 
         const plan = planStateMerge('2026-10-11')!;
         expect(plan.live).toBe(live);
-        expect(plan.steps.map(s => [s.action, path.relative(outer, s.from)])).toEqual([
+        expect(plan.steps.map(s => [s.action, s.rel])).toEqual([
             ['move', 'bin'], ['move', 'models'], ['move', 'repos'], ['aside', 'rigour.db'], ['aside', 'version-cache.json'],
         ]);
         expect(tree(outer).length).toBe(before); // planning changes nothing
@@ -94,7 +94,7 @@ describe('rigour doctor --merge-state', () => {
         write(path.join(live, 'repos/a/state.json'), 'live');
         process.env.RIGOUR_HOME = outer;
         const plan = planStateMerge('2026-10-11')!;
-        expect(plan.steps.map(s => [s.action, path.relative(outer, s.from)])).toEqual([['aside', 'repos/a/state.json'], ['move', 'repos/b']]);
+        expect(plan.steps.map(s => [s.action, s.rel])).toEqual([['aside', 'repos/a/state.json'], ['move', 'repos/b']]);
     });
 
     it('has nothing to do for a home in one directory', () => {
