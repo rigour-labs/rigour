@@ -443,6 +443,12 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   block about the tool itself ("About…", "How to…") is the tool's own help. `rigour learn-reviews` counts them: "N skipped: not a
   request", by why.
 
+**Where they are kept: in the checkout, not in Rigour's home.** Candidates and lessons are written to the checkout's
+`.rigour/review-lessons.json` (or `RIGOUR_REVIEW_LESSONS`), not to your Rigour home or profile home. A throwaway
+worktree or a fresh clone starts with none: run `rigour learn-reviews` where you will work, and decide on candidates
+there. Decisions you make in a checkout you then delete are lost unless a team database received them first
+(`rigour team sync`), or you committed the file.
+
 A candidate only review bots raised is never served, not even with `gates.deep.review_lessons: all`; it
 reaches agents once a person promotes it, or a person's point joins it and recurrence promotes it. Lessons an
 earlier version promoted on bots' points alone are back to candidates, each with a `reclassified` record
