@@ -9,6 +9,7 @@ import { writeAgentInstructions } from './init-handshake.js';
 import { isRigourMcpEntry, recordCreated } from './install-record.js';
 import { askTelemetryOnce } from './telemetry-consent.js';
 import { getCliVersion } from '../utils/cli-version.js';
+import { jsonText } from './json-file.js';
 
 // Helper to log events for Rigour Studio
 async function logStudioEvent(cwd: string, event: any) {
@@ -436,9 +437,10 @@ async function setupCursorMCP(
     await fs.ensureDir(path.dirname(mcpPath));
 
     let existing: any = {};
-    if (await fs.pathExists(mcpPath)) {
+    const before = await fs.pathExists(mcpPath) ? await fs.readFile(mcpPath, 'utf8') : undefined;
+    if (before !== undefined) {
         try {
-            existing = await fs.readJson(mcpPath);
+            existing = JSON.parse(before);
         } catch {
             console.log(chalk.yellow('  Kept .cursor/mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
             return;
@@ -451,7 +453,7 @@ async function setupCursorMCP(
     if (!existing.mcpServers) existing.mcpServers = {};
     existing.mcpServers.rigour = serverConfig;
 
-    await fs.writeJson(mcpPath, existing, { spaces: 4 });
+    await fs.writeFile(mcpPath, jsonText(existing, before));
     if (created) recordCreated(cwd, path.join('.cursor', 'mcp.json'), await fs.readFile(mcpPath, 'utf-8'));
     console.log(chalk.green('✔ Registered Rigour MCP server (.cursor/mcp.json)'));
 }
@@ -469,9 +471,10 @@ async function setupClaudeMCP(
     const mcpPath = path.join(cwd, '.mcp.json');
     const created = !(await fs.pathExists(mcpPath));
     let existing: any = {};
-    if (!created) {
+    const before = created ? undefined : await fs.readFile(mcpPath, 'utf8');
+    if (before !== undefined) {
         try {
-            existing = await fs.readJson(mcpPath);
+            existing = JSON.parse(before);
         } catch {
             console.log(chalk.yellow('  Kept .mcp.json: it is not valid JSON, so the Rigour MCP server was not added to it.'));
             return;
@@ -480,17 +483,18 @@ async function setupClaudeMCP(
     }
     if (!existing.mcpServers) existing.mcpServers = {};
     existing.mcpServers.rigour = serverConfig;
-    await fs.writeJson(mcpPath, existing, { spaces: 4 });
+    await fs.writeFile(mcpPath, jsonText(existing, before));
     if (created) recordCreated(cwd, '.mcp.json', await fs.readFile(mcpPath, 'utf-8'));
 
     // The old, unread location.
     const settingsPath = path.join(cwd, '.claude', 'settings.json');
     try {
-        const settings = await fs.readJson(settingsPath);
+        const text = await fs.readFile(settingsPath, 'utf8');
+        const settings = JSON.parse(text);
         if (settings?.mcpServers?.rigour) {
             delete settings.mcpServers.rigour;
             if (Object.keys(settings.mcpServers).length === 0) delete settings.mcpServers;
-            await fs.writeJson(settingsPath, settings, { spaces: 4 });
+            await fs.writeFile(settingsPath, jsonText(settings, text));
         }
     } catch {
         // no settings file, or not ours to repair

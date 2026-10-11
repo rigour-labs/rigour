@@ -30,7 +30,7 @@ This writes, for you to commit:
 | File | What it is |
 | --- | --- |
 | `rigour.yml` | The team's settings. Start with the defaults; see [Configuration](./CONFIGURATION.md). |
-| Each agent's project hooks | After every edit, before "done" and before a push, as each agent supports ([which agent gets which](./DEVELOPMENT.md#which-agent-gets-which-moment)). Written for the agents the repository shows signs of (a `.claude`, `.cursor`, `.windsurf` or `.clinerules` folder, a `.windsurfrules` file or a `CLAUDE.md`), Claude Code when there are none: `.claude/settings.json`, `.cursor/hooks.json`, `.windsurf/hooks.json`, `.clinerules/hooks/`. Merged into what is there; your other settings stay. |
+| Each agent's project hooks | After every edit, before "done" and before a push, as each agent supports ([which agent gets which](./DEVELOPMENT.md#which-agent-gets-which-moment)). Written for the agents the repository shows signs of (a `.claude`, `.cursor`, `.windsurf` or `.clinerules` folder, a `.windsurfrules` file or a `CLAUDE.md`), Claude Code when there are none: `.claude/settings.json`, `.cursor/hooks.json`, `.windsurf/hooks.json`, `.clinerules/hooks/`. Merged into what is there; your other settings stay, and so does the file's indentation (a file setup creates uses 2 spaces). |
 | `.mcp.json`, `.cursor/mcp.json` | Rigour's MCP server for Claude Code and Cursor, so agents can ask Rigour for review tasks, lessons and existing helpers. |
 | `.gitignore` lines | Keep Rigour's local state out of git, except the files a team shares (below). |
 

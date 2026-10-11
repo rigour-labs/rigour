@@ -16,6 +16,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { rigourUserDir } from '@rigour-labs/core';
+import { jsonText } from './json-file.js';
 import { isEmptyConfig, isRigourMcpEntry, namesRigourMcp, readInstallRecord, recordCreated, unchangedSinceInstall, withoutRigour } from './install-record.js';
 
 const MARKER = 'rigour-enabled';
@@ -142,7 +143,7 @@ export function asUserLevel<T extends { path: string; content: string }>(file: T
         if (!value || typeof value !== 'object') return value;
         return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, key === 'command' && typeof child === 'string' ? guardCommand(child) : guard(child)]));
     };
-    return { ...file, path: target, content: JSON.stringify(guard(JSON.parse(file.content)), null, 4) };
+    return { ...file, path: target, content: jsonText(guard(JSON.parse(file.content))) };
 }
 
 /** `taken`: a user-level server named rigour that is not Rigour's; Rigour's is not registered over it. */
@@ -173,9 +174,10 @@ export function registerUserMcp(server: { command: string; args: string[] }): { 
     const cursorFile = path.join(agentHome(), '.cursor', 'mcp.json');
     let config: any = {};
     const existed = fs.existsSync(cursorFile);
+    const before = existed ? fs.readFileSync(cursorFile, 'utf8') : undefined;
     if (existed) {
         try {
-            config = JSON.parse(fs.readFileSync(cursorFile, 'utf8'));
+            config = JSON.parse(before!);
         } catch {
             return { claude: state, cursor: 'absent' }; // not valid JSON: the person's to fix, not Rigour's to replace
         }
@@ -185,7 +187,7 @@ export function registerUserMcp(server: { command: string; args: string[] }): { 
     if (current && (JSON.stringify(current) === JSON.stringify(server) || !isRigourMcpEntry(current))) return { claude: state, cursor: 'present' };
     config.mcpServers = { ...(config.mcpServers ?? {}), rigour: server };
     fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
-    const content = JSON.stringify(config, null, 4) + '\n';
+    const content = jsonText(config, before);
     fs.writeFileSync(cursorFile, content);
     if (!existed) recordCreated(path.dirname(rigourUserDir()), path.relative(agentHome(), cursorFile), content);
     return { claude: state, cursor: current ? 'updated' : 'added' };
@@ -209,8 +211,9 @@ export function uninstallMachine(dryRun: boolean): string[] {
         const file = path.join(home, rel);
         if (!fs.existsSync(file)) continue;
         let parsed: unknown;
+        const text = fs.readFileSync(file, 'utf8');
         try {
-            parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+            parsed = JSON.parse(text);
         } catch {
             continue;
         }
@@ -218,7 +221,7 @@ export function uninstallMachine(dryRun: boolean): string[] {
         if (JSON.stringify(stripped) === JSON.stringify(parsed)) continue;
         const recordKey = rel.split(path.sep).join('/');
         if (isEmptyConfig(stripped) && recordKey in record.created) act(`delete ~/${recordKey}`, () => fs.unlinkSync(file));
-        else act(`remove Rigour entries from ~/${recordKey}`, () => fs.writeFileSync(file, JSON.stringify(stripped, null, 4) + '\n'));
+        else act(`remove Rigour entries from ~/${recordKey}`, () => fs.writeFileSync(file, jsonText(stripped, text)));
     }
     for (const rel of Object.values(USER_LEVEL_PATH).filter(p => !p.endsWith('.json'))) {
         const file = path.join(home, rel);

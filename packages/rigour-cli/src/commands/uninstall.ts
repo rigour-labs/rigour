@@ -20,6 +20,7 @@ import chalk from 'chalk';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { jsonText } from './json-file.js';
 import { APPENDED_COMMENT } from './hooks-git.js';
 import { disableHere, enabledHere, uninstallMachine } from './personal.js';
 import { setReportOnlyHere } from './report-only.js';
@@ -53,8 +54,9 @@ export function uninstall(cwd: string, options: UninstallOptions = {}): Uninstal
         const file = path.join(cwd, rel);
         if (!fs.existsSync(file)) continue;
         let parsed: unknown;
+        const text = fs.readFileSync(file, 'utf8');
         try {
-            parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+            parsed = JSON.parse(text);
         } catch {
             report.kept.push(`${rel}: not valid JSON, left alone`);
             continue;
@@ -62,7 +64,7 @@ export function uninstall(cwd: string, options: UninstallOptions = {}): Uninstal
         const stripped = withoutRigour(parsed);
         if (JSON.stringify(stripped) === JSON.stringify(parsed)) continue;
         if (isEmptyConfig(stripped) && rel in record.created) act(`delete ${rel}`, () => fs.unlinkSync(file));
-        else act(`remove Rigour entries from ${rel}`, () => fs.writeFileSync(file, JSON.stringify(stripped, null, 4) + '\n'));
+        else act(`remove Rigour entries from ${rel}`, () => fs.writeFileSync(file, jsonText(stripped, text)));
     }
 
     for (const [rel] of Object.entries(record.created)) {
