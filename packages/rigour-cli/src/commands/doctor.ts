@@ -161,7 +161,7 @@ export async function printRepoSetup(cwd: string): Promise<void> {
     // Settings an older Rigour wrote that no longer mean what they say: loud, since nothing else reports them.
     for (const migration of configMigrations(cwd)) {
         console.log(`  ${chalk.red('✘')} ${chalk.red(migration.problem)}`);
-        console.log(chalk.dim(`      fix: ${migration.automatic ? 'rigour setup' : 'edit rigour.yml'}`));
+        console.log(chalk.dim(`      fix: ${migration.automatic ? 'rigour setup --team' : 'edit rigour.yml'}`));
     }
     console.log('');
 }
