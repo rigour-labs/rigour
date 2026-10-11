@@ -47,6 +47,11 @@ describe('checkRepoSetup', () => {
         expect(await version()).toMatchObject({ state: 'broken', detail: 'hooks run through a shell wrapper PowerShell cannot run; installed is 6.13.0' });
     });
 
+    it("flags a stale pin in Cline's hook scripts too", async () => {
+        write('.clinerules/hooks/PostToolUse', '#!/usr/bin/env node\n// hook for Rigour\nrun("npx --yes @rigour-labs/cli@6.0.3 hooks check --files x");\n');
+        expect((await checkRepoSetup(cwd, now, [], '7.0.1')).find(c => c.id === 'version')).toMatchObject({ state: 'broken', detail: 'hooks run 6.0.3; installed is 7.0.1' });
+    });
+
     it('finds the PR workflow and reports what is missing', async () => {
         expect((await byId('pr')).state).toBe('missing');
         expect((await byId('config')).state).toBe('missing');

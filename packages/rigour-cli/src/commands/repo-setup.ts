@@ -39,6 +39,7 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
         { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') + home('.claude/settings.json') },
         { name: 'Cursor', config: read('.cursor/hooks.json') + home('.cursor/hooks.json') },
         { name: 'Windsurf', config: read('.windsurf/hooks.json') + home('.codeium/windsurf/hooks.json') },
+        { name: 'Cline', config: ['PostToolUse', 'PreToolUse'].map(hook => read(`.clinerules/hooks/${hook}`) + home(`Documents/Cline/Hooks/${hook}`)).join('') },
     ].filter(a => a.config);
     const mcpConfig = read('.mcp.json') + read('.cursor/mcp.json') + home('.claude.json') + home('.cursor/mcp.json');
     // The repository's own committed install: only `rigour setup --team` changes it (a plain setup leaves it as committed).

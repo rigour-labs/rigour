@@ -98,6 +98,8 @@ Cursor has no push hook from Rigour; git's `pre-push` hook covers it.
 
 Files: `.clinerules/hooks/PostToolUse` and `.clinerules/hooks/PreToolUse` (team), or
 `~/Documents/Cline/Hooks/PostToolUse` and `PreToolUse` (personal). Both are executable Node scripts.
+Setup moves Rigour's own scripts to the installed version, as it does every agent's hooks; a script
+of your own at either path is left alone.
 
 | Hook | What it does |
 | --- | --- |
@@ -338,11 +340,11 @@ not seen firing), broken, or missing, with the command that fixes it:
 - the after-edit hook for Claude Code, Cursor and Windsurf, in the project and, for a personal
   install, at user level. It names the old hook that passes a variable the agent never sets, so no
   edit is checked (fix: `rigour setup`, which rewrites Rigour's own entries in the project or, for a
-  personal install, at user level). Cline's hooks are not checked;
+  personal install, at user level). Cline's hooks are checked too;
 - the stop hook;
 - the MCP server, found in `.mcp.json`, `~/.claude.json` or `~/.cursor/mcp.json`, or seen through tool
   calls;
-- whether the agent hooks and the MCP server run the Rigour that is installed. Each pins a version, so an upgrade
+- whether the agent hooks (Claude Code's, Cursor's, Windsurf's and Cline's) and the MCP server run the Rigour that is installed. Each pins a version, so an upgrade
   reaches them only when `rigour setup` rewrites the pin; doctor names the pinned and the installed version (fix:
   `rigour setup`). An MCP entry on a floating major (`@rigour-labs/mcp@6`, written before 6.13.0) is called out too;
 - the pull request workflow;
