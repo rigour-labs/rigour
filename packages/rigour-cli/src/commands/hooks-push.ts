@@ -21,6 +21,7 @@ import {
     type Config, type Failure, type ReviewerResult,
 } from '@rigour-labs/core';
 import { loadHookConfig } from './hooks-stop.js';
+import { REPORT_ONLY_PREFIX, reportOnly } from './report-only.js';
 
 export interface PushGateResult {
     /** 0 lets the push run; 2 blocks it. */
@@ -67,9 +68,12 @@ export async function pushGate(dir: string): Promise<PushGateResult> {
     if (failures.lines.length === 0) return { exitCode: 0, message: await backgroundReviewNote(repo, branch.mainRef, config) };
     const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-push-')), 'gates.log');
     fs.writeFileSync(log, failures.log.join('\n\n'));
+    const against = `${path.basename(repo)} against ${branch.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '')} (full output: ${log})`;
+    // A team's first week: the push goes ahead, and the agent and the terminal are told what would have stopped it.
+    if (reportOnly(repo, config)) return { exitCode: 0, message: [`${REPORT_ONLY_PREFIX} the push would have been blocked: ${failures.lines.length} check(s) failed for ${against}:`, ...failures.lines].join('\n') };
     return {
         exitCode: 2,
-        message: [`Push blocked: ${failures.lines.length} check(s) failed for ${path.basename(repo)} against ${branch.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '')} (full output: ${log}). Fix each, then push again:`, ...failures.lines].join('\n'),
+        message: [`Push blocked: ${failures.lines.length} check(s) failed for ${against}. Fix each, then push again:`, ...failures.lines].join('\n'),
     };
 }
 

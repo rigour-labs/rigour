@@ -301,6 +301,19 @@ describe('hooksCheckCommand', () => {
         process.exitCode = originalExitCode;
     });
 
+    it('in report-only, says the edit would have been blocked and lets it through', async () => {
+        fs.writeFileSync(path.join(testDir, 'rigour.yml'), 'version: 1\nhooks:\n  report_only: true\n');
+        fs.writeFileSync(path.join(testDir, 'bad.ts'), "const password = 'abcdefghijklmnopqrstuvwxyz12345';\n");
+        vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const originalExitCode = process.exitCode;
+        process.exitCode = undefined;
+        await hooksCheckCommand(testDir, { files: 'bad.ts', block: true });
+        expect(process.exitCode).toBeUndefined();
+        expect(stderrSpy.mock.calls.map(call => String(call[0])).join('')).toContain('Rigour (report only; nothing was blocked');
+        process.exitCode = originalExitCode;
+    });
+
     it('records a block on the edit check only when the hook ran with --block', async () => {
         fs.writeFileSync(path.join(testDir, 'bad.ts'), "const password = 'abcdefghijklmnopqrstuvwxyz12345';\n");
         vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
