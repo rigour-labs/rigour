@@ -17,17 +17,17 @@ beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'secret-assignmen
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe('a secret in a plain assignment', () => {
-    it('is a note in code, JSON, YAML and a .env file, never a block, security.block included', async () => {
+    it('is a note in code, JSON, YAML and a .env file, and blocks with security.block like every other pattern', async () => {
         write('src/db.ts', `export const password = "${VALUE}";\n`);
         write('config/app.json', `{ "client_secret": "${VALUE}" }\n`);
         write('config/app.yml', `smtp:\n  api_key: '${VALUE}'\n`);
         write('.env', `DB_PASSWORD=${VALUE}\n`);
-        for (const config of [{}, { block: true }]) {
+        for (const [config, blocks] of [[{}, false], [{ block: true }, true]] as const) {
             const found = (await run(config)).filter(f => f.title === 'Security: SECRET ASSIGNMENT');
             expect(found.map(f => f.files?.[0]).sort()).toEqual(['.env', 'config/app.json', 'config/app.yml', 'src/db.ts']);
             for (const f of found) {
-                expect(f.certainty).toBe('likely');
-                expect(mustFix(f)).toBe(false);
+                expect(f.certainty).toBe(blocks ? 'proven' : 'likely');
+                expect(mustFix(f)).toBe(blocks);
                 expect(JSON.stringify(f)).not.toContain(VALUE); // the value is never repeated
             }
         }
