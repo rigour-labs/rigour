@@ -95,7 +95,8 @@ describe('rigour setup without --team never writes into the working tree', () =>
         expect(git('status', '--porcelain')).toBe('');
         expect(fs.readFileSync(path.join(repo, '.claude/settings.json'), 'utf8')).toContain('@6.13.0');
         for (const file of ['.claude/settings.json', '.cursor/hooks.json', '.windsurf/hooks.json']) expect(printed()).toContain(file);
-        expect(printed()).toContain('rigour setup --team');
+        expect(printed()).toContain('These hooks pin Rigour 6.13.0; they keep running that version until someone runs `rigour setup --team` and commits the result.');
+        expect(printed()).toContain('the only thing installed here');
         // The committed hooks run here; personal ones beside them would run every check twice.
         expect(fs.existsSync(path.join(home, '.claude/settings.json'))).toBe(false);
     });
@@ -115,5 +116,20 @@ describe('rigour setup without --team never writes into the working tree', () =>
         expect(printed()).toContain('Writes into these committed files (commit the result so everyone gets it): .claude/settings.json, .cursor/hooks.json, .windsurf/hooks.json, rigour.yml');
         expect(git('status', '--porcelain')).toContain('.claude/settings.json');
         expect(fs.readFileSync(path.join(repo, 'rigour.yml'), 'utf8')).toContain('block: true');
+    });
+});
+
+describe("rigour setup in a repository whose committed hooks pin an old Rigour", () => {
+    it('says the old edit hook checks nothing, and changes nothing', async () => {
+        const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+        fs.mkdirSync(path.join(repo, '.claude'));
+        fs.writeFileSync(path.join(repo, '.claude/settings.json'), JSON.stringify({ hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: 'npx --yes @rigour-labs/cli@6.10.1 hooks check --files "$TOOL_INPUT_file_path"' }] }] } }));
+        for (const [key, value] of [['user.email', 't@example.com'], ['user.name', 't'], ['commit.gpgsign', 'false']]) git('config', key, value);
+        git('add', '-A');
+        git('commit', '-qm', 'old pin');
+        await setupCommand(repo, { semantic: false });
+        expect(git('status', '--porcelain')).toBe('');
+        const printed = vi.mocked(console.log).mock.calls.map(call => String(call[0])).join('\n');
+        expect(printed).toContain('These hooks pin Rigour 6.10.1; they keep running that version (its edit hook checks nothing) until someone runs `rigour setup --team`');
     });
 });

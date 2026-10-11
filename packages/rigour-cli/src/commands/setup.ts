@@ -23,7 +23,8 @@ import { hooksInitCommand, installMachineHooks, pinnedCliCommand, projectHookPat
 import { initCommand, registerProjectMcp, resolveMCPServerConfig } from './init.js';
 import { writeAgentInstructions } from './init-handshake.js';
 import { disableHere, enableHere, registerUserMcp } from './personal.js';
-import { applyConfigMigrations } from './setup-migrations.js';
+import { applyConfigMigrations, isOldEditHook } from './setup-migrations.js';
+import { getCliVersion } from '../utils/cli-version.js';
 import { setupSemantic } from './semantic.js';
 
 const AGENT_NAME = { claude: 'Claude Code', cursor: 'Cursor', cline: 'Cline', windsurf: 'Windsurf' } as const;
@@ -93,13 +94,21 @@ async function teamSetup(cwd: string, options: SetupOptions): Promise<void> {
  */
 async function leaveTeamInstall(cwd: string, committed: string[], instructions: boolean): Promise<void> {
     disableHere(cwd, false);
+    const text = committed.map(file => fs.readFileSync(path.join(cwd, file), 'utf8')).join('\n');
+    const pins = [...new Set([...text.matchAll(/@rigour-labs\/cli@([0-9A-Za-z.-]+)/g)].map(m => m[1]))];
+    const installed = getCliVersion();
+    const stale = pins.filter(pin => pin !== installed);
     console.log(chalk.green('✔ This repository commits its own Rigour install, and your agents run it. Left as committed:'));
     for (const file of committed) console.log(chalk.dim(`    ${file}`));
-    console.log(chalk.dim('  To change it for everyone: rigour setup --team, then commit the result.'));
+    if (stale.length) {
+        // The committed pin is what the agents run: name it, and what it costs, since this setup does not move it.
+        const caveat = isOldEditHook(text) ? ' (its edit hook checks nothing)' : '';
+        console.log(chalk.yellow(`  These hooks pin Rigour ${pins.join(', ')}; they keep running that version${caveat} until someone runs \`rigour setup --team\` and commits the result. Installed here: ${installed}.`));
+    } else console.log(chalk.dim('  To change it for everyone: rigour setup --team, then commit the result.'));
     // This clone's own: git's pre-push hook lives in the git directory, never in the working tree.
     const push = installGitPushHook(cwd, pinnedCliCommand(), { workingTree: false });
     if (push.action === 'managed elsewhere') console.log(chalk.yellow(`Git pre-push hooks are managed outside this repository (${push.path}); add: ${pinnedCliCommand()} hooks push --git "$@" || exit $?`));
-    else if (push.action !== 'no repository') console.log(chalk.green(`✔ Push gate: git's pre-push hook (${push.action})`));
+    else if (push.action !== 'no repository') console.log(chalk.green(`✔ Push gate: git's pre-push hook (${push.action}); the only thing installed here`));
     // Asked for by name: written only where the repository has none, so no committed file changes.
     if (instructions) await writeAgentInstructions(cwd);
 }
