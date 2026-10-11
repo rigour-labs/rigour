@@ -16,6 +16,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { sshHostName } from './ssh-host.js';
 
 export interface RigourProfile {
     name: string;
@@ -59,12 +60,37 @@ export function writeProfiles(profiles: RigourProfile[]): void {
 
 /** The first profile whose match fits `cwd`, by path or by origin remote. */
 export function profileFor(cwd: string, profiles: RigourProfile[] = readProfiles()): RigourProfile | undefined {
+    return profileMatch(cwd, profiles)?.profile;
+}
+
+/**
+ * The profile for `cwd` and the pattern that chose it: the most specific matching pattern wins, whatever the order of
+ * the list, so a catch-all (`~/work`, `github.com/acme/*`) never takes a repository a narrower profile names. Specific
+ * is how close the pattern is to the repository: an exact remote, or the repository's own folder, is 0; each owner or
+ * folder level above it adds one; a folder inside the repository is closer still. On a tie, the earlier profile.
+ */
+export function profileMatch(cwd: string, profiles: RigourProfile[] = readProfiles()): { profile: RigourProfile; pattern: string } | undefined {
     if (profiles.length === 0) return undefined;
     const where = real(cwd);
-    const remote = originRemote(cwd);
-    return profiles.find(profile => profile.match.some(entry => isRemotePattern(entry)
-        ? !!remote && remoteMatches(remote, entry)
-        : isInside(where, real(expandHome(entry)))));
+    const remote = resolvedRemote(originRemote(cwd), profiles);
+    const top = depth(repositoryTop(cwd) ?? where);
+    let best: { profile: RigourProfile; pattern: string; distance: number } | undefined;
+    for (const profile of profiles) {
+        for (const entry of profile.match) {
+            let distance: number;
+            if (isRemotePattern(entry)) {
+                if (!remote || !remoteMatches(remote, entry)) continue;
+                const want = hostPath(entry);
+                distance = depth(remote) - depth(want.endsWith('/*') ? want.slice(0, -2) : want);
+            } else {
+                const target = real(expandHome(entry));
+                if (!isInside(where, target)) continue;
+                distance = top - depth(target);
+            }
+            if (!best || distance < best.distance) best = { profile, pattern: entry, distance };
+        }
+    }
+    return best && { profile: best.profile, pattern: best.pattern };
 }
 
 /**
@@ -127,6 +153,26 @@ export function hostPath(remote: string): string {
         .replace(/^([^/:]+):(?!\d)/, '$1/')
         .replace(/\/+$/, '')
         .replace(/\.git$/, '');
+}
+
+/**
+ * The origin as profiles compare it: a host no profile's remote pattern names may be an SSH alias
+ * (`git@work-github:acme/api`), compared as the host it names in the ssh config (ssh-host.ts).
+ */
+function resolvedRemote(remote: string | undefined, profiles: RigourProfile[]): string | undefined {
+    if (!remote) return undefined;
+    const [host, ...rest] = remote.split('/');
+    const named = new Set(profiles.flatMap(profile => profile.match.filter(isRemotePattern).map(entry => hostPath(entry).split('/')[0])));
+    return named.has(host) ? remote : [sshHostName(host) ?? host, ...rest].join('/');
+}
+
+function depth(location: string): number {
+    return location.split(/[\\/]+/).filter(Boolean).length;
+}
+
+function repositoryTop(cwd: string): string | undefined {
+    const result = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
+    return result.status === 0 ? real(result.stdout.trim()) : undefined;
 }
 
 function originRemote(cwd: string): string | undefined {
