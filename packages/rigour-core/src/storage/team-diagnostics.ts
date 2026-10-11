@@ -64,3 +64,23 @@ export async function diagnoseMissingMembership(pool: QueryablePool): Promise<st
     return 'This database role has no membership for the configured organization, team and actor. '
         + 'Ask the administrator to add it (see docs/TEAM_DATABASE.md).';
 }
+
+/**
+ * The grants a login needs for review decisions, missing ones only, as the GRANT the administrator runs; undefined when
+ * none is missing. Everyone reads rigour.organization_salts and rigour.review_decisions; only an sme or owner sends.
+ */
+export async function missingReviewDecisionGrants(pool: QueryablePool, databaseRole: string, role: string): Promise<string | undefined> {
+    const { rows } = await pool.query(
+        `SELECT has_table_privilege('rigour.organization_salts', 'SELECT') AS salts_select,
+                has_table_privilege('rigour.review_decisions', 'SELECT') AS decisions_select,
+                has_table_privilege('rigour.review_decisions', 'INSERT') AS decisions_insert`,
+    );
+    const granted = rows[0] ?? {};
+    const login = `"${databaseRole.replace(/"/g, '""')}"`;
+    const grants = [
+        ...(granted.salts_select ? [] : [`GRANT SELECT ON rigour.organization_salts TO ${login};`]),
+        ...(granted.decisions_select && (granted.decisions_insert || (role !== 'sme' && role !== 'owner')) ? []
+            : [`GRANT ${role === 'sme' || role === 'owner' ? 'SELECT, INSERT' : 'SELECT'} ON rigour.review_decisions TO ${login};`]),
+    ];
+    return grants.length ? `missing grant for review decisions: ask the administrator to run: ${grants.join(' ')}` : undefined;
+}

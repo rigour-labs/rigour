@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diagnoseMissingMembership, explainTeamConnectionError, type QueryablePool } from './team-diagnostics.js';
+import { diagnoseMissingMembership, explainTeamConnectionError, missingReviewDecisionGrants, type QueryablePool } from './team-diagnostics.js';
 import { TEAM_SCHEMA } from './team-schema.js';
 
 function pool(rows: Array<Record<string, unknown>> | Error): QueryablePool {
@@ -84,5 +84,27 @@ describe('team schema', () => {
         expect(TEAM_SCHEMA).toContain('ALTER TABLE rigour.review_decisions DROP CONSTRAINT IF EXISTS review_decisions_kind_check;');
         expect(TEAM_SCHEMA).toContain("'not-a-rule', 'took-back'))");
         expect(TEAM_SCHEMA).toContain("VALUES ('review_decision_kinds_version', '2')");
+    });
+});
+
+describe('missingReviewDecisionGrants', () => {
+    const grants = (salts: boolean, select: boolean, insert: boolean) => pool([{ salts_select: salts, decisions_select: select, decisions_insert: insert }]);
+
+    it('names each missing grant as the GRANT the administrator runs', async () => {
+        expect(await missingReviewDecisionGrants(grants(false, false, false), 'rigour_jane', 'sme')).toBe(
+            'missing grant for review decisions: ask the administrator to run: GRANT SELECT ON rigour.organization_salts TO "rigour_jane"; GRANT SELECT, INSERT ON rigour.review_decisions TO "rigour_jane";');
+        expect(await missingReviewDecisionGrants(grants(false, true, true), 'rigour_jane', 'owner')).toBe(
+            'missing grant for review decisions: ask the administrator to run: GRANT SELECT ON rigour.organization_salts TO "rigour_jane";');
+    });
+
+    it('asks a member only to read: a member never sends', async () => {
+        expect(await missingReviewDecisionGrants(grants(true, true, false), 'rigour_sam', 'member')).toBeUndefined();
+        expect(await missingReviewDecisionGrants(grants(true, false, false), 'rigour_sam', 'member')).toContain('GRANT SELECT ON rigour.review_decisions TO "rigour_sam";');
+        expect(await missingReviewDecisionGrants(grants(true, true, false), 'rigour_jane', 'sme')).toContain('GRANT SELECT, INSERT ON rigour.review_decisions');
+    });
+
+    it('is quiet when every grant is there, and quotes an odd login name', async () => {
+        expect(await missingReviewDecisionGrants(grants(true, true, true), 'rigour_jane', 'sme')).toBeUndefined();
+        expect(await missingReviewDecisionGrants(grants(false, true, true), 'we"ird', 'sme')).toContain('TO "we""ird";');
     });
 });
