@@ -39,3 +39,17 @@ describe('rigour profile add --home', () => {
         expect(readProfiles()[0].home).toBe(path.join(root, 'beta'));
     });
 });
+
+describe('rigour profile add with a name already there', () => {
+    it("replaces it where it is, says so, and the most specific profile still wins for its repository", async () => {
+        const { profileMatch } = await import('@rigour-labs/core/profile');
+        const repo = path.join(root, 'work', 'acme', 'api');
+        fs.mkdirSync(repo, { recursive: true });
+        profileAddCommand('acme', { match: repo });
+        profileAddCommand('catch-all', { match: path.join(root, 'work') });
+        profileAddCommand('acme', { match: repo, organization: 'acme', team: 'web', actor: 'dev' }); // re-added, after the catch-all
+        expect(readProfiles().map(p => p.name)).toEqual(['acme', 'catch-all']);
+        expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).join('\n')).toContain('Profile acme replaced');
+        expect(profileMatch(repo)?.profile.name).toBe('acme');
+    });
+});
