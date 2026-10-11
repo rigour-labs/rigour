@@ -35,7 +35,7 @@ function history(strategy: 'merge' | 'squash'): { mergeSha: string; mergedAt: st
     const copy = path.join(fixtures, strategy);
     const done = built.get(strategy);
     if (done) {
-        fs.rmSync(repo, { recursive: true, force: true });
+        fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         fs.cpSync(copy, repo, { recursive: true, filter: notTransient });
         return done;
     }
@@ -89,12 +89,12 @@ beforeAll(() => {
     git(['config', 'gc.auto', '0']);
     git(['config', 'maintenance.auto', 'false']);
 });
-afterAll(() => { fs.rmSync(fixtures, { recursive: true, force: true }); });
+afterAll(() => { fs.rmSync(fixtures, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'outcomes-'));
     fs.cpSync(path.join(fixtures, 'empty'), repo, { recursive: true, filter: notTransient });
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('the outcome of a merged pull request', () => {
     for (const strategy of ['merge', 'squash'] as const) {

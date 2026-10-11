@@ -23,7 +23,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'base');
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe('a file the change took over the size limit', () => {
     it('is a finding only for a crossing or a new long file: a note by default, proven when the team opts in', () => {

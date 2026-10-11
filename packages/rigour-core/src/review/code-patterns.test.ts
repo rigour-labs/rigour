@@ -33,7 +33,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'init');
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('checks learned from review history', () => {
     it('show their findings as notes by default, and block only when the team opts in', async () => {

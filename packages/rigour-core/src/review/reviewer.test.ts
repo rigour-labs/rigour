@@ -106,7 +106,7 @@ beforeAll(() => {
     git('add', '-A');
     git('commit', '-qm', 'job');
 });
-afterAll(() => { fs.rmSync(fixture, { recursive: true, force: true }); });
+afterAll(() => { fs.rmSync(fixture, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 beforeEach(() => {
     bins = [fs.mkdtempSync(path.join(os.tmpdir(), 'bin-a-')), fs.mkdtempSync(path.join(os.tmpdir(), 'bin-b-'))];
     for (const name of ['claude', 'cursor-agent']) installFake(bins[0], name);
@@ -116,7 +116,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     process.env.PATH = originalPath;
-    for (const dir of [repo, ...bins]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [repo, ...bins]) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('the reviewer', () => {

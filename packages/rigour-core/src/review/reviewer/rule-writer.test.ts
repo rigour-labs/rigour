@@ -20,7 +20,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     process.env.PATH = originalPath;
-    for (const dir of [repo, bin]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [repo, bin]) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 /** Answers git for real, the fake claude with a priced reply, and any other copy of claude as not installed. */

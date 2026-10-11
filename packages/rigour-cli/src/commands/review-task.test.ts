@@ -26,7 +26,7 @@ beforeEach(() => {
 afterEach(() => {
     vi.restoreAllMocks();
     process.exitCode = undefined;
-    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('review-task, review-ack, review-export', () => {

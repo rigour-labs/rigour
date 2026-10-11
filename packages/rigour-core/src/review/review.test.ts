@@ -79,7 +79,7 @@ describe('changedFunctionSpans', () => {
             expect(anchorInChangedFunction(6, new Set([4]), spans['a.ts'])).toBe(4);
             expect(anchorInChangedFunction(1, new Set([4]), spans['a.ts'])).toBeUndefined();
         } finally {
-            fs.rmSync(dir, { recursive: true, force: true });
+            fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
@@ -99,7 +99,7 @@ describe('git-backed review', () => {
         git('config', 'user.name', 't');
         git('config', 'commit.gpgsign', 'false');
     });
-    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
     it('reviews a violation the change added further down a file that already had one: a per-file finding is anchored on the changed line', async () => {
         write('src/buf.ts', 'export const a = new Buffer(1);\n\nexport const keep = 1;\n');

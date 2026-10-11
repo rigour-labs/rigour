@@ -48,7 +48,7 @@ beforeEach(() => {
     git('commit', '-q', '-m', 'base');
     write(AFTER);
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('review task and acknowledgements', () => {
     it('asks about the risky changed function only, with questions from its signals', () => {

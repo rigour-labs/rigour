@@ -20,7 +20,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'init');
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('what a review checked', () => {
     it('names the commits compared, whether uncommitted work was in it, the settings and every check', () => {

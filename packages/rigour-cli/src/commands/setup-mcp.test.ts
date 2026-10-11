@@ -29,7 +29,7 @@ beforeEach(() => {
 afterEach(() => {
     process.env = { ...saved };
     vi.restoreAllMocks();
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('rigour setup registers the MCP server', () => {

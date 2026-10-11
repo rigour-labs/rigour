@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { applyProfile, hostPath, profileFor, profileMismatch, type RigourProfile } from './profile.js';
+import { applyProfile, hostPath, profileFor, profileMatch, profileMismatch, type RigourProfile } from './profile.js';
 
 let root: string;
 const saved = { ...process.env };
@@ -16,10 +16,10 @@ const repo = (rel: string, remote?: string) => {
 };
 
 beforeEach(() => { root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'profiles-'))); });
-afterEach(() => { process.env = { ...saved }; fs.rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { process.env = { ...saved }; fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('profiles', () => {
-    it('matches a repository by path prefix or by origin remote, first match winning', () => {
+    it('matches a repository by path prefix or by origin remote', () => {
         const byPath = repo('work/acme/api');
         const byRemote = repo('elsewhere/web', 'git@github.com:Acme/web.git');
         const other = repo('personal/tool', 'https://github.com/me/tool');
@@ -70,5 +70,29 @@ describe('profiles', () => {
         process.env.RIGOUR_PROFILE = 'acme';
         expect(profileMismatch(acme, profiles)).toBeNull();
         expect(profileMismatch(mine, profiles)).toContain('started as "acme"');
+    });
+});
+
+describe('the most specific profile wins', () => {
+    it('over a catch-all listed before it, by path and by remote, and names the winning pattern', () => {
+        const api = repo('work/acme/api', 'git@github.com:acme/api.git');
+        const web = repo('work/acme/web', 'git@github.com:acme/web.git');
+        const profiles: RigourProfile[] = [
+            { name: 'catch-all', match: [path.join(root, 'work'), 'github.com/acme/*'] },
+            { name: 'api', match: ['github.com/acme/api'] },
+            { name: 'web-path', match: [path.join(root, 'work/acme/web')] },
+        ];
+        expect(profileMatch(api, profiles)).toMatchObject({ profile: { name: 'api' }, pattern: 'github.com/acme/api' });
+        expect(profileMatch(web, profiles)).toMatchObject({ profile: { name: 'web-path' }, pattern: path.join(root, 'work/acme/web') });
+        expect(profileMatch(repo('work/other'), profiles)).toMatchObject({ profile: { name: 'catch-all' }, pattern: path.join(root, 'work') });
+    });
+
+    it('matches an origin on an SSH host alias as the host the alias names', () => {
+        const config = path.join(root, 'ssh_config');
+        fs.writeFileSync(config, 'Host work-forge\n    HostName forge.example.com\n');
+        process.env.RIGOUR_SSH_CONFIG = config;
+        const aliased = repo('elsewhere/api', 'git@work-forge:acme/api.git');
+        const profiles: RigourProfile[] = [{ name: 'acme', match: ['forge.example.com/acme/*'] }];
+        expect(profileMatch(aliased, profiles)).toMatchObject({ profile: { name: 'acme' }, pattern: 'forge.example.com/acme/*' });
     });
 });

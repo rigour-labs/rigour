@@ -16,7 +16,7 @@ beforeEach(() => {
     execFileSync('git', ['init', '-q'], { cwd: repo });
     execFileSync('git', ['add', '-A'], { cwd: repo });
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe('ReviewToolbox', () => {
     it('reads numbered lines, caps a call at 200 lines, and records what was read', () => {

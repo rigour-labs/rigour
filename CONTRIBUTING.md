@@ -65,6 +65,7 @@ A push that changes it runs [Embedding parity](.github/workflows/embedding-parit
 this repository with the version on `main` and with the new one, on Linux and macOS, and prints each install's size.
 When the lowest cosine is at least 0.99, the index version stays. Below that, raise `EMBEDDING_TEXT_VERSION` in
 `embeddings.ts` so every index is rebuilt on first use, and say so in the release note.
+- A test that makes a git repository removes it with `fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })`. Each package's `vitest.setup.ts` turns off git's automatic garbage collection and maintenance (`gc.auto=0`, `maintenance.auto=false`) for every git a test runs, so no git is still writing when the test cleans up.
 
 ## Pull requests and releases
 

@@ -90,7 +90,7 @@ describe('a review lesson evidence took back', () => {
             expect(() => decideReviewLesson(repo, { id: 'a1b2c3d4e5f6', decision: 'reworded' })).toThrow('with a suggested wording');
             expect(() => decideReviewLesson(repo, { id: 'ffffffffffff', decision: 'accepted' })).toThrow('no review lesson');
         } finally {
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
@@ -124,7 +124,7 @@ describe('a candidate a later fix changed the lines of', () => {
             expect(decideReviewLesson(repo, { id: 'b1b2c3d4e5f6', decision: 'dismissed' })).toEqual({ id: 'b1b2c3d4e5f6', state: 'candidate' });
             expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'dismissed', author: 'lead@team.example' });
         } finally {
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
@@ -160,7 +160,7 @@ describe('a lesson back to a candidate when outcomes stopped promoting', () => {
             const withLines = buildLearning({ now, lessons: [], reviewLessons: [{ id: 'q2', text: 'Add types.', file: 'src/x.ts', symbols: [], state: 'candidate', createdAt: '', updatedAt: '', evidence: [bot(4, 'rabbit[bot]'), { kind: 'lines', pr: 9, comment: 'lines-9-abc', author: '', detail: 'fixed later by abc' }] }], stories: [], events: [] }).lessons[0];
             expect(withLines.fromBots).toBe(true);
         } finally {
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 
@@ -179,7 +179,7 @@ describe('a lesson back to a candidate when outcomes stopped promoting', () => {
             expect(() => decideCompiledCheckFromStudio(repo, { id: 'c-L1', state: 'withdrawn' })).toThrow('no git email');
             expect(readCompiledChecks(repo)[0].state).toBe('active');
         } finally {
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
@@ -204,7 +204,7 @@ describe('a corrected wording for a lesson a person decided', () => {
             expect(readLessons(repo)[0]).toMatchObject({ text: 'This reads every row. Filter in the query.' });
             expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'reworded', author: 'lead@team.example', detail: 'parser fix; was: This reads every row.' });
         } finally {
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
@@ -236,7 +236,7 @@ describe('how far a review lesson reaches, from Studio', () => {
             expect(() => decideReviewLesson(repo, { id: 'd1b2c3d4e5f6', decision: 'scope', to: 'file' })).toThrow('no git email is set');
             expect(readLessons(repo)[0].scope).toBe('repo'); // refused: nothing changed
         } finally {
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
@@ -269,7 +269,7 @@ describe('a decision made in Studio is one the team sync sends', () => {
                 ['e1b2c3d4e5f6', 'accepted'], ['e2b2c3d4e5f6', 'rejected'], ['e2b2c3d4e5f6', 'scoped'], ['e3b2c3d4e5f6', 'reworded'],
             ]);
         } finally {
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
@@ -302,8 +302,8 @@ describe('teammates\' decisions, from Studio\'s data', () => {
             });
         } finally {
             if (saved === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = saved;
-            fs.rmSync(repo, { recursive: true, force: true });
-            fs.rmSync(home, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+            fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
@@ -332,7 +332,7 @@ describe('a fresh review candidate, from Studio\'s data', () => {
             expect(decideReviewLesson(repo, { id: 'c1b2c3d4e5f6', decision: 'accepted' })).toEqual({ id: 'c1b2c3d4e5f6', state: 'verified' });
             expect(readLessons(repo)[0].evidence.at(-1)).toMatchObject({ kind: 'accepted', author: 'lead@team.example', detail: 'decided in Studio' });
         } finally {
-            fs.rmSync(repo, { recursive: true, force: true });
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });

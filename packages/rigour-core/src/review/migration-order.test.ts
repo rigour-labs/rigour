@@ -26,7 +26,7 @@ beforeEach(() => {
     write(`${DIR}/20260101000000_init.sql`);
     commit('init');
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe('migrationOrderFailures', () => {
     it('flags a branch migration dated before one main merged since', () => {

@@ -28,7 +28,7 @@ beforeEach(() => {
     git('config', 'commit.gpgsign', 'false');
     fs.mkdirSync(path.join(repo, 'src'));
 });
-afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 const comment = (id: string, sha: string, start: number, body: string, prNumber = 7) => ({ id, prNumber, path: 'src/orders.ts', start, end: start, commit: sha, body, author: 'reviewer' });
 
@@ -108,7 +108,7 @@ describe('lessons', () => {
             expect([reread[0].text, reread[0].suggestedText]).toEqual(['This reads every row. Filter in the query.', undefined]); // nothing left to suggest
             expect(acceptSuggestedText(dir, stored[0].id, 'p@example.com')).toBeUndefined();
         } finally {
-            fs.rmSync(dir, { recursive: true, force: true });
+            fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 

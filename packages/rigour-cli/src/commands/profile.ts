@@ -3,7 +3,7 @@
  */
 import chalk from 'chalk';
 import path from 'path';
-import { expandHome, profileFor, profilesPath, readProfiles, writeProfiles, type RigourProfile } from '@rigour-labs/core/profile';
+import { expandHome, profileMatch, profilesPath, readProfiles, writeProfiles, type RigourProfile } from '@rigour-labs/core/profile';
 import { homeFor, rigourUserDir } from '@rigour-labs/core';
 
 export function profileListCommand(): void {
@@ -17,8 +17,8 @@ export function profileListCommand(): void {
 
 /** Which profile applies here, and the home Rigour uses (this process applied it at start). */
 export function profileWhichCommand(cwd: string): void {
-    const profile = profileFor(cwd);
-    console.log(profile ? `${chalk.bold(profile.name)} (matched ${cwd})` : chalk.dim('No profile matches here: Rigour uses its default home.'));
+    const match = profileMatch(cwd);
+    console.log(match ? `${chalk.bold(match.profile.name)} (matched ${match.pattern}, the most specific pattern for ${cwd})` : chalk.dim('No profile matches here: Rigour uses its default home.'));
     console.log(chalk.dim(`  home: ${rigourUserDir()}`));
 }
 
@@ -61,7 +61,12 @@ export function profileAddCommand(name: string, options: ProfileAddOptions): voi
         ...(options.githubAccount ? { githubAccount: options.githubAccount } : {}),
     };
     if (profile.match.length === 0) throw new Error('--match needs at least one path or remote (github.com/acme/*).');
-    writeProfiles([...readProfiles().filter(p => p.name !== name), profile]);
-    console.log(chalk.green(`Profile ${name} saved to ${profilesPath()}.`));
+    // Re-adding a profile replaces it where it is: its place in the list is kept.
+    const profiles = readProfiles();
+    const at = profiles.findIndex(p => p.name === name);
+    if (at >= 0) profiles[at] = profile;
+    else profiles.push(profile);
+    writeProfiles(profiles);
+    console.log(chalk.green(`Profile ${name} ${at >= 0 ? 'replaced' : 'added'} in ${profilesPath()}.`));
     if (profile.home) console.log(chalk.dim(`  Its state: ${path.join(homeFor(path.resolve(expandHome(profile.home))), '.rigour')}`));
 }

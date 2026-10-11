@@ -9,7 +9,7 @@ import { runDiffTests } from './run.js';
 // The workspace root's node_modules, where the vitest binary is installed.
 const WORKSPACE_MODULES = path.resolve(__dirname, '../../../../../node_modules');
 let repo: string | undefined;
-afterEach(() => { if (repo) fs.rmSync(repo, { recursive: true, force: true }); repo = undefined; });
+afterEach(() => { if (repo) fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); repo = undefined; });
 
 const BEFORE = "export function encodePath(p: string): string {\n  return p.replace(/ /g, '%20').replace(/#/g, '%23');\n}\n";
 const AFTER = "export function encodePath(p: string): string {\n  return p.replace(/#/g, '%23');\n}\n";

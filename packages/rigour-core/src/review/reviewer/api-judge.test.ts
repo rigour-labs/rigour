@@ -17,7 +17,7 @@ beforeEach(() => {
     execFileSync('git', ['-C', repo, '-c', 'user.email=t@x', '-c', 'user.name=t', 'commit', '-qm', 'init']);
     fs.writeFileSync(path.join(work, 'full.diff'), '+++ b/src/job.ts\n');
 });
-afterEach(() => { for (const d of [repo, work]) fs.rmSync(d, { recursive: true, force: true }); });
+afterEach(() => { for (const d of [repo, work]) fs.rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 /** A model that plays a scripted conversation: each entry is what it answers to the next request. */
 function model(turns: Array<{ tools?: Array<{ name: string; args: object }>; text?: string; usage?: object; status?: number }>) {

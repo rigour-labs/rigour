@@ -85,7 +85,7 @@ describe('rigour backtest --last', () => {
         fs.writeFileSync(path.join(repo, 'b.ts'), 'export const b = 1;\n');
         reviewed = commit('the branch', '2026-04-12T09:30:00Z');
     });
-    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+    afterEach(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
     it('builds the ledger from the last merged pull requests, the approved head included, runs it and leads with the two numbers', async () => {
         const calls: string[][] = [];

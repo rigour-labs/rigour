@@ -14,7 +14,7 @@ beforeEach(() => {
     execFileSync('git', ['-C', repo, 'init', '-q', '-b', 'main']);
     fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 1;\n');
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe("the deep review's cloud model and the spending caps", () => {
     it('does not start past a daily cap, says which, and is skipped rather than failed', async () => {

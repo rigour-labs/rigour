@@ -20,7 +20,7 @@ beforeEach(() => {
     git('add', '-A');
     git('commit', '-qm', 'init');
 });
-afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 describe('human arbitration', () => {
     it('accepts only a decision signed with the issued token, once', async () => {
@@ -66,7 +66,7 @@ describe('CI admission', () => {
             await createAttestation(noRepo, { transaction: tx(), gateResults: pass });
             expect(await admitForCi(noRepo)).toMatchObject({ admit: false, reason: 'Attestation is bound to no commit or tree' });
         } finally {
-            fs.rmSync(noRepo, { recursive: true, force: true });
+            fs.rmSync(noRepo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         }
     });
 });
