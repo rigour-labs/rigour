@@ -14,7 +14,7 @@ export function isOldEditHook(config: string): boolean {
 }
 
 export interface ConfigMigration {
-    id: 'preset-security-block' | 'security-deprecated-default';
+    id: 'preset-security-block';
     /** What is wrong, in a sentence a person acts on. */
     problem: string;
     /** True when `rigour setup` changes the file; false when only a person can decide. */
@@ -45,14 +45,17 @@ export function configMigrations(cwd: string): ConfigMigration[] {
             automatic: true,
         });
     }
-    if (doc.getIn(['gates', 'deprecated_apis', 'block_security_deprecated']) === true) {
-        found.push({
-            id: 'security-deprecated-default',
-            problem: 'rigour.yml sets gates.deprecated_apis.block_security_deprecated: true, which older rigour init wrote for everyone: an API deprecated for security reasons (md5 for a cache key, shell=True with a constant) blocks here. Keep it if your team chose it; otherwise delete the line',
-            automatic: false,
-        });
-    }
     return found;
+}
+
+/**
+ * Block opt-ins a team committed to rigour.yml. Older `rigour init` wrote block_security_deprecated for everyone, but
+ * the file cannot say whether a team kept it on purpose, so it is reported as the team's choice, never as a failure.
+ */
+export function blockOptIns(cwd: string): string[] {
+    const doc = readConfig(cwd);
+    if (doc?.getIn(['gates', 'deprecated_apis', 'block_security_deprecated']) !== true) return [];
+    return ['deprecated_apis: blocks proven deprecated security APIs (set in rigour.yml; remove the line to make it a note)'];
 }
 
 /** Applies the automatic migrations to rigour.yml, keeping its comments and order; returns what it changed. */

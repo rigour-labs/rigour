@@ -4,7 +4,7 @@ import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { applyStateMerge, cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, legacyStateNote, planStateMerge, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
-import { configMigrations } from './setup-migrations.js';
+import { blockOptIns, configMigrations } from './setup-migrations.js';
 import { pushGateLine, pushHookTarget, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 import { pinnedCliCommand } from './hooks.js';
 import { semanticStatusLine } from './semantic.js';
@@ -165,6 +165,8 @@ export async function printRepoSetup(cwd: string): Promise<void> {
         console.log(`  ${chalk.red('✘')} ${chalk.red(migration.problem)}`);
         console.log(chalk.dim(`      fix: ${migration.automatic ? 'rigour setup --team' : 'edit rigour.yml'}`));
     }
+    // A team's committed choice: information, never a failure.
+    for (const optIn of blockOptIns(cwd)) console.log(`  ${chalk.yellow('○')} ${chalk.dim(optIn)}`);
     console.log('');
 }
 
