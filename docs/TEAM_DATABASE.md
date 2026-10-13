@@ -4,6 +4,42 @@ Rigour keeps what your agents learn in a local SQLite store on each machine. A t
 
 This page covers what is shared, how a lesson gets approved, how to set the database up, how to check it works and how to stop.
 
+## Join an existing team
+
+Your team already shares lessons and you are new to it. Nobody can add themselves: a login and a membership are what
+let the database check who you are, so the first step is always your team's Rigour administrator.
+
+1. **Ask the administrator for three things**, sent privately (a password manager or your team's secret store, never
+   chat or the repository):
+   - your own connection URL, with a login made for you;
+   - your three ids: organization, team and actor;
+   - the team's repositories, for example `github.com/acme/*`.
+
+   The administrator creates your login and membership as in
+   [step 2](#2-create-a-login-and-a-membership-for-each-person), then runs `rigour team init-schema` once, which grants
+   your new login the tables.
+2. **Install Rigour**: `npm install -g @rigour-labs/cli`.
+3. **Connect this machine**, once:
+
+   ```bash
+   rigour team configure \
+     --database-url '<your URL>' \
+     --organization <id> --team <id> --actor <id> \
+     --repositories 'github.com/acme/*'
+   ```
+
+   If you also work for another company on this machine, use a [profile](./PROFILES.md) instead, with the same values
+   and `--database-url-command` reading the URL from your keychain, so each company's team stays apart.
+4. **In each clone of the team's repositories**:
+   - `rigour setup`: plain, not `--team`. The team's configuration is already committed, so it changes no tracked file.
+   - `rigour team doctor`: expect `connectivity: online`, your role under `permissions`, and `reviewDecisions: ready`.
+     Each other message is explained in [When something fails](#when-something-fails).
+   - `rigour team sync`: brings in the lessons and decisions the team already shares.
+
+Your brief may be empty at first. It carries the lessons a person on the team has approved, and fills as they do. If
+your role is `member`, your own decisions on review lessons show as `held` in a sync: only an `sme` or `owner` sends
+decisions for the team.
+
 ## What you get
 
 - **Shared conventions.** When an agent saves a memory with scope `team` (through the `rigour_remember` MCP tool), it becomes a team candidate. Once a person approves it in Studio, every teammate's agent receives it.

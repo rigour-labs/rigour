@@ -137,6 +137,8 @@ Rigour is free. With an agent you need nothing else: the checks run locally, and
 
 **Shared knowledge.** Point Rigour at a PostgreSQL database and lessons one person's agent learns can be shared with the whole team, after someone approves them. Only lessons from the team's own repositories are ever sent. See [Team database](docs/TEAM_DATABASE.md).
 
+**Joining a team that already shares lessons?** Ask your team's Rigour administrator for your own login first: by design, nobody can add themselves. Then it is one command per machine and three per clone. See [Join an existing team](docs/TEAM_DATABASE.md#join-an-existing-team).
+
 **Working for more than one company?** Profiles keep each one's memory, lessons and team apart, chosen by the repository you're in. See [Profiles](docs/PROFILES.md).
 
 ## Learn more
@@ -144,7 +146,7 @@ Rigour is free. With an agent you need nothing else: the checks run locally, and
 | If you want to… | Read |
 | --- | --- |
 | Install and run Rigour step by step | [Get started](docs/QUICK_START.md) |
-| See what changed in this release, and how to upgrade | [Release notes](docs/releases/6.13.0.md) |
+| See what changed in this release, and how to upgrade | [Release notes](docs/releases/7.0.2.md) |
 | Know what to do with a finding while you work | [During development](docs/DEVELOPMENT.md) |
 | Set it up for a whole team | [Team setup](docs/TEAM_SETUP.md) |
 | Review every pull request in CI | [Pull requests and CI](docs/CI.md) |
