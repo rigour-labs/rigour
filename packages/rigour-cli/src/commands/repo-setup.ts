@@ -12,6 +12,7 @@ import { namesRigourMcp } from './install-record.js';
 import { isOldEditHook } from './setup-migrations.js';
 import { getCliVersion } from '../utils/cli-version.js';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
+import { liveWindsurfHooks, rigourHooksIgnored, WINDSURF_HOOKS } from './windsurf-hooks.js';
 
 export type SetupState = 'working' | 'set up' | 'broken' | 'missing';
 
@@ -35,10 +36,12 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
     // A personal install keeps its hooks and MCP server at user level, switched on per repository (personal.ts).
     const personal = enabledHere(cwd);
     const home = personal ? readFrom(agentHome()) : () => '';
+    // Devin Desktop (formerly Windsurf) reads one project file: the agent's config is that one, named in the check.
+    const windsurfFile = liveWindsurfHooks(read);
     const agents = [
         { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') + home('.claude/settings.json') },
         { name: 'Cursor', config: read('.cursor/hooks.json') + home('.cursor/hooks.json') },
-        { name: 'Windsurf', config: read('.windsurf/hooks.json') + home('.codeium/windsurf/hooks.json') },
+        { name: `Windsurf (${windsurfFile})`, config: read(windsurfFile) + home('.codeium/windsurf/hooks.json') },
         { name: 'Cline', config: ['PostToolUse', 'PreToolUse'].map(hook => read(`.clinerules/hooks/${hook}`) + home(`Documents/Cline/Hooks/${hook}`)).join('') },
     ].filter(a => a.config);
     const mcpConfig = read('.mcp.json') + read('.cursor/mcp.json') + home('.claude.json') + home('.cursor/mcp.json');
@@ -51,6 +54,7 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
         stopCheck(agents.map(a => a.config).join('\n'), now, events, setup),
         mcpCheck(mcpConfig, now, calls, nameTaken(readFrom(agentHome()))),
         ...(version ? [version] : []),
+        ...(rigourHooksIgnored(read) ? [windsurfFileCheck(windsurfFile, setup)] : []),
         prCheck(cwd),
     ];
 }
@@ -76,6 +80,15 @@ function versionCheck(hooks: string, mcp: string, installed: string, setup: stri
     return stale.length
         ? { id: 'version', name, state: 'broken', detail: `${stale.join(', ')}; installed is ${installed}`, fix: setup }
         : { id: 'version', name, state: 'working', detail: installed };
+}
+
+/** Rigour's Windsurf hooks are only in the legacy file, which Devin Desktop ignores while `.devin/hooks.json` defines hooks. */
+function windsurfFileCheck(live: string, setup: string): SetupCheck {
+    return {
+        id: 'windsurf-file', name: 'Windsurf hooks are in the file Devin Desktop reads', state: 'broken',
+        detail: `Rigour's hooks are only in ${WINDSURF_HOOKS}; Devin Desktop reads ${live} and ignores ${WINDSURF_HOOKS}, so no Cascade write is checked`,
+        fix: setup,
+    };
 }
 
 function configCheck(cwd: string, personal: boolean): SetupCheck {

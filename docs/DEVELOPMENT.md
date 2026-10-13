@@ -24,7 +24,9 @@ one before.
 | Codex, or you in a terminal | no | no | yes, through git |
 
 The push check is git's own `pre-push` hook, so it applies to every tool and to a push from your
-terminal. Claude Code also checks a push before it reaches git.
+terminal. Claude Code also checks a push before it reaches git. It checks the commit you have checked
+out, so it refuses a push of any other commit (`git push origin other-branch` from `main`): push a
+branch from that branch.
 
 ## What blocks, and what does not
 

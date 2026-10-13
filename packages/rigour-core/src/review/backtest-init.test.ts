@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { lessonsFromReview } from '../review-learning/lessons.js';
 import { ConfigSchema } from '../types/index.js';
 import { ledgerProblems, loadLedger, LEDGER_PATH, LedgerSchema } from './backtest.js';
 import { mergedPrs, scaffoldLedger } from './backtest-init.js';
@@ -87,6 +88,22 @@ describe('rigour backtest init', () => {
         const written = LedgerSchema.parse(JSON.parse(fs.readFileSync(path.join(repo, LEDGER_PATH), 'utf8')));
         expect(ledgerProblems(written)).toHaveLength(3);
         expect(() => loadLedger(repo)).toThrow('rows a person still has to complete');
+    });
+
+    it('reads a review body\'s bold and heading blocks as points, the same points the learner takes', async () => {
+        const body = '### Blocking\n\n**1. The retry window is unbounded**\nBound it at both ends, or a rerun replays a week of jobs.\n\n### B2: `flushQueue`\nFlush before the worker exits, or the tail is lost.\n\n- Name the batch limit after the queue it caps.';
+        const blocks: Exec = async (command, args, options) => {
+            const answer = await fakeExec([])(command, args, options);
+            return command === 'gh' && args[1]?.endsWith('/reviews') ? { ...answer, stdout: JSON.stringify([{ ...REVIEWS[1], body }]) } : answer;
+        };
+        const { rounds } = await scaffoldLedger(repo, 212, config, blocks);
+        const learned = lessonsFromReview({ id: '2', prNumber: 212, commit: 'c2c2c2c2c2', body, author: 'senior', source: 'person', prAuthor: 'author' }, []).map(l => l.text);
+        expect(rounds[0].points.filter(p => p.id.includes('-B')).map(p => p.point)).toEqual(learned);
+        expect(learned).toEqual([
+            'The retry window is unbounded. Bound it at both ends, or a rerun replays a week of jobs.',
+            '`flushQueue`: Flush before the worker exits, or the tail is lost.',
+            'Name the batch limit after the queue it caps.',
+        ]);
     });
 
     it('keeps rounds already in the ledger and replaces its own', async () => {

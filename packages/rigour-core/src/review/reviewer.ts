@@ -294,10 +294,11 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
+    // A delta verdict never answers a full request; a full one answers either.
     const coverageOn = config.review?.coverage !== false;
     const reviewPointsOn = config.review?.review_points !== false;
     const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([coverageOn, reviewPointsOn, settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
-    if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && fs.existsSync(store.decidedPath(previous.verdict))) {
+    if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && !(options.full && previous.mode === 'delta') && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
         if (verdict && decided) {

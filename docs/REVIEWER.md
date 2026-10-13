@@ -228,7 +228,8 @@ step, because it turns a personal install into the team's.
   by `panel_max_items`, and it can run on a cheaper model (`cross_models`).
 - **Nothing is paid for twice:** the same commit asked again with the same settings and reviews
   reuses its verdict (a dismissal still applies at once), later pushes get a delta review of the new
-  commits only, and human points already settled are not judged again.
+  commits only, and human points already settled are not judged again. A delta verdict never
+  answers `--full`: a full review of that commit runs, and from then on its verdict answers both.
 - **The same content is not reviewed again on another commit.** A rebase, an amend, a cherry-pick or
   the same change on another branch reuses the verdict of a full review with the same inputs (rules,
   lessons, human reviews, goal, judges and models) and the same reviewable diff, read file by file as
@@ -399,7 +400,12 @@ available for a team that measures a gain on its own pull requests.
 
 **Where the lessons come from: evidence, not who wrote it.** `rigour learn-reviews` reads the
 repository's merged pull requests. Every review point is a **candidate**, whoever wrote it: a person, an
-AI posting under a person's login, or a review bot. It keeps the point's own words: its bold title, else
+AI posting under a person's login, or a review bot. A point is an inline comment or, in a review's body, a
+bulleted or numbered line, or a bold or heading block (`**1. The retry window is unbounded**`, `### B3: \`flushQueue\``)
+read as its lead and, when the lead is short, a label or an identifier, the first sentence under it; a heading or bold
+line that only names a section ("Blocking", "Nits", "Summary") or that a list follows is a title, not a point. A
+review tool's own markup is never a point: a bold or heading block inside a collapsed block (only its bullets count),
+a short bold label with a value after it ("Plan: Pro", "Reviewed commit: `abc123`"), or an emoji title. It keeps the point's own words: its bold title, else
 its first sentence and, when that only says what is wrong, the first sentence that says what to do, with
 identifiers as written. Read again by a later version, a point never adds a second lesson: an undecided
 one takes the text that version reads; one a person decided (promoted, rejected, dismissed, or with a
@@ -440,7 +446,9 @@ and agents apply review comments on their own. A candidate becomes a **lesson** 
   change-summary heading ("Changes", "What changed", "Summary", "Overview") describes the change, whatever its
   verbs, unless a bullet asks for something; in a person's review, where a "Summary" often lists defects as plain
   statements, a bullet there is skipped only if it also reads as a description ("Splits the parser…"). A collapsed
-  block about the tool itself ("About…", "How to…") is the tool's own help. `rigour learn-reviews` counts them: "N skipped: not a
+  block about the tool itself ("About…", "How to…") is the tool's own help. A list under a praise heading ("What's
+  good", "Strengths") is praise, and one under a preamble to what was fixed since the last round ("Fixed since the last
+  round:", "Addressed:") is a status report, unless a bullet asks for something. `rigour learn-reviews` counts them: "N skipped: not a
   request", by why.
 
 **Where they are kept: in the checkout, not in Rigour's home.** Candidates and lessons are written to the checkout's

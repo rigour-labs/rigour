@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it, vi } from 'vitest';
-import { detectInstallKind, doctorCommand, hasVersionShadowing } from './doctor.js';
+import { detectInstallKind, doctorCommand, hasVersionShadowing, printRepoSetup } from './doctor.js';
 
 describe('doctor helpers', () => {
     it('classifies Homebrew paths', () => {
@@ -82,5 +82,37 @@ describe('rigour doctor --merge-state', () => {
             if (saved === undefined) delete process.env.RIGOUR_HOME; else process.env.RIGOUR_HOME = saved;
             fs.rmSync(root, { recursive: true, force: true });
         }
+    });
+});
+
+describe('rigour doctor and a committed block opt-in', () => {
+    const run = async (yml: string) => {
+        const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-optin-'));
+        vi.stubEnv('RIGOUR_AGENT_HOME', cwd); // the user-level agent configs: never the real ones
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const exitCode = process.exitCode;
+        try {
+            fs.writeFileSync(path.join(cwd, 'rigour.yml'), yml);
+            await printRepoSetup(cwd);
+            expect(process.exitCode).toBe(exitCode);
+            return log.mock.calls.flat().join('\n');
+        } finally {
+            vi.restoreAllMocks();
+            vi.unstubAllEnvs();
+            fs.rmSync(cwd, { recursive: true, force: true });
+        }
+    };
+
+    it('shows block_security_deprecated: true as information, not a failure', async () => {
+        const printed = await run('version: 1\ngates:\n  deprecated_apis:\n    block_security_deprecated: true\n');
+        expect(printed).toContain('○');
+        expect(printed).toContain('deprecated_apis: blocks proven deprecated security APIs (set in rigour.yml; remove the line to make it a note)');
+        expect(printed).not.toContain('✘');
+    });
+
+    it('prints no opt-in line without the key', async () => {
+        const printed = await run('version: 1\ngates:\n  deprecated_apis:\n    enabled: true\n');
+        expect(printed).not.toContain('deprecated_apis: blocks');
+        expect(printed).not.toContain('✘');
     });
 });

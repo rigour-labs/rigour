@@ -3,8 +3,8 @@
  * agent's hook only covers that agent. `rigour hooks init` installs it (where git looks: the
  * hooks directory, `core.hooksPath` included); a hook another tool already owns gets one line
  * appended. The hook runs `rigour hooks push --git`, which gates the commit git is about to send:
- * HEAD, so a tree with uncommitted changes to tracked files is refused first (the gate would
- * otherwise check code the push does not carry). `git push --no-verify` is not for agents.
+ * HEAD, so a push of any other commit, and a tree with uncommitted changes to tracked files, are refused first (the gate
+ * would otherwise check code the push does not carry). `git push --no-verify` is not for agents.
  *
  * `selfTestGitPushHook` is what "it printed blocked" is not: a real `git push` to a bare remote,
  * once with a change the gate must refuse and once with the fix, checked by the remote's refs.
@@ -112,14 +112,36 @@ function gitHookScript(line: string): string {
 /** The two lines Rigour appends to a pre-push hook another tool owns. */
 export const APPENDED_COMMENT = '# Rigour push gate (rigour hooks init): the same gate for every tool and the terminal.';
 
-/** `rigour hooks push --git`: git's pre-push, on the commit git is about to send. Exit 1 refuses the push. */
-export async function gitPushGateCommand(stdin: string, cwd: string): Promise<{ exitCode: 0 | 1; message: string }> {
+/**
+ * `rigour hooks push --git`: git's pre-push, on the commit git is about to send. Exit 1 refuses the push. The gate checks
+ * the checked-out tree, so every ref the push sends must be HEAD: `git push origin other-branch` would otherwise pass on
+ * code it never checked.
+ */
+export async function gitPushGateCommand(stdin: string, cwd: string, gate: typeof pushGate = pushGate): Promise<{ exitCode: 0 | 1; message: string }> {
     const refs = stdin.split('\n').map(line => line.trim().split(/\s+/)).filter(parts => parts.length === 4 && !/^0+$/.test(parts[1]));
     if (refs.length === 0) return { exitCode: 0, message: '' }; // deleting a remote branch: nothing is sent
+    const notHead = refsNotAtHead(cwd, refs, gitOutput(cwd, ['rev-parse', 'HEAD']) ?? '');
+    if (notHead) return { exitCode: 1, message: notHead };
     const dirty = gitOutput(cwd, ['status', '--porcelain', '--untracked-files=no']);
     if (dirty) return { exitCode: 1, message: `Push refused: the tree has uncommitted changes to tracked files, and the gate checks what the push sends (HEAD). Commit or stash them, then push again:\n${dirty.split('\n').slice(0, 8).map(l => `  ${l}`).join('\n')}` };
-    const result = await pushGate(cwd);
+    const result = await gate(cwd);
     return { exitCode: result.exitCode === 0 ? 0 : 1, message: result.message };
+}
+
+/**
+ * One refusal line per pushed ref whose commit is not the checked-out one, or undefined when every ref is HEAD. An
+ * annotated tag arrives as the tag object's sha, so each sha is peeled to its commit first; one that peels to no commit
+ * (a tag of a tree or blob) is not HEAD.
+ */
+function refsNotAtHead(cwd: string, refs: string[][], head: string): string | undefined {
+    const lines = refs.flatMap(([localRef, sha]) => {
+        const commit = gitOutput(cwd, ['rev-parse', '--verify', '-q', `${sha}^{commit}`]);
+        if (commit === head) return [];
+        const name = localRef.replace(/^refs\/heads\//, '');
+        const at = commit && commit !== sha ? `${commit.slice(0, 7)} (tag ${sha.slice(0, 7)})` : sha.slice(0, 7);
+        return [`Push refused: this push sends ${name} at ${at}, but the gate checks the checked-out commit (${head.slice(0, 7)}). Check out ${name} and push from there, or run \`rigour hooks push --git\` there.`];
+    });
+    return lines.length > 0 ? lines.join('\n') : undefined;
 }
 
 export interface SelfTest { ok: boolean; steps: string[] }

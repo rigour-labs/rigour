@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { applyConfigMigrations, configMigrations, isOldEditHook } from './setup-migrations.js';
+import { applyConfigMigrations, blockOptIns, configMigrations, isOldEditHook } from './setup-migrations.js';
 
 let cwd: string;
 const write = (body: string) => fs.writeFileSync(path.join(cwd, 'rigour.yml'), body);
@@ -35,11 +35,19 @@ describe('what an older Rigour left behind', () => {
         expect(applyConfigMigrations(cwd)).toEqual([]);
     });
 
-    it('flags block_security_deprecated: true, which older init wrote for everyone, and never changes it', () => {
+    it('reports block_security_deprecated: true as the team\'s choice, not a migration, and never changes it', () => {
         const body = 'version: 1\ngates:\n  deprecated_apis:\n    block_security_deprecated: true\n';
         write(body);
-        expect(configMigrations(cwd)).toEqual([expect.objectContaining({ id: 'security-deprecated-default', automatic: false })]);
+        expect(configMigrations(cwd)).toEqual([]);
+        expect(blockOptIns(cwd)).toEqual([expect.stringContaining('deprecated_apis: blocks proven deprecated security APIs')]);
         expect(applyConfigMigrations(cwd)).toEqual([]);
         expect(read()).toBe(body);
+    });
+
+    it('reports no block opt-in when the key is absent or false', () => {
+        write('version: 1\ngates:\n  deprecated_apis:\n    enabled: true\n');
+        expect(blockOptIns(cwd)).toEqual([]);
+        write('version: 1\ngates:\n  deprecated_apis:\n    block_security_deprecated: false\n');
+        expect(blockOptIns(cwd)).toEqual([]);
     });
 });
