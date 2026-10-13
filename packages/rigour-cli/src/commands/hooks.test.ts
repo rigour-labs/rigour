@@ -78,6 +78,20 @@ describe('hooksInitCommand', () => {
         expect(fs.existsSync(hookPath)).toBe(true);
     });
 
+    it("moves Rigour's own Cline scripts to this version without --force, and never touches a person's own", async () => {
+        const hooks = path.join(testDir, '.clinerules', 'hooks');
+        fs.mkdirSync(hooks, { recursive: true });
+        // An install from an older Rigour: its own script, pinned to that version.
+        fs.writeFileSync(path.join(hooks, 'PostToolUse'), '#!/usr/bin/env node\n// hook for Rigour\nrequire("child_process").spawnSync("npx", ["--yes", "@rigour-labs/cli@6.0.3", "hooks", "check"]);\n');
+        fs.writeFileSync(path.join(hooks, 'PreToolUse'), '#!/bin/sh\necho "my own pre-tool check"\n');
+        await hooksInitCommand(testDir, { tool: 'cline' });
+        expect(fs.readFileSync(path.join(hooks, 'PostToolUse'), 'utf-8')).not.toContain('@6.0.3');
+        expect(fs.readFileSync(path.join(hooks, 'PreToolUse'), 'utf-8')).toBe('#!/bin/sh\necho "my own pre-tool check"\n');
+        const again = fs.readFileSync(path.join(hooks, 'PostToolUse'), 'utf-8');
+        await hooksInitCommand(testDir, { tool: 'cline' });
+        expect(fs.readFileSync(path.join(hooks, 'PostToolUse'), 'utf-8')).toBe(again); // current: left as it is
+    });
+
     it('should skip a legacy .clinerules file and continue other tools', async () => {
         fs.writeFileSync(path.join(testDir, '.clinerules'), 'legacy Cline rules');
 

@@ -157,3 +157,16 @@ describe("rigour setup in a repository whose committed hooks pin an old Rigour",
         expect(printed).toContain('These hooks pin Rigour 6.10.1; they keep running that version (its edit hook checks nothing) until someone runs `rigour setup --team`');
     });
 });
+
+describe('rigour setup writes JSON in the style of the repository', () => {
+    it('merges into a 2-space settings file in 2 spaces, and writes a new one in 2 spaces', async () => {
+        fs.writeFileSync(path.join(repo, 'rigour.yml'), 'version: 1\n');
+        fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+        fs.writeFileSync(path.join(repo, '.claude/settings.json'), JSON.stringify({ permissions: { allow: ['Bash(npm test)'] } }, null, 2) + '\n');
+        await setupCommand(repo, { team: true, semantic: false });
+        const settings = fs.readFileSync(path.join(repo, '.claude/settings.json'), 'utf8');
+        expect(settings).toMatch(/^\{\n  "permissions"/);
+        expect(settings).toContain('\n  "hooks": {'); // Rigour's hooks, at the file's 2 spaces
+        expect(fs.readFileSync(path.join(repo, '.mcp.json'), 'utf8')).toMatch(/^\{\n  "mcpServers"/); // created by setup
+    });
+});

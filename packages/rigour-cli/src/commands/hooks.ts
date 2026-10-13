@@ -38,6 +38,7 @@ import { describePushGate, installGitPushHook } from './hooks-git.js';
 import { isRigourScript, mergeHooksInto, recordCreated } from './install-record.js';
 import { agentHome, asUserLevel, installedAgents } from './personal.js';
 import { hookStdin } from './hook-input.js';
+import { jsonText } from './json-file.js';
 import { loadHookConfig } from './hooks-stop.js';
 import { REPORT_ONLY_PREFIX, reportOnly } from './report-only.js';
 import { filesWrittenSince, toolCallId } from './shell-writes.js';
@@ -288,7 +289,7 @@ function generateClaudeHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
 
     return [{
         path: '.claude/settings.json',
-        content: JSON.stringify(settings, null, 4),
+        content: jsonText(settings),
         description: dlp
             ? 'Claude Code hooks — PostToolUse quality checks, Stop review before done, push gate, PreToolUse DLP credential warnings'
             : 'Claude Code hooks — PostToolUse quality checks, Stop review before done, push gate',
@@ -309,7 +310,7 @@ function generateCursorHooks(checker: CheckerCommandSpec, block: boolean, dlp: b
 
     return [{
         path: '.cursor/hooks.json',
-        content: JSON.stringify(hooks, null, 4),
+        content: jsonText(hooks),
         description: dlp
             ? 'Cursor hooks — afterFileEdit quality checks, stop review before done, beforeSubmitPrompt DLP warnings'
             : 'Cursor hooks — afterFileEdit quality checks, stop review before done',
@@ -468,7 +469,7 @@ function generateWindsurfHooks(checker: CheckerCommandSpec, block: boolean, dlp:
 
     return [{
         path: '.windsurf/hooks.json',
-        content: JSON.stringify(hooks, null, 4),
+        content: jsonText(hooks),
         description: dlp
             ? 'Windsurf hooks — post_write_code quality checks + pre_write_code DLP warnings'
             : 'Windsurf post_write_code hook config',
@@ -520,7 +521,7 @@ async function writeHookFiles(
         if (exists && isConfig) {
             try {
                 const current = await fs.readFile(fullPath, 'utf-8');
-                const next = JSON.stringify(mergeHooksInto(JSON.parse(current), JSON.parse(file.content)), null, 4) + '\n';
+                const next = jsonText(mergeHooksInto(JSON.parse(current), JSON.parse(file.content)), current);
                 if (next.trimEnd() === current.trimEnd()) continue; // already as it should be: a committed file stays untouched
                 await fs.writeFile(fullPath, next, 'utf-8');
                 console.log(chalk.green(`  MERGE ${file.path}`));
@@ -532,11 +533,16 @@ async function writeHookFiles(
             }
             continue;
         }
-        // A script of the person's own is never overwritten, --force or not; Rigour's own is refreshed.
-        if (exists && (!force || !isRigourScript(await fs.readFile(fullPath, 'utf-8')))) {
-            console.log(chalk.yellow(`  SKIP ${file.path} (already exists${force ? ' and is not Rigour\'s' : ', use --force to overwrite'})`));
-            skipped++;
-            continue;
+        // A script of the person's own is never overwritten, --force or not. Rigour's own (Cline's hooks) is refreshed, as
+        // a JSON config's Rigour entries are: setup moves its pinned version, and leaves it untouched when it is current.
+        if (exists) {
+            const current = await fs.readFile(fullPath, 'utf-8');
+            if (!isRigourScript(current)) {
+                console.log(chalk.yellow(`  SKIP ${file.path} (already exists and is not Rigour's, so Rigour leaves it alone)`));
+                skipped++;
+                continue;
+            }
+            if (current === file.content) continue;
         }
 
         try {
@@ -550,7 +556,7 @@ async function writeHookFiles(
                 await fs.chmod(fullPath, 0o755);
             }
 
-            console.log(chalk.green(`  CREATE ${file.path}`));
+            console.log(chalk.green(`  ${exists ? 'UPDATE' : 'CREATE'} ${file.path}`));
             console.log(chalk.dim(`         ${file.description}`));
             written++;
         } catch (error) {

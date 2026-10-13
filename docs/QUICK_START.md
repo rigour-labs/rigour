@@ -35,6 +35,8 @@ npm install -g @rigour-labs/cli     # or: brew install rigour-labs/tap/rigour
 rigour setup
 ```
 
+After an in-place global upgrade, `rigour` may be missing from your `PATH` although npm reported success, or npm may warn `ENOTEMPTY` while it cleans up. Run the same install again; or run `npm uninstall -g @rigour-labs/cli`, then `npm install -g @rigour-labs/cli`.
+
 `rigour setup` is **personal** by default: nothing in your working tree, nothing to commit. It:
 
 - switches Rigour on for this repository with a marker inside `.git/`, and adds `.rigour/` to `.git/info/exclude` (not your `.gitignore`);

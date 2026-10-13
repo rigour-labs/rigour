@@ -39,6 +39,7 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
         { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') + home('.claude/settings.json') },
         { name: 'Cursor', config: read('.cursor/hooks.json') + home('.cursor/hooks.json') },
         { name: 'Windsurf', config: read('.windsurf/hooks.json') + home('.codeium/windsurf/hooks.json') },
+        { name: 'Cline', config: ['PostToolUse', 'PreToolUse'].map(hook => read(`.clinerules/hooks/${hook}`) + home(`Documents/Cline/Hooks/${hook}`)).join('') },
     ].filter(a => a.config);
     const mcpConfig = read('.mcp.json') + read('.cursor/mcp.json') + home('.claude.json') + home('.cursor/mcp.json');
     // The repository's own committed install: only `rigour setup --team` changes it (a plain setup leaves it as committed).
@@ -104,21 +105,21 @@ function stopCheck(config: string, now: Date, events: AgentEvent[], setup: strin
 }
 
 /** Which agent's user-level config holds a server named rigour that is not Rigour's (personal.ts MCP_NAME_TAKEN). */
-function nameTaken(home: (rel: string) => string): string | undefined {
-    for (const [agent, rel] of [['Claude Code', '.claude.json'], ['Cursor', '.cursor/mcp.json']] as const) {
+function nameTaken(home: (rel: string) => string): string[] {
+    // Every agent whose server holds the name, in one run: fixing one should not reveal the next on the run after.
+    return (([['Claude Code', '.claude.json'], ['Cursor', '.cursor/mcp.json']] as const)).filter(([, rel]) => {
         try {
             const entry = JSON.parse(home(rel) || '{}')?.mcpServers?.rigour;
-            if (entry && !namesRigourMcp(entry)) return agent;
+            return !!entry && !namesRigourMcp(entry);
         } catch {
-            // not JSON: not Rigour's to judge
+            return false; // not JSON: not Rigour's to judge
         }
-    }
-    return undefined;
+    }).map(([agent]) => agent);
 }
 
-function mcpCheck(mcpJson: string, now: Date, calls: ContextEvent[], taken?: string): SetupCheck {
+function mcpCheck(mcpJson: string, now: Date, calls: ContextEvent[], taken: string[] = []): SetupCheck {
     const name = 'Rigour tools for agents (MCP)';
-    if (taken) return { id: 'mcp', name, state: 'broken', detail: `${taken}: ${MCP_NAME_TAKEN}`, fix: 'rename the other server, then rigour setup' };
+    if (taken.length) return { id: 'mcp', name, state: 'broken', detail: `${listOf(taken)}: ${MCP_NAME_TAKEN}`, fix: 'rename the other server, then rigour setup' };
     if (!mcpJson.includes('rigour') && calls.length === 0) {
         return { id: 'mcp', name, state: 'missing', detail: 'Agents cannot ask Rigour for review tasks or lessons', fix: `claude mcp add --scope user rigour -- ${[resolveMCPServerConfig().command, ...resolveMCPServerConfig().args].join(' ')}` };
     }

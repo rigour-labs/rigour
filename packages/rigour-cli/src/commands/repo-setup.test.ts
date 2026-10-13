@@ -47,6 +47,11 @@ describe('checkRepoSetup', () => {
         expect(await version()).toMatchObject({ state: 'broken', detail: 'hooks run through a shell wrapper PowerShell cannot run; installed is 6.13.0' });
     });
 
+    it("flags a stale pin in Cline's hook scripts too", async () => {
+        write('.clinerules/hooks/PostToolUse', '#!/usr/bin/env node\n// hook for Rigour\nrun("npx --yes @rigour-labs/cli@6.0.3 hooks check --files x");\n');
+        expect((await checkRepoSetup(cwd, now, [], '7.0.1')).find(c => c.id === 'version')).toMatchObject({ state: 'broken', detail: 'hooks run 6.0.3; installed is 7.0.1' });
+    });
+
     it('finds the PR workflow and reports what is missing', async () => {
         expect((await byId('pr')).state).toBe('missing');
         expect((await byId('config')).state).toBe('missing');
@@ -81,6 +86,11 @@ describe('checkRepoSetup', () => {
             expect(await byId('mcp')).toMatchObject({ state: 'broken', detail: "Claude Code: a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again" });
             fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { rigour: { command: 'npx', args: ['-y', '@rigour-labs/mcp@7.0.0'] } } }));
             expect((await byId('mcp')).state).not.toBe('broken');
+            // Both agents' servers hold the name: one run names both, so fixing one does not reveal the other next time.
+            fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { rigour: { command: 'node', args: ['/opt/rigor-metrics/server.js'] } } }));
+            fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
+            fs.writeFileSync(path.join(home, '.cursor/mcp.json'), JSON.stringify({ mcpServers: { rigour: { command: 'python', args: ['-m', 'rigor_metrics'] } } }));
+            expect(await byId('mcp')).toMatchObject({ state: 'broken', detail: "Claude Code and Cursor: a user-level MCP server named rigour exists and is not Rigour's; rename it, then run rigour setup again" });
         }
     });
 });

@@ -400,6 +400,57 @@ jobs:
           cd "$smoke_dir"
           rigour hooks check --files sample.ts
 
+  # An in-place global upgrade on macOS, report-only: npm i -g from the current `latest` to this version, then whether
+  # `rigour` is on PATH and runs. Field installs on macOS (npm 11, Node 26, a Homebrew prefix) lost the global bin
+  # link this way although npm reported success. This job reproduces it or shows it does not happen on a clean
+  # machine; it never blocks a release (an npm bug is not ours to block on), and it records the npm and Node versions.
+  global-upgrade-macos:
+    name: Global upgrade (macOS, Node ${{ matrix.node }}, ${{ matrix.prefix }} prefix)
+    needs: release
+    if: >-
+      !cancelled() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next')
+      && needs.release.result == 'success' && needs.release.outputs.cli_version != ''
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+        prefix: [default, homebrew-style]
+    runs-on: macos-latest
+    env:
+      NEW_VERSION: ${{ needs.release.outputs.cli_version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          registry-url: 'https://registry.npmjs.org'
+      - name: Upgrade in place, then look for rigour
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ "${{ matrix.prefix }}" = "homebrew-style" ]; then
+            # A prefix that is not Node's own, laid out as Homebrew's (<prefix>/bin, <prefix>/lib/node_modules).
+            export NPM_CONFIG_PREFIX="$RUNNER_TEMP/homebrew-prefix"
+            mkdir -p "$NPM_CONFIG_PREFIX/bin" "$NPM_CONFIG_PREFIX/lib"
+            export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
+          fi
+          previous=$(npm view @rigour-labs/cli dist-tags.latest)
+          {
+            echo "### Global upgrade, macOS, Node ${{ matrix.node }}, ${{ matrix.prefix }} prefix"
+            echo "- npm $(npm --version), Node $(node --version), $(sw_vers -productName) $(sw_vers -productVersion), prefix $(npm config get prefix)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$previous" = "$NEW_VERSION" ]; then echo "- skipped: no earlier latest to upgrade from" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          npm install -g "@rigour-labs/cli@${previous}" || { echo "- could not install ${previous}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+          npm install -g "@rigour-labs/cli@${NEW_VERSION}"; status=$?
+          bin=$(command -v rigour || true)
+          version=$( [ -n "$bin" ] && rigour --version 2>&1 | tail -n1 || true)
+          echo "- ${previous} → ${NEW_VERSION}: npm exit ${status}; rigour on PATH: ${bin:-missing}; rigour --version: ${version:-none}" >> "$GITHUB_STEP_SUMMARY"
+          ls -la "$(npm config get prefix)/bin" | grep -i rigour >> "$GITHUB_STEP_SUMMARY" || echo "- no rigour link in $(npm config get prefix)/bin" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ] || [ -z "$bin" ] || ! printf '%s' "$version" | grep -q "${NEW_VERSION}"; then
+            echo "::warning::In-place global upgrade on macOS left no working rigour (npm $(npm --version), Node $(node --version)); report-only, see the job summary."
+            exit 1
+          fi
+
   # The gates every release candidate (next) and every stable release (main, under `pending`) passes, on the
   # published packages: a clean install from an empty cache with no deprecation warning, the commands a user runs
   # first, an upgrade from the current `latest` that keeps its state, and no credential-shaped string in a tarball
