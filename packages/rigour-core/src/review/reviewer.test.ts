@@ -414,6 +414,25 @@ describe('the reviewer', () => {
         expect(early).toMatchObject({ outcome: 'unavailable', mode: { asked: 'panel', ran: 'none', source: 'flag' } }); // before any judge was found
     });
 
+    it('never answers --full with the cached delta verdict for the same commit; a cached full verdict still answers it', async () => {
+        const fullTeam = ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude', 'cursor'], mode: 'full' } } });
+        const seen = seenNow();
+        const whole = () => JSON.stringify(EMPTY);
+        const quiet = () => JSON.stringify({ ...EMPTY, prior_points: [], carried: [], resolved_previous: [] });
+        expect((await runReviewer(repo, 'main', fullTeam, fakes(whole, seen), () => undefined)).scope).toBe('full');
+        fs.writeFileSync(path.join(repo, 'src/job.ts'), 'export function job() {\n    return 2;\n}\n');
+        git('commit', '-qam', 'tweak');
+        const delta = await runReviewer(repo, 'main', fullTeam, fakes(quiet, seen), () => undefined);
+        expect(delta).toMatchObject({ scope: 'delta', cached: false });
+
+        const full = await runReviewer(repo, 'main', fullTeam, fakes(whole, seen), () => undefined, { full: true });
+        expect(full).toMatchObject({ scope: 'full', cached: false, why: 'full review requested' });
+        const prompts = seen.prompts.length;
+        const again = await runReviewer(repo, 'main', fullTeam, fakes(() => { throw new Error('a cached full verdict runs no judge'); }, seen), () => undefined, { full: true });
+        expect(again).toMatchObject({ scope: 'full', cached: true });
+        expect(seen.prompts).toHaveLength(prompts);
+    });
+
     it('in full mode runs two vendors and resolves a human point only when both say so', async () => {
         const seen = seenNow();
         const by = (name: string) => JSON.stringify({ ...EMPTY, prior_points: [{ point: 'lock before read', severity: 'blocking', resolved: name === 'claude', evidence: 'src/job.ts:2', file: 'src/job.ts', line: 2, quote: 'export function job() {' }], findings: name === 'cursor' ? [{ class: 'dead-code', file: 'a.ts', line: 1, issue: 'a is unused', consequence: 'a second run reads stale rows', quote: 'export const a = 1;' }] : [] });
