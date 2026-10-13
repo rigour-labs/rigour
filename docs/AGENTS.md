@@ -359,8 +359,10 @@ not seen firing), broken, or missing, with the command that fixes it:
   - a `rigour.yml` made from a preset that blocks on every security finding (healthcare, fintech,
     government, devsecops) before `gates.security.block` existed: its security findings are shown as
     notes. `rigour setup` adds `block: true`, keeping the file's comments;
-  - `gates.deprecated_apis.block_security_deprecated: true`, which older `rigour init` wrote for
-    everyone: keep it if your team chose it, otherwise delete the line. Rigour never changes it.
+- block opt-ins the team committed to `rigour.yml`, as information (`○`), never as a failure: for
+  `gates.deprecated_apis.block_security_deprecated: true` (older `rigour init` wrote it for everyone) the line
+  reads `deprecated_apis: blocks proven deprecated security APIs`. Keep it if your team chose it; otherwise
+  delete the line and those findings become notes. Rigour never changes it.
 
 The old edit hook also says so itself: on every edit it prints that it checks nothing and to run
 `rigour setup`, and exits 1, which the agent shows you without stopping the edit.

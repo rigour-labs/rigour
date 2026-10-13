@@ -63,7 +63,7 @@ Your agent edits, says it is done, pushes. Rigour speaks at three moments:
 
 Nothing advisory blocks: a check blocks only after it has been measured on real pull requests. What to do with a finding, and which agent gets which moment: [During development](./DEVELOPMENT.md).
 
-`rigour doctor` says what is working and what is not. `rigour hooks selftest` proves the push gate with a real push to a scratch remote.
+`rigour doctor` says what is working and what is not; a `✘` is something to fix, while a block opt-in your team committed to `rigour.yml` shows as information (`○`). `rigour hooks selftest` proves the push gate with a real push to a scratch remote.
 
 ## 4. Take it back out
 
