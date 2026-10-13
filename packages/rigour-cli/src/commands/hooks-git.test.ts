@@ -65,6 +65,58 @@ describe('the git pre-push hook', () => {
         expect(deletion).toEqual({ exitCode: 0, message: '' });
     });
 
+    it('gates only the checked-out commit: a push of another commit is refused before any check runs', async () => {
+        const zero = '0000000000000000000000000000000000000000';
+        let runs = 0;
+        const gate = async () => { runs += 1; return { exitCode: 0 as const, message: 'passed' }; };
+        const head = git('rev-parse', 'HEAD');
+        const pushHead = await gitPushGateCommand(`refs/heads/main ${head} refs/heads/main ${zero}\n`, repo, gate);
+        expect(pushHead).toEqual({ exitCode: 0, message: 'passed' });
+        expect(runs).toBe(1);
+
+        const twoAtHead = `refs/heads/main ${head} refs/heads/main ${zero}\nrefs/tags/v1 ${head} refs/tags/v1 ${zero}\n`;
+        expect((await gitPushGateCommand(twoAtHead, repo, gate)).exitCode).toBe(0);
+        expect(runs).toBe(2); // two refs at HEAD: one gate run
+
+        git('checkout', '-qb', 'other-branch');
+        fs.writeFileSync(path.join(repo, 'b.ts'), 'export const b = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'other');
+        const other = git('rev-parse', 'HEAD');
+        git('checkout', '-q', 'main');
+        const refused = await gitPushGateCommand(`refs/heads/other-branch ${other} refs/heads/other-branch ${zero}\n`, repo, gate);
+        expect(refused.exitCode).toBe(1);
+        expect(refused.message).toBe(`Push refused: this push sends other-branch at ${other.slice(0, 7)}, but the gate checks the checked-out commit (${head.slice(0, 7)}). Check out other-branch and push from there, or run \`rigour hooks push --git\` there.`);
+        expect(runs).toBe(2);
+
+        const deleteOnly = await gitPushGateCommand(`(delete) ${zero} refs/heads/old ${other}\n`, repo, gate);
+        expect(deleteOnly).toEqual({ exitCode: 0, message: '' });
+        expect(runs).toBe(2);
+    });
+
+    it('peels an annotated tag to its commit: one on HEAD runs the gate, one on another commit is refused', async () => {
+        const zero = '0000000000000000000000000000000000000000';
+        let runs = 0;
+        const gate = async () => { runs += 1; return { exitCode: 0 as const, message: 'passed' }; };
+        const old = git('rev-parse', 'HEAD');
+        git('tag', '-a', 'v0', '-m', 'x');
+        fs.writeFileSync(path.join(repo, 'b.ts'), 'export const b = 1;\n');
+        git('add', '-A');
+        git('commit', '-qm', 'next');
+        const head = git('rev-parse', 'HEAD');
+        git('tag', '-a', 'v1', '-m', 'x');
+        const onHead = git('rev-parse', 'refs/tags/v1');
+        expect(onHead).not.toBe(head); // the tag object, as git's pre-push sends it
+        expect(await gitPushGateCommand(`refs/tags/v1 ${onHead} refs/tags/v1 ${zero}\n`, repo, gate)).toEqual({ exitCode: 0, message: 'passed' });
+        expect(runs).toBe(1);
+
+        const onOld = git('rev-parse', 'refs/tags/v0');
+        const refused = await gitPushGateCommand(`refs/tags/v0 ${onOld} refs/tags/v0 ${zero}\n`, repo, gate);
+        expect(refused.exitCode).toBe(1);
+        expect(refused.message).toContain(`this push sends refs/tags/v0 at ${old.slice(0, 7)} (tag ${onOld.slice(0, 7)}), but the gate checks the checked-out commit (${head.slice(0, 7)})`);
+        expect(runs).toBe(1);
+    });
+
     it('in report-only, lets a real git push through and says on the terminal what would have stopped it', () => {
         const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'report-remote-'));
         try {
