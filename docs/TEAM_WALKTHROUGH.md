@@ -117,7 +117,7 @@ Sam, who never saw pull request #12, asks their agent to change the same job.
 - **Before the first edit of `src/jobs/retry.ts`**, Sam's agent is told:
 
   > Rigour, before you edit src/jobs/retry.ts: what this team asks of this file.<br>
-  > 1. Bound the retry window at both ends: `updated_at` between since and until. (learned in PR #12, approved by
+  > 1\. Bound the retry window at both ends: `updated_at` between since and until. (learned in PR #12, approved by
   > Jane D. (team))
 
   So the agent writes it right the first time. Lee's agent gets the same lesson from `rigour_brief` when it starts
