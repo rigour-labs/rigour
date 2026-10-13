@@ -36,6 +36,9 @@ let the database check who you are, so the first step is always your team's Rigo
      Each other message is explained in [When something fails](#when-something-fails).
    - `rigour team sync`: brings in the lessons and decisions the team already shares.
 
+To see how a lesson then reaches you and every teammate, follow one review comment through a team in
+[A team's knowledge, from one review to every agent](./TEAM_WALKTHROUGH.md).
+
 Your brief may be empty at first. It carries the lessons a person on the team has approved, and fills as they do. If
 your role is `member`, your own decisions on review lessons show as `held` in a sync: only an `sme` or `owner` sends
 decisions for the team.

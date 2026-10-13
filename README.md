@@ -139,6 +139,8 @@ Rigour is free. With an agent you need nothing else: the checks run locally, and
 
 **Joining a team that already shares lessons?** Ask your team's Rigour administrator for your own login first: by design, nobody can add themselves. Then it is one command per machine and three per clone. See [Join an existing team](docs/TEAM_DATABASE.md#join-an-existing-team).
 
+**How the benefit reaches each person.** One review comment, followed from the pull request where a senior wrote it to every teammate's agent on the next change: [A team's knowledge, from one review to every agent](docs/TEAM_WALKTHROUGH.md).
+
 **Working for more than one company?** Profiles keep each one's memory, lessons and team apart, chosen by the repository you're in. See [Profiles](docs/PROFILES.md).
 
 ## Learn more
