@@ -228,7 +228,8 @@ step, because it turns a personal install into the team's.
   by `panel_max_items`, and it can run on a cheaper model (`cross_models`).
 - **Nothing is paid for twice:** the same commit asked again with the same settings and reviews
   reuses its verdict (a dismissal still applies at once), later pushes get a delta review of the new
-  commits only, and human points already settled are not judged again.
+  commits only, and human points already settled are not judged again. A delta verdict never
+  answers `--full`: a full review of that commit runs, and from then on its verdict answers both.
 - **The same content is not reviewed again on another commit.** A rebase, an amend, a cherry-pick or
   the same change on another branch reuses the verdict of a full review with the same inputs (rules,
   lessons, human reviews, goal, judges and models) and the same reviewable diff, read file by file as
