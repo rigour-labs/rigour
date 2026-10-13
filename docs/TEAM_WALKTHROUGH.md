@@ -17,8 +17,10 @@ Acme's web team keeps its code in `github.com/acme/*` and shares lessons through
 | Sam | `member` | Joined this week; codes with an agent like everyone else |
 | Lee | `member` | Codes with a different agent from Sam |
 
-Everyone uses whichever agent they like, and Rigour works the same under each: what follows holds when Sam's agent is
-Claude Code and Lee's is Cursor.
+Everyone uses whichever agent they like. Sam's is Claude Code and Lee's is Cursor. The checks and the push gate work
+the same under both. The brief reaches them differently: Claude Code is briefed automatically before each file's first
+edit, and any agent with MCP, Cursor included, gets the same lessons from the `rigour_brief` tool at the start of a
+task ([Coding agents and MCP](./AGENTS.md)).
 
 ## Day 1: Sam joins
 
@@ -30,7 +32,7 @@ Sam runs, once on the machine:
 
 ```bash
 npm install -g @rigour-labs/cli
-rigour team configure --database-url '<Sam’s URL>' \
+rigour team configure --database-url '<the URL from Priya>' \
   --organization acme --team web --actor sam --repositories 'github.com/acme/*'
 ```
 
@@ -42,18 +44,20 @@ rigour team doctor    # connectivity: online, permissions ["member"], reviewDeci
 rigour team sync      # brings in what the team already shares
 ```
 
-**What Sam gains on day 1, before writing a line:** every lesson Jane has approved so far, and the repository's own
-rules (its `AGENTS.md`, `CLAUDE.md`, Cursor rules), are what Sam's agent is now briefed with. Sam does not have to
-read months of review history to get them.
+**What Sam gains on day 1, before writing a line:** Sam's agent is now briefed from every lesson Jane has approved
+so far and the repository's own rules (its `AGENTS.md`, `CLAUDE.md`, Cursor rules): the ones that apply to the files
+it touches, most relevant first, at most three per file. Sam does not have to read months of review history to get
+them.
 
 ## Week 1, during development: Lee's change
 
 Lee asks their agent to add retries to a nightly job, in `src/jobs/retry.ts`.
 
-- **Before the first edit**, the agent is briefed on what the team asks of that file. Nothing about retry windows
-  yet: the team has never written it down.
-- **On every edit**, Rigour checks what the agent just wrote, including files it wrote through the shell. A secret
-  or a proven problem is stopped there; the rest is a note, so the agent fixes it while the file is still open.
+- **Before it starts**, Lee's agent is briefed through `rigour_brief` on what the team asks of the files it will
+  touch. Nothing about retry windows yet: the team has never written it down.
+- **On every edit**, Rigour checks what the agent just wrote (under Claude Code, also files it wrote through the
+  shell). A secret or a proven problem is stopped there; the rest is a note, so the agent fixes it while the file is
+  still open.
 - **Before the agent says "done"**, the stop review checks the whole change. Anything it would block, the agent
   fixes first.
 - **Before `git push`**, the push gate runs the same checks plus the team's own formatter, linter, type check and
@@ -68,9 +72,9 @@ about the design.
 
 ## Week 1, PR review: Jane's comment
 
-Lee opens pull request #12. If the team turned the reviewer on ([The reviewer](./REVIEWER.md)), it reads the change
-with the team's context first: the points from the team's last human review and the rules the change touches, at the
-team's own severity.
+Lee opens pull request #12. If the team turned the reviewer on (it is off until someone does;
+[The reviewer](./REVIEWER.md)), it reads every human review already on the pull request, the team's lessons and the
+rules the change touches, and reports at the team's own severity.
 
 Jane reviews and writes one comment that no check could have known:
 
@@ -100,10 +104,10 @@ about that one change), narrow it to a folder (`--scope <id> --to folder`), or t
 The next sync sends Jane's decision to the team database. Syncs are automatic: the MCP server syncs after its tool
 calls and Studio every 30 seconds, and `rigour team sync` does it by hand.
 
-A point can also become a lesson without anyone deciding, when the same thing recurs in reviews from different
-people. Nothing becomes a rule from one comment alone.
+A point can also become a lesson without anyone deciding, when the same thing recurs across pull requests by
+different authors. Without a person deciding, nothing becomes a rule from one comment alone.
 
-**Who can decide:** an `sme` or `owner`. When Sam or Lee, as `member`s, mark a candidate in their own clone, it
+**Who can decide:** an `sme` or `owner`. When Sam or Lee, who are members, mark a candidate in their own clone, it
 applies to them, and their sync reports it as `held`: a person the team chose decides what every agent is told.
 
 ## Week 2, next step: the lesson reaches everyone
@@ -112,27 +116,28 @@ Sam, who never saw pull request #12, asks their agent to change the same job.
 
 - **Before the first edit of `src/jobs/retry.ts`**, Sam's agent is told:
 
-  ```
-  Rigour, before you edit src/jobs/retry.ts: what this team asks of this file.
-  1. Bound the retry window at both ends: `updated_at` between since and until. (learned in PR #12, approved by Jane D. (team))
-  ```
+  > Rigour, before you edit src/jobs/retry.ts: what this team asks of this file.<br>
+  > 1. Bound the retry window at both ends: `updated_at` between since and until. (learned in PR #12, approved by
+  > Jane D. (team))
 
-  So the agent writes it right the first time. The same happens for Lee's agent, Priya's, and anyone who joins
-  later. `rigour brief --files src/jobs/retry.ts` shows the same text to a person.
-- **If an agent writes an unbounded window anyway**, the review of the next pull request finds the repeat and cites
-  the lesson, so the reviewer does not have to remember it.
-- **A rule that stops being true does not stay forever.** If the team keeps merging changes against a lesson that a
-  recurrence or an outcome promoted, and nothing goes wrong, Rigour takes it back on its own. A lesson a person
-  decided is only ever taken back by a person ([Outcomes](./OUTCOMES.md)).
+  So the agent writes it right the first time. Lee's agent gets the same lesson from `rigour_brief` when it starts
+  a task on that file, and so does anyone who joins later. A person can see it with
+  `rigour brief --files src/jobs/retry.ts`.
+- **If an agent writes an unbounded window anyway** and the team has the reviewer on, the review of the next pull
+  request finds the repeat and cites the lesson, so Jane does not have to remember it.
+- **A lesson a person decided stays until a person changes it.** Jane can take it back at any time with
+  `--take-back`. A lesson that came only from recurrence can also be taken back by evidence: with outcome tracking
+  turned on (`learning.outcomes.mode`, off by default), a run of changes merged against it with nothing going wrong
+  returns it to a candidate ([Outcomes](./OUTCOMES.md)).
 
 ## What each person gets
 
 | Person | During development | At PR review | From learning |
 | --- | --- | --- | --- |
-| Sam, new | Briefed with every approved lesson from day 1, without reading the history | Fewer comments on what the team already settled | Benefits from decisions made before joining |
+| Sam, new | Briefed with the team's approved lessons from day 1, without reading the history | Fewer comments on what the team already settled | Benefits from decisions made before joining |
 | Lee | Problems caught while the file is open, not in review | Review starts at the design, not the mechanics | A fix asked for once is not asked for again |
-| Jane, senior reviewer | Nothing to do | Writes a point once; agents stop repeating it | Decides, with a reason, what every agent is told |
-| Priya, owner | Nothing to do | Nothing to do | Adds a person in minutes; the team's knowledge stays in the team's own database |
+| Jane, senior reviewer | Briefed with the team's decisions, like everyone | Writes a point once; agents stop repeating it | Decides, with a reason, what every agent is told |
+| Priya, owner | Briefed and checked, like everyone | Fewer repeated comments, like everyone | Adds a person in minutes; the team's knowledge stays in the team's own database |
 
 ## Where to start
 

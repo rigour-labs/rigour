@@ -7,7 +7,7 @@ This page covers what is shared, how a lesson gets approved, how to set the data
 ## Join an existing team
 
 Your team already shares lessons and you are new to it. Nobody can add themselves: a login and a membership are what
-let the database check who you are, so the first step is always your team's Rigour administrator.
+let the database check who you are, so the first step is always your team's Rigour administrator: whoever set up the team database.
 
 1. **Ask the administrator for three things**, sent privately (a password manager or your team's secret store, never
    chat or the repository):
@@ -232,7 +232,8 @@ Some hosts turn on row-level security for every new table. A table with row-leve
 
 ### 2. Create a login and a membership for each person
 
-Rigour does not create roles or grant privileges. Do it with SQL, as the administrator:
+Rigour does not create login roles. Create each one with SQL, as the administrator. The grants below take effect at
+once; `rigour team init-schema` also grants them, later, to every login listed in `rigour.memberships`:
 
 ```sql
 CREATE ROLE rigour_jane LOGIN PASSWORD 'use-a-generated-password';
