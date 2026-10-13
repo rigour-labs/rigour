@@ -120,7 +120,7 @@ export const APPENDED_COMMENT = '# Rigour push gate (rigour hooks init): the sam
 export async function gitPushGateCommand(stdin: string, cwd: string, gate: typeof pushGate = pushGate): Promise<{ exitCode: 0 | 1; message: string }> {
     const refs = stdin.split('\n').map(line => line.trim().split(/\s+/)).filter(parts => parts.length === 4 && !/^0+$/.test(parts[1]));
     if (refs.length === 0) return { exitCode: 0, message: '' }; // deleting a remote branch: nothing is sent
-    const notHead = refsNotAtHead(refs, gitOutput(cwd, ['rev-parse', 'HEAD']) ?? '');
+    const notHead = refsNotAtHead(cwd, refs, gitOutput(cwd, ['rev-parse', 'HEAD']) ?? '');
     if (notHead) return { exitCode: 1, message: notHead };
     const dirty = gitOutput(cwd, ['status', '--porcelain', '--untracked-files=no']);
     if (dirty) return { exitCode: 1, message: `Push refused: the tree has uncommitted changes to tracked files, and the gate checks what the push sends (HEAD). Commit or stash them, then push again:\n${dirty.split('\n').slice(0, 8).map(l => `  ${l}`).join('\n')}` };
@@ -128,11 +128,18 @@ export async function gitPushGateCommand(stdin: string, cwd: string, gate: typeo
     return { exitCode: result.exitCode === 0 ? 0 : 1, message: result.message };
 }
 
-/** One refusal line per pushed ref whose commit is not the checked-out one, or undefined when every ref is HEAD. */
-function refsNotAtHead(refs: string[][], head: string): string | undefined {
-    const lines = refs.filter(([, sha]) => sha !== head).map(([localRef, sha]) => {
+/**
+ * One refusal line per pushed ref whose commit is not the checked-out one, or undefined when every ref is HEAD. An
+ * annotated tag arrives as the tag object's sha, so each sha is peeled to its commit first; one that peels to no commit
+ * (a tag of a tree or blob) is not HEAD.
+ */
+function refsNotAtHead(cwd: string, refs: string[][], head: string): string | undefined {
+    const lines = refs.flatMap(([localRef, sha]) => {
+        const commit = gitOutput(cwd, ['rev-parse', '--verify', '-q', `${sha}^{commit}`]);
+        if (commit === head) return [];
         const name = localRef.replace(/^refs\/heads\//, '');
-        return `Push refused: this push sends ${name} at ${sha.slice(0, 7)}, but the gate checks the checked-out commit (${head.slice(0, 7)}). Check out ${name} and push from there, or run \`rigour hooks push --git\` there.`;
+        const at = commit && commit !== sha ? `${commit.slice(0, 7)} (tag ${sha.slice(0, 7)})` : sha.slice(0, 7);
+        return [`Push refused: this push sends ${name} at ${at}, but the gate checks the checked-out commit (${head.slice(0, 7)}). Check out ${name} and push from there, or run \`rigour hooks push --git\` there.`];
     });
     return lines.length > 0 ? lines.join('\n') : undefined;
 }
