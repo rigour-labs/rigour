@@ -17,7 +17,7 @@ tool, and what to do when something does not fire. Setting Rigour up is covered 
 | Claude Code | yes | yes | yes, in the agent and through git | yes, before every tool call | yes, in a new or an existing repository |
 | Cursor | yes | yes | yes, through git | yes, before a prompt is sent | yes |
 | Cline | yes | no | yes, through git | yes, before every tool call | no |
-| Windsurf | yes | no | yes, through git | yes, before code is written | no |
+| Windsurf (Devin Desktop): `.devin/hooks.json` or `.windsurf/hooks.json` | yes | no | yes, through git | yes, before code is written | no |
 | Codex, Gemini CLI, or you in a terminal | no | no | yes, through git | no | no |
 
 "Through git" is git's own `pre-push` hook, which Rigour installs in the clone. It applies to every
@@ -108,7 +108,7 @@ of your own at either path is left alone.
 
 ### Windsurf
 
-File: `.windsurf/hooks.json` (team) or `~/.codeium/windsurf/hooks.json` (personal).
+File: `.devin/hooks.json` when it defines hooks, else `.windsurf/hooks.json` (team); `~/.codeium/windsurf/hooks.json` (personal). Devin Desktop (formerly Windsurf) reads `.windsurf/hooks.json` only when `.devin/hooks.json` is absent or defines no hooks, so setup merges into the one it reads, never creates `.devin/hooks.json` for Rigour alone, and moves only its own entries out of `.windsurf/hooks.json` once `.devin/hooks.json` is the one read.
 
 | Event | Command | What it does |
 | --- | --- | --- |
@@ -344,7 +344,7 @@ not seen firing), broken, or missing, with the command that fixes it:
 - the after-edit hook for Claude Code, Cursor and Windsurf, in the project and, for a personal
   install, at user level. It names the old hook that passes a variable the agent never sets, so no
   edit is checked (fix: `rigour setup`, which rewrites Rigour's own entries in the project or, for a
-  personal install, at user level). Cline's hooks are checked too;
+  personal install, at user level). Cline's hooks are checked too. For Windsurf it names the file Devin Desktop reads, `✘` when Rigour's hooks are only in the one it ignores (fix: `rigour setup`);
 - the stop hook;
 - the MCP server, found in `.mcp.json`, `~/.claude.json` or `~/.cursor/mcp.json`, or seen through tool
   calls;

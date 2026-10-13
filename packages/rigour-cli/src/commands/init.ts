@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import yaml from 'yaml';
 import { DiscoveryService, loadSettings } from '@rigour-labs/core';
 import { hooksInitCommand } from './hooks.js';
+import { DEVIN_HOOKS, windsurfHooksPath } from './windsurf-hooks.js';
 import { randomUUID } from 'crypto';
 import { writeAgentInstructions } from './init-handshake.js';
 import { isRigourMcpEntry, recordCreated } from './install-record.js';
@@ -64,7 +65,7 @@ function detectAllIDEs(cwd: string): DetectedIDE[] {
     if (fs.existsSync(path.join(cwd, '.clinerules'))) {
         detected.push('cline');
     }
-    if (fs.existsSync(path.join(cwd, '.windsurfrules')) || fs.existsSync(path.join(cwd, '.windsurf'))) {
+    if (fs.existsSync(path.join(cwd, '.windsurfrules')) || fs.existsSync(path.join(cwd, '.windsurf')) || fs.existsSync(path.join(cwd, DEVIN_HOOKS))) {
         detected.push('windsurf');
     }
     if (fs.existsSync(path.join(cwd, '.gemini'))) {
@@ -305,7 +306,6 @@ const PRIMARY_HOOK_PATH: Record<string, string> = {
     claude: '.claude/settings.json',
     cursor: '.cursor/hooks.json',
     cline: '.clinerules/hooks/PostToolUse',
-    windsurf: '.windsurf/hooks.json',
 };
 
 /**
@@ -363,7 +363,8 @@ async function initHooksForAllDetectedTools(
     }
     const enabledTools: string[] = [];
     for (const tool of hookTools) {
-        if (await fs.pathExists(path.join(cwd, PRIMARY_HOOK_PATH[tool]))) enabledTools.push(tool);
+        const hookPath = tool === 'windsurf' ? windsurfHooksPath(cwd) : PRIMARY_HOOK_PATH[tool];
+        if (await fs.pathExists(path.join(cwd, hookPath))) enabledTools.push(tool);
     }
     return enabledTools;
 }
