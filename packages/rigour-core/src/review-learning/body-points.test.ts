@@ -55,6 +55,26 @@ describe('a review body\'s bold and heading blocks', () => {
     });
 });
 
+describe('a review tool\'s own markup in a body', () => {
+    it('is never a point: bold settings in a collapsed block, a bold "Reviewed commit:" line, an emoji title', () => {
+        const settings = '<details>\n<summary>Run settings</summary>\n\n**Settings source**: Team defaults\n**Strictness**: RELAXED\n**Tier**: Starter Plus\n**Job ID**: `0c5e2a91-77d3-4b1e-9f10-2d8c6b4a3e55`\n**Quota left:** Your tier allows a handful of reviews each hour; some remain.\n\n**Tighten the cache key before it ships.**\nThe key leaves out the tenant id.\n</details>';
+        expect(bodyPoints(settings)).toEqual([]);
+        expect(bodyPoints('**Reviewed commit:** `9f3c2a1b7e`\n\nThe reviewer looked at the latest push.')).toEqual([]);
+        expect(bodyPoints('**Build:** passed\n**Coverage:** 81%')).toEqual([]);
+        expect(bodyPoints('**🔎 Helper Review**\n\nSome suggestions from the helper follow.')).toEqual([]);
+        expect(bodyPoints('### 🔎 Helper Review\n\nSome suggestions from the helper follow.')).toEqual([]);
+        expect(bodyPoints('**Findings:**')).toEqual([]);
+    });
+
+    it('still keeps a bullet in a collapsed block, a labelled point, and a short label with a sentence after it', () => {
+        expect(bodyPoints('<details>\n<summary>Minor notes</summary>\n\n**Tier**: Starter\n- Drop the unused `retryCount` import.\n</details>')).toEqual(['Drop the unused `retryCount` import.']);
+        expect(bodyPoints('**B2:** Rethrow after logging; the caller decides.')).toEqual(['Rethrow after logging; the caller decides.']);
+        expect(bodyPoints('**Bug:** the cursor never resets on reconnect.')).toEqual(['Bug: the cursor never resets on reconnect.']);
+        expect(bodyPoints('**Another suggestion:**\n\nThe flag-gated test still unpacks a tuple the helper no longer returns.'))
+            .toEqual(['Another suggestion: The flag-gated test still unpacks a tuple the helper no longer returns.']);
+    });
+});
+
 describe('a review body\'s bullets, by the section they sit in', () => {
     it('skips a praise list as praise and a list of what was fixed since the last round as a status report', () => {
         const body = '### What\'s good\n- The parser handles empty input cleanly.\n- Clear names throughout the queue module.\n\nFixed since the last round:\n- The cursor now resets on reconnect.\n- Tests cover the empty batch.\n\n### Blocking\n- The lock is taken twice on the retry path.';

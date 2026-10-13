@@ -402,7 +402,9 @@ repository's merged pull requests. Every review point is a **candidate**, whoeve
 AI posting under a person's login, or a review bot. A point is an inline comment or, in a review's body, a
 bulleted or numbered line, or a bold or heading block (`**1. The retry window is unbounded**`, `### B3: \`flushQueue\``)
 read as its lead and, when the lead is short, a label or an identifier, the first sentence under it; a heading or bold
-line that only names a section ("Blocking", "Nits", "Summary") or that a list follows is a title, not a point. It keeps the point's own words: its bold title, else
+line that only names a section ("Blocking", "Nits", "Summary") or that a list follows is a title, not a point. A
+review tool's own markup is never a point: a bold or heading block inside a collapsed block (only its bullets count),
+a short bold label with a value after it ("Plan: Pro", "Reviewed commit: `abc123`"), or an emoji title. It keeps the point's own words: its bold title, else
 its first sentence and, when that only says what is wrong, the first sentence that says what to do, with
 identifiers as written. Read again by a later version, a point never adds a second lesson: an undecided
 one takes the text that version reads; one a person decided (promoted, rejected, dismissed, or with a

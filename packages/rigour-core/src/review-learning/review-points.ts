@@ -5,7 +5,7 @@
  * both see the same points.
  */
 import { HELP_SUMMARY, plain, sectionOf, sectionReason } from './body-sections.js';
-import type { NotRequestReason } from './requests.js';
+import { asksSomething, type NotRequestReason } from './requests.js';
 
 export const BULLET = /^\s*(?:[-*]|\d+[.)])\s+(.{8,})$/;
 const HEADING = /^#{1,6}\s+(.*)$/;
@@ -18,6 +18,14 @@ const REFERENCE = /^(?:#?[A-Za-z]{0,3}\d+[.):]|\(\d+\))(?:\s+|$)/;
 const IDENTIFIER = /^`?[\w$./()-]+`?:?$/;
 /** A lead shorter than this reads as a title: the first sentence under it is added. */
 const SHORT_LEAD = 60;
+/** A bold label this short, with a value after it on the line, is a tool's metadata ("Plan: Pro"), not a point. */
+const LABEL_WORDS = 4;
+const VALUE_WORDS = 6;
+/** A value alone: a code span, a hash or id, a number, or one word. */
+const VALUE = /^(?:`[^`]*`|[\w.#/-]+)$/;
+/** A tool's title: an emoji, then a few words. */
+const TOOL_TITLE = /^\p{Extended_Pictographic}/u;
+const TITLE_WORDS = 5;
 const MAX_POINT = 140;
 
 /** A point of a review body, and why its place in the body makes it ask for nothing (undefined elsewhere). */
@@ -40,7 +48,7 @@ export function bodyPoints(body: string): string[] {
  */
 export function readBody(body: string): BodyPoint[] {
     const lines = body.split('\n');
-    const walk: Walk = { lines, points: [], section: undefined, help: false, fence: false, joined: false };
+    const walk: Walk = { lines, points: [], section: undefined, help: false, collapsed: 0, fence: false, joined: false };
     lines.forEach((_, i) => readLine(walk, i));
     return walk.points;
 }
@@ -53,6 +61,8 @@ interface Walk {
     section: NotRequestReason | undefined;
     /** Inside a collapsed block about the review tool itself. */
     help: boolean;
+    /** How many collapsed blocks the walk is inside: tools collapse their status and settings, so only bullets count there. */
+    collapsed: number;
     fence: boolean;
     /** Inside a block (its lead and the prose straight under it): a bold label there (`**Why:** …`) continues the block. */
     joined: boolean;
@@ -82,6 +92,7 @@ function readCollapsed(walk: Walk, raw: string): string | undefined {
         walk.help = HELP_SUMMARY.test(plain(summary));
         walk.section = sectionReason(sectionOf(summary));
     }
+    walk.collapsed = Math.max(0, walk.collapsed + (raw.match(/<details\b/gi)?.length ?? 0) - (raw.match(/<\/details>/gi)?.length ?? 0));
     if (/<\/details>/i.test(raw)) walk.help = false;
     return summary;
 }
@@ -104,22 +115,42 @@ function readHeading(walk: Walk, heading: string, i: number): void {
     const next = nextLine(walk.lines, i);
     walk.section = sectionReason(named);
     walk.joined = false;
-    if (!named && next !== undefined && isProse(next)) addPoint(walk, blockText(heading, '', walk.lines, i), undefined, true);
+    if (!named && !walk.collapsed && !isToolTitle(heading) && next !== undefined && isProse(next)) addPoint(walk, blockText(heading, '', walk.lines, i), undefined, true);
 }
 
-/** A bold lead: a section's title when the whole line is bold and names a section or a list follows, else a point. */
+/**
+ * A bold lead: a section's title when the whole line is bold and names a section, titles what follows or is a tool's
+ * title; a tool's metadata when a short label carries a value; else a point. Never a point inside a collapsed block.
+ */
 function readBoldLead(walk: Walk, span: string, rest: string, i: number): void {
     const labelled = REFERENCE.test(plain(span));
     if (walk.joined && !labelled) return;
     const named = sectionOf(span);
-    const next = nextLine(walk.lines, i);
-    if (!rest && (named || (next !== undefined && opensSection(next, labelled)))) {
+    if (!rest && isBoldTitle(walk, span, named, labelled, i)) {
         walk.section = sectionReason(named);
         walk.joined = false;
         return;
     }
-    const reason = rest && named ? sectionReason(named) ?? walk.section : walk.section;
-    addPoint(walk, blockText(named ? '' : span, rest, walk.lines, i), reason, true);
+    if (walk.collapsed || isToolValue(span, rest, named, labelled)) {
+        walk.joined = false;
+        return;
+    }
+    addPoint(walk, blockText(named ? '' : span, rest, walk.lines, i), leadReason(walk, rest, named), true);
+}
+
+/** A tool's setting on one line ("Plan: Pro"): a short label nobody numbered, and a value. */
+function isToolValue(span: string, rest: string, named: ReturnType<typeof sectionOf>, labelled: boolean): boolean {
+    return !!rest && !labelled && !named && isMetadata(span, rest);
+}
+
+/** A section's name as a point's label (`**Nit:** …`) places that point; otherwise the section it sits in does. */
+function leadReason(walk: Walk, rest: string, named: ReturnType<typeof sectionOf>): NotRequestReason | undefined {
+    return rest && named ? sectionReason(named) ?? walk.section : walk.section;
+}
+
+/** Whether a whole bold line titles a section: it names one, sits in a collapsed block, or titles what follows. */
+function isBoldTitle(walk: Walk, span: string, named: ReturnType<typeof sectionOf>, labelled: boolean, i: number): boolean {
+    return !!named || walk.collapsed > 0 || titlesSection(span, labelled, nextLine(walk.lines, i));
 }
 
 /** A plain preamble straight before a list ("Fixed since the last round:") names the list's section. */
@@ -137,6 +168,27 @@ function nextLine(lines: string[], i: number): string | undefined {
 /** A line of prose: not a list item, a heading, a bold lead, a code fence, a table row or markup. */
 function isProse(line: string): boolean {
     return !BULLET.test(line) && !HEADING.test(line) && !BOLD_LEAD.test(line) && !FENCE.test(line) && !/^[<|]/.test(line);
+}
+
+/** Whether a whole bold line is a title: a tool's own (an emoji and a few words), a label nothing but markup follows, or by what follows it. */
+function titlesSection(span: string, labelled: boolean, next: string | undefined): boolean {
+    const text = span.trim();
+    if (isToolTitle(text)) return true;
+    if (next === undefined) return text.endsWith(':');
+    return opensSection(next, labelled) || (text.endsWith(':') && !isProse(next));
+}
+
+/** A tool's own title: an emoji and a few words ("🔍 Review summary"). */
+function isToolTitle(title: string): boolean {
+    return TOOL_TITLE.test(title.trim()) && plain(title).split(' ').length <= TITLE_WORDS;
+}
+
+/** A short label and a value: one token, or a few words that end no sentence and ask for nothing ("Plan: Pro Plus"). */
+function isMetadata(span: string, rest: string): boolean {
+    if (plain(span).split(' ').length > LABEL_WORDS) return false;
+    const value = rest.trim();
+    if (VALUE.test(value)) return true;
+    return value.split(/\s+/).length <= VALUE_WORDS && !/[.!?]$/.test(value) && !asksSomething(value);
 }
 
 /** Whether a whole bold line is a section title by what follows it: a list, a heading, markup, or numbered bold points. */
@@ -160,12 +212,13 @@ function blockText(span: string, rest: string, lines: string[], i: number): stri
     return capped(`${lead}${joiner}${sentence}`);
 }
 
-/** The prose lines straight after line `i`, bold labels in it included, up to a blank line or the next list, heading, numbered bold lead, fence or markup. */
+/** The paragraph under line `i`, past blank lines, bold labels in it included, up to a blank line or the next list, heading, numbered bold lead, fence or markup. */
 function paragraphAfter(lines: string[], i: number): string[] {
     const out: string[] = [];
     for (const raw of lines.slice(i + 1)) {
         const line = raw.trim();
         const label = BOLD_LEAD.exec(line)?.[1];
+        if (!line && !out.length) continue;
         if (!line || (!isProse(line) && (label === undefined || REFERENCE.test(plain(label))))) break;
         out.push(line);
     }
