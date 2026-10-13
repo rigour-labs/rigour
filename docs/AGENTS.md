@@ -146,9 +146,12 @@ included):
   file is missing. A personal install leaves it alone and prints the line, since a personal install
   changes nothing in the working tree. `rigour uninstall` takes the line back out.
 
-The hook gates the commit git is about to send. It refuses a push while tracked files have
-uncommitted changes, since it would otherwise check code the push does not carry. Deleting a remote
-branch passes. A failure exits 1 and git does not push.
+The hook gates the commit git is about to send, and the gate checks the checked-out tree. So it
+refuses a push of a commit other than the checked-out one (`git push origin other-branch` from
+`main`), naming each such ref: it would otherwise pass code it never checked. Check out that branch
+and push from there. Pushing several refs that all point at the checked-out commit runs the gate once.
+It also refuses a push while tracked files have uncommitted changes, for the same reason. Deleting a
+remote branch passes. A failure exits 1 and git does not push.
 
 The hook lives in `.git/hooks`, which a clone does not carry, so each person runs `rigour setup` once
 per clone. `rigour hooks selftest` proves the hook with a real push: in a scratch clone of a scratch
