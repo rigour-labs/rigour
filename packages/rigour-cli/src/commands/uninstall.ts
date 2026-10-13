@@ -1,7 +1,7 @@
 /**
  * `rigour uninstall`: take Rigour back out of a repository, and only Rigour.
  *
- * - Agent configs (`.claude/settings.json`, `.cursor/hooks.json`, `.windsurf/hooks.json`, the MCP
+ * - Agent configs (`.claude/settings.json`, `.cursor/hooks.json`, `.windsurf/hooks.json`, `.devin/hooks.json`, the MCP
  *   files): Rigour's hook entries and its `rigour` MCP server are removed; every other setting and
  *   the person's own hooks stay. A config Rigour created and that is now empty is deleted.
  * - Files Rigour created (instructions such as CLAUDE.md when there was none, Cline hook scripts,
@@ -26,7 +26,7 @@ import { setReportOnlyHere } from './report-only.js';
 import { isEmptyConfig, isRigourScript, readInstallRecord, unchangedSinceInstall, withoutRigour } from './install-record.js';
 import { GITIGNORE_PATTERNS } from './init.js';
 
-const CONFIGS = ['.claude/settings.json', '.cursor/hooks.json', '.windsurf/hooks.json', '.cursor/mcp.json', '.mcp.json'];
+const CONFIGS = ['.claude/settings.json', '.cursor/hooks.json', '.windsurf/hooks.json', '.devin/hooks.json', '.cursor/mcp.json', '.mcp.json'];
 /** Files Rigour may have written without a record (an install older than the record): known by their content. */
 const KNOWN_SCRIPTS = ['.clinerules/hooks/PostToolUse', '.clinerules/hooks/PreToolUse'];
 // What setup adds, and the older single `.rigour/` line.

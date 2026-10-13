@@ -5,7 +5,7 @@
  *   - Claude Code: .claude/settings.json (after an edit, before "done", before a push, DLP)
  *   - Cursor: .cursor/hooks.json (after an edit, before "done", DLP)
  *   - Cline: .clinerules/hooks/ (after an edit, DLP)
- *   - Windsurf: .windsurf/hooks.json (after a write, DLP)
+ *   - Windsurf (Devin Desktop): .devin/hooks.json when it defines hooks, else .windsurf/hooks.json (after a write, DLP)
  */
 
 import fs from 'fs-extra';
@@ -43,6 +43,7 @@ import { loadHookConfig } from './hooks-stop.js';
 import { REPORT_ONLY_PREFIX, reportOnly } from './report-only.js';
 import { filesWrittenSince, toolCallId } from './shell-writes.js';
 import { repositoryOf } from './hooks-push.js';
+import { DEVIN_HOOKS, WINDSURF_HOOKS, removeFromLegacy, windsurfHooksPath } from './windsurf-hooks.js';
 
 type HookTool = 'claude' | 'cursor' | 'cline' | 'windsurf';
 
@@ -141,7 +142,7 @@ const TOOL_MARKERS: Record<HookTool, string[]> = {
     claude: ['CLAUDE.md', '.claude'],
     cursor: ['.cursor', '.cursorrules'],
     cline: ['.clinerules'],
-    windsurf: ['.windsurfrules', '.windsurf'],
+    windsurf: ['.windsurfrules', '.windsurf', DEVIN_HOOKS],
 };
 
 function detectTools(cwd: string): HookTool[] {
@@ -486,7 +487,15 @@ const GENERATORS: Record<HookTool, (checker: CheckerCommandSpec, block: boolean,
 /** Every project file Rigour's hooks are written to, for every agent: what a team commits when it installs Rigour. */
 export function projectHookPaths(): string[] {
     const checker = resolveCheckerCommand();
-    return [...new Set((Object.keys(GENERATORS) as HookTool[]).flatMap(tool => GENERATORS[tool](checker, true).map(file => file.path)))];
+    return [...new Set([...(Object.keys(GENERATORS) as HookTool[]).flatMap(tool => GENERATORS[tool](checker, true).map(file => file.path)), DEVIN_HOOKS])];
+}
+
+/** One agent's project files, Windsurf's at the path Devin Desktop reads here (windsurf-hooks.ts). */
+function projectFilesFor(cwd: string, tool: HookTool, checker: CheckerCommandSpec, opts: { block: boolean; dlp: boolean; brief: boolean }): GeneratedFile[] {
+    const files = GENERATORS[tool](checker, opts.block, opts.dlp, opts.brief);
+    if (tool !== 'windsurf' || windsurfHooksPath(cwd) !== DEVIN_HOOKS) return files;
+    // Devin Desktop's format has no `version` key: the person's file gets only Rigour's hooks.
+    return files.map(file => file.path !== WINDSURF_HOOKS ? file : { ...file, path: DEVIN_HOOKS, content: jsonText({ hooks: JSON.parse(file.content).hooks }) });
 }
 
 // ── File writing ─────────────────────────────────────────────────────
@@ -628,7 +637,7 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     // Collect generated files — each generator includes DLP hooks in the SAME config file
     const allFiles: GeneratedFile[] = [];
     for (const tool of tools) {
-        allFiles.push(...GENERATORS[tool](checker, block, dlp, !!options.brief));
+        allFiles.push(...projectFilesFor(cwd, tool, checker, { block, dlp, brief: !!options.brief }));
     }
 
     if (options.dryRun) {
@@ -637,9 +646,13 @@ export async function hooksInitCommand(cwd: string, options: HooksOptions = {}):
     }
 
     const { written, skipped, failedPaths } = await writeHookFiles(cwd, allFiles, !!options.force);
+    if (tools.includes('windsurf') && allFiles.some(file => file.path === DEVIN_HOOKS) && !failedPaths.has(DEVIN_HOOKS)) {
+        const moved = removeFromLegacy(cwd);
+        if (moved) console.log(chalk.green(`  MOVE Windsurf hooks to ${DEVIN_HOOKS}`) + chalk.dim(`\n         Devin Desktop reads it and ignores ${WINDSURF_HOOKS}; ${moved}`));
+    }
     const failed = failedPaths.size;
     const unavailableTools = new Set(tools.filter(tool => {
-        const generatedPaths = GENERATORS[tool](checker, block, dlp, !!options.brief).map(file => file.path);
+        const generatedPaths = projectFilesFor(cwd, tool, checker, { block, dlp, brief: !!options.brief }).map(file => file.path);
         return generatedPaths.every(filePath => failedPaths.has(filePath));
     }));
 
