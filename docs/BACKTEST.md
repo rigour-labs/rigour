@@ -85,7 +85,7 @@ rigour backtest init --pr 212
 This reads the pull request's reviews through `gh` and writes one round per review by a person: not a bot, not the pull request's author, and with a body or a "changes requested" state.
 
 - An inline comment becomes a point with its file (as an escaped pattern) and a window of 10 lines either side of its line. A comment with no line is marked `needs`.
-- Each bulleted or numbered line in the review body becomes a point with no file, marked `needs`: add its `file` and `text` patterns once.
+- Each bulleted or numbered line in the review body, and each bold or heading block (`**1. The retry window is unbounded**`), becomes a point with no file, marked `needs`: add its `file` and `text` patterns once. The body is read as `rigour learn-reviews` reads it, so the ledger and the learner see the same points.
 - `base` is the merge-base of the reviewed commit and the main branch as it was when the review was posted. A branch that merged main in is measured from the newest main it contains. When a round's base is older than that, `rigour backtest` warns: the diff would include main's own commits, and anything found on them would be scored as the branch's.
 - `must_not_flag` is left empty for you to fill in.
 
