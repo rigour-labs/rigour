@@ -44,6 +44,7 @@ import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relate
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
+import { emptyAnswer, insideAgentNote } from './reviewer/judge-empty.js';
 import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
 import { judgeIsolation, type JudgeIsolation } from './reviewer/judge-isolation.js';
 import { appliedProfile } from '../utils/profile.js';
@@ -551,9 +552,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     const answer = ADAPTERS[judge].answer(result.stdout);
                     spent(answer.costUsd, shared + pass.diff.length); // every pass counts against the caps and the ledger, an answer or not
                     progress(`Rigour reviewer: ${judge} (${pass.specialists.join(', ')}) finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${result.exitCode})`);
-                    const verdict = hinted(judge, result, result.exitCode === 0 || answer.text.trim()
+                    const empty = emptyAnswer(judge, answer);
+                    const verdict = empty ? { error: `${judge} (${pass.specialists.join(', ')}): ${empty}` } : hinted(judge, result, result.exitCode === 0 || answer.text.trim()
                         ? parseVerdict(answer.text, needsPriorPoints && pass.specialists.includes('prior-points'), judge, answer)
-                        : { error: `${judge} (${pass.specialists.join(', ')}): no answer (exit ${result.exitCode})` });
+                        : { error: `${judge} (${pass.specialists.join(', ')}): no answer (exit ${result.exitCode})${insideAgentNote()}` });
                     // Whether slicing held: a pass that read the full diff, or read, searched or printed a changed file outside its slice.
                     const sliceFiles = new Set(pass.sliced.map(i => hunks[i].file));
                     const outside = changedFiles.filter(f => !sliceFiles.has(f));
@@ -596,7 +598,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                         progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
                         const answer = adapter.answer(run.stdout);
                         spent(answer.costUsd, projectedSingle); // every run counts against the caps, an answer or not
-                        return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? hinted(name, run, parseVerdict(answer.text, needsPriorPoints, name, answer)) : undefined };
+                        // An answer of 0 output tokens is nothing at all (a login the CLI could not use), whatever its exit code says.
+                        const empty = emptyAnswer(name, answer);
+                        return { run, answer, verdict: empty ? { error: `${name}: ${empty}` } : run.exitCode === 0 || answer.text.trim() ? hinted(name, run, parseVerdict(answer.text, needsPriorPoints, name, answer)) : undefined };
                     };
                     let first = await ask();
                     // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
@@ -612,7 +616,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                         }
                         first = await ask();
                     }
-                    return first.verdict ?? hinted(name, first.run, { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` });
+                    return first.verdict ?? hinted(name, first.run, { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}${insideAgentNote()}` });
                 }));
                 // A judge that gives nothing is replaced by the next one installed, so the boundary stays up: a review ends unavailable only when every judge failed.
                 const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
@@ -635,7 +639,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                         const run = await runJudge(next, prompt, modelFor(next));
                         const got = ADAPTERS[next].answer(run.stdout);
                         spent(got.costUsd, projectedSingle);
-                        answer = hinted(next, run, run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` });
+                        const empty = emptyAnswer(next, got);
+                        answer = empty ? { error: `${next}: ${empty}` } : hinted(next, run, run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}${insideAgentNote()}` });
                         if ('error' in answer && earlier) answer = { error: `${answer.error}${earlier}` };
                     }
                     answers[i] = answer;
