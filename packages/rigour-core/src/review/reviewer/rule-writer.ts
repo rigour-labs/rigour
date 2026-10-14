@@ -12,10 +12,10 @@ import type { Exec } from './exec.js';
 import { judgeUnset } from './judge-env.js';
 import { resolveReviewer } from './settings.js';
 import { VerdictStore } from './store.js';
-import { overBudget } from './caps.js';
+import { capOrigin, overBudget } from './caps.js';
 
 export async function ruleWriterFor(cwd: string, config: Config, exec: Exec, progress: (line: string) => void = () => undefined): Promise<RuleWriter | undefined> {
-    const settings = resolveReviewer(config);
+    const settings = capOrigin(resolveReviewer(config), cwd);
     let chosen: { name: keyof typeof ADAPTERS; binary: string } | undefined;
     for (const name of settings.reviewers.filter(isReviewerName)) {
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);

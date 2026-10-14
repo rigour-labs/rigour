@@ -36,6 +36,8 @@ export interface ResolvedReviewer {
     max_runs_per_day?: number;
     max_usd_per_day?: number;
     max_usd_per_review?: number;
+    /** Whose daily cost cap applies: rigour.yml's (its value, or the default when it is silent) or the person's lower one. */
+    usd_per_day_from?: 'team' | 'user';
     judges: 2 | 3;
     escalate: 'always' | 'risk';
     cross_models: Record<string, string>;
@@ -115,6 +117,7 @@ export function resolveReviewer(config: Config, choice: RunChoice = {}, user: Us
         dismissals: team.dismissals,
         ...cap('max_runs_per_day', team.max_runs_per_day, user?.max_runs_per_day, refused),
         ...cap('max_usd_per_day', team.max_usd_per_day, user?.max_usd_per_day, refused),
+        ...(user?.max_usd_per_day !== undefined && (team.max_usd_per_day === undefined || user.max_usd_per_day < team.max_usd_per_day) ? { usd_per_day_from: 'user' as const } : team.max_usd_per_day !== undefined ? { usd_per_day_from: 'team' as const } : {}),
         ...cap('max_usd_per_review', team.max_usd_per_review, user?.max_usd_per_review, refused),
         judges: floor ? Math.max(team.judges, user?.judges ?? team.judges) as 2 | 3 : user?.judges ?? team.judges,
         escalate: requiredEscalation(team, user, refused),
