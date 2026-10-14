@@ -654,6 +654,8 @@ profileCmd
     .option('--repositories <patterns>', "Team: the team's repositories (github.com/acme/*)")
     .option('--database-url-command <command>', 'Team: a command that prints the database URL (never stored)')
     .option('--github-account <login>', 'The GitHub account whose token fetches pull request reviews')
+    .option('--codex-home <dir>', "This profile's own Codex home: the codex judge runs with it as CODEX_HOME")
+    .option('--cursor-shared', "Run the cursor judge under this profile although it reads your own Cursor rules and settings")
     .action((name: string, options: any) => profileAddCommand(name, options));
 
 hooksCmd

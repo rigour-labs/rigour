@@ -53,3 +53,14 @@ describe('rigour profile add with a name already there', () => {
         expect(profileMatch(repo)?.profile.name).toBe('acme');
     });
 });
+
+describe('rigour profile add --codex-home and --cursor-shared', () => {
+    it("stores the profile's own Codex home and its choice to share Cursor, and omits both when not given", () => {
+        profileAddCommand('synthetic-co', { match: '~/work/synthetic-co', codexHome: '~/.codex-synthetic-co', cursorShared: true });
+        profileAddCommand('plain', { match: '~/work/plain' });
+        expect(readProfiles()).toEqual([
+            { name: 'synthetic-co', match: ['~/work/synthetic-co'], codexHome: '~/.codex-synthetic-co', cursorShared: true },
+            { name: 'plain', match: ['~/work/plain'] },
+        ]);
+    });
+});

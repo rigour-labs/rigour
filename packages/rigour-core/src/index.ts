@@ -38,6 +38,7 @@ export { resolveSwitch, saveUserSwitch, SWITCHES, type ResolvedSwitch, type Swit
 export { hookGoalDescription, recordGoal } from './goal/hook.js';
 export { resolveReviewer, saveUserReviewer, type ResolvedReviewer, type RunChoice, type UserReviewerPatch } from './review/reviewer/settings.js';
 export { reviewerAvailability } from './review/reviewer/adapters.js';
+export { judgesUnderProfile } from './review/reviewer/judge-isolation.js';
 export { branchBase, type BranchBase } from './gates/logic-drift-git-base.js';
 export { acknowledgeReview, type ReviewAck, type AckResult } from './review/review-ack.js';
 export { exportReviewed, readLedger, reviewedKeys, isReviewed, recordReview, REVIEWED_FILE, type LedgerEntry, type ReviewedKey, type ReviewVerdict } from './review/ledger.js';

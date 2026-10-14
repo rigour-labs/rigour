@@ -44,6 +44,8 @@ import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relate
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
+import { judgeIsolation, type JudgeIsolation } from './reviewer/judge-isolation.js';
+import { appliedProfile } from '../utils/profile.js';
 import { appendTaskEvent } from '../task/thread.js';
 import type { CoveredLesson } from './settled-checks.js';
 
@@ -172,6 +174,8 @@ export interface ModeRecord {
     degraded?: string;
     /** Nearer choices that were not applied, such as a user turning off a panel the team requires. */
     refused?: string[];
+    /** Installed judges this profile does not run, each with why and how to let it (reviewer/judge-isolation.ts). */
+    skipped?: string[];
     /** With escalate: risk, why this review got one judge or all of them. */
     escalation?: string;
     /** With cheap-model-first tiering on: the tier, why, and whether it turned itself off or escalated (reviewer/tiering.ts). */
@@ -238,6 +242,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
 
     const candidates = settings.reviewers.filter(isReviewerName);
     const installed = new Map<ReviewerName, Installed>();
+    // Under a profile, a judge that would read another organization's state on this machine is not run: unavailable, never a pass.
+    const profile = appliedProfile();
+    const isolation = new Map<ReviewerName, JudgeIsolation>();
+    const skipped: string[] = [];
     for (const name of candidates) {
         if (name === 'api') {
             // The API judge is installed when the team configured it and the key it names is set.
@@ -245,14 +253,25 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             continue;
         }
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
-        if (found) installed.set(name, found);
+        if (!found) continue;
+        const isolated = judgeIsolation(name, profile);
+        if (isolated.skip) {
+            skipped.push(`${name} skipped under profile ${profile!.name}: ${isolated.skip}`);
+            continue;
+        }
+        installed.set(name, found);
+        isolation.set(name, isolated);
     }
     const vendorOf = (name: ReviewerName) => (name === 'api' ? apiVendor(settings.api) : ADAPTERS[name].vendor);
     const authors = vendorsOf(await git(['log', '--format=%(trailers:key=Co-Authored-By,valueonly)%(trailers:key=Co-authored-by,valueonly)', `${baseSha}..HEAD`]));
     const mode: ReviewMode = settings.mode;
     let reviewers = selectReviewers(candidates, mode, authors, new Set(installed.keys()), settings.judges, vendorOf);
-    if (reviewers.length === 0) return none('unavailable', `no reviewer installed: ${candidates.map(n => ADAPTERS[n].binary).join(', ') || 'review.reviewer.reviewers is empty'}`);
-    modeRecord = modeRan(settings, reviewers, candidates, installed);
+    if (skipped.length) modeRecord = { ...modeRecord, skipped };
+    if (reviewers.length === 0) {
+        const why = skipped.length ? skipped.join('; ') : `no reviewer installed: ${candidates.map(n => ADAPTERS[n].binary).join(', ') || 'review.reviewer.reviewers is empty'}`;
+        return none('unavailable', why);
+    }
+    modeRecord = { ...modeRan(settings, reviewers, candidates, installed, skipped), ...(skipped.length ? { skipped } : {}) };
     if (reviewers.length < 2 && mode === 'full' && (settings.required.panel || settings.required.mode)) {
         return none('unavailable', `rigour.yml requires two reviewers from different vendors, and ${modeRecord.degraded}`, { reviewers, mode: modeRecord });
     }
@@ -368,7 +387,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
     // What a judge reads besides the repository and Rigour's inputs, on this machine: on the record, so "the same judge" is a claim it can check.
     const outsideOf = (reviewer: string) => {
-        const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir(), installed.get(reviewer as ReviewerName)?.version);
+        const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir(), installed.get(reviewer as ReviewerName)?.version, isolation.get(reviewer as ReviewerName)?.env);
         return outside ? { outside_repo: outside } : {};
     };
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
@@ -466,7 +485,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
         ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, cache: apiVendor(settings.api) === 'anthropic', ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
-        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...(ADAPTERS[name].env ? { env: ADAPTERS[name].env } : {}) });
+        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
     try {
         const file = (name: string, text: string) => {
             const target = path.join(work, name);
@@ -744,6 +763,12 @@ function escalationFor(humanReviews: number, risky: number | undefined): { escal
 }
 
 /** What was asked and where the choice came from, before anything has run. */
+/** A judge's variables: the adapter's own isolation, then this profile's (a Codex home). */
+function judgeEnv(name: ReviewerName, isolated: JudgeIsolation | undefined): { env?: Record<string, string> } {
+    const env = { ...ADAPTERS[name].env, ...isolated?.env };
+    return Object.keys(env).length ? { env } : {};
+}
+
 function askedOnly(settings: ResolvedReviewer): ModeRecord {
     const asked = settings.panel ? 'panel' : settings.mode;
     const source = settings.panel ? settings.source.panel : settings.source.mode;
@@ -751,11 +776,13 @@ function askedOnly(settings: ResolvedReviewer): ModeRecord {
 }
 
 /** The mode asked for and the one the installed reviewers allow: a panel or full review needs two vendors. */
-function modeRan(settings: ResolvedReviewer, reviewers: ReviewerName[], candidates: ReviewerName[], installed: Map<ReviewerName, Installed>): ModeRecord {
+function modeRan(settings: ResolvedReviewer, reviewers: ReviewerName[], candidates: ReviewerName[], installed: Map<ReviewerName, Installed>, skipped: string[] = []): ModeRecord {
     const record = askedOnly(settings);
     if (settings.mode !== 'full' || reviewers.length >= settings.judges) return record;
-    const missing = candidates.filter(name => !installed.has(name)).map(name => ADAPTERS[name].binary);
-    const degraded = `${settings.judges} judges asked, ${reviewers.join(' and ')} could run (${missing.length ? `not installed: ${missing.join(', ')}` : 'no other vendor in review.reviewer.reviewers'})`;
+    const isSkipped = (name: ReviewerName) => skipped.some(line => line.startsWith(`${name} skipped`));
+    const missing = candidates.filter(name => !installed.has(name) && !isSkipped(name)).map(name => ADAPTERS[name].binary);
+    const notRun = [...(missing.length ? [`not installed: ${missing.join(', ')}`] : []), ...(skipped.length ? [`skipped under this profile: ${candidates.filter(isSkipped).join(', ')}`] : [])];
+    const degraded = `${settings.judges} judges asked, ${reviewers.join(' and ')} could run (${notRun.length ? notRun.join('; ') : 'no other vendor in review.reviewer.reviewers'})`;
     return { ...record, ran: reviewers.length > 1 ? record.asked : 'single', degraded };
 }
 

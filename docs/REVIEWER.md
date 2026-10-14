@@ -105,6 +105,22 @@ records what was asked, what ran and why. A team can make the panel required, an
 without enough vendors is *unavailable*, which blocks like any review that could not run, instead
 of quietly running with one judge.
 
+### What each judge can see
+
+A judge reads the repository and the files Rigour gives it. What else it reads on your machine:
+
+| Judge | Outside the repository | Under a [profile](./PROFILES.md) |
+| --- | --- | --- |
+| `claude` | Nothing of yours: no MCP servers, no hooks, project settings only, no `CLAUDE.md` or auto-memory (Claude Code 2.1.285 or later; an older one is noted on the record). | Runs isolated. |
+| `codex` | Its Codex home (`CODEX_HOME`, else `~/.codex`): `config.toml` (which can name MCP servers), `AGENTS.md` and memories. No `-c` override empties the MCP servers (`-c mcp_servers={}` is merged into them), so the record names the files it reads. | Runs in the profile's own Codex home (`--codex-home`). Without one, it is skipped when the shared Codex home holds `config.toml`, `AGENTS.md` or memories. |
+| `cursor` | Your own Cursor rules, MCP servers, hooks and settings (`~/.cursor` and your Cursor account). cursor-agent has no switch that moves them: `CURSOR_CONFIG_DIR` leaves `~/.cursor/rules`, `mcp.json` and `hooks.json` where they are. | Skipped unless the profile allows it (`--cursor-shared`). |
+| `api` | Nothing: it reads only what Rigour sends it. | Runs. |
+
+A judge skipped under a profile counts as not available, never as a pass: the review runs the next
+judge in `reviewers` and the verdict lists the skip with its fix; with no other judge, or under a
+required panel or mode, the review is *unavailable*. `rigour doctor` lists, under a profile, which
+judges run isolated and which are skipped and why.
+
 ### Any model, through an API
 
 A judge does not have to be an agent CLI. Name `api` in `reviewers` and point it at any
