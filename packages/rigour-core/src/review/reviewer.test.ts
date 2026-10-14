@@ -1404,3 +1404,73 @@ describe('a claude judge refused for a stale ANTHROPIC_API_KEY', () => {
         expect(result.reason).not.toContain('overrides the claude CLI');
     });
 });
+
+describe('judges under a profile', () => {
+    const saved = { RIGOUR_PROFILE: process.env.RIGOUR_PROFILE, RIGOUR_PROFILES: process.env.RIGOUR_PROFILES, CODEX_HOME: process.env.CODEX_HOME };
+    let state: string;
+    let shared: string;
+    const configWith = (reviewer: Record<string, unknown>) => ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, ...reviewer } } });
+    const clean = () => JSON.stringify(EMPTY);
+    /** A profile applied to this process, and a shared Codex home holding a synthetic config.toml. */
+    const underProfile = (profile: Record<string, unknown>) => {
+        fs.writeFileSync(process.env.RIGOUR_PROFILES!, JSON.stringify({ profiles: [{ name: 'synthetic-co', match: [repo], ...profile }] }));
+        process.env.RIGOUR_PROFILE = 'synthetic-co';
+    };
+    beforeEach(() => {
+        state = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-profile-'));
+        shared = path.join(state, 'shared-codex');
+        fs.mkdirSync(shared);
+        fs.writeFileSync(path.join(shared, 'config.toml'), '[mcp_servers.synthetic]\ncommand = "echo"\n');
+        process.env.CODEX_HOME = shared;
+        process.env.RIGOUR_PROFILES = path.join(state, 'profiles.json');
+        installFake(bins[0], 'codex');
+    });
+    afterEach(() => {
+        for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
+        fs.rmSync(state, { recursive: true, force: true });
+    });
+
+    it("never runs codex on a Codex home every organization shares: unavailable, with the directory and the fix", async () => {
+        underProfile({});
+        const seen = { ...seenNow(), installed: ['codex'] };
+        const result = await runReviewer(repo, 'main', configWith({ reviewers: ['codex'] }), fakes(clean, seen), () => undefined);
+        expect(result.outcome).toBe('unavailable');
+        expect(reviewerBlocks(result)).toBe(true);
+        expect(result.reason).toContain(`codex skipped under profile synthetic-co: codex would read ${shared} (config.toml)`);
+        expect(result.reason).toContain('--codex-home <dir>');
+        expect(seen.ran).toEqual([]);
+    });
+
+    it("runs codex in the profile's own Codex home", async () => {
+        const own = path.join(state, 'synthetic-co-codex');
+        underProfile({ codexHome: own });
+        const seen = { ...seenNow(), installed: ['codex'] };
+        const result = await runReviewer(repo, 'main', configWith({ reviewers: ['codex'] }), fakes(clean, seen), () => undefined);
+        expect(result.outcome).toBe('passed');
+        expect(seen.env).toEqual([{ CODEX_HOME: own }]);
+        expect(result.mode?.skipped).toBeUndefined();
+    });
+
+    it('runs the next judge when one is skipped, and says so; a required panel without it is unavailable', async () => {
+        underProfile({});
+        const seen = { ...seenNow(), installed: ['claude', 'cursor-agent', 'codex'] };
+        const single = await runReviewer(repo, 'main', configWith({ reviewers: ['cursor', 'codex', 'claude'] }), fakes(clean, seen), () => undefined);
+        expect(single.outcome).toBe('passed');
+        expect(single.reviewers).toEqual(['claude']);
+        expect(single.mode?.skipped).toEqual([expect.stringMatching(/^cursor skipped under profile synthetic-co: .*--cursor-shared/), expect.stringMatching(/^codex skipped under profile synthetic-co: /)]);
+        const required = await runReviewer(repo, 'main', configWith({ reviewers: ['claude', 'codex'], mode: 'full', panel: 'required' }), fakes(clean, { ...seenNow(), installed: ['claude', 'codex'] }), () => undefined);
+        expect(required.outcome).toBe('unavailable');
+        expect(required.reason).toContain('skipped under this profile: codex');
+    });
+
+    it('runs cursor under a profile that allows it, and codex as before without a profile', async () => {
+        underProfile({ cursorShared: true });
+        const seen = { ...seenNow(), installed: ['cursor-agent'] };
+        expect((await runReviewer(repo, 'main', configWith({ reviewers: ['cursor'] }), fakes(clean, seen), () => undefined)).reviewers).toEqual(['cursor']);
+        delete process.env.RIGOUR_PROFILE;
+        const plain = { ...seenNow(), installed: ['codex'] };
+        const result = await runReviewer(repo, 'main', configWith({ reviewers: ['codex'] }), fakes(clean, plain), () => undefined);
+        expect(result.reviewers).toEqual(['codex']);
+        expect(result.record?.judges[0]).toMatchObject({ reviewer: 'codex', outside_repo: `codex also reads ${path.join(shared, 'config.toml')}` });
+    });
+});

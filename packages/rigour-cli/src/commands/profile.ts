@@ -11,7 +11,7 @@ export function profileListCommand(): void {
     if (profiles.length === 0) return void console.log(chalk.dim(`No profiles (${profilesPath()}). Add one with rigour profile add.`));
     for (const p of profiles) {
         console.log(`${chalk.bold(p.name)}  ${chalk.dim(p.match.join(', '))}`);
-        console.log(chalk.dim(`  home: ${p.home ?? '(default)'}${p.team ? `  team: ${p.team.organization}/${p.team.team} as ${p.team.actor}` : '  no team'}${p.githubAccount ? `  github: ${p.githubAccount}` : ''}`));
+        console.log(chalk.dim(`  home: ${p.home ?? '(default)'}${p.team ? `  team: ${p.team.organization}/${p.team.team} as ${p.team.actor}` : '  no team'}${p.githubAccount ? `  github: ${p.githubAccount}` : ''}${p.codexHome ? `  codex home: ${p.codexHome}` : ''}${p.cursorShared ? '  cursor: shared' : ''}`));
     }
 }
 
@@ -41,6 +41,8 @@ export interface ProfileAddOptions {
     repositories?: string;
     databaseUrlCommand?: string;
     githubAccount?: string;
+    codexHome?: string;
+    cursorShared?: boolean;
 }
 
 export function profileAddCommand(name: string, options: ProfileAddOptions): void {
@@ -59,6 +61,8 @@ export function profileAddCommand(name: string, options: ProfileAddOptions): voi
             },
         } : {}),
         ...(options.githubAccount ? { githubAccount: options.githubAccount } : {}),
+        ...(options.codexHome ? { codexHome: options.codexHome } : {}),
+        ...(options.cursorShared ? { cursorShared: true } : {}),
     };
     if (profile.match.length === 0) throw new Error('--match needs at least one path or remote (github.com/acme/*).');
     // Re-adding a profile replaces it where it is: its place in the list is kept.

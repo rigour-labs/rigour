@@ -24,8 +24,8 @@ export interface Adapter {
     answer(stdout: string): { text: string } & Spend;
     /** Variables the judge runs with, on top of what it inherits: what keeps a person's own instructions out of it. */
     env?: Record<string, string>;
-    /** What this judge still reads from outside the repository on this machine (a person's own config), or undefined: said on the record, never hidden. */
-    outsideRepo?(home: string, version: string | undefined): string | undefined;
+    /** What this judge still reads from outside the repository on this machine (a person's own config), or undefined: said on the record, never hidden. `env` is what the judge runs with on top of this process's (a profile's Codex home). */
+    outsideRepo?(home: string, version: string | undefined, env?: Record<string, string>): string | undefined;
 }
 
 /** What a run used: dollars when the CLI reports them (Claude Code), tokens otherwise (Codex reports only tokens). */
@@ -91,7 +91,8 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
     cursor: {
         vendor: 'cursor',
         binary: 'cursor-agent',
-        // Ask mode is read-only and cannot run git: every input the prompt names is a file.
+        // Ask mode is read-only and cannot run git: every input the prompt names is a file. It reads ~/.cursor (rules, MCP
+        // servers, hooks) whatever CURSOR_CONFIG_DIR says: under a profile it runs only when the profile allows it.
         outsideRepo: () => 'cursor also reads your own Cursor rules and settings',
         args: (prompt, model) => ['-p', '--print', '--output-format', 'json', '--trust', '--mode', 'ask', '--model', model ?? 'auto', prompt],
         answer: stdout => {
@@ -106,10 +107,11 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
     codex: {
         vendor: 'openai',
         binary: 'codex',
-        // Codex has no switch that skips a person's ~/.codex/config.toml and ~/.codex/AGENTS.md and keeps their login, so the
-        // record says when those exist rather than claiming a judge that only knows the repository.
-        outsideRepo: home => {
-            const dir = process.env.CODEX_HOME?.trim() || path.join(home, '.codex');
+        // No `-c` override empties config.toml's MCP servers (`-c mcp_servers={}` is merged into them), so codex reads its
+        // home's config.toml and AGENTS.md: the record says when those exist rather than claiming a judge that only knows the
+        // repository. Under a profile, codex runs only in the profile's own Codex home, or not at all (judge-isolation.ts).
+        outsideRepo: (home, _version, env) => {
+            const dir = env?.CODEX_HOME || process.env.CODEX_HOME?.trim() || path.join(home, '.codex');
             const read = ['config.toml', 'AGENTS.md'].filter(name => fs.existsSync(path.join(dir, name)));
             return read.length ? `codex also reads ${read.map(name => path.join(dir, name)).join(' and ')}` : undefined;
         },
