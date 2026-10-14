@@ -55,6 +55,8 @@ review:
       codex: { unset: [OPENAI_API_KEY] }
 ```
 
+`ANTHROPIC_API_KEY` reaches the `claude` judge too (people who use an API key with the CLI rely on it), and a key set there overrides the CLI's own login. When Claude Code refuses it ("Invalid API key"), the review's reason says so and names the fix: unset it for judges with `judge_env: { claude: { unset: [ANTHROPIC_API_KEY] } }`, or fix the key.
+
 ### Installs and package managers
 
 | Destination | When | What is sent | How to turn it off |

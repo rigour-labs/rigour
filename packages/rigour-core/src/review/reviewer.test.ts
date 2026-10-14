@@ -1371,6 +1371,43 @@ describe("the review on the task's thread", () => {
     });
 });
 
+describe('a claude judge refused for a stale ANTHROPIC_API_KEY', () => {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    afterEach(() => { if (saved === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved; });
+    const refused = () => ({ exitCode: 1, stdout: `${JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: 'Invalid API key · Fix external API key', total_cost_usd: 0 })}\n`, stderr: '' });
+    const claudeOnly = (reviewer: Record<string, unknown> = {}) => ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude'], ...reviewer } } });
+
+    it('is unavailable with the hint, and keeps passing the key by default', async () => {
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-synthetic-stale';
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', claudeOnly(), fakes(refused, seen), () => undefined);
+        expect(result.outcome).toBe('unavailable');
+        expect(result.reason).toContain('Invalid API key');
+        expect(result.reason).toContain("an ANTHROPIC_API_KEY in this environment overrides the claude CLI's own login");
+        expect(seen.unset?.every(list => !list?.includes('ANTHROPIC_API_KEY'))).toBe(true);
+    });
+
+    it('keeps the hint when another judge replaces claude, whether it answers or not', async () => {
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-synthetic-stale';
+        installFake(bins[0], 'codex');
+        const both = (reviewer: Record<string, unknown> = {}) => claudeOnly({ reviewers: ['claude', 'codex'], ...reviewer });
+        const answered = await runReviewer(repo, 'main', both(), fakes(name => (name === 'claude' ? refused() : JSON.stringify(EMPTY)), { ...seenNow(), installed: ['claude', 'codex'] }), () => undefined);
+        expect(answered.outcome).toBe('passed');
+        expect(answered.mode?.degraded).toContain("claude gave no verdict, codex judged instead (claude: an ANTHROPIC_API_KEY in this environment overrides the claude CLI's own login");
+        const failed = await runReviewer(repo, 'main', both(), fakes(name => (name === 'claude' ? refused() : { exitCode: 1, stdout: '', stderr: 'codex: offline' }), { ...seenNow(), installed: ['claude', 'codex'] }), () => undefined, { force: true });
+        expect(failed.outcome).toBe('unavailable');
+        expect(failed.reason).toContain('codex: no answer');
+        expect(failed.reason).toContain("claude: an ANTHROPIC_API_KEY in this environment overrides the claude CLI's own login");
+    });
+
+    it('gives no hint once the team unsets the key for the judge', async () => {
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-synthetic-stale';
+        const result = await runReviewer(repo, 'main', claudeOnly({ judge_env: { claude: { unset: ['ANTHROPIC_API_KEY'] } } }), fakes(refused, seenNow()), () => undefined);
+        expect(result.outcome).toBe('unavailable');
+        expect(result.reason).not.toContain('overrides the claude CLI');
+    });
+});
+
 describe('judges under a profile', () => {
     const saved = { RIGOUR_PROFILE: process.env.RIGOUR_PROFILE, RIGOUR_PROFILES: process.env.RIGOUR_PROFILES, CODEX_HOME: process.env.CODEX_HOME };
     let state: string;
