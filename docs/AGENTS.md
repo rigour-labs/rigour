@@ -145,6 +145,10 @@ included):
   among the committed files it writes, and creates `.husky/pre-push` only when Husky is set up and the
   file is missing. A personal install leaves it alone and prints the line, since a personal install
   changes nothing in the working tree. `rigour uninstall` takes the line back out.
+- After an upgrade, setup moves the version Rigour's line pins, wherever it is (`.git/hooks/pre-push`, a
+  hooks directory in the repository, a tracked Husky script), and says `UPDATE <file>`; every other line
+  of the script stays byte for byte. A personal install prints the updated line for a tracked script and
+  says the one there is stale. `rigour doctor` counts the line in its version check.
 
 The hook gates the commit git is about to send, and the gate checks the checked-out tree. So it
 refuses a push of a commit other than the checked-out one (`git push origin other-branch` from
