@@ -1340,13 +1340,16 @@ describe('the judge Rigour launches', () => {
         const claude = seen.ran.findIndex(command => path.basename(command).startsWith('claude'));
         expect(seen.env?.[claude]).toEqual({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
         // The fake reports version 1.0.0, older than the one the switches were verified in: the record says so.
-        expect(result.record?.judges.map(j => j.outside_repo)).toEqual(['claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)']);
-        expect(recordLines(result.record!).join('\n')).toContain('[claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)]');
+        expect(result.record?.judges.map(j => j.outside_repo)).toEqual(['claude 1.0.0: memory isolation unverified and every built-in tool loaded (needs 2.1.285 or later)']);
+        expect(recordLines(result.record!).join('\n')).toContain('[claude 1.0.0: memory isolation unverified and every built-in tool loaded (needs 2.1.285 or later)]');
+        expect(seen.args?.[claude]).not.toContain('--tools'); // an older CLI keeps the arguments it accepts
         const current = seenNow();
         // The installed fake is claude on Unix and claude.cmd on Windows: name both.
         current.versions = { [path.join(bins[0], 'claude')]: '2.1.285 (Claude Code)', [path.join(bins[0], 'claude.cmd')]: '2.1.285 (Claude Code)' };
         const verified = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), current, null), () => undefined, { trigger: 'review', force: true });
         expect(verified.record?.judges.map(j => j.outside_repo)).toEqual([undefined]);
+        const args = current.args?.[current.ran.findIndex(command => path.basename(command).startsWith('claude'))] ?? [];
+        expect(args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools'))).toEqual(['Read', 'Grep', 'Glob', 'Bash']);
     });
 });
 
