@@ -100,6 +100,15 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
         return undefined;
     };
     const isNullable = (t: TS.Type) => t.isUnion() && t.types.some(m => !!(m.flags & ts.TypeFlags.Null));
+    /**
+     * The declaration that makes a row's property nullable, when the property's effective type in the row still
+     * includes null. An intersection (`Base & { col: string }`) or a mapped type (`NonNullable` per member) narrows
+     * it while its first declaration still says `| null`, so the declared type alone is never the answer.
+     */
+    const nullableDeclOf = (prop: TS.Symbol): TS.PropertySignature | undefined => {
+        if (!isNullable(checker.getTypeOfSymbol(prop))) return undefined;
+        return prop.declarations?.find((d): d is TS.PropertySignature => ts.isPropertySignature(d) && !!d.type && isNullable(checker.getTypeFromTypeNode(d.type)));
+    };
 
     // nullable-not-null-column: read once, and only when a changed file queries a table.
     let schema: SchemaNullability | undefined;
@@ -118,11 +127,11 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
         // The query's own line the change touched: a call's start is the start of the whole chain, so its method name.
         const queryLine = chain.map(c => (c.call.expression as TS.PropertyAccessExpression).name).find(touched);
         for (const prop of checker.getPropertiesOfType(row)) {
-            const decl = prop.declarations?.[0];
             const name = prop.name;
-            if (!decl || !ts.isPropertySignature(decl) || !decl.type || reportedDecls.has(decl) || filtered.has(name)) continue;
             // An alias (`name:other_column`) maps another column onto this property.
-            if (columns.get(name) !== true || new RegExp(`(^|[\\s,(])${name.replace(/[$]/g, '\\$')}\\s*:`).test(selected) || !isNullable(checker.getTypeFromTypeNode(decl.type))) continue;
+            if (filtered.has(name) || columns.get(name) !== true || new RegExp(`(^|[\\s,(])${name.replace(/[$]/g, '\\$')}\\s*:`).test(selected)) continue;
+            const decl = nullableDeclOf(prop);
+            if (!decl || reportedDecls.has(decl)) continue;
             const anchor = touched(decl) ? decl : queryLine;
             if (!anchor) continue;
             reportedDecls.add(decl);
@@ -150,8 +159,8 @@ function redundancyFailures(typed: TypedProgram, changedLines: Record<string, Se
                 }
                 const row = rowTypeOf(chain, node);
                 const prop = row && checker.getPropertyOfType(row, col);
-                const decl = prop?.declarations?.[0];
-                if (decl && ts.isPropertySignature(decl) && decl.type && isNullable(checker.getTypeFromTypeNode(decl.type))) {
+                const decl = prop && nullableDeclOf(prop);
+                if (decl) {
                     // Anchored on the query the change wrote; the declaration may be in a file it did not touch.
                     report('nullable-filtered-column', 'Nullable type for a column the query filters non-null', n.call,
                         `\`${col}\` is declared nullable at ${at(decl)} but this query filters it non-null, so every guard on it is dead.`,
