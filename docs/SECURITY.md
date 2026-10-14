@@ -46,7 +46,7 @@ How each CLI is run:
 
 The prompt is passed as an argument, never through a shell, and stdin is closed. A team can cap the reviewer's spend with `max_runs_per_day` and `max_usd_per_day`. See [The reviewer](./REVIEWER.md).
 
-Each CLI runs with your environment, because that is how it finds its own login or API key, with two exceptions. `RIGOUR_API_KEY` (Rigour's model-review key) is never passed to a judge. And a team can keep any other variable from a judge with `review.reviewer.judge_env`, for example when `OPENAI_API_KEY` holds a key for a gateway rather than for OpenAI:
+Each CLI runs with your environment, because that is how it finds its own login or API key, with three exceptions. `CLAUDE_CODE_ENTRYPOINT` never reaches a judge: when Rigour runs inside a Claude Code session (the desktop app sets it), it would load that session's own tools into the judge and sign the judge in through the session instead of its own login, so an expired login would answer nothing instead of failing. A judge that answers nothing (0 output tokens) gives no verdict, never a pass, and the reason says to check the CLI's login (`claude auth status`, `codex login status`), and when Rigour runs inside another agent's session. `RIGOUR_API_KEY` (Rigour's model-review key) is never passed to a judge. And a team can keep any other variable from a judge with `review.reviewer.judge_env`, for example when `OPENAI_API_KEY` holds a key for a gateway rather than for OpenAI:
 
 ```yaml
 review:
