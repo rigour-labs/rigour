@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pinnedHomeEnv } from '@rigour-labs/core/profile';
 import { setReportOnlyHere } from './report-only.js';
-import { gitPushGateCommand, installGitPushHook, pushHookTarget, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
+import { describePushGate, gitPushGateCommand, installGitPushHook, pushHookTarget, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
 import { uninstall } from './uninstall.js';
 
 let repo: string;
@@ -146,6 +146,59 @@ describe('the git pre-push hook', () => {
         expect(result.steps.join('\n')).toContain('was refused');
         expect(result).toMatchObject({ ok: true });
     }, 120_000);
+});
+
+describe("an upgrade and Rigour's push-gate line", () => {
+    const OLD = 'npx --yes @rigour-labs/cli@7.0.2';
+    const NOW = 'npx --yes @rigour-labs/cli@7.0.5';
+    /** A synthetic husky 9 layout: git runs .husky/_, which runs the tracked .husky/pre-push. */
+    const husky = (script: string) => {
+        git('config', 'core.hooksPath', '.husky/_');
+        fs.mkdirSync(path.join(repo, '.husky', '_'), { recursive: true });
+        fs.writeFileSync(path.join(repo, '.husky/pre-push'), script);
+        return path.join(repo, '.husky/pre-push');
+    };
+    // CRLF, a trailing space and no final newline elsewhere in the script: every byte but the version must survive.
+    const script = (pin: string) => `#!/bin/sh\r\nnpm test \r\n\n# Rigour push gate (rigour hooks init): the same gate for every tool and the terminal.\n${pin} hooks push --git "$@" || exit $?\nnpm run lint`;
+
+    it('re-pins a stale line in a tracked husky script, and changes nothing else in it', () => {
+        const file = husky(script(OLD));
+        const result = installGitPushHook(repo, NOW);
+        expect(result).toMatchObject({ action: 'updated', path: file, stale: { version: '7.0.2' } });
+        expect(fs.readFileSync(file, 'utf8')).toBe(script(NOW));
+        expect(describePushGate(result, NOW)).toEqual({ ok: true, text: `UPDATE ${file}: Rigour's push gate moved to 7.0.5 (from 7.0.2)` });
+    });
+
+    it('leaves a current line, and a line that pins no version, untouched', () => {
+        const file = husky(script(NOW));
+        expect(installGitPushHook(repo, NOW).action).toBe('present');
+        expect(fs.readFileSync(file, 'utf8')).toBe(script(NOW));
+        fs.writeFileSync(file, script('rigour'));
+        expect(installGitPushHook(repo, NOW).action).toBe('present');
+        expect(fs.readFileSync(file, 'utf8')).toBe(script('rigour'));
+    });
+
+    it("re-pins git's own hook and an in-tree hooksPath script the same way", () => {
+        const own = installGitPushHook(repo, OLD);
+        expect(installGitPushHook(repo, NOW)).toMatchObject({ action: 'updated', path: own.path });
+        expect(fs.readFileSync(own.path, 'utf8')).toContain(`exec ${NOW} hooks push --git "$@"`);
+        git('config', 'core.hooksPath', 'hooks');
+        fs.mkdirSync(path.join(repo, 'hooks'));
+        fs.writeFileSync(path.join(repo, 'hooks/pre-push'), script(OLD));
+        expect(installGitPushHook(repo, NOW).action).toBe('updated');
+        expect(fs.readFileSync(path.join(repo, 'hooks/pre-push'), 'utf8')).toBe(script(NOW));
+    });
+
+    it('in a personal install, leaves a tracked script alone and prints the updated line, saying the old one is stale', () => {
+        const file = husky(script(OLD));
+        const result = installGitPushHook(repo, NOW, { workingTree: false });
+        expect(result).toMatchObject({ action: 'add line', stale: { version: '7.0.2', line: `${OLD} hooks push --git "$@" || exit $?` } });
+        expect(fs.readFileSync(file, 'utf8')).toBe(script(OLD));
+        const said = describePushGate(result, NOW)!;
+        expect(said.ok).toBe(false);
+        expect(said.text).toContain('pins 7.0.2, which is stale');
+        expect(said.text).toContain(`with: ${NOW} hooks push --git "$@" || exit $?`);
+    });
 });
 
 describe("doctor's push-gate self-test", () => {

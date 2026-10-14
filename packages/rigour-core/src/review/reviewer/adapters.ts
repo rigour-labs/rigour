@@ -19,13 +19,13 @@ export interface Adapter {
     vendor: Vendor;
     binary: string;
     /** The command line for one review: the prompt is passed as text, never through a shell. */
-    args(prompt: string, model: string | undefined, options?: { reasoning?: 'low' | 'medium' | 'high' }): string[];
+    args(prompt: string, model: string | undefined, options?: { reasoning?: 'low' | 'medium' | 'high'; version?: string }): string[];
     /** The reviewer's final message and, when the CLI reports them, what the run cost and the tokens it used. */
     answer(stdout: string): { text: string } & Spend;
     /** Variables the judge runs with, on top of what it inherits: what keeps a person's own instructions out of it. */
     env?: Record<string, string>;
-    /** What this judge still reads from outside the repository on this machine (a person's own config), or undefined: said on the record, never hidden. */
-    outsideRepo?(home: string, version: string | undefined): string | undefined;
+    /** What this judge still reads from outside the repository on this machine (a person's own config), or undefined: said on the record, never hidden. `env` is what the judge runs with on top of this process's (a profile's Codex home). */
+    outsideRepo?(home: string, version: string | undefined, env?: Record<string, string>): string | undefined;
 }
 
 /** What a run used: dollars when the CLI reports them (Claude Code), tokens otherwise (Codex reports only tokens). */
@@ -52,10 +52,27 @@ function withCache(fresh: unknown, cacheRead: unknown, cacheWrite: unknown, outp
 
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
-/** The Claude Code version the memory switches were verified in: below it, a judge may still load a person's CLAUDE.md. */
+/**
+ * The Claude Code version the judge's isolation was verified in: the memory switches (below it, a judge may still load
+ * a person's CLAUDE.md) and `--tools`, which loads only the tools a judge uses. Measured on 2.1.285 with Rigour's judge
+ * flags: 24 built-in tools and 16,135 input tokens for a one-word answer, 4 tools and 5,863 with `--tools`; the rest
+ * (SendMessage, ListAgents, CronCreate, Workflow, WebFetch, WebSearch…) were allowed by nothing yet sent with every turn.
+ */
 const CLAUDE_MEMORY_ISOLATION = '2.1.285';
 
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git log:*)', 'Bash(git grep:*)'];
+/** The tools the judge loads at all: Bash only for the git commands READ_ONLY_TOOLS allows. */
+const JUDGE_TOOLS = ['Read', 'Grep', 'Glob', 'Bash'];
+
+/** `version` (a CLI's `--version` line) is the floor or later; an unreadable one is not. */
+function atLeast(version: string | undefined, floor: string): boolean {
+    const found = /(\d+)\.(\d+)\.(\d+)/.exec(version ?? '');
+    if (!found) return false;
+    const at = found.slice(1).map(Number);
+    const want = floor.split('.').map(Number);
+    const i = at.findIndex((part, j) => part !== want[j]);
+    return i < 0 || at[i] > want[i];
+}
 
 export const ADAPTERS: Record<ReviewerName, Adapter> = {
     claude: {
@@ -63,13 +80,15 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         binary: 'claude',
         // Isolated: no MCP servers, no hooks, no user-level settings (an output style or permission
         // of the author's session must not shape the reviewer), read-only tools.
-        args: (prompt, model) => [
+        args: (prompt, model, options) => [
             '-p', prompt,
             ...(model ? ['--model', model] : []),
             '--output-format', 'stream-json', '--verbose', // every turn's usage and tool calls, for the run's trace
             '--max-turns', '80',
             '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
             '--setting-sources', 'project', '--settings', '{"hooks":{},"outputStyle":"default"}',
+            // Below the verified version, or when it cannot be read, the CLI may not know --tools: today's args, said on the record.
+            ...(atLeast(options?.version, CLAUDE_MEMORY_ISOLATION) ? ['--tools', ...JUDGE_TOOLS] : []),
             '--allowedTools', ...READ_ONLY_TOOLS,
             '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'Bash(git push:*)', 'Bash(git commit:*)',
         ],
@@ -77,21 +96,20 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         // own (the judge reads the repository's rules as files, as Rigour's prompt tells every judge to), and no auto-memory.
         // Claude Code's own safe mode uses the same switch. What the judge knows is the repository and what Rigour gives it.
         env: { CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
-        // An older Claude Code ignores those switches without a word and loads the memory files anyway: below the version
-        // they were verified in, or when the version cannot be read, the record says the isolation is unverified.
+        // An older Claude Code ignores those switches without a word and loads the memory files anyway, and is not given
+        // --tools: below the version they were verified in, or when the version cannot be read, the record says so.
         outsideRepo: (_home, version) => {
+            if (atLeast(version, CLAUDE_MEMORY_ISOLATION)) return undefined;
             const found = /(\d+)\.(\d+)\.(\d+)/.exec(version ?? '');
-            const at = found ? found.slice(1).map(Number) : undefined;
-            const floor = CLAUDE_MEMORY_ISOLATION.split('.').map(Number);
-            const below = !at || at[0] !== floor[0] ? !at || at[0] < floor[0] : at[1] !== floor[1] ? at[1] < floor[1] : at[2] < floor[2];
-            return below ? `claude ${found?.[0] ?? '(version unknown)'}: memory isolation unverified (needs ${CLAUDE_MEMORY_ISOLATION} or later)` : undefined;
+            return `claude ${found?.[0] ?? '(version unknown)'}: memory isolation unverified and every built-in tool loaded (needs ${CLAUDE_MEMORY_ISOLATION} or later)`;
         },
         answer: stdout => claudeAnswer(stdout),
     },
     cursor: {
         vendor: 'cursor',
         binary: 'cursor-agent',
-        // Ask mode is read-only and cannot run git: every input the prompt names is a file.
+        // Ask mode is read-only and cannot run git: every input the prompt names is a file. It reads ~/.cursor (rules, MCP
+        // servers, hooks) whatever CURSOR_CONFIG_DIR says: under a profile it runs only when the profile allows it.
         outsideRepo: () => 'cursor also reads your own Cursor rules and settings',
         args: (prompt, model) => ['-p', '--print', '--output-format', 'json', '--trust', '--mode', 'ask', '--model', model ?? 'auto', prompt],
         answer: stdout => {
@@ -106,10 +124,11 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
     codex: {
         vendor: 'openai',
         binary: 'codex',
-        // Codex has no switch that skips a person's ~/.codex/config.toml and ~/.codex/AGENTS.md and keeps their login, so the
-        // record says when those exist rather than claiming a judge that only knows the repository.
-        outsideRepo: home => {
-            const dir = process.env.CODEX_HOME?.trim() || path.join(home, '.codex');
+        // No `-c` override empties config.toml's MCP servers (`-c mcp_servers={}` is merged into them), so codex reads its
+        // home's config.toml and AGENTS.md: the record says when those exist rather than claiming a judge that only knows the
+        // repository. Under a profile, codex runs only in the profile's own Codex home, or not at all (judge-isolation.ts).
+        outsideRepo: (home, _version, env) => {
+            const dir = env?.CODEX_HOME || process.env.CODEX_HOME?.trim() || path.join(home, '.codex');
             const read = ['config.toml', 'AGENTS.md'].filter(name => fs.existsSync(path.join(dir, name)));
             return read.length ? `codex also reads ${read.map(name => path.join(dir, name)).join(' and ')}` : undefined;
         },

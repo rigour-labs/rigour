@@ -38,7 +38,7 @@ How each CLI is run:
 
 | CLI | Arguments Rigour passes | Effect |
 | --- | --- | --- |
-| `claude` | `-p <prompt> --output-format stream-json --verbose --max-turns 80 --strict-mcp-config --mcp-config {"mcpServers":{}} --setting-sources project --settings {"hooks":{},"outputStyle":"default"} --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git show:*)" "Bash(git log:*)" "Bash(git grep:*)" --disallowedTools Edit Write NotebookEdit "Bash(git push:*)" "Bash(git commit:*)"` | No MCP servers, no hooks, no user-level settings; read and search tools plus four read-only git commands; editing, committing and pushing are disallowed. Run with `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`: no CLAUDE.md loads itself (not `~/.claude/CLAUDE.md`, not one in a folder above the repository, not the repository's own) and no auto-memory; the judge reads the repository's rules as files, like every other judge. Verified in Claude Code 2.1.285: with an older or unreadable version the record says the isolation is unverified |
+| `claude` | `-p <prompt> --output-format stream-json --verbose --max-turns 80 --strict-mcp-config --mcp-config {"mcpServers":{}} --setting-sources project --settings {"hooks":{},"outputStyle":"default"} --tools Read Grep Glob Bash --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git show:*)" "Bash(git log:*)" "Bash(git grep:*)" --disallowedTools Edit Write NotebookEdit "Bash(git push:*)" "Bash(git commit:*)"` | No MCP servers, no hooks, no user-level settings; only the Read, Grep, Glob and Bash tools are loaded (no other tool's definition reaches the model), and of them read and search plus four read-only git commands are allowed; editing, committing and pushing are disallowed. Run with `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`: no CLAUDE.md loads itself (not `~/.claude/CLAUDE.md`, not one in a folder above the repository, not the repository's own) and no auto-memory; the judge reads the repository's rules as files, like every other judge. Verified in Claude Code 2.1.285: an older or unreadable version is not given `--tools` (it may not know it) and loads every built-in tool, and the record says the isolation is unverified and every built-in tool loaded |
 | `cursor-agent` | `-p --print --output-format json --trust --mode ask --model <model or auto> <prompt>` | Ask mode, which is read-only; Rigour's adapter treats it as unable to run git, so every input is named as a file. `--trust` trusts the workspace without prompting. It also reads your own Cursor rules and settings; the review record says so |
 | `codex` | `exec --sandbox read-only --json -c model_reasoning_effort=high <prompt>` | Codex's read-only sandbox. Codex has no switch that skips a person's `~/.codex/config.toml` and `~/.codex/AGENTS.md` while keeping their login, so it still reads them; the review record says so for each Codex judgement where they exist |
 
@@ -46,7 +46,7 @@ How each CLI is run:
 
 The prompt is passed as an argument, never through a shell, and stdin is closed. A team can cap the reviewer's spend with `max_runs_per_day` and `max_usd_per_day`. See [The reviewer](./REVIEWER.md).
 
-Each CLI runs with your environment, because that is how it finds its own login or API key, with two exceptions. `RIGOUR_API_KEY` (Rigour's model-review key) is never passed to a judge. And a team can keep any other variable from a judge with `review.reviewer.judge_env`, for example when `OPENAI_API_KEY` holds a key for a gateway rather than for OpenAI:
+Each CLI runs with your environment, because that is how it finds its own login or API key, with three exceptions. `CLAUDE_CODE_ENTRYPOINT` never reaches a judge: when Rigour runs inside a Claude Code session (the desktop app sets it), it would load that session's own tools into the judge and sign the judge in through the session instead of its own login, so an expired login would answer nothing instead of failing. A judge that answers nothing (0 output tokens) gives no verdict, never a pass, and the reason says to check the CLI's login (`claude auth status`, `codex login status`), and when Rigour runs inside another agent's session. `RIGOUR_API_KEY` (Rigour's model-review key) is never passed to a judge. And a team can keep any other variable from a judge with `review.reviewer.judge_env`, for example when `OPENAI_API_KEY` holds a key for a gateway rather than for OpenAI:
 
 ```yaml
 review:
@@ -54,6 +54,8 @@ review:
     judge_env:
       codex: { unset: [OPENAI_API_KEY] }
 ```
+
+`ANTHROPIC_API_KEY` reaches the `claude` judge too (people who use an API key with the CLI rely on it), and a key set there overrides the CLI's own login. When Claude Code refuses it ("Invalid API key"), the review's reason says so and names the fix: unset it for judges with `judge_env: { claude: { unset: [ANTHROPIC_API_KEY] } }`, or fix the key.
 
 ### Installs and package managers
 

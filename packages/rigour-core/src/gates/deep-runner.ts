@@ -8,7 +8,7 @@ import type { Config, DeepOptions, Failure, Report, Status } from '../types/inde
 import { localTier } from '../inference/types.js';
 import { Logger } from '../utils/logger.js';
 import { appendDeepRun } from '../review/deep-runs.js';
-import { overBudget } from '../review/reviewer/caps.js';
+import { capOrigin, overBudget } from '../review/reviewer/caps.js';
 import { defaultExec } from '../review/reviewer/exec.js';
 import { resolveReviewer } from '../review/reviewer/settings.js';
 import { VerdictStore } from '../review/reviewer/store.js';
@@ -33,7 +33,7 @@ export async function runDeepAnalysis(
     const isLocal = !deepOptions.apiKey || (deepOptions.provider || '').toLowerCase() === 'local';
     // A cloud model is paid: it counts toward the reviewer's daily caps and its per-run cap, and stops at them.
     const store = isLocal ? undefined : await VerdictStore.open(context.cwd, defaultExec).catch(() => undefined);
-    const settings = resolveReviewer(config);
+    const settings = capOrigin(resolveReviewer(config), context.cwd);
     const capped = store ? overBudget(store.spend(), settings, 1) : undefined;
     if (capped) {
         Logger.info(`Deep analysis skipped: ${capped}`);

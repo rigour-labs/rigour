@@ -105,6 +105,22 @@ records what was asked, what ran and why. A team can make the panel required, an
 without enough vendors is *unavailable*, which blocks like any review that could not run, instead
 of quietly running with one judge.
 
+### What each judge can see
+
+A judge reads the repository and the files Rigour gives it. What else it reads on your machine:
+
+| Judge | Outside the repository | Under a [profile](./PROFILES.md) |
+| --- | --- | --- |
+| `claude` | Nothing of yours: no MCP servers, no hooks, project settings only, no `CLAUDE.md` or auto-memory (Claude Code 2.1.285 or later; an older one is noted on the record). | Runs isolated. |
+| `codex` | Its Codex home (`CODEX_HOME`, else `~/.codex`): `config.toml` (which can name MCP servers), `AGENTS.md` and memories. No `-c` override empties the MCP servers (`-c mcp_servers={}` is merged into them), so the record names the files it reads. | Runs in the profile's own Codex home (`--codex-home`). Without one, it is skipped when the shared Codex home holds `config.toml`, `AGENTS.md` or memories. |
+| `cursor` | Your own Cursor rules, MCP servers, hooks and settings (`~/.cursor` and your Cursor account). cursor-agent has no switch that moves them: `CURSOR_CONFIG_DIR` leaves `~/.cursor/rules`, `mcp.json` and `hooks.json` where they are. | Skipped unless the profile allows it (`--cursor-shared`). |
+| `api` | Nothing: it reads only what Rigour sends it. | Runs. |
+
+A judge skipped under a profile counts as not available, never as a pass: the review runs the next
+judge in `reviewers` and the verdict lists the skip with its fix; with no other judge, or under a
+required panel or mode, the review is *unavailable*. `rigour doctor` lists, under a profile, which
+judges run isolated and which are skipped and why.
+
 ### Any model, through an API
 
 A judge does not have to be an agent CLI. Name `api` in `reviewers` and point it at any
@@ -267,8 +283,12 @@ and a cross-examination that would pass it is not made (its findings are shown a
 the cap as the reason). Dollars are known only after a run, so the cost cap stops new reviews once
 today's reported spend reaches it. Past a cap, a review is skipped and says why; where the team
 requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
-At a push, the agent is told so, with the cap and its key ("the model review of 1a2b3c4d5 was skipped: the daily
-cost cap is reached … (review.reviewer.max_usd_per_day)"), and no background review starts.
+At a push, the agent is told so, and no background review starts. The daily cost cap's reason says what the cap is,
+where it comes from (Rigour's default, `rigour.yml`, or your own lower cap) and how to change it ("the model review of
+1a2b3c4d5 was skipped: the daily cost cap is reached: $10.40 of $10.00 reported today in this repository (review.reviewer.max_usd_per_day).
+The cap is $10.00, Rigour's default: rigour.yml does not set review.reviewer.max_usd_per_day. To change it, set
+review.reviewer.max_usd_per_day in rigour.yml; your own reviewer.max_usd_per_day (~/.rigour/settings.json) can only
+lower it.").
 One review stops at `max_usd_per_review`: it is checked before each judge, retry, cross-examination and follow-up
 the review starts, and a review stopped there keeps what it had and says the cap is why ("no other judge asked: this
 review's cost cap is reached: $3.00 of $2.00…"). The same caps hold the rule writer (`learn-reviews --rules`) and the

@@ -37,13 +37,17 @@ import { modelGoalItems, parseGoal } from '../goal/goal.js';
 import { resolveSwitch } from '../switches.js';
 import { resolveReviewer, type ResolvedReviewer, type RunChoice, type Source } from './reviewer/settings.js';
 import { VerdictStore } from './reviewer/store.js';
-import { overBudget } from './reviewer/caps.js';
+import { capOrigin, overBudget } from './reviewer/caps.js';
 import { trackUsage } from '../telemetry/telemetry.js';
 import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
+import { emptyAnswer, insideAgentNote } from './reviewer/judge-empty.js';
+import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
+import { judgeIsolation, type JudgeIsolation } from './reviewer/judge-isolation.js';
+import { appliedProfile } from '../utils/profile.js';
 import { appendTaskEvent } from '../task/thread.js';
 import type { CoveredLesson } from './settled-checks.js';
 
@@ -172,6 +176,8 @@ export interface ModeRecord {
     degraded?: string;
     /** Nearer choices that were not applied, such as a user turning off a panel the team requires. */
     refused?: string[];
+    /** Installed judges this profile does not run, each with why and how to let it (reviewer/judge-isolation.ts). */
+    skipped?: string[];
     /** With escalate: risk, why this review got one judge or all of them. */
     escalation?: string;
     /** With cheap-model-first tiering on: the tier, why, and whether it turned itself off or escalated (reviewer/tiering.ts). */
@@ -221,6 +227,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const baseSha = await git(['rev-parse', `${base}^{commit}`]);
     const branch = options.branch ?? await git(['rev-parse', '--abbrev-ref', 'HEAD']);
     const repoRoot = (await git(['rev-parse', '--show-toplevel'])) || cwd;
+    // The caps with where the daily cost cap comes from, so a review skipped by it says what the cap is and how to change it.
+    const caps = capOrigin(settings, repoRoot);
     let attempts: VerdictStore | undefined;
     // What was asked, from the first line: every verdict, a review that never ran included, says what was asked and what ran.
     let modeRecord: ModeRecord = askedOnly(settings);
@@ -236,6 +244,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
 
     const candidates = settings.reviewers.filter(isReviewerName);
     const installed = new Map<ReviewerName, Installed>();
+    // Under a profile, a judge that would read another organization's state on this machine is not run: unavailable, never a pass.
+    const profile = appliedProfile();
+    const isolation = new Map<ReviewerName, JudgeIsolation>();
+    const skipped: string[] = [];
     for (const name of candidates) {
         if (name === 'api') {
             // The API judge is installed when the team configured it and the key it names is set.
@@ -243,14 +255,25 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             continue;
         }
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
-        if (found) installed.set(name, found);
+        if (!found) continue;
+        const isolated = judgeIsolation(name, profile);
+        if (isolated.skip) {
+            skipped.push(`${name} skipped under profile ${profile!.name}: ${isolated.skip}`);
+            continue;
+        }
+        installed.set(name, found);
+        isolation.set(name, isolated);
     }
     const vendorOf = (name: ReviewerName) => (name === 'api' ? apiVendor(settings.api) : ADAPTERS[name].vendor);
     const authors = vendorsOf(await git(['log', '--format=%(trailers:key=Co-Authored-By,valueonly)%(trailers:key=Co-authored-by,valueonly)', `${baseSha}..HEAD`]));
     const mode: ReviewMode = settings.mode;
     let reviewers = selectReviewers(candidates, mode, authors, new Set(installed.keys()), settings.judges, vendorOf);
-    if (reviewers.length === 0) return none('unavailable', `no reviewer installed: ${candidates.map(n => ADAPTERS[n].binary).join(', ') || 'review.reviewer.reviewers is empty'}`);
-    modeRecord = modeRan(settings, reviewers, candidates, installed);
+    if (skipped.length) modeRecord = { ...modeRecord, skipped };
+    if (reviewers.length === 0) {
+        const why = skipped.length ? skipped.join('; ') : `no reviewer installed: ${candidates.map(n => ADAPTERS[n].binary).join(', ') || 'review.reviewer.reviewers is empty'}`;
+        return none('unavailable', why);
+    }
+    modeRecord = { ...modeRan(settings, reviewers, candidates, installed, skipped), ...(skipped.length ? { skipped } : {}) };
     if (reviewers.length < 2 && mode === 'full' && (settings.required.panel || settings.required.mode)) {
         return none('unavailable', `rigour.yml requires two reviewers from different vendors, and ${modeRecord.degraded}`, { reviewers, mode: modeRecord });
     }
@@ -366,7 +389,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // The record of the review, written beside the verdict once and rebuilt from the same verdict on a cached read.
     // What a judge reads besides the repository and Rigour's inputs, on this machine: on the record, so "the same judge" is a claim it can check.
     const outsideOf = (reviewer: string) => {
-        const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir(), installed.get(reviewer as ReviewerName)?.version);
+        const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir(), installed.get(reviewer as ReviewerName)?.version, isolation.get(reviewer as ReviewerName)?.env);
         return outside ? { outside_repo: outside } : {};
     };
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
@@ -431,12 +454,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             } else planNote = `over the judge's limit; ${said}: one pass`;
         }
         // The daily caps, before any judge starts: room for one run but not every part is one combined pass.
-        if (passes.length > 1 && overBudget(store.spend(), settings, passes.length) && !overBudget(store.spend(), settings, 1)) {
+        if (passes.length > 1 && overBudget(store.spend(), caps, passes.length) && !overBudget(store.spend(), caps, 1)) {
             planNote = `the caps leave one run, not ${passes.length}: one pass`;
             passes = [plan.combined!];
         }
     }
-    const over = orchestrate && passes.length === 0 ? undefined : overBudget(store.spend(), settings, orchestrate ? passes.length : reviewers.length);
+    const over = orchestrate && passes.length === 0 ? undefined : overBudget(store.spend(), caps, orchestrate ? passes.length : reviewers.length);
     // A team that requires the reviewer, or the orchestrator, gets no quieter review when the caps are reached: unavailable.
     if (over) return none(settings.required.panel || settings.required.mode || orchestrator.required ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
 
@@ -464,7 +487,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
         ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, cache: apiVendor(settings.api) === 'anthropic', ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
-        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...(ADAPTERS[name].env ? { env: ADAPTERS[name].env } : {}) });
+        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name], version: installed.get(name)!.version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
+    // A failed run's own output can say why (a refused API key): the reason carries it.
+    const hinted = <T extends object>(name: ReviewerName, run: { stdout: string; stderr: string }, answer: T | { error: string }) => withFailureHint(answer, name === 'api' ? undefined : judgeFailureHint(name, run, judgeUnset(name, settings.judge_env)));
     try {
         const file = (name: string, text: string) => {
             const target = path.join(work, name);
@@ -527,9 +552,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     const answer = ADAPTERS[judge].answer(result.stdout);
                     spent(answer.costUsd, shared + pass.diff.length); // every pass counts against the caps and the ledger, an answer or not
                     progress(`Rigour reviewer: ${judge} (${pass.specialists.join(', ')}) finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${result.exitCode})`);
-                    const verdict = result.exitCode === 0 || answer.text.trim()
+                    const empty = emptyAnswer(judge, answer);
+                    const verdict = empty ? { error: `${judge} (${pass.specialists.join(', ')}): ${empty}` } : hinted(judge, result, result.exitCode === 0 || answer.text.trim()
                         ? parseVerdict(answer.text, needsPriorPoints && pass.specialists.includes('prior-points'), judge, answer)
-                        : { error: `${judge} (${pass.specialists.join(', ')}): no answer (exit ${result.exitCode})` };
+                        : { error: `${judge} (${pass.specialists.join(', ')}): no answer (exit ${result.exitCode})${insideAgentNote()}` });
                     // Whether slicing held: a pass that read the full diff, or read, searched or printed a changed file outside its slice.
                     const sliceFiles = new Set(pass.sliced.map(i => hunks[i].file));
                     const outside = changedFiles.filter(f => !sliceFiles.has(f));
@@ -553,7 +579,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     modeRecord = { ...modeRecord, specialists, ...(run.missing.length ? { degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}not reviewed: ${run.missing.join('; ')} (no verdict)` } : {}) };
                 } else {
                     // Fewer than half of the passes came back: one judge instead, once, only if the caps still allow a run; it counts too.
-                    const short = overBudget(store.spend(), settings, 1, tally.usd);
+                    const short = overBudget(store.spend(), caps, 1, tally.usd);
                     const fallback = `${run.returned.length} of ${passes.length} passes returned`;
                     if (short) {
                         recordReviewCost();
@@ -572,13 +598,15 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                         progress(`Rigour reviewer: ${name} finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${run.exitCode})`);
                         const answer = adapter.answer(run.stdout);
                         spent(answer.costUsd, projectedSingle); // every run counts against the caps, an answer or not
-                        return { run, answer, verdict: run.exitCode === 0 || answer.text.trim() ? parseVerdict(answer.text, needsPriorPoints, name, answer) : undefined };
+                        // An answer of 0 output tokens is nothing at all (a login the CLI could not use), whatever its exit code says.
+                        const empty = emptyAnswer(name, answer);
+                        return { run, answer, verdict: empty ? { error: `${name}: ${empty}` } : run.exitCode === 0 || answer.text.trim() ? hinted(name, run, parseVerdict(answer.text, needsPriorPoints, name, answer)) : undefined };
                     };
                     let first = await ask();
                     // No verdict, whether a malformed answer or a run that died, is a slip, not a decision: asked once more, inside the caps.
                     const slipped = !first.verdict || 'error' in first.verdict;
-                    const noRetry = !once && slipped ? overBudget(store.spend(), settings, 1, tally.usd) : undefined;
-                    if (noRetry) return { error: `${name}: no valid verdict, and not asked again: ${noRetry}` };
+                    const noRetry = !once && slipped ? overBudget(store.spend(), caps, 1, tally.usd) : undefined;
+                    if (noRetry) return hinted(name, first.run, { error: `${name}: no valid verdict, and not asked again: ${noRetry}` });
                     if (!once && slipped) {
                         progress(`Rigour reviewer: ${name} gave no ${first.verdict ? 'valid verdict' : 'answer'}; asking once more`);
                         // The cheap model's slip is the one escalation: the retry runs on the team's model.
@@ -588,7 +616,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                         }
                         first = await ask();
                     }
-                    return first.verdict ?? { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}` };
+                    return first.verdict ?? hinted(name, first.run, { error: `${name}: no answer (exit ${first.run.exitCode}): ${first.run.stderr.trim().slice(-200)}${insideAgentNote()}` });
                 }));
                 // A judge that gives nothing is replaced by the next one installed, so the boundary stays up: a review ends unavailable only when every judge failed.
                 const spare = candidates.filter(c => installed.has(c) && !reviewers.includes(c));
@@ -596,19 +624,24 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     let answer = answers[i];
                     while (!once && 'error' in answer && spare.length) {
                         // A cap that leaves no run for the spare judge is the reason the review ends here: said, not hidden.
-                        const capped = overBudget(store.spend(), settings, 1, tally.usd);
+                        const capped = overBudget(store.spend(), caps, 1, tally.usd);
                         if (capped) {
                             answer = { error: `${answer.error}; no other judge asked: ${capped}` };
                             break;
                         }
                         const next = spare.shift()!;
+                        // A hint on the judge it replaces (a refused key) stays on the record, whatever the next judge answers.
+                        const hint = hintIn(answer.error);
+                        const earlier = hint ? ` (${reviewers[i]}: ${hint})` : '';
                         progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
-                        modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
+                        modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead${earlier}` };
                         reviewers[i] = next;
                         const run = await runJudge(next, prompt, modelFor(next));
                         const got = ADAPTERS[next].answer(run.stdout);
                         spent(got.costUsd, projectedSingle);
-                        answer = run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` };
+                        const empty = emptyAnswer(next, got);
+                        answer = empty ? { error: `${next}: ${empty}` } : hinted(next, run, run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}${insideAgentNote()}` });
+                        if ('error' in answer && earlier) answer = { error: `${answer.error}${earlier}` };
                     }
                     answers[i] = answer;
                 }
@@ -634,7 +667,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const survivors = (v: Verdict) => { const a = account(v, previousOpen, verify, prior); return [...a.open, ...a.advisory, ...a.notes, ...(a.reviewPoints ?? [])].filter(i => i.kind === 'finding'); };
         if (units.length) merged.coverage = await accountForUnits(merged, units, offered!.total - units.length, survivors, async missing => {
             // One follow-up run for the units the answer left out, inside the caps; what it finds counts like any finding.
-            if (overBudget(store.spend(), settings, 1, tally.usd)) return undefined;
+            if (overBudget(store.spend(), caps, 1, tally.usd)) return undefined;
             const judge = reviewers[0];
             const ask = followUpPrompt(repoRoot, head.slice(0, 9), diffFile, missing);
             progress(`Rigour reviewer: ${missing.length} changed unit(s) not accounted for; asking ${judge} about them`);
@@ -663,7 +696,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                 // Judges cross-examine at the same time: a run is reserved when allowed, so together they never pass the cap.
                 capped: () => {
                     const spent = store.spend();
-                    const reason = overBudget({ ...spent, runs: spent.runs + reserved }, settings, 1, tally.usd);
+                    const reason = overBudget({ ...spent, runs: spent.runs + reserved }, caps, 1, tally.usd);
                     if (!reason) reserved++;
                     return reason;
                 },
@@ -729,7 +762,7 @@ type Decided = Accounting & { disputed: OpenItem[]; dropped: OpenItem[]; dismiss
  */
 export async function reviewerCapReached(cwd: string, config: Config, exec: Exec = defaultExec): Promise<string | undefined> {
     const store = await VerdictStore.open(cwd, exec);
-    return store ? overBudget(store.spend(), resolveReviewer(config), 1) : undefined;
+    return store ? overBudget(store.spend(), capOrigin(resolveReviewer(config), cwd), 1) : undefined;
 }
 
 /** Whether a risk-escalated review adds judges: a human review exists, or the router finds a risky changed function. */
@@ -742,6 +775,12 @@ function escalationFor(humanReviews: number, risky: number | undefined): { escal
 }
 
 /** What was asked and where the choice came from, before anything has run. */
+/** A judge's variables: the adapter's own isolation, then this profile's (a Codex home). */
+function judgeEnv(name: ReviewerName, isolated: JudgeIsolation | undefined): { env?: Record<string, string> } {
+    const env = { ...ADAPTERS[name].env, ...isolated?.env };
+    return Object.keys(env).length ? { env } : {};
+}
+
 function askedOnly(settings: ResolvedReviewer): ModeRecord {
     const asked = settings.panel ? 'panel' : settings.mode;
     const source = settings.panel ? settings.source.panel : settings.source.mode;
@@ -749,11 +788,13 @@ function askedOnly(settings: ResolvedReviewer): ModeRecord {
 }
 
 /** The mode asked for and the one the installed reviewers allow: a panel or full review needs two vendors. */
-function modeRan(settings: ResolvedReviewer, reviewers: ReviewerName[], candidates: ReviewerName[], installed: Map<ReviewerName, Installed>): ModeRecord {
+function modeRan(settings: ResolvedReviewer, reviewers: ReviewerName[], candidates: ReviewerName[], installed: Map<ReviewerName, Installed>, skipped: string[] = []): ModeRecord {
     const record = askedOnly(settings);
     if (settings.mode !== 'full' || reviewers.length >= settings.judges) return record;
-    const missing = candidates.filter(name => !installed.has(name)).map(name => ADAPTERS[name].binary);
-    const degraded = `${settings.judges} judges asked, ${reviewers.join(' and ')} could run (${missing.length ? `not installed: ${missing.join(', ')}` : 'no other vendor in review.reviewer.reviewers'})`;
+    const isSkipped = (name: ReviewerName) => skipped.some(line => line.startsWith(`${name} skipped`));
+    const missing = candidates.filter(name => !installed.has(name) && !isSkipped(name)).map(name => ADAPTERS[name].binary);
+    const notRun = [...(missing.length ? [`not installed: ${missing.join(', ')}`] : []), ...(skipped.length ? [`skipped under this profile: ${candidates.filter(isSkipped).join(', ')}`] : [])];
+    const degraded = `${settings.judges} judges asked, ${reviewers.join(' and ')} could run (${notRun.length ? notRun.join('; ') : 'no other vendor in review.reviewer.reviewers'})`;
     return { ...record, ran: reviewers.length > 1 ? record.asked : 'single', degraded };
 }
 

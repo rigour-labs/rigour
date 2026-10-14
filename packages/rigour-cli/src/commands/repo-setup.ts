@@ -11,6 +11,7 @@ import { agentHome, enabledHere, MCP_NAME_TAKEN } from './personal.js';
 import { namesRigourMcp } from './install-record.js';
 import { isOldEditHook } from './setup-migrations.js';
 import { getCliVersion } from '../utils/cli-version.js';
+import { gatePins, pushHookTarget } from './hooks-git.js';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 import { liveWindsurfHooks, rigourHooksIgnored, WINDSURF_HOOKS } from './windsurf-hooks.js';
 
@@ -47,7 +48,7 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
     const mcpConfig = read('.mcp.json') + read('.cursor/mcp.json') + home('.claude.json') + home('.cursor/mcp.json');
     // The repository's own committed install: only `rigour setup --team` changes it (a plain setup leaves it as committed).
     const setup = !personal && /rigour/i.test(agents.map(a => a.config).join('\n')) ? 'rigour setup --team' : 'rigour setup';
-    const version = versionCheck(agents.map(a => a.config).join('\n'), mcpConfig, installed, setup);
+    const version = versionCheck(agents.map(a => a.config).join('\n'), mcpConfig, installed, setup, pushGateIn(cwd, personal));
     return [
         configCheck(cwd, personal),
         editCheck(agents, now, events, setup),
@@ -64,22 +65,43 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
  * (`@rigour-labs/cli@6.12.4`), so an upgrade reaches them only when `rigour setup` rewrites the pin.
  * Nothing to say when nothing pins a version (a source checkout runs its own build).
  */
-function versionCheck(hooks: string, mcp: string, installed: string, setup: string): SetupCheck | undefined {
+function versionCheck(hooks: string, mcp: string, installed: string, setup: string, gate?: PushGatePin): SetupCheck | undefined {
     const pins = (text: string, pkg: string) => [...new Set([...text.matchAll(new RegExp(`@rigour-labs/${pkg}@([0-9A-Za-z.-]+)`, 'g'))].map(m => m[1]))];
     const hookPins = pins(hooks, 'cli');
     const mcpPins = pins(mcp, 'mcp');
     // Before 6.13.0 a personal install's guard and the push gate were `sh -c '…'` wrappers: PowerShell cannot run them.
     const wrapped = /sh -c '[^\n]*@rigour-labs\/cli@/.test(hooks);
-    if (!hookPins.length && !mcpPins.length) return undefined;
+    const staleGate = gate?.pins.find(pin => pin.version !== installed);
+    if (!hookPins.length && !mcpPins.length && !gate?.pins.length) return undefined;
     const name = 'Agent hooks and tools run the installed Rigour';
     const stale = [
         ...(wrapped ? ['hooks run through a shell wrapper PowerShell cannot run'] : []),
         ...hookPins.filter(v => v !== installed).map(v => `hooks run ${v}`),
         ...mcpPins.filter(v => v !== installed).map(v => (/^\d+$/.test(v) || v === 'latest' ? `the MCP server floats on @${v}` : `the MCP server runs ${v}`)),
+        ...(staleGate ? [`the push gate in ${gate!.file} runs ${staleGate.version}`] : []),
     ];
+    // A tracked script is rewritten only by a team setup; a personal install never writes it, so its fix is the line to paste.
+    const others = stale.length > (staleGate ? 1 : 0);
+    const paste = staleGate && `in ${gate!.file} replace Rigour's line with: ${staleGate.line.replace(/@rigour-labs\/cli@[0-9A-Za-z.-]+/, `@rigour-labs/cli@${installed}`)}`;
+    const fix = !staleGate || !gate!.tracked ? setup : gate!.personal ? (others ? `${setup}, then ${paste}` : paste!) : 'rigour setup --team';
     return stale.length
-        ? { id: 'version', name, state: 'broken', detail: `${stale.join(', ')}; installed is ${installed}`, fix: setup }
+        ? { id: 'version', name, state: 'broken', detail: `${stale.join(', ')}; installed is ${installed}`, fix }
         : { id: 'version', name, state: 'working', detail: installed };
+}
+
+interface PushGatePin { file: string; pins: Array<{ version: string; line: string }>; tracked: boolean; personal: boolean }
+
+/**
+ * Rigour's push-gate line wherever git runs it (a husky script, an in-tree hooksPath script, .git/hooks), and the
+ * versions it pins. `tracked`: a script in the working tree, which only `rigour setup --team` rewrites.
+ */
+function pushGateIn(cwd: string, personal: boolean): PushGatePin | undefined {
+    const target = pushHookTarget(cwd);
+    if (!target || target.managed === 'outside') return undefined;
+    let text = '';
+    try { text = fs.readFileSync(target.file, 'utf8'); } catch { return undefined; }
+    const top = path.relative(cwd, target.file);
+    return { file: top && !top.startsWith('..') ? top : target.file, pins: gatePins(text), tracked: !!target.managed, personal };
 }
 
 /** Rigour's Windsurf hooks are only in the legacy file, which Devin Desktop ignores while `.devin/hooks.json` defines hooks. */

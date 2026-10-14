@@ -22,7 +22,13 @@ const MARK = 'rigour hooks push --git';
  * `add line`: Rigour leaves the file as it is and the person adds the line (`pushGateLine`): a tool manages it, or its
  * script hands over with `exec`, so a line appended after it would never run.
  */
-export interface GitHookInstall { path: string; action: 'installed' | 'appended' | 'present' | 'no repository' | 'managed elsewhere' | 'add line'; reason?: string }
+export interface GitHookInstall {
+    path: string;
+    action: 'installed' | 'appended' | 'updated' | 'present' | 'no repository' | 'managed elsewhere' | 'add line';
+    reason?: string;
+    /** `updated`: the version Rigour's line pinned before. `add line`: the stale line already there, which the person replaces. */
+    stale?: { version: string; line?: string };
+}
 
 /**
  * Where this repository's push gate belongs, and who else manages it:
@@ -63,6 +69,28 @@ export function pushGateLine(rigourCommand: string): string {
     return `${rigourCommand} ${MARK.replace('rigour ', '')} "$@" || exit $?`;
 }
 
+const PIN = /@rigour-labs\/cli@([0-9A-Za-z.-]+)/;
+
+/** The version each of Rigour's push-gate lines in `script` pins, with the line (none for a command that pins nothing). */
+export function gatePins(script: string): Array<{ version: string; line: string }> {
+    return script.split('\n').filter(line => line.includes(MARK.replace('rigour ', ''))).flatMap(line => {
+        const pin = PIN.exec(line);
+        return pin ? [{ version: pin[1], line: line.replace(/\r$/, '').trim() }] : [];
+    });
+}
+
+/**
+ * `script` with Rigour's push-gate lines pinned to `rigourCommand`'s version: only the version in those lines changes,
+ * every other byte stays as it was. `from` is the version they pinned, when one changed.
+ */
+function repinned(script: string, rigourCommand: string): { text: string; from?: string } {
+    const want = PIN.exec(rigourCommand)?.[1];
+    const stale = gatePins(script).find(pin => pin.version !== want);
+    if (!want || !stale) return { text: script };
+    const text = script.split('\n').map(line => (line.includes(MARK.replace('rigour ', '')) ? line.replace(PIN, `@rigour-labs/cli@${want}`) : line)).join('\n');
+    return { text, from: stale.version };
+}
+
 /** Whether a line appended to this script would run: not after a top-level `exec`, which hands the process over. */
 function appendRuns(script: string): boolean {
     return !script.split('\n').some(line => /^exec\s/.test(line.trim()));
@@ -80,7 +108,17 @@ export function installGitPushHook(cwd: string, rigourCommand: string, options: 
     if (target.managed === 'outside') return { path: file, action: 'managed elsewhere' };
     const exists = fs.existsSync(file);
     const text = exists ? fs.readFileSync(file, 'utf8') : '';
-    if (text.includes(MARK.replace('rigour ', ''))) return { path: file, action: 'present' };
+    if (text.includes(MARK.replace('rigour ', ''))) {
+        // An upgrade moves every other hook's pin with setup: the push gate's line moves with it, and nothing else in the file.
+        const pin = repinned(text, rigourCommand);
+        if (!pin.from) return { path: file, action: 'present' };
+        if (target.managed && options.workingTree === false) {
+            const stale = gatePins(text).find(found => found.version === pin.from)!;
+            return { path: file, action: 'add line', reason: `Rigour's line there pins ${pin.from}, which is stale, and a personal install writes nothing in the working tree`, stale };
+        }
+        fs.writeFileSync(file, pin.text);
+        return { path: file, action: 'updated', stale: { version: pin.from } };
+    }
     if (target.managed) {
         // The tracked script: a team install completes it (and commits it); a personal one touches nothing in the tree.
         if (options.workingTree === false) return { path: file, action: 'add line', reason: `${target.managed === 'husky' ? 'husky' : 'core.hooksPath'} runs it from the working tree, and a personal install writes nothing there` };
@@ -100,7 +138,9 @@ export function installGitPushHook(cwd: string, rigourCommand: string, options: 
 export function describePushGate(result: GitHookInstall, rigourCommand: string): { ok: boolean; text: string } | undefined {
     if (result.action === 'no repository') return undefined;
     if (result.action === 'managed elsewhere') return { ok: false, text: `Git pre-push hooks are managed outside this repository (${result.path}); Rigour leaves that file alone. To gate every push there, add: ${pushGateLine(rigourCommand)}` };
+    if (result.action === 'add line' && result.stale?.line) return { ok: false, text: `Rigour leaves ${result.path} as it is (${result.reason}). Replace its line ${result.stale.line} with: ${result.stale.line.replace(PIN, `@rigour-labs/cli@${PIN.exec(rigourCommand)?.[1]}`)}` };
     if (result.action === 'add line') return { ok: false, text: `Rigour leaves ${result.path} as it is (${result.reason}). To gate every push, add this line to it: ${pushGateLine(rigourCommand)}` };
+    if (result.action === 'updated') return { ok: true, text: `UPDATE ${result.path}: Rigour's push gate moved to ${PIN.exec(rigourCommand)?.[1]} (from ${result.stale?.version})` };
     return { ok: true, text: `Push gate: git's pre-push hook (${result.action}, ${result.path})` };
 }
 

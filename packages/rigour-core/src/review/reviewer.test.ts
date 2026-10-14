@@ -1340,13 +1340,16 @@ describe('the judge Rigour launches', () => {
         const claude = seen.ran.findIndex(command => path.basename(command).startsWith('claude'));
         expect(seen.env?.[claude]).toEqual({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
         // The fake reports version 1.0.0, older than the one the switches were verified in: the record says so.
-        expect(result.record?.judges.map(j => j.outside_repo)).toEqual(['claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)']);
-        expect(recordLines(result.record!).join('\n')).toContain('[claude 1.0.0: memory isolation unverified (needs 2.1.285 or later)]');
+        expect(result.record?.judges.map(j => j.outside_repo)).toEqual(['claude 1.0.0: memory isolation unverified and every built-in tool loaded (needs 2.1.285 or later)']);
+        expect(recordLines(result.record!).join('\n')).toContain('[claude 1.0.0: memory isolation unverified and every built-in tool loaded (needs 2.1.285 or later)]');
+        expect(seen.args?.[claude]).not.toContain('--tools'); // an older CLI keeps the arguments it accepts
         const current = seenNow();
         // The installed fake is claude on Unix and claude.cmd on Windows: name both.
         current.versions = { [path.join(bins[0], 'claude')]: '2.1.285 (Claude Code)', [path.join(bins[0], 'claude.cmd')]: '2.1.285 (Claude Code)' };
         const verified = await runReviewer(repo, 'main', ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'] } } }), fakes(() => JSON.stringify(EMPTY), current, null), () => undefined, { trigger: 'review', force: true });
         expect(verified.record?.judges.map(j => j.outside_repo)).toEqual([undefined]);
+        const args = current.args?.[current.ran.findIndex(command => path.basename(command).startsWith('claude'))] ?? [];
+        expect(args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools'))).toEqual(['Read', 'Grep', 'Glob', 'Bash']);
     });
 });
 
@@ -1365,5 +1368,137 @@ describe("the review on the task's thread", () => {
         expect(readThread(repo, 'feature')?.events).toHaveLength(2);
         await runReviewer(repo, 'main', config, fakes(() => JSON.stringify({ ...EMPTY, prior_points: [] }), seenNow()), () => undefined, { pr: 42, reviewsBefore: '2026-10-03', force: true });
         expect(readThread(repo, 'feature')?.events).toHaveLength(2);
+    });
+});
+
+describe('a claude judge refused for a stale ANTHROPIC_API_KEY', () => {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    afterEach(() => { if (saved === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved; });
+    const refused = () => ({ exitCode: 1, stdout: `${JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: 'Invalid API key · Fix external API key', total_cost_usd: 0 })}\n`, stderr: '' });
+    const claudeOnly = (reviewer: Record<string, unknown> = {}) => ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude'], ...reviewer } } });
+
+    it('is unavailable with the hint, and keeps passing the key by default', async () => {
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-synthetic-stale';
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', claudeOnly(), fakes(refused, seen), () => undefined);
+        expect(result.outcome).toBe('unavailable');
+        expect(result.reason).toContain('Invalid API key');
+        expect(result.reason).toContain("an ANTHROPIC_API_KEY in this environment overrides the claude CLI's own login");
+        expect(seen.unset?.every(list => !list?.includes('ANTHROPIC_API_KEY'))).toBe(true);
+    });
+
+    it('keeps the hint when another judge replaces claude, whether it answers or not', async () => {
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-synthetic-stale';
+        installFake(bins[0], 'codex');
+        const both = (reviewer: Record<string, unknown> = {}) => claudeOnly({ reviewers: ['claude', 'codex'], ...reviewer });
+        const answered = await runReviewer(repo, 'main', both(), fakes(name => (name === 'claude' ? refused() : JSON.stringify(EMPTY)), { ...seenNow(), installed: ['claude', 'codex'] }), () => undefined);
+        expect(answered.outcome).toBe('passed');
+        expect(answered.mode?.degraded).toContain("claude gave no verdict, codex judged instead (claude: an ANTHROPIC_API_KEY in this environment overrides the claude CLI's own login");
+        const failed = await runReviewer(repo, 'main', both(), fakes(name => (name === 'claude' ? refused() : { exitCode: 1, stdout: '', stderr: 'codex: offline' }), { ...seenNow(), installed: ['claude', 'codex'] }), () => undefined, { force: true });
+        expect(failed.outcome).toBe('unavailable');
+        expect(failed.reason).toContain('codex: no answer');
+        expect(failed.reason).toContain("claude: an ANTHROPIC_API_KEY in this environment overrides the claude CLI's own login");
+    });
+
+    it('gives no hint once the team unsets the key for the judge', async () => {
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-synthetic-stale';
+        const result = await runReviewer(repo, 'main', claudeOnly({ judge_env: { claude: { unset: ['ANTHROPIC_API_KEY'] } } }), fakes(refused, seenNow()), () => undefined);
+        expect(result.outcome).toBe('unavailable');
+        expect(result.reason).not.toContain('overrides the claude CLI');
+    });
+});
+
+describe('judges under a profile', () => {
+    const saved = { RIGOUR_PROFILE: process.env.RIGOUR_PROFILE, RIGOUR_PROFILES: process.env.RIGOUR_PROFILES, CODEX_HOME: process.env.CODEX_HOME };
+    let state: string;
+    let shared: string;
+    const configWith = (reviewer: Record<string, unknown>) => ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, ...reviewer } } });
+    const clean = () => JSON.stringify(EMPTY);
+    /** A profile applied to this process, and a shared Codex home holding a synthetic config.toml. */
+    const underProfile = (profile: Record<string, unknown>) => {
+        fs.writeFileSync(process.env.RIGOUR_PROFILES!, JSON.stringify({ profiles: [{ name: 'synthetic-co', match: [repo], ...profile }] }));
+        process.env.RIGOUR_PROFILE = 'synthetic-co';
+    };
+    beforeEach(() => {
+        state = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-profile-'));
+        shared = path.join(state, 'shared-codex');
+        fs.mkdirSync(shared);
+        fs.writeFileSync(path.join(shared, 'config.toml'), '[mcp_servers.synthetic]\ncommand = "echo"\n');
+        process.env.CODEX_HOME = shared;
+        process.env.RIGOUR_PROFILES = path.join(state, 'profiles.json');
+        installFake(bins[0], 'codex');
+    });
+    afterEach(() => {
+        for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
+        fs.rmSync(state, { recursive: true, force: true });
+    });
+
+    it("never runs codex on a Codex home every organization shares: unavailable, with the directory and the fix", async () => {
+        underProfile({});
+        const seen = { ...seenNow(), installed: ['codex'] };
+        const result = await runReviewer(repo, 'main', configWith({ reviewers: ['codex'] }), fakes(clean, seen), () => undefined);
+        expect(result.outcome).toBe('unavailable');
+        expect(reviewerBlocks(result)).toBe(true);
+        expect(result.reason).toContain(`codex skipped under profile synthetic-co: codex would read ${shared} (config.toml)`);
+        expect(result.reason).toContain('--codex-home <dir>');
+        expect(seen.ran).toEqual([]);
+    });
+
+    it("runs codex in the profile's own Codex home", async () => {
+        const own = path.join(state, 'synthetic-co-codex');
+        underProfile({ codexHome: own });
+        const seen = { ...seenNow(), installed: ['codex'] };
+        const result = await runReviewer(repo, 'main', configWith({ reviewers: ['codex'] }), fakes(clean, seen), () => undefined);
+        expect(result.outcome).toBe('passed');
+        expect(seen.env).toEqual([{ CODEX_HOME: own }]);
+        expect(result.mode?.skipped).toBeUndefined();
+    });
+
+    it('runs the next judge when one is skipped, and says so; a required panel without it is unavailable', async () => {
+        underProfile({});
+        const seen = { ...seenNow(), installed: ['claude', 'cursor-agent', 'codex'] };
+        const single = await runReviewer(repo, 'main', configWith({ reviewers: ['cursor', 'codex', 'claude'] }), fakes(clean, seen), () => undefined);
+        expect(single.outcome).toBe('passed');
+        expect(single.reviewers).toEqual(['claude']);
+        expect(single.mode?.skipped).toEqual([expect.stringMatching(/^cursor skipped under profile synthetic-co: .*--cursor-shared/), expect.stringMatching(/^codex skipped under profile synthetic-co: /)]);
+        const required = await runReviewer(repo, 'main', configWith({ reviewers: ['claude', 'codex'], mode: 'full', panel: 'required' }), fakes(clean, { ...seenNow(), installed: ['claude', 'codex'] }), () => undefined);
+        expect(required.outcome).toBe('unavailable');
+        expect(required.reason).toContain('skipped under this profile: codex');
+    });
+
+    it('runs cursor under a profile that allows it, and codex as before without a profile', async () => {
+        underProfile({ cursorShared: true });
+        const seen = { ...seenNow(), installed: ['cursor-agent'] };
+        expect((await runReviewer(repo, 'main', configWith({ reviewers: ['cursor'] }), fakes(clean, seen), () => undefined)).reviewers).toEqual(['cursor']);
+        delete process.env.RIGOUR_PROFILE;
+        const plain = { ...seenNow(), installed: ['codex'] };
+        const result = await runReviewer(repo, 'main', configWith({ reviewers: ['codex'] }), fakes(clean, plain), () => undefined);
+        expect(result.reviewers).toEqual(['codex']);
+        expect(result.record?.judges[0]).toMatchObject({ reviewer: 'codex', outside_repo: `codex also reads ${path.join(shared, 'config.toml')}` });
+    });
+});
+
+describe('a judge that answers nothing', () => {
+    const saved = { CLAUDECODE: process.env.CLAUDECODE, CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT };
+    afterEach(() => { for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value; });
+    const empty = () => ({ exitCode: 0, stdout: `${JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '', duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 } })}\n`, stderr: '' });
+    const claudeOnly = ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude'] } } });
+
+    it('is unavailable, says to check its login, and that it started inside another agent session; the judge never sees CLAUDE_CODE_ENTRYPOINT', async () => {
+        process.env.CLAUDECODE = '1';
+        process.env.CLAUDE_CODE_ENTRYPOINT = 'claude-desktop';
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', claudeOnly, fakes(empty, seen), () => undefined);
+        expect(result.outcome).toBe('unavailable');
+        expect(reviewerBlocks(result)).toBe(true);
+        expect(result.reason).toBe('claude: the claude CLI answered nothing (0 output tokens); check its login: `claude auth status`; started inside another agent session');
+        expect(seen.unset?.every(list => list?.includes('CLAUDE_CODE_ENTRYPOINT') && !list.includes('CLAUDECODE'))).toBe(true);
+    });
+
+    it('does not mention another session when none is around', async () => {
+        delete process.env.CLAUDECODE;
+        delete process.env.CLAUDE_CODE_ENTRYPOINT;
+        const result = await runReviewer(repo, 'main', claudeOnly, fakes(empty, seenNow()), () => undefined);
+        expect(result.reason).toBe('claude: the claude CLI answered nothing (0 output tokens); check its login: `claude auth status`');
     });
 });
