@@ -88,7 +88,8 @@ export function deadNullGuards(typed: TypedProgram, changedSources: TS.SourceFil
         for (const prop of checker.getPropertiesOfType(type)) {
             const decl = prop.declarations?.[0];
             if (!decl || !ts.isPropertySignature(decl) || !decl.type) continue;
-            const nullable = h.isNullable(checker.getTypeFromTypeNode(decl.type)) || !!decl.questionToken;
+            // The property's effective type in the row, not its declaration: a mapped type (`NonNullable` per member) may narrow it.
+            const nullable = h.isNullable(checker.getTypeOfSymbol(prop)) || !!(prop.flags & ts.SymbolFlags.Optional);
             if (!nullable || !queries.every(q => q.columns.has(prop.name))) continue;
             if (builtWithout(typed, sym, prop.name, h)) continue;
             const queryFiles = new Set(queries.filter(q => q.touched).map(q => q.file));
@@ -107,9 +108,12 @@ function guardsOn(typed: TypedProgram, prop: TS.Symbol, h: GuardHelpers): Array<
     const { ts, checker } = typed;
     const found: Array<{ node: TS.Node; text: string; emptyString: boolean }> = [];
     const decl = prop.declarations?.[0];
+    const mayBeNullish = (t: TS.Type) => (t.isUnion() ? t.types : [t]).some(m => !!(m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Any | ts.TypeFlags.Unknown)));
+    // The same property, read through a type that still lets it be null: one that already narrowed it
+    // (`Row & { col: string }`) says non-null itself, so there is nothing to narrow. Its declared type, not the flow's.
     const isProp = (access: TS.PropertyAccessExpression) => {
         const s = checker.getSymbolAtLocation(access.name);
-        return !!s && (s === prop || s.declarations?.[0] === decl);
+        return !!s && (s === prop || s.declarations?.[0] === decl) && (s === prop || mayBeNullish(checker.getTypeOfSymbol(s)));
     };
     const isNullish = (n: TS.Node) => n.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(n) && n.text === 'undefined');
     for (const sf of typed.appSources) {

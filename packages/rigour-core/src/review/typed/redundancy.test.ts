@@ -63,6 +63,33 @@ export async function scan(since: string): Promise<Row[]> {
         expect(result.findings.find(f => f.id === 'duplicate-null-filter')?.details).toContain("`.gte('set_id', …)` at src/scan.ts:3");
     }, 60_000);
 
+    it('reads the column\'s effective type in the row: a type that narrowed it through an intersection or a mapped type is not reported', async () => {
+        write('src/pager.ts', `import type { Query } from './db';
+export async function readInChunks<Row>(page: () => Query<unknown>): Promise<Row[]> {
+    await page();
+    return [];
+}
+`);
+        write('src/members.ts', `import { from } from './db';
+import { readInChunks } from './pager';
+export interface MemberRow { id: string; account_id: string | null }
+type LinkedRow = MemberRow & { account_id: string };
+type Narrow<T> = { [K in keyof T]: NonNullable<T[K]> };
+type ReAdded = Omit<MemberRow, 'account_id'> & { account_id: string };
+export const linked = () => readInChunks<LinkedRow & Record<string, unknown>>(() => from('members').not('account_id', 'is', null));
+export const narrowed = () => readInChunks<Narrow<MemberRow>>(() => from('members').not('account_id', 'is', null));
+export const readded = () => readInChunks<ReAdded>(() => from('members').not('account_id', 'is', null));
+export const loose = () => readInChunks<MemberRow & Record<string, unknown>>(() => from('members').not('account_id', 'is', null));
+export const base = () => from('members').not('account_id', 'is', null).returns<MemberRow[]>();
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'members');
+        const result = await review();
+        const found = result.findings.filter(f => f.id === 'nullable-filtered-column');
+        expect(found.map(f => [f.files?.[0], f.line])).toEqual([['src/members.ts', 10], ['src/members.ts', 11]]); // nothing narrowed these two
+        expect(found[0].details).toContain('`account_id` is declared nullable at src/members.ts:3');
+    }, 60_000);
+
     it('reports an optional member every host supplies and a property written but never read; a spread host or a read elsewhere clears them', async () => {
         write('src/types.ts', 'export interface Candidate { userId?: string; title: string; extra: string }\n');
         write('src/a.ts', "import type { Candidate } from './types';\nexport const a: Candidate = { userId: 'u1', title: 'one', extra: 'x' };\n");
@@ -391,6 +418,22 @@ export async function summary(): Promise<string[]> {
         git('add', '-A');
         git('commit', '-qm', 'pager');
         expect(await guards()).toEqual([['src/sessions.ts', 8]]);
+    });
+
+    it('says nothing on a guard read through a row type that already narrowed the column', async () => {
+        write('src/sessions.ts', `import { from } from './db';
+export interface Session { id: string; ended_at: string | null }
+type Ended = Session & { ended_at: string };
+export async function endedSessions(): Promise<Ended[]> {
+    return from('sessions').not('ended_at', 'is', null).returns<Ended[]>();
+}
+export async function summary(): Promise<string[]> {
+    return (await endedSessions()).map(row => row.ended_at ?? 'never');
+}
+`);
+        git('add', '-A');
+        git('commit', '-qm', 'ended');
+        expect(await guards()).toEqual([]);
     });
 
     it('says nothing when another query returns the same rows unfiltered', async () => {
