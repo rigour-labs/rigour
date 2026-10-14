@@ -35,6 +35,13 @@ export interface RigourProfile {
     };
     /** The GitHub account whose token fetches pull request reviews. */
     githubAccount?: string;
+    /** This profile's own Codex home (its login, config.toml, AGENTS.md): the codex judge runs with it as CODEX_HOME. */
+    codexHome?: string;
+    /**
+     * The cursor judge may run under this profile although it reads the person's own Cursor rules, MCP servers and
+     * settings: cursor-agent has no switch that gives a profile its own (review/reviewer/judge-isolation.ts).
+     */
+    cursorShared?: boolean;
 }
 
 const TEAM_ENV = ['RIGOUR_ORGANIZATION_ID', 'RIGOUR_TEAM_ID', 'RIGOUR_ACTOR_ID', 'RIGOUR_TEAM_REPOSITORIES', 'RIGOUR_TEAM_DATABASE_URL', 'RIGOUR_TEAM_DATABASE_URL_COMMAND', 'RIGOUR_TEAM_SEMANTIC', 'RIGOUR_TEAM_SYNC_PERSONAL'];
@@ -114,6 +121,16 @@ export function applyProfile(cwd: string, profiles?: RigourProfile[]): RigourPro
     }
     if (profile.githubAccount) process.env.RIGOUR_GITHUB_ACCOUNT = profile.githubAccount;
     return profile;
+}
+
+/**
+ * The profile this process applied at start (RIGOUR_PROFILE), or undefined when none did. A profile named there but
+ * gone from the list is still a profile, with nothing of its own: never read as "no profile".
+ */
+export function appliedProfile(profiles: RigourProfile[] = readProfiles()): RigourProfile | undefined {
+    const name = process.env.RIGOUR_PROFILE;
+    if (!name) return undefined;
+    return profiles.find(profile => profile.name === name) ?? { name, match: [] };
 }
 
 /**
