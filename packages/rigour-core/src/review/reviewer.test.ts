@@ -1477,3 +1477,28 @@ describe('judges under a profile', () => {
         expect(result.record?.judges[0]).toMatchObject({ reviewer: 'codex', outside_repo: `codex also reads ${path.join(shared, 'config.toml')}` });
     });
 });
+
+describe('a judge that answers nothing', () => {
+    const saved = { CLAUDECODE: process.env.CLAUDECODE, CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT };
+    afterEach(() => { for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value; });
+    const empty = () => ({ exitCode: 0, stdout: `${JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '', duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 } })}\n`, stderr: '' });
+    const claudeOnly = ConfigSchema.parse({ version: 1, review: { coverage: false, github_account: 'reviewer-account', reviewer: { enabled: true, reviewers: ['claude'] } } });
+
+    it('is unavailable, says to check its login, and that it started inside another agent session; the judge never sees CLAUDE_CODE_ENTRYPOINT', async () => {
+        process.env.CLAUDECODE = '1';
+        process.env.CLAUDE_CODE_ENTRYPOINT = 'claude-desktop';
+        const seen = seenNow();
+        const result = await runReviewer(repo, 'main', claudeOnly, fakes(empty, seen), () => undefined);
+        expect(result.outcome).toBe('unavailable');
+        expect(reviewerBlocks(result)).toBe(true);
+        expect(result.reason).toBe('claude: the claude CLI answered nothing (0 output tokens); check its login: `claude auth status`; started inside another agent session');
+        expect(seen.unset?.every(list => list?.includes('CLAUDE_CODE_ENTRYPOINT') && !list.includes('CLAUDECODE'))).toBe(true);
+    });
+
+    it('does not mention another session when none is around', async () => {
+        delete process.env.CLAUDECODE;
+        delete process.env.CLAUDE_CODE_ENTRYPOINT;
+        const result = await runReviewer(repo, 'main', claudeOnly, fakes(empty, seenNow()), () => undefined);
+        expect(result.reason).toBe('claude: the claude CLI answered nothing (0 output tokens); check its login: `claude auth status`');
+    });
+});

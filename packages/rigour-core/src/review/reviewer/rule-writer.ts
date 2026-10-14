@@ -14,10 +14,10 @@ import { judgeIsolation } from './judge-isolation.js';
 import { appliedProfile } from '../../utils/profile.js';
 import { resolveReviewer } from './settings.js';
 import { VerdictStore } from './store.js';
-import { overBudget } from './caps.js';
+import { capOrigin, overBudget } from './caps.js';
 
 export async function ruleWriterFor(cwd: string, config: Config, exec: Exec, progress: (line: string) => void = () => undefined): Promise<RuleWriter | undefined> {
-    const settings = resolveReviewer(config);
+    const settings = capOrigin(resolveReviewer(config), cwd);
     let chosen: { name: keyof typeof ADAPTERS; binary: string; version: string; env: Record<string, string> } | undefined;
     // The same judges a review may run under this profile, with the same isolation.
     const profile = appliedProfile();

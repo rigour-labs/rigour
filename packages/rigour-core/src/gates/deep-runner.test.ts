@@ -24,6 +24,7 @@ describe("the deep review's cloud model and the spending caps", () => {
         const result = await runDeepAnalysis(config, { cwd: repo, ignore: [] }, { enabled: true, apiKey: 'not-a-real-key', provider: 'anthropic' });
         expect(result.summary).toBe('SKIP');
         expect(result.failures).toEqual([]);
-        expect(result.stats.skipped).toBe('the cloud model did not run: the daily cost cap is reached: $1.25 of $1.00 reported today in this repository (review.reviewer.max_usd_per_day)');
+        expect(result.stats.skipped).toMatch(/^the cloud model did not run: the daily cost cap is reached: \$1\.25 of \$1\.00 reported today in this repository \(review\.reviewer\.max_usd_per_day\)\. The cap is \$1\.00/);
+        expect(result.stats.skipped).toContain('can only lower it');
     });
 });
