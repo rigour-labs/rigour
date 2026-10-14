@@ -2,7 +2,8 @@ import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
-import { applyStateMerge, cleanContextCache, deadCacheRows, loadSettings, resolveDeepOptions, getCachedModel, legacyStateNote, planStateMerge, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
+import { applyStateMerge, cleanContextCache, deadCacheRows, judgesUnderProfile, loadSettings, resolveDeepOptions, getCachedModel, legacyStateNote, planStateMerge, reviewerAvailability, rigourUserDir, SidecarProvider } from '@rigour-labs/core';
+import { appliedProfile } from '@rigour-labs/core/profile';
 import { checkRepoSetup, type SetupState } from './repo-setup.js';
 import { blockOptIns, configMigrations } from './setup-migrations.js';
 import { pushGateLine, pushHookTarget, selfTestCommand, selfTestGitPushHook } from './hooks-git.js';
@@ -74,6 +75,7 @@ export async function doctorCommand(options: { cleanCache?: boolean; mergeState?
     await printRepoSetup(cwd);
     console.log(semanticStatusLine(cwd) + '\n');
     await printPushGate(cwd);
+    await printProfileJudges(cwd);
     await printDatabaseHealth();
 
     const paths = Array.from(new Set(listRigourPaths()));
@@ -196,6 +198,17 @@ async function printPushGate(cwd: string): Promise<void> {
     const test = await selfTestGitPushHook(selfTestCommand());
     for (const step of test.steps) console.log(chalk.dim(`  - ${step}`));
     console.log(test.ok ? chalk.green('  ✓ The push gate holds under a real git push.\n') : chalk.red('  ✘ The push gate does not hold.\n'));
+}
+
+/** Under a profile: which installed reviewer judges run isolated, and which are skipped and why (core reviewer/judge-isolation.ts). */
+async function printProfileJudges(cwd: string): Promise<void> {
+    const profile = appliedProfile();
+    if (!profile) return;
+    console.log(chalk.bold(`Reviewer judges under profile ${profile.name}`));
+    const installed = (await reviewerAvailability(cwd)).filter(judge => judge.installed).map(judge => judge.name);
+    if (installed.length === 0) return void console.log(chalk.dim('  No judge CLI installed.\n'));
+    for (const judge of judgesUnderProfile(installed, profile)) console.log(`  ${judge.runs ? chalk.green('✓') : chalk.yellow('○ skipped')} ${judge.name}: ${chalk.dim(judge.detail)}`);
+    console.log('');
 }
 
 /** `--merge-state`: what an old home ending in .rigour left outside the live state directory, merged in; a dry run unless --yes. */

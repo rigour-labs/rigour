@@ -81,6 +81,7 @@ function printMode(result: ReviewerResult): void {
         console.log(chalk.yellow(`  ${mode.asked} asked (${mode.source}), ${mode.ran} ran${why ? `: ${why}` : ''}`));
     }
     for (const line of mode.refused ?? []) console.log(chalk.yellow(`  ${line}`));
+    for (const line of mode.skipped ?? []) console.log(chalk.yellow(`  ${line}`));
 }
 
 export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
