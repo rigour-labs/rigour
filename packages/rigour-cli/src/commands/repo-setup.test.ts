@@ -94,3 +94,37 @@ describe('checkRepoSetup', () => {
         }
     });
 });
+
+describe("doctor's version check and the push-gate line", () => {
+    const gitInit = () => { for (const args of [['init', '-q', '-b', 'main'], ['config', 'core.hooksPath', '.husky/_']]) execFileSync('git', ['-C', cwd, ...args]); };
+    const version = async () => (await checkRepoSetup(cwd, now, [], '7.0.5')).find(c => c.id === 'version');
+    const gate = (pin: string) => `#!/bin/sh\nnpm test\n\nnpx --yes @rigour-labs/cli@${pin} hooks push --git "$@" || exit $?\n`;
+
+    it('flags a tracked husky line pinned to another version, with setup --team as the fix', async () => {
+        gitInit();
+        write('.claude/settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ command: 'npx --yes @rigour-labs/cli@7.0.5 hooks stop --tool claude' }] }] } }));
+        write('.husky/pre-push', gate('7.0.2'));
+        expect(await version()).toMatchObject({ state: 'broken', detail: `the push gate in ${path.join('.husky', 'pre-push')} runs 7.0.2; installed is 7.0.5`, fix: 'rigour setup --team' });
+        write('.husky/pre-push', gate('7.0.5'));
+        expect(await version()).toMatchObject({ state: 'working', detail: '7.0.5' });
+    });
+
+    it('counts the line even when nothing else pins a version, and gives a personal install the line to paste', async () => {
+        gitInit();
+        write('.husky/pre-push', gate('7.0.2'));
+        write('.git/rigour-enabled', '');
+        const personal = (await checkRepoSetup(cwd, now, [], '7.0.5')).find(c => c.id === 'version');
+        expect(personal?.state).toBe('broken');
+        expect(personal?.detail).toContain('runs 7.0.2');
+        expect(personal?.fix).toBe(`in ${path.join('.husky', 'pre-push')} replace Rigour's line with: npx --yes @rigour-labs/cli@7.0.5 hooks push --git "$@" || exit $?`);
+    });
+
+    it('gives a tracked script setup --team even when no agent config names Rigour, and git\'s own hook plain setup', async () => {
+        gitInit();
+        write('.husky/pre-push', gate('7.0.2'));
+        expect(await version()).toMatchObject({ state: 'broken', fix: 'rigour setup --team' });
+        execFileSync('git', ['-C', cwd, 'config', 'core.hooksPath', '.git/hooks']);
+        write('.git/hooks/pre-push', gate('7.0.2'));
+        expect(await version()).toMatchObject({ state: 'broken', detail: expect.stringContaining('runs 7.0.2'), fix: 'rigour setup' });
+    });
+});
