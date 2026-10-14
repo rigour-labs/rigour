@@ -487,7 +487,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
         ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, cache: apiVendor(settings.api) === 'anthropic', ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
-        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name] }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
+        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name], version: installed.get(name)!.version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
     // A failed run's own output can say why (a refused API key): the reason carries it.
     const hinted = <T extends object>(name: ReviewerName, run: { stdout: string; stderr: string }, answer: T | { error: string }) => withFailureHint(answer, name === 'api' ? undefined : judgeFailureHint(name, run, judgeUnset(name, settings.judge_env)));
     try {

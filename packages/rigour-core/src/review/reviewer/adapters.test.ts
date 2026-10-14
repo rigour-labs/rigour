@@ -76,10 +76,21 @@ describe('what a judge knows besides the repository', () => {
         expect(args).toEqual(expect.arrayContaining(['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']));
         expect(JSON.parse(args[args.indexOf('--settings') + 1])).toMatchObject({ hooks: {} });
         for (const v of ['2.1.285 (Claude Code)', '2.1.300', '2.2.0', '3.0.0']) expect(ADAPTERS.claude.outsideRepo!('/home/x', v)).toBeUndefined();
-        expect(ADAPTERS.claude.outsideRepo!('/home/x', '2.1.284 (Claude Code)')).toBe('claude 2.1.284: memory isolation unverified (needs 2.1.285 or later)');
+        expect(ADAPTERS.claude.outsideRepo!('/home/x', '2.1.284 (Claude Code)')).toBe('claude 2.1.284: memory isolation unverified and every built-in tool loaded (needs 2.1.285 or later)');
         expect(ADAPTERS.claude.outsideRepo!('/home/x', '2.0.999')).toContain('unverified');
         expect(ADAPTERS.claude.outsideRepo!('/home/x', '1.9.400')).toContain('unverified');
-        expect(ADAPTERS.claude.outsideRepo!('/home/x', undefined)).toBe('claude (version unknown): memory isolation unverified (needs 2.1.285 or later)');
+        expect(ADAPTERS.claude.outsideRepo!('/home/x', undefined)).toBe('claude (version unknown): memory isolation unverified and every built-in tool loaded (needs 2.1.285 or later)');
+    });
+
+    it('loads only the read-only tools on a claude verified for --tools, and keeps the arguments an older or unknown one accepts', () => {
+        const tools = (version: string | undefined) => {
+            const args = ADAPTERS.claude.args('p', undefined, { version });
+            return args.includes('--tools') ? args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools')) : undefined;
+        };
+        for (const v of ['2.1.285 (Claude Code)', '2.1.300', '2.2.0', '3.0.0']) expect(tools(v)).toEqual(['Read', 'Grep', 'Glob', 'Bash']);
+        for (const v of ['2.1.284 (Claude Code)', '2.0.999', '1.9.400', 'not a version', undefined]) expect(tools(v)).toBeUndefined();
+        const args = ADAPTERS.claude.args('p', undefined, { version: '2.1.285' });
+        expect(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))).toEqual(['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git log:*)', 'Bash(git grep:*)']);
     });
 
     it("says when codex will also read a person's own Codex config or instructions, and from where", () => {

@@ -18,20 +18,20 @@ import { capOrigin, overBudget } from './caps.js';
 
 export async function ruleWriterFor(cwd: string, config: Config, exec: Exec, progress: (line: string) => void = () => undefined): Promise<RuleWriter | undefined> {
     const settings = capOrigin(resolveReviewer(config), cwd);
-    let chosen: { name: keyof typeof ADAPTERS; binary: string; env: Record<string, string> } | undefined;
+    let chosen: { name: keyof typeof ADAPTERS; binary: string; version: string; env: Record<string, string> } | undefined;
     // The same judges a review may run under this profile, with the same isolation.
     const profile = appliedProfile();
     for (const name of settings.reviewers.filter(isReviewerName)) {
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
         const isolated = found ? judgeIsolation(name, profile) : undefined;
         if (found && isolated && !isolated.skip) {
-            chosen = { name, binary: found.binary, env: { ...ADAPTERS[name].env, ...isolated.env } };
+            chosen = { name, binary: found.binary, version: found.version, env: { ...ADAPTERS[name].env, ...isolated.env } };
             break;
         }
     }
     const store = await VerdictStore.open(cwd, exec);
     if (!chosen || !store) return undefined;
-    const { name, binary, env } = chosen;
+    const { name, binary, version, env } = chosen;
     const model = settings.models[name] ?? (name === 'claude' ? settings.model : undefined);
     let spent = 0; // this rule-writing run, against max_usd_per_review
     return async prompt => {
@@ -40,7 +40,7 @@ export async function ruleWriterFor(cwd: string, config: Config, exec: Exec, pro
             progress(`rules from reviews: ${capped}; the rest stay as people wrote them`);
             return undefined;
         }
-        const run = await exec(binary, ADAPTERS[name].args(prompt, model), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...(Object.keys(env).length ? { env } : {}) });
+        const run = await exec(binary, ADAPTERS[name].args(prompt, model, { version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...(Object.keys(env).length ? { env } : {}) });
         const answer = ADAPTERS[name].answer(run.stdout);
         store.addSpend(1, answer.costUsd);
         spent += answer.costUsd ?? 0;
