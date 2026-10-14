@@ -283,8 +283,12 @@ and a cross-examination that would pass it is not made (its findings are shown a
 the cap as the reason). Dollars are known only after a run, so the cost cap stops new reviews once
 today's reported spend reaches it. Past a cap, a review is skipped and says why; where the team
 requires the reviewer, it is unavailable instead, which blocks like any review that could not run.
-At a push, the agent is told so, with the cap and its key ("the model review of 1a2b3c4d5 was skipped: the daily
-cost cap is reached … (review.reviewer.max_usd_per_day)"), and no background review starts.
+At a push, the agent is told so, and no background review starts. The daily cost cap's reason says what the cap is,
+where it comes from (Rigour's default, `rigour.yml`, or your own lower cap) and how to change it ("the model review of
+1a2b3c4d5 was skipped: the daily cost cap is reached: $10.40 of $10.00 reported today in this repository (review.reviewer.max_usd_per_day).
+The cap is $10.00, Rigour's default: rigour.yml does not set review.reviewer.max_usd_per_day. To change it, set
+review.reviewer.max_usd_per_day in rigour.yml; your own reviewer.max_usd_per_day (~/.rigour/settings.json) can only
+lower it.").
 One review stops at `max_usd_per_review`: it is checked before each judge, retry, cross-examination and follow-up
 the review starts, and a review stopped there keeps what it had and says the cap is why ("no other judge asked: this
 review's cost cap is reached: $3.00 of $2.00…"). The same caps hold the rule writer (`learn-reviews --rules`) and the
