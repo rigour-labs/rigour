@@ -44,7 +44,7 @@ import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relate
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
-import { judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
+import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
 import { appendTaskEvent } from '../task/thread.js';
 import type { CoveredLesson } from './settled-checks.js';
 
@@ -605,13 +605,17 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                             break;
                         }
                         const next = spare.shift()!;
+                        // A hint on the judge it replaces (a refused key) stays on the record, whatever the next judge answers.
+                        const hint = hintIn(answer.error);
+                        const earlier = hint ? ` (${reviewers[i]}: ${hint})` : '';
                         progress(`Rigour reviewer: ${reviewers[i]} gave no verdict (${answer.error}); ${next} judges instead`);
-                        modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead` };
+                        modeRecord = { ...modeRecord, degraded: `${modeRecord.degraded ? `${modeRecord.degraded}; ` : ''}${reviewers[i]} gave no verdict, ${next} judged instead${earlier}` };
                         reviewers[i] = next;
                         const run = await runJudge(next, prompt, modelFor(next));
                         const got = ADAPTERS[next].answer(run.stdout);
                         spent(got.costUsd, projectedSingle);
                         answer = hinted(next, run, run.exitCode === 0 || got.text.trim() ? parseVerdict(got.text, needsPriorPoints, next, got) : { error: `${next}: no answer (exit ${run.exitCode}): ${run.stderr.trim().slice(-200)}` });
+                        if ('error' in answer && earlier) answer = { error: `${answer.error}${earlier}` };
                     }
                     answers[i] = answer;
                 }
