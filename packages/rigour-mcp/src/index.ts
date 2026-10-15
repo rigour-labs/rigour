@@ -27,6 +27,7 @@ import { loadConfig, loadMcpSettings, logStudioEvent, resolveCwd } from './utils
 import { profileMismatch } from '@rigour-labs/core/profile';
 import { bindServer } from './utils/notifications.js';
 import { getMcpVersion } from './utils/package-version.js';
+import { firstTeamSync } from './utils/team-pull.js';
 import { buildMcpResultMeta, buildStudioImpact } from './utils/impact-receipt.js';
 
 // Dashboard (MCP App)
@@ -117,6 +118,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestId = randomUUID();
     const foreign = profileMismatch(cwd);
     if (foreign) return { content: [{ type: "text", text: `ERROR: ${foreign}` }], isError: true };
+    // A fresh machine has pulled none of the team's lessons yet: the first sync starts now, not after this call.
+    void firstTeamSync(cwd);
 
     try {
         await logStudioEvent(cwd, { type: "tool_call", requestId, tool: name, arguments: args });
@@ -286,10 +289,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 summary: result?._guidance?.recommendation,
                 ...interactionMetadata(args),
             });
-            void syncTeamOutbox({ cwd }).catch(() => undefined);
         } catch {
             // Learning is evidence collection and must not block governance tools.
         }
+        // Its own step, after the first sync: a failure to record evidence must never skip it.
+        void firstTeamSync(cwd).then(() => syncTeamOutbox({ cwd })).catch(() => undefined);
 
         // ── Prepend image DLP warning if image content was detected ──
         if (hasImageContent && Array.isArray(result.content)) {
