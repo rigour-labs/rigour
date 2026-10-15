@@ -109,6 +109,7 @@ export {
   getTeamModeStatus,
   doctorTeamConnection,
   syncTeamOutbox,
+  hasPulledTeamLessons,
   searchTeamKnowledge,
   backfillTeamEmbeddings,
   TEAM_CONFIG_PATH,
