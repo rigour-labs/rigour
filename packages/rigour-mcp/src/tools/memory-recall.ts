@@ -25,11 +25,12 @@ export interface RecallArgs {
     query?: string;
 }
 
-export async function handleRecall(cwd: string, args: RecallArgs = {}): Promise<ToolResult> {
+/** `teamWaitMs`: how long to wait for the first team sync on a machine that has never pulled (the default unless a test shortens it). */
+export async function handleRecall(cwd: string, args: RecallArgs = {}, options: { teamWaitMs?: number } = {}): Promise<ToolResult> {
     const entries = await localEntries(cwd);
     const candidateText = JSON.stringify(entries);
     if (args.key) return recallKey(cwd, args.key, entries, candidateText);
-    const team = await teamLessonsFor(cwd);
+    const team = await teamLessonsFor(cwd, options.teamWaitMs);
     if (args.query?.trim()) return recallQuery(cwd, args.query.trim(), entries, candidateText, team);
     return recallAll(cwd, entries, candidateText, team);
 }

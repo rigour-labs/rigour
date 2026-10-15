@@ -8,7 +8,6 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const core = vi.hoisted(() => ({ team: null as null | object, lessons: [] as Array<Record<string, unknown>>, sync: (async () => ({})) as () => Promise<unknown> }));
-let repoCount = 0;
 vi.mock('@rigour-labs/core', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@rigour-labs/core')>()),
     loadTeamConfiguration: async () => core.team,
@@ -19,13 +18,6 @@ vi.mock('@rigour-labs/core', async (importOriginal) => ({
 const { handleRecall } = await import('./memory-recall.js');
 
 const text = (result: { content: Array<{ text: string }> }) => result.content.map(c => c.text).join('\n');
-/** Moves a fake clock on, a second at a time, until `pending` settles: recall reads files before it sets its timer. */
-const settled = async <T>(pending: Promise<T>): Promise<T> => {
-    let done = false;
-    void pending.finally(() => { done = true; });
-    for (let i = 0; i < 30 && !done; i++) await vi.advanceTimersByTimeAsync(1_000);
-    return pending;
-};
 const promoted = (subject: string) => ({ id: `lesson-${subject.length}`, subject, state: 'promoted', visibility: 'team' });
 let repo: string;
 let home: string;
@@ -56,14 +48,8 @@ describe('recall with the team\'s lessons', () => {
 
     it('says the team\'s lessons are still on their way when the first sync has not finished', async () => {
         core.sync = () => new Promise(() => undefined);
-        // Recall waits a few seconds for the first sync: the clock is moved on instead of waited for.
-        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-        try {
-            expect(text(await settled(handleRecall(repo)))).toContain("NO MEMORIES STORED. Use rigour_remember to persist important instructions.\n\nThe team's lessons are still being fetched");
-            expect(text(await settled(handleRecall(repo, { query: 'migrations' })))).toContain("The team's lessons are still being fetched");
-        } finally {
-            vi.useRealTimers();
-        }
+        expect(text(await handleRecall(repo, {}, { teamWaitMs: 50 }))).toContain("NO MEMORIES STORED. Use rigour_remember to persist important instructions.\n\nThe team's lessons are still being fetched");
+        expect(text(await handleRecall(repo, { query: 'migrations' }, { teamWaitMs: 50 }))).toContain("The team's lessons are still being fetched");
     });
 
     it('says why when the team database could not be reached', async () => {
