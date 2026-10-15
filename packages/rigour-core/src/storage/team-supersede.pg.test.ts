@@ -1,7 +1,8 @@
 /**
  * Against a real PostgreSQL, when RIGOUR_TEST_DATABASE_URL names a database an administrator owns (skipped otherwise):
  * a corrected team memory reaches the team database as one candidate, with the version it replaced marked superseded,
- * so a person deciding in Studio never sees both. The test works in a database of its own, created and dropped here.
+ * so a person deciding in Studio never sees both. It syncs as an ordinary `sme` login, not the tables' owner, so the
+ * row-level security policies apply. The test works in a database of its own, created and dropped here.
  */
 import fs from 'fs';
 import os from 'os';
@@ -17,6 +18,9 @@ describe.skipIf(!URL)('a corrected team memory on a real PostgreSQL', () => {
     const saved = { ...process.env };
     const teamUrl = () => { const url = new globalThis.URL(URL!); url.pathname = `/${DATABASE}`; return url.toString(); };
     const pg = async (connectionString: string) => new (await import('pg')).Pool({ connectionString });
+    const MEMBER = `rigour_supersede_member_${process.pid}`;
+    /** The member's own login: row-level security applies to it, unlike the owner the test administers with. */
+    const memberUrl = () => { const url = new globalThis.URL(teamUrl()); url.username = MEMBER; url.password = 'synthetic-member-pass'; return url.toString(); };
 
     beforeAll(async () => {
         const admin = await pg(URL!);
@@ -32,14 +36,19 @@ describe.skipIf(!URL)('a corrected team memory on a real PostgreSQL', () => {
         const { initializeTeamSchema } = await import('./team-store.js');
         await initializeTeamSchema(teamUrl());
         const team = await pg(teamUrl());
-        await team.query(`INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role) VALUES (current_user, 'example-org', 'platform', 'dev-a', 'sme')`);
+        await team.query(`DROP ROLE IF EXISTS ${MEMBER}`).catch(() => undefined);
+        await team.query(`CREATE ROLE ${MEMBER} LOGIN PASSWORD 'synthetic-member-pass'`);
+        await team.query(`INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role) VALUES ('${MEMBER}', 'example-org', 'platform', 'dev-a', 'sme')`);
         await team.end();
+        await initializeTeamSchema(teamUrl()); // grants the member login its tables
+        process.env.RIGOUR_TEAM_DATABASE_URL = memberUrl();
     });
 
     afterAll(async () => {
         process.env = { ...saved };
         const admin = await pg(URL!);
         await admin.query(`DROP DATABASE IF EXISTS ${DATABASE} WITH (FORCE)`);
+        await admin.query(`DROP ROLE IF EXISTS ${MEMBER}`);
         await admin.end();
         for (const dir of [home, repo]) fs.rmSync(dir, { recursive: true, force: true });
     });

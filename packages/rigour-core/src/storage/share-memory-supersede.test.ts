@@ -55,21 +55,60 @@ describe('re-remembering a team memory', () => {
         expect(await shareMemoryLesson(repo, 'retries', 'Use withRetry from lib/net, three attempts.')).toBe(corrected);
     });
 
-    it('never supersedes a memory a person already promoted', async () => {
-        const { shareMemoryLesson } = await import('./lessons.js');
+    it('never supersedes a memory a person already promoted (promotion publishes a copy)', async () => {
+        const { shareMemoryLesson, transitionLesson } = await import('./lessons.js');
         const { openDatabase } = await import('./db.js');
-        const promoted = await shareMemoryLesson(repo, 'logging', 'Log the request id.');
+        const original = await shareMemoryLesson(repo, 'logging', 'Log the request id.');
+        expect(await transitionLesson(original!, 'promoted', { visibility: 'team' })).toBe(true);
+        const next = await shareMemoryLesson(repo, 'logging', 'Log the request id and the tenant.');
         const db = (await openDatabase())!;
         try {
-            await db.run("UPDATE lessons SET state = 'promoted' WHERE id = ?", promoted);
+            const published = await db.get("SELECT state FROM lessons WHERE source = ?", `published:${original}`);
+            expect(published).toMatchObject({ state: 'promoted' });
+            expect(await db.get('SELECT state FROM lessons WHERE id = ?', original)).toMatchObject({ state: 'candidate' });
+            expect(await db.get('SELECT state, supersedes_id FROM lessons WHERE id = ?', next)).toMatchObject({ state: 'candidate', supersedes_id: null });
         } finally {
             await db.close();
         }
-        const next = await shareMemoryLesson(repo, 'logging', 'Log the request id and the tenant.');
+    });
+
+    it('brings an earlier value back as a new candidate that supersedes the current one', async () => {
+        const { shareMemoryLesson } = await import('./lessons.js');
+        const { openDatabase } = await import('./db.js');
+        const a = await shareMemoryLesson(repo, 'timeouts', 'Thirty seconds.');
+        const b = await shareMemoryLesson(repo, 'timeouts', 'Sixty seconds.');
+        const back = await shareMemoryLesson(repo, 'timeouts', 'Thirty seconds.');
+        expect(back).not.toBe(a);
+        const db = (await openDatabase())!;
+        try {
+            expect(await db.get('SELECT state FROM lessons WHERE id = ?', b)).toMatchObject({ state: 'superseded' });
+            expect(await db.get('SELECT state, supersedes_id FROM lessons WHERE id = ?', back)).toMatchObject({ state: 'candidate', supersedes_id: b });
+        } finally {
+            await db.close();
+        }
+    });
+
+    it("never touches another person's candidate for the same key", async () => {
+        const { shareMemoryLesson } = await import('./lessons.js');
+        const { getRepositoryId } = await import('./repository-origin.js');
+        const { encryptLocalPayload } = await import('./local-encryption.js');
+        const { openDatabase } = await import('./db.js');
+        const theirs = 'lesson-someone-else';
+        const db = (await openDatabase())!;
+        try {
+            await db.run(
+                `INSERT INTO lessons (id, repository_id, actor_id, team_id, visibility, state, kind, subject, evidence_json, confidence, source, created_at, updated_at)
+                 VALUES (?, ?, 'teammate', 'web', 'team', 'candidate', 'memory', ?, ?, 0.5, 'rigour_remember', 1, 1)`,
+                theirs, await getRepositoryId(repo), 'paging: Use cursors.', await encryptLocalPayload({ key: 'paging', value: 'Use cursors.' }),
+            );
+        } finally {
+            await db.close();
+        }
+        const mine = await shareMemoryLesson(repo, 'paging', 'Use keyset pagination.');
         const check = (await openDatabase())!;
         try {
-            expect((await check.get('SELECT state FROM lessons WHERE id = ?', promoted)).state).toBe('promoted');
-            expect((await check.get('SELECT state, supersedes_id FROM lessons WHERE id = ?', next))).toMatchObject({ state: 'candidate', supersedes_id: null });
+            expect(await check.get('SELECT state FROM lessons WHERE id = ?', theirs)).toMatchObject({ state: 'candidate' });
+            expect(await check.get('SELECT supersedes_id FROM lessons WHERE id = ?', mine)).toMatchObject({ supersedes_id: null });
         } finally {
             await check.close();
         }
