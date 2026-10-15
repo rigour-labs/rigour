@@ -114,6 +114,8 @@ export {
   TEAM_CONFIG_PATH,
   validateTeamDatabaseUrl,
   explainTeamConnectionError,
+  addToTeamList,
+  originOf,
 } from './storage/index.js';
 export type {
   TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,

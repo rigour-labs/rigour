@@ -83,7 +83,9 @@ Rigour sends a queued lesson only when all of these hold:
 2. The lesson's repository has an `origin` remote that matches one of the team's repositories (`--repositories`). A pattern ending in `/*` matches every repository under that owner (`github.com/acme/*`); anything else must match exactly (`github.com/acme/api`). Matching ignores the scheme, any `user@` part and case. An `origin` on an SSH host alias (`git@work-github:acme/api`, with `Host work-github` / `HostName github.com` in your ssh config) is compared as the host the alias names, which Rigour reads with `ssh -G` (it connects to nothing). A pattern with no host (`acme/*`, `acme/api`) matches the owner and repository on any host. The `not one of the team's repositories` message names what was compared.
 3. The lesson is `team`, or it is `personal` and `--sync-personal` is set.
 
-With no `--repositories`, nothing is sent. A repository with no `origin` remote is recorded by its local path, so a remote pattern never matches it. A lesson that fails these rules is marked `not sent: <reason>` in the local queue and is never retried, even if you later add its repository to the list. A later change to the same lesson queues it again and is judged by the rules at that time.
+With no `--repositories`, nothing is sent. A lesson whose repository is not in the list is **held**: it stays queued, marked `held: <reason>`, and goes with the first sync after you add the repository. `rigour_remember` with scope `team` and `rigour team doctor` say when the current repository is not in the list, and print the command that adds it, with the pattern written as it is compared (an SSH alias resolved). Queued items an earlier version set aside for this reason (`not sent: repository … is not one of the team's repositories`) are held the same way from 7.0.7.
+
+A personal lesson without `--sync-personal`, and a lesson from a repository with no `origin` remote (recorded by its local path, which no pattern names), stay on the machine: marked `not sent: <reason>` and never retried. A later change to the same lesson queues it again and is judged by the rules at that time.
 
 For each lesson that is sent, the database receives:
 
@@ -332,7 +334,7 @@ Failures come with the fix: an untrusted certificate chain, an unreachable host,
 rigour team sync --dry-run
 ```
 
-This does not connect. It reports how many queued items would be sent (`pending`) and how many would stay on the machine (`withheld`), and, under `decisions`, how many of your decisions on this repository's review lessons the next sync sends (`yours`) and which in the clone someone else made (`notYours`). A real `rigour team sync` also reports `synced` (sent), `pulled` (received) and, under `decisions`, `sent`, `received` and any `held` reason.
+This does not connect. It reports how many queued items would be sent (`pending`), how many are held until their repository is in the team's list (`held`, with the reasons under `heldBecause`) and how many would stay on the machine (`withheld`), and, under `decisions`, how many of your decisions on this repository's review lessons the next sync sends (`yours`) and which in the clone someone else made (`notYours`). A real `rigour team sync` also reports `synced` (sent), `pulled` (received) and, under `decisions`, `sent`, `received` and any `held` reason.
 
 ### End to end, on a local database
 
@@ -381,7 +383,8 @@ rigour team sync
 Rigour shares nothing it cannot account for, and never blocks your work on the database.
 
 - **Nothing configured, or no repositories listed.** Nothing is sent.
-- **A lesson outside the team's repositories, a repository without `origin`, a personal lesson without `--sync-personal`.** Kept on the machine and marked `not sent: <reason>`. Not retried.
+- **A lesson from a repository not in the team's list.** Held in the queue (`held` in `rigour team sync`) and sent with the first sync after the repository is added.
+- **A repository without `origin`, a personal lesson without `--sync-personal`.** Kept on the machine and marked `not sent: <reason>`. Not retried.
 - **A remote URL without TLS.** Refused before any connection.
 - **Membership missing.** `configure` saves nothing; `sync` stops before sending anything.
 - **The database refuses one lesson** (row-level security, a constraint). That item is set aside, marked `refused by the team database: <reason>`, and the rest of the queue is sent.

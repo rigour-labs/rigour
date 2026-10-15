@@ -2,11 +2,12 @@ import { spawnSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import { openDatabase } from './db.js';
-import { decryptLocalPayload, encryptLocalPayload } from './local-encryption.js';
+import { encryptLocalPayload } from './local-encryption.js';
 import { TEAM_SCHEMA } from './team-schema.js';
 import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, missingReviewDecisionGrants, refusedRow, TABLE_GRANTS } from './team-diagnostics.js';
 import { rigourUserDir } from '../utils/user-state.js';
-import { withheldReason } from './team-scope.js';
+import { addToTeamList } from './team-scope.js';
+import { markNotSent, outboxCounts, queuedChanges, QUEUED, SEND_BATCH, splitOutbox } from './team-outbox.js';
 import { getRepositoryId, originOf } from './repository-origin.js';
 import { previewReviewDecisions, syncReviewDecisions, type DecisionPreview, type DecisionSync } from './team-review-decisions.js';
 import { personOf } from '../utils/person.js';
@@ -63,6 +64,8 @@ export interface TeamDoctorResult extends TeamModeStatus {
     reviewDecisions?: 'ready' | 'missing' | 'missing grant';
     databaseRole?: string;
     permissions?: string[];
+    /** The repository doctor runs in, when it has an origin remote: whether the team lists it, and what adds it when not. */
+    repository?: { listed: boolean; warning?: string };
 }
 
 export interface SemanticKnowledgeCandidate {
@@ -164,17 +167,6 @@ async function loadPg(): Promise<{ Pool: new (options: { connectionString: strin
     }
 }
 
-async function queuedChanges(): Promise<number> {
-    let db;
-    try { db = await openDatabase(); } catch { return 0; }
-    if (!db) return 0;
-    try {
-        const row = await db.get('SELECT COUNT(*) AS count FROM sync_outbox WHERE synced_at IS NULL');
-        return Number(row?.count ?? 0);
-    } finally {
-        await db.close();
-    }
-}
 
 /** What init-schema granted, to whom, and the GRANTs it could not run itself (its login is not the tables' owner). */
 export interface SchemaGrants {
@@ -245,7 +237,18 @@ export async function getTeamModeStatus(): Promise<TeamModeStatus> {
     }
 }
 
-export async function doctorTeamConnection(config?: TeamConfiguration): Promise<TeamDoctorResult> {
+/** Whether the repository at `cwd` is in the team's list; undefined without a `cwd` or an origin remote. */
+async function repositoryInTeam(cwd: string | undefined, config: TeamConfiguration): Promise<TeamDoctorResult['repository']> {
+    const origin = cwd && await originOf(cwd);
+    if (!origin) return undefined;
+    const add = addToTeamList(origin, config);
+    return add
+        ? { listed: false, warning: `This repository is not in the team's repositories: team memories and lessons saved here are kept as team candidates on this machine and sent once it is: ${add}` }
+        : { listed: true };
+}
+
+/** With `cwd`, also checks that the repository there is in the team's list. */
+export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: string): Promise<TeamDoctorResult> {
     const resolved = config ?? await loadTeamConfiguration();
     if (!resolved?.databaseUrl) {
         return { mode: 'local', connectivity: 'local', queuedChanges: await queuedChanges(), message: 'Team mode is not configured.' };
@@ -296,6 +299,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
             permissions: [role],
             semantic,
             reviewDecisions,
+            repository: await repositoryInTeam(cwd, resolved),
             message: reviewDecisions === 'ready'
                 ? 'PostgreSQL team mode is healthy. A clone receives the team\'s decisions on review lessons at its first sync (`rigour team sync`, or the next Rigour tool call).'
                 : reviewDecisions === 'missing grant'
@@ -309,25 +313,16 @@ export async function doctorTeamConnection(config?: TeamConfiguration): Promise<
     }
 }
 
-/** Queued items split into those this team may receive and those that stay on this machine, with why. */
-async function splitOutbox(db: { get(sql: string, ...params: unknown[]): Promise<any> }, queued: any[], config: TeamConfiguration) {
-    const sendable: Array<{ item: any; lesson: any }> = [];
-    const held: Array<{ id: string; reason: string }> = [];
-    for (const item of queued) {
-        const lesson = await decryptLocalPayload<any>(item.payload_json);
-        const repo = await db.get('SELECT canonical_uri FROM repositories WHERE id = ?', lesson.repositoryId);
-        const reason = withheldReason(lesson.visibility, repo?.canonical_uri, config);
-        if (reason) held.push({ id: item.id, reason });
-        else sendable.push({ item, lesson });
-    }
-    return { sendable, held };
-}
 
 /** How far before the last pull a sync reads again, for members whose clocks run behind. */
 const PULL_OVERLAP_MS = 15 * 60_000;
 
 
-type SyncResult = { pending: number; withheld: number; synced: number; pulled: number; decisions: DecisionSync | DecisionPreview };
+/**
+ * `held`: lessons kept queued because their repository is not in the team's list yet (`heldBecause` says which); they
+ * go with the first sync after it is added. `withheld`: lessons that stay on this machine (personal, or an unknown repository).
+ */
+type SyncResult = { pending: number; held: number; heldBecause?: string[]; withheld: number; synced: number; pulled: number; decisions: DecisionSync | DecisionPreview };
 
 /**
  * Sends what this machine may share and receives the team's. A failure comes out as one line (a missing grant as the
@@ -347,15 +342,14 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
     const db = await openDatabase();
     if (!db) throw new Error('SQLite offline cache is unavailable.');
     try {
-        const queued = await db.all(
-            `SELECT * FROM sync_outbox WHERE synced_at IS NULL ORDER BY created_at ASC LIMIT 200`,
-        );
-        const { sendable: pending, held } = await splitOutbox(db, queued, config);
+        // All of the queue: held items stay in it, and must not keep what comes after them from being sent.
+        const queued = await db.all(`SELECT * FROM sync_outbox WHERE ${QUEUED} ORDER BY created_at ASC`);
+        const split = await splitOutbox(db, queued, config);
+        const pending = split.sendable.slice(0, SEND_BATCH);
+        const counts = outboxCounts(split);
         const decisionInput = { cwd: options.cwd, origin: await originOf(options.cwd), repositoryId: await getRepositoryId(options.cwd), person: personOf(options.cwd), scope: config };
-        if (options.dryRun) return { pending: pending.length, withheld: held.length, synced: 0, pulled: 0, decisions: await previewReviewDecisions(db, decisionInput) };
-        for (const item of held) {
-            await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = ? WHERE id = ?', Date.now(), `not sent: ${item.reason}`, item.id);
-        }
+        if (options.dryRun) return { ...counts, synced: 0, pulled: 0, decisions: await previewReviewDecisions(db, decisionInput) };
+        await markNotSent(db, split);
 
         const { Pool } = await loadPg();
         const pool = new Pool({ connectionString: config.databaseUrl });
@@ -452,7 +446,7 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
         } finally {
             await pool.end();
         }
-        return { pending: pending.length, withheld: held.length, synced, pulled, decisions };
+        return { ...counts, synced, pulled, decisions };
     } finally {
         await db.close();
     }

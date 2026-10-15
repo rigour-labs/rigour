@@ -21,6 +21,8 @@ import {
     createDLPAuditEntry,
     loadTeamConfiguration,
     shareMemoryLesson,
+    addToTeamList,
+    originOf,
 } from '@rigour-labs/core';
 import {
     loadPatternIndex,
@@ -168,9 +170,14 @@ export async function handleRemember(cwd: string, key: string, value: string, sc
 async function shareWithTeam(cwd: string, key: string, value: string): Promise<string> {
     const lessonId = await shareMemoryLesson(cwd, key, value);
     if (!lessonId) return '\nNot shared: the local knowledge store is unavailable.';
-    if (!(await loadTeamConfiguration())) {
+    const config = await loadTeamConfiguration();
+    if (!config) {
         return '\nKept as a team candidate on this machine; it is shared once team mode is configured (rigour team configure).';
     }
+    const origin = await originOf(cwd);
+    if (!origin) return '\nKept as a team candidate on this machine; this repository has no origin remote, so it cannot be in the team\'s list and is not sent.';
+    const add = addToTeamList(origin, config);
+    if (add) return `\nKept as a team candidate on this machine; it is sent once this repository is in the team's list: ${add}`;
     return '\nShared with your team as a candidate. Teammates\' agents receive it once someone shares it from Studio (How it learns).';
 }
 

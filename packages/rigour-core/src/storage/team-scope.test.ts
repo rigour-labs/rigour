@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { repositoryAllowed, withheldReason } from './team-scope.js';
+import { addToTeamList, repositoryAllowed, withheldReason } from './team-scope.js';
 
 const scope = { organizationId: 'acme', repositories: ['github.com/acme/*', 'https://GitLab.com/Acme/api'] };
 
@@ -19,12 +19,24 @@ describe('team scope', () => {
         expect(repositoryAllowed('https://github.com/acme/web', { organizationId: 'acme' })).toBe(false);
     });
 
-    it('keeps personal lessons and unknown repositories on the machine, and says why', () => {
-        expect(withheldReason('personal', 'https://github.com/acme/web', scope)).toBe('personal lesson');
+    it('keeps personal lessons and unknown repositories on the machine, and holds unlisted repositories, saying why', () => {
+        expect(withheldReason('personal', 'https://github.com/acme/web', scope)).toEqual({ reason: 'personal lesson', held: false });
         expect(withheldReason('personal', 'https://github.com/acme/web', { ...scope, syncPersonal: true })).toBeNull();
-        expect(withheldReason('team', undefined, scope)).toBe('repository unknown on this machine');
-        expect(withheldReason('team', 'https://github.com/other-org/web', scope)).toContain('github.com/other-org/web');
+        expect(withheldReason('team', undefined, scope)).toEqual({ reason: 'repository unknown on this machine', held: false });
+        expect(withheldReason('team', 'https://github.com/other-org/web', scope)).toEqual({ reason: expect.stringContaining('github.com/other-org/web'), held: true });
         expect(withheldReason('team', 'https://github.com/acme/web', scope)).toBeNull();
+        // No origin remote: recorded by its path, which no pattern names, so it is not held for ever.
+        expect(withheldReason('team', '/work/scratch-project', scope)).toEqual({ reason: 'no origin remote (recorded by its local path)', held: false });
+    });
+
+    it("names the command that adds a repository to the team's list, keeping the team's patterns", () => {
+        vi.stubEnv('RIGOUR_TEAM_REPOSITORIES', '');
+        expect(addToTeamList('https://github.com/acme/web', scope)).toBeNull();
+        expect(addToTeamList('https://github.com/other-org/web', scope)).toBe("rigour team configure … --repositories 'github.com/acme/*,https://GitLab.com/Acme/api,github.com/other-org/web'");
+        expect(addToTeamList('https://github.com/other-org/web', { organizationId: 'acme' })).toBe("rigour team configure … --repositories 'github.com/other-org/web'");
+        vi.stubEnv('RIGOUR_TEAM_REPOSITORIES', 'github.com/acme/*');
+        expect(addToTeamList('https://github.com/other-org/web', { organizationId: 'acme', repositories: ['github.com/acme/*'] })).toBe("set RIGOUR_TEAM_REPOSITORIES='github.com/acme/*,github.com/other-org/web'");
+        vi.unstubAllEnvs();
     });
 });
 
@@ -41,7 +53,10 @@ describe("a repository whose origin uses an SSH host alias", () => {
         // `git@work-forge:acme/api.git`, as Rigour records it.
         expect(repositoryAllowed('https://work-forge/acme/api', team(['forge.example.com/acme/*']))).toBe(true);
         expect(withheldReason('team', 'https://work-forge/other/api', team(['forge.example.com/acme/*'])))
-            .toBe("repository work-forge/other/api (compared as forge.example.com/other/api, its SSH host resolved) is not one of the team's repositories");
+            .toEqual({ reason: "repository work-forge/other/api (compared as forge.example.com/other/api, its SSH host resolved) is not one of the team's repositories", held: true });
+        vi.stubEnv('RIGOUR_TEAM_REPOSITORIES', '');
+        expect(addToTeamList('https://work-forge/other/api', team(['forge.example.com/acme/*'])))
+            .toBe("rigour team configure … --repositories 'forge.example.com/acme/*,forge.example.com/other/api'");
     });
 
     it('matches a host-less pattern on the owner and repository alone', () => {
@@ -53,6 +68,6 @@ describe("a repository whose origin uses an SSH host alias", () => {
     it('leaves a host no alias names as it is, and says so plainly', () => {
         expect(repositoryAllowed('https://unknown-alias/acme/api', team(['forge.example.com/acme/*']))).toBe(false);
         expect(withheldReason('team', 'https://unknown-alias/acme/api', team(['forge.example.com/acme/*'])))
-            .toBe("repository unknown-alias/acme/api is not one of the team's repositories");
+            .toEqual({ reason: "repository unknown-alias/acme/api is not one of the team's repositories", held: true });
     });
 });
