@@ -293,7 +293,24 @@ rigour team configure \
 
 `configure` connects and runs the same checks as `rigour team doctor` before it saves anything. If a check fails, it prints why and saves nothing. On success it writes `~/.rigour/team.json` with file mode 600. That file includes the database URL.
 
-From then on, sharing is automatic. The MCP server starts a sync after each tool call and Studio syncs every 30 seconds while it runs. `rigour team sync` does it by hand. Each sync takes up to 200 queued items, oldest first, and sends those the rules allow. It then receives your own lessons and the team's promoted lessons that changed since its last pull (less 15 minutes, in case a teammate's clock runs behind) into the local store.
+From then on, sharing is automatic. The MCP server syncs when an agent first calls one of its tools in a repository, and again after each tool call, and Studio syncs every 30 seconds while it runs. `rigour team sync` does it by hand. Each sync takes up to 200 queued items, oldest first, and sends those the rules allow. It then receives your own lessons and the team's promoted lessons that changed since its last pull (less 15 minutes, in case a teammate's clock runs behind) into the local store.
+
+### A fresh clone or a cloud reviewer
+
+A teammate's new clone, or an agent on a cloud machine that reviews pull requests, gets the team's promoted memories and
+lessons with no setup beyond team mode: the database URL (`RIGOUR_TEAM_DATABASE_URL`) and the three ids
+(`RIGOUR_ORGANIZATION_ID`, `RIGOUR_TEAM_ID`, `RIGOUR_ACTOR_ID`) from [Settings from the environment](#settings-from-the-environment)
+are enough, with no `team.json` and no `.rigour` folder in the clone. On a machine that has never pulled the team's
+lessons, the first `rigour_recall` waits up to 8 seconds for the first sync, so it answers with them rather than from an
+empty store. If the sync takes longer, the recall says the team's lessons are still being fetched; if the team database
+can't be reached, it says so and why, and the next tool call tries again. A machine that has pulled before answers at
+once while the sync runs. A recall with no arguments lists the lessons too, after the clone's own memories: the team's
+promoted lessons from all its repositories, and this repository's validated ones. Lessons a person promoted reach every
+teammate whatever remote their clone uses (https or an SSH alias).
+
+Reading the team's lessons needs no repository list; sending this machine's own team memories and lessons does: set
+`RIGOUR_TEAM_REPOSITORIES` too for an agent that saves memories (see
+[How a lesson reaches teammates](#how-a-lesson-reaches-teammates)).
 
 ### Several organizations on one machine
 
