@@ -126,24 +126,44 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
             repositoryId, subject,
         );
         if (existing) return String(existing.id);
+        // A corrected memory replaces its pending candidate: the old one is superseded (and synced so), never left beside it.
+        const replaced = await pendingMemoryCandidates(db, repositoryId, key);
         const id = `lesson-${randomUUID()}`;
         await db.run(
             `INSERT INTO lessons (
                 id, repository_id, actor_id, team_id, visibility, state, kind, subject,
-                evidence_json, confidence, source, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'team', 'candidate', 'memory', ?, ?, 0.5, 'rigour_remember', ?, ?)`,
+                evidence_json, confidence, source, supersedes_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'team', 'candidate', 'memory', ?, ?, 0.5, 'rigour_remember', ?, ?, ?)`,
             id, repositoryId, config?.actorId || process.env.RIGOUR_ACTOR_ID || null,
             config?.teamId || process.env.RIGOUR_TEAM_ID || null, subject,
-            await encryptLocalPayload({ key, value, sharedAt: now }), now, now,
+            await encryptLocalPayload({ key, value, sharedAt: now }), replaced[0] ?? null, now, now,
         );
+        for (const old of replaced) await db.run("UPDATE lessons SET state = 'superseded', updated_at = ? WHERE id = ?", now, old);
         if (config) {
-            const lesson = await txSafeLesson(db, id);
-            if (lesson) await queueLessonSync(db, lesson, now);
+            for (const changed of [...replaced, id]) {
+                const lesson = await txSafeLesson(db, changed);
+                if (lesson) await queueLessonSync(db, lesson, now);
+            }
         }
         return id;
     } finally {
         await db.close();
     }
+}
+
+/** This repository's team memory candidates still waiting on a person for `key`, newest first: what a new value replaces. */
+async function pendingMemoryCandidates(db: { all(sql: string, ...params: unknown[]): Promise<any[]> }, repositoryId: string, key: string): Promise<string[]> {
+    const rows = await db.all(
+        `SELECT * FROM lessons WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND state = 'candidate'
+         ORDER BY updated_at DESC`,
+        repositoryId,
+    );
+    const ids: string[] = [];
+    for (const row of rows) {
+        const lesson = await rowToLesson(row).catch(() => undefined);
+        if (lesson?.evidence?.key === key) ids.push(lesson.id);
+    }
+    return ids;
 }
 
 export async function queueLessonSync(
