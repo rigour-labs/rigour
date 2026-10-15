@@ -59,10 +59,30 @@ export function notTheTeamsRepository(canonicalUri: string, scope: TeamScope): s
     return `repository ${hostPath(canonicalUri)}${as} is not one of the team's repositories`;
 }
 
-/** Why a queued lesson must stay on this machine, or null to send it. */
-export function withheldReason(visibility: string, canonicalUri: string | undefined, scope: TeamScope): string | null {
-    if (visibility === 'personal' && !scope.syncPersonal) return 'personal lesson';
-    if (!canonicalUri) return 'repository unknown on this machine';
-    if (!repositoryAllowed(canonicalUri, scope)) return notTheTeamsRepository(canonicalUri, scope);
+/**
+ * The command that adds a repository to the team's list, or null when it is listed: the team's patterns with the one
+ * that matches it, written as it is compared (an SSH alias resolved to its host).
+ */
+export function addToTeamList(canonicalUri: string, scope: TeamScope): string | null {
+    const { allowed, compared } = teamRepositoryMatch(canonicalUri, scope);
+    if (allowed) return null;
+    const list = [...(scope.repositories ?? []).map(pattern => pattern.trim()).filter(Boolean), compared].join(',');
+    // The environment's list wins over the configured one, so that is the one to change.
+    return process.env.RIGOUR_TEAM_REPOSITORIES?.trim()
+        ? `set RIGOUR_TEAM_REPOSITORIES='${list}'`
+        : `rigour team configure … --repositories '${list}'`;
+}
+
+/**
+ * Why a queued lesson is not sent now, or null to send it. A lesson from a repository the team does not list yet is
+ * `held`: it stays queued and goes with the first sync after the repository is added. A personal lesson, or one whose
+ * repository this machine does not know or has no origin remote, stays on this machine.
+ */
+export function withheldReason(visibility: string, canonicalUri: string | undefined, scope: TeamScope): { reason: string; held: boolean } | null {
+    if (visibility === 'personal' && !scope.syncPersonal) return { reason: 'personal lesson', held: false };
+    if (!canonicalUri) return { reason: 'repository unknown on this machine', held: false };
+    // Recorded by its local path: no pattern can name it, so holding it would keep it queued for ever.
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(canonicalUri)) return { reason: 'no origin remote (recorded by its local path)', held: false };
+    if (!repositoryAllowed(canonicalUri, scope)) return { reason: notTheTeamsRepository(canonicalUri, scope), held: true };
     return null;
 }

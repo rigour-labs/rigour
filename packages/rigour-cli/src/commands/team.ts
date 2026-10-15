@@ -64,8 +64,9 @@ teamCommand
     .command('doctor')
     .description('Verify team database TLS, schema, role, and membership')
     .action(async () => {
-        const result = await doctorTeamConnection();
+        const result = await doctorTeamConnection(undefined, process.cwd());
         console.log(JSON.stringify(result, null, 2));
+        if (result.repository?.warning) console.error(chalk.yellow(result.repository.warning));
         if (result.connectivity === 'offline') process.exitCode = 1;
     });
 

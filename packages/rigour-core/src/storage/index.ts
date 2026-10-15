@@ -33,6 +33,8 @@ export {
     validateTeamDatabaseUrl,
 } from './team-store.js';
 export { explainTeamConnectionError } from './team-diagnostics.js';
+export { addToTeamList } from './team-scope.js';
+export { originOf } from './repository-origin.js';
 export type {
     TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,
     SemanticKnowledgeCandidate, SemanticKnowledgeResult,
