@@ -121,29 +121,65 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
         const config = await loadTeamConfiguration();
         const now = Date.now();
         const subject = `${key}: ${value}`;
-        const existing = await db.get(
-            `SELECT id FROM lessons WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND subject = ?`,
-            repositoryId, subject,
-        );
-        if (existing) return String(existing.id);
-        const id = `lesson-${randomUUID()}`;
-        await db.run(
-            `INSERT INTO lessons (
-                id, repository_id, actor_id, team_id, visibility, state, kind, subject,
-                evidence_json, confidence, source, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'team', 'candidate', 'memory', ?, ?, 0.5, 'rigour_remember', ?, ?)`,
-            id, repositoryId, config?.actorId || process.env.RIGOUR_ACTOR_ID || null,
-            config?.teamId || process.env.RIGOUR_TEAM_ID || null, subject,
-            await encryptLocalPayload({ key, value, sharedAt: now }), now, now,
-        );
-        if (config) {
-            const lesson = await txSafeLesson(db, id);
-            if (lesson) await queueLessonSync(db, lesson, now);
-        }
-        return id;
+        const actorId = config?.actorId || process.env.RIGOUR_ACTOR_ID || null;
+        const teamId = config?.teamId || process.env.RIGOUR_TEAM_ID || null;
+        // One check-and-write: two agents remembering the same key at once must not both leave a candidate.
+        return await db.transaction(async (tx) => {
+            const existing = await tx.get(
+                `SELECT id FROM lessons WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
+                repositoryId, subject,
+            );
+            if (existing) return String(existing.id);
+            // A corrected memory replaces its pending candidate: the old one is superseded (and synced so), never left beside it.
+            const replaced = await pendingMemoryCandidates(tx, { repositoryId, key, actorId, teamId });
+            const id = `lesson-${randomUUID()}`;
+            await tx.run(
+                `INSERT INTO lessons (
+                    id, repository_id, actor_id, team_id, visibility, state, kind, subject,
+                    evidence_json, confidence, source, supersedes_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'team', 'candidate', 'memory', ?, ?, 0.5, 'rigour_remember', ?, ?, ?)`,
+                id, repositoryId, actorId, teamId, subject,
+                await encryptLocalPayload({ key, value, sharedAt: now }), replaced[0] ?? null, now, now,
+            );
+            for (const old of replaced) await tx.run("UPDATE lessons SET state = 'superseded', updated_at = ? WHERE id = ?", now, old);
+            if (config) {
+                for (const changed of [...replaced, id]) {
+                    const lesson = await txSafeLesson(tx, changed);
+                    if (lesson) await queueLessonSync(tx, lesson, now);
+                }
+            }
+            return id;
+        }, { immediate: true });
     } finally {
         await db.close();
     }
+}
+
+/**
+ * The team memory candidates for `key` that a new value replaces, newest first: this person's (or this machine's, with
+ * no actor yet), in this repository and team, still waiting on a person. One a person already promoted is not among
+ * them: promotion publishes a copy (source `published:<id>`) and leaves the original as it was, and replacing a
+ * published memory is that person's decision, not a side effect of saving.
+ */
+async function pendingMemoryCandidates(
+    db: { all(sql: string, ...params: unknown[]): Promise<any[]> },
+    scope: { repositoryId: string; key: string; actorId: string | null; teamId: string | null },
+): Promise<string[]> {
+    const rows = await db.all(
+        `SELECT * FROM lessons
+         WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND state = 'candidate'
+           AND substr(subject, 1, length(?) + 2) = ? || ': '
+           AND (actor_id IS ? OR actor_id IS NULL) AND (team_id IS ? OR team_id IS NULL)
+           AND NOT EXISTS (SELECT 1 FROM lessons published WHERE published.source = 'published:' || lessons.id)
+         ORDER BY updated_at DESC`,
+        scope.repositoryId, scope.key, scope.key, scope.actorId, scope.teamId,
+    );
+    const ids: string[] = [];
+    for (const row of rows) {
+        const lesson = await rowToLesson(row).catch(() => undefined);
+        if (lesson?.evidence?.key === scope.key) ids.push(lesson.id);
+    }
+    return ids;
 }
 
 export async function queueLessonSync(

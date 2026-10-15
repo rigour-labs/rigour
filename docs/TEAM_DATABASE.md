@@ -45,7 +45,7 @@ decisions for the team.
 
 ## What you get
 
-- **Shared conventions.** When an agent saves a memory with scope `team` (through the `rigour_remember` MCP tool), it becomes a team candidate. Once a person approves it in Studio, every teammate's agent receives it.
+- **Shared conventions.** When an agent saves a memory with scope `team` (through the `rigour_remember` MCP tool), it becomes a team candidate. Once a person approves it in Studio, every teammate's agent receives it. Saving the same key again with a new value, while its candidate still waits on a person, replaces that candidate: the old one is marked superseded (in the team database too) and the new one links to it, so Studio never shows both.
 - **Your own lessons on every machine.** With `--sync-personal`, your personal lessons are also stored in the database. Only you can read them back.
 - **Optional search by meaning.** With pgvector, `rigour_recall` and `rigour_context_scope` also return team lessons that match the task by meaning, not only by keyword. See [Search by meaning with pgvector](#search-by-meaning-with-pgvector).
 
@@ -261,6 +261,7 @@ VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 - `role` is `member`, `sme` or `owner` (see the table above).
 - `display_name` is optional: the name teammates see on a review decision this person shared. Use a name, not a login or an email. Without one, teammates see "a teammate".
 - A login role can belong to a team once (the primary key is `db_role, team_id`).
+- **An automation gets a login of its own.** Give a review bot or CI agent its own login and membership, never a person's: its own `actor_id` (for example `review-bot`) and a `display_name` that says what it is ("Review bot"). As a `member` it receives every lesson the team promoted, which is what a reviewer needs; revoking it is dropping its login. A `member` cannot share team memories: the database accepts team rows only from an `sme` or `owner`, so what a `member` bot saves with scope `team` is refused at sync. Have a person save what the bot should share, or give the bot `sme` only if the team accepts everything an `sme` may do: share decisions on review lessons, and publish a lesson straight to every teammate's agent with no person deciding.
 
 Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-level security does not apply to a table's owner unless the table forces it, and Rigour's schema does not, so that login could read every personal lesson.
 
