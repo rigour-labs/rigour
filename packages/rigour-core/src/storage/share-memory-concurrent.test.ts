@@ -7,7 +7,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'remember-race-home-'));
@@ -18,7 +18,8 @@ const lessons = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const db = path.join(path.dirname(lessons), 'db.js');
 
 const remember = (value: string) => new Promise<{ code: number | null; out: string }>(resolve => {
-    const script = `import(${JSON.stringify(lessons)}).then(m => m.shareMemoryLesson(${JSON.stringify(repo)}, 'retries', ${JSON.stringify(value)})).then(id => console.log(id), e => { console.error(String(e)); process.exit(1); })`;
+    // A file URL, not a path: on Windows an absolute path isn't a valid ES module specifier.
+    const script = `import(${JSON.stringify(pathToFileURL(lessons).href)}).then(m => m.shareMemoryLesson(${JSON.stringify(repo)}, 'retries', ${JSON.stringify(value)})).then(id => console.log(id), e => { console.error(String(e)); process.exit(1); })`;
     const child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, RIGOUR_HOME: home, RIGOUR_ACTOR_ID: 'dev-a', RIGOUR_TEAM_ID: 'web' } });
     let out = '';
     child.stdout.on('data', d => { out += d; });
@@ -33,7 +34,7 @@ describe.skipIf(!fs.existsSync(lessons))('two processes remembering the same key
         const runs = await Promise.all([remember('Use withRetry.'), remember('Use withRetry, three attempts.'), remember('Use withRetry from lib/net.')]);
         for (const run of runs) expect(run, run.out).toMatchObject({ code: 0 });
         process.env.RIGOUR_HOME = home;
-        const { openDatabase } = await import(db);
+        const { openDatabase } = await import(pathToFileURL(db).href);
         const store = await openDatabase();
         try {
             const states = (await store.all("SELECT state FROM lessons WHERE kind = 'memory'")).map((r: { state: string }) => r.state).sort();
