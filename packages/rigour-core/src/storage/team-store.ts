@@ -328,9 +328,14 @@ type SyncResult = { pending: number; held: number; heldBecause?: string[]; withh
  * Sends what this machine may share and receives the team's. A failure comes out as one line (a missing grant as the
  * GRANT to run), never the driver's stack; the original stays as its `cause`.
  */
-/** How long a sync waits to connect to the team database, and for any one statement, before it gives up. */
-const SYNC_CONNECT_TIMEOUT_MS = 10_000;
-const SYNC_STATEMENT_TIMEOUT_MS = 60_000;
+/**
+ * How long a sync waits to connect to the team database, and for any one query, before it gives up. Both are timed on
+ * this machine: a server-side statement_timeout is sent when the connection opens, which a connection pooler such as
+ * PgBouncer refuses by default, and only a client-side timer also covers a network that dies mid-query. The connect
+ * timeout is shorter than the MCP server's first-sync wait, so an unreachable database is reported as such.
+ */
+const SYNC_CONNECT_TIMEOUT_MS = 5_000;
+const SYNC_QUERY_TIMEOUT_MS = 60_000;
 
 /** The meta key that records when this machine last pulled this team's lessons, for this person. */
 function pullMark(config: TeamConfiguration): string {
@@ -377,7 +382,7 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
 
         const { Pool } = await loadPg();
         // A stalled connection or query must end the sync, never hang it: the MCP server waits on the first one.
-        const pool = new Pool({ connectionString: config.databaseUrl, connectionTimeoutMillis: SYNC_CONNECT_TIMEOUT_MS, statement_timeout: SYNC_STATEMENT_TIMEOUT_MS });
+        const pool = new Pool({ connectionString: config.databaseUrl, connectionTimeoutMillis: SYNC_CONNECT_TIMEOUT_MS, query_timeout: SYNC_QUERY_TIMEOUT_MS });
         let synced = 0;
         let pulled = 0;
         let decisions: DecisionSync;
@@ -437,7 +442,8 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
             // Only what changed since the last pull, less a margin: updated_at comes from each member's clock, and
             // re-reading a few minutes is harmless (the local write is an upsert) where a skewed clock would lose a lesson.
             const mark = pullMark(config);
-            const last = Number((await db.get('SELECT value FROM meta WHERE key = ?', mark))?.value ?? 0);
+            const marked = (await db.get('SELECT value FROM meta WHERE key = ?', mark))?.value;
+            const last = Number(marked ?? 0);
             const remote = await pool.query(
                 `SELECT * FROM rigour.lessons
                  WHERE team_id = $1 AND organization_id = $3
@@ -467,6 +473,9 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
                 const newest = Math.max(last, ...remote.rows.map((row: { updated_at: unknown }) => Number(row.updated_at)));
                 await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', mark, String(newest));
                 await db.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");
+            } else if (marked === undefined) {
+                // Pulled, found nothing yet: this machine has still pulled the team once (hasPulledTeamLessons).
+                await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', mark, '0');
             }
         } finally {
             await pool.end();
