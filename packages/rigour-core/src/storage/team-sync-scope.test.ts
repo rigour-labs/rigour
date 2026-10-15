@@ -8,13 +8,15 @@ const state = vi.hoisted(() => ({ outbox: [] as any[], repos: new Map<string, st
 
 vi.mock('./db.js', () => ({
     openDatabase: async () => ({
-        all: async () => state.outbox.filter(o => o.synced_at == null),
+        // As QUEUED in team-outbox.ts: unsent, or set aside by an earlier version for a repository missing from the team's list.
+        all: async () => state.outbox.filter(o => o.synced_at == null || (/^not sent: repository /.test(o.last_error) && !/^not sent: repository unknown/.test(o.last_error))),
         get: async (sql: string, id: string) => sql.includes('FROM meta')
             ? (state.meta.has(id) ? { value: state.meta.get(id) } : undefined)
             : (state.repos.has(id) ? { canonical_uri: state.repos.get(id) } : undefined),
         run: async (sql: string, ...p: any[]) => {
             if (sql.startsWith('INSERT INTO meta')) state.meta.set(p[0], p[1]);
-            if (sql.startsWith('UPDATE sync_outbox SET synced_at')) {
+            if (sql.startsWith('UPDATE sync_outbox SET synced_at = NULL')) Object.assign(state.outbox.find(o => o.id === p[1]) ?? {}, { synced_at: null, last_error: p[0] });
+            else if (sql.startsWith('UPDATE sync_outbox SET synced_at')) {
                 const id = p.at(-1);
                 Object.assign(state.outbox.find(o => o.id === id) ?? {}, { synced_at: p[0], last_error: p.length === 3 ? p[1] : null });
             }
@@ -70,18 +72,49 @@ afterEach(() => { process.env = { ...saved }; });
 afterAll(() => fs.rmSync(NO_GIT, { recursive: true, force: true }));
 
 describe('team sync scope', () => {
-    it("sends only the team's own shared lessons and says what it kept back", async () => {
-        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 1, withheld: 3 });
+    it("sends only the team's own shared lessons and says what it held and kept back", async () => {
+        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 1, held: 1, withheld: 2 });
         expect(state.sent).toEqual([]);
 
         const result = await syncTeamOutbox({ cwd: NO_GIT });
-        expect(result).toMatchObject({ synced: 1, withheld: 3, decisions: { sent: 0, held: 'repository has no origin remote' } });
+        expect(result).toMatchObject({ synced: 1, held: 1, withheld: 2, decisions: { sent: 0, held: 'repository has no origin remote' } });
+        expect(result.heldBecause).toEqual(["repository github.com/other-org/app is not one of the team's repositories"]);
         expect(state.sent).toEqual(['l-team']);
-        const reasons = Object.fromEntries(state.outbox.map(o => [o.id, o.last_error]));
-        expect(reasons['outbox-l-other']).toContain('github.com/other-org/app');
-        expect(reasons['outbox-l-personal']).toContain('personal lesson');
-        expect(reasons['outbox-l-unknown']).toContain('repository unknown');
-        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 0, withheld: 0 }); // never retried
+        const row = (id: string) => state.outbox.find(o => o.id === `outbox-${id}`);
+        expect(row('l-other')).toMatchObject({ synced_at: null, last_error: "held: repository github.com/other-org/app is not one of the team's repositories" });
+        expect(row('l-personal').last_error).toContain('personal lesson');
+        expect(row('l-unknown').last_error).toContain('repository unknown');
+        // The held lesson stays queued; personal and unknown ones are not tried again.
+        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 0, held: 1, withheld: 0 });
+    });
+
+    it('sends a held lesson with the first sync after its repository is added to the team', async () => {
+        expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ synced: 1, held: 1 });
+        process.env.RIGOUR_TEAM_REPOSITORIES = 'github.com/acme/*,github.com/other-org/app';
+        expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ pending: 1, synced: 1, held: 0 });
+        expect(state.sent).toEqual(['l-team', 'l-other']);
+        expect(state.outbox.find(o => o.id === 'outbox-l-other').last_error).toBeNull();
+    });
+
+    it("sends a lesson an earlier version set aside for a repository missing from the team's list, once it is listed", async () => {
+        state.outbox = [];
+        const setAside = (id: string, repositoryId: string, visibility: string, lastError: string) =>
+            state.outbox.push({ id: `outbox-${id}`, payload_json: JSON.stringify({ id, repositoryId, visibility, evidence: {} }), synced_at: 1, last_error: lastError });
+        setAside('l-other', 'r-other', 'team', "not sent: repository github.com/other-org/app is not one of the team's repositories");
+        setAside('l-unknown', 'r-gone', 'team', 'not sent: repository unknown on this machine');
+        setAside('l-personal', 'r-team', 'personal', 'not sent: personal lesson');
+        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 0, held: 1, withheld: 0 });
+        process.env.RIGOUR_TEAM_REPOSITORIES = 'github.com/acme/*,github.com/other-org/app';
+        expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ synced: 1, held: 0 });
+        expect(state.sent).toEqual(['l-other']);
+    });
+
+    it('does not let held lessons keep newer ones from being sent', async () => {
+        state.outbox = [];
+        for (let i = 0; i < 250; i++) queue(`l-held-${i}`, 'r-other', 'team');
+        queue('l-team', 'r-team', 'team');
+        expect(await syncTeamOutbox({ cwd: NO_GIT })).toMatchObject({ synced: 1, held: 250 });
+        expect(state.sent).toEqual(['l-team']);
     });
 
     it('sets aside a lesson the database refuses and sends the rest of the queue', async () => {
@@ -117,6 +150,6 @@ describe('team sync scope', () => {
 
     it('sends nothing when the team lists no repositories', async () => {
         delete process.env.RIGOUR_TEAM_REPOSITORIES;
-        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 0, withheld: 4 });
+        expect(await syncTeamOutbox({ dryRun: true, cwd: NO_GIT })).toMatchObject({ pending: 0, held: 2, withheld: 2 });
     });
 });

@@ -1,13 +1,13 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const shared = vi.hoisted(() => ({ calls: [] as Array<[string, string]> }));
+const shared = vi.hoisted(() => ({ calls: [] as Array<[string, string]>, team: null as null | Record<string, unknown> }));
 vi.mock('@rigour-labs/core', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@rigour-labs/core')>()),
     shareMemoryLesson: async (_cwd: string, key: string, value: string) => { shared.calls.push([key, value]); return 'lesson-1'; },
-    loadTeamConfiguration: async () => null,
+    loadTeamConfiguration: async () => shared.team,
 }));
 
 const { handleForget, handleRemember } = await import('./memory-handlers.js');
@@ -25,6 +25,7 @@ beforeEach(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-home-'));
     process.env.RIGOUR_HOME = home;
     shared.calls = [];
+    shared.team = null;
 });
 afterEach(() => {
     if (realHome === undefined) delete process.env.RIGOUR_HOME;
@@ -61,6 +62,46 @@ describe('memory scopes', () => {
         expect(shared.calls).toEqual([['retries', 'Use withRetry from lib/net.']]);
         expect(result).toContain('team mode is configured');
         expect(text(await handleRecall(repoA, { key: 'retries' }))).toContain('withRetry');
+    });
+
+    describe('in team mode', () => {
+        const sshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-ssh-'));
+        const sshConfig = path.join(sshDir, 'config');
+        fs.writeFileSync(sshConfig, 'Host remember-forge\n    HostName forge.example.com\n    User git\n');
+        const withOrigin = (dir: string, url: string) => {
+            fs.mkdirSync(path.join(dir, '.git'));
+            fs.writeFileSync(path.join(dir, '.git', 'config'), `[remote "origin"]\n\turl = ${url}\n`);
+        };
+        beforeEach(() => {
+            vi.stubEnv('RIGOUR_SSH_CONFIG', sshConfig);
+            vi.stubEnv('RIGOUR_TEAM_REPOSITORIES', '');
+            shared.team = { organizationId: 'example-org', teamId: 'platform', actorId: 'dev-a', repositories: ['forge.example.com/example-org/api'] };
+        });
+        afterEach(() => vi.unstubAllEnvs());
+        afterAll(() => fs.rmSync(sshDir, { recursive: true, force: true }));
+
+        it("says a memory from a repository the team does not list is kept, and how to add it, alias resolved", async () => {
+            withOrigin(repoA, 'git@remember-forge:example-org/widgets.git');
+            const result = text(await handleRemember(repoA, 'retries', 'Use withRetry from lib/net.', 'team'));
+            expect(shared.calls).toEqual([['retries', 'Use withRetry from lib/net.']]);
+            expect(result).toContain("Kept as a team candidate on this machine; it is sent once this repository is in the team's list: rigour team configure … --repositories 'forge.example.com/example-org/api,forge.example.com/example-org/widgets'");
+            expect(result).not.toContain('Shared with your team');
+        });
+
+        it('names the environment variable when the team list comes from it', async () => {
+            vi.stubEnv('RIGOUR_TEAM_REPOSITORIES', 'forge.example.com/example-org/api');
+            withOrigin(repoA, 'https://forge.example.com/example-org/widgets.git');
+            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain("set RIGOUR_TEAM_REPOSITORIES='forge.example.com/example-org/api,forge.example.com/example-org/widgets'");
+        });
+
+        it("says it is shared when the team lists the repository", async () => {
+            withOrigin(repoA, 'git@remember-forge:example-org/api.git');
+            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('Shared with your team as a candidate');
+        });
+
+        it('says a repository with no origin remote is not sent', async () => {
+            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('this repository has no origin remote');
+        });
     });
 
     it('records memory_stored for Studio', async () => {

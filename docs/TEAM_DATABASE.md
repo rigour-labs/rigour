@@ -63,6 +63,11 @@ A lesson has a visibility (`personal` or `team`) and a state (`candidate`, `vali
 
 To approve a team candidate, open Studio (`rigour studio`), go to **How it learns** and click **Share with team** on the lesson. **Drop** rejects it. Approving creates a separate team copy; the original candidate is left as it was.
 
+**A team memory does not reach teammates until a person shares it.** When `rigour_remember` with scope `team` reports "Shared with your team as a candidate", the candidate has been queued for the database and only its author can read it there. Teammates' agents receive the memory only after an `sme` or `owner` on the machine that holds it clicks **Share with team** in **How it learns** and the next sync sends the promoted copy. To see the candidates waiting:
+
+- In Studio, **How it learns** lists each one with **Share with team** and **Drop**.
+- In the database, the author can list their own with `SELECT subject, created_at FROM rigour.lessons WHERE visibility = 'team' AND state = 'candidate' ORDER BY created_at;`. Row-level security shows each login only its own candidates.
+
 Database roles decide who may write team lessons:
 
 | Role | May write |
@@ -83,7 +88,9 @@ Rigour sends a queued lesson only when all of these hold:
 2. The lesson's repository has an `origin` remote that matches one of the team's repositories (`--repositories`). A pattern ending in `/*` matches every repository under that owner (`github.com/acme/*`); anything else must match exactly (`github.com/acme/api`). Matching ignores the scheme, any `user@` part and case. An `origin` on an SSH host alias (`git@work-github:acme/api`, with `Host work-github` / `HostName github.com` in your ssh config) is compared as the host the alias names, which Rigour reads with `ssh -G` (it connects to nothing). A pattern with no host (`acme/*`, `acme/api`) matches the owner and repository on any host. The `not one of the team's repositories` message names what was compared.
 3. The lesson is `team`, or it is `personal` and `--sync-personal` is set.
 
-With no `--repositories`, nothing is sent. A repository with no `origin` remote is recorded by its local path, so a remote pattern never matches it. A lesson that fails these rules is marked `not sent: <reason>` in the local queue and is never retried, even if you later add its repository to the list. A later change to the same lesson queues it again and is judged by the rules at that time.
+With no `--repositories`, nothing is sent. A lesson whose repository is not in the list is **held**: it stays queued, marked `held: <reason>`, and goes with the first sync after you add the repository. `rigour_remember` with scope `team` and `rigour team doctor` say when the current repository is not in the list, and print the command that adds it, with the pattern written as it is compared (an SSH alias resolved). Queued items an earlier version set aside for this reason (`not sent: repository … is not one of the team's repositories`) are held the same way from 7.0.7.
+
+A personal lesson without `--sync-personal`, and a lesson from a repository with no `origin` remote (recorded by its local path, which no pattern names), stay on the machine: marked `not sent: <reason>` and never retried. A later change to the same lesson queues it again and is judged by the rules at that time.
 
 For each lesson that is sent, the database receives:
 
@@ -206,7 +213,7 @@ repository's rules and few lessons, by design: a person decides what the team's 
 - PostgreSQL 13 or later, managed or self-hosted. The schema uses row-level security policies, `JSONB`, `INSERT ... ON CONFLICT`, triggers and the built-in `gen_random_uuid()` (13 and later). Rigour does not check the server version; on an older server `init-schema` fails at the first statement it cannot run.
 - An administrator login that can create a schema (and the `vector` extension, if you want pgvector).
 - One login role per person, which the administrator creates.
-- For a database that is not on `localhost`, `127.0.0.1` or `::1`: TLS. Rigour refuses a remote URL without `sslmode=require` or `sslmode=verify-full`.
+- For a database that is not on `localhost`, `127.0.0.1` or `::1`: TLS. Rigour refuses a remote URL without `sslmode=require` or `sslmode=verify-full`. Note that the driver reads `sslmode=require` as `verify-full`; see [TLS](#data-and-security-notes) before you pick one.
 - On each machine: Node 22.13 or later and the Rigour CLI (`npm install -g @rigour-labs/cli`). The PostgreSQL driver (`pg`) is an optional dependency that npm installs by default. If it was left out, Rigour says so.
 - Optional, for search by meaning: the `vector` extension with HNSW index support, and Rigour's semantic search installed on each machine (`rigour setup` installs it unless you pass `--no-semantic`).
 
@@ -332,7 +339,7 @@ Failures come with the fix: an untrusted certificate chain, an unreachable host,
 rigour team sync --dry-run
 ```
 
-This does not connect. It reports how many queued items would be sent (`pending`) and how many would stay on the machine (`withheld`), and, under `decisions`, how many of your decisions on this repository's review lessons the next sync sends (`yours`) and which in the clone someone else made (`notYours`). A real `rigour team sync` also reports `synced` (sent), `pulled` (received) and, under `decisions`, `sent`, `received` and any `held` reason.
+This does not connect. It reports how many queued items would be sent (`pending`), how many are held until their repository is in the team's list (`held`, with the reasons under `heldBecause`) and how many would stay on the machine (`withheld`), and, under `decisions`, how many of your decisions on this repository's review lessons the next sync sends (`yours`) and which in the clone someone else made (`notYours`). A real `rigour team sync` also reports `synced` (sent), `pulled` (received) and, under `decisions`, `sent`, `received` and any `held` reason.
 
 ### End to end, on a local database
 
@@ -381,7 +388,8 @@ rigour team sync
 Rigour shares nothing it cannot account for, and never blocks your work on the database.
 
 - **Nothing configured, or no repositories listed.** Nothing is sent.
-- **A lesson outside the team's repositories, a repository without `origin`, a personal lesson without `--sync-personal`.** Kept on the machine and marked `not sent: <reason>`. Not retried.
+- **A lesson from a repository not in the team's list.** Held in the queue (`held` in `rigour team sync`) and sent with the first sync after the repository is added.
+- **A repository without `origin`, a personal lesson without `--sync-personal`.** Kept on the machine and marked `not sent: <reason>`. Not retried.
 - **A remote URL without TLS.** Refused before any connection.
 - **Membership missing.** `configure` saves nothing; `sync` stops before sending anything.
 - **The database refuses one lesson** (row-level security, a constraint). That item is set aside, marked `refused by the team database: <reason>`, and the rest of the queue is sent.
@@ -436,10 +444,15 @@ With no paths, it uses the current repository. It queues only personal lessons, 
 - **Visibility is enforced by the database.** Row-level security lets a login read its own membership row, its own lessons, and the team's promoted lessons in its own organization and team. It lets a login write only rows whose actor is its own, and team rows only with role `sme` or `owner`. The organization, team and actor of a sent lesson come from the membership row.
 - **Review decisions are append-only.** A login can read its own team's decisions, and insert one only as `sme` or `owner` under its own actor. There is no update or delete policy, so even a login granted `UPDATE` or `DELETE` changes no row; a decision taken back is a new row. The server sets when a decision arrived and the decider's display name from the membership row; the client sets neither.
 - **Reviewer hashes.** A review decision names who raised the review point only as a hash of the login, salted with a random value per organization (`rigour.organization_salts`, created for each organization when its first membership is added). A hash from one organization never matches another's. Inside a small team, someone who can read the decisions can still guess which login a hash is by hashing each teammate's login with the salt. The hashes live only in your own database, behind row-level security.
-- **TLS.** Prefer `sslmode=verify-full`. With current versions of the PostgreSQL driver Rigour uses, `sslmode=require` is also verified as `verify-full` and prints a deprecation warning. If your host signs its certificate with its own root CA, keep verification on and point Node at the CA: `export NODE_EXTRA_CA_CERTS=/path/to/provider-ca.crt`, then run `rigour team doctor`. Two workarounds until Rigour can scope these per profile:
+- **TLS.** Prefer `sslmode=verify-full`. The PostgreSQL driver Rigour uses (node-postgres) does not give `sslmode=require` libpq's meaning: it treats `require` (and `prefer`, `verify-ca`) as `verify-full` and prints a `SECURITY WARNING` saying so. A URL that works in `psql` with `sslmode=require` can therefore fail in Rigour with a certificate error on a machine that does not have the provider's root CA. Your choices, strongest first:
+  - **`sslmode=verify-full` with the provider's CA** (below): encrypted and verified.
+  - **`?uselibpqcompat=true&sslmode=require`**: libpq's meaning, encrypted but not verified, so it connects without the CA and is open to a man in the middle on the network path. Add `sslrootcert=/path/to/provider-ca.crt` and it verifies the certificate against that CA (libpq's `verify-ca`), without checking the host name.
+
+  If your host signs its certificate with its own root CA, keep verification on and point Node at the CA: `export NODE_EXTRA_CA_CERTS=/path/to/provider-ca.crt`, then run `rigour team doctor`. Two workarounds until Rigour can scope these per profile:
   - **The CA for every Rigour run.** Node reads `NODE_EXTRA_CA_CERTS` only when it starts, and the MCP server and hooks start from your agent, not your shell. Set it where your agent's process inherits it (your login shell's profile, or your OS's per-user environment), then restart the agent. It adds that CA for every Node program you run, not only Rigour.
   - **A certificate for a name you do not connect to.** Some providers' certificates name a DNS name that does not resolve from your network (an internal name, or a name for a different endpoint than the one you connect to). With `verify-full` the host in the URL must match the certificate. Map the certificate's name to the server's address in your hosts file (`/etc/hosts`, or `C:\Windows\System32\drivers\etc\hosts`), for example `203.0.113.10  db-internal.provider.example`, and use that name in the URL. Keep `verify-full`; do not turn verification off.
 - **The URL holds a password.** `rigour team configure` saves it in `team.json` with file mode 600. A profile's `--database-url-command` keeps it in your keychain or vault instead.
 - **Local encryption.** Lesson evidence and queued items are encrypted on disk with AES-256-GCM. The key is `RIGOUR_LOCAL_CACHE_KEY` if set (base64, 32 bytes), otherwise a key Rigour creates once in `~/.rigour/team-cache.key` with file mode 600.
 - **Load on the database.** A sync reads only lessons changed since that machine's last pull, through the index `rigour.lessons (organization_id, team_id, updated_at)`. The first sync on a machine reads everything it may see. The MCP server syncs after each tool call and Studio every 30 seconds. A database created by an earlier version gets the index when the administrator runs `rigour team init-schema` again.
+- **Agents in the cloud: pin a current MCP server.** `rigour_recall` takes a `query` (search by meaning) from `@rigour-labs/mcp` 6.5.3 on. Earlier servers accept only an exact `key` and ignore `query`, without an error: a search returns every memory unranked, or `NO MEMORY FOUND` when the agent puts its words in `key`. A cloud agent or CI runner that installs the MCP server itself often has an old version cached or pinned. Pin it to a current version (`npx -y @rigour-labs/mcp@<version>`, the same version as your CLI) rather than an unpinned or long-cached install.
 - **Network.** The only connection is to the database URL you configure. See [Security, privacy and network use](./SECURITY.md) for every connection Rigour makes.
