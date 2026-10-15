@@ -149,7 +149,7 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
                 }
             }
             return id;
-        });
+        }, { immediate: true });
     } finally {
         await db.close();
     }

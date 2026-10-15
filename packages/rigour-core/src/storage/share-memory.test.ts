@@ -13,7 +13,7 @@ vi.mock('./db.js', () => {
         all: async () => [],
         exec: async () => undefined,
         close: async () => undefined,
-        transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(store),
+        transaction: async (fn: (tx: unknown) => Promise<unknown>, _options?: { immediate?: boolean }) => fn(store),
     };
     return { openDatabase: async () => store };
 });
