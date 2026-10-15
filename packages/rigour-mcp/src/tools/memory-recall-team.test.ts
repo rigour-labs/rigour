@@ -8,10 +8,12 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const core = vi.hoisted(() => ({ team: null as null | object, lessons: [] as Array<Record<string, unknown>>, sync: (async () => ({})) as () => Promise<unknown> }));
+let repoCount = 0;
 vi.mock('@rigour-labs/core', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@rigour-labs/core')>()),
     loadTeamConfiguration: async () => core.team,
     listKnowledgeLessons: async () => core.lessons,
+    hasPulledTeamLessons: async () => false,
     syncTeamOutbox: () => core.sync(),
 }));
 const { handleRecall } = await import('./memory-recall.js');
@@ -62,6 +64,11 @@ describe('recall with the team\'s lessons', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('says why when the team database could not be reached', async () => {
+        core.sync = async () => { throw new Error('Cannot reach the team database (ECONNREFUSED)'); };
+        expect(text(await handleRecall(repo))).toContain("The team's lessons could not be fetched from the team database (Cannot reach the team database (ECONNREFUSED)); recall again to retry, or run `rigour team doctor`.");
     });
 
     it('says nothing about the team once the first sync is done', async () => {

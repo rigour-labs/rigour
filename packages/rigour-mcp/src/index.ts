@@ -27,7 +27,7 @@ import { loadConfig, loadMcpSettings, logStudioEvent, resolveCwd } from './utils
 import { profileMismatch } from '@rigour-labs/core/profile';
 import { bindServer } from './utils/notifications.js';
 import { getMcpVersion } from './utils/package-version.js';
-import { firstTeamSync } from './utils/team-pull.js';
+import { firstTeamSync, teamLessonsFor } from './utils/team-pull.js';
 import { buildMcpResultMeta, buildStudioImpact } from './utils/impact-receipt.js';
 
 // Dashboard (MCP App)
@@ -292,8 +292,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } catch {
             // Learning is evidence collection and must not block governance tools.
         }
-        // Its own step, after the first sync: a failure to record evidence must never skip it.
-        void firstTeamSync(cwd).then(() => syncTeamOutbox({ cwd })).catch(() => undefined);
+        // Its own step, so a failure to record evidence never skips it; after the first sync, but never stuck behind it.
+        void teamLessonsFor(cwd).then(() => syncTeamOutbox({ cwd })).catch(() => undefined);
 
         // ── Prepend image DLP warning if image content was detected ──
         if (hasImageContent && Array.isArray(result.content)) {

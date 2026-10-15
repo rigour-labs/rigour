@@ -159,9 +159,9 @@ export async function saveTeamConfiguration(config: TeamConfiguration): Promise<
     await fs.chmod(TEAM_CONFIG_PATH, 0o600);
 }
 
-async function loadPg(): Promise<{ Pool: new (options: { connectionString: string }) => any }> {
+async function loadPg(): Promise<{ Pool: new (options: import('pg').PoolConfig) => any }> {
     try {
-        return await import('pg') as unknown as { Pool: new (options: { connectionString: string }) => any };
+        return await import('pg') as unknown as { Pool: new (options: import('pg').PoolConfig) => any };
     } catch {
         throw new Error('PostgreSQL support is unavailable. Install the optional "pg" dependency.');
     }
@@ -328,6 +328,30 @@ type SyncResult = { pending: number; held: number; heldBecause?: string[]; withh
  * Sends what this machine may share and receives the team's. A failure comes out as one line (a missing grant as the
  * GRANT to run), never the driver's stack; the original stays as its `cause`.
  */
+/** How long a sync waits to connect to the team database, and for any one statement, before it gives up. */
+const SYNC_CONNECT_TIMEOUT_MS = 10_000;
+const SYNC_STATEMENT_TIMEOUT_MS = 60_000;
+
+/** The meta key that records when this machine last pulled this team's lessons, for this person. */
+function pullMark(config: TeamConfiguration): string {
+    return `team_pulled:${config.organizationId}/${config.teamId}/${config.actorId}`;
+}
+
+/** Whether this machine has ever pulled the configured team's lessons (false without team mode or a local store). */
+export async function hasPulledTeamLessons(): Promise<boolean> {
+    const config = await loadTeamConfiguration().catch(() => null);
+    if (!config) return false;
+    const db = await openDatabase().catch(() => null);
+    if (!db) return false;
+    try {
+        return Boolean((await db.get('SELECT value FROM meta WHERE key = ?', pullMark(config)))?.value);
+    } catch {
+        return false;
+    } finally {
+        await db.close();
+    }
+}
+
 export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string }): Promise<SyncResult> {
     try {
         return await syncOnce(options);
@@ -352,7 +376,8 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
         await markNotSent(db, split);
 
         const { Pool } = await loadPg();
-        const pool = new Pool({ connectionString: config.databaseUrl });
+        // A stalled connection or query must end the sync, never hang it: the MCP server waits on the first one.
+        const pool = new Pool({ connectionString: config.databaseUrl, connectionTimeoutMillis: SYNC_CONNECT_TIMEOUT_MS, statement_timeout: SYNC_STATEMENT_TIMEOUT_MS });
         let synced = 0;
         let pulled = 0;
         let decisions: DecisionSync;
@@ -411,7 +436,7 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
             decisions = await syncReviewDecisions(pool, db, decisionInput);
             // Only what changed since the last pull, less a margin: updated_at comes from each member's clock, and
             // re-reading a few minutes is harmless (the local write is an upsert) where a skewed clock would lose a lesson.
-            const mark = `team_pulled:${config.organizationId}/${config.teamId}/${config.actorId}`;
+            const mark = pullMark(config);
             const last = Number((await db.get('SELECT value FROM meta WHERE key = ?', mark))?.value ?? 0);
             const remote = await pool.query(
                 `SELECT * FROM rigour.lessons

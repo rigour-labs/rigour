@@ -299,10 +299,17 @@ From then on, sharing is automatic. The MCP server syncs when an agent first cal
 A teammate's new clone, or an agent on a cloud machine that reviews pull requests, gets the team's promoted memories and
 lessons with no setup beyond team mode: the database URL (`RIGOUR_TEAM_DATABASE_URL`) and the three ids
 (`RIGOUR_ORGANIZATION_ID`, `RIGOUR_TEAM_ID`, `RIGOUR_ACTOR_ID`) from [Settings from the environment](#settings-from-the-environment)
-are enough, with no `team.json` and no `.rigour` folder in the clone. Its first `rigour_recall` waits a few seconds for the first sync, so it answers with the team's
-lessons rather than an empty store; if the team database is slow to answer, the recall says the team's lessons are still
-being fetched, and the next one has them. A recall with no arguments lists them too, after the clone's own memories.
-Lessons a person promoted reach every teammate whatever remote their clone uses (https or an SSH alias).
+are enough, with no `team.json` and no `.rigour` folder in the clone. On a machine that has never pulled the team's
+lessons, the first `rigour_recall` waits up to 8 seconds for the first sync, so it answers with them rather than from an
+empty store. If the sync takes longer, the recall says the team's lessons are still being fetched; if the team database
+can't be reached, it says so and why, and the next tool call tries again. A machine that has pulled before answers at
+once while the sync runs. A recall with no arguments lists the lessons too, after the clone's own memories: the team's
+promoted lessons from all its repositories, and this repository's validated ones. Lessons a person promoted reach every
+teammate whatever remote their clone uses (https or an SSH alias).
+
+Reading the team's lessons needs no repository list; sending this machine's own team memories and lessons does: set
+`RIGOUR_TEAM_REPOSITORIES` too for an agent that saves memories (see
+[How a lesson reaches teammates](#how-a-lesson-reaches-teammates)).
 
 ### Several organizations on one machine
 
