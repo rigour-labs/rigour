@@ -7,7 +7,7 @@ import { decryptLocalPayload } from './local-encryption.js';
 import { withheldReason, type TeamScope } from './team-scope.js';
 
 /**
- * Outbox rows still to send. Versions before 7.1 set a lesson from a repository missing from the team's list aside for
+ * Outbox rows still to send. Versions before 7.0.7 set a lesson from a repository missing from the team's list aside for
  * good (`synced_at` stamped, `not sent: repository …`); those are queued again, so they go once the repository is added.
  */
 export const QUEUED = `synced_at IS NULL OR (last_error LIKE 'not sent: repository %' AND last_error NOT LIKE 'not sent: repository unknown%')`;
