@@ -111,13 +111,40 @@ export function validateTeamDatabaseUrl(databaseUrl: string): void {
     }
 }
 
-export async function loadTeamConfiguration(): Promise<TeamConfiguration | null> {
-    let file: Partial<TeamConfiguration> = {};
+async function readTeamFile(): Promise<Partial<TeamConfiguration>> {
     try {
-        file = await fs.readJson(TEAM_CONFIG_PATH);
+        return await fs.readJson(TEAM_CONFIG_PATH);
     } catch {
-        // Environment-only configuration is supported.
+        return {}; // Environment-only configuration is supported.
     }
+}
+
+/**
+ * The settings team mode still needs when some are given (in the environment or team.json) but not all, each named
+ * as its environment variable; empty when none is given (team mode simply isn't in use) or all are.
+ */
+async function missingTeamSettings(): Promise<string[]> {
+    const file = await readTeamFile();
+    const settings: Array<[string, boolean]> = [
+        ['RIGOUR_TEAM_DATABASE_URL', Boolean(nonEmpty(process.env.RIGOUR_TEAM_DATABASE_URL) ?? nonEmpty(process.env.RIGOUR_TEAM_DATABASE_URL_COMMAND) ?? nonEmpty(file.databaseUrl))],
+        ['RIGOUR_ORGANIZATION_ID', Boolean(nonEmpty(process.env.RIGOUR_ORGANIZATION_ID) ?? nonEmpty(file.organizationId))],
+        ['RIGOUR_TEAM_ID', Boolean(nonEmpty(process.env.RIGOUR_TEAM_ID) ?? nonEmpty(file.teamId))],
+        ['RIGOUR_ACTOR_ID', Boolean(nonEmpty(process.env.RIGOUR_ACTOR_ID) ?? nonEmpty(file.actorId))],
+    ];
+    if (!settings.some(([, given]) => given)) return [];
+    return settings.filter(([, given]) => !given).map(([name]) => name);
+}
+
+/** Said when team mode is off: which settings are missing, when some were given. */
+async function notConfigured(): Promise<string> {
+    const missing = await missingTeamSettings();
+    return missing.length
+        ? `Team mode is not configured: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing (set ${missing.length === 1 ? 'it' : 'them'} in the environment, or run rigour team configure).`
+        : 'Team mode is not configured.';
+}
+
+export async function loadTeamConfiguration(): Promise<TeamConfiguration | null> {
+    const file = await readTeamFile();
     const organizationId = nonEmpty(process.env.RIGOUR_ORGANIZATION_ID) ?? nonEmpty(file.organizationId);
     const teamId = nonEmpty(process.env.RIGOUR_TEAM_ID) ?? nonEmpty(file.teamId);
     const actorId = nonEmpty(process.env.RIGOUR_ACTOR_ID) ?? nonEmpty(file.actorId);
@@ -159,9 +186,9 @@ export async function saveTeamConfiguration(config: TeamConfiguration): Promise<
     await fs.chmod(TEAM_CONFIG_PATH, 0o600);
 }
 
-async function loadPg(): Promise<{ Pool: new (options: { connectionString: string }) => any }> {
+async function loadPg(): Promise<{ Pool: new (options: import('pg').PoolConfig) => any }> {
     try {
-        return await import('pg') as unknown as { Pool: new (options: { connectionString: string }) => any };
+        return await import('pg') as unknown as { Pool: new (options: import('pg').PoolConfig) => any };
     } catch {
         throw new Error('PostgreSQL support is unavailable. Install the optional "pg" dependency.');
     }
@@ -251,7 +278,7 @@ async function repositoryInTeam(cwd: string | undefined, config: TeamConfigurati
 export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: string): Promise<TeamDoctorResult> {
     const resolved = config ?? await loadTeamConfiguration();
     if (!resolved?.databaseUrl) {
-        return { mode: 'local', connectivity: 'local', queuedChanges: await queuedChanges(), message: 'Team mode is not configured.' };
+        return { mode: 'local', connectivity: 'local', queuedChanges: await queuedChanges(), message: await notConfigured() };
     }
     const offline = async (message: string): Promise<TeamDoctorResult> => ({
         mode: 'team',
@@ -328,6 +355,35 @@ type SyncResult = { pending: number; held: number; heldBecause?: string[]; withh
  * Sends what this machine may share and receives the team's. A failure comes out as one line (a missing grant as the
  * GRANT to run), never the driver's stack; the original stays as its `cause`.
  */
+/**
+ * How long a sync waits to connect to the team database, and for any one query, before it gives up. Both are timed on
+ * this machine: a server-side statement_timeout is sent when the connection opens, which a connection pooler such as
+ * PgBouncer refuses by default, and only a client-side timer also covers a network that dies mid-query. The connect
+ * timeout is shorter than the MCP server's first-sync wait, so an unreachable database is reported as such.
+ */
+const SYNC_CONNECT_TIMEOUT_MS = 5_000;
+const SYNC_QUERY_TIMEOUT_MS = 60_000;
+
+/** The meta key that records when this machine last pulled this team's lessons, for this person. */
+function pullMark(config: TeamConfiguration): string {
+    return `team_pulled:${config.organizationId}/${config.teamId}/${config.actorId}`;
+}
+
+/** Whether this machine has ever pulled the configured team's lessons (false without team mode or a local store). */
+export async function hasPulledTeamLessons(): Promise<boolean> {
+    const config = await loadTeamConfiguration().catch(() => null);
+    if (!config) return false;
+    const db = await openDatabase().catch(() => null);
+    if (!db) return false;
+    try {
+        return Boolean((await db.get('SELECT value FROM meta WHERE key = ?', pullMark(config)))?.value);
+    } catch {
+        return false;
+    } finally {
+        await db.close();
+    }
+}
+
 export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string }): Promise<SyncResult> {
     try {
         return await syncOnce(options);
@@ -338,7 +394,7 @@ export async function syncTeamOutbox(options: { dryRun?: boolean; cwd: string })
 
 async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<SyncResult> {
     const config = await loadTeamConfiguration();
-    if (!config?.databaseUrl) throw new Error('Team mode is not configured.');
+    if (!config?.databaseUrl) throw new Error(await notConfigured());
     const db = await openDatabase();
     if (!db) throw new Error('SQLite offline cache is unavailable.');
     try {
@@ -352,7 +408,8 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
         await markNotSent(db, split);
 
         const { Pool } = await loadPg();
-        const pool = new Pool({ connectionString: config.databaseUrl });
+        // A stalled connection or query must end the sync, never hang it: the MCP server waits on the first one.
+        const pool = new Pool({ connectionString: config.databaseUrl, connectionTimeoutMillis: SYNC_CONNECT_TIMEOUT_MS, query_timeout: SYNC_QUERY_TIMEOUT_MS });
         let synced = 0;
         let pulled = 0;
         let decisions: DecisionSync;
@@ -411,8 +468,9 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
             decisions = await syncReviewDecisions(pool, db, decisionInput);
             // Only what changed since the last pull, less a margin: updated_at comes from each member's clock, and
             // re-reading a few minutes is harmless (the local write is an upsert) where a skewed clock would lose a lesson.
-            const mark = `team_pulled:${config.organizationId}/${config.teamId}/${config.actorId}`;
-            const last = Number((await db.get('SELECT value FROM meta WHERE key = ?', mark))?.value ?? 0);
+            const mark = pullMark(config);
+            const marked = (await db.get('SELECT value FROM meta WHERE key = ?', mark))?.value;
+            const last = Number(marked ?? 0);
             const remote = await pool.query(
                 `SELECT * FROM rigour.lessons
                  WHERE team_id = $1 AND organization_id = $3
@@ -442,6 +500,9 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
                 const newest = Math.max(last, ...remote.rows.map((row: { updated_at: unknown }) => Number(row.updated_at)));
                 await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', mark, String(newest));
                 await db.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");
+            } else if (marked === undefined) {
+                // Pulled, found nothing yet: this machine has still pulled the team once (hasPulledTeamLessons).
+                await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', mark, '0');
             }
         } finally {
             await pool.end();

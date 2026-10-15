@@ -45,7 +45,7 @@ decisions for the team.
 
 ## What you get
 
-- **Shared conventions.** When an agent saves a memory with scope `team` (through the `rigour_remember` MCP tool), it becomes a team candidate. Once a person approves it in Studio, every teammate's agent receives it.
+- **Shared conventions.** When an agent saves a memory with scope `team` (through the `rigour_remember` MCP tool), it becomes a team candidate. Once a person approves it in Studio, every teammate's agent receives it. Saving the same key again with a new value, while its candidate still waits on a person, replaces that candidate: the old one is marked superseded (in the team database too) and the new one links to it, so Studio never shows both.
 - **Your own lessons on every machine.** With `--sync-personal`, your personal lessons are also stored in the database. Only you can read them back.
 - **Optional search by meaning.** With pgvector, `rigour_recall` and `rigour_context_scope` also return team lessons that match the task by meaning, not only by keyword. See [Search by meaning with pgvector](#search-by-meaning-with-pgvector).
 
@@ -261,6 +261,7 @@ VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 - `role` is `member`, `sme` or `owner` (see the table above).
 - `display_name` is optional: the name teammates see on a review decision this person shared. Use a name, not a login or an email. Without one, teammates see "a teammate".
 - A login role can belong to a team once (the primary key is `db_role, team_id`).
+- **An automation gets a login of its own.** Give a review bot or CI agent its own login and membership, never a person's: its own `actor_id` (for example `review-bot`) and a `display_name` that says what it is ("Review bot"). As a `member` it receives every lesson the team promoted, which is what a reviewer needs; revoking it is dropping its login. A `member` cannot share team memories: the database accepts team rows only from an `sme` or `owner`, so what a `member` bot saves with scope `team` is refused at sync. Have a person save what the bot should share, or give the bot `sme` only if the team accepts everything an `sme` may do: share decisions on review lessons, and publish a lesson straight to every teammate's agent with no person deciding.
 
 Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-level security does not apply to a table's owner unless the table forces it, and Rigour's schema does not, so that login could read every personal lesson.
 
@@ -292,7 +293,24 @@ rigour team configure \
 
 `configure` connects and runs the same checks as `rigour team doctor` before it saves anything. If a check fails, it prints why and saves nothing. On success it writes `~/.rigour/team.json` with file mode 600. That file includes the database URL.
 
-From then on, sharing is automatic. The MCP server starts a sync after each tool call and Studio syncs every 30 seconds while it runs. `rigour team sync` does it by hand. Each sync takes up to 200 queued items, oldest first, and sends those the rules allow. It then receives your own lessons and the team's promoted lessons that changed since its last pull (less 15 minutes, in case a teammate's clock runs behind) into the local store.
+From then on, sharing is automatic. The MCP server syncs when an agent first calls one of its tools in a repository, and again after each tool call, and Studio syncs every 30 seconds while it runs. `rigour team sync` does it by hand. Each sync takes up to 200 queued items, oldest first, and sends those the rules allow. It then receives your own lessons and the team's promoted lessons that changed since its last pull (less 15 minutes, in case a teammate's clock runs behind) into the local store.
+
+### A fresh clone or a cloud reviewer
+
+A teammate's new clone, or an agent on a cloud machine that reviews pull requests, gets the team's promoted memories and
+lessons with no setup beyond team mode: the database URL (`RIGOUR_TEAM_DATABASE_URL`) and the three ids
+(`RIGOUR_ORGANIZATION_ID`, `RIGOUR_TEAM_ID`, `RIGOUR_ACTOR_ID`) from [Settings from the environment](#settings-from-the-environment)
+are enough, with no `team.json` and no `.rigour` folder in the clone. On a machine that has never pulled the team's
+lessons, the first `rigour_recall` waits up to 8 seconds for the first sync, so it answers with them rather than from an
+empty store. If the sync takes longer, the recall says the team's lessons are still being fetched; if the team database
+can't be reached, it says so and why, and the next tool call tries again. A machine that has pulled before answers at
+once while the sync runs. A recall with no arguments lists the lessons too, after the clone's own memories: the team's
+promoted lessons from all its repositories, and this repository's validated ones. Lessons a person promoted reach every
+teammate whatever remote their clone uses (https or an SSH alias).
+
+Reading the team's lessons needs no repository list; sending this machine's own team memories and lessons does: set
+`RIGOUR_TEAM_REPOSITORIES` too for an agent that saves memories (see
+[How a lesson reaches teammates](#how-a-lesson-reaches-teammates)).
 
 ### Several organizations on one machine
 

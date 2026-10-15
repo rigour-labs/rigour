@@ -281,8 +281,12 @@ export interface RigourDB {
     exec(sql: string): Promise<void>;
     /** Close the database connection. */
     close(): Promise<void>;
-    /** Run multiple operations atomically via BEGIN/COMMIT/ROLLBACK. */
-    transaction<T>(fn: (db: RigourDB) => Promise<T>): Promise<T>;
+    /**
+     * Run multiple operations atomically via BEGIN/COMMIT/ROLLBACK. `immediate` takes the write lock at the start, for a
+     * read-then-write that another process may run at the same time: a deferred transaction that reads first can't
+     * upgrade to a writer under WAL once another has written (SQLITE_BUSY), and the busy timeout doesn't cover that.
+     */
+    transaction<T>(fn: (db: RigourDB) => Promise<T>, options?: { immediate?: boolean }): Promise<T>;
 }
 
 /**
@@ -320,8 +324,8 @@ function wrapDatabase(raw: DatabaseSync): RigourDB {
         async close() {
             raw.close();
         },
-        async transaction<T>(fn: (db: RigourDB) => Promise<T>): Promise<T> {
-            await db.exec('BEGIN TRANSACTION');
+        async transaction<T>(fn: (db: RigourDB) => Promise<T>, options: { immediate?: boolean } = {}): Promise<T> {
+            await db.exec(options.immediate ? 'BEGIN IMMEDIATE TRANSACTION' : 'BEGIN TRANSACTION');
             try {
                 const result = await fn(db);
                 await db.exec('COMMIT');
