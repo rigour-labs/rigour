@@ -5,7 +5,7 @@ import { openDatabase } from './db.js';
 import { encryptLocalPayload } from './local-encryption.js';
 import { lessonRowToRecord as rowToLesson } from './lesson-record.js';
 import { loadTeamConfiguration } from './team-store.js';
-import { getRepositoryId, originOf } from './repository-origin.js';
+import { getRepositoryId, originOf, sameRepositories, sameRepositoryIds } from './repository-origin.js';
 
 export { getRepositoryId };
 
@@ -104,6 +104,14 @@ export async function registerRepository(db: { run(sql: string, ...params: unkno
              display_name=excluded.display_name, last_seen=excluded.last_seen`,
         repositoryId, canonicalUri, remoteName || path.basename(cwd), Date.now(),
     );
+    // The same repository's other id (an https clone's, seen from an SSH alias checkout) is known here too, so a lesson
+    // pulled under it can be shared or superseded from this checkout: the sync sends only lessons of known repositories.
+    for (const sibling of sameRepositories(cwd).filter(repository => repository.id !== repositoryId)) {
+        await db.run(
+            `INSERT INTO repositories (id, canonical_uri, display_name, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+            sibling.id, sibling.canonicalUri, remoteName || path.basename(cwd), Date.now(),
+        );
+    }
 }
 
 /**
@@ -123,15 +131,25 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
         const subject = `${key}: ${value}`;
         const actorId = config?.actorId || process.env.RIGOUR_ACTOR_ID || null;
         const teamId = config?.teamId || process.env.RIGOUR_TEAM_ID || null;
+        const repositoryIds = sameRepositoryIds(cwd);
         // One check-and-write: two agents remembering the same key at once must not both leave a candidate.
         return await db.transaction(async (tx) => {
             const existing = await tx.get(
-                `SELECT id FROM lessons WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
-                repositoryId, subject,
+                `SELECT id, state FROM lessons WHERE repository_id IN (${repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
+                ...repositoryIds, subject,
             );
-            if (existing) return String(existing.id);
+            if (existing) {
+                // A candidate saved before team mode was configured was never queued: queue it now. One pulled from the
+                // team database is this person's own (the pull reads only theirs), so sending it again changes nothing.
+                const queued = await tx.get('SELECT 1 FROM sync_outbox WHERE entity_id = ? LIMIT 1', existing.id);
+                if (config && existing.state === 'candidate' && !queued) {
+                    const lesson = await txSafeLesson(tx, String(existing.id));
+                    if (lesson) await queueLessonSync(tx, lesson, now);
+                }
+                return String(existing.id);
+            }
             // A corrected memory replaces its pending candidate: the old one is superseded (and synced so), never left beside it.
-            const replaced = await pendingMemoryCandidates(tx, { repositoryId, key, actorId, teamId });
+            const replaced = await pendingMemoryCandidates(tx, { repositoryIds, key, actorId, teamId });
             const id = `lesson-${randomUUID()}`;
             await tx.run(
                 `INSERT INTO lessons (
@@ -163,16 +181,16 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
  */
 async function pendingMemoryCandidates(
     db: { all(sql: string, ...params: unknown[]): Promise<any[]> },
-    scope: { repositoryId: string; key: string; actorId: string | null; teamId: string | null },
+    scope: { repositoryIds: string[]; key: string; actorId: string | null; teamId: string | null },
 ): Promise<string[]> {
     const rows = await db.all(
         `SELECT * FROM lessons
-         WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND state = 'candidate'
+         WHERE repository_id IN (${scope.repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND state = 'candidate'
            AND substr(subject, 1, length(?) + 2) = ? || ': '
            AND (actor_id IS ? OR actor_id IS NULL) AND (team_id IS ? OR team_id IS NULL)
            AND NOT EXISTS (SELECT 1 FROM lessons published WHERE published.source = 'published:' || lessons.id)
          ORDER BY updated_at DESC`,
-        scope.repositoryId, scope.key, scope.key, scope.actorId, scope.teamId,
+        ...scope.repositoryIds, scope.key, scope.key, scope.actorId, scope.teamId,
     );
     const ids: string[] = [];
     for (const row of rows) {
@@ -227,25 +245,28 @@ export async function listKnowledgeLessons(cwd: string, limit = 500): Promise<Le
         const repositoryId = await getRepositoryId(cwd);
         await registerRepository(db, cwd, repositoryId);
         const config = await loadTeamConfiguration();
+        // This checkout's lessons, and those filed under the same repository's other remote form (an https clone's).
+        const ids = sameRepositoryIds(cwd);
+        const marks = ids.map(() => '?').join(', ');
         const rows = config
             ? await db.all(
                 `SELECT lessons.*, repositories.display_name AS repository_name
                  FROM lessons LEFT JOIN repositories ON repositories.id = lessons.repository_id
                  WHERE lessons.kind != 'interaction'
-                   AND (lessons.repository_id = ?
+                   AND (lessons.repository_id IN (${marks})
                     OR (lessons.visibility = 'personal' AND lessons.actor_id = ?)
                     OR (lessons.visibility = 'team' AND lessons.team_id = ? AND lessons.state = 'promoted'))
                  ORDER BY lessons.updated_at DESC LIMIT ?`,
-                repositoryId, config.actorId, config.teamId, limit,
+                ...ids, config.actorId, config.teamId, limit,
             )
             : await db.all(
                 `SELECT lessons.*, repositories.display_name AS repository_name
                  FROM lessons LEFT JOIN repositories ON repositories.id = lessons.repository_id
                  WHERE lessons.kind != 'interaction'
-                   AND (lessons.repository_id = ?
+                   AND (lessons.repository_id IN (${marks})
                     OR (lessons.visibility = 'personal' AND lessons.actor_id IS NULL))
                  ORDER BY lessons.updated_at DESC LIMIT ?`,
-                repositoryId, limit,
+                ...ids, limit,
             );
         return await Promise.all(rows.map(rowToLesson));
     } finally {
