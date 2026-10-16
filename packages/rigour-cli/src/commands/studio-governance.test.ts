@@ -152,9 +152,18 @@ describe('governance reviewer usage', () => {
     });
 
     it('reports team sync off without a team, and the sharing state from the last sync', () => {
-        expect(teamState(null, undefined)).toEqual({ sync: false, organization: null, team: null, actor: null, sharing: null, received: 0 });
+        expect(teamState(null, undefined)).toEqual({ sync: false, organization: null, team: null, actor: null, sharing: null, received: 0, candidates: null });
         expect(teamState({ organizationId: 'acme', teamId: 'web', actorId: 'dev' }, { version: 1, sharing: { shares: false, reason: 'a member' }, decisions: [], mine: {} }))
-            .toMatchObject({ sync: true, organization: 'acme', sharing: { shares: false, reason: 'a member' } });
+            .toMatchObject({ sync: true, organization: 'acme', sharing: { shares: false, reason: 'a member' }, candidates: null });
+    });
+
+    it("says what a person sees of teammates' candidates, and what an owner runs where the database lacks candidate review", () => {
+        const scope = { organizationId: 'acme', teamId: 'web', actorId: 'dev' };
+        expect(teamState(scope, undefined, { role: 'sme', candidateReview: true }).candidates).toContain("you see every member's team candidates");
+        expect(teamState(scope, undefined, { role: 'member', candidateReview: true }).candidates).toBeNull();
+        const missing = teamState(scope, undefined, { role: 'owner', candidateReview: false }).candidates;
+        expect(missing).toContain("Teammates' candidates are visible only to them until shared.");
+        expect(missing).toContain('rigour team init-schema --database-url <administrator url>');
     });
 });
 

@@ -27,6 +27,11 @@ export interface Journey {
     stoppedInDevelopment: number | null;
     reachedPr: number | null;
     canDecide: boolean;
+    /** A team memory candidate's key and value: proposals for one key are shown together (MemoryProposals.tsx). */
+    memory?: { key: string; value: string };
+    /** Who proposed a team candidate (an actor id), and whether it is this person. */
+    proposedBy?: string;
+    yours?: true;
     /** Taken back by what happened after later merges; a person may promote it again. */
     takenBack?: { detail: string; prs: number[]; at: string };
     /** A later fix changed the point's own lines: evidence for a person to promote or dismiss. */
@@ -133,6 +138,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
     <div className="st-card mem-lesson">
         <LessonChips lesson={lesson} />
         <div className="mem-lesson-text">{inlineCode(lesson.text)}</div>
+        {lesson.proposedBy && !lesson.yours && <div className="st-sub">Proposed by {lesson.proposedBy}</div>}
         <div className="st-journey">
             <div style={{ background: 'var(--bg-surface)' }}><div className="st-sub">Learned</div><div style={{ fontSize: 14, marginTop: 4 }}>{lesson.learnedFrom}</div></div>
             <div><div className="st-sub">Agents told</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.told)}</div></div>

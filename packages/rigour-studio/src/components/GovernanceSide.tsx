@@ -105,6 +105,6 @@ export const TeamCard: React.FC<{ team: TeamState }> = ({ team }) => (
                 </>
             )
             : <Empty>Team sync is off: lessons and decisions stay on this machine. <span className="ui-mono">rigour team configure</span> connects a team database.</Empty>}
-        <small className="gov-note">Teammates' candidates are visible only to them until shared.</small>
+        <small className="gov-note">{team.candidates ?? 'Teammates\' candidates are visible only to them until shared.'}</small>
     </Card>
 );

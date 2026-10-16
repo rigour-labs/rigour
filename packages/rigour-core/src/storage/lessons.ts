@@ -134,13 +134,16 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
         const repositoryIds = sameRepositoryIds(cwd);
         // One check-and-write: two agents remembering the same key at once must not both leave a candidate.
         return await db.transaction(async (tx) => {
+            // This person's own (or this machine's, with no actor yet), or one the team shares. A teammate's candidate an
+            // sme pulled to decide on is theirs: saving the same memory leaves this person a candidate of their own.
             const existing = await tx.get(
-                `SELECT id, state FROM lessons WHERE repository_id IN (${repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
-                ...repositoryIds, subject,
+                `SELECT id, state FROM lessons WHERE repository_id IN (${repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND state != 'superseded'
+                   AND (actor_id IS ? OR actor_id IS NULL OR state = 'promoted') AND subject = ?`,
+                ...repositoryIds, actorId, subject,
             );
             if (existing) {
                 // A candidate saved before team mode was configured was never queued: queue it now. One pulled from the
-                // team database is this person's own (the pull reads only theirs), so sending it again changes nothing.
+                // team database is this person's own, so sending it again changes nothing.
                 const queued = await tx.get('SELECT 1 FROM sync_outbox WHERE entity_id = ? LIMIT 1', existing.id);
                 if (config && existing.state === 'candidate' && !queued) {
                     const lesson = await txSafeLesson(tx, String(existing.id));
@@ -279,11 +282,21 @@ export interface ApplicableLessons {
     conflicts: Array<{ subject: string; lessonIds: string[] }>;
 }
 
+/**
+ * Whether an agent may act on a lesson: validated by evidence, or promoted by a person. Another person's team lesson
+ * only once promoted: an sme or owner holds members' candidates to decide on them, never to serve them.
+ */
+export function isTrustedLesson(lesson: Pick<LessonRecord, 'state' | 'visibility' | 'actorId'>, ownActorId: string | undefined): boolean {
+    if (lesson.state === 'promoted') return true;
+    if (lesson.state !== 'validated') return false;
+    return lesson.visibility !== 'team' || !lesson.actorId || !ownActorId || lesson.actorId === ownActorId;
+}
+
 export async function getApplicableLessons(cwd: string, actorId?: string, teamId?: string): Promise<ApplicableLessons> {
     const repositoryId = await getRepositoryId(cwd);
-    const all = await listKnowledgeLessons(cwd, 500);
-    const applicable = all
-        .filter(lesson => lesson.state === 'validated' || lesson.state === 'promoted')
+    const own = (await loadTeamConfiguration().catch(() => null))?.actorId;
+    const applicable = (await listKnowledgeLessons(cwd, 500))
+        .filter(lesson => isTrustedLesson(lesson, own))
         .filter(lesson => lesson.visibility === 'team' || !actorId || !lesson.actorId || lesson.actorId === actorId)
         .filter(lesson => !teamId || !lesson.teamId || lesson.teamId === teamId)
         .map(lesson => {
@@ -327,6 +340,8 @@ export async function transitionLesson(
                     visibility: 'team',
                     state: 'promoted',
                     source: `published:${source.id}`,
+                    // Who shared it: the copy keeps its author's actor, and an sme or owner may share a member's candidate.
+                    evidence: { ...source.evidence, publishedBy: teamConfig.actorId },
                     createdAt: now,
                     updatedAt: now,
                 };

@@ -34,6 +34,8 @@ export interface TeamState {
     actor: string | null;
     sharing: { shares: boolean; person?: string; reason?: string } | null;
     received: number;
+    /** What this person sees of teammates' candidates; null (or absent, from older data) for the general line. */
+    candidates?: string | null;
 }
 
 export interface GovernanceData {

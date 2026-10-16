@@ -224,9 +224,11 @@ async function handleApiRequest(
                 }
                 const { transitionLesson } = await import('@rigour-labs/core');
                 const publishing = payload.state === 'promoted';
+                // A drop is sent too (a team lesson's only): the team database records it, so the next pull, which
+                // brings an sme or owner members' candidates, never offers it again.
                 const changed = await transitionLesson(payload.id, payload.state, {
                     visibility: publishing ? 'team' : undefined,
-                    queueSync: publishing,
+                    queueSync: publishing || payload.state === 'rejected',
                 });
                 sendJson(res, changed ? 200 : 404, { success: changed });
             } catch (e: any) {

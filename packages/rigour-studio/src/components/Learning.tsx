@@ -2,9 +2,10 @@ import React from 'react';
 import { studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
 import { Empty, Kpis, PageHeader, TabPanel, Tabs } from './ui';
-import { BotPointsToggle, CompiledChecks, LessonCard, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
+import { BotPointsToggle, CompiledChecks, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
 import { FromReviews, LearnedRules, RememberedTable, RepeatsCard, memoryKpis, type Briefed, type LearnedRule, type LearningWeek, type Memory } from './MemoryParts';
 import { HowMemoryWorks, JourneyCard } from './MemoryStore';
+import { LessonList } from './MemoryProposals';
 import './story.css';
 import './memory.css';
 
@@ -54,7 +55,7 @@ const LearningTab: React.FC<TabProps> = ({ tab, data, lessons, memories, rules, 
             <RepeatsCard weeks={data.weeks} prRecorded={data.prRecorded} />
             {data.lessons.length === 0
                 ? <Empty>No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</Empty>
-                : <div className="mem-list">{lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={actions.decide} onDecideReview={actions.decideReview} onScope={actions.scope} />)}</div>}
+                : <LessonList lessons={lessons} onDecide={actions.decide} onDecideReview={actions.decideReview} onScope={actions.scope} />}
             {botToggle}
             {data.outcomes && <OutcomeCard numbers={data.outcomes} />}
         </>

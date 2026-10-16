@@ -51,6 +51,49 @@ describe('buildLearning', () => {
     });
 });
 
+describe("team memory candidates, as an sme sees them", () => {
+    const memory = (id: string, actorId: string, value: string, over: Partial<LessonRecord> = {}): LessonRecord => ({
+        ...lesson, id, actorId, kind: 'memory', state: 'candidate' as any, visibility: 'team' as any, subject: `retries: ${value}`,
+        evidence: { key: 'retries', value }, source: 'rigour_remember', ...over,
+    });
+    const build = (lessons: LessonRecord[]) => buildLearning({ now, lessons, reviewLessons: [], stories: [], events: [] }).lessons;
+
+    it('names who proposed each, with its key and value, and keeps two proposals of the same value', () => {
+        expect(build([memory('a', 'dev-a', 'Use withRetry.'), memory('b', 'reviewer-s', 'Use withRetry.')]).map(l => [l.id, l.proposedBy, l.memory])).toEqual([
+            ['a', 'dev-a', { key: 'retries', value: 'Use withRetry.' }],
+            ['b', 'reviewer-s', { key: 'retries', value: 'Use withRetry.' }],
+        ]);
+    });
+
+    it('shows the published copy, not the candidate it was shared from', () => {
+        const listed = build([memory('a', 'dev-a', 'x'), memory('p', 'dev-a', 'x', { state: 'promoted' as any, source: 'published:a' })]);
+        expect(listed.map(l => [l.id, l.state, l.proposedBy])).toEqual([['p', 'promoted', undefined]]);
+    });
+
+    it("lets an sme decide on a teammate's candidate, a member only on their own, and anyone while no sync has said", async () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'learning-team-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'learning-team-home-'));
+        const saved = { ...process.env };
+        try {
+            Object.assign(process.env, { RIGOUR_HOME: home });
+            const { shareMemoryLesson } = await import('@rigour-labs/core');
+            process.env.RIGOUR_ACTOR_ID = 'dev-a';
+            await shareMemoryLesson(repo, 'retries', 'Use withRetry.');
+            process.env.RIGOUR_ACTOR_ID = 'reviewer-s';
+            await shareMemoryLesson(repo, 'retries', 'Use withRetry.');
+            const decide = async (viewer: { actorId?: string; decidesTeammates?: boolean }) => (await loadLearning(repo, now, 4, viewer)).lessons
+                .filter(l => l.memory).map(l => [l.proposedBy, l.yours ?? false, l.canDecide]).sort();
+            expect(await decide({ actorId: 'reviewer-s', decidesTeammates: true })).toEqual([['dev-a', false, true], ['reviewer-s', true, true]]);
+            expect(await decide({ actorId: 'reviewer-s', decidesTeammates: false })).toEqual([['dev-a', false, false], ['reviewer-s', true, true]]);
+            expect(await decide({ actorId: 'reviewer-s' })).toEqual([['dev-a', false, true], ['reviewer-s', true, true]]);
+        } finally {
+            process.env = saved;
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+            fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        }
+    });
+});
+
 describe('a review lesson evidence took back', () => {
     const takenBack = (extra: ReviewLesson['evidence'] = []): ReviewLesson => ({
         id: 'a1b2c3d4e5f6', text: 'take the lock before the first read', file: 'src/job.ts', symbols: [], state: extra.some(e => e.kind === 'accepted') ? 'verified' : 'candidate', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',

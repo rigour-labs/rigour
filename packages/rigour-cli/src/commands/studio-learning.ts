@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, lastDecision, takeBackable, readTeamDecisionCache, type TeamDecisionCache, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, lastDecision, takeBackable, readTeamDecisionCache, loadTeamConfiguration, readTeamAccess, decidesTeammatesCandidates, type TeamDecisionCache, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { decider } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 import { briefedSince, contradictions, evidenceTrail, type EvidenceItem } from './studio-learning-health.js';
@@ -28,6 +28,11 @@ export interface LessonJourney {
     stoppedInDevelopment: number | null;
     reachedPr: number | null;
     canDecide: boolean;
+    /** A team memory candidate's key and value (its subject is `key: value`), so Studio shows proposals for one key together. */
+    memory?: { key: string; value: string };
+    /** Who proposed a team candidate (their actor id), and whether it is this person; an sme or owner decides on a teammate's. */
+    proposedBy?: string;
+    yours?: true;
     /** A review lesson evidence took back (review-learning/outcome-evidence.ts): why, and the pull requests that did. A person may promote it again. */
     takenBack?: { detail: string; prs: number[]; at: string };
     /** A later fix changed the point's own lines (review-learning/outcome-evidence.ts): evidence for a person to promote or dismiss, never a promotion on its own. */
@@ -84,8 +89,10 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
     const isRepeat = (c: Catch) => fixLessons.some(l => c.prefix && l.subject.startsWith(c.prefix) && learnedAt(l) < c.at);
     const repeatsOf = (l: LessonRecord, catches: Catch[]) => catches.filter(c => l.subject.startsWith(c.prefix) && c.at > learnedAt(l)).length;
 
+    // A candidate someone shared stays as it was beside its published copy (core transitionLesson): the copy is shown.
+    const shared = new Set(input.lessons.filter(l => l.source?.startsWith('published:')).map(l => l.source.slice('published:'.length)));
     const lessons: LessonJourney[] = [
-        ...input.lessons.filter(l => (l.kind === 'fix' || l.kind === 'memory') && l.state !== 'rejected' && l.state !== 'superseded').map(l => ({
+        ...input.lessons.filter(l => (l.kind === 'fix' || l.kind === 'memory') && l.state !== 'rejected' && l.state !== 'superseded' && !shared.has(l.id)).map(l => ({
             id: l.id,
             text: l.kind === 'fix' ? readableFixLesson(l.subject) : l.subject,
             origin: l.kind === 'fix' ? 'development' as const : 'memory' as const,
@@ -97,6 +104,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             stoppedInDevelopment: l.kind === 'fix' ? repeatsOf(l, devCatches) : null,
             reachedPr: l.kind === 'fix' && prRecorded ? repeatsOf(l, prCatches) : null,
             canDecide: l.state === 'candidate',
+            ...proposal(l),
         })),
         ...input.reviewLessons.map(l => ({
             id: l.id,
@@ -119,8 +127,9 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
         })),
     // Lessons back to a candidate when outcomes stopped promoting come first: a person decides each once.
     ].sort((a: LessonJourney, b: LessonJourney) => Number(!!b.reclassified) - Number(!!a.reclassified) || b.learnedAt.localeCompare(a.learnedAt))
-        // The same lesson learned in several places (this repo and personal lessons from others) shows once.
-        .filter((lesson, i, all) => all.findIndex(other => other.text === lesson.text) === i);
+        // The same lesson learned in several places (this repo and personal lessons from others) shows once; a team
+        // memory candidate shows each proposal, so a person sees two people proposed the same value.
+        .filter((lesson: LessonJourney, i: number, all: LessonJourney[]) => lesson.memory || all.findIndex(other => !other.memory && other.text === lesson.text) === i);
 
     const count = input.weeks ?? WEEKS;
     const weeks = Array.from({ length: count }, (_, i) => {
@@ -134,6 +143,30 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
         };
     });
     return { lessons, weeks, prRecorded };
+}
+
+/** A team candidate's proposer (an actor id) and, for a memory, its key and value (the subject is `key: value`). */
+function proposal(l: LessonRecord): Pick<LessonJourney, 'memory' | 'proposedBy'> {
+    if (l.visibility !== 'team' || l.state !== 'candidate') return {};
+    const split = l.kind === 'memory' ? l.subject.indexOf(': ') : -1;
+    return {
+        ...(split > 0 ? { memory: { key: l.subject.slice(0, split), value: l.subject.slice(split + 2) } } : {}),
+        ...(l.actorId ? { proposedBy: l.actorId } : {}),
+    };
+}
+
+/**
+ * Who is looking: their actor id (none without team mode), and whether they decide on a teammate's team candidate (an
+ * sme or owner on a database with candidate review); undefined when no team sync has said yet: every candidate stays
+ * decidable, as before.
+ */
+interface LearningViewer { actorId?: string; decidesTeammates?: boolean }
+
+/** Whether a team candidate is this person's, and whether they may decide on it when it is a teammate's. */
+function forViewer(j: LessonJourney, viewer: LearningViewer): Pick<LessonJourney, 'canDecide' | 'yours'> {
+    if (!j.proposedBy) return { canDecide: j.canDecide };
+    const yours = !viewer.actorId || j.proposedBy === viewer.actorId;
+    return { canDecide: j.canDecide && (yours || viewer.decidesTeammates !== false), ...(yours ? { yours: true as const } : {}) };
 }
 
 /** A review lesson's team decisions for Studio, and whether a later one settled it against this person's own. */
@@ -225,7 +258,9 @@ export function proposeChecksFromStudio(cwd: string): { proposed: number } {
     return { proposed: proposeCompiledChecks(cwd).length };
 }
 
-export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS): Promise<StudioLearning> {
+/** `viewer` is for tests; it is read from the team settings and the last team sync otherwise. */
+export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS, viewer?: LearningViewer): Promise<StudioLearning> {
+    const who = viewer ?? await learningViewer();
     const roots = checkoutRoots(cwd);
     const reviewLessons = readLessons(cwd);
     const events = eventsAcross(roots);
@@ -236,6 +271,7 @@ export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS)
     const conflicts = await contradictions(cwd);
     const lessons = built.lessons.map(j => ({
         ...j,
+        ...forViewer(j, who),
         ...(byId.has(j.id) ? teamOn(byId.get(j.id)!, sharing) : {}),
         ...(conflicts.get(j.id)?.length ? { conflicts: conflicts.get(j.id) } : {}),
     }));
@@ -247,6 +283,14 @@ export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS)
         briefed: briefedSince(events, now, weeks * 7),
     };
     return outcomes ? { ...withChecks, outcomes } : withChecks;
+}
+
+/** This person's actor id, and whether the last team sync said they decide on teammates' candidates. */
+async function learningViewer(): Promise<LearningViewer> {
+    const config = await loadTeamConfiguration().catch(() => null);
+    if (!config) return {};
+    const decides = decidesTeammatesCandidates(await readTeamAccess(config));
+    return { actorId: config.actorId, ...(decides === undefined ? {} : { decidesTeammates: decides }) };
 }
 
 /**
