@@ -1,7 +1,7 @@
 /** The Patterns page's parts: the function index, the problems Rigour's checks keep finding, and code agents were pointed to. Patterns.tsx loads the data. */
 import React from 'react';
 import { ago, plural } from './storyData';
-import { Card, Chip, Empty, Meter, Row, Table, type KpiItem } from './ui';
+import { Card, Chip, Empty, FilterBar, formatCount as num, Meter, Pager, Row, Table, matchesQuery, usePaged, usePersisted, type Column, type KpiItem } from './ui';
 import './patterns.css';
 
 interface IndexEntry { name: string; type: string; file: string; line: number; exported: boolean }
@@ -23,44 +23,56 @@ export function patternKpis(data: PatternsData): KpiItem[] {
     const { index, recurring, reuse } = data;
     const callable = index.byType.filter(t => CALLABLE.has(t.type)).reduce((n, t) => n + t.count, 0);
     return [
-        { label: 'Functions indexed', value: index.indexed ? callable : '—', note: index.indexed ? `Of ${plural(index.total, 'entry', 'entries')} in ${plural(index.files, 'file')}, types and constants included.` : 'No index yet: rigour index builds one.' },
+        { label: 'Functions indexed', value: index.indexed ? num(callable) : '—', note: index.indexed ? `Of ${num(index.total)} entries in ${num(index.files)} files, types and constants included.` : 'No index yet: rigour index builds one.' },
         { label: 'Last indexed', value: index.lastIndexed ? ago(index.lastIndexed) : '—', note: index.lastIndexed ? 'Kept fresh as agents edit files.' : 'Never indexed in this checkout.' },
         { label: 'Recurring problems', value: recurring.recorded ? recurring.patterns.length : '—', note: recurring.recorded ? 'Kinds of problem Rigour\'s checks keep finding.' : 'Not recorded: the local database could not be read.' },
         { label: `Reuse suggestions, ${reuse.days} days`, value: reuse.recent, note: `${reuse.total} in all: existing code an agent was pointed to.` },
     ];
 }
 
-const SHOWN = 100;
+/** Kinds offered as filter chips, most entries first; the rest are reached by search. */
+const KIND_CHIPS = 6;
 
-/** Every function, type and constant Rigour indexed, searchable by name, kind or file. */
+const INDEX_COLUMNS: Column<IndexEntry>[] = [
+    { label: 'Name', width: '30%', cell: e => <span className="ui-mono ui-ellipsis" title={e.name}>{e.name}</span> },
+    { label: 'Kind', width: '120px', cell: e => <Chip>{e.type}</Chip> },
+    { label: 'File', cell: e => <span className="ui-mono ui-ellipsis pat-dim pat-path" title={`${e.file}:${e.line}`}>{`\u200e${e.file}:${e.line}\u200e`}</span> },
+    { label: 'Exported', width: '104px', cell: e => (e.exported ? <Chip tone="info">exported</Chip> : <span className="pat-dim" aria-label="not exported">—</span>) },
+];
+
+/** Entries of one kind (or all) whose name, kind or file match the search. */
+function filterEntries(entries: IndexEntry[], kind: string, query: string): IndexEntry[] {
+    return entries.filter(e => (kind === 'all' || e.type === kind) && matchesQuery(`${e.name} ${e.type} ${e.file}`, query));
+}
+
+/** Every function, type and constant Rigour indexed, searchable by name, kind or file, 25 to a page. */
 export const IndexTable: React.FC<{ index: PatternsData['index']; initialQuery?: string }> = ({ index, initialQuery = '' }) => {
     const [query, setQuery] = React.useState(initialQuery);
+    const [stored, setKind] = usePersisted<string>('patterns:kind', 'all');
+    // Chip counts are the whole index's, from the server; the list below holds the entries it sent.
+    const kinds = index.byType;
+    const kind = stored === 'all' || kinds.some(t => t.type === stored) ? stored : 'all';
+    const matches = React.useMemo(() => filterEntries(index.entries, kind, query), [index.entries, kind, query]);
+    const paged = usePaged(matches, { resetKey: `${kind}\u0000${query}`, storageKey: 'patterns:index' });
     if (!index.indexed) {
         return <Card title="The function index"><Empty>Nothing indexed in this checkout yet. <code>rigour index</code> builds it; after that Rigour keeps it fresh as agents edit, and points an agent to a function that exists before it writes a near-copy.</Empty></Card>;
     }
-    const q = query.trim().toLowerCase();
-    const matches = q ? index.entries.filter(e => `${e.name} ${e.type} ${e.file}`.toLowerCase().includes(q)) : index.entries;
+    const chips = [{ id: 'all', label: 'All', count: index.total }, ...kinds.slice(0, KIND_CHIPS).map(t => ({ id: t.type, label: t.type, count: t.count }))];
+    const capped = index.more ? <span>search and filters cover the first {num(index.entries.length)} of {num(index.total)} entries, not the whole index</span> : undefined;
     return (
-        <Card title="The function index" meta={`${plural(index.total, 'entry', 'entries')}`} flush>
+        <Card title="The function index" meta={`${num(index.files)} files`} flush>
             <div className="ui-card-body">
-                <input className="pat-search" type="search" placeholder="Search by name, kind or file" aria-label="Search the function index" value={query} onChange={e => setQuery(e.target.value)} />
+                <FilterBar query={query} onQuery={setQuery} placeholder="Search by name, kind or file" chips={chips} active={kind} onChip={setKind} matching={matches.length} noun={['entry', 'entries']} note={capped} />
             </div>
             {matches.length === 0
-                ? <div className="ui-card-body"><Empty>Nothing in the index matches “{query}”.</Empty></div>
-                : <Table rows={matches.slice(0, SHOWN)} rowKey={(e, i) => `${e.file}:${e.line}:${e.type}:${e.name}:${i}`} columns={[
-                    { label: 'Name', cell: e => <span className="ui-mono">{e.name}</span> },
-                    { label: 'Kind', cell: e => <Chip>{e.type}</Chip> },
-                    { label: 'File', cell: e => <span className="ui-mono pat-file" title={`${e.file}:${e.line}`}>{e.file}:{e.line}</span> },
-                    { label: 'Exported', cell: e => (e.exported ? 'yes' : 'no') },
-                ]} />}
-            <div className="ui-card-body pat-note">
-                {matches.length > SHOWN ? `Showing ${SHOWN} of ${matches.length}; search to narrow. ` : ''}
-                {index.more ? `Search covers the first ${index.entries.length} entries; ${index.more} more are not listed or searched here. ` : ''}
-                How often each is used is not recorded by the index.
-            </div>
+                ? <div className="ui-card-body"><Empty>Nothing in the index matches “{query}”{kind === 'all' ? '' : ` among ${kind} entries`}.</Empty></div>
+                : <Table rows={paged.items} rowKey={(e, i) => `${e.file}:${e.line}:${e.type}:${e.name}:${i}`} columns={INDEX_COLUMNS} />}
+            <Pager paged={paged} label="index entries" />
+            <div className="ui-card-body pat-note">How often each is used is not recorded by the index.</div>
         </Card>
     );
 };
+
 
 const MEANING_WORDS: Record<string, string> = { on: 'on', off: 'off (rigour index --no-semantic)', warming: 'starting', degraded: 'unavailable, matching by name' };
 
@@ -74,7 +86,7 @@ export const IndexShape: React.FC<{ index: PatternsData['index'] }> = ({ index }
             {index.meaning && <Row label="Matching by meaning" value={MEANING_WORDS[index.meaning]} />}
             <div className="pat-subhead">Files with the most entries</div>
             {index.topFiles.map(f => (
-                <div key={f.file} className="pat-bar"><span className="ui-mono pat-file">{f.file}</span><span>{f.count}</span><Meter share={f.count / top} /></div>
+                <div key={f.file} className="pat-bar"><span className="ui-mono pat-file" title={f.file}>{f.file}</span><span>{num(f.count)}</span><Meter share={f.count / top} /></div>
             ))}
         </Card>
     );

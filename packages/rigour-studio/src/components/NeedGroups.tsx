@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { studioWrite } from '../studioWrite';
 import { ago, plural, STAGE_WORDS, type CatchStage } from './storyData';
+import { Clamp, StateChip } from './ui';
 
 /** Open findings grouped by check and message pattern, so 25 copies of one problem read as one line, not 25 cards. */
 export interface OpenNeed { key?: string; file: string; rule: string; title: string; openedAt: string; stage?: CatchStage }
@@ -45,7 +46,7 @@ export const NeedGroupCard: React.FC<{ group: NeedGroup; onDone: () => void }> =
     return (
         <div>
             <button className="st-story" onClick={() => setOpen(!open)} type="button" aria-expanded={open}>
-                <div className="st-row" style={{ justifyContent: 'space-between' }}><span className="st-chip warn">open</span><span className="st-sub">newest {ago(group.needs[0].openedAt)}</span></div>
+                <div className="st-row" style={{ justifyContent: 'space-between' }}><StateChip state="open" /><span className="st-sub">newest {ago(group.needs[0].openedAt)}</span></div>
                 <div className="week-group-title">{group.needs.length} × {group.pattern}, in {plural(group.files, 'file')}</div>
                 <div className="st-mono st-sub" style={{ marginTop: 6 }}>{group.rule}</div>
             </button>
@@ -70,9 +71,9 @@ const NeedCard: React.FC<{ need: OpenNeed; onDone: () => void }> = ({ need, onDo
     };
     return (
         <div className="week-need">
-            <div className="st-row"><span className="st-chip warn">open</span><span className="st-sub">found {need.stage ? STAGE_WORDS[need.stage] : ''} · {ago(need.openedAt)}</span></div>
-            <div className="week-need-title">{need.title}</div>
-            <div className="st-mono st-sub" style={{ marginTop: 6 }}>{need.file}</div>
+            <div className="st-row"><StateChip state="open" /><span className="st-sub">found {need.stage ? STAGE_WORDS[need.stage] : ''} · {ago(need.openedAt)}</span></div>
+            <div className="week-need-title"><Clamp text={need.title} /></div>
+            <div className="st-mono st-sub ui-ellipsis" style={{ marginTop: 4 }} title={need.file}>{need.file}</div>
             <div className="week-need-actions">
                 <button className="st-btn primary" onClick={copy} type="button">{state === 'copied' ? 'Copied: paste it to your agent' : 'Copy for my agent'}</button>
                 {need.key && <button className="st-btn" onClick={dismiss} type="button">It's fine, not a bug</button>}

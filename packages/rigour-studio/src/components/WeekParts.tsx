@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { studioWrite } from '../studioWrite';
-import { Card, Chip, Empty, WeekChart } from './ui';
+import { Card, Chip, Empty, FixCommand, WeekChart } from './ui';
 import { outcomeWords, type PullRow, type PullsList } from './pullsData';
 import { ago, inlineCode, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story } from './storyData';
 
@@ -36,8 +36,8 @@ export const StoryCard: React.FC<{ story: Story; open: boolean; onToggle: () => 
     <div>
         <button className="st-story" onClick={onToggle} type="button" aria-expanded={open}>
             <div className="st-row" style={{ justifyContent: 'space-between' }}><span className="st-chip">{STAGE_WORDS[story.stage]}</span><span className="st-sub">{ago(story.at)}</span></div>
-            <div style={{ fontSize: 15, lineHeight: 1.55, marginTop: 10 }}>{inlineCode(story.title)}</div>
-            <div className="st-sub" style={{ marginTop: 6 }}><span className="st-mono">{story.file}</span> · fixed by the agent</div>
+            <div className={open ? 'st-story-title' : 'st-story-title clamped'}>{inlineCode(story.title)}</div>
+            <div className="st-sub st-story-file" title={story.file}><span className="st-mono">{story.file}</span> · fixed by the agent</div>
         </button>
         {open && (
             <div className="st-story-body">
@@ -77,11 +77,11 @@ export const RepeatsChart: React.FC<{ weeks: ProgressWeek[] }> = ({ weeks }) => 
     const label = (from: string) => new Date(from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     const series = [{ label: 'Repeats caught while writing', color: 'var(--accent-primary)' }, ...(prKnown ? [{ label: 'Repeats that reached a PR', color: 'var(--status-warning)' }] : [])];
     const empty = weeks.every(w => w.repeatsStopped === 0 && !w.repeatsReachedPr);
+    // Eight quiet weeks are one line, so what needs a person comes first on the page.
+    if (empty) return <div className="week-quiet"><strong>Caught while writing vs reached a PR</strong><span>No repeat mistake in the last {weeks.length} weeks: a repeat matches a lesson Rigour already learned.</span></div>;
     return (
         <Card title="Caught while writing vs reached a PR" meta="8 weeks">
-            {empty
-                ? <Empty>No repeat mistakes yet. A repeat is a problem that matches a lesson Rigour already learned; it shows here once an agent makes one again.</Empty>
-                : <WeekChart weeks={weeks.map(w => ({ label: label(w.from), values: [w.repeatsStopped, ...(prKnown ? [w.repeatsReachedPr ?? 0] : [])] }))} series={series} />}
+            <WeekChart weeks={weeks.map(w => ({ label: label(w.from), values: [w.repeatsStopped, ...(prKnown ? [w.repeatsReachedPr ?? 0] : [])] }))} series={series} />
             <small className="week-note">
                 Computed: a repeat matches, by its check and title, a lesson Rigour learned before.
                 {prKnown ? '' : ' Repeats that reached a PR are not recorded here: they show once branch reviews run (rigour review --base main).'}
@@ -105,7 +105,7 @@ export const SetupGaps: React.FC<{ onSetup: () => void }> = ({ onSetup }) => {
                             <div className="week-gap" key={g.id}>
                                 <div><Chip tone={g.state === 'broken' ? 'bad' : 'warn'}>{g.state}</Chip> {g.name}</div>
                                 <small className="st-sub">{g.detail}</small>
-                                {g.fix && <code className="ui-mono">{g.fix}</code>}
+                                {g.fix && <FixCommand command={g.fix} />}
                             </div>
                         ))}
             <button type="button" className="ui-link" onClick={onSetup}>Open Setup</button>

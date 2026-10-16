@@ -1,7 +1,8 @@
 /** The Memory page's side: one lesson's journey from where it was learned to stopping a repeat, and how Rigour stores memory. */
 import React from 'react';
-import { inlineCode, plural, useStudioJson } from './storyData';
-import { Card, Empty, Timeline, type TimelineStep } from './ui';
+import { plural, useStudioJson } from './storyData';
+import { Card, Empty, MemoryText, Timeline, type TimelineStep } from './ui';
+import { originNote } from './lessonWords';
 import { LearnsLead, type Journey } from './LearningParts';
 import type { Memory } from './MemoryParts';
 import './memory.css';
@@ -22,7 +23,7 @@ function journeySteps(lesson: Journey): TimelineStep[] {
     const kept = IN_FORCE.has(lesson.state);
     const repeats = lesson.stoppedInDevelopment;
     return [
-        { key: 'learned', title: 'Learned', when: lesson.learnedAt ? new Date(lesson.learnedAt).toLocaleDateString() : undefined, tone: 'done', children: <div className="mem-note">{lesson.learnedFrom}</div> },
+        { key: 'learned', title: 'Learned', tone: 'done', children: <div className="mem-note">{originNote(lesson).replace(/^./, c => c.toUpperCase())}.</div> },
         { key: 'kept', title: kept ? 'Kept' : 'Waiting for a person', tone: kept ? 'done' : 'todo', children: <div className="mem-note">{kept ? 'In force: agents are given it.' : 'A candidate: agents get it once a person keeps it.'}</div> },
         { key: 'told', title: 'Briefed to agents', tone: lesson.told > 0 ? 'done' : 'todo', children: <div className="mem-note">{lesson.told > 0 ? `Given to an agent ${times(lesson.told)}, in a brief, a recall or a review.` : 'Not given to an agent yet.'}</div> },
         {
@@ -38,7 +39,7 @@ export const JourneyCard: React.FC<{ lessons: Journey[] }> = ({ lessons }) => {
     return (
         <Card title="A lesson's journey">
             {lesson
-                ? <><div className="mem-lesson-text" style={{ marginTop: 0 }}>{inlineCode(lesson.text)}</div><Timeline steps={journeySteps(lesson)} /></>
+                ? <><MemoryText text={lesson.text} memoryKey={lesson.memory?.key} value={lesson.memory?.value} lines={3} /><Timeline steps={journeySteps(lesson)} /></>
                 : <Empty>The first lesson shows here once an agent fixes something Rigour reported, a pull request comment is promoted, or you tell an agent to remember something.</Empty>}
             <LearnsLead />
         </Card>
