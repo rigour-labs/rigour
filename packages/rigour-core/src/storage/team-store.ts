@@ -208,6 +208,8 @@ async function loadPg(): Promise<{ Pool: new (options: import('pg').PoolConfig) 
 export interface SchemaGrants {
     granted: Array<{ role: string; statements: string[] }>;
     manual: string[];
+    /** Logins named in rigour.memberships that the database has no role for: nothing was granted to them. */
+    missingRoles?: string[];
 }
 
 export async function initializeTeamSchema(databaseUrl: string, options: { pgvector?: boolean } = {}): Promise<SchemaGrants> {
@@ -247,7 +249,10 @@ async function grantMembers(pool: { query: (sql: string, params?: unknown[]) => 
                 await pool.query(statement);
                 done.push(statement);
             } catch (error) {
-                if ((error as { code?: unknown })?.code !== '42501') throw error; // insufficient_privilege: the administrator's to run
+                const code = (error as { code?: unknown })?.code;
+                // undefined_object: a membership names a login that does not exist; the other logins are still granted.
+                if (code === '42704') { (result.missingRoles ??= []).push(role); break; }
+                if (code !== '42501') throw error; // insufficient_privilege: the administrator's to run
                 result.manual.push(statement);
             }
         }
