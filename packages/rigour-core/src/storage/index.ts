@@ -40,3 +40,4 @@ export type {
     TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,
     SemanticKnowledgeCandidate, SemanticKnowledgeResult,
 } from './team-store.js';
+export { teamSendStateOf, type TeamSendState } from './team-outbox.js';

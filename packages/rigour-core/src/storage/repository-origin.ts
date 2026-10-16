@@ -2,6 +2,7 @@
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { sshHostName } from '../utils/ssh-host.js';
 
 function normalizeRemote(remote: string): string {
     return remote.trim().replace(/^git@([^:]+):/, 'https://$1/').replace(/\.git$/, '').toLowerCase();
@@ -24,14 +25,38 @@ function readGitConfig(cwd: string): string {
     }
 }
 
-/** The repository's origin remote as Rigour records it (`https://github.com/acme/api`), or undefined without one. */
-function originOfSync(cwd: string): string | undefined {
+function originRemote(cwd: string): string | undefined {
     try {
-        const remote = readGitConfig(cwd).match(/\[remote\s+"origin"\][\s\S]*?url\s*=\s*([^\n]+)/)?.[1];
-        return remote ? normalizeRemote(remote) : undefined;
+        return readGitConfig(cwd).match(/\[remote\s+"origin"\][\s\S]*?url\s*=\s*([^\n]+)/)?.[1]?.trim();
     } catch {
         return undefined;
     }
+}
+
+/** The repository's origin remote as Rigour records it (`https://github.com/acme/api`), or undefined without one. */
+function originOfSync(cwd: string): string | undefined {
+    const remote = originRemote(cwd);
+    return remote ? normalizeRemote(remote) : undefined;
+}
+
+/**
+ * The origin as one form for every way of writing it: https, the host an SSH alias names (`git@work-forge:acme/api`,
+ * `work-forge:acme/api`, `ssh://git@work-forge:22/acme/api`), lowercase, without `.git`. Never an id by itself: ids stay
+ * as they were recorded (repositoryIdSync); this only finds the other ids one repository has.
+ */
+function canonicalRemote(remote: string): string | undefined {
+    const ssh = remote.match(/^ssh:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/) ?? remote.match(/^(?:[^@/:\s]+@)?([^/:\s]+):(?!\/\/)(.+)$/);
+    if (ssh) {
+        const host = ssh[1].toLowerCase();
+        // A one-letter "host" is a Windows drive (C:\repos\api), as git reads it: a local path, not a remote.
+        if (host.length === 1) return undefined;
+        return withoutSuffix(`https://${sshHostName(host) ?? host}/${ssh[2]}`).toLowerCase();
+    }
+    return /^https?:\/\//i.test(remote) ? withoutSuffix(normalizeRemote(remote.trim().replace(/\/+$/, ''))).replace(/^http:\/\//, 'https://').replace(/^(https:\/\/)[^@/]+@/, '$1') : undefined;
+}
+
+function withoutSuffix(remote: string): string {
+    return remote.replace(/\/+$/, '').replace(/\.git$/, '');
 }
 
 export async function originOf(cwd: string): Promise<string | undefined> {
@@ -46,4 +71,24 @@ export function repositoryIdSync(cwd: string): string {
 
 export async function getRepositoryId(cwd: string): Promise<string> {
     return repositoryIdSync(cwd);
+}
+
+/**
+ * Every id this repository's lessons may be filed under: this checkout's own, and the one an https clone of the same
+ * repository has, so a checkout whose origin is an SSH remote or alias lists the candidates an agent saved in an https
+ * clone (a cloud reviewer's). Stored ids never change.
+ */
+export function sameRepositoryIds(cwd: string): string[] {
+    return sameRepositories(cwd).map(repository => repository.id);
+}
+
+/** The repositories behind sameRepositoryIds, each with the origin it is recorded as: this checkout's own first. */
+export function sameRepositories(cwd: string): Array<{ id: string; canonicalUri: string }> {
+    const remote = originRemote(cwd);
+    const ownUri = remote ? normalizeRemote(remote) : path.resolve(cwd);
+    const own = { id: createHash('sha256').update(ownUri).digest('hex'), canonicalUri: ownUri };
+    const canonical = remote ? canonicalRemote(remote) : undefined;
+    if (!canonical) return [own];
+    const other = { id: createHash('sha256').update(canonical).digest('hex'), canonicalUri: canonical };
+    return other.id === own.id ? [own] : [own, other];
 }

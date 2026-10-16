@@ -23,6 +23,8 @@ import {
     shareMemoryLesson,
     addToTeamList,
     originOf,
+    syncTeamOutbox,
+    teamSendStateOf,
 } from '@rigour-labs/core';
 import {
     loadPatternIndex,
@@ -178,7 +180,37 @@ async function shareWithTeam(cwd: string, key: string, value: string): Promise<s
     if (!origin) return '\nKept as a team candidate on this machine; this repository has no origin remote, so it cannot be in the team\'s list and is not sent.';
     const add = addToTeamList(origin, config);
     if (add) return `\nKept as a team candidate on this machine; it is sent once this repository is in the team's list: ${add}`;
-    return '\nShared with your team as a candidate. Teammates\' agents receive it once someone shares it from Studio (How it learns).';
+    return sentNow(cwd, lessonId);
+}
+
+/** How long a team save waits for its sync, so the agent learns whether the team database has the candidate. */
+const SEND_WAIT_MS = 8_000;
+
+/**
+ * Sends the queue now and says what happened, so an agent never reports a candidate as shared that only this machine
+ * holds (a cloud agent's clone is discarded after its run): sent, still being sent, or not sent and why.
+ */
+async function sentNow(cwd: string, lessonId: string): Promise<string> {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<'late'>(resolve => { timer = setTimeout(() => resolve('late'), SEND_WAIT_MS); });
+    const sync = syncTeamOutbox({ cwd }).then(result => ({ result }), (error: unknown) => ({ error }));
+    try {
+        const outcome = await Promise.race([sync, late]);
+        if (outcome === 'late') return "\nNOT SENT YET: saved as a team candidate on this machine; the team database had not confirmed it when this answered. A sync still running here may finish it; on a clone that is about to be discarded, run rigour team sync and check it says sent.";
+        // What happened to this candidate is in its own queue entry: a sync can throw after sending it (a later item, the pull).
+        const sent = await teamSendStateOf(lessonId);
+        if (sent.state === 'sent') return "\nSent to the team database as a candidate. Teammates' agents receive it once an sme or owner shares it from Studio (How it learns).";
+        if (sent.state === 'in the team database') return "\nAlready shared with the team: it is in the team database, and teammates' agents receive it.";
+        if ('error' in outcome) {
+            const reason = String(outcome.error instanceof Error ? outcome.error.message : outcome.error).split('\n')[0].trim().slice(0, 200);
+            return `\nNOT SENT: saved as a team candidate on this machine only; the sync failed (${reason}). It is sent with the next sync that succeeds; a clone that is about to be discarded loses it.`;
+        }
+        if (sent.state === 'held') return `\nKept as a team candidate on this machine, held: ${sent.reason ?? 'not sent yet'}.`;
+        if (sent.state === 'not sent') return `\nNOT SENT: the team database did not take this candidate (${sent.reason ?? 'no reason given'}).`;
+        return "\nSaved as a team candidate on this machine; it waits for the next sync (rigour team sync sends it now).";
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 export async function handleForget(cwd: string, key: string, scope: LocalMemoryScope = 'repo'): Promise<ToolResult> {
