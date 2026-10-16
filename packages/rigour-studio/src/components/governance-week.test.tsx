@@ -57,10 +57,11 @@ describe('Governance', () => {
     it('says who decided only where it was recorded, and offers a filter per kind', () => {
         const out = html(<DecisionsCard decisions={governance().decisions} />);
         expect(out).toContain('by lead@acme.example.com');
-        expect(out).toContain('who decided: not recorded');
+        expect(out).not.toContain('not recorded');
+        expect(out).not.toContain('no reason given');
         expect(out).toContain('PR #4');
-        expect(out).toContain('>Not a bug 1</button>');
-        expect(out).toContain('aria-pressed="true">All');
+        expect(out).toMatch(/aria-pressed="false" class="">Not a bug<span class="ui-filterchip-count">1<\/span><\/button>/);
+        expect(out).toContain('aria-pressed="true" class="on">All');
         expect(html(<DecisionsCard decisions={[]} />)).toContain('No decisions recorded yet');
     });
 

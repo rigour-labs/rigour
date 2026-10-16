@@ -3,9 +3,10 @@
 .week-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .week-note { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
 .week-gap, .week-pull { display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--border-dim); font-size: 14px; }
-.week-gap code { color: var(--text-primary); overflow-wrap: anywhere; }
 .week-need { border: 1px solid color-mix(in srgb, var(--status-warning) 40%, transparent); border-radius: 10px; padding: 14px 16px; background: color-mix(in srgb, var(--status-warning) 5%, var(--bg-card)); }
-.week-need-title { font-size: 15px; line-height: 1.5; margin-top: 8px; color: var(--text-primary); }
+.week-need-title { margin-top: 8px; }
 .week-need-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .week-need-actions .st-btn { min-height: 34px; padding: 0 14px; font-size: 13px; }
-.week-group-title { font-size: 15px; margin-top: 8px; line-height: 1.5; }
+.week-group-title { font-size: 14px; margin-top: 8px; line-height: 1.55; color: var(--text-primary); overflow-wrap: anywhere; }
+.week-quiet { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 12px 20px; border: 1px solid var(--border-dim); border-radius: 12px; background: var(--bg-card); font-size: 13px; color: var(--text-dim); }
+.week-quiet strong { font-size: 14px; font-weight: 600; color: var(--text-primary); }

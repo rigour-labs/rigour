@@ -1,5 +1,12 @@
 import React from 'react';
+import { formatCount } from './format';
 import './ui.css';
+
+export { Clamp, FilterBar, MemoryText, Pager, Skeleton, matchesQuery, setStorageRepository, usePaged, usePersisted, type FilterChip } from './readable';
+export { formatCount } from './format';
+
+/** A number shown as a count, with separators; anything else as it is. */
+const shown = (value: React.ReactNode) => (typeof value === 'number' ? formatCount(value) : value);
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'plain';
 
@@ -19,7 +26,7 @@ export const Kpis: React.FC<{ items: KpiItem[] }> = ({ items }) => (
         {items.map(item => (
             <div className="ui-kpi" key={item.label}>
                 <span className="ui-label">{item.label}</span>
-                <span className="ui-kpi-value">{item.value}</span>
+                <span className="ui-kpi-value">{shown(item.value)}</span>
                 {item.note && <span className="ui-kpi-note">{item.note}</span>}
             </div>
         ))}
@@ -37,34 +44,131 @@ export const Chip: React.FC<{ tone?: Tone; children: React.ReactNode }> = ({ ton
     <span className={`ui-chip ${tone === 'plain' ? '' : tone}`}>{children}</span>
 );
 
+/**
+ * One set of words and colours for where an item stands, used by every page: the same meaning reads the same way on
+ * Memory, Governance, This week and Progress.
+ */
+const STATE_CHIPS = {
+    waiting: { word: 'waiting for a person', tone: 'warn' },
+    team: { word: 'shared with the team', tone: 'ok' },
+    machine: { word: 'kept on this machine', tone: 'ok' },
+    repo: { word: 'kept in this repository', tone: 'ok' },
+    dropped: { word: 'dropped', tone: 'plain' },
+    notRule: { word: 'not a rule', tone: 'plain' },
+    replaced: { word: 'replaced', tone: 'plain' },
+    open: { word: 'open', tone: 'warn' },
+} as const satisfies Record<string, { word: string; tone: Tone }>;
+
+export type ItemState = keyof typeof STATE_CHIPS;
+
+export const StateChip: React.FC<{ state: ItemState }> = ({ state }) => <Chip tone={STATE_CHIPS[state].tone}>{STATE_CHIPS[state].word}</Chip>;
+
+/** The colour of a decision or outcome named in words: taking back, dropping and denying read as a warning. */
+export function toneOfDecision(kind: string): Tone {
+    return /rejected|withdrawn|not a bug|dismissed|denied|dropped|taken back|replaced/i.test(kind) ? 'warn' : 'info';
+}
+
+/** A section that could not load: what went wrong, and what to do about it. */
+export const LoadError: React.FC<{ what: string; error: string }> = ({ what, error }) => (
+    <div className="ui-error" role="alert">
+        <strong>Couldn't load {what}.</strong>
+        <span>{error}. Check that <code>rigour studio</code> is still running in your terminal, then reload this page.</span>
+    </div>
+);
+
+/** Shared folders beside the home folders; a path under one names nobody, so it is shown as it is. */
+const SHARED_HOMES = '(?:Shared|Public|Default|All Users|Default User)';
+/** Where a path can start: the start of the text, a space, a quote, `=`, `(`, or a `:` or `;` between list entries. */
+const PATH_START = `(^|[\\s"'=(:;])`;
+// Not after a drive letter's colon (C:/Users/... is the Windows form, below).
+const UNIX_HOME = new RegExp(`(^|[\\s"'=(;]|(?<!(?:^|[\\s"'=(;])[A-Za-z]):)/(?:Users|home)/(?!${SHARED_HOMES}(?:[/\\s"';:]|$))[^/\\s"';:]+(?=[/\\s"';:]|$)`, 'g');
+// A Windows user name may hold spaces ("Bob Smith"): it runs to the next slash or quote; a name with no slash after it stops at a space.
+const WINDOWS_HOME = new RegExp(`${PATH_START}[A-Za-z]:[\\\\/]Users[\\\\/](?!${SHARED_HOMES}(?:[\\\\/"']|$))(?:[^\\\\/"';:\\s][^\\\\/"';:]*?(?=[\\\\/"'])|[^\\\\/"';:\\s]+(?=[\\s;]|$))`, 'g');
+
+/**
+ * A command with the person's home folder shown as `~`: `/Users/<name>`, `/home/<name>` and `C:\Users\<name>` (either
+ * slash), wherever a path starts, quoted or in a PATH-style list. Shared and Public folders are not anyone's home.
+ */
+function homeAsTilde(text: string): string {
+    return text.replace(WINDOWS_HOME, '$1~').replace(UNIX_HOME, '$1~');
+}
+
+/** Copies text, through the clipboard API where the page may use it and a hidden text area where it may not. */
+async function copyText(text: string): Promise<boolean> {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        const done = document.execCommand('copy');
+        area.remove();
+        return done;
+    }
+}
+
+/** How long "Copied" stays on the button before it reads Copy again. */
+const COPY_SAID_MS = 2000;
+
+/** A command to run, on one line with the whole of it on hover, and Copy. Copy gives the command exactly as recorded. */
+export const FixCommand: React.FC<{ command: string }> = ({ command }) => {
+    const [said, setSaid] = React.useState<'Copy' | 'Copied' | 'Copy failed'>('Copy');
+    React.useEffect(() => {
+        if (said === 'Copy') return undefined;
+        const reset = window.setTimeout(() => setSaid('Copy'), COPY_SAID_MS);
+        return () => window.clearTimeout(reset);
+    }, [said]);
+    const shown = homeAsTilde(command);
+    const copy = async () => setSaid((await copyText(command).catch(() => false)) ? 'Copied' : 'Copy failed');
+    return (
+        <span className="ui-fix">
+            <code className="ui-fix-code" title={shown}>{shown}</code>
+            <button type="button" className="ui-fix-copy" onClick={copy} aria-label={`Copy the command: ${shown}`} aria-live="polite">{said}</button>
+        </span>
+    );
+};
+
 /** What an empty section means, and how to fill it: never a bare "no data". */
 export const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => <div className="ui-empty">{children}</div>;
 
 export const Row: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({ label, value }) => (
-    <div className="ui-row"><span>{label}</span><span>{value}</span></div>
+    <div className="ui-row"><span>{label}</span><span>{shown(value)}</span></div>
 );
 
 export const Meter: React.FC<{ share: number }> = ({ share }) => (
     <div className="ui-meter"><div style={{ width: `${Math.max(0, Math.min(1, share)) * 100}%` }} /></div>
 );
 
-export interface Column<T> { label: string; cell: (row: T) => React.ReactNode; wrap?: boolean }
+/**
+ * `width` fixes a column's width (the table then lays out to fit its card); `num` right-aligns a number column;
+ * `secondary` hides the column on a narrow screen, where the row's own page still shows it.
+ */
+export interface Column<T> { label: string; cell: (row: T) => React.ReactNode; wrap?: boolean; width?: string; num?: boolean; secondary?: boolean }
+
+const cellClass = (c: { num?: boolean; secondary?: boolean }) => [c.num ? 'num' : '', c.secondary ? 'ui-secondary' : ''].filter(Boolean).join(' ') || undefined;
 
 /**
  * A table; with `onRow`, a click anywhere on a row opens it, and the first cell is a button so the keyboard can too.
  * Cells of an openable row's first column hold phrasing content only (spans, not divs): they sit inside that button.
  */
 export function Table<T>({ rows, columns, rowKey, onRow }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T, index: number) => string; onRow?: (row: T) => void }) {
+    const fixed = columns.some(c => c.width);
     return (
         <div className="ui-table-wrap">
-            <table className="ui-table">
-                <thead><tr>{columns.map(c => <th key={c.label}>{c.label}</th>)}</tr></thead>
+            <table className={fixed ? 'ui-table fixed' : 'ui-table'}>
+                {fixed && <colgroup>{columns.map(c => <col key={c.label} style={c.width ? { width: c.width } : undefined} />)}</colgroup>}
+                <thead><tr>{columns.map(c => <th key={c.label} className={cellClass(c)}>{c.label}</th>)}</tr></thead>
                 <tbody>
                     {rows.map((row, index) => (
                         <tr key={rowKey(row, index)} className={onRow ? 'ui-clickable' : undefined} onClick={onRow ? () => onRow(row) : undefined}>
                             {columns.map((c, i) => (
-                                <td key={c.label} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>
-                                    {onRow && i === 0 ? <RowButton onOpen={() => onRow(row)}>{c.cell(row)}</RowButton> : c.cell(row)}
+                                <td key={c.label} className={cellClass(c)} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>
+                                    {onRow && i === 0 ? <RowButton onOpen={() => onRow(row)}>{shown(c.cell(row))}</RowButton> : shown(c.cell(row))}
                                 </td>
                             ))}
                         </tr>

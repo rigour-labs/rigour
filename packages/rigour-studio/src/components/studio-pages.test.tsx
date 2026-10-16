@@ -8,7 +8,7 @@ import { BotPointsToggle, CompiledChecks, LearnsLead, LessonCard, OutcomeCard } 
 import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { ReadOnlyNote } from './ReadOnlyNote';
-import { inlineCode, plural } from './storyData';
+import { ago, inlineCode, plural } from './storyData';
 import { StoryCard } from './WeekParts';
 import { groupNeeds, NeedGroupCard, needsHeading } from './NeedGroups';
 import { Agents, Settings, Verdict } from './ReviewerParts';
@@ -17,15 +17,20 @@ import { SwitchSettings, type SwitchData } from './SwitchParts';
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
 describe('Studio pages', () => {
-    it('shows a lesson journey, a dash where repeats do not apply, and "not recorded here" where unknown', () => {
+    it('shows a fix lesson its journey with "not recorded here" where unknown, and a memory one line of agents told, never the grid', () => {
         const base = { id: 'l', text: 'Fixtures use `sk_test_` keys', learnedFrom: 'A fix while an agent was writing', state: 'validated', scope: 'team', told: 3, canDecide: false };
         const dev = html(<LessonCard lesson={{ ...base, origin: 'development', stoppedInDevelopment: 2, reachedPr: null }} onDecide={() => undefined} />);
         expect(dev).toContain('3 times');
         expect(dev).toContain('2 times');
         expect(dev).toContain('not recorded here');
-        expect(dev).toContain('shared with team');
+        expect(dev).toContain('shared with the team');
+        expect(dev).toContain('Stopped in development');
+        expect(dev).toContain('learned from a fix while an agent was writing');
         const memory = html(<LessonCard lesson={{ ...base, origin: 'memory', stoppedInDevelopment: null, reachedPr: null, canDecide: true }} onDecide={() => undefined} />);
-        expect(memory).toContain('—');
+        expect(memory).not.toContain('Stopped in development');
+        expect(memory).not.toContain('Reached a PR again');
+        expect(memory).toContain('Agents told: 3 times');
+        expect(memory).toContain('told to remember by an agent');
         expect(memory).toContain('st-btn primary');
     });
 
@@ -134,7 +139,7 @@ describe('the numbers after the merge, on the learning page', () => {
 describe('a lesson back to a candidate, on the learning page', () => {
     it('says why, shows the old evidence and offers Promote and Dismiss', () => {
         const out = html(<LessonCard lesson={{ id: 'd1d2c3d4e5f6', text: 'guard a missing items list', origin: 'pr', learnedFrom: 'At PR #7, from r', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true, reclassified: { detail: 'promoted by the exact-line rule, which no longer promotes on its own', evidence: ['fixed later by abc123def "fix: total crashes"'] } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
-        expect(out).toContain('back to candidate</span> <span class="st-sub">promoted by the exact-line rule');
+        expect(out).toContain('back to candidate</span> <span class="ui-meta">promoted by the exact-line rule');
         expect(out).toContain('fixed later by abc123def');
         expect(out).toContain('>Promote<');
         expect(out).toContain('>Dismiss<');
@@ -156,7 +161,7 @@ describe('a candidate with a later fix on its lines, on the learning page', () =
 describe('a lesson taken back on the learning page', () => {
     it('says why and offers to promote it again', () => {
         const out = html(<LessonCard lesson={{ id: 'a1b2c3d4e5f6', text: 'take the lock first', origin: 'pr', learnedFrom: 'At PR #1, from r1', state: 'candidate', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null, canDecide: true, takenBack: { detail: 'taken back: #50, #51 repeated it and settled clean', prs: [50, 51], at: '2026-10-01T00:00:00Z' } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
-        expect(out).toContain('taken back</span> <span class="st-sub">taken back: #50, #51 repeated it and settled clean');
+        expect(out).toContain('taken back</span> <span class="ui-meta">taken back: #50, #51 repeated it and settled clean');
         expect(out).toContain('Promote again');
         expect(out).not.toContain('Seen once');
     });
@@ -350,8 +355,9 @@ describe('a teammate\'s decision, on the learning page', () => {
             overruled: { yours: 'accepted', team: { kind: 'rejected', name: 'Omar K.', at: '2026-10-09T08:00:00Z' }, yoursOnly: 'no git user.email here' },
         } } as any} onDecide={() => undefined} onDecideReview={() => undefined} />);
         expect(out).toContain('the team decided');
-        expect(out).toContain('You accepted it (yours only: no git user.email here); Omar K. rejected it on 2026-10-09');
-        expect(out).toContain('Omar K. (team) rejected it on 2026-10-09: one-off for that endpoint');
+        const when = ago('2026-10-09T08:00:00Z');
+        expect(out).toContain(`You accepted it (yours only: no git user.email here); Omar K. rejected it ${when}`);
+        expect(out).toContain(`Omar K. (team) rejected it ${when}: one-off for that endpoint`);
     });
 });
 
@@ -366,7 +372,8 @@ describe('a fresh review candidate, on the learning page', () => {
         expect(out).not.toContain('Keep');
         const card = LessonCard({ lesson, onDecide: () => decided.push('memory'), onDecideReview: (_id: string, d: string) => decided.push(d) } as any) as any;
         const buttons: any[] = [];
-        const walk = (node: any) => { if (!node || typeof node !== 'object') return; if (Array.isArray(node)) return node.forEach(walk); if (node.type === 'button') buttons.push(node); walk(node.props?.children); };
+        // Inner parts without hooks are called to reach their buttons; a part with hooks (the clamped text) holds none.
+        const walk = (node: any): void => { if (!node || typeof node !== 'object') return; if (Array.isArray(node)) return node.forEach(walk); if (node.type === 'button') buttons.push(node); if (typeof node.type === 'function') { try { walk(node.type(node.props)); } catch { /* hooks */ } return; } walk(node.props?.children); };
         walk(card);
         buttons.filter(b => b.props.children === 'Promote' || b.props.children === 'Drop').forEach(b => b.props.onClick());
         expect(decided).toEqual(['accepted', 'rejected']);
@@ -378,7 +385,7 @@ describe('not a rule and take back, on the learning page', () => {
         const base = { id: 'd1b2c3d4e5f6', text: 'refresh the description', origin: 'pr', learnedFrom: 'At PR #7, from r', scope: 'this repo', told: 0, stoppedInDevelopment: null, reachedPr: null } as any;
         const fresh = html(<LessonCard lesson={{ ...base, state: 'candidate', canDecide: true }} onDecide={() => undefined} onDecideReview={() => undefined} />);
         expect(fresh).toContain('>Not a rule</button>');
-        expect(fresh).toContain('Drop tells agents the team decided against it');
+        expect(fresh).toContain('title="Agents are told the team decided against this">Drop</button>');
         const decided = html(<LessonCard lesson={{ ...base, state: 'rejected', canDecide: false, canTakeBack: true }} onDecide={() => undefined} onDecideReview={() => undefined} />);
         expect(decided).toContain('Dropped: agents are told the team decided against it.');
         expect(decided).toContain('>Take back</button>');

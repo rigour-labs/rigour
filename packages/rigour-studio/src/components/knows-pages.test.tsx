@@ -34,18 +34,20 @@ describe('the Memory page', () => {
         expect(card({ told: 0, learnedAt: daysAgo(90), state: 'rejected' })).not.toContain('unused');
         expect(card({ told: 4, learnedAt: daysAgo(90) })).not.toContain('unused');
         const contradicting = card({ conflicts: ['a team lesson in web', 'a personal lesson in api'] });
-        expect(contradicting).toContain('from a fix');
-        expect(contradicting).toContain('in force');
+        expect(contradicting).toContain('learned from a fix while an agent was writing');
+        expect(contradicting).toContain('kept on this machine');
         expect(contradicting).toContain('contradicts a team lesson in web and 1 more');
         expect(contradicting).toContain('ui-chip bad');
     });
 
     it('shows remembered facts with where each is kept and when, and says so when the date was not recorded', () => {
         const out = html(<RememberedTable memories={[['api_base', { value: 'Use https://api.example.com', timestamp: '2026-10-01T00:00:00Z', source: 'project' }], ['global:style', { value: 'Prefer small PRs', source: 'global' }]]} />);
-        expect(out).toContain('api base');
-        expect(out).toContain('this repository');
-        expect(out).toContain('you, every repository');
-        expect(out).toContain('not recorded');
+        expect(out).toContain('class="ui-memkey" title="api_base">api_base<');
+        expect(out).toContain('title="style">style<');
+        expect(out).toContain('kept for this repository');
+        expect(out).toContain('kept for you, every repository');
+        expect(out).toContain('saved: not recorded');
+        expect(out).toContain('aria-pressed="true" class="on">All');
         expect(html(<RememberedTable memories={[]} />)).toContain('rigour_remember');
     });
 
@@ -58,7 +60,8 @@ describe('the Memory page', () => {
             { kind: 'correction', pr: 0, author: 'dev@example.com' },
         ] })]} />);
         expect(out).not.toContain('PR #0');
-        expect(out).toContain('An edit after the agent');
+        expect(out).toContain('Show all 5');
+        expect(out).toContain('kept in this repository');
         expect(out).toContain('PR #12');
         expect(out).toContain('<strong>reviewer-a</strong> raised it');
         expect(out).toContain('a later fix or revert backed it<span>: fixed later by abc123</span>');
@@ -105,7 +108,7 @@ const patterns: PatternsData = {
 
 describe('the Patterns page', () => {
     it('leads with functions indexed, when, recurring problems and reuse, and dashes what is not recorded', () => {
-        expect(patternKpis(patterns).map(i => [i.label, i.value])).toEqual([['Functions indexed', 2], ['Last indexed', expect.any(String)], ['Recurring problems', 1], ['Reuse suggestions, 28 days', 1]]);
+        expect(patternKpis(patterns).map(i => [i.label, i.value])).toEqual([['Functions indexed', '2'], ['Last indexed', expect.any(String)], ['Recurring problems', 1], ['Reuse suggestions, 28 days', 1]]);
         const none = patternKpis({ ...patterns, index: { ...patterns.index, indexed: false, lastIndexed: null }, recurring: { recorded: false, patterns: [] } });
         expect(none.map(i => i.value)).toEqual(['—', '—', '—', 1]);
         expect(String(none[2].note)).toContain('Not recorded');

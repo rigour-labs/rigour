@@ -135,6 +135,51 @@ describe('governance reviewer usage', () => {
         expect(reviewerUsage(undefined, [], ConfigSchema.parse({}), now)).toMatchObject({ days: [], judges: [], deep: null });
     });
 
+    it('counts the review runs, judges and reported dollars the threads recorded, with no spend log, once per review', () => {
+        const store = temp();
+        fs.writeFileSync(path.join(store, 'h1.f1.record.json'), JSON.stringify({ at: '2026-10-08T00:00:00Z', head: 'h1', judges: [{ reviewer: 'claude', model: 'opus', cost_usd: 0.4 }] }));
+        const review = (at: string, over: Record<string, unknown>) => ({ at, task: 'branch:feat/x', branch: 'feat/x', kind: 'review', outcome: 'passed', ...over }) as never;
+        const threads = [
+            review('2026-10-08T10:00:00Z', { head: 'h1', judges: ['claude'], cost_usd: 0.4 }), // has a record: counted from it
+            review('2026-10-08T12:00:00Z', { head: 'h2', judges: ['claude'], cost_usd: 0.25 }),
+            review('2026-10-09T09:00:00Z', { head: 'h3', judges: ['claude', 'codex'], cost_usd: 0.6 }),
+            review('2026-08-01T09:00:00Z', { head: 'h0', judges: ['claude'] }), // outside the window
+            { at: '2026-10-09T09:30:00Z', task: 'branch:feat/x', branch: 'feat/x', kind: 'push' } as never,
+        ];
+        const usage = reviewerUsage(store, [], ConfigSchema.parse({}), now, threads);
+        expect(usage.days).toEqual([{ day: '2026-10-08', runs: 2, usd: 0.65 }, { day: '2026-10-09', runs: 1, usd: 0.6 }]);
+        expect(usage.runs).toBe(3);
+        expect(usage.judges.find(j => j.reviewer === 'claude' && j.model === 'opus')).toMatchObject({ reviews: 1, costUsd: 0.4 });
+        expect(usage.judges.find(j => j.reviewer === 'claude' && j.model === null)).toMatchObject({ reviews: 2, costUsd: 0.25, pricedReviews: 1 });
+        expect(usage.judges.find(j => j.reviewer === 'codex')).toMatchObject({ reviews: 1, costUsd: null, model: null });
+        expect(reviewerUsage(undefined, [], ConfigSchema.parse({}), now, threads).runs).toBe(3);
+    });
+
+    it('puts a thread review on the same local day as the spend log, so an evening review is counted once', () => {
+        const saved = process.env.TZ;
+        process.env.TZ = 'America/Los_Angeles';
+        try {
+            const store = temp();
+            fs.mkdirSync(path.join(store, 'spend'));
+            // Three reviews on the evening of Oct 7 in Los Angeles: Oct 8 in UTC. The spend log names the local day.
+            fs.writeFileSync(path.join(store, 'spend', '2026-10-07.jsonl'), '{"runs":1,"usd":0.4}\n{"runs":1,"usd":0.4}\n{"runs":1,"usd":0.4}\n');
+            const review = (at: string) => ({ at, task: 'branch:feat/x', branch: 'feat/x', kind: 'review', judges: ['claude'], cost_usd: 0.4 }) as never;
+            const threads = [review('2026-10-08T02:00:00Z'), review('2026-10-08T03:00:00Z'), review('2026-10-08T04:00:00Z')];
+            const usage = reviewerUsage(store, [], ConfigSchema.parse({}), now, threads);
+            expect(usage.runs).toBe(3);
+            expect(usage.days).toHaveLength(1);
+            expect(usage.days[0]).toMatchObject({ day: '2026-10-07', runs: 3 });
+            expect(usage.days[0].usd).toBeCloseTo(1.2);
+        } finally {
+            if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
+        }
+    });
+
+    it('does not count a review that could not run (no judges, no cost) as a reviewer run', () => {
+        const threads = [{ at: '2026-10-08T10:00:00Z', task: 'branch:feat/x', branch: 'feat/x', kind: 'review', outcome: 'unavailable' } as never];
+        expect(reviewerUsage(undefined, [], ConfigSchema.parse({}), now, threads)).toMatchObject({ runs: 0, days: [], judges: [] });
+    });
+
     it('leaves out records last written before the window without reading them', () => {
         const store = temp();
         const old = path.join(store, 'abc.f2.record.json');

@@ -1,5 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { ago } from './storyData';
 import { describe, expect, it } from 'vitest';
 import type { Journey } from './LearningParts';
 import { LessonList } from './MemoryProposals';
@@ -21,16 +22,18 @@ describe("team memory proposals for one key", () => {
     it('groups proposals for the same key where the first stands, and leaves other lessons alone', () => {
         const out = html(<LessonList lessons={[fix, cloud, laptop, other]} onDecide={() => undefined} />);
         expect(out.indexOf('Close the handle')).toBeLessThan(out.indexOf('3 proposals'));
-        expect(out.match(/st-card mem-lesson/g)).toHaveLength(2);
-        expect(html(<LessonList lessons={[cloud, fix]} onDecide={() => undefined} />).match(/st-card mem-lesson/g)).toHaveLength(2);
+        expect(out.match(/ui-list-row mem-lesson/g)).toHaveLength(2);
+        expect(html(<LessonList lessons={[cloud, fix]} onDecide={() => undefined} />).match(/ui-list-row mem-lesson/g)).toHaveLength(2);
     });
 
     it('shows one card per key: each value, who proposed it and when, Share and Drop each, and identical values said so', () => {
         const out = html(<LessonList lessons={[cloud, laptop, other]} onDecide={() => undefined} />);
         expect(out.match(/3 proposals/g)).toHaveLength(1);
-        expect(out).toContain('Proposed by cloud-agent on 2026-10-10. Same value as you.');
-        expect(out).toContain('Proposed by you on 2026-10-11. Same value as cloud-agent.');
-        expect(out).toContain('Proposed by dev-b on 2026-10-10. </div>');
+        expect(out).toContain(`proposed by cloud-agent · ${ago('2026-10-10T00:00:00Z')} · same value as you<`);
+        expect(out).toContain(`proposed by you · ${ago('2026-10-11T00:00:00Z')} · same value as cloud-agent<`);
+        expect(out).toContain(`proposed by dev-b · ${ago('2026-10-10T00:00:00Z')}<`);
+        expect(out).toContain('class="ui-memkey" title="retries">retries<');
+        expect(out.match(/waiting for a person/g)).toHaveLength(1);
         expect(out).toContain('Three attempts, then fail.');
         expect(out.match(/Share with team/g)).toHaveLength(2);
         expect(out.match(/>Drop</g)).toHaveLength(2);
@@ -41,7 +44,7 @@ describe("team memory proposals for one key", () => {
     it('shows the shared version beside a proposal for its key, with Take back, and says sharing replaces it', () => {
         const shared = proposal('l-shared', 'Retry twice.', { state: 'promoted', canDecide: false, canRetire: true });
         const out = html(<LessonList lessons={[cloud, shared]} onDecide={() => undefined} onTakeBack={() => undefined} />);
-        expect(out.match(/st-card mem-lesson/g)).toHaveLength(1);
+        expect(out.match(/ui-list-row mem-lesson/g)).toHaveLength(1);
         expect(out).toContain('Shared now');
         expect(out).toContain('Retry twice.');
         expect(out).toContain('1 proposal');
@@ -69,13 +72,13 @@ describe("team memory proposals for one key", () => {
 
     it('names who shared a shared team memory', () => {
         const shared = proposal('l-shared', 'Retry twice.', { state: 'promoted', canDecide: false, sharedBy: 'reviewer-s' });
-        expect(html(<LessonList lessons={[shared]} onDecide={() => undefined} />)).toContain('Shared by reviewer-s');
+        expect(html(<LessonList lessons={[shared]} onDecide={() => undefined} />)).toContain('shared by reviewer-s');
         expect(html(<LessonList lessons={[cloud, shared]} onDecide={() => undefined} />)).toContain('Shared by reviewer-s');
     });
 
     it("names a teammate's single candidate on its own card", () => {
-        expect(html(<LessonList lessons={[cloud]} onDecide={() => undefined} />)).toContain('Proposed by cloud-agent');
-        expect(html(<LessonList lessons={[laptop]} onDecide={() => undefined} />)).not.toContain('Proposed by');
+        expect(html(<LessonList lessons={[cloud]} onDecide={() => undefined} />)).toContain('told to remember by cloud-agent');
+        expect(html(<LessonList lessons={[laptop]} onDecide={() => undefined} />)).toContain('told to remember by you');
     });
 });
 

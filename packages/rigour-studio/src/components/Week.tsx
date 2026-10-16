@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Empty, PageHeader } from './ui';
+import { LoadError, PageHeader, Skeleton } from './ui';
 import { useStudioJson } from './storyData';
 import { WeekView } from './WeekView';
 import type { ProgressWeek, WeekData } from './WeekParts';
@@ -12,8 +12,8 @@ export const Week: React.FC<{ onNavigate: (tab: string) => void }> = ({ onNaviga
     const progress = useStudioJson<{ weeks: ProgressWeek[] }>('/api/progress');
     const [intro, setIntro] = useState(() => { try { return localStorage.getItem(INTRO_KEY) !== '1'; } catch { return true; } });
     const header = <PageHeader title="This week" />;
-    if (error) return <div className="ui-page">{header}<Empty>Couldn't load this week: {error}.</Empty></div>;
-    if (!data) return <div className="ui-page">{header}<span className="st-sub">Loading…</span></div>;
+    if (error) return <div className="ui-page">{header}<LoadError what="this week" error={error} /></div>;
+    if (!data) return <div className="ui-page">{header}<Skeleton label="Loading this week" /></div>;
     const hideIntro = () => { try { localStorage.setItem(INTRO_KEY, '1'); } catch { /* not remembered */ } setIntro(false); };
     return (
         <WeekView data={data} weeks={progress.data?.weeks ?? null} intro={intro} onHideIntro={hideIntro} onDone={reload} onNavigate={onNavigate} />

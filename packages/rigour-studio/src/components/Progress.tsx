@@ -1,5 +1,6 @@
 import React from 'react';
-import { plural, useStudioJson, inlineCode } from './storyData';
+import { plural, useStudioJson } from './storyData';
+import { LoadError, MemoryText, Skeleton, StateChip } from './ui';
 import './story.css';
 
 interface ProgressWeek {
@@ -23,8 +24,8 @@ const sum = (weeks: ProgressWeek[], pick: (w: ProgressWeek) => number) => weeks.
 /** "Progress": how Rigour is shaping this codebase week by week. Rankings are of lessons and checks, never people. */
 export const Progress: React.FC = () => {
     const { data, error } = useStudioJson<ProgressData>('/api/progress');
-    if (error) return <div className="st-page"><div className="st-empty">Couldn't load progress: {error}.</div></div>;
-    if (!data) return <div className="st-page"><div className="st-sub">Loading…</div></div>;
+    if (error) return <div className="st-page"><LoadError what="progress" error={error} /></div>;
+    if (!data) return <div className="st-page"><Skeleton label="Loading progress" /></div>;
     const recent = data.weeks.slice(-4);
     const earlier = data.weeks.slice(0, -4);
     const lessonsNow = data.weeks[data.weeks.length - 1]?.lessons ?? 0;
@@ -52,8 +53,8 @@ export const Progress: React.FC = () => {
                     <strong>Lessons that stopped the most repeats</strong>
                     {data.topLessons.length === 0
                         ? <div className="st-sub" style={{ marginTop: 10, lineHeight: 1.6 }}>None yet. A lesson ranks here once the mistake it describes is caught again and stopped.</div>
-                        : <ol style={{ margin: '12px 0 0', paddingLeft: 20, lineHeight: 1.6 }}>{data.topLessons.map(l => (
-                            <li key={l.id} style={{ marginBottom: 8 }}>{inlineCode(l.text)}<div className="st-sub">{plural(l.stoppedInDevelopment ?? 0, 'repeat')} stopped · {l.scope === 'team' ? 'shared with team' : l.scope}</div></li>
+                        : <ol className="st-ranks">{data.topLessons.map(l => (
+                            <li key={l.id} className="st-rank"><MemoryText text={l.text} /><div className="st-rank-meta"><span className="st-sub">{plural(l.stoppedInDevelopment ?? 0, 'repeat')} stopped</span>{l.scope === 'team' ? <StateChip state="team" /> : <span className="st-sub">{l.scope}</span>}</div></li>
                         ))}</ol>}
                 </section>
                 <section className="st-card">
@@ -62,8 +63,8 @@ export const Progress: React.FC = () => {
                         ? <div className="st-sub" style={{ marginTop: 10, lineHeight: 1.6 }}>Each fix and each "not a bug" scores the check that raised it. Scores appear after the first one.</div>
                         : <div className="st-stack" style={{ marginTop: 12, gap: 8 }}>{data.checks.map(c => (
                             <div key={c.check} className="st-row" style={{ gap: 10 }}>
-                                <span style={{ width: 44, fontWeight: 600 }}>{Math.round(c.precision * 100)}%</span>
-                                <span style={{ flex: 1, fontSize: 14 }}>{c.check}</span>
+                                <span className="st-pct">{Math.round(c.precision * 100)}%</span>
+                                <span className="st-check" title={c.check}>{c.check}</span>
                                 <span className="st-sub">{c.fixed} fixed · {c.dismissed} overruled</span>
                                 {c.muted && <span className="st-chip">quiet</span>}
                             </div>
@@ -78,6 +79,10 @@ export const Trend: React.FC<{ title: string; hint: string; weeks: ProgressWeek[
     const values = weeks.map(value);
     const known = values.filter((v): v is number => v !== null);
     const peak = Math.max(1, ...known);
+    // A quiet trend is one line, so the weeks that have something stand out.
+    if (known.length > 0 && known.every(v => v === 0)) {
+        return <div className="st-card st-trend-flat"><strong>{title}</strong><span className="st-sub">none in the last {plural(weeks.length, 'week')} · {hint}</span></div>;
+    }
     return (
         <div className="st-card">
             <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>{title}</strong><span className="st-sub">{hint}</span></div>
