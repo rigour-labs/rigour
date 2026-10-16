@@ -29,6 +29,9 @@ describe("a JSON config in the file's own style", () => {
         );
         const long = { args: Array.from({ length: 8 }, (_, i) => `--a-rather-long-flag-${i}`) };
         expect(jsonText(long)).toBe(`{\n  "args": [\n${long.args.map(a => `    "${a}"`).join(',\n')}\n  ]\n}\n`); // too wide: one per line
+        const tabbed = { a: { b: { c: { d: { e: ['a'.repeat(30), 'b'.repeat(30)] } } } } }; // 75 columns counting a tab as 1, 80+ counting it as 2
+        expect(jsonText(tabbed, '{\n\t"x": 1\n}\n')).toContain('"e": [\n'); // tabs count 2 columns, as Prettier counts them: too wide to join
+        expect(jsonText({ a: '2' }, '{\r\n  "a": "1"\r\n}')).toBe('{\r\n  "a": "2"\r\n}\r\n');
         expect(jsonText({ hooks: [{ command: 'x' }] })).toBe('{\n  "hooks": [\n    {\n      "command": "x"\n    }\n  ]\n}\n'); // objects stay expanded
     });
 });

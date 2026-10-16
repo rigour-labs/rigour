@@ -29,9 +29,15 @@ function inlineShortArrays(text: string): string {
         const inline = `[${items.join(', ')}]`;
         const lineStart = text.lastIndexOf('\n', offset) + 1;
         const lineEnd = text.indexOf('\n', offset + block.length);
-        const width = (offset - lineStart) + inline.length + ((lineEnd === -1 ? text.length : lineEnd) - (offset + block.length));
+        const after = text.slice(offset + block.length, lineEnd === -1 ? undefined : lineEnd);
+        const width = columns(text.slice(lineStart, offset)) + columns(inline) + columns(after);
         return width <= PRINT_WIDTH ? inline : block;
     });
+}
+
+/** A line's width as Prettier counts it: a tab is 2 columns. */
+function columns(text: string): number {
+    return text.length + (text.match(/\t/g)?.length ?? 0);
 }
 
 /**
@@ -55,7 +61,7 @@ function withStringsReplaced(existing: string, value: unknown): string | undefin
         const [start, end] = spans.get(path)!;
         out = out.slice(0, start) + JSON.stringify(text) + out.slice(end);
     }
-    return out.endsWith('\n') ? out : `${out}\n`;
+    return out.endsWith('\n') ? out : `${out}${existing.includes('\r\n') ? '\r\n' : '\n'}`;
 }
 
 /** Whether `a` and `b` differ only in string values; each changed string is collected with its path. */

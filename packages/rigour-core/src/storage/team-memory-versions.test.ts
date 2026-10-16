@@ -55,4 +55,17 @@ describe('taking back a shared memory', () => {
         expect(newer).toBeTruthy();
         expect(await takeBackTeamMemory(older, { repositoryIds: sameRepositoryIds(laptop) })).toBe('superseded');
     });
+
+    it("never counts a newer version from another repository: taken back from that one's Studio, it is dropped", async () => {
+        const other = checkout('other', 'https://forge.example.com/acme/billing.git');
+        const mine = checkout('mine', 'https://forge.example.com/acme/inventory.git');
+        const share = async (dir: string, value: string) => {
+            const candidate = (await shareMemoryLesson(dir, 'timeouts', value))!;
+            await transitionLesson(candidate, 'promoted', { visibility: 'team', queueSync: true, repositoryIds: [await getRepositoryId(dir)] });
+            return (await listKnowledgeLessons(dir)).find(l => l.source === `published:${candidate}`)!.id;
+        };
+        const older = await share(mine, 'thirty seconds');
+        await share(other, 'ten seconds');
+        expect(await takeBackTeamMemory(older, { repositoryIds: sameRepositoryIds(other) })).toBe('rejected');
+    });
 });
