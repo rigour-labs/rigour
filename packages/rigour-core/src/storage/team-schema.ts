@@ -60,7 +60,11 @@ CREATE POLICY lessons_write ON rigour.lessons FOR ALL USING (
           AND ((membership.actor_id = lessons.actor_id
                 AND (lessons.visibility = 'personal' OR membership.role IN ('sme', 'owner')))
                -- An sme or owner writes any team row of their team: shares or drops a member's candidate.
-               OR (lessons.visibility = 'team' AND membership.role IN ('sme', 'owner')))
+               OR (lessons.visibility = 'team' AND membership.role IN ('sme', 'owner'))
+               -- Anyone proposes a team candidate of their own, and supersedes it. Checked on the old row (USING) and
+               -- the new (WITH CHECK), so a member never promotes or rejects a row, nor changes one already decided.
+               OR (membership.actor_id = lessons.actor_id AND lessons.visibility = 'team'
+                   AND lessons.state IN ('candidate', 'superseded')))
     )
 ) WITH CHECK (
     EXISTS (
@@ -71,7 +75,11 @@ CREATE POLICY lessons_write ON rigour.lessons FOR ALL USING (
           AND ((membership.actor_id = lessons.actor_id
                 AND (lessons.visibility = 'personal' OR membership.role IN ('sme', 'owner')))
                -- An sme or owner writes any team row of their team: shares or drops a member's candidate.
-               OR (lessons.visibility = 'team' AND membership.role IN ('sme', 'owner')))
+               OR (lessons.visibility = 'team' AND membership.role IN ('sme', 'owner'))
+               -- Anyone proposes a team candidate of their own, and supersedes it. Checked on the old row (USING) and
+               -- the new (WITH CHECK), so a member never promotes or rejects a row, nor changes one already decided.
+               OR (membership.actor_id = lessons.actor_id AND lessons.visibility = 'team'
+                   AND lessons.state IN ('candidate', 'superseded')))
     )
 );
 -- Row-level security on every team table. A host (for example Supabase's
@@ -187,5 +195,9 @@ ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 -- candidate_review_version 1: an sme or owner reads and writes every team row of their team (the lessons policies
 -- above), so they see members' candidates and share or drop them. Clients and doctor read it to say so.
 INSERT INTO rigour.meta (key, value) VALUES ('candidate_review_version', '1')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+-- member_candidates_version 1: a member proposes team candidates of their own (the lessons_write policy above); sharing
+-- (promoting) and dropping stay an sme's or owner's.
+INSERT INTO rigour.meta (key, value) VALUES ('member_candidates_version', '1')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 `;

@@ -41,4 +41,4 @@ export type {
     SemanticKnowledgeCandidate, SemanticKnowledgeResult,
 } from './team-store.js';
 export { teamSendStateOf, type TeamSendState } from './team-outbox.js';
-export { readTeamAccess, decidesTeammatesCandidates, CANDIDATE_REVIEW_MISSING, REAPPLY_TEAM_SCHEMA, type TeamAccess, type TeamRole } from './team-access.js';
+export { readTeamAccess, decidesTeammatesCandidates, needsSchemaUpgrade, TEAM_SCHEMA_UPGRADE, REAPPLY_TEAM_SCHEMA, type TeamAccess, type TeamRole } from './team-access.js';

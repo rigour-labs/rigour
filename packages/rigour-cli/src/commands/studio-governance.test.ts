@@ -159,11 +159,14 @@ describe('governance reviewer usage', () => {
 
     it("says what a person sees of teammates' candidates, and what an owner runs where the database lacks candidate review", () => {
         const scope = { organizationId: 'acme', teamId: 'web', actorId: 'dev' };
-        expect(teamState(scope, undefined, { role: 'sme', candidateReview: true }).candidates).toContain("you see every member's team candidates");
-        expect(teamState(scope, undefined, { role: 'member', candidateReview: true }).candidates).toBeNull();
-        const missing = teamState(scope, undefined, { role: 'owner', candidateReview: false }).candidates;
-        expect(missing).toContain("Teammates' candidates are visible only to them until shared.");
-        expect(missing).toContain('rigour team init-schema --database-url <administrator url>');
+        expect(teamState(scope, undefined, { role: 'sme', candidateReview: true, memberCandidates: true }).candidates).toContain("you see every member's team candidates");
+        expect(teamState(scope, undefined, { role: 'member', candidateReview: true, memberCandidates: true }).candidates).toBeNull();
+        for (const access of [{ role: 'owner' as const, candidateReview: false, memberCandidates: false }, { role: 'member' as const, candidateReview: true }]) {
+            const missing = teamState(scope, undefined, access).candidates;
+            expect(missing).toContain("Teammates' candidates are visible only to them until shared.");
+            expect(missing).toContain("the database refuses a member's team memories");
+            expect(missing).toContain('rigour team init-schema --database-url <administrator url>');
+        }
     });
 });
 

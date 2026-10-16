@@ -4,7 +4,7 @@ import path from 'path';
 import { openDatabase } from './db.js';
 import { encryptLocalPayload } from './local-encryption.js';
 import { TEAM_SCHEMA } from './team-schema.js';
-import { CANDIDATE_REVIEW_MISSING, readMembershipAccess, recordTeamAccess, sentActorOf, widensAccess } from './team-access.js';
+import { TEAM_SCHEMA_UPGRADE, readMembershipAccess, recordTeamAccess, sentActorOf, widensAccess } from './team-access.js';
 import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, missingReviewDecisionGrants, refusedRow, TABLE_GRANTS } from './team-diagnostics.js';
 import { rigourUserDir } from '../utils/user-state.js';
 import { addToTeamList } from './team-scope.js';
@@ -65,6 +65,8 @@ export interface TeamDoctorResult extends TeamModeStatus {
     reviewDecisions?: 'ready' | 'missing' | 'missing grant';
     /** Whether an sme or owner sees and decides on every member's team candidates: `missing` until an owner runs init-schema again. */
     candidateReview?: 'ready' | 'missing';
+    /** Whether a member may propose team candidates of their own: `missing` until an owner runs init-schema again. */
+    memberCandidates?: 'ready' | 'missing';
     databaseRole?: string;
     permissions?: string[];
     /** The repository doctor runs in, when it has an origin remote: whether the team lists it, and what adds it when not. */
@@ -305,6 +307,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
                     (SELECT value::integer FROM rigour.meta WHERE key = 'schema_version') AS schema_version,
                     (SELECT value::integer FROM rigour.meta WHERE key = 'review_decisions_version') AS review_decisions_version,
                     (SELECT value FROM rigour.meta WHERE key = 'candidate_review_version') AS candidate_review_version,
+                    (SELECT value FROM rigour.meta WHERE key = 'member_candidates_version') AS member_candidates_version,
                     role
              FROM rigour.memberships
              WHERE db_role = current_user AND team_id = $1 AND actor_id = $2 AND organization_id = $3`,
@@ -319,6 +322,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
         const missingGrant = tables ? await missingReviewDecisionGrants(pool, String(result.rows[0].database_role), role) : undefined;
         const reviewDecisions = !tables ? 'missing' : missingGrant ? 'missing grant' : 'ready';
         const candidateReview = result.rows[0].candidate_review_version === '1' ? 'ready' : 'missing';
+        const memberCandidates = result.rows[0].member_candidates_version === '1' ? 'ready' : 'missing';
         return {
             mode: 'team',
             connectivity: 'online',
@@ -332,8 +336,9 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
             semantic,
             reviewDecisions,
             candidateReview,
+            memberCandidates,
             repository: await repositoryInTeam(cwd, resolved),
-            message: doctorMessage(reviewDecisions, missingGrant, candidateReview),
+            message: doctorMessage(reviewDecisions, missingGrant, candidateReview === 'ready' && memberCandidates === 'ready'),
         };
     } catch (error) {
         return offline(explainTeamConnectionError(error));
@@ -342,14 +347,14 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
     }
 }
 
-/** Doctor's one line for a database it reached: review decisions' state, and candidate review's when it is missing. */
-function doctorMessage(reviewDecisions: TeamDoctorResult['reviewDecisions'], missingGrant: string | undefined, candidateReview: TeamDoctorResult['candidateReview']): string {
+/** Doctor's one line for a database it reached: review decisions' state, and what holds while the candidate rules are missing. */
+function doctorMessage(reviewDecisions: TeamDoctorResult['reviewDecisions'], missingGrant: string | undefined, candidateRules: boolean): string {
     const message = reviewDecisions === 'ready'
         ? 'PostgreSQL team mode is healthy. A clone receives the team\'s decisions on review lessons at its first sync (`rigour team sync`, or the next Rigour tool call).'
         : reviewDecisions === 'missing grant'
             ? `PostgreSQL team mode is healthy for lessons, but review decisions are not: ${missingGrant}`
             : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.';
-    return candidateReview === 'missing' ? `${message} ${CANDIDATE_REVIEW_MISSING}` : message;
+    return candidateRules ? message : `${message} ${TEAM_SCHEMA_UPGRADE}`;
 }
 
 /** How far before the last pull a sync reads again, for members whose clocks run behind. */

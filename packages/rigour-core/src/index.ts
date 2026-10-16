@@ -190,4 +190,4 @@ export { personOf } from './utils/person.js';
 export { decisionRows } from './storage/team-review-decisions.js';
 export { readTeamDecisionCache, type TeamDecisionCache } from './review-learning/team-decisions.js';
 export { teamSendStateOf, type TeamSendState } from './storage/index.js';
-export { readTeamAccess, decidesTeammatesCandidates, CANDIDATE_REVIEW_MISSING, REAPPLY_TEAM_SCHEMA, type TeamAccess, type TeamRole } from './storage/index.js';
+export { readTeamAccess, decidesTeammatesCandidates, needsSchemaUpgrade, TEAM_SCHEMA_UPGRADE, REAPPLY_TEAM_SCHEMA, type TeamAccess, type TeamRole } from './storage/index.js';

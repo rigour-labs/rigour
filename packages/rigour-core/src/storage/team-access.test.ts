@@ -31,8 +31,10 @@ describe('team access', () => {
 
     it('reads the role and candidate review from the membership row, and nothing without one', async () => {
         const pool = (rows: any[]) => ({ query: async () => ({ rowCount: rows.length, rows }) });
-        expect(await readMembershipAccess(pool([{ role: 'sme', candidate_review_version: '1' }]), scope)).toEqual({ role: 'sme', candidateReview: true });
-        expect(await readMembershipAccess(pool([{ role: 'owner', candidate_review_version: null }]), scope)).toEqual({ role: 'owner', candidateReview: false });
+        expect(await readMembershipAccess(pool([{ role: 'member', candidate_review_version: '1', member_candidates_version: '1' }]), scope))
+            .toEqual({ role: 'member', candidateReview: true, memberCandidates: true });
+        expect(await readMembershipAccess(pool([{ role: 'owner', candidate_review_version: null, member_candidates_version: null }]), scope))
+            .toEqual({ role: 'owner', candidateReview: false, memberCandidates: false });
         expect(await readMembershipAccess(pool([]), scope)).toBeUndefined();
     });
 
