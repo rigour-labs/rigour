@@ -2,6 +2,7 @@ import React from 'react';
 import { useStudioJson } from './storyData';
 import { SwitchSetup } from './Switch';
 import { ReviewerSetup } from './Reviewer';
+import { Clamp, LoadError, Skeleton } from './ui';
 import './story.css';
 
 interface SetupCheck { id: string; name: string; state: 'working' | 'set up' | 'broken' | 'missing'; detail: string; fix?: string }
@@ -11,21 +12,21 @@ const CHIP: Record<SetupCheck['state'], string> = { working: 'ok', 'set up': '',
 /** "Setup": the same checks as `rigour doctor`: wired up, and seen firing this week. */
 export const SetupView: React.FC = () => {
     const { data, error } = useStudioJson<{ checks: SetupCheck[] }>('/api/setup');
-    if (error) return <div className="st-page"><div className="st-empty">Couldn't check setup: {error}.</div></div>;
-    if (!data) return <div className="st-page"><div className="st-sub">Checking…</div></div>;
+    if (error) return <div className="st-page"><LoadError what="setup" error={error} /></div>;
+    if (!data) return <div className="st-page"><Skeleton rows={6} label="Checking setup" /></div>;
     return (
         <div className="st-page">
             <h1 className="st-h1">Setup</h1>
             <p className="st-lead">What runs in this repository, and whether Rigour saw it work this week. The same checks run with <span className="st-mono">rigour doctor</span>.</p>
-            <div className="st-stack" style={{ marginTop: 24 }}>
+            <div className="st-card st-setup-list" style={{ marginTop: 24 }}>
                 {data.checks.map(c => (
-                    <div className="st-card st-row" key={c.id}>
+                    <div className="st-row st-setup-row" key={c.id}>
                         <span className={`st-chip ${CHIP[c.state]}`} style={{ minWidth: 72, textAlign: 'center' }}>{c.state}</span>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 15 }}>{c.name}</div>
-                            <div className="st-sub" style={{ marginTop: 4 }}>{c.detail}</div>
+                        <div className="st-setup-body">
+                            <div className="st-setup-name">{c.name}</div>
+                            <div className="st-sub"><Clamp text={c.detail} /></div>
                         </div>
-                        {c.fix && c.state !== 'working' && <span className="st-mono st-sub">{c.fix}</span>}
+                        {c.fix && c.state !== 'working' && <code className="st-mono st-setup-fix">{c.fix}</code>}
                     </div>
                 ))}
             </div>

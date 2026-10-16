@@ -36,8 +36,8 @@ export const StoryCard: React.FC<{ story: Story; open: boolean; onToggle: () => 
     <div>
         <button className="st-story" onClick={onToggle} type="button" aria-expanded={open}>
             <div className="st-row" style={{ justifyContent: 'space-between' }}><span className="st-chip">{STAGE_WORDS[story.stage]}</span><span className="st-sub">{ago(story.at)}</span></div>
-            <div style={{ fontSize: 15, lineHeight: 1.55, marginTop: 10 }}>{inlineCode(story.title)}</div>
-            <div className="st-sub" style={{ marginTop: 6 }}><span className="st-mono">{story.file}</span> · fixed by the agent</div>
+            <div className={open ? 'st-story-title' : 'st-story-title clamped'}>{inlineCode(story.title)}</div>
+            <div className="st-sub st-story-file" title={story.file}><span className="st-mono">{story.file}</span> · fixed by the agent</div>
         </button>
         {open && (
             <div className="st-story-body">

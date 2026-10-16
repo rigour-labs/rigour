@@ -1,6 +1,8 @@
 /* The Pull requests page: list cells, the timeline's step bodies and the facts card. Built on ui.css. */
 .pulls-dim { color: var(--text-dim); font-size: 13px; }
-.pulls-pr { display: flex; flex-direction: column; gap: 3px; min-width: 220px; }
+.pulls-pr { display: flex; flex-direction: column; gap: 3px; min-width: 220px; max-width: 420px; }
+.pulls-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.pulls-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pulls-pr strong { font-weight: 600; color: var(--text-primary); }
 .pulls-title { font-weight: 500; }
 .pulls-review { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }

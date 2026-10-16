@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Card, Chip, Empty, Table, type Column, type Tone } from './ui';
-import { ago, inlineCode } from './storyData';
+import React, { useMemo, useState } from 'react';
+import { Card, Chip, Empty, FilterBar, MemoryText, Pager, Table, matchesQuery, toneOfDecision, usePaged, usePersisted, type Column, type Tone } from './ui';
+import { ago } from './storyData';
 import { STAGE_LABELS, type Configured, type Coverage, type CoverageCell, type CoverageRow, type Decision, type Stage } from './governanceData';
 
 const CONFIGURED: Record<Configured, { tone: Tone; word: string }> = {
@@ -57,39 +57,59 @@ export const CoverageCard: React.FC<{ coverage: Coverage; fixes: Array<{ name: s
     );
 };
 
-/** Every decision people made about Rigour here, newest first, filtered by kind. */
-export const DecisionsCard: React.FC<{ decisions: Decision[] }> = ({ decisions }) => {
-    const [kind, setKind] = useState<string | null>(null);
-    const counts = new Map<string, number>();
-    for (const d of decisions) counts.set(d.kind, (counts.get(d.kind) ?? 0) + 1);
-    const shown = kind ? decisions.filter(d => d.kind === kind) : decisions;
+/** Shown once above the log when most decisions name nobody, instead of "not recorded" on every row. */
+const UNNAMED_NOTE = 'Who decided is recorded once the team database has the 7.0.11 rules; older decisions show no name.';
+
+/** Decisions of one kind (or all) whose text, who, why or kind match the search. */
+function filterDecisions(decisions: Decision[], kind: string, query: string): Decision[] {
+    return decisions.filter(d => (kind === 'all' || d.kind === kind) && matchesQuery(`${d.kind} ${d.text} ${d.who ?? ''} ${d.reason ?? ''} ${d.source}`, query));
+}
+
+/** Every decision people made about Rigour here, newest first: filtered by kind, searchable, 25 to a page. */
+export const DecisionsCard: React.FC<{ decisions: Decision[]; initialQuery?: string }> = ({ decisions, initialQuery = '' }) => {
+    const [stored, setKind] = usePersisted<string>('governance:kind', 'all');
+    const [query, setQuery] = useState(initialQuery);
+    const counts = useMemo(() => {
+        const map = new Map<string, number>();
+        for (const d of decisions) map.set(d.kind, (map.get(d.kind) ?? 0) + 1);
+        return [...map].sort((a, b) => b[1] - a[1]);
+    }, [decisions]);
+    const kind = stored === 'all' || counts.some(([k]) => k === stored) ? stored : 'all';
+    const shown = useMemo(() => filterDecisions(decisions, kind, query), [decisions, kind, query]);
+    const paged = usePaged(shown, { resetKey: `${kind}\u0000${query}`, storageKey: 'governance:decisions' });
+    const unnamed = decisions.filter(d => !d.who).length;
     return (
-        <Card title="Who decided what, and why" meta={decisions.length ? `newest ${decisions.length}` : undefined}>
+        <Card title="Who decided what, and why" meta={decisions.length ? 'newest first' : undefined} flush>
             {decisions.length === 0
-                ? <Empty>No decisions recorded yet. They appear when someone marks a finding "not a bug", accepts or rejects a lesson (<span className="ui-mono">rigour learn-reviews --promote</span> or <span className="ui-mono">--reject</span>), approves a compiled check, or answers an agent's request in Studio.</Empty>
+                ? <div className="ui-card-body"><Empty>No decisions recorded yet. They appear when someone marks a finding "not a bug", accepts or rejects a lesson (<span className="ui-mono">rigour learn-reviews --promote</span> or <span className="ui-mono">--reject</span>), approves a compiled check, or answers an agent's request in Studio.</Empty></div>
                 : (
                     <>
-                        <div className="gov-filters" role="group" aria-label="Filter by kind">
-                            <button type="button" className={kind === null ? 'on' : ''} aria-pressed={kind === null} onClick={() => setKind(null)}>All {decisions.length}</button>
-                            {[...counts].map(([k, n]) => <button type="button" key={k} className={kind === k ? 'on' : ''} aria-pressed={kind === k} onClick={() => setKind(k)}>{k} {n}</button>)}
+                        <div className="ui-card-body">
+                            <FilterBar
+                                query={query} onQuery={setQuery} placeholder="Search decisions by text, who or why" matching={shown.length} noun={['decision', 'decisions']}
+                                chips={[{ id: 'all', label: 'All', count: decisions.length }, ...counts.map(([k, n]) => ({ id: k, label: k, count: n }))]} active={kind} onChip={setKind}
+                            />
+                            {unnamed * 2 > decisions.length && <div className="gov-note">{UNNAMED_NOTE}</div>}
                         </div>
-                        <div className="gov-log">{shown.map((d, i) => <DecisionRow key={`${d.at}:${i}`} decision={d} />)}</div>
+                        {shown.length === 0
+                            ? <div className="ui-card-body"><Empty>No decision matches “{query}”.</Empty></div>
+                            : <div className="ui-list">{paged.items.map((d, i) => <DecisionRow key={`${d.at}:${paged.start + i}`} decision={d} />)}</div>}
+                        <Pager paged={paged} label="decisions" />
                     </>
                 )}
         </Card>
     );
 };
 
+/** One decision: its kind, what it was about (a key as its title, the rest on one line), when, and who and why only where recorded. */
 const DecisionRow: React.FC<{ decision: Decision }> = ({ decision: d }) => (
-    <div className="gov-decision">
-        <div className="gov-decision-head">
-            <Chip tone={/rejected|withdrawn|not a bug|dismissed|denied/i.test(d.kind) ? 'warn' : 'info'}>{d.kind}</Chip>
-            <small>{ago(d.at)}{d.pr ? ` · PR #${d.pr}` : ''} · {d.source}</small>
+    <div className="ui-list-row gov-decision">
+        <div className="gov-decision-kind"><Chip tone={toneOfDecision(d.kind)}>{d.kind}</Chip></div>
+        <div className="gov-decision-body">
+            <MemoryText text={d.text} lines={1} />
+            <span className="ui-meta">
+                {[ago(d.at), d.pr ? `PR #${d.pr}` : '', d.source, d.who ? `by ${d.who}` : '', d.reason ? `why: ${d.reason}` : ''].filter(Boolean).join(' · ')}
+            </span>
         </div>
-        <div className="gov-decision-text">{inlineCode(d.text)}</div>
-        <small className="gov-dim">
-            {d.who ? `by ${d.who}` : 'who decided: not recorded'}
-            {d.reason ? <> · why: {d.reason}</> : ' · no reason given'}
-        </small>
     </div>
 );

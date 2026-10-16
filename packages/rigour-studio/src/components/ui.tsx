@@ -1,6 +1,8 @@
 import React from 'react';
 import './ui.css';
 
+export { Clamp, FilterBar, MemoryText, Pager, Skeleton, matchesQuery, usePaged, usePersisted, type FilterChip } from './readable';
+
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'plain';
 
 /** A page's title, what it answers, and an optional action on the right. */
@@ -37,6 +39,37 @@ export const Chip: React.FC<{ tone?: Tone; children: React.ReactNode }> = ({ ton
     <span className={`ui-chip ${tone === 'plain' ? '' : tone}`}>{children}</span>
 );
 
+/**
+ * One set of words and colours for where an item stands, used by every page: the same meaning reads the same way on
+ * Memory, Governance, This week and Progress.
+ */
+const STATE_CHIPS = {
+    waiting: { word: 'waiting for a person', tone: 'warn' },
+    team: { word: 'shared with the team', tone: 'ok' },
+    machine: { word: 'kept on this machine', tone: 'ok' },
+    repo: { word: 'kept in this repository', tone: 'ok' },
+    dropped: { word: 'dropped', tone: 'plain' },
+    replaced: { word: 'replaced', tone: 'plain' },
+    open: { word: 'open', tone: 'warn' },
+} as const satisfies Record<string, { word: string; tone: Tone }>;
+
+export type ItemState = keyof typeof STATE_CHIPS;
+
+export const StateChip: React.FC<{ state: ItemState }> = ({ state }) => <Chip tone={STATE_CHIPS[state].tone}>{STATE_CHIPS[state].word}</Chip>;
+
+/** The colour of a decision or outcome named in words: taking back, dropping and denying read as a warning. */
+export function toneOfDecision(kind: string): Tone {
+    return /rejected|withdrawn|not a bug|dismissed|denied|dropped|taken back|replaced/i.test(kind) ? 'warn' : 'info';
+}
+
+/** A section that could not load: what went wrong, and what to do about it. */
+export const LoadError: React.FC<{ what: string; error: string }> = ({ what, error }) => (
+    <div className="ui-error" role="alert">
+        <strong>Couldn't load {what}.</strong>
+        <span>{error}. Check that <code>rigour studio</code> is still running in your terminal, then reload this page.</span>
+    </div>
+);
+
 /** What an empty section means, and how to fill it: never a bare "no data". */
 export const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => <div className="ui-empty">{children}</div>;
 
@@ -48,22 +81,25 @@ export const Meter: React.FC<{ share: number }> = ({ share }) => (
     <div className="ui-meter"><div style={{ width: `${Math.max(0, Math.min(1, share)) * 100}%` }} /></div>
 );
 
-export interface Column<T> { label: string; cell: (row: T) => React.ReactNode; wrap?: boolean }
+/** `width` fixes a column's width (the table then lays out to fit its card); `num` right-aligns a number column. */
+export interface Column<T> { label: string; cell: (row: T) => React.ReactNode; wrap?: boolean; width?: string; num?: boolean }
 
 /**
  * A table; with `onRow`, a click anywhere on a row opens it, and the first cell is a button so the keyboard can too.
  * Cells of an openable row's first column hold phrasing content only (spans, not divs): they sit inside that button.
  */
 export function Table<T>({ rows, columns, rowKey, onRow }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T, index: number) => string; onRow?: (row: T) => void }) {
+    const fixed = columns.some(c => c.width);
     return (
         <div className="ui-table-wrap">
-            <table className="ui-table">
-                <thead><tr>{columns.map(c => <th key={c.label}>{c.label}</th>)}</tr></thead>
+            <table className={fixed ? 'ui-table fixed' : 'ui-table'}>
+                {fixed && <colgroup>{columns.map(c => <col key={c.label} style={c.width ? { width: c.width } : undefined} />)}</colgroup>}
+                <thead><tr>{columns.map(c => <th key={c.label} className={c.num ? 'num' : undefined}>{c.label}</th>)}</tr></thead>
                 <tbody>
                     {rows.map((row, index) => (
                         <tr key={rowKey(row, index)} className={onRow ? 'ui-clickable' : undefined} onClick={onRow ? () => onRow(row) : undefined}>
                             {columns.map((c, i) => (
-                                <td key={c.label} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>
+                                <td key={c.label} className={c.num ? 'num' : undefined} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>
                                     {onRow && i === 0 ? <RowButton onOpen={() => onRow(row)}>{c.cell(row)}</RowButton> : c.cell(row)}
                                 </td>
                             ))}

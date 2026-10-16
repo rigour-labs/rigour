@@ -19,7 +19,7 @@ import { reviewerUsage, teamState, type ReviewerUsage, type TeamState } from './
 import { gitCommonDir, threadEvents } from './studio-threads.js';
 import { readDismissals } from './studio-week.js';
 
-const MAX_DECISIONS = 100;
+const MAX_DECISIONS = 500;
 const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
 
 export interface StudioGovernance {
