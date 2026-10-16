@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Chip, Empty, Kpis, Meter, Table, type Column, type KpiItem, type Tone } from './ui';
+import { Card, Chip, Clamp, Empty, Kpis, Meter, Pager, Table, usePaged, type Column, type KpiItem, type Tone } from './ui';
 import { ago, inlineCode, plural, STAGE_WORDS, type CatchStage, type Story } from './storyData';
 import { StoryCard } from './WeekParts';
 import './whileWriting.css';
@@ -102,9 +102,11 @@ const time = (at: string) => new Date(at).toLocaleTimeString(undefined, { hour: 
 const day = (at: string) => new Date(at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const distinct = (values: Array<string | null>) => [...new Set(values.filter((v): v is string => !!v))];
 
+/** The feed, 25 moments to a page, each page's moments in their stretches of work. */
 const Feed: React.FC<{ items: FeedItem[] }> = ({ items }) => {
+    const paged = usePaged(items, { storageKey: 'writing:feed' });
     if (items.length === 0) return <div className="ui-card-body"><Empty>Nothing happened in this window. Briefings, findings, reviews and pushes appear here as agents work.</Empty></div>;
-    return <div>{groupFeed(items).map(group => <FeedGroup key={group[0].at} items={group} />)}</div>;
+    return <div>{groupFeed(paged.items).map(group => <FeedGroup key={group[0].at} items={group} />)}<Pager paged={paged} label="moments" /></div>;
 };
 
 const FeedGroup: React.FC<{ items: FeedItem[] }> = ({ items }) => {
@@ -121,9 +123,9 @@ const FeedGroup: React.FC<{ items: FeedItem[] }> = ({ items }) => {
             {items.map((item, i) => (
                 <div className="ww-item" key={`${item.at}-${i}`}>
                     <Chip tone={item.tone}>{STAGE_CHIP[item.stage]}</Chip>
-                    <div>
-                        <div>{inlineCode(item.text)}</div>
-                        {item.detail && <div className="ww-item-detail">{inlineCode(item.detail)}</div>}
+                    <div className="ww-item-body">
+                        <Clamp text={item.text} />
+                        {item.detail && <div className="ww-item-detail" title={item.detail}>{inlineCode(item.detail)}</div>}
                     </div>
                     <span className="ww-time">{time(item.at)}</span>
                 </div>
@@ -138,7 +140,7 @@ const TopRules: React.FC<{ rules: DevelopmentData['topRules'] }> = ({ rules }) =
         <>
             {rules.map(r => (
                 <div className="ww-rule" key={r.rule}>
-                    <div className="ww-rule-line"><span>{inlineCode(r.title)}</span><span>{r.fixed} of {r.caught} fixed</span></div>
+                    <div className="ww-rule-line"><span className="ww-rule-title" title={r.title}>{inlineCode(r.title)}</span><span>{r.fixed} of {r.caught} fixed</span></div>
                     <Meter share={r.caught ? r.fixed / r.caught : 0} />
                     <span className="ui-mono" style={{ color: 'var(--text-dim)' }}>{r.rule}</span>
                 </div>
@@ -182,9 +184,9 @@ const OpenList: React.FC<{ open: DevelopmentData['open']; total: number }> = ({ 
     return (
         <>
             {open.map((o, i) => (
-                <div className="ui-item" key={`${o.rule}:${o.file}:${o.openedAt}:${i}`}>
-                    <div>{inlineCode(o.title)}</div>
-                    <div className="ww-note"><span className="ui-mono">{o.file}</span> · caught {STAGE_WORDS[o.stage]} · {ago(o.openedAt)}</div>
+                <div className="ww-open" key={`${o.rule}:${o.file}:${o.openedAt}:${i}`}>
+                    <Clamp text={o.title} />
+                    <div className="ww-note"><span className="ui-mono ui-ellipsis" title={o.file}>{o.file}</span>caught {STAGE_WORDS[o.stage]} · {ago(o.openedAt)}</div>
                 </div>
             ))}
             {total > open.length && <div className="ww-note">And {total - open.length} more on the This week page.</div>}
@@ -201,13 +203,13 @@ export const WhileWritingBody: React.FC<{ data: DevelopmentData; hints: StageHin
                 <Card title="Fixed by the agent" meta="before any pull request">
                     <FixedList stories={data.recentFixes} />
                 </Card>
+                <Card title="By agent" flush><AgentTable rows={data.byAgent} /></Card>
                 <Card title="What happened" meta="newest first; clean checks and empty briefings are counted, not listed" flush>
                     <Feed items={data.feed} />
                 </Card>
             </div>
             <div className="ui-col">
                 <Card title="Caught most often"><TopRules rules={data.topRules} /></Card>
-                <Card title="By agent" flush><AgentTable rows={data.byAgent} /></Card>
                 <Card title="Still open" meta={data.caught.stillOpen ? String(data.caught.stillOpen) : undefined}>
                     <OpenList open={data.open} total={data.caught.stillOpen} />
                 </Card>

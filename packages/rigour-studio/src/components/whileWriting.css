@@ -19,7 +19,11 @@
 .ww-item { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 8px 20px; font-size: 14px; line-height: 1.5; }
 .ww-item:last-child { padding-bottom: 14px; }
 .ww-item .ui-chip { text-align: center; }
-.ww-item-detail { font-size: 12px; color: var(--text-dim); margin-top: 2px; overflow-wrap: anywhere; }
+.ww-item-body { min-width: 0; }
+.ww-item-detail { font-size: 12px; color: var(--text-dim); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80ch; }
+.ww-open { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--border-dim); min-width: 0; }
+.ww-open:last-of-type { border-bottom: 0; }
+.ww-rule-title { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .ww-time { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .ww-agents .ui-table th, .ww-agents .ui-table td { padding: 8px 12px; }
 .ww-agents .ui-table th:first-child, .ww-agents .ui-table td:first-child { padding-left: 20px; }

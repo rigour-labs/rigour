@@ -12,7 +12,7 @@ import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 28;
 /** The index table is searched in the browser; past this many entries the rest are counted, not sent. */
-const ENTRY_CAP = 5000;
+const ENTRY_CAP = 20000;
 const TOP_FILES = 8;
 const EXAMPLES = 20;
 

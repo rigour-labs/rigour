@@ -80,6 +80,30 @@ describe('Pull requests page', () => {
         expect(out).toContain('2 days');
     });
 
+    it('shows one row per judge across rounds, with its models, runs and its own reported cost, and the total apart', () => {
+        const base = detail();
+        const facts = { ...base.facts,
+            judges: [{ reviewer: 'claude', model: 'opus', version: null, runs: 1 }, { reviewer: 'codex', model: 'gpt-x', version: null, runs: 1 }, { reviewer: 'claude', model: null, version: null, runs: 1 }],
+            cost: [{ usd: 0.31, by: 'claude', basis: 'judge' as const }, { usd: 0.12, by: 'codex', basis: 'judge' as const }, { usd: 0.22, by: 'claude', basis: 'all runs' as const }] };
+        const out = html(<PullView answer={{ ...base, facts }} onBack={() => undefined} />);
+        expect(out.match(/role="row" class="pulls-judge"/g)).toHaveLength(2);
+        expect(out).toContain('<strong>claude</strong><small class="pulls-dim">opus, model not recorded</small>');
+        expect(out).toMatch(/<span role="cell" class="num">2<\/span><span role="cell" class="num" title="[^"]+">\$0.53<\/span>/);
+        expect(out).toContain('<strong>codex</strong><small class="pulls-dim">gpt-x</small>');
+        expect(out).toContain('Total reported');
+        expect(out).toContain('$0.65');
+        expect(out.match(/>Cost</g)).toBeNull();
+    });
+
+    it('shows a cost reported for the whole review as its own row, not only in the total', () => {
+        const base = detail();
+        const facts = { ...base.facts, judges: [{ reviewer: 'claude', model: null, version: null, runs: 1 }, { reviewer: 'codex', model: null, version: null, runs: 1 }],
+            cost: [{ usd: 0.6, by: 'claude and codex', basis: 'all runs' as const }] };
+        const out = html(<PullView answer={{ ...base, facts }} onBack={() => undefined} />);
+        expect(out).toContain('<strong>claude and codex</strong><small class="pulls-dim">as reported for the whole review</small>');
+        expect(out).toMatch(/claude and codex<\/strong>.*?<span role="cell" class="num">—<\/span><span role="cell" class="num" title="[^"]+">\$0.60<\/span>/);
+    });
+
     it('says how to record a merge, and a pull request it never saw', () => {
         const open = { ...detail({ merge: null, human: { reviews: null, points: [] } }), state: 'no-merge' as const, facts: { ...detail().facts, durationMs: null, cost: [] } };
         const out = html(<PullView answer={open} onBack={() => undefined} />);

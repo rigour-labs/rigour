@@ -1,11 +1,11 @@
 import React from 'react';
 import { studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
-import { Empty, Kpis, PageHeader, TabPanel, Tabs } from './ui';
+import { Empty, Kpis, LoadError, PageHeader, Skeleton, TabPanel, Tabs, usePersisted } from './ui';
 import { BotPointsToggle, CompiledChecks, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
 import { FromReviews, LearnedRules, RememberedTable, RepeatsCard, memoryKpis, type Briefed, type LearnedRule, type LearningWeek, type Memory } from './MemoryParts';
 import { HowMemoryWorks, JourneyCard } from './MemoryStore';
-import { LessonList } from './MemoryProposals';
+import { LessonsTriage } from './MemoryLessons';
 import './story.css';
 import './memory.css';
 
@@ -53,11 +53,11 @@ const LearningTab: React.FC<TabProps> = ({ tab, data, lessons, memories, rules, 
     if (tab === 'rules') return <><LearnedRules rules={rules} /><CompiledChecks checks={data.compiled ?? []} onDecide={actions.decideCheck} onPropose={actions.propose} /></>;
     return (
         <>
-            <RepeatsCard weeks={data.weeks} prRecorded={data.prRecorded} />
             {data.lessons.length === 0
                 ? <Empty>No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</Empty>
-                : <LessonList lessons={lessons} onDecide={actions.decide} onDecideReview={actions.decideReview} onScope={actions.scope} onTakeBack={actions.takeBack} />}
+                : <LessonsTriage lessons={lessons} onDecide={actions.decide} onDecideReview={actions.decideReview} onScope={actions.scope} onTakeBack={actions.takeBack} />}
             {botToggle}
+            <RepeatsCard weeks={data.weeks} prRecorded={data.prRecorded} />
             {data.outcomes && <OutcomeCard numbers={data.outcomes} />}
         </>
     );
@@ -68,17 +68,18 @@ export const Learning: React.FC = () => {
     const { data, error, reload } = useStudioJson<LearningData>('/api/learning');
     const memories = Object.entries(useStudioJson<{ memories: Record<string, Memory> }>('/api/memory').data?.memories ?? {});
     const rules = useStudioJson<LearnedRule[]>('/api/learned-rules').data ?? [];
-    const [tab, setTab] = React.useState('lessons');
+    const [stored, setTab] = usePersisted<string>('memory:tab', 'lessons');
+    const tab = TABS.some(t => t.id === stored) ? stored : 'lessons';
     const [showBots, setShowBots] = React.useState(false);
     const actions = useLessonActions(reload);
-    if (error) return <div className="ui-page"><Empty>Couldn't load lessons: {error}.</Empty></div>;
-    if (!data) return <div className="ui-page"><div className="mem-note">Loading…</div></div>;
+    if (error) return <div className="ui-page"><PageHeader title="Memory" /><LoadError what="lessons" error={error} /></div>;
+    if (!data) return <div className="ui-page"><PageHeader title="Memory" /><Skeleton label="Loading lessons" /></div>;
     const lessons = showBots ? data.lessons : data.lessons.filter(l => !l.fromBots);
     const fromBots = data.lessons.filter(l => l.fromBots).length;
     const botToggle = fromBots > 0 && <BotPointsToggle count={fromBots} shown={showBots} onToggle={() => setShowBots(!showBots)} />;
     return (
         <div className="ui-page">
-            <PageHeader title="Memory" lead="What Rigour has learned and remembered for this team, where each item came from, and whether it is working." />
+            <PageHeader title="Memory" lead="What have agents been told to do here, and what waits for a person to decide? Every lesson, where it came from, and whether it is working." />
             <Kpis items={memoryKpis(data.lessons, data.weeks, data.briefed)} />
             <div className="ui-cols">
                 <div className="ui-col">

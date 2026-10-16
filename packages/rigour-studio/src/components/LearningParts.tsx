@@ -1,7 +1,8 @@
 /** A lesson's journey as the learning page draws it: where it was learned, what it stopped, and a person's decision. Learning.tsx loads the data. */
 import React from 'react';
-import { inlineCode } from './storyData';
-import { Chip, type Tone } from './ui';
+import { ago, inlineCode } from './storyData';
+import { Chip, Clamp, MemoryText, StateChip, type Tone } from './ui';
+import { lessonState, originNote, timesTold } from './lessonWords';
 import './story.css';
 import './memory.css';
 
@@ -83,21 +84,12 @@ function lessonHealth(lesson: Journey): { tone: Tone; text: string; why: string 
     return null;
 }
 
-const ORIGIN_WORDS: Record<Journey['origin'], string> = { development: 'from a fix', pr: 'from a pull request', memory: 'told to remember' };
-const STATE_CHIP: Record<string, [string, Tone]> = {
-    candidate: ['candidate', 'warn'], validated: ['in force', 'ok'], promoted: ['in force', 'ok'], verified: ['in force', 'ok'],
-    rejected: ['decided against', 'plain'], dropped: ['not a rule', 'plain'],
-};
-
-/** Where a lesson came from, where it stands, and whether it is working, as chips. */
+/** Where a lesson stands (one chip, the same words on every page) and whether it is working. */
 const LessonChips: React.FC<{ lesson: Journey }> = ({ lesson }) => {
-    const [state, tone] = STATE_CHIP[lesson.state] ?? [lesson.state, 'plain'];
     const health = lessonHealth(lesson);
     return (
         <div className="mem-chips">
-            <Chip tone="info">{ORIGIN_WORDS[lesson.origin]}</Chip>
-            <Chip tone={tone}>{state}</Chip>
-            <Chip>{lesson.scope === 'team' ? 'shared with team' : lesson.scope}</Chip>
+            <StateChip state={lessonState(lesson)} />
             {health && <span title={health.why}><Chip tone={health.tone}>{health.text}</Chip></span>}
         </div>
     );
@@ -108,22 +100,21 @@ const TAKE_BACK_SAYS: Record<string, string> = { verified: 'Promoted: agents are
 
 /** A teammate's decision, in words. */
 const TEAM_VERB: Record<string, string> = { accepted: 'accepted', rejected: 'rejected', dismissed: 'dismissed', scoped: 'set how far it reaches', reworded: 'reworded', compiled: 'decided its compiled check', 'not-a-rule': 'judged not a rule', 'took-back': 'took back the decision on' };
-const day = (iso: string) => iso.slice(0, 10);
 
 /** The team's decisions on a lesson, and, when a later one settled it against yours, both. */
 const TeamDecisions: React.FC<{ team: NonNullable<Journey['team']> }> = ({ team }) => (
-    <div style={{ marginTop: 14 }}>
+    <div className="mem-sub">
         {team.overruled && (
             <div>
-                <span className="ui-chip warn">the team decided</span>{' '}
-                <span className="st-sub">
-                    You {TEAM_VERB[team.overruled.yours] ?? team.overruled.yours} it{team.overruled.yoursOnly ? ` (yours only: ${team.overruled.yoursOnly})` : ''}; {team.overruled.team.name} {TEAM_VERB[team.overruled.team.kind] ?? team.overruled.team.kind} it on {day(team.overruled.team.at)}, and the team's decision is what agents are told.
+                <Chip tone="warn">the team decided</Chip>{' '}
+                <span className="ui-meta">
+                    You {TEAM_VERB[team.overruled.yours] ?? team.overruled.yours} it{team.overruled.yoursOnly ? ` (yours only: ${team.overruled.yoursOnly})` : ''}; {team.overruled.team.name} {TEAM_VERB[team.overruled.team.kind] ?? team.overruled.team.kind} it {ago(team.overruled.team.at)}, and the team's decision is what agents are told.
                 </span>
             </div>
         )}
         {team.decisions.map(d => (
-            <div key={`${d.at}-${d.kind}-${d.name}`} className="st-sub" style={{ marginTop: 4 }}>
-                {d.name} (team) {TEAM_VERB[d.kind] ?? d.kind} it on {day(d.at)}{d.detail ? `: ${d.detail}` : ''}
+            <div key={`${d.at}-${d.kind}-${d.name}`} className="ui-meta">
+                {d.name} (team) {TEAM_VERB[d.kind] ?? d.kind} it {ago(d.at)}{d.detail ? `: ${d.detail}` : ''}
             </div>
         ))}
     </div>
@@ -137,97 +128,150 @@ export const BotPointsToggle: React.FC<{ count: number; shown: boolean; onToggle
     </div>
 );
 
-/** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
-const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);
-
 /** Take back a shared team memory: agents stop getting it. */
 export const RetireButton: React.FC<{ id: string; onTakeBack?: (id: string) => void }> = ({ id, onTakeBack }) => (
     <button className="st-btn" onClick={() => onTakeBack?.(id)} type="button" title="Superseded when a newer shared version of its key exists, dropped otherwise">Take back</button>
 );
 
-export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back' | 'reworded') => void; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void; onTakeBack?: (id: string) => void }> = ({ lesson, onDecide, onDecideReview, onScope, onTakeBack }) => (
-    <div className="st-card mem-lesson">
-        <LessonChips lesson={lesson} />
-        <div className="mem-lesson-text">{inlineCode(lesson.text)}</div>
-        {lesson.proposedBy && !lesson.yours && <div className="st-sub">Proposed by {lesson.proposedBy}</div>}
-        {lesson.sharedBy && <div className="st-sub">Shared by {lesson.sharedBy}</div>}
-        <div className="st-journey">
-            <div style={{ background: 'var(--bg-surface)' }}><div className="st-sub">Learned</div><div style={{ fontSize: 14, marginTop: 4 }}>{lesson.learnedFrom}</div></div>
-            <div><div className="st-sub">Agents told</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.told)}</div></div>
-            <div><div className="st-sub">Stopped in development</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.stoppedInDevelopment, lesson.origin === 'development')}</div></div>
-            <div><div className="st-sub">Reached a PR again</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.reachedPr, lesson.origin === 'development')}</div></div>
+type DecideReview = (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back' | 'reworded') => void;
+/** `quietNoShare`: why sharing waits, said once above the list; rows with that same reason do not repeat it. */
+interface LessonCardProps { quietNoShare?: string; lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: DecideReview; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void; onTakeBack?: (id: string) => void }
+
+/** Repeats are counted for lessons from fixes only: the three numbers of a fix lesson's journey. */
+const FixJourney: React.FC<{ lesson: Journey }> = ({ lesson }) => (
+    <div className="mem-journey">
+        <div><span>Agents told</span><strong>{timesTold(lesson.told)}</strong></div>
+        <div><span>Stopped in development</span><strong>{timesTold(lesson.stoppedInDevelopment)}</strong></div>
+        <div><span>Reached a PR again</span><strong>{timesTold(lesson.reachedPr)}</strong></div>
+    </div>
+);
+
+/** One lesson as a row: its text, one state chip, where it came from, and the decisions on the same line. */
+export const LessonCard: React.FC<LessonCardProps> = props => {
+    const { lesson } = props;
+    const fix = lesson.origin === 'development';
+    return (
+        <div className="ui-list-row mem-lesson">
+            <div className="mem-row-head">
+                <MemoryText text={lesson.text} memoryKey={lesson.memory?.key} value={lesson.memory?.value} />
+                <LessonChips lesson={lesson} />
+            </div>
+            {fix && <FixJourney lesson={lesson} />}
+            {lesson.team && <TeamDecisions team={lesson.team} />}
+            <ReviewEvidence {...props} />
+            {lesson.reach && <Reach lesson={lesson} reach={lesson.reach} onScope={props.onScope} />}
+            {actionHint(props) && <div className="ui-meta mem-hint">{actionHint(props)}</div>}
+            <div className="ui-list-foot">
+                <span className="ui-meta">{originNote(lesson)}{fix ? '' : ` · Agents told: ${timesTold(lesson.told)}`}</span>
+                <LessonActions {...props} />
+            </div>
         </div>
-        {lesson.team && <TeamDecisions team={lesson.team} />}
+    );
+};
+
+/** What review evidence asks a person to decide again: taken back, back to a candidate, a later fix, a corrected wording. */
+const ReviewEvidence: React.FC<LessonCardProps> = ({ lesson, onDecideReview }) => (
+    <>
         {lesson.takenBack && (
-            <div style={{ marginTop: 14 }}>
-                <div><span className="ui-chip warn">taken back</span> <span className="st-sub">{lesson.takenBack.detail}</span></div>
-                <div className="st-row" style={{ marginTop: 10 }}>
-                    <span className="st-sub">Later pull requests a review found repeating it merged and stayed fine. Keep telling agents anyway?</span>
-                    <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote again</button>
-                    <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'rejected')} type="button">Drop</button>
+            <div className="mem-sub">
+                <div><Chip tone="warn">taken back</Chip> <span className="ui-meta">{lesson.takenBack.detail}</span></div>
+                <div className="ui-list-foot">
+                    <span className="ui-meta">Later pull requests a review found repeating it merged and stayed fine. Keep telling agents anyway?</span>
+                    <div className="ui-actions">
+                        <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote again</button>
+                        <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'rejected')} type="button">Drop</button>
+                    </div>
                 </div>
             </div>
         )}
         {lesson.reclassified && (
-            <div style={{ marginTop: 14 }}>
-                <div><span className="ui-chip warn">back to candidate</span> <span className="st-sub">{lesson.reclassified.detail}</span></div>
-                {lesson.reclassified.evidence.map(line => <div key={line} className="st-sub" style={{ marginTop: 4 }}>{line}</div>)}
-                <div className="st-row" style={{ marginTop: 10 }}>
-                    <span className="st-sub">A later fix on its lines used to make this a lesson by itself; now a person decides. Keep telling agents?</span>
-                    <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
-                    <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'dismissed')} type="button">Dismiss</button>
+            <div className="mem-sub">
+                <div><Chip tone="warn">back to candidate</Chip> <span className="ui-meta">{lesson.reclassified.detail}</span></div>
+                {lesson.reclassified.evidence.map(line => <div key={line} className="ui-meta">{line}</div>)}
+                <div className="ui-list-foot">
+                    <span className="ui-meta">A later fix on its lines used to make this a lesson by itself; now a person decides. Keep telling agents?</span>
+                    <div className="ui-actions">
+                        <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
+                        <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'dismissed')} type="button">Dismiss</button>
+                    </div>
                 </div>
             </div>
         )}
         {lesson.suggested && (
-            <div style={{ marginTop: 14 }}>
-                <div><span className="ui-chip">a later fix changed these lines</span> <span className="st-sub">{lesson.suggested.detail}</span></div>
-                <div className="st-row" style={{ marginTop: 10 }}>
-                    <span className="st-sub">The pull request (#{lesson.suggested.pr}) left this point alone, and a later fix changed its lines. If that fix is about this point, the lesson was right.</span>
-                    <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
-                    <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'dismissed')} type="button">Dismiss</button>
+            <div className="mem-sub">
+                <div><Chip>a later fix changed these lines</Chip> <span className="ui-meta">{lesson.suggested.detail}</span></div>
+                <div className="ui-list-foot">
+                    <span className="ui-meta">The pull request (#{lesson.suggested.pr}) left this point alone, and a later fix changed its lines. If that fix is about this point, the lesson was right.</span>
+                    <div className="ui-actions">
+                        <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
+                        <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'dismissed')} type="button">Dismiss</button>
+                    </div>
                 </div>
             </div>
         )}
-        {lesson.reach && <Reach lesson={lesson} reach={lesson.reach} onScope={onScope} />}
         {lesson.suggestedText && (
-            <div style={{ marginTop: 14 }}>
-                <div><span className="ui-chip">corrected wording ({lesson.suggestedText.why})</span> <span style={{ fontSize: 15 }}>{inlineCode(lesson.suggestedText.text)}</span></div>
-                <div className="st-row" style={{ marginTop: 10 }}>
-                    <span className="st-sub">You decided on this lesson as it reads above. A newer version reads its comment better; the lesson changes only if you take it.</span>
-                    <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'reworded')} type="button">Use this wording</button>
+            <div className="mem-sub">
+                <div><Chip>corrected wording ({lesson.suggestedText.why})</Chip></div>
+                <Clamp text={lesson.suggestedText.text} />
+                <div className="ui-list-foot">
+                    <span className="ui-meta">You decided on this lesson as it reads above. A newer version reads its comment better; the lesson changes only if you take it.</span>
+                    <div className="ui-actions"><button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'reworded')} type="button">Use this wording</button></div>
                 </div>
             </div>
         )}
-        {lesson.canDecide && lesson.origin === 'pr' && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
-            <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">From review, not confirmed yet. Is this how your team works, so agents get told? A one-off task for that pull request is not a rule; Drop tells agents the team decided against it.</span>
-                <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
-                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'not-a-rule')} type="button">Not a rule</button>
-                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'rejected')} type="button" title="Agents are told the team decided against this">Drop</button>
-            </div>
-        )}
-        {lesson.canTakeBack && (
-            <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">{TAKE_BACK_SAYS[lesson.state] ?? 'Decided.'} Changed your mind? Taking it back makes it a candidate again; the decision stays in its history.</span>
-                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'took-back')} type="button">Take back</button>
-            </div>
-        )}
-        {lesson.canRetire && (
-            <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">Shared with the team: every teammate's agent gets it. Taking it back stops that, and is recorded with your name.</span>
-                <RetireButton id={lesson.id} onTakeBack={onTakeBack} />
-            </div>
-        )}
-        {lesson.canDecide && lesson.origin !== 'pr' && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
-            <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">{lesson.scope !== 'team' ? 'Seen once. Keep it so your agents get told?' : lesson.noShare ?? 'Proposed for the team. Give it to everyone\'s agents?'}</span>
-                {!(lesson.scope === 'team' && lesson.noShare) && <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>}
-                <button className="st-btn" onClick={() => onDecide(lesson.id, 'rejected')} type="button">Drop</button>
-            </div>
-        )}
-    </div>
+    </>
 );
+
+/** A plain candidate a person decides on its row (evidence that asks again has its own buttons above). */
+const awaitsDecision = (lesson: Journey) => lesson.canDecide && !lesson.takenBack && !lesson.suggested && !lesson.reclassified;
+
+/** What the buttons on a lesson's row decide, said on its own line above them; undefined when the buttons say enough. */
+function actionHint({ lesson, quietNoShare }: LessonCardProps): string | undefined {
+    const pending = awaitsDecision(lesson);
+    if (pending && lesson.origin === 'pr') return 'From review, not confirmed yet. Promote it if this is how your team works, so agents get told.';
+    if (pending && lesson.scope === 'team' && lesson.noShare && lesson.noShare !== quietNoShare) return lesson.noShare;
+    if (lesson.canTakeBack) return TAKE_BACK_SAYS[lesson.state] ?? 'Decided.';
+    return undefined;
+}
+
+/** A review point waiting for a person: promote it, call it not a rule, or drop it. */
+const ReviewDecide: React.FC<LessonCardProps> = ({ lesson, onDecideReview }) => (
+    <>
+        <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button" title="From review, not confirmed yet: promote it if this is how your team works, so agents get told">Promote</button>
+        <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'not-a-rule')} type="button" title="A one-off task for that pull request: never told to agents">Not a rule</button>
+        <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'rejected')} type="button" title="Agents are told the team decided against this">Drop</button>
+    </>
+);
+
+/** A fix or memory candidate: keep it (share it, for a team one, where this person may), or drop it. */
+const CandidateDecide: React.FC<LessonCardProps> = ({ lesson, onDecide }) => {
+    const team = lesson.scope === 'team';
+    const blocked = team && lesson.noShare;
+    return (
+        <>
+            {!blocked && (
+                <button className="st-btn primary" onClick={() => onDecide(lesson.id, team ? 'promoted' : 'validated')} type="button"
+                    title={team ? "Proposed for the team: give it to everyone's agents" : 'Seen once: keep it so your agents get told'}>{team ? 'Share with team' : 'Keep'}</button>
+            )}
+            <button className="st-btn" onClick={() => onDecide(lesson.id, 'rejected')} type="button">Drop</button>
+        </>
+    );
+};
+
+/** The decisions on the lesson's own row: keep, share or drop a candidate; promote a review point; take a decision back. */
+const LessonActions: React.FC<LessonCardProps> = props => {
+    const { lesson, onDecideReview, onTakeBack } = props;
+    const pending = awaitsDecision(lesson);
+    return (
+        <div className="ui-actions">
+            {pending && (lesson.origin === 'pr' ? <ReviewDecide {...props} /> : <CandidateDecide {...props} />)}
+            {lesson.canTakeBack && (
+                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'took-back')} type="button" title="Makes it a candidate again; the decision stays in its history">Take back</button>
+            )}
+            {lesson.canRetire && <RetireButton id={lesson.id} onTakeBack={onTakeBack} />}
+        </div>
+    );
+};
 
 const REACH_LABEL: Record<'file' | 'folder' | 'repo', string> = { file: 'its file', folder: 'its folder', repo: 'team standard' };
 
@@ -236,9 +280,9 @@ const Reach: React.FC<{ lesson: Journey; reach: NonNullable<Journey['reach']>; o
     const choices: Array<['file' | 'folder' | 'repo', string]> = ([['repo', 'Make team standard'], ['folder', 'Folder only'], ['file', 'This file only']] as Array<['file' | 'folder' | 'repo', string]>)
         .filter(([to]) => to !== reach.scope && (reach.hasFile || to === 'repo'));
     return (
-        <div className="st-row" style={{ marginTop: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div className="mem-reach">
             <span className="ui-chip">reaches: {reach.hasFile || reach.scope === 'repo' ? REACH_LABEL[reach.scope] : 'changes it is about'}</span>
-            {choices.map(([to, label]) => <button key={to} className="st-btn" onClick={() => onScope?.(lesson.id, to)} type="button">{label}</button>)}
+            {choices.map(([to, label]) => <button key={to} className="ui-link mem-reach-link" onClick={() => onScope?.(lesson.id, to)} type="button">{label}</button>)}
         </div>
     );
 };

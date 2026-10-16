@@ -2,10 +2,14 @@
  * Governance reviewer usage and team: what the model reviewer ran in the last 28 days (runs per day from its spend
  * log, each judge and model from the review records, tokens from the verdicts, deep runs with your own key), with
  * dollars only where a judge reported them; and whether this clone shares decisions with a team.
+ *
+ * The task threads' `review` events (what This week and Pull requests count) fill in what the spend log and the
+ * records lack: a day's runs are the larger of the two counts, and a review with no record on this machine adds its
+ * judges by name, with its reported dollars where one judge ran it. A review with a record is counted once, from it.
  */
 import fs from 'fs';
 import path from 'path';
-import { decidesTeammatesCandidates, schemaNote, type Config, type DeepRun, type TeamAccess, type TeamDecisionCache } from '@rigour-labs/core';
+import { decidesTeammatesCandidates, schemaNote, type Config, type DeepRun, type TeamAccess, type TeamDecisionCache, type ThreadEvent } from '@rigour-labs/core';
 import { jsonLines, readJsonFile } from './studio-files.js';
 
 const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
@@ -45,18 +49,24 @@ export interface TeamState {
 }
 
 interface RecordJudge { reviewer: string; version?: string; model?: string; cost_usd?: number }
-interface RecordFile { at: string; judges?: RecordJudge[] }
+interface RecordFile { at: string; head?: string; judges?: RecordJudge[] }
+/** A thread's review event, as the reviewer appends it. */
+interface ReviewEvent { at: string; head?: string; judges?: unknown; cost_usd?: unknown }
 interface VerdictTokens { reviewer?: string; tokens?: { input?: number; output?: number }; reviewers?: Array<{ reviewer: string; tokens?: { input?: number; output?: number } }> }
 
-export function reviewerUsage(store: string | undefined, deepRuns: DeepRun[], config: Config, now: Date): ReviewerUsage {
+export function reviewerUsage(store: string | undefined, deepRuns: DeepRun[], config: Config, now: Date, threads: ThreadEvent[] = []): ReviewerUsage {
     const within = (at: string) => now.getTime() - Date.parse(at) <= WINDOW_MS && Date.parse(at) <= now.getTime();
-    const days = store ? spendDays(path.join(store, 'spend'), within) : [];
+    const reviews = (threads as unknown as ReviewEvent[]).filter(e => (e as { kind?: string }).kind === 'review' && typeof e.at === 'string' && within(e.at) && ranJudges(e));
+    const days = withThreadDays(store ? spendDays(path.join(store, 'spend'), within) : [], reviews);
     const deep = deepRuns.filter(r => within(r.at));
     const caps = (config.review as { reviewer?: { max_runs_per_day?: number; max_usd_per_day?: number; max_usd_per_review?: number } } | undefined)?.reviewer;
+    const byJudge = new Map<string, JudgeUsage>();
+    const recorded = store ? judgeUsage(store, within, now.getTime() - WINDOW_MS, byJudge) : new Set<string>();
+    for (const review of reviews.filter(r => !(r.head && recorded.has(r.head)))) addThreadJudges(byJudge, review);
     return {
         days,
         runs: days.reduce((n, d) => n + d.runs, 0),
-        judges: store ? judgeUsage(store, within, now.getTime() - WINDOW_MS) : [],
+        judges: [...byJudge.values()].sort((a, b) => b.reviews - a.reviews),
         deep: deep.length ? deepUsage(deep) : null,
         caps: { runsPerDay: caps?.max_runs_per_day ?? null, usdPerDay: caps?.max_usd_per_day ?? null, usdPerReview: caps?.max_usd_per_review ?? null },
     };
@@ -72,11 +82,51 @@ function spendDays(dir: string, within: (at: string) => boolean): ReviewerUsage[
     });
 }
 
-/** Each judge and model across the review records in the window; tokens from each record's verdict, where it kept them. */
-function judgeUsage(store: string, within: (at: string) => boolean, since: number): JudgeUsage[] {
+/** A review event that ran the reviewer: it names judges or reports a cost (one that could not run names neither). */
+function ranJudges(e: ReviewEvent): boolean {
+    return (Array.isArray(e.judges) && e.judges.some(j => typeof j === 'string')) || typeof e.cost_usd === 'number';
+}
+
+/** The local calendar day, exactly as the reviewer names its spend files (core review/reviewer/store.ts localDay). */
+function localDay(at: Date): string {
+    return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+}
+
+/** Each day's runs: the spend log's count, or the threads' review events where they count more (no spend log, say). */
+function withThreadDays(spend: ReviewerUsage['days'], reviews: ReviewEvent[]): ReviewerUsage['days'] {
+    const byDay = new Map(spend.map(d => [d.day, { ...d }]));
+    const threadDays = new Map<string, { runs: number; usd: number | null }>();
+    for (const r of reviews) {
+        const day = localDay(new Date(r.at));
+        const t = threadDays.get(day) ?? { runs: 0, usd: null };
+        t.runs++;
+        if (typeof r.cost_usd === 'number') t.usd = (t.usd ?? 0) + r.cost_usd;
+        threadDays.set(day, t);
+    }
+    for (const [day, t] of threadDays) {
+        const d = byDay.get(day);
+        if (!d) byDay.set(day, { day, runs: t.runs, usd: t.usd });
+        else if (t.runs > d.runs) byDay.set(day, { day, runs: t.runs, usd: d.usd ?? t.usd });
+    }
+    return [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day));
+}
+
+/** A review no record on this machine covers: its judges by name, model not recorded, its dollars where one judge ran it. */
+function addThreadJudges(byJudge: Map<string, JudgeUsage>, review: ReviewEvent): void {
+    const judges = Array.isArray(review.judges) ? review.judges.filter((j): j is string => typeof j === 'string') : [];
+    for (const reviewer of judges) {
+        addJudge(byJudge, { reviewer, ...(judges.length === 1 && typeof review.cost_usd === 'number' ? { cost_usd: review.cost_usd } : {}) }, null);
+    }
+}
+
+/**
+ * Each judge and model across the review records in the window, into `byJudge`; tokens from each record's verdict,
+ * where it kept them. Returns the heads those records reviewed, so a thread's event for the same review is not counted twice.
+ */
+function judgeUsage(store: string, within: (at: string) => boolean, since: number, byJudge: Map<string, JudgeUsage>): Set<string> {
+    const heads = new Set<string>();
     let files: string[] = [];
-    try { files = fs.readdirSync(store).filter(f => f.endsWith('.record.json')); } catch { return []; }
-    const byJudge = new Map<string, JudgeUsage>();
+    try { files = fs.readdirSync(store).filter(f => f.endsWith('.record.json')); } catch { return heads; }
     // A record is written once, when its review runs: one last written before the window began is not in it.
     for (const file of files.filter(f => writtenSince(path.join(store, f), since))) {
         const record = readJsonFile<RecordFile>(path.join(store, file));
@@ -84,8 +134,9 @@ function judgeUsage(store: string, within: (at: string) => boolean, since: numbe
         const verdict = readJsonFile<VerdictTokens>(path.join(store, file.replace(/\.record\.json$/, '.json')));
         const judges = Array.isArray(record.judges) ? record.judges.filter(j => typeof j?.reviewer === 'string') : [];
         for (const judge of judges) addJudge(byJudge, judge, tokensOf(verdict, judge.reviewer));
+        heads.add(typeof record.head === 'string' ? record.head : file.split('.')[0]);
     }
-    return [...byJudge.values()].sort((a, b) => b.reviews - a.reviews);
+    return heads;
 }
 
 function writtenSince(file: string, since: number): boolean {

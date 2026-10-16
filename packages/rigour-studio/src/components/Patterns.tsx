@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStudioJson } from './storyData';
-import { Empty, Kpis, PageHeader } from './ui';
+import { Kpis, LoadError, PageHeader, Skeleton } from './ui';
 import { IndexShape, IndexTable, RecurringTable, ReuseList, patternKpis, type PatternsData } from './PatternsParts';
 import { AgentsGiven, WeeklyTable, type ContextData } from './PatternsContext';
 import './patterns.css';
@@ -9,8 +9,8 @@ import './patterns.css';
 export const Patterns: React.FC = () => {
     const { data, error } = useStudioJson<PatternsData>('/api/patterns');
     const context = useStudioJson<ContextData>('/api/context');
-    if (error) return <div className="ui-page"><Empty>Couldn't load patterns: {error}.</Empty></div>;
-    if (!data) return <div className="ui-page"><div className="pat-note">Loading…</div></div>;
+    if (error) return <div className="ui-page"><PageHeader title="Patterns" /><LoadError what="patterns" error={error} /></div>;
+    if (!data) return <div className="ui-page"><PageHeader title="Patterns" /><Skeleton label="Loading the function index" /></div>;
     return (
         <div className="ui-page">
             <PageHeader title="Patterns" lead="What Rigour knows about this codebase, and what it handed agents before they wrote: the functions that already exist, the problems that keep coming back, and the code agents were pointed to." />
@@ -19,7 +19,7 @@ export const Patterns: React.FC = () => {
                 <div className="ui-col">
                     <IndexTable index={data.index} />
                     <RecurringTable recurring={data.recurring} />
-                    {context.error && <Empty>Couldn't load what agents were given: {context.error}.</Empty>}
+                    {context.error && <LoadError what="what agents were given" error={context.error} />}
                     {context.data && <><AgentsGiven data={context.data} /><WeeklyTable weeks={context.data.weeks} /></>}
                 </div>
                 <div className="ui-col">
