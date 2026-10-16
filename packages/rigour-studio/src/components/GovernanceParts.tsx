@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Card, Chip, Empty, FilterBar, MemoryText, Pager, Table, matchesQuery, toneOfDecision, usePaged, usePersisted, type Column, type Tone } from './ui';
+import { Card, Chip, Empty, FilterBar, FixCommand, MemoryText, Pager, Table, matchesQuery, toneOfDecision, usePaged, usePersisted, type Column, type Tone } from './ui';
 import { ago } from './storyData';
 import './story.css';
 import { STAGE_LABELS, type Configured, type Coverage, type CoverageCell, type CoverageRow, type Decision, type Stage } from './governanceData';
@@ -50,7 +50,7 @@ export const CoverageCard: React.FC<{ coverage: Coverage; fixes: Array<{ name: s
                 <span className="gov-note">"Not checked": setup does not read the brief hook. "Seen" comes from what the hooks recorded on this machine.</span>
                 {fixes.length > 0 && (
                     <div className="gov-fixes">
-                        {fixes.map(f => <div key={f.name}><span>{f.name}</span><code className="ui-mono">{f.fix}</code></div>)}
+                        {fixes.map(f => <div key={f.name}><span>{f.name}</span><FixCommand command={f.fix} /></div>)}
                     </div>
                 )}
                 <button type="button" className="ui-link" onClick={onSetup}>Open Setup to fix what is off</button>
@@ -71,7 +71,7 @@ const CoverageSummary: React.FC<{ coverage: Coverage; fixes: Array<{ name: strin
                 {fixes.length > 0 && <button type="button" className="ui-link" aria-expanded={open} aria-controls="gov-coverage-fixes" onClick={() => setOpen(!open)}>{open ? 'Hide what to run' : `What to run (${fixes.length})`}</button>}
                 <button type="button" className="st-btn small" onClick={onSetup}>Open Setup</button>
             </div>
-            {open && <div id="gov-coverage-fixes" className="gov-fixes gov-summary-fixes">{fixes.map(f => <div key={f.name}><span>{f.name}</span><code className="ui-mono">{f.fix}</code></div>)}</div>}
+            {open && <div id="gov-coverage-fixes" className="gov-fixes gov-summary-fixes">{fixes.map(f => <div key={f.name}><span>{f.name}</span><FixCommand command={f.fix} /></div>)}</div>}
         </section>
     );
 };

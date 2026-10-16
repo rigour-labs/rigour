@@ -1,7 +1,12 @@
 import React from 'react';
+import { formatCount } from './format';
 import './ui.css';
 
 export { Clamp, FilterBar, MemoryText, Pager, Skeleton, matchesQuery, usePaged, usePersisted, type FilterChip } from './readable';
+export { formatCount } from './format';
+
+/** A number shown as a count, with separators; anything else as it is. */
+const shown = (value: React.ReactNode) => (typeof value === 'number' ? formatCount(value) : value);
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'plain';
 
@@ -21,7 +26,7 @@ export const Kpis: React.FC<{ items: KpiItem[] }> = ({ items }) => (
         {items.map(item => (
             <div className="ui-kpi" key={item.label}>
                 <span className="ui-label">{item.label}</span>
-                <span className="ui-kpi-value">{item.value}</span>
+                <span className="ui-kpi-value">{shown(item.value)}</span>
                 {item.note && <span className="ui-kpi-note">{item.note}</span>}
             </div>
         ))}
@@ -70,11 +75,50 @@ export const LoadError: React.FC<{ what: string; error: string }> = ({ what, err
     </div>
 );
 
+/** A path under a home folder (macOS, Linux or Windows) with the home folder shown as `~`. */
+function homeAsTilde(text: string): string {
+    return text
+        .replace(/(^|[\s"'=(])(?:\/Users|\/home)\/[^/\s"']+(?=\/|\s|$)/g, '$1~')
+        .replace(/(^|[\s"'=(])[A-Za-z]:\\Users\\[^\\\s"']+(?=\\|\s|$)/g, '$1~');
+}
+
+/** Copies text, through the clipboard API where the page may use it and a hidden text area where it may not. */
+async function copyText(text: string): Promise<boolean> {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        const done = document.execCommand('copy');
+        area.remove();
+        return done;
+    }
+}
+
+/** A command to run, on one line with the whole of it on hover, and Copy. Copy gives the command exactly as recorded. */
+export const FixCommand: React.FC<{ command: string }> = ({ command }) => {
+    const [said, setSaid] = React.useState<'Copy' | 'Copied' | 'Copy failed'>('Copy');
+    const shown = homeAsTilde(command);
+    const copy = async () => setSaid((await copyText(command).catch(() => false)) ? 'Copied' : 'Copy failed');
+    return (
+        <span className="ui-fix">
+            <code className="ui-fix-code" title={shown}>{shown}</code>
+            <button type="button" className="ui-fix-copy" onClick={copy} aria-label={`Copy the command: ${shown}`} aria-live="polite">{said}</button>
+        </span>
+    );
+};
+
 /** What an empty section means, and how to fill it: never a bare "no data". */
 export const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => <div className="ui-empty">{children}</div>;
 
 export const Row: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({ label, value }) => (
-    <div className="ui-row"><span>{label}</span><span>{value}</span></div>
+    <div className="ui-row"><span>{label}</span><span>{shown(value)}</span></div>
 );
 
 export const Meter: React.FC<{ share: number }> = ({ share }) => (
@@ -105,7 +149,7 @@ export function Table<T>({ rows, columns, rowKey, onRow }: { rows: T[]; columns:
                         <tr key={rowKey(row, index)} className={onRow ? 'ui-clickable' : undefined} onClick={onRow ? () => onRow(row) : undefined}>
                             {columns.map((c, i) => (
                                 <td key={c.label} className={cellClass(c)} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>
-                                    {onRow && i === 0 ? <RowButton onOpen={() => onRow(row)}>{c.cell(row)}</RowButton> : c.cell(row)}
+                                    {onRow && i === 0 ? <RowButton onOpen={() => onRow(row)}>{shown(c.cell(row))}</RowButton> : shown(c.cell(row))}
                                 </td>
                             ))}
                         </tr>

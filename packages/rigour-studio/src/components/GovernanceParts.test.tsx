@@ -2,6 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { CoverageCard, DecisionsCard } from './GovernanceParts';
+import { FixCommand } from './ui';
 import type { Decision } from './governanceData';
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
@@ -24,6 +25,8 @@ describe('the decisions log', () => {
         expect(out.match(/ui-list-row gov-decision/g)).toHaveLength(25);
         expect(out).toContain('class="ui-memkey" title="checkout.retry_0">checkout.retry_0<');
         expect(out).toContain('-webkit-line-clamp:1');
+        expect(out).not.toContain('Show more');
+        expect(out.match(/role="button" tabindex="0" aria-expanded="false"/g)).toHaveLength(25);
     });
 
     it('shows who and why only where recorded, and no note when most rows name someone', () => {
@@ -53,5 +56,14 @@ describe('coverage with nothing switched on', () => {
         expect(out).toContain('>Open Setup</button>');
         expect(out).not.toContain('<table');
         expect(out).not.toContain('rigour setup</code>');
+    });
+
+    it('shows a fix command on one line with Copy, and the home folder as ~', () => {
+        const mcp = [{ name: 'Rigour tools for agents (MCP)', fix: 'claude mcp add --scope user rigour -- node /Users/dev-a/work/acme/packages/rigour-mcp/dist/index.js' }];
+        const out = html(<CoverageCard coverage={empty} fixes={mcp} onSetup={() => undefined} />).replace(/<\/?section[^>]*>/g, '');
+        expect(out).not.toContain('/Users/dev-a');
+        expect(html(<FixCommand command={mcp[0].fix} />)).toContain('title="claude mcp add --scope user rigour -- node ~/work/acme/packages/rigour-mcp/dist/index.js"');
+        expect(html(<FixCommand command="rigour setup" />)).toContain('>Copy</button>');
+        expect(html(<FixCommand command={'node C:\\Users\\dev-a\\x.js and /home/dev-b/y.js'} />)).toContain('title="node ~\\x.js and ~/y.js"');
     });
 });

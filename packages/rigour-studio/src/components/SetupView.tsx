@@ -2,7 +2,7 @@ import React from 'react';
 import { useStudioJson } from './storyData';
 import { SwitchSetup } from './Switch';
 import { ReviewerSetup } from './Reviewer';
-import { Clamp, LoadError, Skeleton } from './ui';
+import { Clamp, FixCommand, LoadError, Skeleton } from './ui';
 import './story.css';
 
 interface SetupCheck { id: string; name: string; state: 'working' | 'set up' | 'broken' | 'missing'; detail: string; fix?: string }
@@ -26,7 +26,7 @@ export const SetupView: React.FC = () => {
                             <div className="st-setup-name">{c.name}</div>
                             <div className="st-sub"><Clamp text={c.detail} /></div>
                         </div>
-                        {c.fix && c.state !== 'working' && <code className="st-mono st-setup-fix">{c.fix}</code>}
+                        {c.fix && c.state !== 'working' && <div className="st-setup-fix"><FixCommand command={c.fix} /></div>}
                     </div>
                 ))}
             </div>

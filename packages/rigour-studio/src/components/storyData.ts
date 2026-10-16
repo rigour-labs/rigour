@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { formatCount } from './format';
 
 export type CatchStage = 'edit' | 'review' | 'stop' | 'pr';
 
@@ -31,7 +32,7 @@ export function ago(at: string, now = Date.now()): string {
 }
 
 export function plural(n: number, one: string, many = `${one}s`): string {
-    return `${n} ${n === 1 ? one : many}`;
+    return `${formatCount(n)} ${n === 1 ? one : many}`;
 }
 
 /**

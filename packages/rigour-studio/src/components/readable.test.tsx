@@ -14,6 +14,14 @@ describe('Clamp', () => {
         expect(out).toMatch(/<button type="button" class="ui-clamp-toggle" aria-expanded="false" aria-controls="[^"]+">Show more<\/button>/);
     });
 
+    it('opens a one-line clamp from the line itself, with a chevron and no Show more under it', () => {
+        const out = html(<Clamp text={long} lines={1} />);
+        expect(out).toMatch(/class="ui-clamp-line toggle *" role="button" tabindex="0" aria-expanded="false" aria-controls="[^"]+" title="Show all of it"/);
+        expect(out).toContain('ui-chevron');
+        expect(out).not.toContain('Show more');
+        expect(html(<Clamp text="Short." lines={1} />)).not.toContain('role="button"');
+    });
+
     it('shows short text whole, with no button', () => {
         const out = html(<Clamp text="Use withRetry." />);
         expect(out).toContain('Use withRetry.');

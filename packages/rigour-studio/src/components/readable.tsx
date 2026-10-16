@@ -4,7 +4,9 @@
  * ui.tsx re-exports them; styles live in ui.css.
  */
 import React from 'react';
+import { ChevronDown } from 'lucide-react';
 import { inlineCode } from './storyData';
+import { formatCount as n } from './format';
 
 const STORE_PREFIX = 'rigour-studio:';
 
@@ -35,8 +37,16 @@ const CHARS_PER_LINE = 90;
 /** Layout effects run in the browser only; on the server (and in render tests) the character guess stands. */
 const useBrowserLayoutEffect = typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect;
 
-/** Text clamped to `lines` lines, with a Show more / Show less button only when the text runs past them. */
-export const Clamp: React.FC<{ text: string; lines?: number; className?: string }> = ({ text, lines = 2, className }) => {
+/**
+ * Text clamped to `lines` lines, with a Show more / Show less button only when the text runs past them. A one-line
+ * clamp has no button under it: the line itself opens (click, Enter or Space), marked by a small chevron.
+ */
+export const Clamp: React.FC<{ text: string; lines?: number; className?: string }> = ({ text, lines = 2, className }) => (
+    lines === 1 ? <ClampLine text={text} className={className} /> : <ClampBlock text={text} lines={lines} className={className} />
+);
+
+/** Whether the clamped text runs past its lines: guessed from its length, then measured in the browser as it resizes. */
+function useClamp(text: string, lines: number) {
     const id = React.useId();
     const ref = React.useRef<HTMLDivElement>(null);
     const [open, setOpen] = React.useState(false);
@@ -51,14 +61,29 @@ export const Clamp: React.FC<{ text: string; lines?: number; className?: string 
         observer.observe(el);
         return () => observer.disconnect();
     }, [text, lines, open]);
+    const body = <div ref={ref} id={id} className={open ? 'ui-clamp-text' : 'ui-clamp-text clamped'} style={open ? undefined : { WebkitLineClamp: lines }}>{inlineCode(text)}</div>;
+    return { id, open, toggle: () => setOpen(!open), canToggle: overflows || open, body };
+}
+
+const ClampBlock: React.FC<{ text: string; lines: number; className?: string }> = ({ text, lines, className }) => {
+    const { id, open, toggle, canToggle, body } = useClamp(text, lines);
     return (
         <div className={`ui-clamp ${className ?? ''}`}>
-            <div ref={ref} id={id} className={open ? 'ui-clamp-text' : 'ui-clamp-text clamped'} style={open ? undefined : { WebkitLineClamp: lines }}>{inlineCode(text)}</div>
-            {(overflows || open) && (
-                <button type="button" className="ui-clamp-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
-                    {open ? 'Show less' : 'Show more'}
-                </button>
-            )}
+            {body}
+            {canToggle && <button type="button" className="ui-clamp-toggle" aria-expanded={open} aria-controls={id} onClick={toggle}>{open ? 'Show less' : 'Show more'}</button>}
+        </div>
+    );
+};
+
+/** One line opens in place, from the line itself: a "Show more" under every row of a log is clutter. */
+const ClampLine: React.FC<{ text: string; className?: string }> = ({ text, className }) => {
+    const { id, open, toggle, canToggle, body } = useClamp(text, 1);
+    const onKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+    const control = canToggle ? { role: 'button', tabIndex: 0, 'aria-expanded': open, 'aria-controls': id, title: open ? 'Show less' : 'Show all of it', onClick: toggle, onKeyDown } : {};
+    return (
+        <div className={`ui-clamp-line ${canToggle ? 'toggle' : ''} ${className ?? ''}`} {...control}>
+            {body}
+            {canToggle && <ChevronDown size={14} className={open ? 'ui-chevron open' : 'ui-chevron'} aria-hidden="true" />}
         </div>
     );
 };
@@ -126,7 +151,6 @@ export function usePaged<T>(items: T[], { resetKey = '', storageKey }: { resetKe
     };
 }
 
-const n = (value: number) => value.toLocaleString('en-US');
 
 /** "1–25 of 9,358" with Previous and Next (First and Last past three pages) and a page size; nothing for one short page. ← and → page too. */
 export function Pager<T>({ paged, label = 'items' }: { paged: Paged<T>; label?: string }) {

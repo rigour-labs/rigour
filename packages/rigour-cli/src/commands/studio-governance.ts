@@ -68,7 +68,7 @@ export async function loadGovernance(cwd: string, _url?: URL, now = new Date(), 
         decisions: decisions.slice(0, MAX_DECISIONS),
         decisionsRecent: decisions.filter(d => byPerson(d) && now.getTime() - Date.parse(d.at) <= WINDOW_MS).length,
         qualityGates: gates(cwd, { now, config: parsed, parsedFile: config !== undefined, scores: readScores(roots), threads }),
-        reviewer: reviewerUsage(common && path.join(common, 'rigour-reviewer'), roots.flatMap(readDeepRuns), parsed, now),
+        reviewer: reviewerUsage(common && path.join(common, 'rigour-reviewer'), roots.flatMap(readDeepRuns), parsed, now, threads),
         team: teamConfig
             ? teamState(teamConfig, teamCache, await (deps.teamAccess ?? readTeamAccess)(teamConfig).catch(() => undefined), await (deps.teamRefused ?? refusedChanges)(now.getTime() - WINDOW_MS).catch(() => undefined))
             : teamState(null, teamCache),

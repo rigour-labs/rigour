@@ -7,7 +7,6 @@
 .gov-foot { border-top: 1px solid var(--border-dim); }
 .gov-fixes { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .gov-fixes > div { display: grid; grid-template-columns: minmax(160px, 240px) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; }
-.gov-fixes code { color: var(--text-primary); overflow-wrap: anywhere; }
 .gov-rules { display: flex; flex-direction: column; }
 .gov-rules > div { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border-dim); font-size: 13px; }
 .gov-rules > div:last-child { border-bottom: 0; }

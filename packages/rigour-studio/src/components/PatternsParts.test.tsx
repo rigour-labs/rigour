@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { IndexTable, type PatternsData } from './PatternsParts';
+import { IndexShape, IndexTable, type PatternsData } from './PatternsParts';
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
@@ -34,5 +34,13 @@ describe('the function index', () => {
         expect(html(<IndexTable index={index} />)).toContain('>type<span class="ui-filterchip-count">1,300</span>');
         expect(html(<IndexTable index={index} initialQuery="area-3/ module-3.ts" />)).toContain('1 entry · ');
         expect(html(<IndexTable index={index} initialQuery="handler5199" />)).toContain('1 entry');
+    });
+});
+
+describe('counts', () => {
+    it('use the same thousands separators as the numbers above them', () => {
+        const out = html(<IndexShape index={{ ...index, byType: [{ type: 'function', count: 2808 }], topFiles: [{ file: 'a.ts', count: 1200 }] }} />);
+        expect(out).toContain('<span>2,808</span>');
+        expect(out).toContain('<span>1,200</span>');
     });
 });

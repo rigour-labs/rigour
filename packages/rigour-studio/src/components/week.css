@@ -3,7 +3,6 @@
 .week-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .week-note { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
 .week-gap, .week-pull { display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--border-dim); font-size: 14px; }
-.week-gap code { color: var(--text-primary); overflow-wrap: anywhere; }
 .week-need { border: 1px solid color-mix(in srgb, var(--status-warning) 40%, transparent); border-radius: 10px; padding: 14px 16px; background: color-mix(in srgb, var(--status-warning) 5%, var(--bg-card)); }
 .week-need-title { margin-top: 8px; }
 .week-need-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }

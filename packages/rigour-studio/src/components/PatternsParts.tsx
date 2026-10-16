@@ -1,7 +1,7 @@
 /** The Patterns page's parts: the function index, the problems Rigour's checks keep finding, and code agents were pointed to. Patterns.tsx loads the data. */
 import React from 'react';
 import { ago, plural } from './storyData';
-import { Card, Chip, Empty, FilterBar, Meter, Pager, Row, Table, matchesQuery, usePaged, usePersisted, type Column, type KpiItem } from './ui';
+import { Card, Chip, Empty, FilterBar, formatCount as num, Meter, Pager, Row, Table, matchesQuery, usePaged, usePersisted, type Column, type KpiItem } from './ui';
 import './patterns.css';
 
 interface IndexEntry { name: string; type: string; file: string; line: number; exported: boolean }
@@ -17,7 +17,6 @@ export interface PatternsData {
 
 /** Kinds an agent calls, as opposed to types, constants and the rest. */
 const CALLABLE = new Set(['function', 'method', 'hook', 'component', 'handler', 'middleware', 'resolver', 'rpc', 'command', 'task']);
-const num = (n: number) => n.toLocaleString('en-US');
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
 export function patternKpis(data: PatternsData): KpiItem[] {
@@ -91,7 +90,7 @@ export const IndexShape: React.FC<{ index: PatternsData['index'] }> = ({ index }
             {index.meaning && <Row label="Matching by meaning" value={MEANING_WORDS[index.meaning]} />}
             <div className="pat-subhead">Files with the most entries</div>
             {index.topFiles.map(f => (
-                <div key={f.file} className="pat-bar"><span className="ui-mono pat-file" title={f.file}>{f.file}</span><span>{f.count}</span><Meter share={f.count / top} /></div>
+                <div key={f.file} className="pat-bar"><span className="ui-mono pat-file" title={f.file}>{f.file}</span><span>{num(f.count)}</span><Meter share={f.count / top} /></div>
             ))}
         </Card>
     );

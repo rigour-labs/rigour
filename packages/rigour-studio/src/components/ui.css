@@ -127,3 +127,16 @@
 @keyframes ui-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .ui-skel-block, .ui-skel-line { animation: none; } }
 @media (max-width: 700px) { .ui-pager { padding: 12px 16px; } .ui-list-row { padding: 12px 16px; } .ui-list-foot { flex-wrap: wrap; } .ui-list-foot > .ui-actions { flex-wrap: wrap; } }
+.ui-clamp-line { display: flex; align-items: flex-start; gap: 6px; min-width: 0; border-radius: 4px; }
+.ui-clamp-line > .ui-clamp-text { flex: 1 1 auto; min-width: 0; }
+.ui-clamp-line.toggle { cursor: pointer; }
+.ui-clamp-line.toggle:hover .ui-clamp-text { color: var(--text-primary); }
+.ui-clamp-line.toggle:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.ui-chevron { flex: none; margin-top: 4px; color: var(--text-dim); transition: transform 0.15s; }
+.ui-chevron.open { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .ui-chevron { transition: none; } }
+.ui-fix { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.ui-fix-code { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--text-primary); background: var(--code-bg); border: 1px solid var(--border-dim); border-radius: 6px; padding: 3px 8px; }
+.ui-fix-copy { flex: none; border: 1px solid var(--border-med); background: var(--bg-card); color: var(--text-dim); border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 11px; font-weight: 500; cursor: pointer; }
+.ui-fix-copy:hover { color: var(--text-primary); border-color: var(--text-dim); }
+.ui-fix-copy:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }

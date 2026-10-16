@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { studioWrite } from '../studioWrite';
-import { Card, Chip, Empty, WeekChart } from './ui';
+import { Card, Chip, Empty, FixCommand, WeekChart } from './ui';
 import { outcomeWords, type PullRow, type PullsList } from './pullsData';
 import { ago, inlineCode, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story } from './storyData';
 
@@ -105,7 +105,7 @@ export const SetupGaps: React.FC<{ onSetup: () => void }> = ({ onSetup }) => {
                             <div className="week-gap" key={g.id}>
                                 <div><Chip tone={g.state === 'broken' ? 'bad' : 'warn'}>{g.state}</Chip> {g.name}</div>
                                 <small className="st-sub">{g.detail}</small>
-                                {g.fix && <code className="ui-mono">{g.fix}</code>}
+                                {g.fix && <FixCommand command={g.fix} />}
                             </div>
                         ))}
             <button type="button" className="ui-link" onClick={onSetup}>Open Setup</button>
