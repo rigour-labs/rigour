@@ -46,10 +46,10 @@ export const NeedGroupCard: React.FC<{ group: NeedGroup; onDone: () => void }> =
         <div>
             <button className="st-story" onClick={() => setOpen(!open)} type="button" aria-expanded={open}>
                 <div className="st-row" style={{ justifyContent: 'space-between' }}><span className="st-chip warn">open</span><span className="st-sub">newest {ago(group.needs[0].openedAt)}</span></div>
-                <div style={{ fontSize: 17, marginTop: 10, lineHeight: 1.5 }}>{group.needs.length} × {group.pattern}, in {plural(group.files, 'file')}</div>
+                <div className="week-group-title">{group.needs.length} × {group.pattern}, in {plural(group.files, 'file')}</div>
                 <div className="st-mono st-sub" style={{ marginTop: 6 }}>{group.rule}</div>
             </button>
-            {open && <div className="st-stack" style={{ marginTop: 10 }}>{group.needs.map(n => <NeedCard key={`${n.rule}:${n.file}:${n.openedAt}`} need={n} onDone={onDone} />)}</div>}
+            {open && <div className="week-stack" style={{ marginTop: 10 }}>{group.needs.map(n => <NeedCard key={`${n.rule}:${n.file}:${n.openedAt}`} need={n} onDone={onDone} />)}</div>}
         </div>
     );
 };
@@ -69,11 +69,11 @@ const NeedCard: React.FC<{ need: OpenNeed; onDone: () => void }> = ({ need, onDo
         } catch { setState('failed'); }
     };
     return (
-        <div className="st-need">
+        <div className="week-need">
             <div className="st-row"><span className="st-chip warn">open</span><span className="st-sub">found {need.stage ? STAGE_WORDS[need.stage] : ''} · {ago(need.openedAt)}</span></div>
-            <div style={{ fontSize: 17, marginTop: 10, lineHeight: 1.5 }}>{need.title}</div>
+            <div className="week-need-title">{need.title}</div>
             <div className="st-mono st-sub" style={{ marginTop: 6 }}>{need.file}</div>
-            <div className="st-row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+            <div className="week-need-actions">
                 <button className="st-btn primary" onClick={copy} type="button">{state === 'copied' ? 'Copied: paste it to your agent' : 'Copy for my agent'}</button>
                 {need.key && <button className="st-btn" onClick={dismiss} type="button">It's fine, not a bug</button>}
                 {state === 'failed' && <span className="st-sub">That didn't work. Open Studio from the link in your terminal and try again.</span>}

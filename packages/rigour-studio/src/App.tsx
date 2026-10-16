@@ -32,7 +32,7 @@ const PAGES = [
     { id: 'pulls', group: 'work', label: 'Pull requests', icon: GitPullRequest, page: () => <PullRequests /> },
     { id: 'learns', group: 'knows', label: 'Memory', icon: Brain, page: () => <Learning /> },
     { id: 'patterns', group: 'knows', label: 'Patterns', icon: Shapes, page: () => <Patterns /> },
-    { id: 'governance', group: 'team', label: 'Governance', icon: Landmark, page: () => <Governance /> },
+    { id: 'governance', group: 'team', label: 'Governance', icon: Landmark, page: (go: (id: string) => void) => <Governance onNavigate={go} /> },
     { id: 'progress', group: 'team', label: 'Progress', icon: TrendingUp, page: () => <Progress /> },
     { id: 'setup', group: 'team', label: 'Setup', icon: Wrench, page: () => <SetupView /> },
 ] as const;

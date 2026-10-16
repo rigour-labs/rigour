@@ -6,7 +6,9 @@ import type { ServerResponse } from 'http';
 
 type Loader = (cwd: string, url: URL) => unknown | Promise<unknown>;
 
-const ROUTES: Record<string, () => Promise<Loader>> = {};
+const ROUTES: Record<string, () => Promise<Loader>> = {
+    '/api/governance': async () => (await import('./studio-governance.js')).loadGovernance,
+};
 
 /** Answers a GET for one of the read-only pages; false for any other path. */
 export async function serveReadRoute(

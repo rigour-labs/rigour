@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import type { AgentEvent, CatchStage, Story } from '@rigour-labs/core';
 import { checkoutRoots, eventsAcross, openFindingsAcross, storiesAcross } from './studio-checkouts.js';
+import { gitCommonDir, threadEvents } from './studio-threads.js';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_STORIES = 50;
@@ -20,6 +21,8 @@ export interface WeekInputs {
     open: Array<{ file: string; rule: string; title?: string; openedAt: string; stage?: CatchStage }>;
     dismissals: Dismissal[];
     events: AgentEvent[];
+    /** When each model review on this repository's threads ran. */
+    reviews?: string[];
 }
 
 export interface StudioWeek {
@@ -40,6 +43,8 @@ export interface StudioWeek {
     /** Problems raised this week (fixed, dismissed or still open) and how many a person overruled. */
     raised: number;
     overruled: number;
+    /** Model reviews run this week; null when no review was ever recorded here. */
+    reviews: number | null;
 }
 
 export function buildWeek(input: WeekInputs): StudioWeek {
@@ -65,12 +70,14 @@ export function buildWeek(input: WeekInputs): StudioWeek {
         prCatches: prEvents.length === 0 ? null : prEvents.filter(e => e.timestamp && inWeek(e.timestamp)).reduce((n, e) => n + (e.findings?.length ?? 0), 0),
         raised: stories.length + overruled + openedThisWeek,
         overruled,
+        reviews: input.reviews?.length ? input.reviews.filter(inWeek).length : null,
     };
 }
 
 export function loadWeek(cwd: string, now = new Date()): StudioWeek {
     const roots = checkoutRoots(cwd);
-    return buildWeek({ now, stories: storiesAcross(roots), open: openFindingsAcross(roots), dismissals: readDismissals(cwd), events: eventsAcross(roots) });
+    const reviews = threadEvents(gitCommonDir(cwd)).filter(e => e.kind === 'review').map(e => e.at);
+    return buildWeek({ now, stories: storiesAcross(roots), open: openFindingsAcross(roots), dismissals: readDismissals(cwd), events: eventsAcross(roots), reviews });
 }
 
 export function readDismissals(cwd: string): Dismissal[] {

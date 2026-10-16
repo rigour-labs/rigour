@@ -36,3 +36,10 @@ describe('buildWeek', () => {
         expect(buildWeek({ now, stories: [fix], open: [], dismissals: [], events: [] }).stopped.byStage.review).toBe(1);
     });
 });
+
+describe('reviews this week', () => {
+    it('counts model reviews run this week, and says unknown, not zero, when none was ever recorded', () => {
+        expect(buildWeek({ now, stories: [], open: [], dismissals: [], events: [] }).reviews).toBeNull();
+        expect(buildWeek({ now, stories: [], open: [], dismissals: [], events: [], reviews: ['2026-09-01T00:00:00Z', '2026-10-08T00:00:00Z'] }).reviews).toBe(1);
+    });
+});
