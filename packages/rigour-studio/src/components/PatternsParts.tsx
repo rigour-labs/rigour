@@ -50,7 +50,7 @@ export const IndexTable: React.FC<{ index: PatternsData['index']; initialQuery?:
                 : <Table rows={matches.slice(0, SHOWN)} rowKey={e => `${e.file}:${e.line}:${e.name}`} columns={[
                     { label: 'Name', cell: e => <span className="ui-mono">{e.name}</span> },
                     { label: 'Kind', cell: e => <Chip>{e.type}</Chip> },
-                    { label: 'File', wrap: true, cell: e => <span className="ui-mono pat-file">{e.file}:{e.line}</span> },
+                    { label: 'File', cell: e => <span className="ui-mono pat-file" title={`${e.file}:${e.line}`}>{e.file}:{e.line}</span> },
                     { label: 'Exported', cell: e => (e.exported ? 'yes' : 'no') },
                 ]} />}
             <div className="ui-card-body pat-note">

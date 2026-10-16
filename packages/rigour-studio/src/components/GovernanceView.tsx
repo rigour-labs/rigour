@@ -12,9 +12,9 @@ export const GovernanceView: React.FC<{ data: GovernanceData; onSetup: () => voi
     <div className="ui-page">
         <PageHeader title="Governance" lead={GOVERNANCE_LEAD} />
         <Kpis items={governanceKpis(data)} />
+        <CoverageCard coverage={data.coverage} fixes={data.fixes} onSetup={onSetup} />
         <div className="ui-cols">
             <div className="ui-col">
-                <CoverageCard coverage={data.coverage} fixes={data.fixes} onSetup={onSetup} />
                 <DecisionsCard decisions={data.decisions} />
             </div>
             <div className="ui-col">

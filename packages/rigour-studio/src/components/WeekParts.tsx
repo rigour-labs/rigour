@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { studioWrite } from '../studioWrite';
 import { Card, Chip, Empty, WeekChart } from './ui';
+import type { PullRow } from './pullsData';
 import { ago, inlineCode, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story } from './storyData';
 
 export interface WeekData {
@@ -112,17 +113,16 @@ export const SetupGaps: React.FC<{ onSetup: () => void }> = ({ onSetup }) => {
     );
 };
 
-export interface PullRow { pr: number; title?: string; branch?: string; state?: string; lastOutcome?: string; blocking?: number; shouldFix?: number; lastAt?: string }
 
 export const RecentPullsCard: React.FC<{ rows: PullRow[]; onOpen: () => void }> = ({ rows, onOpen }) => (
     <Card title="Recent pull requests">
         {rows.length === 0
             ? <span className="st-sub">No pull request reviewed here yet.</span>
             : rows.slice(0, 5).map(r => (
-                <div className="week-pull" key={r.pr}>
-                    <div><strong>#{r.pr}</strong> {r.title ?? r.branch ?? ''}</div>
+                <div className="week-pull" key={r.key}>
+                    <div><strong>{r.pr ? `#${r.pr}` : 'Not opened yet'}</strong> {r.title ?? r.branches[0] ?? ''}</div>
                     <small className="st-sub">
-                        {r.lastOutcome ?? r.state ?? 'not reviewed'}{typeof r.blocking === 'number' ? ` · ${r.blocking} blocking` : ''}{r.lastAt ? ` · ${ago(r.lastAt)}` : ''}
+                        {r.lastReview ? `${r.lastReview.outcome} · ${r.lastReview.blocking} blocking` : 'not reviewed'} · {ago(r.lastActivity)}
                     </small>
                 </div>
             ))}

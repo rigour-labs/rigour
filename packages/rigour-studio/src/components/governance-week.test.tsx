@@ -121,7 +121,7 @@ describe('This week', () => {
     });
 
     it('lists recent pull requests when the endpoint has them', () => {
-        const out = html(<RecentPullsCard rows={[{ pr: 12, title: 'Add retries', branch: 'feat/retries', state: 'open', lastOutcome: 'blocked', blocking: 2, shouldFix: 1, lastAt: at }]} onOpen={() => undefined} />);
+        const out = html(<RecentPullsCard rows={[{ key: '#12', pr: 12, title: 'Add retries', branches: ['feat/retries'], state: 'open', lastReview: { at, outcome: 'blocked', blocking: 2, shouldFix: 1 }, rounds: 1, lessonsApplied: 0, blockingFound: 2, ci: null, followUps: null, firstAt: at, lastActivity: at }]} onOpen={() => undefined} />);
         expect(out).toContain('#12');
         expect(out).toContain('blocked · 2 blocking');
     });

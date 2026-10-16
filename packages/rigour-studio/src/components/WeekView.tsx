@@ -3,7 +3,8 @@ import { HowItWorks } from './HowItWorks';
 import { groupNeeds, NeedGroupCard, needsHeading } from './NeedGroups';
 import { Card, Empty, Kpis, PageHeader, type KpiItem } from './ui';
 import { plural, useStudioJson } from './storyData';
-import { CopySummary, Recheck, RecentPullsCard, RepeatsChart, SetupGaps, StoryCard, type ProgressWeek, type PullRow, type WeekData } from './WeekParts';
+import { CopySummary, Recheck, RecentPullsCard, RepeatsChart, SetupGaps, StoryCard, type ProgressWeek, type WeekData } from './WeekParts';
+import type { PullsList } from './pullsData';
 import './story.css';
 import './week.css';
 
@@ -84,7 +85,7 @@ const StoriesCard: React.FC<{ data: WeekData }> = ({ data }) => {
 
 /** The last few pull requests Rigour reviewed; nothing at all where this Studio has no such list. */
 const RecentPulls: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
-    const { data, error } = useStudioJson<PullRow[] | { pulls?: PullRow[] }>('/api/pulls');
+    const { data, error } = useStudioJson<PullsList>('/api/pulls');
     if (error || !data) return null;
-    return <RecentPullsCard rows={Array.isArray(data) ? data : data.pulls ?? []} onOpen={onOpen} />;
+    return <RecentPullsCard rows={data.rows} onOpen={onOpen} />;
 };

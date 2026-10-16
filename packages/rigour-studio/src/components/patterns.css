@@ -2,7 +2,7 @@
 .pat-note { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
 .pat-search { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--border-med); border-radius: 8px; background: var(--bg-surface, var(--bg-card)); color: var(--text-primary); font: inherit; font-size: 14px; }
 .pat-search:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
-.pat-file { overflow-wrap: anywhere; word-break: break-word; }
+.pat-file { display: inline-block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .pat-subhead { margin-top: 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); }
 .pat-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; font-size: 13px; }
 .pat-bar > .ui-meter { grid-column: 1 / -1; }

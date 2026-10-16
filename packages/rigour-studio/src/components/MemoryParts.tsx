@@ -39,8 +39,9 @@ export const RepeatsCard: React.FC<{ weeks: LearningWeek[]; prRecorded: boolean 
     const bars = weeks.map(w => ({ label: new Date(w.from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), values: [w.stoppedInDevelopment, ...(prRecorded ? [w.reachedPr ?? 0] : [])] }));
     return (
         <Card title="Repeat mistakes, by week" meta="computed from the lesson's rule and title">
-            <WeekChart weeks={bars} series={series} />
-            {weeks.every(w => w.stoppedInDevelopment + (w.reachedPr ?? 0) === 0) && <div className="mem-note">No learned mistake came back in these weeks.</div>}
+            {weeks.every(w => w.stoppedInDevelopment + (w.reachedPr ?? 0) === 0)
+                ? <Empty>No learned mistake came back in these weeks. When an agent is about to repeat one, it is counted here.</Empty>
+                : <WeekChart weeks={bars} series={series} />}
             {!prRecorded && <div className="mem-note">Repeats that reached a PR show once branch reviews run on this machine (<code>rigour review --base main</code>, for example in a pre-push hook). Reviews in CI stay in CI.</div>}
         </Card>
     );

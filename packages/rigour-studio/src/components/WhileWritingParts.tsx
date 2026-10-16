@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card, Chip, Empty, Kpis, Meter, Table, type Column, type KpiItem, type Tone } from './ui';
 import { ago, inlineCode, plural, STAGE_WORDS, type CatchStage, type Story } from './storyData';
-import { StoryCard } from './Week';
+import { StoryCard } from './WeekParts';
 import './whileWriting.css';
 
 interface FeedItem { at: string; stage: 'brief' | 'edit' | 'stop' | 'push' | 'fixed'; branch: string | null; agent: string | null; session: string | null; text: string; detail?: string; tone: Tone }
