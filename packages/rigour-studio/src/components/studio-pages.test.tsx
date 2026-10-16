@@ -9,7 +9,7 @@ import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { ReadOnlyNote } from './ReadOnlyNote';
 import { inlineCode, plural } from './storyData';
-import { StoryCard } from './Week';
+import { StoryCard } from './WeekParts';
 import { groupNeeds, NeedGroupCard, needsHeading } from './NeedGroups';
 import { Agents, Settings, Verdict } from './ReviewerParts';
 import { SwitchSettings, type SwitchData } from './SwitchParts';

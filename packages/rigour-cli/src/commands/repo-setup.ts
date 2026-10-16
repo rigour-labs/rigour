@@ -28,23 +28,18 @@ export interface SetupCheck {
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
+const readFrom = (base: string) => (rel: string) => { try { return fs.readFileSync(path.join(base, rel), 'utf8'); } catch { return ''; } };
+
 export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: ContextEvent[], installed = getCliVersion()): Promise<SetupCheck[]> {
     const events = eventsAcross(checkoutRoots(cwd));
     // Only the MCP server writes context records, one per tool call: the CLI's own events would count otherwise.
     const calls = toolCalls ?? await getContextEvents(undefined, cwd).catch(() => []);
-    const readFrom = (base: string) => (rel: string) => { try { return fs.readFileSync(path.join(base, rel), 'utf8'); } catch { return ''; } };
     const read = readFrom(cwd);
     // A personal install keeps its hooks and MCP server at user level, switched on per repository (personal.ts).
     const personal = enabledHere(cwd);
     const home = personal ? readFrom(agentHome()) : () => '';
-    // Devin Desktop (formerly Windsurf) reads one project file: the agent's config is that one, named in the check.
     const windsurfFile = liveWindsurfHooks(read);
-    const agents = [
-        { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') + home('.claude/settings.json') },
-        { name: 'Cursor', config: read('.cursor/hooks.json') + home('.cursor/hooks.json') },
-        { name: `Windsurf (${windsurfFile})`, config: read(windsurfFile) + home('.codeium/windsurf/hooks.json') },
-        { name: 'Cline', config: ['PostToolUse', 'PreToolUse'].map(hook => read(`.clinerules/hooks/${hook}`) + home(`Documents/Cline/Hooks/${hook}`)).join('') },
-    ].filter(a => a.config);
+    const agents = agentHookConfigs(cwd);
     const mcpConfig = read('.mcp.json') + read('.cursor/mcp.json') + home('.claude.json') + home('.cursor/mcp.json');
     // The repository's own committed install: only `rigour setup --team` changes it (a plain setup leaves it as committed).
     const setup = !personal && /rigour/i.test(agents.map(a => a.config).join('\n')) ? 'rigour setup --team' : 'rigour setup';
@@ -58,6 +53,23 @@ export async function checkRepoSetup(cwd: string, now = new Date(), toolCalls?: 
         ...(rigourHooksIgnored(read) ? [windsurfFileCheck(windsurfFile, setup)] : []),
         prCheck(cwd),
     ];
+}
+
+/**
+ * Each agent with Rigour-capable hooks that has a hook config here (the project's, or the machine's for a personal
+ * install), and that config's text: what setup and Studio's coverage read to say which hooks an agent runs.
+ */
+export function agentHookConfigs(cwd: string): Array<{ name: string; config: string }> {
+    const read = readFrom(cwd);
+    const home = enabledHere(cwd) ? readFrom(agentHome()) : () => '';
+    // Devin Desktop (formerly Windsurf) reads one project file: the agent's config is that one, named in the check.
+    const windsurfFile = liveWindsurfHooks(read);
+    return [
+        { name: 'Claude Code', config: read('.claude/settings.json') + read('.claude/settings.local.json') + home('.claude/settings.json') },
+        { name: 'Cursor', config: read('.cursor/hooks.json') + home('.cursor/hooks.json') },
+        { name: `Windsurf (${windsurfFile})`, config: read(windsurfFile) + home('.codeium/windsurf/hooks.json') },
+        { name: 'Cline', config: ['PostToolUse', 'PreToolUse'].map(hook => read(`.clinerules/hooks/${hook}`) + home(`Documents/Cline/Hooks/${hook}`)).join('') },
+    ].filter(a => a.config);
 }
 
 /**

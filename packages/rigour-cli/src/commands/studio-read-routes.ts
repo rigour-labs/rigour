@@ -11,6 +11,7 @@ const ROUTES: Record<string, () => Promise<Loader>> = {
     '/api/pulls': async () => (await import('./studio-pulls.js')).loadPulls,
     '/api/pull': async () => (await import('./studio-pulls.js')).loadPull,
     '/api/patterns': async () => (await import('./studio-patterns.js')).loadPatterns,
+    '/api/governance': async () => (await import('./studio-governance.js')).loadGovernance,
 };
 
 /** Answers a GET for one of the read-only pages; false for any other path. */
