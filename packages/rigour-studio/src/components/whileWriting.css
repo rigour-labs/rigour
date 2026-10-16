@@ -1,0 +1,33 @@
+/* "While writing": the four moments an agent passes through, as a flow of cards, and the feed grouped by session. */
+.ww-toggle { display: inline-flex; border: 1px solid var(--border-dim); border-radius: 8px; overflow: hidden; background: var(--bg-card); }
+.ww-toggle button { border: 0; background: none; padding: 7px 14px; font: inherit; font-size: 13px; color: var(--text-dim); cursor: pointer; }
+.ww-toggle button + button { border-left: 1px solid var(--border-dim); }
+.ww-toggle button.on { background: var(--accent-glow); color: var(--accent-primary); font-weight: 600; }
+.ww-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.ww-stage { position: relative; border: 1px solid var(--border-dim); border-radius: 12px; background: var(--bg-card); padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ww-stage:not(:last-child)::after { content: '→'; position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 14px; }
+.ww-stage-step { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-primary); }
+.ww-stage h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.ww-stage-value { font-size: 26px; font-weight: 700; line-height: 1.15; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.ww-stage-unit { font-size: 13px; font-weight: 500; color: var(--text-dim); margin-left: 6px; }
+.ww-stage p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-dim); }
+.ww-stage-facts { font-size: 13px; line-height: 1.5; color: var(--text-main); }
+.ww-session + .ww-session { border-top: 1px solid var(--border-dim); }
+.ww-session-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 14px 20px 6px; font-size: 13px; }
+.ww-session-head strong { color: var(--text-primary); font-weight: 600; }
+.ww-session-head span { color: var(--text-dim); }
+.ww-item { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 8px 20px; font-size: 14px; line-height: 1.5; }
+.ww-item:last-child { padding-bottom: 14px; }
+.ww-item .ui-chip { text-align: center; }
+.ww-item-detail { font-size: 12px; color: var(--text-dim); margin-top: 2px; overflow-wrap: anywhere; }
+.ww-time { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.ww-agents .ui-table th, .ww-agents .ui-table td { padding: 8px 12px; }
+.ww-agents .ui-table th:first-child, .ww-agents .ui-table td:first-child { padding-left: 20px; }
+.ww-agents .ui-table td:not(:first-child), .ww-agents .ui-table th:not(:first-child) { text-align: right; }
+.ww-sub-line { padding-left: 12px; color: var(--text-dim); }
+.ww-note { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.ww-rule { display: flex; flex-direction: column; gap: 5px; }
+.ww-rule-line { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; line-height: 1.4; }
+.ww-rule-line span:last-child { white-space: nowrap; color: var(--text-dim); font-size: 12px; }
+@media (max-width: 1100px) { .ww-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ww-stage:nth-child(2)::after { display: none; } }
+@media (max-width: 600px) { .ww-flow { grid-template-columns: minmax(0, 1fr); } .ww-stage::after { display: none; } .ww-item { grid-template-columns: minmax(0, 1fr) auto; } .ww-item .ui-chip { grid-column: 1 / -1; justify-self: start; } }
