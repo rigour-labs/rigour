@@ -54,14 +54,17 @@ describe('the Memory page', () => {
             { kind: 'point', pr: 12, author: 'reviewer-a', source: 'person', at: '2026-09-01T00:00:00Z' },
             { kind: 'outcome', pr: 12, author: 'git', detail: 'fixed later by abc123' },
             { kind: 'accepted', pr: 12, author: 'lead@example.com', detail: 'how we work' },
-            { kind: 'rejected', pr: 12, author: 'Sam P.', team: true },
+            { kind: 'rejected', pr: 12, author: 'reviewer-a', team: true },
+            { kind: 'correction', pr: 0, author: 'dev@example.com' },
         ] })]} />);
+        expect(out).not.toContain('PR #0');
+        expect(out).toContain('An edit after the agent');
         expect(out).toContain('PR #12');
         expect(out).toContain('<strong>reviewer-a</strong> raised it');
         expect(out).toContain('a later fix or revert backed it<span>: fixed later by abc123</span>');
         expect(out).not.toContain('<strong>git</strong>');
         expect(out).toContain('<strong>lead@example.com</strong> promoted it<span>: how we work</span>');
-        expect(out).toContain('<strong>Sam P.</strong> (team) decided against it');
+        expect(out).toContain('<strong>reviewer-a</strong> (team) decided against it');
         expect(html(<FromReviews lessons={[]} />)).toContain('rigour learn-reviews');
     });
 

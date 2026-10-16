@@ -50,6 +50,7 @@ afterEach(() => {
 function seedMergedPr(): void {
     writeThread('feat/checkout', [
         { at: '2026-10-10T08:00:00Z', kind: 'brief', agent: 'claude', items: 3 },
+        { at: '2026-10-10T08:01:00Z', kind: 'brief', agent: 'cli', items: 0 },
         { at: '2026-10-10T08:05:00Z', kind: 'edit-check', files: ['src/pay.ts'], findings: 2 },
         { at: '2026-10-10T08:07:00Z', kind: 'edit-check', files: ['src/pay.ts'], findings: 0, agent: 'cursor' },
         { at: '2026-10-10T08:30:00Z', kind: 'stop-review', agent: 'claude', blocked: true, blocking: 1 },
@@ -88,7 +89,7 @@ describe('the Pull requests page', () => {
     it('says merges are unknown, not zero, when none is recorded', () => {
         writeThread('feat/x', [{ at: '2026-10-14T10:00:00Z', kind: 'review', outcome: 'passed', blocking: 0, should_fix: 0, pr: 5 }]);
         const list = loadPulls(repo, undefined, now);
-        expect(list.rows[0]).toMatchObject({ state: 'open', ci: null, followUps: null, blockingFound: 0 });
+        expect(list.rows[0]).toMatchObject({ state: 'no-merge', ci: null, followUps: null, blockingFound: 0 });
         expect(list.mergesRecorded).toBe(false);
         expect(loadPulls(fs.mkdtempSync(path.join(os.tmpdir(), 'no-git-')), undefined, now)).toMatchObject({ rows: [], threadsRecorded: false });
     });
@@ -97,7 +98,7 @@ describe('the Pull requests page', () => {
         seedMergedPr();
         const d = loadPull(repo, new URL('http://studio/api/pull?n=42'));
         if (!d.found) throw new Error('not found');
-        expect(d.steps.brief).toMatchObject({ count: 1, items: 3, agents: ['claude'] });
+        expect(d.steps.brief).toMatchObject({ count: 2, items: 3, agents: ['claude'] });
         expect(d.steps.edits).toMatchObject({ checks: 2, findings: 2, files: 1, flagged: 1, cleaned: 1, agents: ['cursor'] });
         expect(d.steps.stop).toMatchObject({ count: 1, blocked: 1, clean: 0 });
         expect(d.steps.push).toMatchObject({ count: 1, passed: 0, failed: 1 });
@@ -124,5 +125,53 @@ describe('the Pull requests page', () => {
         const byPr = loadPull(repo, new URL('http://studio/api/pull?n=9'));
         expect(byPr).toMatchObject({ state: 'reverted', steps: { merge: { ci: 'failure', followUpCount: 2, fixes: 1, followUps: null, source: 'thread' } } });
         expect(loadPull(repo, new URL('http://studio/api/pull?n=404'))).toEqual({ found: false, key: '#404' });
+    });
+
+    it('keeps a reused branch\'s two pull requests apart', () => {
+        writeThread('feat/reuse', [
+            { at: '2026-10-10T10:00:00Z', kind: 'review', outcome: 'findings', blocking: 1, should_fix: 0, pr: 1 },
+            { at: '2026-10-11T10:00:00Z', kind: 'merge', pr: 1, merge_sha: 'abc', merged_at: '2026-10-11T09:00:00Z' },
+            { at: '2026-10-12T10:00:00Z', kind: 'review', outcome: 'passed', blocking: 0, should_fix: 0, pr: 2 },
+            { at: '2026-10-13T10:00:00Z', kind: 'review', outcome: 'passed', blocking: 0, should_fix: 0, pr: 2 },
+        ]);
+        const list = loadPulls(repo, undefined, now);
+        expect(list.rows.map(r => [r.key, r.rounds, r.state, r.blockingFound])).toEqual([['#2', 2, 'no-merge', 0], ['#1', 1, 'merged', 1]]);
+        const one = loadPull(repo, new URL('http://studio/api/pull?n=1'));
+        if (!one.found) throw new Error('not found');
+        expect([one.facts.rounds, one.state]).toEqual([1, 'merged']);
+        const two = loadPull(repo, new URL('http://studio/api/pull?n=2'));
+        if (!two.found) throw new Error('not found');
+        expect([two.facts.rounds, two.state, two.steps.merge]).toEqual([2, 'no-merge', null]);
+    });
+
+    it('reads a damaged record as not found instead of failing the page', () => {
+        writeThread('feat/bad', [{ at: '2026-10-14T10:00:00Z', kind: 'review', head: HEAD1, outcome: 'findings', blocking: 3, should_fix: 0, pr: 7, judges: ['claude'] }]);
+        const dir = path.join(repo, '.git', 'rigour-reviewer');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, `${HEAD1}.1.record.json`), JSON.stringify({ at: 5, verified: { rules: { served: 'x' }, blocking: [{ id: 'b1' }, 'junk'] }, judges: 'x', reported: null }));
+        expect(loadPulls(repo, undefined, now).rows[0]).toMatchObject({ pr: 7, blockingFound: 1 });
+        const d = loadPull(repo, new URL('http://studio/api/pull?n=7'));
+        if (!d.found) throw new Error('not found');
+        expect(d.steps.reviews[0]).toMatchObject({ recorded: true, judges: [], rules: { served: 0, broken: 0 }, humanReviews: null, disputed: null, cost: [] });
+        // Without its blocking list the record is not used: the event's own figures stand.
+        fs.writeFileSync(path.join(dir, `${HEAD1}.1.record.json`), JSON.stringify({ verified: { rules: {}, blocking: 'x' } }));
+        expect(loadPulls(repo, undefined, now).rows[0]).toMatchObject({ pr: 7, blockingFound: 3 });
+        const again = loadPull(repo, new URL('http://studio/api/pull?n=7'));
+        if (!again.found) throw new Error('not found');
+        expect(again.steps.reviews[0]).toMatchObject({ recorded: false, rules: null, judges: [{ reviewer: 'claude', model: null }] });
+    });
+
+    it('opens a branch named like a number as that branch, never as a pull request', () => {
+        writeThread('42', [{ at: '2026-10-14T10:00:00Z', kind: 'review', outcome: 'passed', blocking: 0, should_fix: 0 }]);
+        writeThread('feat/other', [{ at: '2026-10-14T10:00:00Z', kind: 'review', outcome: 'passed', blocking: 0, should_fix: 0, pr: 42 }]);
+        expect(loadPull(repo, new URL('http://studio/api/pull?branch=42'))).toMatchObject({ found: true, key: 'branch:42', pr: null, branches: ['42'] });
+    });
+
+    it('lists only branches with activity in the last 90 days, and says how many it left out', () => {
+        writeThread('feat/old', [{ at: '2026-01-14T10:00:00Z', kind: 'review', outcome: 'passed', blocking: 0, should_fix: 0, pr: 3 }]);
+        const old = path.join(repo, '.git', 'rigour', 'threads', branchFile('feat/old'));
+        fs.utimesSync(old, new Date('2026-01-14T10:00:00Z'), new Date('2026-01-14T10:00:00Z'));
+        const list = loadPulls(repo, undefined, now);
+        expect([list.rows, list.scope, list.threadsRecorded]).toEqual([[], { days: 90, older: 1 }, true]);
     });
 });

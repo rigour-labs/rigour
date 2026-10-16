@@ -64,7 +64,7 @@ export const WeeklyTable: React.FC<{ weeks: ContextWeek[] }> = ({ weeks }) => {
                     { label: 'Files given', cell: w => (w.scopes ? `${w.filesReturned} of ${w.filesConsidered}` : '—') },
                     { label: 'Recalls', cell: w => w.recalls },
                     { label: 'Lessons told', cell: w => w.lessonsTold },
-                    { label: 'Duplicates avoided', cell: w => w.reuse },
+                    { label: 'Reuse suggestions', cell: w => w.reuse },
                 ]} />}
         </Card>
     );

@@ -4,6 +4,7 @@
  * merge. A step this machine has no event for is null; the page says how to record it.
  */
 import type { ReviewLesson, ThreadEvent } from '@rigour-labs/core';
+import { recordedAgent } from './studio-agents.js';
 import { num, short, strings } from './studio-pulls-data.js';
 import { appliedLessons, mergeOf, roundsOf, stateOf, type Context, type Merge, type PullState, type ReportedCost, type Round } from './studio-pulls-rounds.js';
 
@@ -73,7 +74,7 @@ const ofKind = (events: ThreadEvent[], kind: ThreadEvent['kind']) => events.filt
 
 /** Agents only as the events recorded them; none recorded is an empty list, never a guess. */
 function agentsOf(events: ThreadEvent[]): string[] {
-    return [...new Set(events.map(e => e.agent).filter((a): a is string => typeof a === 'string' && a.length > 0))];
+    return [...new Set(events.map(e => recordedAgent(e.agent)).filter((a): a is string => a !== null))];
 }
 
 function briefStep(events: ThreadEvent[]): PullDetail['steps']['brief'] {

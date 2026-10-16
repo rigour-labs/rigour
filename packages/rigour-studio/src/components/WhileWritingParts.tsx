@@ -181,8 +181,8 @@ const OpenList: React.FC<{ open: DevelopmentData['open']; total: number }> = ({ 
     if (open.length === 0) return <Empty>Nothing caught in this window is still waiting. A problem stays here until the agent fixes it or someone marks it "not a bug".</Empty>;
     return (
         <>
-            {open.map(o => (
-                <div className="ui-item" key={`${o.rule}:${o.file}`}>
+            {open.map((o, i) => (
+                <div className="ui-item" key={`${o.rule}:${o.file}:${o.openedAt}:${i}`}>
                     <div>{inlineCode(o.title)}</div>
                     <div className="ww-note"><span className="ui-mono">{o.file}</span> · caught {STAGE_WORDS[o.stage]} · {ago(o.openedAt)}</div>
                 </div>

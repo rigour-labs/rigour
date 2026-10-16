@@ -22,6 +22,8 @@
 .ui-table tr:last-child td { border-bottom: 0; }
 .ui-table tr.ui-clickable { cursor: pointer; }
 .ui-table tr.ui-clickable:hover td { background: var(--bg-accent); }
+.ui-row-open { display: block; width: 100%; background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ui-row-open:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; border-radius: 4px; }
 .ui-chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; background: var(--bg-accent); color: var(--text-dim); }
 .ui-chip.ok { background: color-mix(in srgb, var(--status-success) 14%, transparent); color: var(--status-success); }
 .ui-chip.warn { background: color-mix(in srgb, var(--status-warning) 16%, transparent); color: var(--status-warning); }
@@ -36,9 +38,9 @@
 .ui-step { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 14px; }
 .ui-dot-col { display: flex; flex-direction: column; align-items: center; }
 .ui-dot { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: var(--bg-accent); color: var(--text-dim); }
-.ui-dot.done { background: var(--accent-primary); color: #fff; }
-.ui-dot.ok { background: var(--status-success); color: #fff; }
-.ui-dot.bad { background: var(--status-error); color: #fff; }
+.ui-dot.done { background: var(--accent-primary); color: var(--text-on-accent); }
+.ui-dot.ok { background: var(--status-success); color: var(--text-on-accent); }
+.ui-dot.bad { background: var(--status-error); color: var(--text-on-accent); }
 .ui-line { flex: 1; width: 2px; background: var(--border-dim); margin: 4px 0; min-height: 14px; }
 .ui-step:last-child .ui-line { display: none; }
 .ui-step-body { padding-bottom: 18px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -59,5 +61,7 @@
 .ui-link:hover { color: var(--accent-tertiary); }
 .ui-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-dim); }
 .ui-tabs button { border: 0; background: none; padding: 10px 14px; font: inherit; font-size: 14px; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.ui-tabpanel { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+.ui-tabs button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 .ui-tabs button.on { color: var(--text-primary); font-weight: 600; border-bottom-color: var(--accent-primary); }
 @media (max-width: 960px) { .ui-cols { grid-template-columns: minmax(0, 1fr); } }

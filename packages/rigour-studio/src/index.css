@@ -20,6 +20,8 @@
     --accent-secondary: #6366f1;
     --accent-tertiary: #3730a3;
     --accent-glow: rgba(79, 70, 229, 0.1);
+    /* Text on a solid accent or status fill. */
+    --text-on-accent: #ffffff;
 
     --status-ready: #17663f;
     --status-success: #17663f;
@@ -53,6 +55,7 @@
     --accent-secondary: #a5b4fc;
     --accent-tertiary: #c7d2fe;
     --accent-glow: rgba(129, 140, 248, 0.18);
+    --text-on-accent: #050506;
 
     --status-ready: #34d399;
     --status-success: #34d399;

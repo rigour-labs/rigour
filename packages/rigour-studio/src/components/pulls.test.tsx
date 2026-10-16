@@ -14,7 +14,7 @@ const row = (over: Partial<PullRow>): PullRow => ({
 });
 
 const list = (rows: PullRow[], over: Partial<PullsList> = {}): PullsList => ({
-    rows, window: { days: 28, reviewed: 1, blocking: 2, lessonsApplied: 1, merged: 1, mergedClean: 1 }, mergesRecorded: true, threadsRecorded: rows.length > 0, ...over,
+    rows, window: { days: 28, reviewed: 1, blocking: 2, lessonsApplied: 1, merged: 1, mergedClean: 1 }, mergesRecorded: true, threadsRecorded: rows.length > 0, scope: { days: 90, older: 0 }, ...over,
 });
 
 const round = (over: Partial<Round>): Round => ({
@@ -46,6 +46,14 @@ describe('Pull requests page', () => {
         expect(out).toContain('spike/cache');
         expect(out).toContain('passed');
         expect(out).toContain('ui-clickable');
+        // The first cell is a button, so a keyboard opens the row too.
+        expect(out).toContain('<button type="button" class="ui-row-open"><span class="pulls-pr">');
+        expect(html(<PullsTable list={list([row({ state: 'no-merge', ci: null, followUps: null })])} onOpen={() => undefined} />)).toContain('No merge recorded');
+    });
+
+    it('says when quieter branches are left out of the list', () => {
+        expect(html(<PullsTable list={list([row({})], { scope: { days: 90, older: 3 } })} onOpen={() => undefined} />)).toContain('Showing branches with activity in the last 90 days; 3 quieter branches left out.');
+        expect(html(<PullsTable list={list([], { scope: { days: 90, older: 1 } })} onOpen={() => undefined} />)).toContain('No pull request with activity in the last 90 days.');
     });
 
     it('explains an empty list and unknown merges instead of showing zero', () => {
@@ -73,11 +81,13 @@ describe('Pull requests page', () => {
     });
 
     it('says how to record a merge, and a pull request it never saw', () => {
-        const open = { ...detail({ merge: null, human: { reviews: null, points: [] } }), state: 'open' as const, facts: { ...detail().facts, durationMs: null, cost: [] } };
+        const open = { ...detail({ merge: null, human: { reviews: null, points: [] } }), state: 'no-merge' as const, facts: { ...detail().facts, durationMs: null, cost: [] } };
         const out = html(<PullView answer={open} onBack={() => undefined} />);
         expect(out).toContain('Run <span class="ui-mono">rigour outcomes</span>');
         expect(out).toContain('rigour learn-reviews');
         expect(out).toContain('merge not recorded');
+        expect(out).toContain('No merge recorded');
+        expect(out).not.toContain('>Open<');
         expect(html(<PullView answer={{ found: false, key: '#404' }} onBack={() => undefined} />)).toContain('Nothing recorded on this machine for #404');
     });
 });

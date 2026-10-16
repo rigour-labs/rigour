@@ -5,11 +5,13 @@
  */
 import { readThread, type CiResult, type ThreadEvent } from '@rigour-labs/core';
 import { checkoutRoots } from './studio-checkouts.js';
-import { lessonsAcross, outcomesAcross, readAllThreads, recordReader, reviewerDir } from './studio-pulls-data.js';
+import { lessonsAcross, outcomesAcross, readThreadsSince, recordReader, reviewerDir } from './studio-pulls-data.js';
 import { buildDetail, type PullDetail } from './studio-pulls-detail.js';
-import { appliedLessons, blockingBeforeMerge, mergeOf, roundsOf, stateOf, type Context, type PullState } from './studio-pulls-rounds.js';
+import { appliedLessons, blockingBeforeMerge, eventsOfPr, mergeOf, roundsOf, stateOf, type Context, type PullState } from './studio-pulls-rounds.js';
 
 const WINDOW_DAYS = 28;
+/** The list reads the threads written to in the last 90 days: a branch quiet for longer is left out (see `older`). */
+const LIST_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface PullRow {
@@ -37,30 +39,37 @@ export interface PullsList {
     /** Whether any merge is recorded here (outcomes.json or a thread's merge event): without one, merge numbers are unknown. */
     mergesRecorded: boolean;
     threadsRecorded: boolean;
+    /** Only branches with activity in the last `days` are listed; `older` counts the branch threads left out. */
+    scope: { days: number; older: number };
 }
 
 export function loadPulls(cwd: string, _url?: URL, now = Date.now()): PullsList {
     const ctx = contextFor(cwd);
-    const rows = groups(readAllThreads(cwd)).map(g => rowOf(g, ctx)).sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
+    const { threads, older } = readThreadsSince(cwd, now - LIST_DAYS * DAY_MS);
+    const rows = groups(threads).map(g => rowOf(g, ctx)).sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
     return {
         rows,
         window: windowOf(rows, now),
         mergesRecorded: ctx.outcomes.size > 0 || rows.some(r => r.state === 'merged' || r.state === 'reverted'),
-        threadsRecorded: rows.length > 0,
+        threadsRecorded: rows.length > 0 || older > 0,
+        scope: { days: LIST_DAYS, older },
     };
 }
 
-/** One pull request (`?n=42`) or one branch reviewed before its pull request (`?branch=name`). */
+/**
+ * One pull request (`?n=42`) or one branch reviewed before its pull request (`?branch=name`). A branch is looked up as
+ * a branch only (`branch:` keeps core from reading `42` as pull request #42).
+ */
 export function loadPull(cwd: string, url?: URL): PullDetail | { found: false; key: string } {
     const n = url?.searchParams.get('n')?.replace(/^#/, '') ?? '';
-    const branch = url?.searchParams.get('branch') ?? '';
+    const branch = url?.searchParams.get('branch')?.trim() ?? '';
     const pr = /^\d{1,7}$/.test(n) ? Number(n) : null;
     const key = pr !== null ? `#${pr}` : branch ? `branch:${branch}` : '';
-    const thread = key ? readThread(cwd, pr !== null ? key : branch) : undefined;
+    const thread = key ? readThread(cwd, key) : undefined;
     if (!thread?.events.length) return { found: false, key };
     // A branch opened by name that has since had a pull request is that pull request.
     const named = pr ?? [...thread.events].reverse().map(e => e.pr).find((p): p is number => typeof p === 'number') ?? null;
-    return buildDetail(named !== null && pr === null ? `#${named}` : key, named, thread.events, contextFor(cwd));
+    return buildDetail(named !== null && pr === null ? `#${named}` : key, named, eventsOfPr(thread.events, named), contextFor(cwd));
 }
 
 function contextFor(cwd: string): Context {
@@ -84,7 +93,7 @@ function groups(threads: ThreadEvent[][]): Group[] {
     };
     for (const events of threads) {
         const prs = [...new Set(events.map(e => e.pr).filter((p): p is number => typeof p === 'number'))];
-        if (prs.length) prs.forEach(pr => add(`#${pr}`, pr, events));
+        if (prs.length) prs.forEach(pr => add(`#${pr}`, pr, eventsOfPr(events, pr)));
         else if (events.some(e => e.kind === 'review')) add(`branch:${events[events.length - 1].branch}`, null, events);
     }
     return [...byKey.values()].map(g => ({ ...g, events: g.events.sort((a, b) => a.at.localeCompare(b.at)) }));

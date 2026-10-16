@@ -5,7 +5,7 @@
  */
 import path from 'path';
 import type { Config, ScoreEntry, ThreadEvent } from '@rigour-labs/core';
-import { jsonLines } from './studio-threads.js';
+import { jsonLines } from './studio-files.js';
 
 const SCORE_POINTS = 30;
 const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;

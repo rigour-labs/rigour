@@ -70,8 +70,8 @@ export const DecisionsCard: React.FC<{ decisions: Decision[] }> = ({ decisions }
                 : (
                     <>
                         <div className="gov-filters" role="group" aria-label="Filter by kind">
-                            <button type="button" className={kind === null ? 'on' : ''} onClick={() => setKind(null)}>All {decisions.length}</button>
-                            {[...counts].map(([k, n]) => <button type="button" key={k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{k} {n}</button>)}
+                            <button type="button" className={kind === null ? 'on' : ''} aria-pressed={kind === null} onClick={() => setKind(null)}>All {decisions.length}</button>
+                            {[...counts].map(([k, n]) => <button type="button" key={k} className={kind === k ? 'on' : ''} aria-pressed={kind === k} onClick={() => setKind(k)}>{k} {n}</button>)}
                         </div>
                         <div className="gov-log">{shown.map((d, i) => <DecisionRow key={`${d.at}:${i}`} decision={d} />)}</div>
                     </>

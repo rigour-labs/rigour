@@ -24,14 +24,14 @@ describe('a review lesson\'s evidence, for the Memory page', () => {
                 { kind: 'point', pr: 12, comment: 'c1', author: 'reviewer-a', source: 'person', postedAt: '2026-09-01T00:00:00Z' },
                 { pr: 14, comment: 'c2', author: 'review-bot', source: 'bot' },
                 { kind: 'accepted', pr: 12, comment: 'accepted-1', author: 'lead@example.com', detail: 'how we work', at: '2026-10-01T00:00:00Z' },
-                { kind: 'rejected', pr: 12, comment: 'team-1', author: '', team: { name: 'Sam P.', receivedAt: '2026-10-02T00:00:00Z' } },
+                { kind: 'rejected', pr: 12, comment: 'team-1', author: '', team: { name: 'reviewer-a', receivedAt: '2026-10-02T00:00:00Z' } },
             ],
         };
         expect(evidenceTrail(lesson)).toEqual([
             { kind: 'point', pr: 12, author: 'reviewer-a', source: 'person', at: '2026-09-01T00:00:00Z' },
             { kind: 'point', pr: 14, author: 'review-bot', source: 'bot' },
             { kind: 'accepted', pr: 12, author: 'lead@example.com', detail: 'how we work', at: '2026-10-01T00:00:00Z' },
-            { kind: 'rejected', pr: 12, author: 'Sam P.', at: '2026-10-02T00:00:00Z', team: true },
+            { kind: 'rejected', pr: 12, author: 'reviewer-a', at: '2026-10-02T00:00:00Z', team: true },
         ]);
         const journey = buildLearning({ now, lessons: [], reviewLessons: [lesson], stories: [], events: [] }).lessons[0];
         expect(journey.evidence).toHaveLength(4);

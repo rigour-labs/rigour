@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { studioWrite } from '../studioWrite';
 import { Card, Chip, Empty, WeekChart } from './ui';
-import type { PullRow } from './pullsData';
+import { outcomeWords, type PullRow, type PullsList } from './pullsData';
 import { ago, inlineCode, plural, STAGE_WORDS, useStudioJson, type CatchStage, type Story } from './storyData';
 
 export interface WeekData {
@@ -114,18 +114,18 @@ export const SetupGaps: React.FC<{ onSetup: () => void }> = ({ onSetup }) => {
 };
 
 
-export const RecentPullsCard: React.FC<{ rows: PullRow[]; onOpen: () => void }> = ({ rows, onOpen }) => (
+export const RecentPullsCard: React.FC<{ rows: PullRow[]; onOpen: () => void; scope?: PullsList['scope'] }> = ({ rows, onOpen, scope }) => (
     <Card title="Recent pull requests">
         {rows.length === 0
-            ? <span className="st-sub">No pull request reviewed here yet.</span>
+            ? <span className="st-sub">{scope?.older ? `No pull request with activity in the last ${scope.days} days.` : 'No pull request reviewed here yet.'}</span>
             : rows.slice(0, 5).map(r => (
                 <div className="week-pull" key={r.key}>
-                    <div><strong>{r.pr ? `#${r.pr}` : 'Not opened yet'}</strong> {r.title ?? r.branches[0] ?? ''}</div>
+                    <div><strong>{r.pr !== null ? `#${r.pr}` : 'Not opened yet'}</strong> {r.title ?? r.branches[0] ?? ''}</div>
                     <small className="st-sub">
-                        {r.lastReview ? `${r.lastReview.outcome} · ${r.lastReview.blocking} blocking` : 'not reviewed'} · {ago(r.lastActivity)}
+                        {r.lastReview ? `${outcomeWords(r.lastReview.outcome).label} · ${r.lastReview.blocking} blocking` : 'not reviewed'} · {ago(r.lastActivity)}
                     </small>
                 </div>
             ))}
-        <button type="button" className="ui-link" onClick={onOpen}>All pull requests</button>
+    <button type="button" className="ui-link" onClick={onOpen}>All pull requests</button>
     </Card>
 );

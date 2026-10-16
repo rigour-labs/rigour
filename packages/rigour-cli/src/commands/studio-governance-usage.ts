@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Config, DeepRun, TeamDecisionCache } from '@rigour-labs/core';
-import { jsonLines, readJsonFile } from './studio-threads.js';
+import { jsonLines, readJsonFile } from './studio-files.js';
 
 const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
 
@@ -52,7 +52,7 @@ export function reviewerUsage(store: string | undefined, deepRuns: DeepRun[], co
     return {
         days,
         runs: days.reduce((n, d) => n + d.runs, 0),
-        judges: store ? judgeUsage(store, within) : [],
+        judges: store ? judgeUsage(store, within, now.getTime() - WINDOW_MS) : [],
         deep: deep.length ? deepUsage(deep) : null,
         caps: { runsPerDay: caps?.max_runs_per_day ?? null, usdPerDay: caps?.max_usd_per_day ?? null, usdPerReview: caps?.max_usd_per_review ?? null },
     };
@@ -69,17 +69,27 @@ function spendDays(dir: string, within: (at: string) => boolean): ReviewerUsage[
 }
 
 /** Each judge and model across the review records in the window; tokens from each record's verdict, where it kept them. */
-function judgeUsage(store: string, within: (at: string) => boolean): JudgeUsage[] {
+function judgeUsage(store: string, within: (at: string) => boolean, since: number): JudgeUsage[] {
     let files: string[] = [];
     try { files = fs.readdirSync(store).filter(f => f.endsWith('.record.json')); } catch { return []; }
     const byJudge = new Map<string, JudgeUsage>();
-    for (const file of files) {
+    // A record is written once, when its review runs: one last written before the window began is not in it.
+    for (const file of files.filter(f => writtenSince(path.join(store, f), since))) {
         const record = readJsonFile<RecordFile>(path.join(store, file));
         if (!record || typeof record.at !== 'string' || !within(record.at)) continue;
         const verdict = readJsonFile<VerdictTokens>(path.join(store, file.replace(/\.record\.json$/, '.json')));
-        for (const judge of record.judges ?? []) addJudge(byJudge, judge, tokensOf(verdict, judge.reviewer));
+        const judges = Array.isArray(record.judges) ? record.judges.filter(j => typeof j?.reviewer === 'string') : [];
+        for (const judge of judges) addJudge(byJudge, judge, tokensOf(verdict, judge.reviewer));
     }
     return [...byJudge.values()].sort((a, b) => b.reviews - a.reviews);
+}
+
+function writtenSince(file: string, since: number): boolean {
+    try {
+        return fs.statSync(file).mtimeMs >= since;
+    } catch {
+        return false;
+    }
 }
 
 function addJudge(byJudge: Map<string, JudgeUsage>, judge: RecordJudge, tokens: { input: number; output: number } | null): void {
@@ -95,7 +105,7 @@ function addJudge(byJudge: Map<string, JudgeUsage>, judge: RecordJudge, tokens: 
 }
 
 function tokensOf(verdict: VerdictTokens | undefined, reviewer: string): { input: number; output: number } | null {
-    const t = verdict?.reviewers?.find(r => r.reviewer === reviewer)?.tokens ?? (verdict?.reviewer === reviewer ? verdict.tokens : undefined);
+    const t = (Array.isArray(verdict?.reviewers) ? verdict.reviewers : []).find(r => r?.reviewer === reviewer)?.tokens ?? (verdict?.reviewer === reviewer ? verdict.tokens : undefined);
     return t && (typeof t.input === 'number' || typeof t.output === 'number') ? { input: t.input ?? 0, output: t.output ?? 0 } : null;
 }
 

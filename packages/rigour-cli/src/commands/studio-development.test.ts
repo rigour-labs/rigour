@@ -124,6 +124,16 @@ describe('loadDevelopment', () => {
         expect(dev.caught.medianMinutesToFix).toBeNull();
     });
 
+    it('does not name an agent where the brief recorded the way it was asked for (cli, mcp)', () => {
+        jsonl(path.join(repo, '.git', 'rigour', 'threads', 'main-00000000.jsonl'), [
+            { at: at(10), task: 'branch:main', branch: 'main', kind: 'brief', agent: 'cli', items: 2, files: ['a.ts'] },
+            { at: at(9), task: 'branch:main', branch: 'main', kind: 'brief', agent: 'mcp', items: 1, files: ['a.ts'] },
+        ]);
+        const dev = loadDevelopment(repo, undefined, now);
+        expect(dev.byAgent.map(r => [r.agent, r.briefings])).toEqual([[null, 2]]);
+        expect(dev.feed.map(f => f.agent)).toEqual([null, null]);
+    });
+
     it('is empty, with nothing recorded, in a repository Rigour has not seen work in', () => {
         const dev = loadDevelopment(repo, undefined, now);
         expect([dev.recordingSince, dev.feed, dev.byAgent, dev.caught.total]).toEqual([null, [], [], 0]);

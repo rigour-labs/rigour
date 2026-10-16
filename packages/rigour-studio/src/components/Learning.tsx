@@ -1,7 +1,7 @@
 import React from 'react';
 import { studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
-import { Empty, Kpis, PageHeader, Tabs } from './ui';
+import { Empty, Kpis, PageHeader, TabPanel, Tabs } from './ui';
 import { BotPointsToggle, CompiledChecks, LessonCard, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
 import { FromReviews, LearnedRules, RememberedTable, RepeatsCard, memoryKpis, type Briefed, type LearnedRule, type LearningWeek, type Memory } from './MemoryParts';
 import { HowMemoryWorks, JourneyCard } from './MemoryStore';
@@ -80,8 +80,10 @@ export const Learning: React.FC = () => {
             <Kpis items={memoryKpis(data.lessons, data.weeks, data.briefed)} />
             <div className="ui-cols">
                 <div className="ui-col">
-                    <Tabs tabs={TABS} active={tab} onChange={setTab} />
-                    <LearningTab tab={tab} data={data} lessons={lessons} memories={memories} rules={rules} actions={actions} botToggle={botToggle} />
+                    <Tabs id="memory" tabs={TABS} active={tab} onChange={setTab} />
+                    <TabPanel id="memory" active={tab}>
+                        <LearningTab tab={tab} data={data} lessons={lessons} memories={memories} rules={rules} actions={actions} botToggle={botToggle} />
+                    </TabPanel>
                 </div>
                 <div className="ui-col">
                     <JourneyCard lessons={data.lessons} />

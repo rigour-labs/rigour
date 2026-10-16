@@ -12,7 +12,7 @@
 .st-btn:hover { border-color: var(--text-primary); background: var(--bg-accent); }
 .st-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .st-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.st-btn.primary { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
+.st-btn.primary { background: var(--accent-primary); border-color: var(--accent-primary); color: var(--text-on-accent); }
 .st-btn.primary:hover { background: var(--accent-tertiary); border-color: var(--accent-tertiary); }
 .st-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: var(--bg-accent); color: var(--text-dim); white-space: nowrap; }
 .st-chip.ok { background: color-mix(in srgb, var(--status-success) 14%, transparent); color: var(--status-success); }
@@ -51,7 +51,7 @@
 .st-seg { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--text-dim); border-radius: 8px; background: var(--bg-card); }
 .st-seg button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; transition: background 0.12s, color 0.12s; }
 .st-seg button:hover:not(:disabled):not(.on) { background: var(--bg-accent); color: var(--text-primary); }
-.st-seg button.on { background: var(--accent-primary); color: #fff; font-weight: 500; }
+.st-seg button.on { background: var(--accent-primary); color: var(--text-on-accent); font-weight: 500; }
 .st-seg button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
 .st-seg button:disabled { cursor: not-allowed; }
 .st-seg button:disabled:not(.on) { opacity: 0.5; }

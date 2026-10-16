@@ -1,6 +1,6 @@
 /** What /api/pulls and /api/pull send (rigour-cli studio-pulls*.ts), and the words the Pull requests page uses for it. */
 
-type PullState = 'not-opened' | 'open' | 'merged' | 'reverted';
+type PullState = 'not-opened' | 'no-merge' | 'merged' | 'reverted';
 type CiResult = 'success' | 'failure' | 'pending' | 'none' | 'unavailable';
 
 export interface PullRow {
@@ -24,6 +24,8 @@ export interface PullsList {
     window: { days: number; reviewed: number; blocking: number; lessonsApplied: number; merged: number; mergedClean: number };
     mergesRecorded: boolean;
     threadsRecorded: boolean;
+    /** Only branches with activity in the last `days` are listed; `older` counts the branch threads left out. */
+    scope: { days: number; older: number };
 }
 
 interface Judge { reviewer: string; model: string | null; version: string | null }
@@ -93,7 +95,7 @@ export type PullAnswer = PullDetail | { found: false; key: string };
 
 export const STATE_WORDS: Record<PullState, { label: string; tone: 'ok' | 'warn' | 'bad' | 'info' | 'plain'; note: string }> = {
     'not-opened': { label: 'Not opened yet', tone: 'plain', note: 'Reviewed by Rigour before a pull request existed.' },
-    open: { label: 'Open', tone: 'info', note: 'No merge recorded on this machine. Run rigour outcomes to read merges from GitHub.' },
+    'no-merge': { label: 'No merge recorded', tone: 'plain', note: 'No merge recorded on this machine, so whether it is still open is not known here. Run rigour outcomes to read merges from GitHub.' },
     merged: { label: 'Merged', tone: 'ok', note: 'Merged, as recorded.' },
     reverted: { label: 'Reverted', tone: 'bad', note: 'A later commit on main reverted it.' },
 };

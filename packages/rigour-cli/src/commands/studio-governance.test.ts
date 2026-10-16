@@ -5,7 +5,7 @@ import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConfigSchema, type ThreadEvent } from '@rigour-labs/core';
 import { buildCoverage } from './studio-governance-coverage.js';
-import { buildDecisions } from './studio-governance-decisions.js';
+import { buildDecisions, byPerson } from './studio-governance-decisions.js';
 import { buildQualityGates } from './studio-governance-gates.js';
 import { reviewerUsage, teamState } from './studio-governance-usage.js';
 import { loadGovernance } from './studio-governance.js';
@@ -24,7 +24,7 @@ describe('governance coverage', () => {
 
     it('says per agent what is switched on and when it last fired, and never names an agent the record does not', () => {
         const coverage = buildCoverage({
-            now, agents, codex: true, pushGate: true, prReviewer: false, events: [],
+            now, agents, codex: true, pushGate: true, prReviewer: 'off', events: [],
             threads: [
                 thread('stop-review', '2026-10-08T10:00:00Z', { agent: 'claude' }),
                 thread('edit-check', '2026-10-08T11:00:00Z', { agent: 'cursor' }),
@@ -51,7 +51,7 @@ describe('governance coverage', () => {
 
     it('reads the event log only where no thread was kept', () => {
         const coverage = buildCoverage({
-            now, agents, codex: false, pushGate: false, prReviewer: false, threads: [],
+            now, agents, codex: false, pushGate: false, prReviewer: 'off', threads: [],
             events: [{ type: 'stop_review', tool: 'cursor', timestamp: '2026-10-08T10:00:00Z' }, { type: 'hook_check', timestamp: '2026-10-08T11:00:00Z' }],
         });
         expect(coverage.rows.find(r => r.agent === 'Cursor')!.cells.stop.seen).toBe('2026-10-08T10:00:00Z');
@@ -59,8 +59,13 @@ describe('governance coverage', () => {
     });
 
     it('shows a known agent seen here without a hook config as switched off', () => {
-        const coverage = buildCoverage({ now, agents: [], codex: false, pushGate: false, prReviewer: false, events: [], threads: [thread('brief', '2026-10-08T09:00:00Z', { agent: 'claude' })] });
+        const coverage = buildCoverage({ now, agents: [], codex: false, pushGate: false, prReviewer: 'off', events: [], threads: [thread('brief', '2026-10-08T09:00:00Z', { agent: 'claude' })] });
         expect(coverage.rows).toEqual([expect.objectContaining({ agent: 'Claude Code', cells: expect.objectContaining({ brief: { configured: 'not checked', seen: '2026-10-08T09:00:00Z' }, edit: { configured: 'off', seen: null } }) })]);
+    });
+
+    it('shows a pull-request reviewer setup reports broken as broken, not on', () => {
+        const coverage = buildCoverage({ now, agents, codex: false, pushGate: false, prReviewer: 'broken', events: [], threads: [] });
+        expect(coverage.rows.map(r => r.cells.pr.configured)).toEqual(['broken', 'broken']);
     });
 });
 
@@ -81,12 +86,12 @@ describe('governance decisions', () => {
                 { type: 'x', tool: 'human_arbitration', requestId: 'r1', decision: 'approve', arbitrated: true, timestamp: '2026-10-06T00:01:00Z' } as never,
             ],
             team: { version: 1, sharing: { shares: true }, mine: {}, decisions: [
-                { id: 't1', lessonId: 'l2', kind: 'rejected', name: 'Sam', decidedAt: '2026-10-07T00:00:00Z', receivedAt: '2026-10-07T00:00:00Z', detail: 'not our style', text: 'Use tabs', points: [{ pr: 9, comment: 'x', source: 'person' }] },
+                { id: 't1', lessonId: 'l2', kind: 'rejected', name: 'reviewer-a', decidedAt: '2026-10-07T00:00:00Z', receivedAt: '2026-10-07T00:00:00Z', detail: 'not our style', text: 'Use tabs', points: [{ pr: 9, comment: 'x', source: 'person' }] },
                 { id: 't2', lessonId: 'l1', kind: 'accepted', decidedAt: '2026-10-02T00:00:00Z', receivedAt: '2026-10-02T00:00:00Z', detail: 'seen twice', points: [] },
             ] },
         });
         expect(decisions.map(d => [d.kind, d.who, d.source])).toEqual([
-            ['Lesson rejected', 'Sam', 'team'],
+            ['Lesson rejected', 'reviewer-a', 'team'],
             ['Command approved', null, 'Studio approval'],
             ['Reviewer finding dismissed', 'dev@acme.example.com', 'reviewer'],
             ['Not a bug', null, 'not a bug'],
@@ -94,6 +99,7 @@ describe('governance decisions', () => {
             ['Lesson accepted', 'lead@acme.example.com', 'review lessons'],
         ]);
         expect(decisions[1].text).toBe('rm -rf build');
+        expect(decisions.every(byPerson)).toBe(true);
         expect(decisions[5]).toMatchObject({ reason: 'seen twice', pr: 3, text: 'Close the handle' });
     });
 });
@@ -127,6 +133,22 @@ describe('governance reviewer usage', () => {
         expect(usage.judges.find(j => j.reviewer === 'codex')).toMatchObject({ costUsd: null, model: 'gpt-x', tokens: null });
         expect(usage.deep).toMatchObject({ runs: 1, costUsd: null, unpricedRuns: 1, models: ['m'] });
         expect(reviewerUsage(undefined, [], ConfigSchema.parse({}), now)).toMatchObject({ days: [], judges: [], deep: null });
+    });
+
+    it('leaves out records last written before the window without reading them', () => {
+        const store = temp();
+        const old = path.join(store, 'abc.f2.record.json');
+        fs.writeFileSync(old, JSON.stringify({ at: '2026-10-08T00:00:00Z', judges: [{ reviewer: 'claude' }] }));
+        fs.utimesSync(old, new Date('2026-08-01T00:00:00Z'), new Date('2026-08-01T00:00:00Z'));
+        fs.writeFileSync(path.join(store, 'abc.f3.record.json'), JSON.stringify({ at: '2026-10-08T00:00:00Z', judges: 'not a list' }));
+        expect(reviewerUsage(store, [], ConfigSchema.parse({}), now).judges).toEqual([]);
+    });
+
+    it('does not count a command that timed out unanswered as a decision by a person', () => {
+        const decisions = buildDecisions({ lessons: [], dismissals: [], reviewDismissals: [], compiled: [], events: [
+            { type: 'x', tool: 'human_arbitration', requestId: 'r2', decision: 'timeout-deny', timestamp: '2026-10-06T00:01:00Z' } as never,
+        ] });
+        expect(decisions.map(d => [d.kind, byPerson(d)])).toEqual([['Command denied: nobody answered', false]]);
     });
 
     it('reports team sync off without a team, and the sharing state from the last sync', () => {

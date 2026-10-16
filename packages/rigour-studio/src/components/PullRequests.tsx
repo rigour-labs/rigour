@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useStudioJson } from './storyData';
-import { Empty, PageHeader, Tabs } from './ui';
+import { Empty, PageHeader, TabPanel, Tabs } from './ui';
 import { BranchReview } from './Reviews';
 import { PullView } from './PullDetail';
 import { PullsKpiRow, PullsLead, PullsTable } from './PullsList';
@@ -17,8 +17,8 @@ export const PullRequests: React.FC = () => {
     return (
         <div className="ui-page">
             <PageHeader title="Pull requests" lead={PullsLead} />
-            <Tabs tabs={TABS} active={tab} onChange={setTab} />
-            {tab === 'all' ? <AllPulls onOpen={row => setOpen(queryOf(row))} /> : <BranchReview />}
+            <Tabs id="pulls" tabs={TABS} active={tab} onChange={setTab} />
+            <TabPanel id="pulls" active={tab}>{tab === 'all' ? <AllPulls onOpen={row => setOpen(queryOf(row))} /> : <BranchReview />}</TabPanel>
         </div>
     );
 };

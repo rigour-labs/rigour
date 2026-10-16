@@ -6,6 +6,7 @@
  */
 import type { AgentEvent, ThreadEvent } from '@rigour-labs/core';
 import { isOldEditHook } from './setup-migrations.js';
+import { recordedAgent } from './studio-agents.js';
 
 const STAGES = ['brief', 'edit', 'stop', 'push', 'pr'] as const;
 export type Stage = typeof STAGES[number];
@@ -31,7 +32,8 @@ export interface CoverageInputs {
     /** Codex is here (an AGENTS.md or a .codex folder): it has no hooks, so only the push gate and the reviewer reach it. */
     codex: boolean;
     pushGate: boolean;
-    prReviewer: boolean;
+    /** The pull-request reviewer as setup found it; `broken` when setup reports it broken. */
+    prReviewer: 'on' | 'off' | 'broken';
     threads: ThreadEvent[];
     events: AgentEvent[];
 }
@@ -39,8 +41,6 @@ export interface CoverageInputs {
 const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
 /** What an agent is called in a hook's record, and the name setup gives it. */
 const AGENT_NAMES: Record<string, string> = { claude: 'Claude Code', 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', windsurf: 'Windsurf', cascade: 'Windsurf', devin: 'Windsurf', cline: 'Cline' };
-/** The brief's `agent` can name the way it was asked for, not an agent. */
-const NOT_AGENTS = new Set(['cli', 'mcp', 'person']);
 
 interface Sighting { stage: Stage; agent: string | undefined; at: string }
 
@@ -56,7 +56,7 @@ export function buildCoverage(input: CoverageInputs): Coverage {
             edit: { configured: hook('check'), seen: last('edit', id) },
             stop: { configured: hook('stop'), seen: last('stop', id) },
             push: { configured: repoWide(input.pushGate), seen: null },
-            pr: { configured: repoWide(input.prReviewer), seen: null },
+            pr: { configured: input.prReviewer, seen: null },
         } };
     });
     if (input.codex || recent.some(s => s.agent === 'Codex')) rows.push(codexRow(input, last));
@@ -76,7 +76,7 @@ function codexRow(input: CoverageInputs, last: (stage: Stage, agent?: string) =>
     return {
         agent: 'Codex',
         note: 'No hooks: Rigour cannot check its edits or stop it. The push gate and the reviewer still reach it.',
-        cells: { brief: none('brief'), edit: none('edit'), stop: none('stop'), push: { configured: input.pushGate ? 'on' : 'off', seen: null }, pr: { configured: input.prReviewer ? 'on' : 'off', seen: null } },
+        cells: { brief: none('brief'), edit: none('edit'), stop: none('stop'), push: { configured: input.pushGate ? 'on' : 'off', seen: null }, pr: { configured: input.prReviewer, seen: null } },
     };
 }
 
@@ -100,7 +100,7 @@ function otherAgents(recent: Sighting[], rows: CoverageRow[], input: CoverageInp
         return {
             agent: id,
             note: 'Seen here, but no hook config for it was found.',
-            cells: { brief: { configured: 'not checked', seen: last('brief', id) }, edit: off('edit'), stop: off('stop'), push: { configured: input.pushGate ? 'on' : 'off', seen: null }, pr: { configured: input.prReviewer ? 'on' : 'off', seen: null } },
+            cells: { brief: { configured: 'not checked', seen: last('brief', id) }, edit: off('edit'), stop: off('stop'), push: { configured: input.pushGate ? 'on' : 'off', seen: null }, pr: { configured: input.prReviewer, seen: null } },
         };
     });
 }
@@ -112,8 +112,8 @@ function agentId(name: string): string {
 
 /** A recorded agent as setup names it; an id setup does not know stays as recorded; none for a way of asking. */
 function recorded(agent: unknown): string | undefined {
-    if (typeof agent !== 'string' || !agent.trim() || NOT_AGENTS.has(agent)) return undefined;
-    return AGENT_NAMES[agent.toLowerCase()] ?? agent;
+    const name = recordedAgent(agent);
+    return name === null ? undefined : AGENT_NAMES[name.toLowerCase()] ?? name;
 }
 
 /**

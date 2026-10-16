@@ -47,7 +47,7 @@ export const IndexTable: React.FC<{ index: PatternsData['index']; initialQuery?:
             </div>
             {matches.length === 0
                 ? <div className="ui-card-body"><Empty>Nothing in the index matches “{query}”.</Empty></div>
-                : <Table rows={matches.slice(0, SHOWN)} rowKey={e => `${e.file}:${e.line}:${e.name}`} columns={[
+                : <Table rows={matches.slice(0, SHOWN)} rowKey={(e, i) => `${e.file}:${e.line}:${e.type}:${e.name}:${i}`} columns={[
                     { label: 'Name', cell: e => <span className="ui-mono">{e.name}</span> },
                     { label: 'Kind', cell: e => <Chip>{e.type}</Chip> },
                     { label: 'File', cell: e => <span className="ui-mono pat-file" title={`${e.file}:${e.line}`}>{e.file}:{e.line}</span> },
@@ -55,7 +55,7 @@ export const IndexTable: React.FC<{ index: PatternsData['index']; initialQuery?:
                 ]} />}
             <div className="ui-card-body pat-note">
                 {matches.length > SHOWN ? `Showing ${SHOWN} of ${matches.length}; search to narrow. ` : ''}
-                {index.more ? `${index.more} more entries are not listed here. ` : ''}
+                {index.more ? `Search covers the first ${index.entries.length} entries; ${index.more} more are not listed or searched here. ` : ''}
                 How often each is used is not recorded by the index.
             </div>
         </Card>

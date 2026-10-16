@@ -87,5 +87,5 @@ const StoriesCard: React.FC<{ data: WeekData }> = ({ data }) => {
 const RecentPulls: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
     const { data, error } = useStudioJson<PullsList>('/api/pulls');
     if (error || !data) return null;
-    return <RecentPullsCard rows={data.rows} onOpen={onOpen} />;
+    return <RecentPullsCard rows={data.rows} scope={data.scope} onOpen={onOpen} />;
 };

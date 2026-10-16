@@ -34,7 +34,7 @@ function governanceKpis(data: GovernanceData): KpiItem[] {
             value: data.coverage.possible ? `${data.coverage.covered}/${data.coverage.possible}` : '—',
             note: data.coverage.possible ? `switched on, across ${agents} agent${agents === 1 ? '' : 's'}` : 'no agent hooks found here',
         },
-        { label: 'Decisions, 28 days', value: data.decisionsRecent, note: 'by people, from every decision Rigour keeps' },
+        { label: 'Decisions, 28 days', value: data.decisionsRecent, note: 'made by people; a command that timed out unanswered is not counted' },
         {
             label: 'Review runs, 28 days',
             value: data.reviewer.days.length ? data.reviewer.runs : '—',

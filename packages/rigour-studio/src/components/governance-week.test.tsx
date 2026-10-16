@@ -60,6 +60,7 @@ describe('Governance', () => {
         expect(out).toContain('who decided: not recorded');
         expect(out).toContain('PR #4');
         expect(out).toContain('>Not a bug 1</button>');
+        expect(out).toContain('aria-pressed="true">All');
         expect(html(<DecisionsCard decisions={[]} />)).toContain('No decisions recorded yet');
     });
 
@@ -74,6 +75,8 @@ describe('Governance', () => {
         expect(out).toContain('No dollars reported.');
         expect(out).toContain('tokens not recorded');
         expect(html(<ReviewerUsageCard usage={governance().reviewer} />)).toContain('No reviewer runs in the last 28 days');
+        expect(out).toContain('rigour.yml&#x27;s caps');
+        expect(out).toContain('~/.rigour/settings.json can lower');
     });
 
     it('shows a team member why their decisions stay on this machine', () => {
@@ -121,8 +124,8 @@ describe('This week', () => {
     });
 
     it('lists recent pull requests when the endpoint has them', () => {
-        const out = html(<RecentPullsCard rows={[{ key: '#12', pr: 12, title: 'Add retries', branches: ['feat/retries'], state: 'open', lastReview: { at, outcome: 'blocked', blocking: 2, shouldFix: 1 }, rounds: 1, lessonsApplied: 0, blockingFound: 2, ci: null, followUps: null, firstAt: at, lastActivity: at }]} onOpen={() => undefined} />);
+        const out = html(<RecentPullsCard rows={[{ key: '#12', pr: 12, title: 'Add retries', branches: ['feat/retries'], state: 'no-merge', lastReview: { at, outcome: 'findings', blocking: 2, shouldFix: 1 }, rounds: 1, lessonsApplied: 0, blockingFound: 2, ci: null, followUps: null, firstAt: at, lastActivity: at }]} onOpen={() => undefined} />);
         expect(out).toContain('#12');
-        expect(out).toContain('blocked · 2 blocking');
+        expect(out).toContain('found problems · 2 blocking');
     });
 });

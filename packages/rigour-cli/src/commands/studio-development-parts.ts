@@ -9,6 +9,8 @@
 import fs from 'fs';
 import path from 'path';
 import type { AgentEvent } from '@rigour-labs/core';
+import { recordedAgent } from './studio-agents.js';
+import { jsonLines } from './studio-files.js';
 
 export type DevStage = 'brief' | 'edit' | 'stop' | 'push';
 
@@ -66,20 +68,7 @@ function modifiedSince(file: string, since: number): boolean {
 }
 
 function readLines(file: string): Array<Record<string, unknown>> {
-    let text: string;
-    try {
-        text = fs.readFileSync(file, 'utf8');
-    } catch {
-        return [];
-    }
-    return text.split('\n').filter(Boolean).flatMap(line => {
-        try {
-            const parsed = JSON.parse(line);
-            return parsed && typeof parsed.at === 'string' && typeof parsed.kind === 'string' ? [parsed] : [];
-        } catch {
-            return [];
-        }
-    });
+    return jsonLines<Record<string, unknown>>(file).filter(line => line && typeof line.at === 'string' && typeof line.kind === 'string');
 }
 
 function firstLineAt(file: string): string | undefined {
@@ -103,7 +92,7 @@ function fromThread(line: Record<string, unknown>): DevRecord[] {
     const stage = THREAD_STAGE[String(line.kind)];
     if (!stage) return [];
     const base = {
-        at: String(line.at), stage, branch: str(line.branch), agent: str(line.agent), session: str(line.session),
+        at: String(line.at), stage, branch: str(line.branch), agent: recordedAgent(line.agent), session: str(line.session),
         files: strings(line.files), said: [] as string[],
     };
     if (stage === 'brief') return [{ ...base, count: num(line.items), held: null, rules: null }];
@@ -122,12 +111,12 @@ export function fromEvents(events: AgentEvent[], since: number): DevRecord[] {
         const base = { at: event.timestamp, branch: null, session: str(event.session), files: event.files ?? [] };
         if (event.type === 'hook_check') {
             const findings = raw.findings ?? [];
-            return [{ ...base, stage: 'edit', agent: str(raw.agentId), count: findings.length, held: event.blocked === true, said: findings.map(f => f.message ?? '').filter(Boolean) }];
+            return [{ ...base, stage: 'edit', agent: recordedAgent(raw.agentId), count: findings.length, held: event.blocked === true, said: findings.map(f => f.message ?? '').filter(Boolean) }];
         }
         if (event.type === 'stop_review') {
             const held = raw.findings ?? [];
             const said = held.map(f => `${f.file ? `${f.file}: ` : ''}${f.title ?? ''}${f.detail ? ` (${f.detail})` : ''}`);
-            return [{ ...base, stage: 'stop', agent: str(event.tool), count: event.blocking ?? held.length, held: event.blocked === true, said, nothingToReview: event.nothing_to_review === true }];
+            return [{ ...base, stage: 'stop', agent: recordedAgent(event.tool), count: event.blocking ?? held.length, held: event.blocked === true, said, nothingToReview: event.nothing_to_review === true }];
         }
         if (event.type === 'lessons_served' && event.via === 'brief') {
             return [{ ...base, stage: 'brief', agent: null, count: event.lessons?.length ?? 0, held: null, said: event.lessons ?? [], rules: event.rules ?? 0 }];

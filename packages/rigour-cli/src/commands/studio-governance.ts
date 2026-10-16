@@ -13,7 +13,7 @@ import { reportOnly } from './report-only.js';
 import { loadConfig } from './review-config.js';
 import { checkoutRoots, eventsAcross } from './studio-checkouts.js';
 import { buildCoverage, type Coverage } from './studio-governance-coverage.js';
-import { buildDecisions, readReviewDismissals, readStoredReviewLessons, type Decision } from './studio-governance-decisions.js';
+import { buildDecisions, byPerson, readReviewDismissals, readStoredReviewLessons, type Decision } from './studio-governance-decisions.js';
 import { buildQualityGates, readScores, type QualityGates } from './studio-governance-gates.js';
 import { reviewerUsage, teamState, type ReviewerUsage, type TeamState } from './studio-governance-usage.js';
 import { gitCommonDir, threadEvents } from './studio-threads.js';
@@ -27,6 +27,7 @@ export interface StudioGovernance {
     /** Setup's fixes for what is missing or broken, for the coverage card to point at. */
     fixes: Array<{ name: string; state: string; fix: string }>;
     decisions: Decision[];
+    /** Decisions people made in the last 28 days: a command that timed out unanswered is not one. */
     decisionsRecent: number;
     qualityGates: QualityGates;
     reviewer: ReviewerUsage;
@@ -57,11 +58,11 @@ export async function loadGovernance(cwd: string, _url?: URL, now = new Date(), 
     return {
         coverage: buildCoverage({
             now, agents: agentHookConfigs(cwd), codex: codexHere(cwd), pushGate: pushGateHere(cwd),
-            prReviewer: checks.some(c => c.id === 'pr' && c.state !== 'missing'), threads, events,
+            prReviewer: prReviewerState(checks), threads, events,
         }),
         fixes: checks.filter(c => c.fix && (c.state === 'missing' || c.state === 'broken')).map(c => ({ name: c.name, state: c.state, fix: c.fix! })),
         decisions: decisions.slice(0, MAX_DECISIONS),
-        decisionsRecent: decisions.filter(d => now.getTime() - Date.parse(d.at) <= WINDOW_MS).length,
+        decisionsRecent: decisions.filter(d => byPerson(d) && now.getTime() - Date.parse(d.at) <= WINDOW_MS).length,
         qualityGates: gates(cwd, { now, config: parsed, parsedFile: config !== undefined, scores: readScores(roots), threads }),
         reviewer: reviewerUsage(common && path.join(common, 'rigour-reviewer'), roots.flatMap(readDeepRuns), parsed, now),
         team: teamState(teamConfig, teamCache),
@@ -75,6 +76,13 @@ function gates(cwd: string, input: Omit<Parameters<typeof buildQualityGates>[0],
     // The person's switch is read only when the team's file says nothing, so its warning about a team floor never prints.
     const personal = rest.config.hooks?.report_only === undefined && reportOnly(cwd);
     return buildQualityGates({ ...rest, configFile, personalReportOnly: personal });
+}
+
+/** The pull-request reviewer as setup found it: a check setup says is broken shows as broken, not on. */
+function prReviewerState(checks: Array<{ id: string; state: string }>): 'on' | 'off' | 'broken' {
+    const pr = checks.find(c => c.id === 'pr');
+    if (!pr || pr.state === 'missing') return 'off';
+    return pr.state === 'broken' ? 'broken' : 'on';
 }
 
 /** Codex reads AGENTS.md (init.ts detects it the same way) or its own folder; it runs no hooks. */

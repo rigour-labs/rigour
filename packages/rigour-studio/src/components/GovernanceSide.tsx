@@ -66,7 +66,7 @@ export const ReviewerUsageCard: React.FC<{ usage: ReviewerUsage }> = ({ usage })
                         {usage.deep && <DeepLine deep={usage.deep} />}
                     </>
                 )}
-            <small className="gov-note">Caps per day here: {usage.caps.runsPerDay ?? '—'} runs, {dollars(usage.caps.usdPerDay)}; {dollars(usage.caps.usdPerReview)} per review.</small>
+            <small className="gov-note">rigour.yml's caps (Rigour's defaults where it sets none): {usage.caps.runsPerDay ?? '—'} runs and {dollars(usage.caps.usdPerDay)} a day; {dollars(usage.caps.usdPerReview)} per review. Your own reviewer.max_usd_per_day in ~/.rigour/settings.json can lower the daily cost cap on this machine.</small>
         </Card>
     );
 };

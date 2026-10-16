@@ -6,35 +6,36 @@
 import fs from 'fs';
 import path from 'path';
 import { readLessons, threadsDir, type PrOutcome, type ReviewLesson, type ReviewRecord, type ThreadEvent } from '@rigour-labs/core';
+import { isThreadLine, jsonLines, readJsonFile } from './studio-files.js';
 
-/** Every thread on this machine, one per branch file, each oldest first; lines that do not parse are skipped. */
-export function readAllThreads(cwd: string): ThreadEvent[][] {
+/**
+ * The threads written to since `since` (a thread is only appended to, so an older file holds no newer line), one per
+ * branch file, each oldest first; lines that do not parse are skipped. `older` counts the thread files left out.
+ */
+export function readThreadsSince(cwd: string, since: number): { threads: ThreadEvent[][]; older: number } {
     const dir = threadsDir(cwd);
-    if (!dir) return [];
+    if (!dir) return { threads: [], older: 0 };
     let files: string[];
     try {
-        files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl'));
+        files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl')).map(f => path.join(dir, f));
     } catch {
-        return [];
+        return { threads: [], older: 0 };
     }
-    return files.map(file => readEvents(path.join(dir, file))).filter(events => events.length > 0);
+    const recent = files.filter(file => modifiedSince(file, since));
+    const threads = recent.map(readEvents).filter(events => events.length > 0);
+    return { threads, older: files.length - recent.length };
+}
+
+function modifiedSince(file: string, since: number): boolean {
+    try {
+        return fs.statSync(file).mtimeMs >= since;
+    } catch {
+        return false;
+    }
 }
 
 function readEvents(file: string): ThreadEvent[] {
-    let text: string;
-    try {
-        text = fs.readFileSync(file, 'utf8');
-    } catch {
-        return [];
-    }
-    return text.split('\n').filter(Boolean).flatMap(line => {
-        try {
-            const e = JSON.parse(line);
-            return e && typeof e.at === 'string' && typeof e.task === 'string' && typeof e.kind === 'string' ? [e as ThreadEvent] : [];
-        } catch {
-            return [];
-        }
-    }).sort((a, b) => a.at.localeCompare(b.at));
+    return jsonLines<ThreadEvent>(file).filter(isThreadLine).sort((a, b) => a.at.localeCompare(b.at));
 }
 
 /** Each merged pull request's outcome across the checkouts, by number: a settled record wins, else the latest read. */
@@ -55,13 +56,9 @@ function better(a: PrOutcome, b: PrOutcome): boolean {
 }
 
 function readOutcomeFile(root: string): PrOutcome[] {
-    try {
-        const parsed = JSON.parse(fs.readFileSync(path.join(root, '.rigour', 'outcomes.json'), 'utf8'));
-        const all = parsed?.version === 1 && parsed.outcomes && typeof parsed.outcomes === 'object' ? Object.values(parsed.outcomes) : [];
-        return (all as PrOutcome[]).filter(o => o && typeof o.pr === 'number' && typeof o.mergedAt === 'string');
-    } catch {
-        return [];
-    }
+    const parsed = readJsonFile<{ version?: unknown; outcomes?: unknown }>(path.join(root, '.rigour', 'outcomes.json'));
+    const all = parsed?.version === 1 && parsed.outcomes && typeof parsed.outcomes === 'object' ? Object.values(parsed.outcomes) : [];
+    return (all as PrOutcome[]).filter(o => o && typeof o.pr === 'number' && typeof o.mergedAt === 'string');
 }
 
 /** The review lessons every checkout keeps, each once by id. */
@@ -99,9 +96,9 @@ export function recordReader(dir: string | undefined): (head: unknown, integrity
         if (!dir || typeof head !== 'string' || !/^[0-9a-f]{7,64}$/.test(head)) return undefined;
         names ??= listDir(dir).filter(f => f.endsWith('.record.json'));
         const reads = names.filter(f => f.startsWith(`${head}.`)).flatMap(name => {
-            const record = readJson<ReviewRecord>(path.join(dir, name));
-            return record?.verified ? [{ name, record }] : [];
-        }).sort((a, b) => (a.record.at ?? '').localeCompare(b.record.at ?? ''));
+            const record = readJsonFile<ReviewRecord>(path.join(dir, name));
+            return record && typeof record === 'object' && record.verified ? [{ name, record }] : [];
+        }).sort((a, b) => recordAt(a.record).localeCompare(recordAt(b.record)));
         const found = typeof integrity === 'string' ? reads.find(r => r.record.integrity === integrity) : reads.at(-1);
         if (!found) return undefined;
         return { record: found.record, brokenRules: brokenRules(path.join(dir, found.name.replace(/\.record\.json$/, '.json'))) };
@@ -118,8 +115,9 @@ function listDir(dir: string): string[] {
 
 /** The rules the verdict found broken, by their own words, shortened. */
 function brokenRules(verdictFile: string): string[] {
-    const verdict = readJson<{ rules?: Array<{ status?: string; rule?: string; id?: string }> }>(verdictFile);
-    return (verdict?.rules ?? []).filter(r => r.status === 'broken').map(r => short(r.rule ?? r.id ?? 'a rule', 140));
+    const verdict = readJsonFile<{ rules?: Array<{ status?: string; rule?: string; id?: string }> }>(verdictFile);
+    const rules = Array.isArray(verdict?.rules) ? verdict.rules : [];
+    return rules.filter(r => r?.status === 'broken').map(r => short(typeof r.rule === 'string' ? r.rule : typeof r.id === 'string' ? r.id : 'a rule', 140));
 }
 
 export function short(text: string, max: number): string {
@@ -127,12 +125,8 @@ export function short(text: string, max: number): string {
     return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-function readJson<T>(file: string): T | undefined {
-    try {
-        return JSON.parse(fs.readFileSync(file, 'utf8')) as T;
-    } catch {
-        return undefined;
-    }
+function recordAt(record: ReviewRecord): string {
+    return typeof record.at === 'string' ? record.at : '';
 }
 
 export function num(v: unknown): number {

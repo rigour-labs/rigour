@@ -12,23 +12,45 @@ const agentsLine = (agents: string[]) => (agents.length ? `by ${agents.join(', '
 
 export function timelineSteps(d: PullDetail): TimelineStep[] {
     const s = d.steps;
-    return [
-        { key: 'brief', title: 'Briefed', when: s.brief ? when(s.brief.at) : undefined, tone: s.brief ? 'done' : 'todo', children: s.brief
-            ? <p>{plural(s.brief.count, 'brief')}, {plural(s.brief.items, 'lesson or rule', 'lessons and rules')} told before writing ({agentsLine(s.brief.agents)}).</p>
-            : <Missing>The brief is recorded when an agent starts work with Rigour's hooks installed (<span className="ui-mono">rigour setup</span>).</Missing> },
-        { key: 'edits', title: 'Checked while writing', when: s.edits ? when(s.edits.at) : undefined, tone: s.edits ? (s.edits.findings ? 'bad' : 'ok') : 'todo', children: s.edits
-            ? <p>{plural(s.edits.checks, 'edit')} checked across {plural(s.edits.files, 'file')}: {plural(s.edits.findings, 'finding')}{s.edits.flagged ? `, ${s.edits.cleaned} of ${plural(s.edits.flagged, 'flagged file')} clean again by a later edit` : ''} ({agentsLine(s.edits.agents)}).</p>
-            : <Missing>Each edit is checked when the edit hook is installed (<span className="ui-mono">rigour setup</span>).</Missing> },
-        { key: 'stop', title: 'Agent said done', when: s.stop ? when(s.stop.at) : undefined, tone: s.stop ? (s.stop.blocked ? 'bad' : 'ok') : 'todo', children: s.stop
-            ? <p>{plural(s.stop.count, 'time')}: {s.stop.blocked} held back with problems to fix, {s.stop.clean} clean ({agentsLine(s.stop.agents)}).</p>
-            : <Missing>Recorded when the stop hook reviews the agent's work before it says done (<span className="ui-mono">rigour setup</span>).</Missing> },
-        { key: 'push', title: 'Push check', when: s.push ? when(s.push.at) : undefined, tone: s.push ? (s.push.failed ? 'bad' : 'ok') : 'todo', children: s.push
-            ? <p>{plural(s.push.count, 'push', 'pushes')}: {s.push.passed} passed, {s.push.failed} held back.</p>
-            : <Missing>Recorded when Rigour checks a push; see Setup.</Missing> },
-        ...reviewSteps(s.reviews),
-        humanStep(d),
-        mergeStep(d),
-    ];
+    return [briefStep(s.brief), editStep(s.edits), stopStep(s.stop), pushStep(s.push), ...reviewSteps(s.reviews), humanStep(d), mergeStep(d)];
+}
+
+type Steps = PullDetail['steps'];
+
+function briefStep(b: Steps['brief']): TimelineStep {
+    return {
+        key: 'brief', title: 'Briefed', when: b ? when(b.at) : undefined, tone: b ? 'done' : 'todo',
+        children: b
+            ? <p>{plural(b.count, 'brief')}, {plural(b.items, 'lesson or rule', 'lessons and rules')} told before writing ({agentsLine(b.agents)}).</p>
+            : <Missing>The brief is recorded when an agent starts work with Rigour's hooks installed (<span className="ui-mono">rigour setup</span>).</Missing>,
+    };
+}
+
+function editStep(e: Steps['edits']): TimelineStep {
+    return {
+        key: 'edits', title: 'Checked while writing', when: e ? when(e.at) : undefined, tone: e ? (e.findings ? 'bad' : 'ok') : 'todo',
+        children: e
+            ? <p>{plural(e.checks, 'edit')} checked across {plural(e.files, 'file')}: {plural(e.findings, 'finding')}{e.flagged ? `, ${e.cleaned} of ${plural(e.flagged, 'flagged file')} clean again by a later edit` : ''} ({agentsLine(e.agents)}).</p>
+            : <Missing>Each edit is checked when the edit hook is installed (<span className="ui-mono">rigour setup</span>).</Missing>,
+    };
+}
+
+function stopStep(st: Steps['stop']): TimelineStep {
+    return {
+        key: 'stop', title: 'Agent said done', when: st ? when(st.at) : undefined, tone: st ? (st.blocked ? 'bad' : 'ok') : 'todo',
+        children: st
+            ? <p>{plural(st.count, 'time')}: {st.blocked} held back with problems to fix, {st.clean} clean ({agentsLine(st.agents)}).</p>
+            : <Missing>Recorded when the stop hook reviews the agent's work before it says done (<span className="ui-mono">rigour setup</span>).</Missing>,
+    };
+}
+
+function pushStep(p: Steps['push']): TimelineStep {
+    return {
+        key: 'push', title: 'Push check', when: p ? when(p.at) : undefined, tone: p ? (p.failed ? 'bad' : 'ok') : 'todo',
+        children: p
+            ? <p>{plural(p.count, 'push', 'pushes')}: {p.passed} passed, {p.failed} held back.</p>
+            : <Missing>Recorded when Rigour checks a push; see Setup.</Missing>,
+    };
 }
 
 function reviewSteps(rounds: Round[]): TimelineStep[] {
@@ -44,15 +66,11 @@ function reviewSteps(rounds: Round[]): TimelineStep[] {
 
 const RoundBody: React.FC<{ round: Round }> = ({ round: r }) => {
     const words = outcomeWords(r.outcome);
-    const judges = r.judges.map(j => `${j.reviewer}${j.model ? ` (${j.model})` : ''}`).join(', ');
     return (
         <div className="pulls-round">
             <div className="pulls-review"><Chip tone={words.tone}>{words.label}</Chip><span>{plural(r.blocking, 'blocking problem')} · {r.shouldFix} should fix{r.head ? <> · at <span className="ui-mono">{r.head.slice(0, 9)}</span></> : null}</span></div>
-            <p className="pulls-dim">Judged by {judges || 'judges not recorded'}{r.judges.length && r.judges.every(j => !j.model) ? ' (model not recorded)' : ''}.{r.blind ? ' Reviewed without the pull request\'s description or comments.' : ''}</p>
-            {r.rules
-                ? <p>Repository rules: {r.rules.followed} followed, {r.rules.broken} broken, {r.rules.notApplicable} not relevant, of {r.rules.served} served.</p>
-                : <p className="pulls-dim">Rules and lessons not recorded here: this review's record is not on this machine.</p>}
-            {r.rules?.brokenNames.length ? <ul className="pulls-list">{r.rules.brokenNames.map(name => <li key={name}>Broken: {name}</li>)}</ul> : null}
+            <JudgesLine round={r} />
+            <RulesBlock round={r} />
             {r.lessons.applied.length > 0 && (
                 <ul className="pulls-list">{r.lessons.applied.map(l => <li key={l.id}>Repeats a team lesson: {l.text ?? <span className="ui-mono">{l.id}</span>}</li>)}</ul>
             )}
@@ -62,6 +80,20 @@ const RoundBody: React.FC<{ round: Round }> = ({ round: r }) => {
         </div>
     );
 };
+
+const JudgesLine: React.FC<{ round: Round }> = ({ round: r }) => {
+    const judges = r.judges.map(j => `${j.reviewer}${j.model ? ` (${j.model})` : ''}`).join(', ');
+    return <p className="pulls-dim">Judged by {judges || 'judges not recorded'}{r.judges.length && r.judges.every(j => !j.model) ? ' (model not recorded)' : ''}.{r.blind ? ' Reviewed without the pull request\'s description or comments.' : ''}</p>;
+};
+
+const RulesBlock: React.FC<{ round: Round }> = ({ round: r }) => (
+    <>
+        {r.rules
+            ? <p>Repository rules: {r.rules.followed} followed, {r.rules.broken} broken, {r.rules.notApplicable} not relevant, of {r.rules.served} served.</p>
+            : <p className="pulls-dim">Rules and lessons not recorded here: this review's record is not on this machine.</p>}
+        {r.rules?.brokenNames.length ? <ul className="pulls-list">{r.rules.brokenNames.map((name, i) => <li key={`${name}-${i}`}>Broken: {name}</li>)}</ul> : null}
+    </>
+);
 
 function humanStep(d: PullDetail): TimelineStep {
     const h = d.steps.human;

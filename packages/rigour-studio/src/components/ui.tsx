@@ -50,15 +50,23 @@ export const Meter: React.FC<{ share: number }> = ({ share }) => (
 
 export interface Column<T> { label: string; cell: (row: T) => React.ReactNode; wrap?: boolean }
 
-export function Table<T>({ rows, columns, rowKey, onRow }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; onRow?: (row: T) => void }) {
+/**
+ * A table; with `onRow`, a click anywhere on a row opens it, and the first cell is a button so the keyboard can too.
+ * Cells of an openable row's first column hold phrasing content only (spans, not divs): they sit inside that button.
+ */
+export function Table<T>({ rows, columns, rowKey, onRow }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T, index: number) => string; onRow?: (row: T) => void }) {
     return (
         <div className="ui-table-wrap">
             <table className="ui-table">
                 <thead><tr>{columns.map(c => <th key={c.label}>{c.label}</th>)}</tr></thead>
                 <tbody>
-                    {rows.map(row => (
-                        <tr key={rowKey(row)} className={onRow ? 'ui-clickable' : undefined} onClick={onRow ? () => onRow(row) : undefined}>
-                            {columns.map(c => <td key={c.label} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>{c.cell(row)}</td>)}
+                    {rows.map((row, index) => (
+                        <tr key={rowKey(row, index)} className={onRow ? 'ui-clickable' : undefined} onClick={onRow ? () => onRow(row) : undefined}>
+                            {columns.map((c, i) => (
+                                <td key={c.label} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>
+                                    {onRow && i === 0 ? <RowButton onOpen={() => onRow(row)}>{c.cell(row)}</RowButton> : c.cell(row)}
+                                </td>
+                            ))}
                         </tr>
                     ))}
                 </tbody>
@@ -66,6 +74,10 @@ export function Table<T>({ rows, columns, rowKey, onRow }: { rows: T[]; columns:
         </div>
     );
 }
+
+const RowButton: React.FC<{ onOpen: () => void; children: React.ReactNode }> = ({ onOpen, children }) => (
+    <button type="button" className="ui-row-open" onClick={e => { e.stopPropagation(); onOpen(); }}>{children}</button>
+);
 
 export interface TimelineStep { key: string; title: string; when?: string; tone?: 'done' | 'ok' | 'bad' | 'todo'; children?: React.ReactNode }
 
@@ -105,8 +117,39 @@ export const WeekChart: React.FC<{ weeks: WeekBar[]; series: Array<{ label: stri
     );
 };
 
-export const Tabs: React.FC<{ tabs: Array<{ id: string; label: string }>; active: string; onChange: (id: string) => void }> = ({ tabs, active, onChange }) => (
-    <div className="ui-tabs" role="tablist">
-        {tabs.map(t => <button key={t.id} type="button" role="tab" aria-selected={t.id === active} className={t.id === active ? 'on' : ''} onClick={() => onChange(t.id)}>{t.label}</button>)}
-    </div>
+/**
+ * Tabs with their panel: `id` names both, so each tab says which panel it controls. Arrow keys, Home and End move
+ * between tabs and open the one they land on; only the open tab is in the Tab order.
+ */
+export const Tabs: React.FC<{ id: string; tabs: Array<{ id: string; label: string }>; active: string; onChange: (id: string) => void }> = ({ id, tabs, active, onChange }) => {
+    const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+        const next = nextTab(e.key, index, tabs.length);
+        if (next === null) return;
+        e.preventDefault();
+        onChange(tabs[next].id);
+        e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+    };
+    return (
+        <div className="ui-tabs" role="tablist">
+            {tabs.map((t, i) => (
+                <button
+                    key={t.id} type="button" role="tab" id={`${id}-tab-${t.id}`} aria-controls={`${id}-panel`} aria-selected={t.id === active}
+                    tabIndex={t.id === active ? 0 : -1} className={t.id === active ? 'on' : ''} onClick={() => onChange(t.id)} onKeyDown={e => onKeyDown(e, i)}
+                >{t.label}</button>
+            ))}
+        </div>
+    );
+};
+
+function nextTab(key: string, index: number, count: number): number | null {
+    if (key === 'ArrowRight') return (index + 1) % count;
+    if (key === 'ArrowLeft') return (index - 1 + count) % count;
+    if (key === 'Home') return 0;
+    if (key === 'End') return count - 1;
+    return null;
+}
+
+/** The panel the open tab of `Tabs` with the same `id` shows. */
+export const TabPanel: React.FC<{ id: string; active: string; children: React.ReactNode }> = ({ id, active, children }) => (
+    <div className="ui-tabpanel" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${active}`}>{children}</div>
 );

@@ -8,7 +8,7 @@
 import path from 'path';
 import { lessonsPath, type AgentEvent, type CompiledCheck, type LessonEvidence, type ReviewLesson, type TeamDecisionCache } from '@rigour-labs/core';
 import type { Dismissal } from './studio-week.js';
-import { readJsonFile } from './studio-threads.js';
+import { readJsonFile } from './studio-files.js';
 
 export interface Decision {
     at: string;
@@ -18,6 +18,14 @@ export interface Decision {
     reason: string | null;
     pr?: number;
     source: 'review lessons' | 'not a bug' | 'reviewer' | 'compiled checks' | 'Studio approval' | 'team';
+}
+
+/** A command that timed out with nobody answering: Rigour denied it, no person decided. */
+const TIMEOUT_KIND = 'Command denied: nobody answered';
+
+/** Whether a person made the decision (a timed-out command is denied by Rigour, not by anyone). */
+export function byPerson(d: Decision): boolean {
+    return d.kind !== TIMEOUT_KIND;
 }
 
 export interface ReviewDismissal { file?: string; line?: number; class: string; issue: string; reason: string; at: string; by?: string }
@@ -72,7 +80,7 @@ function arbitrations(events: AgentEvent[]): Decision[] {
     return all.filter(e => e.tool === 'human_arbitration' && e.timestamp && (e.arbitrated === true || e.decision === 'timeout-deny')).map(e => ({
         at: e.timestamp!,
         who: null,
-        kind: e.decision === 'approve' ? 'Command approved' : e.decision === 'reject' ? 'Command rejected' : 'Command denied: nobody answered',
+        kind: e.decision === 'approve' ? 'Command approved' : e.decision === 'reject' ? 'Command rejected' : TIMEOUT_KIND,
         text: commands.get(e.requestId ?? '') ?? 'A command an agent asked to run',
         reason: null,
         source: 'Studio approval' as const,

@@ -81,9 +81,15 @@ const EVIDENCE_WORDS: Record<string, string> = {
 /** Kinds a person (or a teammate) did, so the author is named; the rest are evidence Rigour read. */
 const BY_PERSON = new Set(['point', 'correction', 'accepted', 'rejected', 'not-a-rule', 'took-back', 'dismissed', 'compiled', 'reworded', 'scoped']);
 
+/** The pull request the evidence came from; a person's edit to an agent's code is recorded with no pull request (pr 0). */
+function whereFrom(item: EvidenceItem): string {
+    if (item.pr > 0) return `PR #${item.pr}`;
+    return item.kind === 'correction' ? 'An edit after the agent' : 'Not from a pull request';
+}
+
 const EvidenceLine: React.FC<{ item: EvidenceItem }> = ({ item }) => (
     <div className="mem-trail-item">
-        <span>PR #{item.pr}{item.at ? ` · ${shortDate(item.at)}` : ''} · </span>
+        <span>{whereFrom(item)}{item.at ? ` · ${shortDate(item.at)}` : ''} · </span>
         {BY_PERSON.has(item.kind) && item.author ? <><strong>{item.author}</strong>{item.team ? ' (team)' : ''}{item.source === 'bot' ? ' (bot)' : ''} </> : null}
         {EVIDENCE_WORDS[item.kind] ?? item.kind}
         {item.detail ? <span>: {item.detail}</span> : null}

@@ -31,7 +31,8 @@ export interface Round {
     cost: ReportedCost[];
 }
 
-export type PullState = 'not-opened' | 'open' | 'merged' | 'reverted';
+/** `no-merge`: a pull request with no merge recorded on this machine; whether it is still open is not recorded. */
+export type PullState = 'not-opened' | 'no-merge' | 'merged' | 'reverted';
 
 export interface Merge {
     at: string;
@@ -53,6 +54,17 @@ export interface Context {
     outcomes: Map<number, PrOutcome>;
 }
 
+/**
+ * A branch reused for a second pull request carries both in one thread: a pull request keeps the review, merge and
+ * outcome events that name it, or name none.
+ */
+export function eventsOfPr(events: ThreadEvent[], pr: number | null): ThreadEvent[] {
+    if (pr === null) return events;
+    return events.filter(e => !PR_KINDS.has(e.kind) || typeof e.pr !== 'number' || e.pr === pr);
+}
+
+const PR_KINDS = new Set<ThreadEvent['kind']>(['review', 'merge', 'outcome']);
+
 /** Each review event, oldest first, with its record when this machine keeps it. */
 export function roundsOf(events: ThreadEvent[], ctx: Context): Round[] {
     return events.filter(e => e.kind === 'review').map(e => round(e, ctx));
@@ -60,10 +72,7 @@ export function roundsOf(events: ThreadEvent[], ctx: Context): Round[] {
 
 function round(e: ThreadEvent, ctx: Context): Round {
     const read = ctx.record(e.head, e.integrity);
-    const r = read?.record;
-    const judges: Judge[] = r
-        ? r.judges.map(j => ({ reviewer: j.reviewer, model: j.model ?? null, version: j.version ?? null }))
-        : strings(e.judges).map(reviewer => ({ reviewer, model: null, version: null }));
+    const fields = read ? fromRecord(read) : undefined;
     return {
         at: e.at,
         head: typeof e.head === 'string' ? e.head : null,
@@ -71,16 +80,56 @@ function round(e: ThreadEvent, ctx: Context): Round {
         outcome: typeof e.outcome === 'string' ? e.outcome : 'unknown',
         blocking: num(e.blocking),
         shouldFix: num(e.should_fix),
-        judges,
-        recorded: !!r,
-        rules: r ? { served: r.verified.rules.served, followed: r.verified.rules.followed, broken: r.verified.rules.broken, notApplicable: r.verified.rules.not_applicable, brokenNames: read!.brokenRules } : null,
-        lessons: { served: r ? r.verified.lessons.served : null, applied: strings(e.lessons_applied).map(id => ({ id, text: lessonText(ctx, id) })) },
-        disputed: r ? r.verified.disputed : null,
-        humanReviews: r && !r.blind ? r.reported.human_reviews : null,
-        blind: r?.blind === true,
-        blockingIds: r ? r.verified.blocking.map(i => i.id) : [],
-        cost: costOf(e, read),
+        judges: fields?.judges ?? strings(e.judges).map(reviewer => ({ reviewer, model: null, version: null })),
+        recorded: !!fields,
+        rules: fields?.rules ?? null,
+        lessons: { served: fields?.lessonsServed ?? null, applied: strings(e.lessons_applied).map(id => ({ id, text: lessonText(ctx, id) })) },
+        disputed: fields?.disputed ?? null,
+        humanReviews: fields?.humanReviews ?? null,
+        blind: fields?.blind ?? false,
+        blockingIds: fields?.blockingIds ?? [],
+        cost: costOf(e, fields ? read : undefined),
     };
+}
+
+type RecordFields = Pick<Round, 'judges' | 'rules' | 'disputed' | 'humanReviews' | 'blind' | 'blockingIds'> & { lessonsServed: number | null };
+
+/**
+ * What a review's record says, read defensively: a record written by another version, or damaged, can miss any part.
+ * A record without its verified rules or blocking list reads as not found: the round falls back to the event's own figures.
+ */
+function fromRecord(read: RecordRead): RecordFields | undefined {
+    const r = read.record as unknown as Partial<Record<string, unknown>>;
+    const verified = obj(r.verified);
+    const rules = obj(verified?.rules);
+    if (!verified || !rules || !Array.isArray(verified.blocking)) return undefined;
+    const blind = r.blind === true;
+    return {
+        judges: arr(r.judges).flatMap(j => {
+            const judge = obj(j);
+            return judge && typeof judge.reviewer === 'string'
+                ? [{ reviewer: judge.reviewer, model: typeof judge.model === 'string' ? judge.model : null, version: typeof judge.version === 'string' ? judge.version : null }]
+                : [];
+        }),
+        rules: { served: num(rules.served), followed: num(rules.followed), broken: num(rules.broken), notApplicable: num(rules.not_applicable), brokenNames: read.brokenRules },
+        lessonsServed: nullableNum(obj(verified.lessons)?.served),
+        disputed: nullableNum(verified.disputed),
+        humanReviews: blind ? null : nullableNum(obj(r.reported)?.human_reviews),
+        blind,
+        blockingIds: arr(verified.blocking).map(i => obj(i)?.id).filter((id): id is string => typeof id === 'string'),
+    };
+}
+
+function obj(v: unknown): Record<string, unknown> | undefined {
+    return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
+}
+
+function arr(v: unknown): unknown[] {
+    return Array.isArray(v) ? v : [];
+}
+
+function nullableNum(v: unknown): number | null {
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
 function lessonText(ctx: Context, id: string): string | null {
@@ -90,7 +139,12 @@ function lessonText(ctx: Context, id: string): string | null {
 
 /** What the judges reported: each judge's own figure from the record, else the review's total for its judges. */
 function costOf(e: ThreadEvent, read: RecordRead | undefined): ReportedCost[] {
-    const own = (read?.record.judges ?? []).filter(j => typeof j.cost_usd === 'number').map(j => ({ usd: j.cost_usd!, by: j.reviewer, basis: 'judge' as const }));
+    const own = arr(read?.record.judges).flatMap(j => {
+        const judge = obj(j);
+        return judge && typeof judge.cost_usd === 'number' && Number.isFinite(judge.cost_usd) && typeof judge.reviewer === 'string'
+            ? [{ usd: judge.cost_usd, by: judge.reviewer, basis: 'judge' as const }]
+            : [];
+    });
     if (own.length) return own;
     if (typeof e.cost_usd !== 'number' || !Number.isFinite(e.cost_usd)) return [];
     const by = strings(e.judges).join(' and ') || 'the reviewer';
@@ -119,7 +173,8 @@ export function mergeOf(pr: number | null, events: ThreadEvent[], ctx: Context):
 }
 
 function fromOutcome(o: PrOutcome): Merge {
-    const followUps = (o.followUps ?? []).map(f => ({ sha: f.sha, at: f.at, subject: short(f.subject, 120), fix: f.fix }));
+    const followUps = arr(o.followUps).filter((f): f is NonNullable<PrOutcome['followUps']>[number] => typeof obj(f)?.sha === 'string')
+        .map(f => ({ sha: f.sha, at: String(f.at ?? ''), subject: short(String(f.subject ?? ''), 120), fix: f.fix === true }));
     return {
         at: o.mergedAt,
         sha: o.mergeSha ?? null,
@@ -137,7 +192,7 @@ function fromOutcome(o: PrOutcome): Merge {
 export function stateOf(pr: number | null, merge: Merge | null): PullState {
     if (pr === null) return 'not-opened';
     if (merge?.reverted) return 'reverted';
-    return merge ? 'merged' : 'open';
+    return merge ? 'merged' : 'no-merge';
 }
 
 /** The distinct lessons the judges found repeated, across every round. */

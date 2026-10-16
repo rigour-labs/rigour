@@ -36,10 +36,10 @@ const columns: Column<PullRow>[] = [
 ];
 
 const PrCell: React.FC<{ row: PullRow }> = ({ row }) => (
-    <div className="pulls-pr">
+    <span className="pulls-pr">
         <strong>{prLabel(row)}{row.title && <span className="pulls-title"> {row.title}</span>}</strong>
         {row.pr !== null && <span className="ui-mono pulls-dim">{row.branches.join(', ')}</span>}
-    </div>
+    </span>
 );
 
 const LastReview: React.FC<{ row: PullRow }> = ({ row }) => {
@@ -57,8 +57,9 @@ const LastReview: React.FC<{ row: PullRow }> = ({ row }) => {
 export const PullsTable: React.FC<{ list: PullsList; onOpen: (row: PullRow) => void }> = ({ list, onOpen }) => (
     <Card title="Every pull request Rigour saw" meta={list.rows.length ? `${plural(list.rows.length, 'row')} · click one to walk its timeline` : undefined} flush>
         {list.rows.length === 0
-            ? <div className="ui-card-body"><Empty>No pull request recorded on this machine yet. A row appears when Rigour reviews a branch: turn the reviewer on in Setup, or run <span className="ui-mono">rigour review --reviewer</span> on a branch.</Empty></div>
+            ? <div className="ui-card-body"><Empty>{list.scope.older ? `No pull request with activity in the last ${list.scope.days} days.` : 'No pull request recorded on this machine yet.'} A row appears when Rigour reviews a branch: turn the reviewer on in Setup, or run <span className="ui-mono">rigour review --reviewer</span> on a branch.</Empty></div>
             : <Table rows={list.rows} columns={columns} rowKey={r => r.key} onRow={onOpen} />}
+        {list.scope.older > 0 && <div className="ui-card-body pulls-dim"><small>Showing branches with activity in the last {list.scope.days} days; {plural(list.scope.older, 'quieter branch', 'quieter branches')} left out.</small></div>}
     </Card>
 );
 

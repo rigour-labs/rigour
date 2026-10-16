@@ -6,11 +6,13 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { THREADS_DIR, type ThreadEvent } from '@rigour-labs/core';
+import { jsonLines } from './studio-files.js';
 
 /** The repository's common git folder, absolute; undefined outside a git repository. */
 export function gitCommonDir(cwd: string): string | undefined {
-    const out = spawnSync('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' });
-    return out.status === 0 && out.stdout.trim() ? out.stdout.trim() : undefined;
+    // Relative to cwd on git before 2.31 (no --path-format), as core's threadsDir reads it.
+    const out = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf8', timeout: 5000 });
+    return out.status === 0 && out.stdout.trim() ? path.resolve(cwd, out.stdout.trim()) : undefined;
 }
 
 /** Every thread's events, oldest first; lines that do not parse are skipped. */
@@ -22,18 +24,4 @@ export function threadEvents(common: string | undefined): ThreadEvent[] {
     return files.flatMap(file => jsonLines<ThreadEvent>(path.join(dir, file)))
         .filter(e => typeof e?.at === 'string' && typeof e.kind === 'string')
         .sort((a, b) => a.at.localeCompare(b.at));
-}
-
-/** A JSON-lines file's records; none when it is missing, and a line that does not parse is skipped. */
-export function jsonLines<T>(file: string): T[] {
-    let text = '';
-    try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
-    return text.split('\n').filter(Boolean).flatMap(line => {
-        try { return [JSON.parse(line) as T]; } catch { return []; }
-    });
-}
-
-/** A JSON file's contents, or undefined when it is missing or does not parse. */
-export function readJsonFile<T>(file: string): T | undefined {
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T; } catch { return undefined; }
 }
