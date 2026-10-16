@@ -95,6 +95,15 @@ describe('Pull requests page', () => {
         expect(out.match(/>Cost</g)).toBeNull();
     });
 
+    it('shows a cost reported for the whole review as its own row, not only in the total', () => {
+        const base = detail();
+        const facts = { ...base.facts, judges: [{ reviewer: 'claude', model: null, version: null, runs: 1 }, { reviewer: 'codex', model: null, version: null, runs: 1 }],
+            cost: [{ usd: 0.6, by: 'claude and codex', basis: 'all runs' as const }] };
+        const out = html(<PullView answer={{ ...base, facts }} onBack={() => undefined} />);
+        expect(out).toContain('<strong>claude and codex</strong><small class="pulls-dim">as reported for the whole review</small>');
+        expect(out).toMatch(/claude and codex<\/strong>.*?<span role="cell" class="num">—<\/span><span role="cell" class="num" title="[^"]+">\$0.60<\/span>/);
+    });
+
     it('says how to record a merge, and a pull request it never saw', () => {
         const open = { ...detail({ merge: null, human: { reviews: null, points: [] } }), state: 'no-merge' as const, facts: { ...detail().facts, durationMs: null, cost: [] } };
         const out = html(<PullView answer={open} onBack={() => undefined} />);

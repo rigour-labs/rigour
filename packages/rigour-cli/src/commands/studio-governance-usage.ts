@@ -56,7 +56,7 @@ interface VerdictTokens { reviewer?: string; tokens?: { input?: number; output?:
 
 export function reviewerUsage(store: string | undefined, deepRuns: DeepRun[], config: Config, now: Date, threads: ThreadEvent[] = []): ReviewerUsage {
     const within = (at: string) => now.getTime() - Date.parse(at) <= WINDOW_MS && Date.parse(at) <= now.getTime();
-    const reviews = (threads as unknown as ReviewEvent[]).filter(e => (e as { kind?: string }).kind === 'review' && typeof e.at === 'string' && within(e.at));
+    const reviews = (threads as unknown as ReviewEvent[]).filter(e => (e as { kind?: string }).kind === 'review' && typeof e.at === 'string' && within(e.at) && ranJudges(e));
     const days = withThreadDays(store ? spendDays(path.join(store, 'spend'), within) : [], reviews);
     const deep = deepRuns.filter(r => within(r.at));
     const caps = (config.review as { reviewer?: { max_runs_per_day?: number; max_usd_per_day?: number; max_usd_per_review?: number } } | undefined)?.reviewer;
@@ -82,12 +82,22 @@ function spendDays(dir: string, within: (at: string) => boolean): ReviewerUsage[
     });
 }
 
+/** A review event that ran the reviewer: it names judges or reports a cost (one that could not run names neither). */
+function ranJudges(e: ReviewEvent): boolean {
+    return (Array.isArray(e.judges) && e.judges.some(j => typeof j === 'string')) || typeof e.cost_usd === 'number';
+}
+
+/** The local calendar day, exactly as the reviewer names its spend files (core review/reviewer/store.ts localDay). */
+function localDay(at: Date): string {
+    return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+}
+
 /** Each day's runs: the spend log's count, or the threads' review events where they count more (no spend log, say). */
 function withThreadDays(spend: ReviewerUsage['days'], reviews: ReviewEvent[]): ReviewerUsage['days'] {
     const byDay = new Map(spend.map(d => [d.day, { ...d }]));
     const threadDays = new Map<string, { runs: number; usd: number | null }>();
     for (const r of reviews) {
-        const day = r.at.slice(0, 10);
+        const day = localDay(new Date(r.at));
         const t = threadDays.get(day) ?? { runs: 0, usd: null };
         t.runs++;
         if (typeof r.cost_usd === 'number') t.usd = (t.usd ?? 0) + r.cost_usd;

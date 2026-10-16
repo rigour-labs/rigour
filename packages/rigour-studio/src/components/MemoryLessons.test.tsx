@@ -45,6 +45,7 @@ describe('the Lessons tab as a triage list', () => {
         expect(lessonState(inForce[0])).toBe('machine');
         expect(lessonState(inForce[1])).toBe('team');
         expect(lessonState(gone[0])).toBe('dropped');
+        expect(lessonState(lesson('n', { origin: 'pr', state: 'dropped', canDecide: false }))).toBe('notRule');
         expect(lessonState(lesson('s', { state: 'superseded', canDecide: false }))).toBe('replaced');
         const candidate = html(<LessonsTriage lessons={[lesson('t', { scope: 'team', proposedBy: 'dev-a' })]} onDecide={() => undefined} />);
         expect(candidate).toContain('waiting for a person');

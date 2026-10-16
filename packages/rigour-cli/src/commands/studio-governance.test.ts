@@ -155,6 +155,31 @@ describe('governance reviewer usage', () => {
         expect(reviewerUsage(undefined, [], ConfigSchema.parse({}), now, threads).runs).toBe(3);
     });
 
+    it('puts a thread review on the same local day as the spend log, so an evening review is counted once', () => {
+        const saved = process.env.TZ;
+        process.env.TZ = 'America/Los_Angeles';
+        try {
+            const store = temp();
+            fs.mkdirSync(path.join(store, 'spend'));
+            // Three reviews on the evening of Oct 7 in Los Angeles: Oct 8 in UTC. The spend log names the local day.
+            fs.writeFileSync(path.join(store, 'spend', '2026-10-07.jsonl'), '{"runs":1,"usd":0.4}\n{"runs":1,"usd":0.4}\n{"runs":1,"usd":0.4}\n');
+            const review = (at: string) => ({ at, task: 'branch:feat/x', branch: 'feat/x', kind: 'review', judges: ['claude'], cost_usd: 0.4 }) as never;
+            const threads = [review('2026-10-08T02:00:00Z'), review('2026-10-08T03:00:00Z'), review('2026-10-08T04:00:00Z')];
+            const usage = reviewerUsage(store, [], ConfigSchema.parse({}), now, threads);
+            expect(usage.runs).toBe(3);
+            expect(usage.days).toHaveLength(1);
+            expect(usage.days[0]).toMatchObject({ day: '2026-10-07', runs: 3 });
+            expect(usage.days[0].usd).toBeCloseTo(1.2);
+        } finally {
+            if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
+        }
+    });
+
+    it('does not count a review that could not run (no judges, no cost) as a reviewer run', () => {
+        const threads = [{ at: '2026-10-08T10:00:00Z', task: 'branch:feat/x', branch: 'feat/x', kind: 'review', outcome: 'unavailable' } as never];
+        expect(reviewerUsage(undefined, [], ConfigSchema.parse({}), now, threads)).toMatchObject({ runs: 0, days: [], judges: [] });
+    });
+
     it('leaves out records last written before the window without reading them', () => {
         const store = temp();
         const old = path.join(store, 'abc.f2.record.json');

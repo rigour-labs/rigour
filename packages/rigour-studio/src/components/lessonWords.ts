@@ -18,7 +18,9 @@ export function lessonState(lesson: Journey): ItemState {
     const bucket = lessonBucket(lesson);
     if (bucket === 'waiting') return 'waiting';
     if (bucket === 'force') return lesson.scope === 'team' ? 'team' : lesson.origin === 'pr' ? 'repo' : 'machine';
-    return lesson.state === 'superseded' ? 'replaced' : 'dropped';
+    // A review point judged not a rule is kept and never told to agents; one dropped is told as the team's "no".
+    if (lesson.state === 'superseded') return 'replaced';
+    return lesson.origin === 'pr' && lesson.state === 'dropped' ? 'notRule' : 'dropped';
 }
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);

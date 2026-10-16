@@ -3,7 +3,7 @@
  * taken back or dropped, with a search over keys and text and pages of 25.
  */
 import React from 'react';
-import { Card, Empty, FilterBar, Pager, matchesQuery, usePaged, usePersisted, type FilterChip } from './ui';
+import { Card, Empty, FilterBar, Pager, matchesQuery, usePaged, type FilterChip } from './ui';
 import type { Journey } from './LearningParts';
 import { groupProposals, itemKey, LessonItemView, type LessonItem, type ReviewProps } from './MemoryProposals';
 import { lessonBucket, lessonSearchText, type LessonBucket } from './lessonWords';
@@ -47,8 +47,9 @@ function filterItems(items: LessonItem[], filter: Filter, query: string): Lesson
 
 export const LessonsTriage: React.FC<{ lessons: Journey[]; onDecide: Decide; initialQuery?: string } & ReviewProps> = ({ lessons, onDecide, initialQuery = '', ...review }) => {
     const items = React.useMemo(() => groupProposals(lessons), [lessons]);
-    const [stored, setFilter] = usePersisted<string>('memory:lessons:filter', defaultFilter(items));
-    const filter: Filter = stored in FILTER_WORDS ? stored as Filter : defaultFilter(items);
+    // Not remembered between visits: a remembered pile could hide candidates that arrived since. Each visit opens on
+    // what waits for a person when anything does.
+    const [filter, setFilter] = React.useState<Filter>(() => defaultFilter(items));
     const [query, setQuery] = React.useState(initialQuery);
     const shown = React.useMemo(() => filterItems(items, filter, query), [items, filter, query]);
     const paged = usePaged(shown, { resetKey: `${filter}\u0000${query}`, storageKey: 'memory:lessons' });

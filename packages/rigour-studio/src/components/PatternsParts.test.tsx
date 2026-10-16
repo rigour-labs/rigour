@@ -9,16 +9,16 @@ const entries = Array.from({ length: 5200 }, (_, i) => ({
     name: `handler${i}`, type: i % 4 === 0 ? 'type' : i % 4 === 1 ? 'component' : 'function', file: `packages/acme-web/src/features/area-${i % 40}/deeply/nested/module-${i}.ts`, line: i + 1, exported: i % 2 === 0,
 }));
 const index: PatternsData['index'] = {
-    indexed: true, lastIndexed: '2026-10-15T09:00:00Z', total: 9358, files: 1200, byType: [], topFiles: [], entries, more: 9358 - 5200, meaning: 'on',
+    indexed: true, lastIndexed: '2026-10-15T09:00:00Z', total: 9358, files: 1200, byType: [{ type: 'function', count: 4679 }, { type: 'type', count: 2340 }, { type: 'component', count: 2339 }], topFiles: [], entries, more: 9358 - 5200, meaning: 'on',
 };
 
 describe('the function index', () => {
-    it('pages every entry the loader sent, with kind chips, and says when the loader capped them', () => {
+    it('pages every entry the loader sent, counts kinds over the whole index, and says search covers only what was sent', () => {
         const out = html(<IndexTable index={index} />);
         expect(out).toContain('1–25 of 5,200');
-        expect(out).toContain('first 5,200 of 9,358 indexed, search to narrow');
-        expect(out).toContain('aria-pressed="true" class="on">All<span class="ui-filterchip-count">5,200</span>');
-        expect(out).toContain('>function<span class="ui-filterchip-count">2,600</span>');
+        expect(out).toContain('search and filters cover the first 5,200 of 9,358 entries, not the whole index');
+        expect(out).toContain('aria-pressed="true" class="on">All<span class="ui-filterchip-count">9,358</span>');
+        expect(out).toContain('>function<span class="ui-filterchip-count">4,679</span>');
         expect(out.match(/<tr>/g)).toHaveLength(26);
     });
 
@@ -31,7 +31,7 @@ describe('the function index', () => {
     });
 
     it('filters by kind and search together', () => {
-        expect(html(<IndexTable index={index} />)).toContain('>type<span class="ui-filterchip-count">1,300</span>');
+        expect(html(<IndexTable index={index} />)).toContain('>type<span class="ui-filterchip-count">2,340</span>');
         expect(html(<IndexTable index={index} initialQuery="area-3/ module-3.ts" />)).toContain('1 entry · ');
         expect(html(<IndexTable index={index} initialQuery="handler5199" />)).toContain('1 entry');
     });

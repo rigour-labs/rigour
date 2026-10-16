@@ -44,29 +44,31 @@ function factKpis(d: PullDetail): KpiItem[] {
     ];
 }
 
-interface JudgeRow { reviewer: string; versions: string[]; models: string[]; unrecorded: boolean; runs: number; usd: number | null; costs: string[] }
+/** `whole`: a cost reported for the whole review (by "claude and codex", or "the reviewer"), not by one judge. */
+interface JudgeRow { reviewer: string; versions: string[]; models: string[]; unrecorded: boolean; runs: number | null; usd: number | null; costs: string[]; whole?: true }
 
 /** One row per judge across every round: its models (or "model not recorded" once), its runs, and the dollars it reported. */
 function judgeRows(facts: PullDetail['facts']): JudgeRow[] {
     const rows = new Map<string, JudgeRow>();
     for (const j of facts.judges) {
         const row = rows.get(j.reviewer) ?? { reviewer: j.reviewer, versions: [], models: [], unrecorded: false, runs: 0, usd: null, costs: [] };
-        row.runs += j.runs;
+        row.runs = (row.runs ?? 0) + j.runs;
         if (j.model && !row.models.includes(j.model)) row.models.push(j.model);
         if (!j.model) row.unrecorded = true;
         if (j.version && !row.versions.includes(j.version)) row.versions.push(j.version);
         rows.set(j.reviewer, row);
     }
     for (const c of facts.cost) {
-        const row = rows.get(c.by);
-        if (!row) continue;
+        // A cost no single judge reported is a row of its own, so it is not seen only in the total.
+        const row = rows.get(c.by) ?? { reviewer: c.by, versions: [], models: [], unrecorded: false, runs: null, usd: null, costs: [], whole: true as const };
         row.usd = (row.usd ?? 0) + c.usd;
         row.costs.push(costWords(c));
+        rows.set(c.by, row);
     }
     return [...rows.values()];
 }
 
-const modelWords = (r: JudgeRow) => (r.models.length ? `${r.models.join(', ')}${r.unrecorded ? ', model not recorded' : ''}` : 'model not recorded');
+const modelWords = (r: JudgeRow) => (r.whole ? 'as reported for the whole review' : r.models.length ? `${r.models.join(', ')}${r.unrecorded ? ', model not recorded' : ''}` : 'model not recorded');
 
 const JudgeRows: React.FC<{ facts: PullDetail['facts'] }> = ({ facts }) => {
     const rows = judgeRows(facts);
@@ -78,7 +80,7 @@ const JudgeRows: React.FC<{ facts: PullDetail['facts'] }> = ({ facts }) => {
                 {rows.map(r => (
                     <div role="row" className="pulls-judge" key={r.reviewer}>
                         <span role="cell"><strong>{r.reviewer}{r.versions.length ? ` ${r.versions.join(', ')}` : ''}</strong><small className="pulls-dim">{modelWords(r)}</small></span>
-                        <span role="cell" className="num">{formatCount(r.runs)}</span>
+                        <span role="cell" className="num">{r.runs === null ? '—' : formatCount(r.runs)}</span>
                         <span role="cell" className="num" title={r.costs.join('; ') || undefined}>{r.usd === null ? '—' : `$${r.usd.toFixed(2)}`}</span>
                     </div>
                 ))}

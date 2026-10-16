@@ -9,22 +9,32 @@ import { inlineCode } from './storyData';
 import { formatCount as n } from './format';
 
 const STORE_PREFIX = 'rigour-studio:';
+/** The repository whose choices are remembered: two Studios on one browser keep their own tabs and filters. */
+let repository = '';
+
+/** Names the repository choices are kept for; App sets it from /api/info before any page reads one. */
+export function setStorageRepository(name: string | undefined): void {
+    repository = name ?? '';
+}
+
+/** A choice's storage key: per repository, or, for `everywhere`, the same in every repository (how the navigation shows). */
+const keyFor = (key: string, everywhere: boolean) => `${STORE_PREFIX}${everywhere || !repository ? '' : `${repository}:`}${key}`;
 
 /** A choice remembered in this browser (a tab, a filter, a page size); the initial value where storage is blocked. */
-export function usePersisted<T extends string | number>(key: string | undefined, initial: T): [T, (value: T) => void] {
-    const [value, setValue] = React.useState<T>(() => readStored(key, initial));
+export function usePersisted<T extends string | number>(key: string | undefined, initial: T, everywhere = false): [T, (value: T) => void] {
+    const [value, setValue] = React.useState<T>(() => readStored(key && keyFor(key, everywhere), initial));
     const set = React.useCallback((next: T) => {
         setValue(next);
         if (!key) return;
-        try { window.localStorage.setItem(STORE_PREFIX + key, String(next)); } catch { /* storage blocked: kept for this visit */ }
-    }, [key]);
+        try { window.localStorage.setItem(keyFor(key, everywhere), String(next)); } catch { /* storage blocked: kept for this visit */ }
+    }, [key, everywhere]);
     return [value, set];
 }
 
 function readStored<T extends string | number>(key: string | undefined, initial: T): T {
     if (!key || typeof window === 'undefined') return initial;
     try {
-        const raw = window.localStorage.getItem(STORE_PREFIX + key);
+        const raw = window.localStorage.getItem(key);
         if (raw === null) return initial;
         return (typeof initial === 'number' ? Number(raw) || initial : raw) as T;
     } catch {
@@ -134,7 +144,8 @@ interface Paged<T> {
 /** Client-side paging over `items`: `resetKey` names the filter and search, so a change goes back to page 1; the page size is remembered under `storageKey`. */
 export function usePaged<T>(items: T[], { resetKey = '', storageKey }: { resetKey?: string; storageKey: string }): Paged<T> {
     const [state, setState] = React.useState<PageState>({ page: 1, key: resetKey });
-    const [size, storeSize] = usePersisted<number>(`${storageKey}:size`, PAGE_SIZES[0]);
+    const [stored, storeSize] = usePersisted<number>(`${storageKey}:size`, PAGE_SIZES[0]);
+    const size = (PAGE_SIZES as readonly number[]).includes(stored) ? stored : PAGE_SIZES[0];
     // A new filter or search starts at page 1, and stays there when the person goes back to the earlier one.
     if (state.key !== resetKey) setState({ page: 1, key: resetKey });
     const page = resolvePage(state, resetKey, items.length, size);

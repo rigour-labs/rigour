@@ -69,20 +69,20 @@
 /* Reading long lists: tables that fit their card, row lists, clamped text, memory keys, paging, filters, skeletons, errors. */
 .ui-table.fixed { table-layout: fixed; }
 .ui-table.fixed td { overflow: hidden; text-overflow: ellipsis; }
+/* A clipped cell would cut the row button's focus ring: draw it inside. */
+.ui-table.fixed .ui-row-open:focus-visible { outline-offset: -2px; }
 .ui-table.fixed th, .ui-table.fixed td { padding-left: 12px; padding-right: 12px; }
 .ui-table.fixed th:first-child, .ui-table.fixed td:first-child { padding-left: 20px; }
 .ui-table.fixed th:last-child, .ui-table.fixed td:last-child { padding-right: 20px; }
 .ui-table th.num, .ui-table td.num { text-align: right; }
 @media (max-width: 1180px) { .ui-table .ui-secondary { display: none; } }
 @media (max-width: 960px) { .ui-table th, .ui-table td { padding-left: 12px; padding-right: 12px; } .ui-table th:first-child, .ui-table td:first-child { padding-left: 16px; } }
-.ui-table tbody tr:hover td { background: color-mix(in srgb, var(--bg-accent) 60%, transparent); }
 .ui-ellipsis { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-link:focus-visible, .ui-clamp-toggle:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; border-radius: 4px; }
 .ui-link:hover { text-decoration: underline; }
 .ui-list { display: flex; flex-direction: column; border-top: 1px solid var(--border-dim); }
 .ui-list-row { display: flex; flex-direction: column; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border-dim); min-width: 0; }
 .ui-list-row:last-child { border-bottom: 0; }
-.ui-list-row:hover { background: color-mix(in srgb, var(--bg-accent) 45%, transparent); }
 .ui-list-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .ui-list-foot > .ui-meta { flex: 1 1 auto; min-width: 0; }
 .ui-list-foot > .ui-actions { flex: none; flex-wrap: nowrap; }

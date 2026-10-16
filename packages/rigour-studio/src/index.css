@@ -599,10 +599,10 @@ textarea:focus-visible {
 .nav-group + .nav-group { margin-top: 14px; }
 .nav-group-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-dim); padding: 4px 12px 6px; }
 
-/* Below 960px the sidebar folds to an icon rail; the toggle (kept by usePersisted) shows the page names again. */
+/* At 960px and below the sidebar folds to an icon rail; the toggle (kept by usePersisted) shows the page names again. */
 .nav-toggle { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; margin: -20px 0 12px 4px; border: 1px solid var(--border-dim); border-radius: 8px; background: transparent; color: var(--text-dim); cursor: pointer; }
 .nav-toggle:hover { background: var(--bg-accent); color: var(--text-main); }
-@media (max-width: 959px) {
+@media (max-width: 960px) {
     .nav-toggle { display: inline-flex; }
     .studio[data-nav="rail"] .sidebar { width: 68px; padding: 16px 10px; }
     .studio[data-nav="rail"] .brand { padding: 8px 10px; justify-content: center; }

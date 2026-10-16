@@ -2,7 +2,7 @@ import React from 'react';
 import { formatCount } from './format';
 import './ui.css';
 
-export { Clamp, FilterBar, MemoryText, Pager, Skeleton, matchesQuery, usePaged, usePersisted, type FilterChip } from './readable';
+export { Clamp, FilterBar, MemoryText, Pager, Skeleton, matchesQuery, setStorageRepository, usePaged, usePersisted, type FilterChip } from './readable';
 export { formatCount } from './format';
 
 /** A number shown as a count, with separators; anything else as it is. */
@@ -54,6 +54,7 @@ const STATE_CHIPS = {
     machine: { word: 'kept on this machine', tone: 'ok' },
     repo: { word: 'kept in this repository', tone: 'ok' },
     dropped: { word: 'dropped', tone: 'plain' },
+    notRule: { word: 'not a rule', tone: 'plain' },
     replaced: { word: 'replaced', tone: 'plain' },
     open: { word: 'open', tone: 'warn' },
 } as const satisfies Record<string, { word: string; tone: Tone }>;
@@ -75,11 +76,21 @@ export const LoadError: React.FC<{ what: string; error: string }> = ({ what, err
     </div>
 );
 
-/** A path under a home folder (macOS, Linux or Windows) with the home folder shown as `~`. */
+/** Shared folders beside the home folders; a path under one names nobody, so it is shown as it is. */
+const SHARED_HOMES = '(?:Shared|Public|Default|All Users|Default User)';
+/** Where a path can start: the start of the text, a space, a quote, `=`, `(`, or a `:` or `;` between list entries. */
+const PATH_START = `(^|[\\s"'=(:;])`;
+// Not after a drive letter's colon (C:/Users/... is the Windows form, below).
+const UNIX_HOME = new RegExp(`(^|[\\s"'=(;]|(?<!(?:^|[\\s"'=(;])[A-Za-z]):)/(?:Users|home)/(?!${SHARED_HOMES}(?:[/\\s"';:]|$))[^/\\s"';:]+(?=[/\\s"';:]|$)`, 'g');
+// A Windows user name may hold spaces ("Bob Smith"): it runs to the next slash or quote; a name with no slash after it stops at a space.
+const WINDOWS_HOME = new RegExp(`${PATH_START}[A-Za-z]:[\\\\/]Users[\\\\/](?!${SHARED_HOMES}(?:[\\\\/"']|$))(?:[^\\\\/"';:\\s][^\\\\/"';:]*?(?=[\\\\/"'])|[^\\\\/"';:\\s]+(?=[\\s;]|$))`, 'g');
+
+/**
+ * A command with the person's home folder shown as `~`: `/Users/<name>`, `/home/<name>` and `C:\Users\<name>` (either
+ * slash), wherever a path starts, quoted or in a PATH-style list. Shared and Public folders are not anyone's home.
+ */
 function homeAsTilde(text: string): string {
-    return text
-        .replace(/(^|[\s"'=(])(?:\/Users|\/home)\/[^/\s"']+(?=\/|\s|$)/g, '$1~')
-        .replace(/(^|[\s"'=(])[A-Za-z]:\\Users\\[^\\\s"']+(?=\\|\s|$)/g, '$1~');
+    return text.replace(WINDOWS_HOME, '$1~').replace(UNIX_HOME, '$1~');
 }
 
 /** Copies text, through the clipboard API where the page may use it and a hidden text area where it may not. */
@@ -101,9 +112,17 @@ async function copyText(text: string): Promise<boolean> {
     }
 }
 
+/** How long "Copied" stays on the button before it reads Copy again. */
+const COPY_SAID_MS = 2000;
+
 /** A command to run, on one line with the whole of it on hover, and Copy. Copy gives the command exactly as recorded. */
 export const FixCommand: React.FC<{ command: string }> = ({ command }) => {
     const [said, setSaid] = React.useState<'Copy' | 'Copied' | 'Copy failed'>('Copy');
+    React.useEffect(() => {
+        if (said === 'Copy') return undefined;
+        const reset = window.setTimeout(() => setSaid('Copy'), COPY_SAID_MS);
+        return () => window.clearTimeout(reset);
+    }, [said]);
     const shown = homeAsTilde(command);
     const copy = async () => setSaid((await copyText(command).catch(() => false)) ? 'Copied' : 'Copy failed');
     return (

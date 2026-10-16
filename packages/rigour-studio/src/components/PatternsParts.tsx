@@ -49,15 +49,16 @@ function filterEntries(entries: IndexEntry[], kind: string, query: string): Inde
 export const IndexTable: React.FC<{ index: PatternsData['index']; initialQuery?: string }> = ({ index, initialQuery = '' }) => {
     const [query, setQuery] = React.useState(initialQuery);
     const [stored, setKind] = usePersisted<string>('patterns:kind', 'all');
-    const kinds = React.useMemo(() => kindCounts(index.entries), [index.entries]);
-    const kind = stored === 'all' || kinds.some(([k]) => k === stored) ? stored : 'all';
+    // Chip counts are the whole index's, from the server; the list below holds the entries it sent.
+    const kinds = index.byType;
+    const kind = stored === 'all' || kinds.some(t => t.type === stored) ? stored : 'all';
     const matches = React.useMemo(() => filterEntries(index.entries, kind, query), [index.entries, kind, query]);
     const paged = usePaged(matches, { resetKey: `${kind}\u0000${query}`, storageKey: 'patterns:index' });
     if (!index.indexed) {
         return <Card title="The function index"><Empty>Nothing indexed in this checkout yet. <code>rigour index</code> builds it; after that Rigour keeps it fresh as agents edit, and points an agent to a function that exists before it writes a near-copy.</Empty></Card>;
     }
-    const chips = [{ id: 'all', label: 'All', count: index.entries.length }, ...kinds.slice(0, KIND_CHIPS).map(([k, n]) => ({ id: k, label: k, count: n }))];
-    const capped = index.more ? <span title="Search covers these; the rest are counted, not sent to the browser">first {index.entries.length.toLocaleString('en-US')} of {index.total.toLocaleString('en-US')} indexed, search to narrow</span> : undefined;
+    const chips = [{ id: 'all', label: 'All', count: index.total }, ...kinds.slice(0, KIND_CHIPS).map(t => ({ id: t.type, label: t.type, count: t.count }))];
+    const capped = index.more ? <span>search and filters cover the first {num(index.entries.length)} of {num(index.total)} entries, not the whole index</span> : undefined;
     return (
         <Card title="The function index" meta={`${num(index.files)} files`} flush>
             <div className="ui-card-body">
@@ -72,11 +73,6 @@ export const IndexTable: React.FC<{ index: PatternsData['index']; initialQuery?:
     );
 };
 
-function kindCounts(entries: IndexEntry[]): Array<[string, number]> {
-    const counts = new Map<string, number>();
-    for (const e of entries) counts.set(e.type, (counts.get(e.type) ?? 0) + 1);
-    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-}
 
 const MEANING_WORDS: Record<string, string> = { on: 'on', off: 'off (rigour index --no-semantic)', warming: 'starting', degraded: 'unavailable, matching by name' };
 
