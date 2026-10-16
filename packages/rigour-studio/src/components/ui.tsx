@@ -83,7 +83,7 @@ export const Timeline: React.FC<{ steps: TimelineStep[] }> = ({ steps }) => (
     </div>
 );
 
-export interface WeekBar { label: string; values: number[] }
+interface WeekBar { label: string; values: number[] }
 
 /** Weeks side by side, one bar per series; colours follow `series`. */
 export const WeekChart: React.FC<{ weeks: WeekBar[]; series: Array<{ label: string; color: string }> }> = ({ weeks, series }) => {
