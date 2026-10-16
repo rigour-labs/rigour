@@ -3,11 +3,12 @@ import os from 'os';
 import path from 'path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const shared = vi.hoisted(() => ({ calls: [] as Array<[string, string]>, team: null as null | Record<string, unknown> }));
+const shared = vi.hoisted(() => ({ calls: [] as Array<[string, string]>, team: null as null | Record<string, unknown>, sync: (async () => ({ synced: 1 })) as () => Promise<unknown> }));
 vi.mock('@rigour-labs/core', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@rigour-labs/core')>()),
     shareMemoryLesson: async (_cwd: string, key: string, value: string) => { shared.calls.push([key, value]); return 'lesson-1'; },
     loadTeamConfiguration: async () => shared.team,
+    syncTeamOutbox: () => shared.sync(),
 }));
 
 const { handleForget, handleRemember } = await import('./memory-handlers.js');
@@ -26,6 +27,7 @@ beforeEach(() => {
     process.env.RIGOUR_HOME = home;
     shared.calls = [];
     shared.team = null;
+    shared.sync = async () => ({ synced: 1 });
 });
 afterEach(() => {
     if (realHome === undefined) delete process.env.RIGOUR_HOME;
@@ -94,9 +96,17 @@ describe('memory scopes', () => {
             expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain("set RIGOUR_TEAM_REPOSITORIES='forge.example.com/example-org/api,forge.example.com/example-org/widgets'");
         });
 
-        it("says it is shared when the team lists the repository", async () => {
+        it('says it reached the team database only once a sync sent it', async () => {
             withOrigin(repoA, 'git@remember-forge:example-org/api.git');
-            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('Shared with your team as a candidate');
+            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('Sent to the team database as a candidate');
+        });
+
+        it('says NOT SENT, and why, when the team database could not be reached', async () => {
+            withOrigin(repoA, 'git@remember-forge:example-org/api.git');
+            shared.sync = async () => { throw new Error('Cannot reach the team database (ECONNREFUSED)\nmore'); };
+            const result = text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'));
+            expect(result).toContain('NOT SENT: saved as a team candidate on this machine only; the team database could not be reached (Cannot reach the team database (ECONNREFUSED)).');
+            expect(result).not.toContain('Sent to the team database');
         });
 
         it('says a repository with no origin remote is not sent', async () => {

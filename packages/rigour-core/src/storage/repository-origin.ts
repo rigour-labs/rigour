@@ -2,9 +2,31 @@
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { sshHostName } from '../utils/ssh-host.js';
 
+/** An origin as https, lowercase, without `.git`: the form before any SSH host alias is resolved. */
 function normalizeRemote(remote: string): string {
-    return remote.trim().replace(/^git@([^:]+):/, 'https://$1/').replace(/\.git$/, '').toLowerCase();
+    return remote.trim()
+        .replace(/^git@([^:]+):/, 'https://$1/')
+        .replace(/^ssh:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\//, 'https://$1/')
+        .replace(/\.git$/, '').toLowerCase();
+}
+
+/** Whether git reaches this origin over SSH, where its host may be an alias in the ssh config. */
+function isSshRemote(remote: string): boolean {
+    return /^(?:[^@/\s]+@[^:/\s]+:|ssh:\/\/)/.test(remote.trim());
+}
+
+/**
+ * The same origin with an SSH host alias replaced by the host it names (`git@work-forge:acme/api` → the https form on
+ * forge.example.com), so every checkout of one repository has one origin, whichever remote form it uses.
+ */
+function canonicalRemote(remote: string): string {
+    const normalized = normalizeRemote(remote);
+    if (!isSshRemote(remote)) return normalized;
+    const host = normalized.match(/^https:\/\/([^/]+)\//)?.[1];
+    const real = host ? sshHostName(host) : undefined;
+    return real ? normalized.replace(`https://${host}/`, `https://${real}/`) : normalized;
 }
 
 function readGitConfig(cwd: string): string {
@@ -24,14 +46,29 @@ function readGitConfig(cwd: string): string {
     }
 }
 
-/** The repository's origin remote as Rigour records it (`https://github.com/acme/api`), or undefined without one. */
-function originOfSync(cwd: string): string | undefined {
+function originRemote(cwd: string): string | undefined {
     try {
-        const remote = readGitConfig(cwd).match(/\[remote\s+"origin"\][\s\S]*?url\s*=\s*([^\n]+)/)?.[1];
-        return remote ? normalizeRemote(remote) : undefined;
+        return readGitConfig(cwd).match(/\[remote\s+"origin"\][\s\S]*?url\s*=\s*([^\n]+)/)?.[1];
     } catch {
         return undefined;
     }
+}
+
+/** The repository's origin remote as Rigour records it (`https://github.com/acme/api`, an SSH alias resolved), or undefined without one. */
+function originOfSync(cwd: string): string | undefined {
+    const remote = originRemote(cwd);
+    return remote ? canonicalRemote(remote) : undefined;
+}
+
+/**
+ * The id this repository had before Rigour resolved SSH host aliases (7.0.9), when that differs from its id now: the
+ * local store re-keys rows filed under it once (lessons.ts registerRepository).
+ */
+export function legacyRepositoryId(cwd: string): string | undefined {
+    const remote = originRemote(cwd);
+    if (!remote) return undefined;
+    const legacy = createHash('sha256').update(normalizeRemote(remote)).digest('hex');
+    return legacy === repositoryIdSync(cwd) ? undefined : legacy;
 }
 
 export async function originOf(cwd: string): Promise<string | undefined> {

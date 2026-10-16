@@ -5,7 +5,7 @@ import { openDatabase } from './db.js';
 import { encryptLocalPayload } from './local-encryption.js';
 import { lessonRowToRecord as rowToLesson } from './lesson-record.js';
 import { loadTeamConfiguration } from './team-store.js';
-import { getRepositoryId, originOf } from './repository-origin.js';
+import { getRepositoryId, legacyRepositoryId, originOf } from './repository-origin.js';
 
 export { getRepositoryId };
 
@@ -94,7 +94,27 @@ export async function countInteractionEvidence(cwd: string): Promise<number> {
 }
 
 
+/** The local tables that file rows by repository id: re-keyed together when a repository's id changes. */
+const REPOSITORY_TABLES = ['lessons', 'interaction_events', 'review_decisions_sent', 'context_events', 'model_usage', 'checkpoint_metrics'];
+const rekeyed = new Set<string>();
+
+/**
+ * Rows this store filed under the repository's id from before SSH host aliases were resolved move to its id now, once:
+ * an SSH-alias checkout and an https clone of one repository then see the same lessons and candidates.
+ */
+async function rekeyLegacyRows(db: { run(sql: string, ...params: unknown[]): Promise<unknown> }, cwd: string, repositoryId: string): Promise<void> {
+    const legacy = legacyRepositoryId(cwd);
+    if (!legacy || legacy === repositoryId || rekeyed.has(legacy)) return;
+    for (const table of REPOSITORY_TABLES) {
+        // OR IGNORE: a row already filed under the new id wins over its legacy twin; a table an old store lacks is skipped.
+        await db.run(`UPDATE OR IGNORE ${table} SET repository_id = ? WHERE repository_id = ?`, repositoryId, legacy).catch(() => undefined);
+    }
+    await db.run('DELETE FROM repositories WHERE id = ?', legacy).catch(() => undefined);
+    rekeyed.add(legacy);
+}
+
 export async function registerRepository(db: { run(sql: string, ...params: unknown[]): Promise<unknown> }, cwd: string, repositoryId: string): Promise<void> {
+    await rekeyLegacyRows(db, cwd, repositoryId);
     // Non-git workspaces use their resolved path as the canonical local identity.
     const canonicalUri = (await originOf(cwd)) ?? path.resolve(cwd);
     const remoteName = canonicalUri.split('/').filter(Boolean).at(-1);
