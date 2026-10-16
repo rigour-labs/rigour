@@ -69,7 +69,7 @@ export async function supersedeShared(tx: Tx, published: LessonRecord, scope: { 
  * rejected otherwise;
  * marked `takenBackBy` this person and queued. Returns the new state, or null when `id` is no shared team memory.
  */
-export async function takeBackTeamMemory(id: string): Promise<LessonState | null> {
+export async function takeBackTeamMemory(id: string, options: { repositoryIds?: string[] } = {}): Promise<LessonState | null> {
     const db = await openDatabase();
     if (!db) return null;
     const config = await loadTeamConfiguration();
@@ -79,8 +79,11 @@ export async function takeBackTeamMemory(id: string): Promise<LessonState | null
             const row = await tx.get('SELECT * FROM lessons WHERE id = ?', id);
             const key = row && memoryKeyOf(await lessonRowToRecord(row));
             if (!key || row.visibility !== 'team' || row.state !== 'promoted') return null;
-            // A newer shared version under the row's own repository: the one agents get once this one goes.
-            const newer = (await sharedForKey(tx, { repositoryIds: [String(row.repository_id)], teamId: row.team_id ?? null, key })).some(other => other.id !== id && Number(other.created_at) > Number(row.created_at));
+            // A newer shared version of the row's repository: the one agents get once this one goes. The repository may be
+            // filed under more than one id (an https clone's and an SSH alias checkout's); the caller's checkout knows them.
+            const own = String(row.repository_id);
+            const repositoryIds = options.repositoryIds?.includes(own) ? options.repositoryIds : [own];
+            const newer = (await sharedForKey(tx, { repositoryIds, teamId: row.team_id ?? null, key })).some(other => other.id !== id && Number(other.created_at) > Number(row.created_at));
             const state: LessonState = newer ? 'superseded' : 'rejected';
             await retire(tx, row, { state, mark: 'takenBackBy', by, now: Date.now(), queue: Boolean(config) });
             await tx.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");

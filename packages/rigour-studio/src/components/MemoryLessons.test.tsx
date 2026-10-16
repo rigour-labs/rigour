@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { Journey } from './LearningParts';
 import { LessonsTriage } from './MemoryLessons';
 import { lessonState } from './lessonWords';
+import { memoryKpis } from './MemoryParts';
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 const lesson = (id: string, over: Partial<Journey> = {}): Journey => ({
@@ -26,6 +27,21 @@ describe('the Lessons tab as a triage list', () => {
         expect(out).toContain('aria-label="Search lessons by key or text"');
         expect(out).toContain('1–25 of 30');
         expect(out.match(/ui-list-row mem-lesson/g)).toHaveLength(25);
+    });
+
+    it('counts the same lessons in its chips as the page counts in its numbers', () => {
+        // A key the team shares, with a proposal to replace it: one card, counted under both piles; a kept lesson a person
+        // can still share is in force and waiting at once.
+        const sharedKey = lesson('k1', { text: 'retries: Retry twice.', memory: { key: 'retries', value: 'Retry twice.' }, scope: 'team', state: 'promoted', canDecide: false });
+        const proposal = lesson('k2', { text: 'retries: Retry three times.', memory: { key: 'retries', value: 'Retry three times.' }, scope: 'team', state: 'candidate' });
+        const keptSharable = lesson('v1', { state: 'validated', canDecide: true });
+        const lessons = [sharedKey, proposal, keptSharable, ...gone];
+        const out = html(<LessonsTriage lessons={lessons} onDecide={() => undefined} />);
+        const kpis = Object.fromEntries(memoryKpis(lessons, []).map(k => [k.label, k.value]));
+        expect(kpis['Lessons in force']).toBe(2);
+        expect(kpis['Waiting for a person']).toBe(2);
+        expect(out).toContain('In force<span class="ui-filterchip-count">2</span>');
+        expect(out).toContain('Waiting for a person<span class="ui-filterchip-count">2</span>');
     });
 
     it('lands on in force when nothing waits', () => {

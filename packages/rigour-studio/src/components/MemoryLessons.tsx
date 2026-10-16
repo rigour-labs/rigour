@@ -6,13 +6,16 @@ import React from 'react';
 import { Card, Empty, FilterBar, Pager, matchesQuery, usePaged, type FilterChip } from './ui';
 import type { Journey } from './LearningParts';
 import { groupProposals, itemKey, LessonItemView, type LessonItem, type ReviewProps } from './MemoryProposals';
-import { lessonBucket, lessonSearchText, type LessonBucket } from './lessonWords';
+import { lessonBuckets, lessonSearchText, type LessonBucket } from './lessonWords';
 
 type Filter = LessonBucket | 'all';
 type Decide = (id: string, state: 'validated' | 'promoted' | 'rejected') => void;
 
-/** A grouped key always holds a proposal: it waits for a person. */
-const itemBucket = (item: LessonItem): LessonBucket => ('lesson' in item ? lessonBucket(item.lesson) : 'waiting');
+/** The piles a card is listed under: every pile one of its lessons belongs to. */
+function itemBuckets(item: LessonItem): Set<LessonBucket> {
+    const lessons = 'lesson' in item ? [item.lesson] : [...item.shared, ...item.proposals];
+    return new Set(lessons.flatMap(l => [...lessonBuckets(l)]));
+}
 
 function itemText(item: LessonItem): string {
     if ('lesson' in item) return lessonSearchText(item.lesson);
@@ -37,12 +40,12 @@ function commonNoShare(lessons: Journey[]): string | undefined {
 
 /** The filter a person lands on: waiting for a person when anything does, else in force. */
 function defaultFilter(items: LessonItem[]): Filter {
-    return items.some(i => itemBucket(i) === 'waiting') ? 'waiting' : 'force';
+    return items.some(i => itemBuckets(i).has('waiting')) ? 'waiting' : 'force';
 }
 
 /** Items in one filter that match the search, in the loader's order. */
 function filterItems(items: LessonItem[], filter: Filter, query: string): LessonItem[] {
-    return items.filter(i => (filter === 'all' || itemBucket(i) === filter) && matchesQuery(itemText(i), query));
+    return items.filter(i => (filter === 'all' || itemBuckets(i).has(filter)) && matchesQuery(itemText(i), query));
 }
 
 export const LessonsTriage: React.FC<{ lessons: Journey[]; onDecide: Decide; initialQuery?: string } & ReviewProps> = ({ lessons, onDecide, initialQuery = '', ...review }) => {
@@ -54,7 +57,8 @@ export const LessonsTriage: React.FC<{ lessons: Journey[]; onDecide: Decide; ini
     const shown = React.useMemo(() => filterItems(items, filter, query), [items, filter, query]);
     const paged = usePaged(shown, { resetKey: `${filter}\u0000${query}`, storageKey: 'memory:lessons' });
     const quietNoShare = commonNoShare(lessons);
-    const count = (f: Filter) => (f === 'all' ? items.length : items.filter(i => itemBucket(i) === f).length);
+    // Lessons, not cards: the same count the page's numbers give (a card may hold a key's shared version and its proposals).
+    const count = (f: Filter) => (f === 'all' ? lessons.length : lessons.filter(l => lessonBuckets(l).has(f)).length);
     const chips: FilterChip[] = (['waiting', 'force', 'gone', 'all'] as Filter[]).map(f => ({ id: f, label: FILTER_WORDS[f], count: count(f) }));
     return (
         <Card flush>
