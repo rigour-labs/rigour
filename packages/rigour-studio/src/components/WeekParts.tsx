@@ -77,11 +77,11 @@ export const RepeatsChart: React.FC<{ weeks: ProgressWeek[] }> = ({ weeks }) => 
     const label = (from: string) => new Date(from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     const series = [{ label: 'Repeats caught while writing', color: 'var(--accent-primary)' }, ...(prKnown ? [{ label: 'Repeats that reached a PR', color: 'var(--status-warning)' }] : [])];
     const empty = weeks.every(w => w.repeatsStopped === 0 && !w.repeatsReachedPr);
+    // Eight quiet weeks are one line, so what needs a person comes first on the page.
+    if (empty) return <div className="week-quiet"><strong>Caught while writing vs reached a PR</strong><span>No repeat mistake in the last {weeks.length} weeks: a repeat matches a lesson Rigour already learned.</span></div>;
     return (
         <Card title="Caught while writing vs reached a PR" meta="8 weeks">
-            {empty
-                ? <Empty>No repeat mistakes yet. A repeat is a problem that matches a lesson Rigour already learned; it shows here once an agent makes one again.</Empty>
-                : <WeekChart weeks={weeks.map(w => ({ label: label(w.from), values: [w.repeatsStopped, ...(prKnown ? [w.repeatsReachedPr ?? 0] : [])] }))} series={series} />}
+            <WeekChart weeks={weeks.map(w => ({ label: label(w.from), values: [w.repeatsStopped, ...(prKnown ? [w.repeatsReachedPr ?? 0] : [])] }))} series={series} />
             <small className="week-note">
                 Computed: a repeat matches, by its check and title, a lesson Rigour learned before.
                 {prKnown ? '' : ' Repeats that reached a PR are not recorded here: they show once branch reviews run (rigour review --base main).'}

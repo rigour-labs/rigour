@@ -53,21 +53,25 @@ function sameValueAs(p: Journey, all: Journey[]): string {
 
 const proposedLine = (p: Journey, all: Journey[]) => [`proposed by ${toldBy(p)}`, p.learnedAt ? ago(p.learnedAt) : '', sameValueAs(p, all)].filter(Boolean).join(' · ');
 
+/** What deciding on a proposal does or why it cannot be shared here, on its own line above the buttons. */
+function proposalHint(p: Journey, replaces: boolean, quietNoShare?: string): string | undefined {
+    if (!p.canDecide) return "An sme or owner decides on a teammate's proposal.";
+    if (p.noShare) return p.noShare === quietNoShare ? undefined : p.noShare;
+    return replaces ? 'Sharing this replaces the shared version.' : undefined;
+}
+
 const Proposal: React.FC<{ proposal: Journey; all: Journey[]; replaces: boolean; onDecide: Decide; quietNoShare?: string }> = ({ proposal: p, all, replaces, onDecide, quietNoShare }) => (
     <div className="mem-version">
         <Clamp text={p.memory?.value ?? p.text} />
+        {proposalHint(p, replaces, quietNoShare) && <div className="ui-meta mem-hint">{proposalHint(p, replaces, quietNoShare)}</div>}
         <div className="ui-list-foot">
             <span className="ui-meta">{proposedLine(p, all)}</span>
-            {p.canDecide
-                ? (
-                    <div className="ui-actions">
-                        {p.noShare
-                            ? (p.noShare === quietNoShare ? null : <span className="ui-meta mem-why">{p.noShare}</span>)
-                            : <>{replaces && <span className="ui-meta mem-why">Sharing this replaces the shared version.</span>}<button className="st-btn primary" onClick={() => onDecide(p.id, 'promoted')} type="button">Share with team</button></>}
-                        <button className="st-btn" onClick={() => onDecide(p.id, 'rejected')} type="button">Drop</button>
-                    </div>
-                )
-                : <span className="ui-meta mem-why">An sme or owner decides on a teammate's proposal.</span>}
+            {p.canDecide && (
+                <div className="ui-actions">
+                    {!p.noShare && <button className="st-btn primary" onClick={() => onDecide(p.id, 'promoted')} type="button">Share with team</button>}
+                    <button className="st-btn" onClick={() => onDecide(p.id, 'rejected')} type="button">Drop</button>
+                </div>
+            )}
         </div>
     </div>
 );

@@ -35,7 +35,7 @@ export function patternKpis(data: PatternsData): KpiItem[] {
 const KIND_CHIPS = 6;
 
 const INDEX_COLUMNS: Column<IndexEntry>[] = [
-    { label: 'Name', width: '34%', cell: e => <span className="ui-mono ui-ellipsis" title={e.name}>{e.name}</span> },
+    { label: 'Name', width: '30%', cell: e => <span className="ui-mono ui-ellipsis" title={e.name}>{e.name}</span> },
     { label: 'Kind', width: '120px', cell: e => <Chip>{e.type}</Chip> },
     { label: 'File', cell: e => <span className="ui-mono ui-ellipsis pat-dim pat-path" title={`${e.file}:${e.line}`}>{`\u200e${e.file}:${e.line}\u200e`}</span> },
     { label: 'Exported', width: '104px', cell: e => (e.exported ? <Chip tone="info">exported</Chip> : <span className="pat-dim" aria-label="not exported">—</span>) },

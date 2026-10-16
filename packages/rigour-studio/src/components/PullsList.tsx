@@ -28,12 +28,22 @@ const columns: Column<PullRow>[] = [
     { label: 'Pull request', wrap: true, cell: r => <PrCell row={r} /> },
     { label: 'State', cell: r => <span title={STATE_WORDS[r.state].note}><Chip tone={STATE_WORDS[r.state].tone}>{STATE_WORDS[r.state].label}</Chip></span> },
     { label: 'Last review', cell: r => <LastReview row={r} /> },
-    { label: 'Rounds', num: true, cell: r => r.rounds || '—' },
-    { label: 'Lessons applied', num: true, cell: r => (r.rounds ? r.lessonsApplied : '—') },
-    { label: 'CI after merge', cell: r => <span title={r.ci ? undefined : NO_MERGES}>{r.state === 'not-opened' ? '—' : ciWords(r.ci)}</span> },
-    { label: 'Follow-up fixes', num: true, cell: r => (r.followUps ? <span title={`${plural(r.followUps.commits, 'later commit')} on main touched its files`}>{r.followUps.fixes}</span> : <span title={NO_MERGES}>—</span>) },
-    { label: 'Last activity', cell: r => ago(r.lastActivity) },
+    { label: 'Rounds', num: true, secondary: true, cell: r => r.rounds || '—' },
+    { label: 'Lessons applied', num: true, secondary: true, cell: r => (r.rounds ? r.lessonsApplied : '—') },
+    { label: 'After merge', wrap: true, cell: r => <AfterMerge row={r} /> },
+    { label: 'Last activity', secondary: true, cell: r => ago(r.lastActivity) },
 ];
+
+/** CI on the merge and the follow-up fixes, as one cell; a dash with why where no merge is recorded. */
+const AfterMerge: React.FC<{ row: PullRow }> = ({ row }) => {
+    if (row.state === 'not-opened') return <span className="pulls-dim">—</span>;
+    const fixes = row.followUps ? `${plural(row.followUps.fixes, 'fix', 'fixes')} later` : null;
+    return (
+        <span className="pulls-review" title={row.ci || row.followUps ? (row.followUps ? `${plural(row.followUps.commits, 'later commit')} on main touched its files` : undefined) : NO_MERGES}>
+            <span>CI {ciWords(row.ci)}</span>{fixes && <span className="pulls-dim">{fixes}</span>}
+        </span>
+    );
+};
 
 const PrCell: React.FC<{ row: PullRow }> = ({ row }) => (
     <span className="pulls-pr">

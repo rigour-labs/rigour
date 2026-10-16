@@ -60,11 +60,11 @@ export const WeeklyTable: React.FC<{ weeks: ContextWeek[] }> = ({ weeks }) => {
                 ? <div className="ui-card-body"><Empty>No context requests in the last 8 weeks.</Empty></div>
                 : <Table rows={active} rowKey={w => w.from} columns={[
                     { label: 'Week of', cell: w => new Date(w.from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) },
-                    { label: 'Focused file lists', cell: w => w.scopes },
-                    { label: 'Files given', cell: w => (w.scopes ? `${w.filesReturned} of ${w.filesConsidered}` : '—') },
-                    { label: 'Recalls', cell: w => w.recalls },
-                    { label: 'Lessons told', cell: w => w.lessonsTold },
-                    { label: 'Reuse suggestions', cell: w => w.reuse },
+                    { label: 'File lists', num: true, cell: w => w.scopes },
+                    { label: 'Files given', num: true, cell: w => (w.scopes ? `${w.filesReturned} of ${w.filesConsidered}` : '—') },
+                    { label: 'Recalls', num: true, cell: w => w.recalls },
+                    { label: 'Lessons told', num: true, cell: w => w.lessonsTold },
+                    { label: 'Reuse', num: true, cell: w => w.reuse },
                 ]} />}
         </Card>
     );

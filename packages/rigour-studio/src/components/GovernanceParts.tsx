@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Card, Chip, Empty, FilterBar, MemoryText, Pager, Table, matchesQuery, toneOfDecision, usePaged, usePersisted, type Column, type Tone } from './ui';
 import { ago } from './storyData';
+import './story.css';
 import { STAGE_LABELS, type Configured, type Coverage, type CoverageCell, type CoverageRow, type Decision, type Stage } from './governanceData';
 
 const CONFIGURED: Record<Configured, { tone: Tone; word: string }> = {
@@ -28,6 +29,7 @@ const Seen: React.FC<{ at: string | null }> = ({ at }) => <small className="gov-
 
 /** Which agents run which of Rigour's moments here, and what to run where one is missing. */
 export const CoverageCard: React.FC<{ coverage: Coverage; fixes: Array<{ name: string; fix: string }>; onSetup: () => void }> = ({ coverage, fixes, onSetup }) => {
+    if (coverage.rows.length === 0 || coverage.covered === 0) return <CoverageSummary coverage={coverage} fixes={fixes} onSetup={onSetup} />;
     const anyUnattributed = coverage.stages.some(s => coverage.unattributed[s]);
     const rows: Array<CoverageRow | 'unattributed'> = [...coverage.rows, ...(anyUnattributed ? ['unattributed' as const] : [])];
     const columns: Column<CoverageRow | 'unattributed'>[] = [
@@ -54,6 +56,23 @@ export const CoverageCard: React.FC<{ coverage: Coverage; fixes: Array<{ name: s
                 <button type="button" className="ui-link" onClick={onSetup}>Open Setup to fix what is off</button>
             </div>
         </Card>
+    );
+};
+
+/** Coverage with nothing switched on, as one row: what is missing, what to run on request, and Setup. */
+const CoverageSummary: React.FC<{ coverage: Coverage; fixes: Array<{ name: string; fix: string }>; onSetup: () => void }> = ({ coverage, fixes, onSetup }) => {
+    const [open, setOpen] = useState(false);
+    const what = coverage.rows.length === 0 ? 'Hooks not set up for any agent' : `No moment switched on for ${coverage.rows.length === 1 ? 'the one agent' : `any of ${coverage.rows.length} agents`} found here`;
+    return (
+        <section className="ui-card gov-summary" aria-label="Is every agent covered?">
+            <div className="gov-summary-row">
+                <Chip tone="warn">not covered</Chip>
+                <span className="gov-summary-text"><strong>{what}</strong> · agents write without Rigour's checks until <span className="ui-mono">rigour setup</span> runs.</span>
+                {fixes.length > 0 && <button type="button" className="ui-link" aria-expanded={open} aria-controls="gov-coverage-fixes" onClick={() => setOpen(!open)}>{open ? 'Hide what to run' : `What to run (${fixes.length})`}</button>}
+                <button type="button" className="st-btn small" onClick={onSetup}>Open Setup</button>
+            </div>
+            {open && <div id="gov-coverage-fixes" className="gov-fixes gov-summary-fixes">{fixes.map(f => <div key={f.name}><span>{f.name}</span><code className="ui-mono">{f.fix}</code></div>)}</div>}
+        </section>
     );
 };
 

@@ -24,7 +24,7 @@ describe('the function index', () => {
 
     it('fits its card: fixed columns, the file whole on hover, exported as a chip or a dash', () => {
         const out = html(<IndexTable index={index} />);
-        expect(out).toContain('<table class="ui-table fixed"><colgroup><col style="width:34%"/><col style="width:120px"/><col/><col style="width:104px"/></colgroup>');
+        expect(out).toContain('<table class="ui-table fixed"><colgroup><col style="width:30%"/><col style="width:120px"/><col/><col style="width:104px"/></colgroup>');
         expect(out).toContain('title="packages/acme-web/src/features/area-0/deeply/nested/module-0.ts:1"');
         expect(out).toContain('>exported</span>');
         expect(out).toContain('aria-label="not exported">—</span>');

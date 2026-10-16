@@ -14,7 +14,7 @@
 .mem-version { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 10px 14px; }
 .mem-version + .mem-version { border-top: 1px solid var(--border-dim); }
 .mem-version.shared { background: color-mix(in srgb, var(--status-success) 5%, transparent); border-radius: 0 8px 8px 0; padding-right: 12px; }
-.mem-why { max-width: 46ch; align-self: center; }
+.mem-hint { color: var(--text-main); }
 .mem-trail { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-left: 12px; border-left: 2px solid var(--border-dim); }
 .mem-trail-item { font-size: 13px; line-height: 1.5; color: var(--text-main); overflow-wrap: anywhere; max-width: 80ch; }
 .mem-trail-item > span { color: var(--text-dim); }
@@ -22,5 +22,5 @@
 .mem-store-item { font-size: 13px; line-height: 1.5; color: var(--text-dim); }
 .mem-store-item strong { display: block; margin-bottom: 2px; font-size: 14px; color: var(--text-primary); font-weight: 600; }
 .mem-store-item code, .mem-note code { font-family: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
-.ui-list .st-btn, .st-btn.small { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.ui-list .st-btn { min-height: 32px; padding: 0 12px; font-size: 13px; }
 @media (max-width: 700px) { .mem-row-head { grid-template-columns: minmax(0, 1fr); } .mem-chips { justify-content: flex-start; } .mem-journey { grid-template-columns: minmax(0, 1fr); } }

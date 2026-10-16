@@ -20,3 +20,8 @@
 .gov-decision-kind .ui-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .gov-decision-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 @media (max-width: 700px) { .gov-decision, .gov-fixes > div { grid-template-columns: minmax(0, 1fr); } }
+.gov-summary { padding: 12px 20px; }
+.gov-summary-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 14px; }
+.gov-summary-text { flex: 1 1 320px; min-width: 0; color: var(--text-dim); }
+.gov-summary-text strong { color: var(--text-primary); font-weight: 600; }
+.gov-summary-fixes { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-dim); }

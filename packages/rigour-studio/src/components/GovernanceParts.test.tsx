@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { DecisionsCard } from './GovernanceParts';
+import { CoverageCard, DecisionsCard } from './GovernanceParts';
 import type { Decision } from './governanceData';
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
@@ -39,5 +39,19 @@ describe('the decisions log', () => {
         const found = html(<DecisionsCard decisions={many} initialQuery="retry_12:" />);
         expect(found).toContain('1 decision<');
         expect(found.match(/ui-list-row gov-decision/g)).toHaveLength(1);
+    });
+});
+
+describe('coverage with nothing switched on', () => {
+    const empty = { stages: ['edit', 'stop'] as const, rows: [], unattributed: { edit: null, stop: null }, covered: 0, possible: 0 } as any;
+    const fixes = [{ name: 'Checks your agent as it writes', fix: 'rigour setup' }];
+
+    it('is one summary row with Setup, and what to run behind a disclosure, so the decisions log stays in view', () => {
+        const out = html(<CoverageCard coverage={empty} fixes={fixes} onSetup={() => undefined} />);
+        expect(out).toContain('Hooks not set up for any agent');
+        expect(out).toContain('aria-expanded="false" aria-controls="gov-coverage-fixes">What to run (1)</button>');
+        expect(out).toContain('>Open Setup</button>');
+        expect(out).not.toContain('<table');
+        expect(out).not.toContain('rigour setup</code>');
     });
 });

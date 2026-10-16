@@ -81,8 +81,13 @@ export const Meter: React.FC<{ share: number }> = ({ share }) => (
     <div className="ui-meter"><div style={{ width: `${Math.max(0, Math.min(1, share)) * 100}%` }} /></div>
 );
 
-/** `width` fixes a column's width (the table then lays out to fit its card); `num` right-aligns a number column. */
-export interface Column<T> { label: string; cell: (row: T) => React.ReactNode; wrap?: boolean; width?: string; num?: boolean }
+/**
+ * `width` fixes a column's width (the table then lays out to fit its card); `num` right-aligns a number column;
+ * `secondary` hides the column on a narrow screen, where the row's own page still shows it.
+ */
+export interface Column<T> { label: string; cell: (row: T) => React.ReactNode; wrap?: boolean; width?: string; num?: boolean; secondary?: boolean }
+
+const cellClass = (c: { num?: boolean; secondary?: boolean }) => [c.num ? 'num' : '', c.secondary ? 'ui-secondary' : ''].filter(Boolean).join(' ') || undefined;
 
 /**
  * A table; with `onRow`, a click anywhere on a row opens it, and the first cell is a button so the keyboard can too.
@@ -94,12 +99,12 @@ export function Table<T>({ rows, columns, rowKey, onRow }: { rows: T[]; columns:
         <div className="ui-table-wrap">
             <table className={fixed ? 'ui-table fixed' : 'ui-table'}>
                 {fixed && <colgroup>{columns.map(c => <col key={c.label} style={c.width ? { width: c.width } : undefined} />)}</colgroup>}
-                <thead><tr>{columns.map(c => <th key={c.label} className={c.num ? 'num' : undefined}>{c.label}</th>)}</tr></thead>
+                <thead><tr>{columns.map(c => <th key={c.label} className={cellClass(c)}>{c.label}</th>)}</tr></thead>
                 <tbody>
                     {rows.map((row, index) => (
                         <tr key={rowKey(row, index)} className={onRow ? 'ui-clickable' : undefined} onClick={onRow ? () => onRow(row) : undefined}>
                             {columns.map((c, i) => (
-                                <td key={c.label} className={c.num ? 'num' : undefined} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>
+                                <td key={c.label} className={cellClass(c)} style={c.wrap ? undefined : { whiteSpace: 'nowrap' }}>
                                     {onRow && i === 0 ? <RowButton onOpen={() => onRow(row)}>{c.cell(row)}</RowButton> : c.cell(row)}
                                 </td>
                             ))}

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Brain, GitPullRequest, Inbox, Landmark, Lock, Moon, PenLine, Shapes, ShieldCheck, Sun, TrendingUp, Wrench, X } from 'lucide-react';
+import { Brain, GitPullRequest, Inbox, Landmark, Lock, Moon, PanelLeftClose, PanelLeftOpen, PenLine, Shapes, ShieldCheck, Sun, TrendingUp, Wrench, X } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProjectIdentity } from './components/ProjectIdentity';
 import { ReadOnlyNote } from './components/ReadOnlyNote';
@@ -14,6 +14,7 @@ import { Patterns } from './components/Patterns';
 import { Governance } from './components/Governance';
 import { Approval, type ApprovalRequest } from './components/Approval';
 import { hasStudioKey } from './studioWrite';
+import { usePersisted } from './components/ui';
 
 // A new key: the old one holds the dark default every earlier Studio stored on first load.
 const THEME_KEY = 'rigour-theme-v2';
@@ -55,6 +56,9 @@ function App() {
     const [health, setHealth] = useState<HealthData | null>(null);
     const [healthLoading, setHealthLoading] = useState(true);
     const [healthOpen, setHealthOpen] = useState(false);
+    // Below 960px the navigation is an icon rail unless the person opened it; wider screens always show it whole.
+    const [nav, setNav] = usePersisted<string>('nav', 'rail');
+    const rail = nav !== 'full';
 
     const fetchHealth = useCallback(async () => {
         setHealthLoading(true);
@@ -93,19 +97,23 @@ function App() {
 
     const current = PAGES.find(p => p.id === active) ?? PAGES[0];
     return (
-        <div className="studio">
+        <div className="studio" data-nav={rail ? 'rail' : 'full'}>
             <aside className="sidebar glass-shell">
                 <div className="brand">
                     <div className="logo-icon"><ShieldCheck size={18} /></div>
                     <span>Rigour</span>
                     {projectInfo?.studioVersion && <div className="version-pill">v{projectInfo.studioVersion}</div>}
                 </div>
-                <nav>
+                <button
+                    type="button" className="nav-toggle" onClick={() => setNav(rail ? 'full' : 'rail')} aria-controls="studio-nav" aria-expanded={!rail}
+                    aria-label={rail ? 'Show page names' : 'Hide page names'} title={rail ? 'Show page names' : 'Hide page names'}
+                >{rail ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
+                <nav id="studio-nav" aria-label="Pages">
                     {GROUPS.map(group => (
                         <div key={group.id} className="nav-group">
                             <div className="nav-group-label">{group.label}</div>
                             {PAGES.filter(page => page.group === group.id).map(page => (
-                                <button key={page.id} className={`nav-item ${page.id === current.id ? 'active' : ''}`} onClick={() => setActive(page.id)} type="button">
+                                <button key={page.id} className={`nav-item ${page.id === current.id ? 'active' : ''}`} onClick={() => setActive(page.id)} type="button" aria-label={page.label} title={page.label} aria-current={page.id === current.id ? 'page' : undefined}>
                                     <page.icon size={18} />
                                     <span>{page.label}</span>
                                 </button>

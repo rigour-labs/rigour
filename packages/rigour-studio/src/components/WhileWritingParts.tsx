@@ -203,13 +203,13 @@ export const WhileWritingBody: React.FC<{ data: DevelopmentData; hints: StageHin
                 <Card title="Fixed by the agent" meta="before any pull request">
                     <FixedList stories={data.recentFixes} />
                 </Card>
+                <Card title="By agent" flush><AgentTable rows={data.byAgent} /></Card>
                 <Card title="What happened" meta="newest first; clean checks and empty briefings are counted, not listed" flush>
                     <Feed items={data.feed} />
                 </Card>
             </div>
             <div className="ui-col">
                 <Card title="Caught most often"><TopRules rules={data.topRules} /></Card>
-                <Card title="By agent" flush><AgentTable rows={data.byAgent} /></Card>
                 <Card title="Still open" meta={data.caught.stillOpen ? String(data.caught.stillOpen) : undefined}>
                     <OpenList open={data.open} total={data.caught.stillOpen} />
                 </Card>

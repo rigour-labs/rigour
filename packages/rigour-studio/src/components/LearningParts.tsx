@@ -160,6 +160,7 @@ export const LessonCard: React.FC<LessonCardProps> = props => {
             {lesson.team && <TeamDecisions team={lesson.team} />}
             <ReviewEvidence {...props} />
             {lesson.reach && <Reach lesson={lesson} reach={lesson.reach} onScope={props.onScope} />}
+            {actionHint(props) && <div className="ui-meta mem-hint">{actionHint(props)}</div>}
             <div className="ui-list-foot">
                 <span className="ui-meta">{originNote(lesson)}{fix ? '' : ` · Agents told: ${timesTold(lesson.told)}`}</span>
                 <LessonActions {...props} />
@@ -221,10 +222,21 @@ const ReviewEvidence: React.FC<LessonCardProps> = ({ lesson, onDecideReview }) =
     </>
 );
 
+/** A plain candidate a person decides on its row (evidence that asks again has its own buttons above). */
+const awaitsDecision = (lesson: Journey) => lesson.canDecide && !lesson.takenBack && !lesson.suggested && !lesson.reclassified;
+
+/** What the buttons on a lesson's row decide, said on its own line above them; undefined when the buttons say enough. */
+function actionHint({ lesson, quietNoShare }: LessonCardProps): string | undefined {
+    const pending = awaitsDecision(lesson);
+    if (pending && lesson.origin === 'pr') return 'From review, not confirmed yet. Promote it if this is how your team works, so agents get told.';
+    if (pending && lesson.scope === 'team' && lesson.noShare && lesson.noShare !== quietNoShare) return lesson.noShare;
+    if (lesson.canTakeBack) return TAKE_BACK_SAYS[lesson.state] ?? 'Decided.';
+    return undefined;
+}
+
 /** A review point waiting for a person: promote it, call it not a rule, or drop it. */
 const ReviewDecide: React.FC<LessonCardProps> = ({ lesson, onDecideReview }) => (
     <>
-        <span className="ui-meta mem-why">From review, not confirmed yet.</span>
         <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button" title="From review, not confirmed yet: promote it if this is how your team works, so agents get told">Promote</button>
         <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'not-a-rule')} type="button" title="A one-off task for that pull request: never told to agents">Not a rule</button>
         <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'rejected')} type="button" title="Agents are told the team decided against this">Drop</button>
@@ -232,12 +244,11 @@ const ReviewDecide: React.FC<LessonCardProps> = ({ lesson, onDecideReview }) => 
 );
 
 /** A fix or memory candidate: keep it (share it, for a team one, where this person may), or drop it. */
-const CandidateDecide: React.FC<LessonCardProps> = ({ lesson, onDecide, quietNoShare }) => {
+const CandidateDecide: React.FC<LessonCardProps> = ({ lesson, onDecide }) => {
     const team = lesson.scope === 'team';
     const blocked = team && lesson.noShare;
     return (
         <>
-            {blocked && lesson.noShare !== quietNoShare && <span className="ui-meta mem-why">{lesson.noShare}</span>}
             {!blocked && (
                 <button className="st-btn primary" onClick={() => onDecide(lesson.id, team ? 'promoted' : 'validated')} type="button"
                     title={team ? "Proposed for the team: give it to everyone's agents" : 'Seen once: keep it so your agents get told'}>{team ? 'Share with team' : 'Keep'}</button>
@@ -250,15 +261,12 @@ const CandidateDecide: React.FC<LessonCardProps> = ({ lesson, onDecide, quietNoS
 /** The decisions on the lesson's own row: keep, share or drop a candidate; promote a review point; take a decision back. */
 const LessonActions: React.FC<LessonCardProps> = props => {
     const { lesson, onDecideReview, onTakeBack } = props;
-    const pending = lesson.canDecide && !lesson.takenBack && !lesson.suggested && !lesson.reclassified;
+    const pending = awaitsDecision(lesson);
     return (
         <div className="ui-actions">
             {pending && (lesson.origin === 'pr' ? <ReviewDecide {...props} /> : <CandidateDecide {...props} />)}
             {lesson.canTakeBack && (
-                <>
-                    <span className="ui-meta mem-why">{TAKE_BACK_SAYS[lesson.state] ?? 'Decided.'}</span>
-                    <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'took-back')} type="button" title="Makes it a candidate again; the decision stays in its history">Take back</button>
-                </>
+                <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'took-back')} type="button" title="Makes it a candidate again; the decision stays in its history">Take back</button>
             )}
             {lesson.canRetire && <RetireButton id={lesson.id} onTakeBack={onTakeBack} />}
         </div>

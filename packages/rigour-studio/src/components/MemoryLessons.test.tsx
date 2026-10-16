@@ -68,3 +68,12 @@ describe('why sharing waits', () => {
         expect(two).not.toContain('Share with team waits');
     });
 });
+
+describe('the decision hint on a lesson row', () => {
+    it('sits on its own line above the buttons, never between them', () => {
+        const review = lesson('r', { origin: 'pr', learnedFrom: 'At PR #7, from reviewer-a', text: 'Validate the response before rendering.' });
+        const out = html(<LessonsTriage lessons={[review]} onDecide={() => undefined} />);
+        expect(out).toMatch(/<div class="ui-meta mem-hint">From review, not confirmed yet\.[^<]*<\/div><div class="ui-list-foot">/);
+        expect(out).toMatch(/<div class="ui-actions"><button[^>]*>Promote<\/button><button[^>]*>Not a rule<\/button><button[^>]*>Drop<\/button><\/div>/);
+    });
+});

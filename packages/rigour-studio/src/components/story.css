@@ -33,9 +33,9 @@
 .st-steps { display: flex; gap: 24px; }
 .st-step { flex: 1; display: flex; gap: 12px; align-items: flex-start; font-size: 14px; }
 .st-num { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-accent); color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-weight: 600; }
-.st-journey { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 16px; border: 1px solid var(--border-dim); border-radius: 10px; overflow: hidden; }
-.st-journey > div { padding: 12px 14px; }
-.st-journey > div + div { border-left: 1px solid var(--border-dim); }
+.st-journey { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; margin-top: 16px; border: 1px solid var(--border-dim); border-radius: 10px; overflow: hidden; background: var(--border-dim); }
+.st-journey > div { padding: 12px 14px; background: var(--bg-card); font-variant-numeric: tabular-nums; }
+[data-theme="dark"] .st-journey > div { background: var(--bg-main); }
 .st-bars { display: flex; gap: 28px; align-items: flex-end; height: 120px; margin-top: 18px; }
 .st-bar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .st-bar span { width: 100%; max-width: 72px; border-radius: 6px 6px 0 0; background: var(--accent-primary); }
@@ -49,7 +49,6 @@
 @media (max-width: 820px) {
     .st-grid { grid-template-columns: minmax(0, 1fr); }
     .st-steps, .st-row { flex-direction: column; align-items: flex-start; }
-    .st-journey { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .st-seg { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--text-dim); border-radius: 8px; background: var(--bg-card); }
@@ -76,3 +75,4 @@
 .st-setup-row { padding: 14px 20px; border-bottom: 1px solid var(--border-dim); align-items: flex-start; }
 .st-setup-row:last-child { border-bottom: 0; }
 .st-trend-flat { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; padding: 12px 20px; }
+.st-btn.small { min-height: 32px; padding: 0 12px; font-size: 13px; }
