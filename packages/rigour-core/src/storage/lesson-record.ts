@@ -18,5 +18,6 @@ export async function lessonRowToRecord(row: Record<string, unknown>): Promise<L
         createdAt: Number(row.created_at),
         updatedAt: Number(row.updated_at),
         repositoryName: row.repository_name ? String(row.repository_name) : undefined,
+        ...(row.decided_by ? { decidedBy: String(row.decided_by) } : {}),
     };
 }

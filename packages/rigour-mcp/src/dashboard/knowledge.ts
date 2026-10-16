@@ -4,7 +4,7 @@
  * Each count is cheap (small JSON files, one local lesson query, the index
  * stats) and any store that cannot be read counts as zero.
  */
-import { checkPrecisions, listKnowledgeLessons, loadLearnedRules } from '@rigour-labs/core';
+import { checkPrecisions, isTrustedLesson, listKnowledgeLessons, loadLearnedRules, loadTeamConfiguration } from '@rigour-labs/core';
 import { getDefaultIndexPath, loadPatternIndex } from '@rigour-labs/core/pattern-index';
 import { loadMemory } from '../utils/config.js';
 
@@ -35,16 +35,18 @@ export async function summarizeKnowledge(cwd: string, options: { fresh?: boolean
 }
 
 async function computeSummary(cwd: string): Promise<KnowledgeSummary> {
-    const [repo, user, lessons, index] = await Promise.all([
+    const [repo, user, lessons, index, team] = await Promise.all([
         loadMemory(cwd, 'repo').catch(() => ({ memories: {} })),
         loadMemory(cwd, 'user').catch(() => ({ memories: {} })),
         listKnowledgeLessons(cwd).catch(() => []),
         loadPatternIndex(getDefaultIndexPath(cwd)).catch(() => null),
+        loadTeamConfiguration().catch(() => null),
     ]);
     return {
         memories: new Set([...Object.keys(repo.memories), ...Object.keys(user.memories)]).size,
         lessons: lessons.length,
-        trustedLessons: lessons.filter(l => l.state === 'validated' || l.state === 'promoted').length,
+        // What agents are given: a teammate's lesson only once shared (an sme holds their candidates to decide on).
+        trustedLessons: lessons.filter(l => isTrustedLesson(l, team?.actorId)).length,
         learnedRules: safeCount(() => loadLearnedRules(cwd).length),
         indexedPatterns: index?.stats.totalPatterns ?? 0,
         mutedChecks: safeCount(() => checkPrecisions(cwd).filter(c => c.muted).length),

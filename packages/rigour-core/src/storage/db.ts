@@ -549,6 +549,20 @@ async function runMigrations(db: RigourDB): Promise<void> {
         `);
         await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '9')");
     }
+    if (current < 10) {
+        // on_server: the team database has this lesson (pulled from it, or sent and taken), so a sync can ask whether
+        // it is still shared. decided_by: who changed its state, as the team database stamped it. The outbox index
+        // serves the per-lesson lookups of a sync.
+        await addColumnIfMissing(db, 'lessons', 'on_server', 'ALTER TABLE lessons ADD COLUMN on_server INTEGER NOT NULL DEFAULT 0');
+        await addColumnIfMissing(db, 'lessons', 'decided_by', 'ALTER TABLE lessons ADD COLUMN decided_by TEXT');
+        await db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_sync_outbox_entity ON sync_outbox(entity_id);
+            UPDATE lessons SET on_server = 1
+             WHERE team_id IS NOT NULL AND visibility = 'team'
+               AND NOT EXISTS (SELECT 1 FROM sync_outbox outbox WHERE outbox.entity_id = lessons.id AND (outbox.synced_at IS NULL OR outbox.last_error IS NOT NULL));
+        `);
+        await db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '10')");
+    }
 }
 
 /**

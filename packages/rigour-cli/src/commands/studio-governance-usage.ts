@@ -5,7 +5,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import type { Config, DeepRun, TeamDecisionCache } from '@rigour-labs/core';
+import { decidesTeammatesCandidates, schemaNote, type Config, type DeepRun, type TeamAccess, type TeamDecisionCache } from '@rigour-labs/core';
 import { jsonLines, readJsonFile } from './studio-files.js';
 
 const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
@@ -38,6 +38,10 @@ export interface TeamState {
     /** From the last sync: whether this clone sends its person's decisions, and if not, why. */
     sharing: TeamDecisionCache['sharing'] | null;
     received: number;
+    /** What this person sees of teammates' candidates, from the last team sync; null leaves the card's general line. */
+    candidates: string | null;
+    /** Changes the team database refused (row-level security, a constraint) or did not apply (it held a newer version) in the last 28 days, with the latest reason. */
+    refused?: { count: number; latest?: string };
 }
 
 interface RecordJudge { reviewer: string; version?: string; model?: string; cost_usd?: number }
@@ -121,7 +125,7 @@ function deepUsage(runs: DeepRun[]): NonNullable<ReviewerUsage['deep']> {
     };
 }
 
-export function teamState(config: { organizationId: string; teamId: string; actorId: string } | null, cache: TeamDecisionCache | undefined): TeamState {
+export function teamState(config: { organizationId: string; teamId: string; actorId: string } | null, cache: TeamDecisionCache | undefined, access?: TeamAccess, refused?: TeamState['refused']): TeamState {
     return {
         sync: !!config,
         organization: config?.organizationId ?? null,
@@ -129,5 +133,15 @@ export function teamState(config: { organizationId: string; teamId: string; acto
         actor: config?.actorId ?? null,
         sharing: cache?.sharing ?? null,
         received: cache?.decisions.length ?? 0,
+        candidates: config ? candidatesLine(access) : null,
+        ...(config && refused?.count ? { refused } : {}),
     };
+}
+
+/** Every member's candidates for an sme or owner where the database allows it; what an owner runs where it does not yet. */
+function candidatesLine(access: TeamAccess | undefined): string | null {
+    if (!access) return null;
+    const note = schemaNote(access);
+    if (note) return `Teammates' candidates are visible only to them until shared. ${note}`;
+    return decidesTeammatesCandidates(access) ? 'As an sme or owner, you see every member\'s team candidates and share or drop them in Memory.' : null;
 }

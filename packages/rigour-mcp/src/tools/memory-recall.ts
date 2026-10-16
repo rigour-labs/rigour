@@ -14,7 +14,7 @@
  *
  * Every returned memory passes the credential scan first; nothing is cached.
  */
-import { formatDLPAlert, createDLPAuditEntry, listKnowledgeLessons, rankByMeaning, rankMemories, recordLessonsServed, scanInputForCredentials, searchTeamKnowledge, type MemoryEntry } from '@rigour-labs/core';
+import { formatDLPAlert, createDLPAuditEntry, isTrustedLesson, listKnowledgeLessons, loadTeamConfiguration, rankByMeaning, rankMemories, recordLessonsServed, scanInputForCredentials, searchTeamKnowledge, type MemoryEntry } from '@rigour-labs/core';
 import { loadMemory } from '../utils/config.js';
 import { teamLessonsFor, type TeamLessonsState } from '../utils/team-pull.js';
 import type { GuidanceMeta, ToolResult } from '../utils/context-telemetry.js';
@@ -116,9 +116,10 @@ async function recallAll(cwd: string, entries: MemoryEntry[], candidateText: str
 /** The most lessons a recall with no arguments lists, most recently updated first. */
 const MAX_LISTED_LESSONS = 20;
 
-/** Lessons an agent may act on: validated by evidence, or promoted by a person. */
+/** Lessons an agent may act on: validated by evidence, or promoted by a person (a teammate's only once promoted). */
 async function trustedLessons(cwd: string) {
-    return (await listKnowledgeLessons(cwd)).filter(lesson => lesson.state === 'validated' || lesson.state === 'promoted');
+    const own = (await loadTeamConfiguration().catch(() => null))?.actorId;
+    return (await listKnowledgeLessons(cwd)).filter(lesson => isTrustedLesson(lesson, own));
 }
 
 /** Memories with no credential in them; a blocked one is audited, and never returned. */

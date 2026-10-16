@@ -99,7 +99,7 @@ export type { RigourDB, CompactResult } from './storage/index.js';
 export { checkLocalPatterns, persistAndReinforce, getProjectStats } from './storage/index.js';
 export type { ProjectStats } from './storage/index.js';
 export { recordFixLessons, fixLessonSubject, fixLessonPrefix, FILES_TO_VALIDATE } from './storage/index.js';
-export { recordInteractionEvidence, countInteractionEvidence, listLessons, listKnowledgeLessons, getApplicableLessons, transitionLesson, getRepositoryId, shareMemoryLesson, queueLocalLessonsForTeam } from './storage/index.js';
+export { recordInteractionEvidence, countInteractionEvidence, listLessons, listKnowledgeLessons, getApplicableLessons, isTrustedLesson, transitionLesson, getRepositoryId, shareMemoryLesson, queueLocalLessonsForTeam } from './storage/index.js';
 export { rankMemories, rankByMeaning, memoryText, SEMANTIC_FLOOR, RECALL_LIMIT, type MemoryEntry, type MemoryScope, type RankedMemory, type Ranked } from './memory/recall.js';
 export type { ApplicableLessons, InteractionEvidence, LessonRecord, LessonState, LessonVisibility, LocalLessonImportOptions, LocalLessonImportResult } from './storage/index.js';
 export {
@@ -117,6 +117,7 @@ export {
   explainTeamConnectionError,
   addToTeamList,
   originOf,
+  sameRepositoryIds,
 } from './storage/index.js';
 export type {
   TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,
@@ -189,4 +190,6 @@ export { briefFile, briefingText, briefTask, buildBriefing, buildFileBriefing, f
 export { personOf } from './utils/person.js';
 export { decisionRows } from './storage/team-review-decisions.js';
 export { readTeamDecisionCache, type TeamDecisionCache } from './review-learning/team-decisions.js';
-export { teamSendStateOf, type TeamSendState } from './storage/index.js';
+export { takeBackTeamMemory } from './storage/index.js';
+export { teamSendStateOf, refusedChanges, type TeamSendState } from './storage/index.js';
+export { readTeamAccess, decidesTeammatesCandidates, schemaNote, REAPPLY_TEAM_SCHEMA, type TeamAccess, type TeamRole } from './storage/index.js';

@@ -36,7 +36,7 @@ When this machine worked on the pull request's branch, its [thread](THREAD.md) g
 
 ## Numbers
 
-`rigour outcomes` prints them, `rigour outcomes --json` carries them as `metrics`, and Studio's **How it learns** shows them. All three read one function (`outcomeMetrics`), and so will anything else that reports them. Its shape is stable:
+`rigour outcomes` prints them, `rigour outcomes --json` carries them as `metrics`, and Studio's **Memory** shows them. All three read one function (`outcomeMetrics`), and so will anything else that reports them. Its shape is stable:
 
 ```json
 {

@@ -60,27 +60,46 @@ A lesson has a visibility (`personal` or `team`) and a state (`candidate`, `vali
 | Lesson | How it starts | Who can read it in the database |
 | --- | --- | --- |
 | Fix lesson (an agent fixed something Rigour reported) | `personal`, `candidate`; becomes `validated` once fixes of the same kind land in two different files | Only its author, and only if sent with `--sync-personal` |
-| Memory saved with scope `team` | `team`, `candidate` | Only its author |
+| Memory saved with scope `team` | `team`, `candidate` | Its author, and every `sme` and `owner` of the team |
 | Memory approved in Studio | A new `team`, `promoted` copy of the candidate | Everyone in the same organization and team |
 
-To approve a team candidate, open Studio (`rigour studio`), go to **How it learns** and click **Share with team** on the lesson. **Drop** rejects it. Approving creates a separate team copy; the original candidate is left as it was.
+To approve a team candidate, an `sme` or `owner` opens Studio (`rigour studio`), goes to **Memory** and clicks **Share with team** on the lesson. **Drop** rejects it, and the drop is sent to the database too, so nobody is offered it again. Approving creates a separate team copy; the original candidate is left as it was. The copy keeps its author's actor; the team database records who shared it (`decided_by`, stamped from the sharer's membership), and Studio shows it as **Shared by**.
 
-**A team memory does not reach teammates until a person shares it.** When `rigour_remember` with scope `team` reports "Shared with your team as a candidate", the candidate has been queued for the database and only its author can read it there. Teammates' agents receive the memory only after an `sme` or `owner` on the machine that holds it clicks **Share with team** in **How it learns** and the next sync sends the promoted copy. To see the candidates waiting:
+**One shared version per key.** Sharing a team memory whose key the team already shares replaces the shared version: in the same step the older one becomes `superseded`, the new copy's `supersedes_id` names it, and both changes go with the next sync; the team database stamps who did it (`decided_by`). The key is the one the memory was saved under, compared exactly: sharing `db` never replaces `db: primary`. Teammates' agents then get only the new text. In Studio, a key with a shared version and a candidate waiting shows both on one card: the shared value, labelled **Shared now**, and each proposal with "Sharing this replaces the shared version". An `sme` or `owner` can share a teammate's correction this way only on a database with this version's rules (below); on an older one the database refuses retiring a teammate's shared version, the sync sets that change aside as `refused by the team database`, this machine takes the team's version back, and Studio's Governance page counts the refusal with the reason, so an owner knows to run `init-schema` again.
 
-- In Studio, **How it learns** lists each one with **Share with team** and **Drop**.
-- In the database, the author can list their own with `SELECT subject, created_at FROM rigour.lessons WHERE visibility = 'team' AND state = 'candidate' ORDER BY created_at;`. Row-level security shows each login only its own candidates.
+**Take back.** A shared team memory has **Take back** in Studio, for an `sme` or `owner` only. Taking it back makes it `superseded` when a newer shared version of its key exists in its repository, and `rejected` otherwise; the team database stamps who did it (`decided_by`), and the change goes with the next sync. Use it to clean up a key the team shares twice. A `member`'s login reads only shared rows, so it never sees a row's new state; instead each sync asks the database which of the shared rows this machine took from it are still shared, and stops giving the others to agents, even where a change this machine made to one was refused.
+
+**A team memory does not reach teammates until a person shares it.** When `rigour_remember` with scope `team` reports "Sent to the team database as a candidate", the candidate has been queued for the database, where its author and the team's `sme`s and `owner`s can read it. Teammates' agents receive the memory only after an `sme` or `owner` clicks **Share with team** in **Memory** and the next sync sends the promoted copy. A candidate is never given to an agent, not even to the agents of an `sme` who holds a teammate's candidate to decide on it. To see the candidates waiting:
+
+- In Studio, **Memory** lists each one with **Share with team** and **Drop**. A teammate's candidate says who proposed it (their actor id). Candidates for the same memory key are shown together on one card, each with its value, who proposed it and when, and its own **Share with team** and **Drop**; two with the same value say so. Sharing one leaves the others as they are: drop those you do not want.
+- In the database, `SELECT actor_id, subject, created_at FROM rigour.lessons WHERE visibility = 'team' AND state = 'candidate' ORDER BY created_at;` lists those your login may read: your own as a `member`, every member's as an `sme` or `owner`.
 
 Database roles decide who may write team lessons:
 
-| Role | May write |
-| --- | --- |
-| `member` | Personal lessons only |
-| `sme` | Personal and team lessons |
-| `owner` | Personal and team lessons (the same rights as `sme`) |
+| Role | May read | May write |
+| --- | --- | --- |
+| `member` | Their own lessons, and the team's promoted lessons | Their own personal lessons, and team candidates of their own: they propose a team memory, correct it (supersede their own candidate) and drop it, but never share one, and never change one once shared or dropped |
+| `sme` | Their own lessons, and every team lesson of the team, in any state: members' candidates included | Their own personal lessons, and the state of any team lesson of the team: they share or drop a member's candidate and take back a shared lesson |
+| `owner` | The same as `sme` | The same as `sme` |
 
-The approval happens on the machine that holds the candidate, so in practice the person whose agent saved the memory approves it, and that person needs the `sme` or `owner` role.
+Nobody reads or writes another person's personal lesson. Sharing (promoting) a team candidate and taking a shared one back stay an `sme`'s or `owner`'s, and Studio offers **Share with team** and **Take back** only to them: to nobody before a team sync has read their role. What the database lets an `sme` or `owner` do, and not do:
 
-If a `member`'s agent saves a memory with scope `team`, the database refuses it. Rigour sets that item aside, marked `refused by the team database` with the database's reason, and sends the rest of the queue. Give `sme` to anyone whose agents save team memories, or tell `member` agents not to use scope `team`.
+- **May:** read every team lesson of the team; share a member's candidate (a new team row under that member's actor, who must be a member of the same team, and only in a decided state: shared, replaced or dropped; a candidate is only ever written by its own author); change the state of any team lesson of the team (drop, replace, take back).
+- **May not:** write a lesson under an actor who is not a member of the team, or a candidate under anyone but themselves; change any lesson's id, text (subject), kind, author, organization, team, repository, origin (source), `supersedes_id` or creation time (a trigger refuses it, for everyone); change another person's evidence (the trigger keeps it as it was); delete any team lesson (a login deletes only its own personal lessons, where `DELETE` is granted at all; Rigour's grants do not include it); set who decided (`decided_by` is stamped by the database from the writer's membership, whatever the client sends).
+
+Sharing a teammate's candidate checks that the sharer is a member of the team by the connection's own login (`session_user`), so a login that only reaches the database through another (a pooler that connects as one role and switches with `SET ROLE`) fails closed: that `sme` or `owner` still shares their own candidates, but the database refuses sharing a teammate's. Connect each person with their own login.
+
+Every `sme` and `owner` receives members' team candidates at their next sync and decides on them in Studio, so a candidate no longer waits for its author to share it. A `member` sees no **Share with team** or **Drop** on a teammate's candidate: they never receive one.
+
+**Upgrading an existing team.** These rules need a database whose `init-schema` ran on Rigour 7.0.11 or later: `rigour.meta` records `candidate_review_version` 2 and the lessons policies are named `lessons_read_v2`, `lessons_insert_v2`, `lessons_update_v2` and `lessons_delete_v2`. Rigour checks both, through `rigour.candidate_review_state()`, which any member login may run (a managed host may keep `pg_policies` from them); a login that may not run it falls back to the version key, and `rigour team doctor` then reports `candidateReview: rules not verified`. On an older database an `sme` or `owner` still sees only their own candidates and the database refuses a `member`'s team memories, and Rigour says so: `rigour team doctor` reports `candidateReview: missing`, and Studio's Governance page names the command. An owner runs `rigour team init-schema --database-url <administrator url>` again; it replaces the lessons policies in place and touches no lesson. The first sync after that on each `sme`'s or `owner`'s machine reads the team's lessons from the start, so members' older candidates arrive too, and each member's machine sends again, at its next sync, the team candidates the old database refused.
+
+**Run `init-schema` again for 7.0.11's function fix.** Rigour's trigger functions (the review decision stamp since 7.0.0, and the lesson guard) now run with their `search_path` pinned to `pg_catalog`. Before, a login that may create objects in a schema on its `search_path` (`public`, by default before PostgreSQL 15) could define an operator there that stood in for the built-in one inside them. A database gets the fix when an owner runs this version's `init-schema`, which also stops anyone but a member login from running Rigour's functions.
+
+**Never run an older Rigour's `init-schema` on an upgraded database.** It puts its own lessons policies back beside these (permissive policies add up, so its looser write rule applies again) while the version key stays. Rigour reads the policies, not the key alone: `rigour team doctor` then reports `candidateReview: older rules` and says to run this version's `init-schema` again, which removes them.
+
+**Upgrade every member too.** Clients from before 7.0.11 keep working against the upgraded database, with gaps: they pull only their own and the promoted lessons, and never notice a shared lesson that was replaced or taken back, so their agents keep the old text; and an `sme` sharing a correction from 7.0.10 leaves the older shared version beside it. Rigour 7.0.11 on every machine closes both.
+
+If a `member`'s agent saves a memory with scope `team`, it is sent as their candidate, for an `sme` or `owner` to share or drop. On a database whose `init-schema` ran before 7.0.11 the database refuses it: Rigour sets that item aside, marked `refused by the team database` with the database's reason, sends the rest of the queue, and `rigour_remember` says `NOT SENT` with that reason. Once an owner runs this version's `init-schema`, the member's machine sends it again at its next sync.
 
 ## What leaves the machine
 
@@ -99,11 +118,11 @@ For each lesson that is sent, the database receives:
 | Field | What it holds |
 | --- | --- |
 | `id` | The lesson's id |
-| `organization_id`, `team_id`, `actor_id` | Taken from your membership row in the database, not from the client |
+| `organization_id`, `team_id`, `actor_id` | Taken from your membership row in the database, not from the client. One exception: when an `sme` or `owner` shares or drops a member's candidate, the row keeps that member's `actor_id` (the database allows it only for team rows of their own team) |
 | `repository_id` | A SHA-256 hash of the normalized `origin` remote URL, not the URL itself |
 | `visibility`, `state`, `kind`, `confidence`, `source`, `supersedes_id` | The lesson's metadata |
 | `subject` | The lesson text, for example the memory's `key: value` |
-| `evidence_json` | For a memory: its key, value and when it was shared. For a fix lesson: the rule, the file paths fixed, and up to five examples with up to 300 characters of the finding's detail each |
+| `evidence_json` | For a memory: its key, value and when it was shared. For a fix lesson: the rule, the file paths fixed, and up to five examples with up to 300 characters of the finding's detail each. Only the lesson's author changes it |
 | `created_at`, `updated_at` | Timestamps |
 
 ### Your decisions on review lessons
@@ -155,7 +174,7 @@ question (accepted or rejected, how far it reaches, its wording) the latest pers
 - a decision this machine never sends (a `member`'s) counts from when it was made, so a later team decision wins on
   that machine.
 
-The brief cites a lesson a teammate settled with their display name ("approved by Jane D. (team)"). Studio's **How it learns** shows each team decision on the lesson's card ("Omar K. (team) rejected it on 2026-10-09: …"), and when a later team decision settled a lesson against your own, says so ("the team decided"), with why your decision is yours only when this machine does not share it. `rigour team
+The brief cites a lesson a teammate settled with their display name ("approved by Jane D. (team)"). Studio's **Memory** shows each team decision on the lesson's card ("Omar K. (team) rejected it on 2026-10-09: …"), and when a later team decision settled a lesson against your own, says so ("the team decided"), with why your decision is yours only when this machine does not share it. `rigour team
 doctor` says that a clone receives the team's decisions at its first sync. Evidence (a later fix, recurrence) never
 overrides a person. Deciding on a lesson known only from the team takes it into
 the repository's lessons file first (its wording, file and review points, without the team's decisions), and records
@@ -190,7 +209,7 @@ with no help from us; run end to end on a test database, the commands take a few
    pull requests' review comments (the last 100; `--pr <n>` reads one) and keeps what people asked for as candidates.
    It reads GitHub, so it needs read access: `gh auth login`, or `GITHUB_TOKEN`. A candidate becomes a lesson when an
    `sme` or `owner` confirms it: `rigour learn-reviews --list`, then `--promote <id> --why "…"` (or `--reject`), or
-   **How it learns** in `rigour studio`. Each clone can learn the same candidates from GitHub itself, so
+   **Memory** in `rigour studio`. Each clone can learn the same candidates from GitHub itself, so
    `.rigour/review-lessons.json` need not be committed; committing it is harmless, since teammates' decisions are never
    written to it.
 7. **Bring in the decisions people already made.** In each of the team's repositories, each `sme` or `owner` runs
@@ -232,7 +251,7 @@ Add `--pgvector` to also create the `vector` extension, the `rigour.lesson_embed
 
 This creates the `rigour` schema with its tables, turns on row-level security on each and creates the policies:
 
-- `meta`, `memberships` and `lessons`, for shared lessons. `rigour.meta` records `schema_version` 1. `rigour team doctor` and `rigour team configure` check that version and refuse any other.
+- `meta`, `memberships` and `lessons`, for shared lessons. `rigour.meta` records `schema_version` 1. `rigour team doctor` and `rigour team configure` check that version and refuse any other. It also records `candidate_review_version` 2, for the lessons rules (see [the roles](#how-a-lesson-reaches-teammates)): per-command policies (`lessons_*_v2`), the trigger `lessons_guard`, and the column `lessons.decided_by`, added in place. `rigour team doctor` reports `candidateReview: ready`; `missing` for a database whose `init-schema` ran on an earlier version; or `older rules` when an older `init-schema` ran after this one.
 - `review_decisions` and `organization_salts`, for people's decisions on review lessons (accepting, rejecting, scoping or rewording a lesson learned from code review). `rigour.meta` records `review_decisions_version` 1. `schema_version` stays 1, so earlier Rigour versions keep working against the same database. `rigour team doctor` reports `reviewDecisions: ready`; `missing` for a database created before them (running `init-schema` again adds them); or `missing grant` when the tables are there but your login cannot use them, with the `GRANT` the administrator runs (every login reads both tables; an `sme` or `owner` also inserts into `review_decisions`, as in [step 2](#2-create-a-login-and-a-membership-for-each-person)). An `sme` or `owner` sends their decisions and every member receives them (see [Your decisions on review lessons](#your-decisions-on-review-lessons)).
 
 The schema is idempotent. Running `init-schema` again adds anything missing and recreates the policies without touching lessons. It then grants every member login listed in `rigour.memberships` what a sync needs on every team table there is (as in [step 2](#2-create-a-login-and-a-membership-for-each-person)), so a table a new version adds is usable at once, and it ends by saying what it granted and to whom. Where its login may not grant (it does not own the tables), it prints the exact `GRANT` statements for the administrator instead. One exception: with `--pgvector`, it deletes embeddings of lessons that are no longer `validated` or `promoted`. Rigour has no other migration step.
@@ -251,6 +270,7 @@ GRANT SELECT ON rigour.meta, rigour.memberships TO rigour_jane;
 GRANT SELECT, INSERT, UPDATE ON rigour.lessons TO rigour_jane;
 GRANT SELECT ON rigour.organization_salts TO rigour_jane;
 GRANT SELECT, INSERT ON rigour.review_decisions TO rigour_jane;
+GRANT EXECUTE ON FUNCTION rigour.team_actor(text, text, text), rigour.candidate_review_state() TO rigour_jane;
 -- Only with --pgvector:
 GRANT SELECT, INSERT, UPDATE ON rigour.lesson_embeddings TO rigour_jane;
 
@@ -263,9 +283,9 @@ VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 - `role` is `member`, `sme` or `owner` (see the table above).
 - `display_name` is optional: the name teammates see on a review decision this person shared. Use a name, not a login or an email. Without one, teammates see "a teammate".
 - A login role can belong to a team once (the primary key is `db_role, team_id`).
-- **An automation gets a login of its own.** Give a review bot or CI agent its own login and membership, never a person's: its own `actor_id` (for example `review-bot`) and a `display_name` that says what it is ("Review bot"). As a `member` it receives every lesson the team promoted, which is what a reviewer needs; revoking it is dropping its login. A `member` cannot share team memories: the database accepts team rows only from an `sme` or `owner`, so what a `member` bot saves with scope `team` is refused at sync. Have a person save what the bot should share, or give the bot `sme` only if the team accepts everything an `sme` may do: share decisions on review lessons, and publish a lesson straight to every teammate's agent with no person deciding.
+- **An automation gets a login of its own.** Give a review bot or CI agent its own login and membership, never a person's: its own `actor_id` (for example `review-bot`) and a `display_name` that says what it is ("Review bot"). As a `member` it receives every lesson the team promoted, which is what a reviewer needs; revoking it is dropping its login. A `member` cannot share team memories: what a `member` bot saves with scope `team` arrives as its candidate, and reaches teammates' agents only once an `sme` or `owner` shares it. Give the bot `sme` only if the team accepts everything an `sme` may do: share decisions on review lessons, and publish a lesson straight to every teammate's agent with no person deciding.
 
-Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-level security does not apply to a table's owner unless the table forces it, and Rigour's schema does not, so that login could read every personal lesson.
+Do not let member logins create objects in a schema on their `search_path`: run `REVOKE CREATE ON SCHEMA public FROM PUBLIC;` on a database created before PostgreSQL 15 (later versions do it already). Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-level security does not apply to a table's owner unless the table forces it, and Rigour's schema does not, so that login could read every personal lesson.
 
 ### 3. Give each person their connection URL
 
@@ -310,8 +330,9 @@ once while the sync runs. A recall with no arguments lists the lessons too, afte
 promoted lessons from all its repositories, and this repository's validated ones. Lessons a person promoted reach every
 teammate whatever remote their clone uses (https or an SSH alias).
 
-Reading the team's lessons needs no repository list; sending this machine's own team memories and lessons does: set
-`RIGOUR_TEAM_REPOSITORIES` too for an agent that saves memories (see
+Pulling the team's promoted lessons needs no repository list. Two things do: sending this machine's own team memories
+and lessons, and receiving the team's decisions on this repository's review lessons (which `rigour brief` and reviews
+use). Set `RIGOUR_TEAM_REPOSITORIES` for a reviewer or an agent that saves memories (see
 [How a lesson reaches teammates](#how-a-lesson-reaches-teammates)).
 
 ### Several organizations on one machine
@@ -351,7 +372,7 @@ Each setting can also come from an environment variable, which takes precedence 
 rigour team doctor
 ```
 
-It prints JSON. It exits with 1 when team mode is configured and the database cannot be used; with no team configured it reports `connectivity: local`. It checks, in order: the URL and its TLS setting, the connection, that your login has a membership row for the configured organization, team and actor, and that the schema version is 1. With pgvector it also checks the extension and table and counts indexed and missing lessons. On success, `connectivity` is `online`, `databaseRole` is your login and `permissions` holds your role. `queuedChanges` is the number of items not yet sent.
+It prints JSON. It exits with 1 when team mode is configured and the database cannot be used; with no team configured it reports `connectivity: local`. It checks, in order: the URL and its TLS setting, the connection, that your login has a membership row for the configured organization, team and actor, and that the schema version is 1. With pgvector it also checks the extension and table and counts indexed and missing lessons. On success, `connectivity` is `online`, `databaseRole` is your login and `permissions` holds your role. `queuedChanges` is the number of items not yet sent. `candidateReview` is `ready` when this version's lessons rules are in force (an `sme` or `owner` sees every member's team candidates; a `member` proposes their own), `missing` until an owner runs `rigour team init-schema` again, or `older rules` when an older `init-schema` put its policies back; the message says what to run.
 
 Failures come with the fix: an untrusted certificate chain, an unreachable host, a rejected login, a missing schema, row-level security with no policy, or a login with no membership.
 
@@ -378,6 +399,7 @@ GRANT SELECT ON rigour.meta, rigour.memberships TO rigour_jane;
 GRANT SELECT, INSERT, UPDATE ON rigour.lessons, rigour.lesson_embeddings TO rigour_jane;
 GRANT SELECT ON rigour.organization_salts TO rigour_jane;
 GRANT SELECT, INSERT ON rigour.review_decisions TO rigour_jane;
+GRANT EXECUTE ON FUNCTION rigour.team_actor(text, text, text), rigour.candidate_review_state() TO rigour_jane;
 INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role, display_name)
 VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 SQL
@@ -399,7 +421,7 @@ rigour team sync
 1. Provision two logins in the same organization and team: Jane as `sme`, Sam as `member`. Both configure their machines with the same `--repositories`.
 2. In a repository whose `origin` matches the list, Jane's agent saves a memory with scope `team`. Jane runs `rigour team sync`: `synced` is at least 1.
 3. Sam runs `rigour team sync`. The candidate does not arrive: `pulled` does not count it.
-4. Jane opens `rigour studio`, **How it learns**, and clicks **Share with team** on the memory, then runs `rigour team sync`.
+4. Jane opens `rigour studio`, **Memory**, and clicks **Share with team** on the memory, then runs `rigour team sync`.
 5. Sam runs `rigour team sync` again. `pulled` now includes the team copy, and Sam's agent receives it from `rigour_recall` and `rigour_context_scope`.
 6. Stop the database and use an agent as usual. Checks and learning continue locally; Studio's Storage indicator shows `offline` and the number queued. Start the database again and run `rigour team sync`: the queued items are sent.
 
@@ -412,7 +434,8 @@ Rigour shares nothing it cannot account for, and never blocks your work on the d
 - **A repository without `origin`, a personal lesson without `--sync-personal`.** Kept on the machine and marked `not sent: <reason>`. Not retried.
 - **A remote URL without TLS.** Refused before any connection.
 - **Membership missing.** `configure` saves nothing; `sync` stops before sending anything.
-- **The database refuses one lesson** (row-level security, a constraint). That item is set aside, marked `refused by the team database: <reason>`, and the rest of the queue is sent.
+- **The database refuses one lesson** (row-level security, a constraint, the lesson guard). That item is set aside, marked `refused by the team database: <reason>`, this machine takes the team database's version of the lesson (a shared copy it never took is removed here), and the rest of the queue is sent.
+- **The team database has a newer version of a lesson** (a teammate changed it later, by their clock). The change is not applied: it is set aside as `not sent: the team database has a newer version of this lesson; this machine now has it`, and this machine takes the team's version. A change made here is always stamped after the version this machine had, so a clock that runs behind never loses one.
 - **Your login lacks a grant.** The sync stops with one line naming the table and the `GRANT` the administrator runs (for example `your login lacks SELECT on rigour.organization_salts; ask the administrator to run: GRANT SELECT ON rigour.organization_salts TO "rigour_jane";`). Nothing is set aside: once granted, the next sync sends it all. `rigour team doctor` reports the same before the first sync (`reviewDecisions: missing grant`).
 - **Database unreachable or a send fails.** The item stays queued, its attempt count and error are recorded, and the sync stops. The next sync retries from the oldest item. The MCP server and Studio ignore sync errors, so checks, hooks, reviews and local learning carry on. Studio shows `offline` with the number queued.
 - **Review decisions not sent**, with the reason under `decisions.held` in `rigour team sync`:
@@ -461,7 +484,7 @@ With no paths, it uses the current repository. It queues only personal lessons, 
 
 ## Data and security notes
 
-- **Visibility is enforced by the database.** Row-level security lets a login read its own membership row, its own lessons, and the team's promoted lessons in its own organization and team. It lets a login write only rows whose actor is its own, and team rows only with role `sme` or `owner`. The organization, team and actor of a sent lesson come from the membership row.
+- **Visibility is enforced by the database.** Row-level security lets a login read its own membership row, its own lessons, and the team's promoted lessons in its own organization and team; an `sme` or `owner` also reads every team lesson of their team, in any state. A login inserts and updates its own personal lessons and its own team candidates (`candidate` or `superseded`, old row and new; a candidate may also become `rejected`), and other team lessons only with role `sme` or `owner` (see what an `sme` or `owner` may and may not do, above). It deletes only its own personal lessons. Nobody reads or writes another person's personal lesson. The organization and team of a sent lesson come from the membership row, and its actor too, except a member's team lesson an `sme` or `owner` shares or drops, which keeps its author. The trigger `lessons_guard` keeps each lesson's identity and text as written and stamps `decided_by`.
 - **Review decisions are append-only.** A login can read its own team's decisions, and insert one only as `sme` or `owner` under its own actor. There is no update or delete policy, so even a login granted `UPDATE` or `DELETE` changes no row; a decision taken back is a new row. The server sets when a decision arrived and the decider's display name from the membership row; the client sets neither.
 - **Reviewer hashes.** A review decision names who raised the review point only as a hash of the login, salted with a random value per organization (`rigour.organization_salts`, created for each organization when its first membership is added). A hash from one organization never matches another's. Inside a small team, someone who can read the decisions can still guess which login a hash is by hashing each teammate's login with the salt. The hashes live only in your own database, behind row-level security.
 - **TLS.** Prefer `sslmode=verify-full`. The PostgreSQL driver Rigour uses (node-postgres) does not give `sslmode=require` libpq's meaning: it treats `require` (and `prefer`, `verify-ca`) as `verify-full` and prints a `SECURITY WARNING` saying so. A URL that works in `psql` with `sslmode=require` can therefore fail in Rigour with a certificate error on a machine that does not have the provider's root CA. Your choices, strongest first:

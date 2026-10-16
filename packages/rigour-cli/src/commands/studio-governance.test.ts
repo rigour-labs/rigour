@@ -144,6 +144,17 @@ describe('governance reviewer usage', () => {
         expect(reviewerUsage(store, [], ConfigSchema.parse({}), now).judges).toEqual([]);
     });
 
+    it("names who shared, dropped or replaced a team lesson: the team database's stamp first, the deciding machine's record else", () => {
+        const lesson = (over: Record<string, unknown>) => ({ id: 'l', repositoryId: 'r', visibility: 'team', kind: 'memory', subject: 'retries: x', evidence: {}, confidence: 1, source: 'published:c', createdAt: 0, updatedAt: Date.parse('2026-10-06T00:00:00Z'), ...over }) as never;
+        const decisions = buildDecisions({ lessons: [], dismissals: [], reviewDismissals: [], compiled: [], events: [], teamLessons: [
+            lesson({ state: 'promoted', decidedBy: 'reviewer-s', evidence: { publishedBy: 'someone-else' } }),
+            lesson({ state: 'rejected', evidence: { takenBackBy: 'owner-o' } }),
+            lesson({ state: 'superseded', source: 'rigour_remember' }),
+            lesson({ state: 'promoted', source: 'rigour_remember' }),
+        ] });
+        expect(decisions.map(d => [d.kind, d.who, d.source])).toEqual([['Team lesson shared', 'reviewer-s', 'team lessons'], ['Team lesson dropped', 'owner-o', 'team lessons']]);
+    });
+
     it('does not count a command that timed out unanswered as a decision by a person', () => {
         const decisions = buildDecisions({ lessons: [], dismissals: [], reviewDismissals: [], compiled: [], events: [
             { type: 'x', tool: 'human_arbitration', requestId: 'r2', decision: 'timeout-deny', timestamp: '2026-10-06T00:01:00Z' } as never,
@@ -152,9 +163,24 @@ describe('governance reviewer usage', () => {
     });
 
     it('reports team sync off without a team, and the sharing state from the last sync', () => {
-        expect(teamState(null, undefined)).toEqual({ sync: false, organization: null, team: null, actor: null, sharing: null, received: 0 });
+        expect(teamState(null, undefined)).toEqual({ sync: false, organization: null, team: null, actor: null, sharing: null, received: 0, candidates: null });
         expect(teamState({ organizationId: 'acme', teamId: 'web', actorId: 'dev' }, { version: 1, sharing: { shares: false, reason: 'a member' }, decisions: [], mine: {} }))
-            .toMatchObject({ sync: true, organization: 'acme', sharing: { shares: false, reason: 'a member' } });
+            .toMatchObject({ sync: true, organization: 'acme', sharing: { shares: false, reason: 'a member' }, candidates: null });
+    });
+
+    it("says what a person sees of teammates' candidates, and what an owner runs where the database lacks candidate review", () => {
+        const scope = { organizationId: 'acme', teamId: 'web', actorId: 'dev' };
+        expect(teamState(scope, undefined, { role: 'sme', candidateReview: true }).candidates).toContain("you see every member's team candidates");
+        expect(teamState(scope, undefined, { role: 'member', candidateReview: true }).candidates).toBeNull();
+        expect(teamState(scope, undefined, undefined, { count: 1, latest: 'refused by the team database: policy' }).refused).toEqual({ count: 1, latest: 'refused by the team database: policy' });
+        expect(teamState(scope, undefined, undefined, { count: 0 })).not.toHaveProperty('refused');
+        expect(teamState(scope, undefined, { role: 'sme', candidateReview: false, olderRules: true }).candidates).toContain('never run an older init-schema');
+        for (const access of [{ role: 'owner' as const, candidateReview: false }, { role: 'member' as const, candidateReview: false }]) {
+            const missing = teamState(scope, undefined, access).candidates;
+            expect(missing).toContain("Teammates' candidates are visible only to them until shared.");
+            expect(missing).toContain("the database refuses a member's team memories");
+            expect(missing).toContain('rigour team init-schema --database-url <administrator url>');
+        }
     });
 });
 

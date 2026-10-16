@@ -6,7 +6,7 @@
  * Studio approval record nobody.
  */
 import path from 'path';
-import { lessonsPath, type AgentEvent, type CompiledCheck, type LessonEvidence, type ReviewLesson, type TeamDecisionCache } from '@rigour-labs/core';
+import { lessonsPath, type AgentEvent, type CompiledCheck, type LessonEvidence, type LessonRecord, type ReviewLesson, type TeamDecisionCache } from '@rigour-labs/core';
 import type { Dismissal } from './studio-week.js';
 import { readJsonFile } from './studio-files.js';
 
@@ -17,7 +17,7 @@ export interface Decision {
     text: string;
     reason: string | null;
     pr?: number;
-    source: 'review lessons' | 'not a bug' | 'reviewer' | 'compiled checks' | 'Studio approval' | 'team';
+    source: 'review lessons' | 'not a bug' | 'reviewer' | 'compiled checks' | 'Studio approval' | 'team' | 'team lessons';
 }
 
 /** A command that timed out with nobody answering: Rigour denied it, no person decided. */
@@ -37,6 +37,8 @@ export interface DecisionInputs {
     compiled: CompiledCheck[];
     events: AgentEvent[];
     team?: TeamDecisionCache;
+    /** The team's shared, dropped and replaced fix and memory lessons this machine holds (the local store). */
+    teamLessons?: LessonRecord[];
 }
 
 /** A person's decision on a lesson, as a team lead reads it. `compiled` is left to compiled-checks.json, which keeps more. */
@@ -56,6 +58,7 @@ export function buildDecisions(input: DecisionInputs): Decision[] {
         ...compiledDecisions(input.compiled),
         ...arbitrations(input.events),
         ...teamDecisions(input.team, input.lessons),
+        ...teamLessonDecisions(input.teamLessons ?? []),
     ];
     return all.filter(d => Number.isFinite(Date.parse(d.at))).sort((a, b) => b.at.localeCompare(a.at));
 }
@@ -101,6 +104,22 @@ function teamDecisions(cache: TeamDecisionCache | undefined, lessons: ReviewLess
         ...(d.points[0]?.pr ? { pr: d.points[0].pr } : {}),
         source: 'team' as const,
     }));
+}
+
+const TEAM_LESSON_KINDS: Record<string, string> = { promoted: 'Team lesson shared', rejected: 'Team lesson dropped', superseded: 'Team lesson replaced' };
+
+/**
+ * Who shared, dropped or replaced a team lesson: the team database's stamp (decided_by) where it has one, else what
+ * the deciding machine recorded in the lesson's evidence. A superseded lesson nobody is named for is a person's own
+ * correction of their candidate, not a decision, and is left out.
+ */
+function teamLessonDecisions(lessons: LessonRecord[]): Decision[] {
+    const recorded = (l: LessonRecord) => [l.evidence?.takenBackBy, l.evidence?.supersededBy, l.state === 'promoted' ? l.evidence?.publishedBy : undefined].find(v => typeof v === 'string') as string | undefined;
+    return lessons
+        .filter(l => l.visibility === 'team' && l.state in TEAM_LESSON_KINDS && (l.state !== 'promoted' || l.source.startsWith('published:')))
+        .map(l => ({ lesson: l, who: l.decidedBy ?? recorded(l) ?? null }))
+        .filter(({ lesson, who }) => lesson.state !== 'superseded' || who)
+        .map(({ lesson, who }) => ({ at: new Date(lesson.updatedAt).toISOString(), who, kind: TEAM_LESSON_KINDS[lesson.state], text: lesson.subject, reason: null, source: 'team lessons' as const }));
 }
 
 /** The stored review lessons alone (the team's decisions are read from their own cache). */

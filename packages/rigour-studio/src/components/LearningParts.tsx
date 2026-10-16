@@ -27,6 +27,17 @@ export interface Journey {
     stoppedInDevelopment: number | null;
     reachedPr: number | null;
     canDecide: boolean;
+    /** A team memory's key and value, waiting or shared: one key's are shown together (MemoryProposals.tsx). */
+    memory?: { key: string; value: string };
+    /** Who proposed a team candidate (an actor id), and whether it is this person. */
+    proposedBy?: string;
+    yours?: true;
+    /** A shared team memory this person may take back. */
+    canRetire?: true;
+    /** Why this person cannot share a team candidate: Share is not offered, Drop still is for their own. */
+    noShare?: string;
+    /** Who shared a shared team lesson, as the team database recorded it where it did. */
+    sharedBy?: string;
     /** Taken back by what happened after later merges; a person may promote it again. */
     takenBack?: { detail: string; prs: number[]; at: string };
     /** A later fix changed the point's own lines: evidence for a person to promote or dismiss. */
@@ -129,10 +140,17 @@ export const BotPointsToggle: React.FC<{ count: number; shown: boolean; onToggle
 /** null means unknown on this machine; a lesson that is not about a kind of defect has no repeats to count. */
 const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);
 
-export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back' | 'reworded') => void; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void }> = ({ lesson, onDecide, onDecideReview, onScope }) => (
+/** Take back a shared team memory: agents stop getting it. */
+export const RetireButton: React.FC<{ id: string; onTakeBack?: (id: string) => void }> = ({ id, onTakeBack }) => (
+    <button className="st-btn" onClick={() => onTakeBack?.(id)} type="button" title="Superseded when a newer shared version of its key exists, dropped otherwise">Take back</button>
+);
+
+export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back' | 'reworded') => void; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void; onTakeBack?: (id: string) => void }> = ({ lesson, onDecide, onDecideReview, onScope, onTakeBack }) => (
     <div className="st-card mem-lesson">
         <LessonChips lesson={lesson} />
         <div className="mem-lesson-text">{inlineCode(lesson.text)}</div>
+        {lesson.proposedBy && !lesson.yours && <div className="st-sub">Proposed by {lesson.proposedBy}</div>}
+        {lesson.sharedBy && <div className="st-sub">Shared by {lesson.sharedBy}</div>}
         <div className="st-journey">
             <div style={{ background: 'var(--bg-surface)' }}><div className="st-sub">Learned</div><div style={{ fontSize: 14, marginTop: 4 }}>{lesson.learnedFrom}</div></div>
             <div><div className="st-sub">Agents told</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.told)}</div></div>
@@ -195,10 +213,16 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
                 <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'took-back')} type="button">Take back</button>
             </div>
         )}
+        {lesson.canRetire && (
+            <div className="st-row" style={{ marginTop: 14 }}>
+                <span className="st-sub">Shared with the team: every teammate's agent gets it. Taking it back stops that, and is recorded with your name.</span>
+                <RetireButton id={lesson.id} onTakeBack={onTakeBack} />
+            </div>
+        )}
         {lesson.canDecide && lesson.origin !== 'pr' && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
             <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">{lesson.scope === 'team' ? 'Shared by a teammate. Give it to everyone\'s agents?' : 'Seen once. Keep it so your agents get told?'}</span>
-                <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>
+                <span className="st-sub">{lesson.scope !== 'team' ? 'Seen once. Keep it so your agents get told?' : lesson.noShare ?? 'Proposed for the team. Give it to everyone\'s agents?'}</span>
+                {!(lesson.scope === 'team' && lesson.noShare) && <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>}
                 <button className="st-btn" onClick={() => onDecide(lesson.id, 'rejected')} type="button">Drop</button>
             </div>
         )}

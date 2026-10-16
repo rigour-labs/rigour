@@ -7,6 +7,8 @@
  * errors escape as stack traces.
  */
 
+import { MEMBER_FUNCTIONS } from './team-lesson-rules.js';
+
 export interface QueryablePool {
     query(sql: string, params?: unknown[]): Promise<{ rows: any[]; rowCount: number | null }>;
 }
@@ -125,6 +127,8 @@ export function explainSyncError(error: unknown, databaseUrl: string | undefined
             return `your login lacks ${grant} on rigour.${table}; ask the administrator to run: GRANT ${grant} ON rigour.${table} TO ${login};`;
         }
         if (/permission denied for schema/i.test(text)) return `your login lacks USAGE on the rigour schema; ask the administrator to run: GRANT USAGE ON SCHEMA rigour TO ${login};`;
+        // A login added from an older runbook has the tables but not the functions this version's rules call.
+        if (/permission denied for function/i.test(text)) return `your login lacks EXECUTE on Rigour's functions; ask the administrator to run: GRANT EXECUTE ON FUNCTION ${MEMBER_FUNCTIONS.join(', ')} TO ${login};`;
     }
     return explainTeamConnectionError(error).split('\n')[0];
 }

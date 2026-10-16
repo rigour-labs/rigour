@@ -2,9 +2,9 @@
  * `rigour learn-reviews`: learn from the review comments this repository's
  * developers acted on, so agents get those lessons before the next PR.
  *
- * Reads GitHub (merged PRs, review comments and review bodies) read-only, as the
- * account named by review.github_account or RIGOUR_GITHUB_ACCOUNT (its gh token),
- * else GITHUB_TOKEN, else the gh CLI's active account. Lessons are written to
+ * Reads GitHub (merged PRs, review comments and review bodies) read-only, with
+ * GH_TOKEN, else GITHUB_TOKEN, else the gh token of the account named by
+ * review.github_account or RIGOUR_GITHUB_ACCOUNT, else the gh CLI's active account. Lessons are written to
  * .rigour/review-lessons.json in this clone and go nowhere else.
  */
 import { execFileSync } from 'child_process';

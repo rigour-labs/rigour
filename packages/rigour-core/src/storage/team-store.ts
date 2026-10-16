@@ -2,13 +2,16 @@ import { spawnSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import { openDatabase } from './db.js';
-import { encryptLocalPayload } from './local-encryption.js';
 import { TEAM_SCHEMA } from './team-schema.js';
-import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, missingReviewDecisionGrants, refusedRow, TABLE_GRANTS } from './team-diagnostics.js';
+import { MEMBER_FUNCTIONS } from './team-lesson-rules.js';
+import { accessChange, readCandidateRules, readMembershipAccess, recordTeamAccess, schemaNote } from './team-access.js';
+import { pushLesson, writePulledLesson } from './team-sync-lessons.js';
+import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, missingReviewDecisionGrants, TABLE_GRANTS } from './team-diagnostics.js';
 import { rigourUserDir } from '../utils/user-state.js';
 import { addToTeamList } from './team-scope.js';
 import { markNotSent, outboxCounts, queuedChanges, QUEUED, SEND_BATCH, splitOutbox } from './team-outbox.js';
 import { getRepositoryId, originOf } from './repository-origin.js';
+import { dropTeammatesCandidates, requeueRefusedCandidates, retireUnshared } from './team-reconcile.js';
 import { previewReviewDecisions, syncReviewDecisions, type DecisionPreview, type DecisionSync } from './team-review-decisions.js';
 import { personOf } from '../utils/person.js';
 import {
@@ -16,7 +19,6 @@ import {
     backfillConfiguredTeamEmbeddings,
     getTeamSemanticHealth,
     searchConfiguredTeamKnowledge,
-    upsertTeamLessonEmbedding,
 } from './team-vector-store.js';
 
 export interface TeamConfiguration {
@@ -62,6 +64,13 @@ export interface TeamDoctorResult extends TeamModeStatus {
     /** Whether the database can hold shared review decisions: `missing` until the administrator runs init-schema again. */
     /** `missing grant`: the tables are there, but this login cannot use them; the message has the GRANT to run. */
     reviewDecisions?: 'ready' | 'missing' | 'missing grant';
+    /**
+     * Whether this version's candidate rules are in force (an sme or owner decides on every member's team candidates; a
+     * member proposes their own): `missing` until an owner runs this version's init-schema; `older rules` when an older
+     * init-schema ran after it and put its own policies back; `rules not verified` when this login may not run
+     * rigour.candidate_review_state() and only the version key says they are there.
+     */
+    candidateReview?: 'ready' | 'missing' | 'older rules' | 'rules not verified';
     databaseRole?: string;
     permissions?: string[];
     /** The repository doctor runs in, when it has an origin remote: whether the team lists it, and what adds it when not. */
@@ -199,6 +208,8 @@ async function loadPg(): Promise<{ Pool: new (options: import('pg').PoolConfig) 
 export interface SchemaGrants {
     granted: Array<{ role: string; statements: string[] }>;
     manual: string[];
+    /** Logins named in rigour.memberships that the database has no role for: nothing was granted to them. */
+    missingRoles?: string[];
 }
 
 export async function initializeTeamSchema(databaseUrl: string, options: { pgvector?: boolean } = {}): Promise<SchemaGrants> {
@@ -226,14 +237,22 @@ async function grantMembers(pool: { query: (sql: string, params?: unknown[]) => 
     const result: SchemaGrants = { granted: [], manual: [] };
     for (const role of roles) {
         const quoted = `"${role.replace(/"/g, '""')}"`;
-        const statements = [`GRANT USAGE ON SCHEMA rigour TO ${quoted};`, ...tables.filter(table => present.has(table)).map(table => `GRANT ${TABLE_GRANTS[table]} ON rigour.${table} TO ${quoted};`)];
+        const statements = [
+            `GRANT USAGE ON SCHEMA rigour TO ${quoted};`,
+            ...tables.filter(table => present.has(table)).map(table => `GRANT ${TABLE_GRANTS[table]} ON rigour.${table} TO ${quoted};`),
+            // The functions a sync calls; none is executable by PUBLIC.
+            `GRANT EXECUTE ON FUNCTION ${MEMBER_FUNCTIONS.join(', ')} TO ${quoted};`,
+        ];
         const done: string[] = [];
         for (const statement of statements) {
             try {
                 await pool.query(statement);
                 done.push(statement);
             } catch (error) {
-                if ((error as { code?: unknown })?.code !== '42501') throw error; // insufficient_privilege: the administrator's to run
+                const code = (error as { code?: unknown })?.code;
+                // undefined_object: a membership names a login that does not exist; the other logins are still granted.
+                if (code === '42704') { (result.missingRoles ??= []).push(role); break; }
+                if (code !== '42501') throw error; // insufficient_privilege: the administrator's to run
                 result.manual.push(statement);
             }
         }
@@ -314,6 +333,8 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
         const tables = Number(result.rows[0].review_decisions_version) === 1;
         const missingGrant = tables ? await missingReviewDecisionGrants(pool, String(result.rows[0].database_role), role) : undefined;
         const reviewDecisions = !tables ? 'missing' : missingGrant ? 'missing grant' : 'ready';
+        const rules = await readCandidateRules(pool);
+        const candidateReview = rules.olderRules ? 'older rules' : !rules.ready ? 'missing' : rules.unverified ? 'rules not verified' : 'ready';
         return {
             mode: 'team',
             connectivity: 'online',
@@ -326,12 +347,9 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
             permissions: [role],
             semantic,
             reviewDecisions,
+            candidateReview,
             repository: await repositoryInTeam(cwd, resolved),
-            message: reviewDecisions === 'ready'
-                ? 'PostgreSQL team mode is healthy. A clone receives the team\'s decisions on review lessons at its first sync (`rigour team sync`, or the next Rigour tool call).'
-                : reviewDecisions === 'missing grant'
-                    ? `PostgreSQL team mode is healthy for lessons, but review decisions are not: ${missingGrant}`
-                    : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.',
+            message: doctorMessage(reviewDecisions, missingGrant, schemaNote({ candidateReview: rules.ready, ...(rules.olderRules ? { olderRules: true as const } : {}), ...(rules.unverified ? { unverified: true as const } : {}) })),
         };
     } catch (error) {
         return offline(explainTeamConnectionError(error));
@@ -340,6 +358,15 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
     }
 }
 
+/** Doctor's one line for a database it reached: review decisions' state, and what an owner should know about the candidate rules. */
+function doctorMessage(reviewDecisions: TeamDoctorResult['reviewDecisions'], missingGrant: string | undefined, note: string | undefined): string {
+    const message = reviewDecisions === 'ready'
+        ? 'PostgreSQL team mode is healthy. A clone receives the team\'s decisions on review lessons at its first sync (`rigour team sync`, or the next Rigour tool call).'
+        : reviewDecisions === 'missing grant'
+            ? `PostgreSQL team mode is healthy for lessons, but review decisions are not: ${missingGrant}`
+            : 'PostgreSQL team mode is healthy. Review decisions are not shared yet: the administrator runs `rigour team init-schema` again to add them.';
+    return note ? `${message} ${note}` : message;
+}
 
 /** How far before the last pull a sync reads again, for members whose clocks run behind. */
 const PULL_OVERLAP_MS = 15 * 60_000;
@@ -414,55 +441,14 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
         let pulled = 0;
         let decisions: DecisionSync;
         try {
-            const membership = await pool.query(
-                `SELECT 1 FROM rigour.memberships
-                  WHERE db_role = current_user AND team_id = $1
-                    AND actor_id = $2 AND organization_id = $3`,
-                [config.teamId, config.actorId, config.organizationId],
-            );
-            if (membership.rowCount !== 1) throw new Error(await diagnoseMissingMembership(pool));
+            const access = await readMembershipAccess(pool, config);
+            if (!access) throw new Error(await diagnoseMissingMembership(pool));
+            const change = await accessChange(db, config, access);
+            // Before anything is sent: the candidates the database refused before its rules arrived go again next.
+            if (change.rulesArrived) await requeueRefusedCandidates(db, config.actorId);
+            if (change.narrowed) await dropTeammatesCandidates(db, config);
             for (const { item, lesson } of pending) {
-                try {
-                    const result = await pool.query(
-                        `INSERT INTO rigour.lessons (
-                        id, organization_id, team_id, repository_id, actor_id, visibility, state,
-                        kind, subject, evidence_json, confidence, source, supersedes_id, created_at, updated_at
-                    )
-                    SELECT $1, membership.organization_id, membership.team_id, $2, membership.actor_id,
-                           $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12
-                    FROM rigour.memberships membership
-                    WHERE membership.db_role = current_user AND membership.team_id = $13
-                      AND membership.actor_id = $14 AND membership.organization_id = $15
-                    ON CONFLICT (id) DO UPDATE SET
-                        visibility = EXCLUDED.visibility,
-                        state = EXCLUDED.state,
-                        evidence_json = EXCLUDED.evidence_json,
-                        confidence = EXCLUDED.confidence,
-                        updated_at = EXCLUDED.updated_at
-                    WHERE rigour.lessons.updated_at <= EXCLUDED.updated_at
-                    RETURNING id`,
-                        [
-                            lesson.id, lesson.repositoryId, lesson.visibility, lesson.state, lesson.kind,
-                            lesson.subject, JSON.stringify(lesson.evidence), lesson.confidence, lesson.source,
-                            lesson.supersedesId ?? null, lesson.createdAt, lesson.updatedAt, config.teamId,
-                            config.actorId, config.organizationId,
-                        ],
-                    );
-                    if (config.semantic && result.rowCount > 0) await upsertTeamLessonEmbedding(pool, config, lesson);
-                    await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = NULL WHERE id = ?', Date.now(), item.id);
-                    synced++;
-                } catch (error) {
-                    const message = String(error instanceof Error ? error.message : error).slice(0, 1_000);
-                    // The database refused this one row (row-level security, a constraint): it will refuse it every time,
-                    // so it is set aside with the reason and the rest of the queue goes on. Anything else (the
-                    // connection, the server) stops the sync and the item is tried again next time.
-                    if (refusedRow(error)) {
-                        await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = ? WHERE id = ?', Date.now(), `refused by the team database: ${message}`, item.id);
-                        continue;
-                    }
-                    await db.run('UPDATE sync_outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?', message, item.id);
-                    throw error;
-                }
+                if (await pushLesson(pool, db, config, access, item, lesson)) synced++;
             }
             // The repository this sync runs in: its person's decisions on review lessons out, the team's in (team-review-decisions.ts).
             decisions = await syncReviewDecisions(pool, db, decisionInput);
@@ -470,30 +456,20 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
             // re-reading a few minutes is harmless (the local write is an upsert) where a skewed clock would lose a lesson.
             const mark = pullMark(config);
             const marked = (await db.get('SELECT value FROM meta WHERE key = ?', mark))?.value;
-            const last = Number(marked ?? 0);
+            // From the start when this login now reads members' candidates: they are older than its last pull.
+            const last = change.widened ? 0 : Number(marked ?? 0);
+            // Every team row the database lets this login read: row-level security decides (an sme or owner reads members'
+            // candidates where the schema has candidate review; anyone else, and any older schema, the promoted ones).
             const remote = await pool.query(
                 `SELECT * FROM rigour.lessons
                  WHERE team_id = $1 AND organization_id = $3
-                   AND ((actor_id = $2) OR (visibility = 'team' AND state = 'promoted'))
+                   AND ((actor_id = $2) OR (visibility = 'team'))
                    AND updated_at > $4
                  ORDER BY updated_at ASC`,
                 [config.teamId, config.actorId, config.organizationId, Math.max(0, last - PULL_OVERLAP_MS)],
             );
             for (const row of remote.rows) {
-                const evidence = typeof row.evidence_json === 'string' ? JSON.parse(row.evidence_json) : row.evidence_json;
-                await db.run(
-                    `INSERT INTO lessons (
-                        id, repository_id, actor_id, team_id, visibility, state, kind, subject,
-                        evidence_json, confidence, source, supersedes_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        visibility=excluded.visibility, state=excluded.state, evidence_json=excluded.evidence_json,
-                        confidence=excluded.confidence, source=excluded.source, supersedes_id=excluded.supersedes_id,
-                        updated_at=excluded.updated_at`,
-                    row.id, row.repository_id, row.actor_id, row.team_id, row.visibility, row.state,
-                    row.kind, row.subject, await encryptLocalPayload(evidence), row.confidence, row.source,
-                    row.supersedes_id, Number(row.created_at), Number(row.updated_at),
-                );
+                await writePulledLesson(db, row);
                 pulled++;
             }
             if (pulled > 0) {
@@ -504,6 +480,8 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
                 // Pulled, found nothing yet: this machine has still pulled the team once (hasPulledTeamLessons).
                 await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', mark, '0');
             }
+            if (await retireUnshared(pool, db, config)) await db.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");
+            await recordTeamAccess(db, config, access);
         } finally {
             await pool.end();
         }
