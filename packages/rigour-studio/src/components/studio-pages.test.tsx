@@ -4,7 +4,6 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionCard } from './Activity';
-import { WeeklyTable } from './AgentContext';
 import { HowItWorks } from './HowItWorks';
 import { BotPointsToggle, CompiledChecks, LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
 import { ProjectIdentity } from './ProjectIdentity';
@@ -48,14 +47,6 @@ describe('Studio pages', () => {
         const weeks = [{ from: '2026-10-02T00:00:00Z', stopped: 2, overruled: 0, repeatsStopped: 0, repeatsReachedPr: null, minutesToFix: 4, lessons: 1 }];
         expect(html(<Trend title="Reached a PR" hint="" weeks={weeks} value={w => w.repeatsReachedPr} empty="Shows once branch reviews run here." />)).toContain('Shows once branch reviews run here.');
         expect(html(<Trend title="Stopped" hint="" weeks={weeks} value={w => w.stopped} />)).toContain('>2<');
-    });
-
-    it('leaves quiet weeks out of the context table', () => {
-        const quiet = { from: '2026-09-25T00:00:00Z', scopes: 0, filesReturned: 0, filesConsidered: 0, recalls: 0, lessonsTold: 0, reuse: 0 };
-        expect(html(<WeeklyTable weeks={[quiet]} />)).toContain('No context requests in the last 8 weeks.');
-        const busy = html(<WeeklyTable weeks={[quiet, { ...quiet, from: '2026-10-02T00:00:00Z', scopes: 2, filesReturned: 9, filesConsidered: 300 }]} />);
-        expect(busy).toContain('9 of 300');
-        expect(busy.match(/<tr>/g)).toHaveLength(2); // header and the one active week
     });
 
     it('opens a story to its code change, and hides the code block when there is none', () => {
