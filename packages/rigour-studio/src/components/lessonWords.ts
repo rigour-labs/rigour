@@ -13,6 +13,18 @@ export function lessonBucket(lesson: Journey): LessonBucket {
     return IN_FORCE.has(lesson.state) ? 'force' : 'gone';
 }
 
+/**
+ * Every pile a lesson belongs to: a kept lesson a person can still share is both in force and waiting. The page's
+ * numbers and its filter chips count through this one rule, so they always agree.
+ */
+export function lessonBuckets(lesson: Journey): Set<LessonBucket> {
+    const piles = new Set<LessonBucket>();
+    if (lesson.canDecide || lesson.state === 'candidate') piles.add('waiting');
+    if (IN_FORCE.has(lesson.state)) piles.add('force');
+    if (piles.size === 0) piles.add('gone');
+    return piles;
+}
+
 /** The one state chip a lesson carries. */
 export function lessonState(lesson: Journey): ItemState {
     const bucket = lessonBucket(lesson);

@@ -3,7 +3,7 @@ import React from 'react';
 import { ago, plural } from './storyData';
 import { Card, Chip, Clamp, Empty, FilterBar, MemoryText, Pager, StateChip, WeekChart, matchesQuery, usePaged, usePersisted, type KpiItem } from './ui';
 import type { EvidenceItem, Journey } from './LearningParts';
-import { lessonSearchText, lessonState, originNote, timesTold } from './lessonWords';
+import { lessonBuckets, lessonSearchText, lessonState, originNote, timesTold } from './lessonWords';
 import './memory.css';
 
 export interface LearningWeek { from: string; stoppedInDevelopment: number; reachedPr: number | null }
@@ -11,14 +11,14 @@ export interface Briefed { lessons: number; requests: number; days: number }
 export interface Memory { value: string; timestamp?: string; source?: string }
 export interface LearnedRule { id: string; message: string; requirement: string; appliesTo: string }
 
-const IN_FORCE = new Set(['validated', 'promoted', 'verified']);
-
 /** The page's four numbers. Repeats stopped is computed, and says so. */
 export function memoryKpis(lessons: Journey[], weeks: LearningWeek[], briefed?: Briefed): KpiItem[] {
-    const waiting = lessons.filter(l => l.canDecide && !l.fromBots).length;
-    const bots = lessons.filter(l => l.canDecide && l.fromBots).length;
+    // Counted through the same piles as the list's filter chips (bots' candidates apart, as the list hides them).
+    const people = lessons.filter(l => !l.fromBots);
+    const waiting = people.filter(l => lessonBuckets(l).has('waiting')).length;
+    const bots = lessons.filter(l => l.fromBots && lessonBuckets(l).has('waiting')).length;
     return [
-        { label: 'Lessons in force', value: lessons.filter(l => IN_FORCE.has(l.state)).length, note: 'Kept by a person or by evidence; agents are given these.' },
+        { label: 'Lessons in force', value: people.filter(l => lessonBuckets(l).has('force')).length, note: 'Kept by a person or by evidence; agents are given these.' },
         {
             label: `Briefed to agents, ${briefed?.days ?? 28} days`,
             value: briefed ? briefed.lessons : '—',
