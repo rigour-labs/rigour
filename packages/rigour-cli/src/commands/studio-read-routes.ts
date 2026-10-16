@@ -6,7 +6,10 @@ import type { ServerResponse } from 'http';
 
 type Loader = (cwd: string, url: URL) => unknown | Promise<unknown>;
 
-const ROUTES: Record<string, () => Promise<Loader>> = {};
+const ROUTES: Record<string, () => Promise<Loader>> = {
+    '/api/pulls': async () => (await import('./studio-pulls.js')).loadPulls,
+    '/api/pull': async () => (await import('./studio-pulls.js')).loadPull,
+};
 
 /** Answers a GET for one of the read-only pages; false for any other path. */
 export async function serveReadRoute(
