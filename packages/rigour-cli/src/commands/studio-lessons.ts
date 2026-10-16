@@ -25,7 +25,7 @@ export async function decideLessonFromStudio(cwd: string, body: unknown): Promis
     const refused = sharing ? await whyNotDecider() : undefined;
     if (refused) return { status: 403, body: { error: refused } };
     if (takeBack === true) {
-        const taken = await takeBackTeamMemory(id);
+        const taken = await takeBackTeamMemory(id, { repositoryIds: sameRepositoryIds(cwd) });
         return { status: taken ? 200 : 404, body: taken ? { success: true, state: taken } : { success: false } };
     }
     // A drop is sent too (a team lesson's only): the team database records it, so the next pull, which brings an sme
