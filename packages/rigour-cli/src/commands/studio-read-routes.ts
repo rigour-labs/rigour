@@ -8,6 +8,8 @@ type Loader = (cwd: string, url: URL) => unknown | Promise<unknown>;
 
 const ROUTES: Record<string, () => Promise<Loader>> = {
     '/api/development': async () => (await import('./studio-development.js')).loadDevelopment,
+    '/api/pulls': async () => (await import('./studio-pulls.js')).loadPulls,
+    '/api/pull': async () => (await import('./studio-pulls.js')).loadPull,
 };
 
 /** Answers a GET for one of the read-only pages; false for any other path. */
