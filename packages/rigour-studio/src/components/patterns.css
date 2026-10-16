@@ -1,0 +1,14 @@
+/* The Patterns page: the function index, recurring problems, reuse and what agents were given. Page-local classes only. */
+.pat-note { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.pat-search { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--border-med); border-radius: 8px; background: var(--bg-surface, var(--bg-card)); color: var(--text-primary); font: inherit; font-size: 14px; }
+.pat-search:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.pat-file { display: inline-block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.pat-subhead { margin-top: 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); }
+.pat-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; font-size: 13px; }
+.pat-bar > .ui-meter { grid-column: 1 / -1; }
+.pat-problem { display: flex; flex-direction: column; gap: 2px; max-width: 380px; }
+.pat-strength { width: 80px; padding-top: 6px; }
+.pat-reuse-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pat-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.pat-fact-value { font-size: 22px; font-weight: 600; color: var(--text-primary); }
+@media (max-width: 960px) { .pat-facts { grid-template-columns: minmax(0, 1fr); } }

@@ -34,17 +34,30 @@ export function plural(n: number, one: string, many = `${one}s`): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
-/** GET a Studio endpoint; `reload` fetches again after a change. */
+/**
+ * GET a Studio endpoint; `reload` fetches again after a change. When the URL changes (a 7/28-day toggle), the previous
+ * URL's data is not returned (data is null, so the page shows its loading state) and a late answer for it is ignored.
+ */
 export function useStudioJson<T>(url: string): { data: T | null; error: string | null; reload: () => void } {
-    const [data, setData] = useState<T | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const reload = useCallback(() => {
+    const [state, setState] = useState<{ url: string; data: T | null; error: string | null }>({ url, data: null, error: null });
+    const [nonce, setNonce] = useState(0);
+    useEffect(() => {
+        let current = true;
         fetch(url)
-            .then(async res => (res.ok ? setData(await res.json()) : setError(`HTTP ${res.status}`)))
-            .catch(err => setError(err instanceof Error ? err.message : String(err)));
-    }, [url]);
-    useEffect(reload, [reload]);
-    return { data, error, reload };
+            .then(async res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = (await res.json()) as T;
+                if (current) setState({ url, data, error: null });
+            })
+            .catch(err => {
+                const error = err instanceof Error ? err.message : String(err);
+                if (current) setState(prev => ({ url, data: prev.url === url ? prev.data : null, error }));
+            });
+        return () => { current = false; };
+    }, [url, nonce]);
+    const reload = useCallback(() => setNonce(n => n + 1), []);
+    const fresh = state.url === url;
+    return { data: fresh ? state.data : null, error: fresh ? state.error : null, reload };
 }
 
 /** Text with `code` spans, as Rigour writes findings and lessons: backticked parts render as code. */

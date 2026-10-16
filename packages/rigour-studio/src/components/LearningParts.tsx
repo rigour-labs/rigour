@@ -1,11 +1,13 @@
 /** A lesson's journey as the learning page draws it: where it was learned, what it stopped, and a person's decision. Learning.tsx loads the data. */
 import React from 'react';
 import { inlineCode } from './storyData';
+import { Chip, type Tone } from './ui';
 import './story.css';
+import './memory.css';
 
 /** How a lesson reaches an agent, as it actually does: on request, or by itself in Claude Code with the brief hooks. */
 export const LearnsLead: React.FC = () => (
-    <p className="st-lead">
+    <p className="mem-note">
         Every mistake fixed in development or caught at a PR becomes a lesson. An agent gets the lessons when it asks for a brief
         (the <code>rigour_brief</code> tool, or <code>rigour brief</code>). In Claude Code, <code>rigour hooks init --brief</code> hands
         them over by itself: at a session's first prompt and on each file's first edit.
@@ -17,6 +19,8 @@ export interface Journey {
     text: string;
     origin: 'development' | 'pr' | 'memory';
     learnedFrom: string;
+    /** When it was learned (ISO); absent from older data. */
+    learnedAt?: string;
     state: string;
     scope: string;
     told: number;
@@ -42,7 +46,51 @@ export interface Journey {
         decisions: Array<{ kind: string; name: string; at: string; detail?: string }>;
         overruled?: { yours: string; team: { kind: string; name: string; at: string }; yoursOnly?: string };
     };
+    /** Other lessons agents are given with the same words but different evidence. */
+    conflicts?: string[];
+    /** A review lesson's trail: who made each point at which pull request, and who decided and why. */
+    evidence?: EvidenceItem[];
 }
+
+export interface EvidenceItem { kind: string; pr: number; author: string; source?: 'person' | 'bot'; detail?: string; at?: string; team?: true }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** A lesson agents have not been given for this long since it was learned is called unused. */
+const UNUSED_DAYS = 60;
+const SETTLED_AGAINST = new Set(['rejected', 'dropped', 'superseded']);
+
+/** Whether a lesson is working: one that contradicts another, or one never given to an agent in 60 days. */
+function lessonHealth(lesson: Journey): { tone: Tone; text: string; why: string } | null {
+    if (lesson.conflicts?.length) {
+        const more = lesson.conflicts.length > 1 ? ` and ${lesson.conflicts.length - 1} more` : '';
+        return { tone: 'bad', text: `contradicts ${lesson.conflicts[0]}${more}`, why: 'Same words, different evidence: agents are given both.' };
+    }
+    const age = lesson.learnedAt ? Date.now() - Date.parse(lesson.learnedAt) : NaN;
+    if (lesson.told === 0 && age > UNUSED_DAYS * DAY_MS && !SETTLED_AGAINST.has(lesson.state)) {
+        return { tone: 'warn', text: `unused ${UNUSED_DAYS} days`, why: `Learned over ${UNUSED_DAYS} days ago and never given to an agent on this machine.` };
+    }
+    return null;
+}
+
+const ORIGIN_WORDS: Record<Journey['origin'], string> = { development: 'from a fix', pr: 'from a pull request', memory: 'told to remember' };
+const STATE_CHIP: Record<string, [string, Tone]> = {
+    candidate: ['candidate', 'warn'], validated: ['in force', 'ok'], promoted: ['in force', 'ok'], verified: ['in force', 'ok'],
+    rejected: ['decided against', 'plain'], dropped: ['not a rule', 'plain'],
+};
+
+/** Where a lesson came from, where it stands, and whether it is working, as chips. */
+const LessonChips: React.FC<{ lesson: Journey }> = ({ lesson }) => {
+    const [state, tone] = STATE_CHIP[lesson.state] ?? [lesson.state, 'plain'];
+    const health = lessonHealth(lesson);
+    return (
+        <div className="mem-chips">
+            <Chip tone="info">{ORIGIN_WORDS[lesson.origin]}</Chip>
+            <Chip tone={tone}>{state}</Chip>
+            <Chip>{lesson.scope === 'team' ? 'shared with team' : lesson.scope}</Chip>
+            {health && <span title={health.why}><Chip tone={health.tone}>{health.text}</Chip></span>}
+        </div>
+    );
+};
 
 /** What a decided review lesson is, beside its Take back. */
 const TAKE_BACK_SAYS: Record<string, string> = { verified: 'Promoted: agents are told it.', rejected: 'Dropped: agents are told the team decided against it.', dropped: 'Not a rule: never told to agents.' };
@@ -56,7 +104,7 @@ const TeamDecisions: React.FC<{ team: NonNullable<Journey['team']> }> = ({ team 
     <div style={{ marginTop: 14 }}>
         {team.overruled && (
             <div>
-                <span className="st-chip warn">the team decided</span>{' '}
+                <span className="ui-chip warn">the team decided</span>{' '}
                 <span className="st-sub">
                     You {TEAM_VERB[team.overruled.yours] ?? team.overruled.yours} it{team.overruled.yoursOnly ? ` (yours only: ${team.overruled.yoursOnly})` : ''}; {team.overruled.team.name} {TEAM_VERB[team.overruled.team.kind] ?? team.overruled.team.kind} it on {day(team.overruled.team.at)}, and the team's decision is what agents are told.
                 </span>
@@ -82,11 +130,9 @@ export const BotPointsToggle: React.FC<{ count: number; shown: boolean; onToggle
 const times = (n: number | null, counted = true) => (!counted ? '—' : n === null ? 'not recorded here' : n === 1 ? '1 time' : `${n} times`);
 
 export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, state: 'validated' | 'promoted' | 'rejected') => void; onDecideReview?: (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back' | 'reworded') => void; onScope?: (id: string, to: 'file' | 'folder' | 'repo') => void }> = ({ lesson, onDecide, onDecideReview, onScope }) => (
-    <div className="st-card">
-        <div className="st-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ fontSize: 17, lineHeight: 1.5, flex: 1 }}>{inlineCode(lesson.text)}</div>
-            <span className="st-chip">{lesson.scope === 'team' ? 'shared with team' : lesson.scope}</span>
-        </div>
+    <div className="st-card mem-lesson">
+        <LessonChips lesson={lesson} />
+        <div className="mem-lesson-text">{inlineCode(lesson.text)}</div>
         <div className="st-journey">
             <div style={{ background: 'var(--bg-surface)' }}><div className="st-sub">Learned</div><div style={{ fontSize: 14, marginTop: 4 }}>{lesson.learnedFrom}</div></div>
             <div><div className="st-sub">Agents told</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.told)}</div></div>
@@ -96,7 +142,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         {lesson.team && <TeamDecisions team={lesson.team} />}
         {lesson.takenBack && (
             <div style={{ marginTop: 14 }}>
-                <div><span className="st-chip warn">taken back</span> <span className="st-sub">{lesson.takenBack.detail}</span></div>
+                <div><span className="ui-chip warn">taken back</span> <span className="st-sub">{lesson.takenBack.detail}</span></div>
                 <div className="st-row" style={{ marginTop: 10 }}>
                     <span className="st-sub">Later pull requests a review found repeating it merged and stayed fine. Keep telling agents anyway?</span>
                     <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote again</button>
@@ -106,7 +152,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         )}
         {lesson.reclassified && (
             <div style={{ marginTop: 14 }}>
-                <div><span className="st-chip warn">back to candidate</span> <span className="st-sub">{lesson.reclassified.detail}</span></div>
+                <div><span className="ui-chip warn">back to candidate</span> <span className="st-sub">{lesson.reclassified.detail}</span></div>
                 {lesson.reclassified.evidence.map(line => <div key={line} className="st-sub" style={{ marginTop: 4 }}>{line}</div>)}
                 <div className="st-row" style={{ marginTop: 10 }}>
                     <span className="st-sub">A later fix on its lines used to make this a lesson by itself; now a person decides. Keep telling agents?</span>
@@ -117,7 +163,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         )}
         {lesson.suggested && (
             <div style={{ marginTop: 14 }}>
-                <div><span className="st-chip">a later fix changed these lines</span> <span className="st-sub">{lesson.suggested.detail}</span></div>
+                <div><span className="ui-chip">a later fix changed these lines</span> <span className="st-sub">{lesson.suggested.detail}</span></div>
                 <div className="st-row" style={{ marginTop: 10 }}>
                     <span className="st-sub">The pull request (#{lesson.suggested.pr}) left this point alone, and a later fix changed its lines. If that fix is about this point, the lesson was right.</span>
                     <button className="st-btn primary" onClick={() => onDecideReview?.(lesson.id, 'accepted')} type="button">Promote</button>
@@ -128,7 +174,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         {lesson.reach && <Reach lesson={lesson} reach={lesson.reach} onScope={onScope} />}
         {lesson.suggestedText && (
             <div style={{ marginTop: 14 }}>
-                <div><span className="st-chip">corrected wording ({lesson.suggestedText.why})</span> <span style={{ fontSize: 15 }}>{inlineCode(lesson.suggestedText.text)}</span></div>
+                <div><span className="ui-chip">corrected wording ({lesson.suggestedText.why})</span> <span style={{ fontSize: 15 }}>{inlineCode(lesson.suggestedText.text)}</span></div>
                 <div className="st-row" style={{ marginTop: 10 }}>
                     <span className="st-sub">You decided on this lesson as it reads above. A newer version reads its comment better; the lesson changes only if you take it.</span>
                     <button className="st-btn" onClick={() => onDecideReview?.(lesson.id, 'reworded')} type="button">Use this wording</button>
@@ -167,7 +213,7 @@ const Reach: React.FC<{ lesson: Journey; reach: NonNullable<Journey['reach']>; o
         .filter(([to]) => to !== reach.scope && (reach.hasFile || to === 'repo'));
     return (
         <div className="st-row" style={{ marginTop: 12, flexWrap: 'wrap', gap: 8 }}>
-            <span className="st-chip">reaches: {reach.hasFile || reach.scope === 'repo' ? REACH_LABEL[reach.scope] : 'changes it is about'}</span>
+            <span className="ui-chip">reaches: {reach.hasFile || reach.scope === 'repo' ? REACH_LABEL[reach.scope] : 'changes it is about'}</span>
             {choices.map(([to, label]) => <button key={to} className="st-btn" onClick={() => onScope?.(lesson.id, to)} type="button">{label}</button>)}
         </div>
     );
@@ -201,7 +247,7 @@ const shareText = (s: Share) => `${s.count} of ${s.of}${s.rate === null ? '' : `
 
 /** What happened after merges: counts only. Reviewed and not reviewed side by side, never compared. */
 export const OutcomeCard: React.FC<{ numbers: OutcomeNumbers }> = ({ numbers: m }) => (
-    <section className="st-card" style={{ margin: '0 0 24px' }}>
+    <section className="st-card">
         <strong>After the merge</strong>
         <div className="st-sub" style={{ marginTop: 4 }}>{m.records.merged} merged pull requests read on this machine; {m.records.settled} settled, {m.records.unsettled} with the window still open.</div>
         <div className="st-journey" style={{ marginTop: 10 }}>
@@ -239,7 +285,7 @@ const share = (s: BacktestShare) => `${s.fired} of ${s.n}${s.rate === null ? '' 
 
 /** Lessons compiled into checks that run without a model: what each reports, how it fired on history, and a person's decision. */
 export const CompiledChecks: React.FC<{ checks: CompiledCheck[]; onDecide: (id: string, state: 'active' | 'withdrawn') => void; onPropose: () => void }> = ({ checks, onDecide, onPropose }) => (
-    <section className="st-card" style={{ margin: '24px 0' }}>
+    <section className="st-card">
         <div className="st-row" style={{ justifyContent: 'space-between' }}>
             <strong>Lessons compiled into checks</strong>
             <button className="st-btn" type="button" onClick={onPropose}>Propose checks</button>
@@ -253,7 +299,7 @@ export const CompiledChecks: React.FC<{ checks: CompiledCheck[]; onDecide: (id: 
             : <div className="st-stack" style={{ marginTop: 12 }}>{checks.map(c => (
                 <div key={c.id} className="st-need">
                     <div className="st-row" style={{ justifyContent: 'space-between' }}>
-                        <span className={`st-chip ${c.suspended ? 'bad' : c.state === 'active' ? 'ok' : c.state === 'proposed' ? 'warn' : ''}`}>{c.suspended ? 'suspended' : c.state}</span>
+                        <span className={`ui-chip ${c.suspended ? 'bad' : c.state === 'active' ? 'ok' : c.state === 'proposed' ? 'warn' : ''}`}>{c.suspended ? 'suspended' : c.state}</span>
                         <span className="st-sub st-mono">{c.files}</span>
                     </div>
                     <div style={{ marginTop: 8 }}>{c.kind === 'forbid' ? <>Reports <code>{c.symbol}</code> on a changed line.</> : <>Reports <code>{c.symbol}</code> with no <code>{c.with}</code> within three lines.</>}</div>

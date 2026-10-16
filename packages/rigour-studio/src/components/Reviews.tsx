@@ -13,15 +13,17 @@ interface PrePr {
 
 const WHO = (reviewer: string) => (reviewer === 'agent' ? 'your agent' : reviewer === 'human' ? 'you' : reviewer.replace(/^byok:/, ''));
 
-/** "Review": everything that decides whether this branch is ready for a person: the reviewer's verdict first, then the risky functions your agent checked. */
-export const Reviews: React.FC = () => {
+/**
+ * This branch before its pull request: the reviewer's verdict first, because it is what blocks, then the risky functions
+ * your agent checked. On the Pull requests page.
+ */
+export const BranchReview: React.FC = () => {
     const { data, error } = useStudioJson<PrePr>('/api/pre-pr-review');
-    if (error) return <div className="st-page"><div className="st-empty">Couldn't load reviews: {error}.</div></div>;
-    if (!data) return <div className="st-page"><div className="st-sub">Loading…</div></div>;
+    if (error) return <div className="st-empty">Couldn't load reviews: {error}.</div>;
+    if (!data) return <div className="st-sub">Loading…</div>;
     return (
-        <div className="st-page">
-            <h1 className="st-h1">Review before the PR</h1>
-            <p className="st-lead">What still stands between this branch and a person's review: the reviewer's verdict, then the risky functions your agent checked.</p>
+        <div>
+            <p className="st-lead" style={{ marginTop: 0 }}>What still stands between this branch and a person's review: the reviewer's verdict, then the risky functions your agent checked. The reviewer's settings are in Setup.</p>
 
             <BranchVerdict />
 

@@ -1,17 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity as ActivityIcon, Compass, GraduationCap, Inbox, ListChecks, Lock, Moon, ShieldCheck, Sun, TrendingUp, Trophy, Wrench, X } from 'lucide-react';
+import { Brain, GitPullRequest, Inbox, Landmark, Lock, Moon, PenLine, Shapes, ShieldCheck, Sun, TrendingUp, Wrench, X } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProjectIdentity } from './components/ProjectIdentity';
 import { ReadOnlyNote } from './components/ReadOnlyNote';
 import { SystemHealth, type HealthData } from './components/SystemHealth';
 import { Week } from './components/Week';
 import { Progress } from './components/Progress';
-import { OnlyRigour } from './components/OnlyRigour';
 import { Learning } from './components/Learning';
-import { AgentContext } from './components/AgentContext';
-import { Reviews } from './components/Reviews';
-import { Activity } from './components/Activity';
 import { SetupView } from './components/SetupView';
+import { WhileWriting } from './components/WhileWriting';
+import { PullRequests } from './components/PullRequests';
+import { Patterns } from './components/Patterns';
+import { Governance } from './components/Governance';
 import { Approval, type ApprovalRequest } from './components/Approval';
 import { hasStudioKey } from './studioWrite';
 
@@ -25,15 +25,22 @@ interface ProjectInfo {
     studioVersion?: string;
 }
 
+// In the order a person follows one change: what needs them, then development, the pull request, and what Rigour keeps.
 const PAGES = [
-    { id: 'week', label: 'This week', icon: Inbox, page: (go: (id: string) => void) => <Week onNavigate={go} /> },
-    { id: 'progress', label: 'Progress', icon: TrendingUp, page: () => <Progress /> },
-    { id: 'only', label: 'Only Rigour', icon: Trophy, page: () => <OnlyRigour /> },
-    { id: 'learns', label: 'How it learns', icon: GraduationCap, page: () => <Learning /> },
-    { id: 'context', label: 'Agent context', icon: Compass, page: () => <AgentContext /> },
-    { id: 'reviews', label: 'Review', icon: ListChecks, page: () => <Reviews /> },
-    { id: 'activity', label: 'Activity', icon: ActivityIcon, page: () => <Activity /> },
-    { id: 'setup', label: 'Setup', icon: Wrench, page: () => <SetupView /> },
+    { id: 'week', group: 'work', label: 'This week', icon: Inbox, page: (go: (id: string) => void) => <Week onNavigate={go} /> },
+    { id: 'writing', group: 'work', label: 'While writing', icon: PenLine, page: () => <WhileWriting /> },
+    { id: 'pulls', group: 'work', label: 'Pull requests', icon: GitPullRequest, page: () => <PullRequests /> },
+    { id: 'learns', group: 'knows', label: 'Memory', icon: Brain, page: () => <Learning /> },
+    { id: 'patterns', group: 'knows', label: 'Patterns', icon: Shapes, page: () => <Patterns /> },
+    { id: 'governance', group: 'team', label: 'Governance', icon: Landmark, page: (go: (id: string) => void) => <Governance onNavigate={go} /> },
+    { id: 'progress', group: 'team', label: 'Progress', icon: TrendingUp, page: () => <Progress /> },
+    { id: 'setup', group: 'team', label: 'Setup', icon: Wrench, page: () => <SetupView /> },
+] as const;
+
+const GROUPS = [
+    { id: 'work', label: 'The work' },
+    { id: 'knows', label: 'What Rigour knows' },
+    { id: 'team', label: 'The team' },
 ] as const;
 
 /** An approval request is shown only while an answer can still count. */
@@ -94,11 +101,16 @@ function App() {
                     {projectInfo?.studioVersion && <div className="version-pill">v{projectInfo.studioVersion}</div>}
                 </div>
                 <nav>
-                    {PAGES.map(page => (
-                        <button key={page.id} className={`nav-item ${page.id === current.id ? 'active' : ''}`} onClick={() => setActive(page.id)} type="button">
-                            <page.icon size={18} />
-                            <span>{page.label}</span>
-                        </button>
+                    {GROUPS.map(group => (
+                        <div key={group.id} className="nav-group">
+                            <div className="nav-group-label">{group.label}</div>
+                            {PAGES.filter(page => page.group === group.id).map(page => (
+                                <button key={page.id} className={`nav-item ${page.id === current.id ? 'active' : ''}`} onClick={() => setActive(page.id)} type="button">
+                                    <page.icon size={18} />
+                                    <span>{page.label}</span>
+                                </button>
+                            ))}
+                        </div>
                     ))}
                 </nav>
                 {projectInfo && (
