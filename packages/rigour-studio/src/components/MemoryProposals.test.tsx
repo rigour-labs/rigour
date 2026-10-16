@@ -55,6 +55,24 @@ describe("team memory proposals for one key", () => {
         expect(html(<LessonList lessons={[shared]} onDecide={() => undefined} />)).not.toContain('>Take back<');
     });
 
+    it('offers no Share where this person may not share, and says why; Drop stays on their own candidate', () => {
+        const why = 'An sme or owner shares it with the team.';
+        const mine = { ...laptop, noShare: why };
+        const single = html(<LessonList lessons={[mine]} onDecide={() => undefined} />);
+        expect(single).toContain(why);
+        expect(single).not.toContain('Share with team');
+        expect(single).toContain('>Drop<');
+        const grouped = html(<LessonList lessons={[mine, { ...cloud, noShare: why }]} onDecide={() => undefined} />);
+        expect(grouped).not.toContain('Share with team');
+        expect(grouped.match(/>Drop</g)).toHaveLength(2);
+    });
+
+    it('names who shared a shared team memory', () => {
+        const shared = proposal('l-shared', 'Retry twice.', { state: 'promoted', canDecide: false, sharedBy: 'reviewer-s' });
+        expect(html(<LessonList lessons={[shared]} onDecide={() => undefined} />)).toContain('Shared by reviewer-s');
+        expect(html(<LessonList lessons={[cloud, shared]} onDecide={() => undefined} />)).toContain('Shared by reviewer-s');
+    });
+
     it("names a teammate's single candidate on its own card", () => {
         expect(html(<LessonList lessons={[cloud]} onDecide={() => undefined} />)).toContain('Proposed by cloud-agent');
         expect(html(<LessonList lessons={[laptop]} onDecide={() => undefined} />)).not.toContain('Proposed by');

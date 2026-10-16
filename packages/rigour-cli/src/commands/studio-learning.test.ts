@@ -70,7 +70,7 @@ describe("team memory candidates, as an sme sees them", () => {
         expect(listed.map(l => [l.id, l.state, l.proposedBy])).toEqual([['p', 'promoted', undefined]]);
     });
 
-    it("lets an sme decide on a teammate's candidate, a member only on their own, and anyone while no sync has said", async () => {
+    it("offers Share and Take back to an sme or owner only, Drop on a teammate's candidate only where they decide, and Drop on your own", async () => {
         const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'learning-team-'));
         const home = fs.mkdtempSync(path.join(os.tmpdir(), 'learning-team-home-'));
         const saved = { ...process.env };
@@ -81,12 +81,15 @@ describe("team memory candidates, as an sme sees them", () => {
             await shareMemoryLesson(repo, 'retries', 'Use withRetry.');
             process.env.RIGOUR_ACTOR_ID = 'reviewer-s';
             await shareMemoryLesson(repo, 'retries', 'Use withRetry.');
-            const decide = async (viewer: { actorId?: string; decidesTeammates?: boolean }) => (await loadLearning(repo, now, 4, viewer)).lessons
-                .filter(l => l.memory).map(l => [l.proposedBy, l.yours ?? false, l.canDecide]).sort();
-            expect(await decide({ actorId: 'reviewer-s', decidesTeammates: true })).toEqual([['dev-a', false, true], ['reviewer-s', true, true]]);
-            expect(await decide({ actorId: 'reviewer-s', decidesTeammates: false })).toEqual([['dev-a', false, false], ['reviewer-s', true, true]]);
-            expect(await decide({ actorId: 'reviewer-s' })).toEqual([['dev-a', false, true], ['reviewer-s', true, true]]);
-            // A shared team memory: an sme or owner (or anyone while no sync has said the role) may take it back.
+            const decide = async (viewer: { actorId?: string; decidesTeammates?: boolean; role?: 'member' | 'sme' | 'owner' }) => (await loadLearning(repo, now, 4, viewer)).lessons
+                .filter(l => l.memory).map(l => [l.proposedBy, l.yours ?? false, l.canDecide, l.noShare ?? null]).sort();
+            expect(await decide({ actorId: 'reviewer-s', decidesTeammates: true, role: 'sme' })).toEqual([['dev-a', false, true, null], ['reviewer-s', true, true, null]]);
+            const member = 'An sme or owner shares it with the team.';
+            expect(await decide({ actorId: 'reviewer-s', decidesTeammates: false, role: 'member' })).toEqual([['dev-a', false, false, member], ['reviewer-s', true, true, member]]);
+            // No sync has read the role yet: nothing is offered that the team database may refuse.
+            const unknown = 'Your team role is read at the first team sync (rigour team sync): sharing waits for it.';
+            expect(await decide({ actorId: 'reviewer-s' })).toEqual([['dev-a', false, false, unknown], ['reviewer-s', true, true, unknown]]);
+            // A shared team memory: an sme or owner may take it back.
             const { openDatabase } = await import('@rigour-labs/core');
             const db = (await openDatabase())!;
             await db.run("UPDATE lessons SET state = 'promoted' WHERE actor_id = 'dev-a'");
@@ -94,7 +97,7 @@ describe("team memory candidates, as an sme sees them", () => {
             const retire = async (viewer: { actorId?: string; role?: 'member' | 'sme' | 'owner' }) => (await loadLearning(repo, now, 4, viewer)).lessons
                 .filter(l => l.state === 'promoted').map(l => l.canRetire ?? false);
             expect(await retire({ actorId: 'reviewer-s', role: 'sme' })).toEqual([true]);
-            expect(await retire({ actorId: 'reviewer-s' })).toEqual([true]);
+            expect(await retire({ actorId: 'reviewer-s' })).toEqual([false]);
             expect(await retire({ actorId: 'reviewer-s', role: 'member' })).toEqual([false]);
         } finally {
             process.env = saved;

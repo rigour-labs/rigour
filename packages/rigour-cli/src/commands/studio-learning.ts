@@ -33,8 +33,12 @@ export interface LessonJourney {
     /** Who proposed a team candidate (their actor id), and whether it is this person; an sme or owner decides on a teammate's. */
     proposedBy?: string;
     yours?: true;
-    /** A shared team memory a person may take back (an sme or owner, or anyone while no sync has said the role). */
+    /** A shared team memory a person may take back (an sme or owner). */
     canRetire?: true;
+    /** Why this person cannot share a team candidate (not an sme or owner, or the role is not known yet). */
+    noShare?: string;
+    /** Who shared a shared team lesson: the team database's stamp, else the sharing machine's record. */
+    sharedBy?: string;
     /** A review lesson evidence took back (review-learning/outcome-evidence.ts): why, and the pull requests that did. A person may promote it again. */
     takenBack?: { detail: string; prs: number[]; at: string };
     /** A later fix changed the point's own lines (review-learning/outcome-evidence.ts): evidence for a person to promote or dismiss, never a promotion on its own. */
@@ -147,13 +151,21 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
     return { lessons, weeks, prRecorded };
 }
 
-/** A team candidate's proposer (an actor id) and, for a team memory waiting or shared, its key and value (`key: value`). */
-function proposal(l: LessonRecord): Pick<LessonJourney, 'memory' | 'proposedBy'> {
+/**
+ * A team candidate's proposer (an actor id); for a team memory waiting or shared, the key it was saved under and its
+ * value (evidence.key and evidence.value; the subject `key: value` only for a row without them); and for a shared one,
+ * who shared it: the team database's stamp (decided_by), else what the sharing machine recorded (publishedBy).
+ */
+function proposal(l: LessonRecord): Pick<LessonJourney, 'memory' | 'proposedBy' | 'sharedBy'> {
     if (l.visibility !== 'team' || (l.state !== 'candidate' && l.state !== 'promoted')) return {};
-    const split = l.kind === 'memory' ? l.subject.indexOf(': ') : -1;
+    const split = l.subject.indexOf(': ');
+    const key = typeof l.evidence?.key === 'string' ? l.evidence.key : split > 0 ? l.subject.slice(0, split) : undefined;
+    const value = typeof l.evidence?.value === 'string' ? l.evidence.value : l.subject.slice(split + 2);
+    const sharedBy = l.decidedBy ?? (typeof l.evidence?.publishedBy === 'string' ? l.evidence.publishedBy : undefined);
     return {
-        ...(split > 0 ? { memory: { key: l.subject.slice(0, split), value: l.subject.slice(split + 2) } } : {}),
+        ...(l.kind === 'memory' && key ? { memory: { key, value } } : {}),
         ...(l.actorId && l.state === 'candidate' ? { proposedBy: l.actorId } : {}),
+        ...(l.state === 'promoted' && sharedBy ? { sharedBy } : {}),
     };
 }
 
@@ -164,15 +176,28 @@ function proposal(l: LessonRecord): Pick<LessonJourney, 'memory' | 'proposedBy'>
  */
 interface LearningViewer { actorId?: string; decidesTeammates?: boolean; role?: TeamRole }
 
+/** Why this person cannot share a team lesson here; undefined for an sme or owner. */
+function whyNoShare(viewer: LearningViewer): string | undefined {
+    if (viewer.role === 'sme' || viewer.role === 'owner') return undefined;
+    if (!viewer.actorId) return 'Team mode is not configured: rigour team configure connects a team database.';
+    if (!viewer.role) return 'Your team role is read at the first team sync (rigour team sync): sharing waits for it.';
+    return 'An sme or owner shares it with the team.';
+}
+
 /**
- * Whether a team candidate is this person's, and whether they may decide on it when it is a teammate's; and whether
- * they may take back a shared team memory.
+ * What this person may do with a team lesson: drop a team candidate of their own (or a teammate's, as an sme or owner
+ * where the database lets them), share one (an sme or owner), take a shared team memory back (an sme or owner).
  */
-function forViewer(j: LessonJourney, viewer: LearningViewer): Pick<LessonJourney, 'canDecide' | 'yours' | 'canRetire'> {
-    if (j.memory && j.state === 'promoted') return { canDecide: j.canDecide, ...(viewer.role === 'member' ? {} : { canRetire: true as const }) };
-    if (!j.proposedBy) return { canDecide: j.canDecide };
-    const yours = !viewer.actorId || j.proposedBy === viewer.actorId;
-    return { canDecide: j.canDecide && (yours || viewer.decidesTeammates !== false), ...(yours ? { yours: true as const } : {}) };
+function forViewer(j: LessonJourney, viewer: LearningViewer): Pick<LessonJourney, 'canDecide' | 'yours' | 'canRetire' | 'noShare'> {
+    const noShare = whyNoShare(viewer);
+    if (j.memory && j.state === 'promoted') return { canDecide: j.canDecide, ...(noShare ? {} : { canRetire: true as const }) };
+    if (j.scope !== 'team' || j.state !== 'candidate') return { canDecide: j.canDecide };
+    const yours = !j.proposedBy || !viewer.actorId || j.proposedBy === viewer.actorId;
+    return {
+        canDecide: j.canDecide && (yours || viewer.decidesTeammates === true),
+        ...(yours ? { yours: true as const } : {}),
+        ...(noShare ? { noShare } : {}),
+    };
 }
 
 /** A review lesson's team decisions for Studio, and whether a later one settled it against this person's own. */

@@ -34,6 +34,10 @@ export interface Journey {
     yours?: true;
     /** A shared team memory this person may take back. */
     canRetire?: true;
+    /** Why this person cannot share a team candidate: Share is not offered, Drop still is for their own. */
+    noShare?: string;
+    /** Who shared a shared team lesson, as the team database recorded it where it did. */
+    sharedBy?: string;
     /** Taken back by what happened after later merges; a person may promote it again. */
     takenBack?: { detail: string; prs: number[]; at: string };
     /** A later fix changed the point's own lines: evidence for a person to promote or dismiss. */
@@ -146,6 +150,7 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         <LessonChips lesson={lesson} />
         <div className="mem-lesson-text">{inlineCode(lesson.text)}</div>
         {lesson.proposedBy && !lesson.yours && <div className="st-sub">Proposed by {lesson.proposedBy}</div>}
+        {lesson.sharedBy && <div className="st-sub">Shared by {lesson.sharedBy}</div>}
         <div className="st-journey">
             <div style={{ background: 'var(--bg-surface)' }}><div className="st-sub">Learned</div><div style={{ fontSize: 14, marginTop: 4 }}>{lesson.learnedFrom}</div></div>
             <div><div className="st-sub">Agents told</div><div style={{ fontSize: 14, marginTop: 4 }}>{times(lesson.told)}</div></div>
@@ -216,8 +221,8 @@ export const LessonCard: React.FC<{ lesson: Journey; onDecide: (id: string, stat
         )}
         {lesson.canDecide && lesson.origin !== 'pr' && !lesson.takenBack && !lesson.suggested && !lesson.reclassified && (
             <div className="st-row" style={{ marginTop: 14 }}>
-                <span className="st-sub">{lesson.scope === 'team' ? 'Shared by a teammate. Give it to everyone\'s agents?' : 'Seen once. Keep it so your agents get told?'}</span>
-                <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>
+                <span className="st-sub">{lesson.scope !== 'team' ? 'Seen once. Keep it so your agents get told?' : lesson.noShare ?? 'Proposed for the team. Give it to everyone\'s agents?'}</span>
+                {!(lesson.scope === 'team' && lesson.noShare) && <button className="st-btn primary" onClick={() => onDecide(lesson.id, lesson.scope === 'team' ? 'promoted' : 'validated')} type="button">{lesson.scope === 'team' ? 'Share with team' : 'Keep'}</button>}
                 <button className="st-btn" onClick={() => onDecide(lesson.id, 'rejected')} type="button">Drop</button>
             </div>
         )}

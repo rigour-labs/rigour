@@ -42,4 +42,4 @@ export type {
 } from './team-store.js';
 export { takeBackTeamMemory } from './team-memory-versions.js';
 export { teamSendStateOf, refusedChanges, type TeamSendState } from './team-outbox.js';
-export { readTeamAccess, decidesTeammatesCandidates, needsSchemaUpgrade, TEAM_SCHEMA_UPGRADE, REAPPLY_TEAM_SCHEMA, type TeamAccess, type TeamRole } from './team-access.js';
+export { readTeamAccess, decidesTeammatesCandidates, schemaNote, REAPPLY_TEAM_SCHEMA, type TeamAccess, type TeamRole } from './team-access.js';

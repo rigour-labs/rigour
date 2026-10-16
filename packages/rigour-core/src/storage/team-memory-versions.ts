@@ -6,7 +6,7 @@
 import { openDatabase } from './db.js';
 import { encryptLocalPayload } from './local-encryption.js';
 import { lessonRowToRecord } from './lesson-record.js';
-import { queueLessonSync } from './lesson-outbox.js';
+import { nextUpdatedAt, queueLessonSync } from './lesson-outbox.js';
 import { loadTeamConfiguration } from './team-store.js';
 import type { LessonRecord, LessonState } from './lessons.js';
 
@@ -16,29 +16,40 @@ interface Tx {
     run(sql: string, ...params: unknown[]): Promise<{ changes?: number } | unknown>;
 }
 
-/** A team memory's key: its subject before ': ' (the subject is `key: value`); undefined for any other lesson. */
-function memoryKeyOf(lesson: { kind: string; subject: string }): string | undefined {
-    const split = lesson.kind === 'memory' ? lesson.subject.indexOf(': ') : -1;
+/**
+ * A team memory's key: the one it was saved under (evidence.key), else its subject before the first ': ' for a row
+ * with none; undefined for any other lesson. Keys are compared exactly: `db` is not `db: primary`.
+ */
+function memoryKeyOf(lesson: Pick<LessonRecord, 'kind' | 'subject' | 'evidence'>): string | undefined {
+    if (lesson.kind !== 'memory') return undefined;
+    if (typeof lesson.evidence?.key === 'string') return lesson.evidence.key;
+    const split = lesson.subject.indexOf(': ');
     return split > 0 ? lesson.subject.slice(0, split) : undefined;
 }
 
-/** The team's shared (promoted) memories of `key` in these repositories, newest first. */
+/** The team's shared (promoted) memories of exactly `key` in these repositories, newest first. */
 async function sharedForKey(tx: Tx, scope: { repositoryIds: string[]; teamId: string | null; key: string }): Promise<any[]> {
-    return tx.all(
+    const rows = await tx.all(
         `SELECT * FROM lessons
          WHERE repository_id IN (${scope.repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team'
-           AND state = 'promoted' AND (team_id IS ? OR team_id IS NULL) AND substr(subject, 1, length(?) + 2) = ? || ': '
+           AND state = 'promoted' AND (team_id IS ? OR team_id IS NULL)
          ORDER BY created_at DESC`,
-        ...scope.repositoryIds, scope.teamId, scope.key, scope.key,
+        ...scope.repositoryIds, scope.teamId,
     );
+    const matching = [];
+    for (const row of rows) {
+        if (memoryKeyOf(await lessonRowToRecord(row)) === scope.key) matching.push(row);
+    }
+    return matching;
 }
 
 /** Sets a lesson's state, records who decided under `mark` in its evidence, and queues it when team mode is on. */
 async function retire(tx: Tx, row: Record<string, unknown>, change: { state: LessonState; mark: string; by?: string; now: number; queue: boolean }): Promise<void> {
     const lesson = await lessonRowToRecord(row);
     const evidence = change.by ? { ...lesson.evidence, [change.mark]: change.by } : lesson.evidence;
-    await tx.run('UPDATE lessons SET state = ?, evidence_json = ?, updated_at = ? WHERE id = ?', change.state, await encryptLocalPayload(evidence), change.now, lesson.id);
-    if (change.queue) await queueLessonSync(tx, { ...lesson, state: change.state, evidence, updatedAt: change.now }, change.now);
+    const at = nextUpdatedAt(row.updated_at, change.now);
+    await tx.run('UPDATE lessons SET state = ?, evidence_json = ?, updated_at = ? WHERE id = ?', change.state, await encryptLocalPayload(evidence), at, lesson.id);
+    if (change.queue) await queueLessonSync(tx, { ...lesson, state: change.state, evidence, updatedAt: at }, change.now);
 }
 
 /**
@@ -54,10 +65,11 @@ export async function supersedeShared(tx: Tx, published: LessonRecord, scope: { 
 }
 
 /**
- * Takes back a shared team memory: superseded when a newer shared version of its key exists, rejected otherwise;
+ * Takes back a shared team memory: superseded when a newer shared version of its key exists in its repository,
+ * rejected otherwise;
  * marked `takenBackBy` this person and queued. Returns the new state, or null when `id` is no shared team memory.
  */
-export async function takeBackTeamMemory(id: string, repositoryIds?: string[]): Promise<LessonState | null> {
+export async function takeBackTeamMemory(id: string): Promise<LessonState | null> {
     const db = await openDatabase();
     if (!db) return null;
     const config = await loadTeamConfiguration();
@@ -65,10 +77,10 @@ export async function takeBackTeamMemory(id: string, repositoryIds?: string[]): 
     try {
         return await db.transaction(async (tx) => {
             const row = await tx.get('SELECT * FROM lessons WHERE id = ?', id);
-            const key = row && memoryKeyOf({ kind: String(row.kind), subject: String(row.subject) });
+            const key = row && memoryKeyOf(await lessonRowToRecord(row));
             if (!key || row.visibility !== 'team' || row.state !== 'promoted') return null;
-            const ids = repositoryIds?.length ? repositoryIds : [String(row.repository_id)];
-            const newer = (await sharedForKey(tx, { repositoryIds: ids, teamId: row.team_id ?? null, key })).some(other => other.id !== id && Number(other.created_at) > Number(row.created_at));
+            // A newer shared version under the row's own repository: the one agents get once this one goes.
+            const newer = (await sharedForKey(tx, { repositoryIds: [String(row.repository_id)], teamId: row.team_id ?? null, key })).some(other => other.id !== id && Number(other.created_at) > Number(row.created_at));
             const state: LessonState = newer ? 'superseded' : 'rejected';
             await retire(tx, row, { state, mark: 'takenBackBy', by, now: Date.now(), queue: Boolean(config) });
             await tx.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");

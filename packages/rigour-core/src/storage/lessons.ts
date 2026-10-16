@@ -6,7 +6,7 @@ import { encryptLocalPayload } from './local-encryption.js';
 import { lessonRowToRecord as rowToLesson } from './lesson-record.js';
 import { loadTeamConfiguration } from './team-store.js';
 import { getRepositoryId, originOf, sameRepositories, sameRepositoryIds } from './repository-origin.js';
-import { queueLessonSync } from './lesson-outbox.js';
+import { nextUpdatedAt, queueLessonSync } from './lesson-outbox.js';
 import { supersedeShared } from './team-memory-versions.js';
 
 export { getRepositoryId, queueLessonSync };
@@ -30,6 +30,8 @@ export interface LessonRecord {
     createdAt: number;
     updatedAt: number;
     repositoryName?: string;
+    /** Who last changed its state, as the team database stamped it (rigour.lessons.decided_by); never set here. */
+    decidedBy?: string;
 }
 
 export interface InteractionEvidence {
@@ -164,7 +166,7 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
                 id, repositoryId, actorId, teamId, subject,
                 await encryptLocalPayload({ key, value, sharedAt: now }), replaced[0] ?? null, now, now,
             );
-            for (const old of replaced) await tx.run("UPDATE lessons SET state = 'superseded', updated_at = ? WHERE id = ?", now, old);
+            for (const old of replaced) await tx.run("UPDATE lessons SET state = 'superseded', updated_at = MAX(?, updated_at + 1) WHERE id = ?", now, old);
             if (config) {
                 for (const changed of [...replaced, id]) {
                     const lesson = await txSafeLesson(tx, changed);
@@ -358,16 +360,17 @@ export async function transitionLesson(
                 await tx.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");
                 return true;
             }
+            const at = nextUpdatedAt(existing.updated_at, now);
             const result = await tx.run(
                 'UPDATE lessons SET state = ?, visibility = ?, updated_at = ? WHERE id = ?',
                 state,
                 visibility,
-                now,
+                at,
                 id,
             );
             if (result.changes > 0) await tx.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");
             if (result.changes > 0 && options.queueSync && visibility === 'team') {
-                const payload = { ...await rowToLesson(existing), state, visibility, updatedAt: now };
+                const payload = { ...await rowToLesson(existing), state, visibility, updatedAt: at };
                 await tx.run(
                     `INSERT INTO sync_outbox (
                         id, operation, entity_type, entity_id, payload_json, created_at

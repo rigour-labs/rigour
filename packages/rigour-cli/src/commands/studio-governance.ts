@@ -6,7 +6,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { ConfigSchema, readCompiledChecks, readDeepRuns, readTeamAccess, refusedChanges, readTeamDecisionCache, type Config, type TeamAccess, type TeamDecisionCache } from '@rigour-labs/core';
+import { ConfigSchema, listKnowledgeLessons, readCompiledChecks, readDeepRuns, readTeamAccess, refusedChanges, readTeamDecisionCache, type Config, type LessonRecord, type TeamAccess, type TeamDecisionCache } from '@rigour-labs/core';
 import { agentHookConfigs, checkRepoSetup } from './repo-setup.js';
 import { pushHookTarget } from './hooks-git.js';
 import { reportOnly } from './report-only.js';
@@ -40,6 +40,7 @@ export interface GovernanceDeps {
     teamCache?: (cwd: string) => TeamDecisionCache | undefined;
     teamAccess?: (scope: { organizationId: string; teamId: string; actorId: string }) => Promise<TeamAccess | undefined>;
     teamRefused?: (since: number) => Promise<{ count: number; latest?: string }>;
+    teamLessons?: (cwd: string) => Promise<LessonRecord[]>;
 }
 
 /** The route passes the request's URL second; nothing in it changes the page. `now` and `deps` are for tests. */
@@ -52,9 +53,10 @@ export async function loadGovernance(cwd: string, _url?: URL, now = new Date(), 
     const checks = await checkRepoSetup(cwd, now, []);
     const teamCache = (deps.teamCache ?? readTeamDecisionCache)(cwd);
     const teamConfig = await (deps.teamConfig ?? defaultTeamConfig)().catch(() => null);
+    const teamLessons = teamConfig ? await (deps.teamLessons ?? listKnowledgeLessons)(cwd).catch(() => []) : [];
     const decisions = buildDecisions({
         lessons: readStoredReviewLessons(cwd), dismissals: readDismissals(cwd), reviewDismissals: readReviewDismissals(cwd),
-        compiled: readCompiledChecks(cwd), events, team: teamCache,
+        compiled: readCompiledChecks(cwd), events, team: teamCache, teamLessons,
     });
     const parsed = config ?? ConfigSchema.parse({});
     return {

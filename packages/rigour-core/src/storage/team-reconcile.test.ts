@@ -9,7 +9,7 @@ describe('shared lessons the team database no longer shares', () => {
             run: async (_sql: string, id: unknown) => { updates.push(String(id)); },
         };
         const pool = { query: async (_sql: string, params?: unknown[]) => ({ rows: (params![0] as string[]).filter(id => id === 'still-shared').map(id => ({ id })) }) };
-        expect(await retireUnshared(pool, db, 'web')).toBe(1);
+        expect(await retireUnshared(pool, db, { organizationId: 'acme', teamId: 'web', actorId: 'dev-a' })).toBe(1);
         expect(updates).toEqual(['taken-back']);
     });
 });

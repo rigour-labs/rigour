@@ -14,8 +14,10 @@ const URL = process.env.RIGOUR_TEST_DATABASE_URL;
 const DATABASE = `rigour_remember_member_${process.pid}`;
 const MEMBER = `rigour_remember_member_${process.pid}`;
 
-/** The lessons write rule from before member candidates: a member writes personal lessons only. */
+/** The lessons write rule of 7.0.10 and earlier, in place of this version's: a member writes personal lessons only. */
 const OLD_WRITE_POLICY = `
+DROP POLICY IF EXISTS lessons_insert_v2 ON rigour.lessons;
+DROP POLICY IF EXISTS lessons_update_v2 ON rigour.lessons;
 DROP POLICY IF EXISTS lessons_write ON rigour.lessons;
 CREATE POLICY lessons_write ON rigour.lessons FOR ALL USING (EXISTS (
     SELECT 1 FROM rigour.memberships membership

@@ -1,19 +1,23 @@
 /**
- * What this person may do with team candidates, as the last team sync read it from the team database: their role,
- * whether the database lets an sme or owner see and decide on every member's candidates (`candidate_review_version` 1)
- * and whether it lets a member propose one (`member_candidates_version` 1), both written by `init-schema`. Kept in the
- * local store's meta, so Studio reads it without connecting.
+ * What this person may do with team candidates, as the last team sync read it from the team database: their role, and
+ * whether this version's candidate rules are in force there (team-lesson-rules.ts): `candidate_review_version` 2 in
+ * rigour.meta and the lessons_*_v2 policies in pg_policies, with no older init-schema's policies put back beside them.
+ * Kept in the local store's meta, so Studio reads it without connecting.
  */
 import { openDatabase } from './db.js';
+import { LEGACY_LESSON_POLICIES, LESSON_POLICIES } from './team-lesson-rules.js';
 
 export type TeamRole = 'member' | 'sme' | 'owner';
 
 export interface TeamAccess {
     role?: TeamRole;
-    /** The database has the rules that let an sme or owner read and write every team row of their team. */
+    /**
+     * This version's candidate rules are in force: an sme or owner reads and decides on every team row of their team,
+     * and a member proposes and drops team candidates of their own.
+     */
     candidateReview: boolean;
-    /** The database lets a member write team candidates of their own (absent from what a sync before 7.0.11 recorded). */
-    memberCandidates?: boolean;
+    /** An older init-schema ran after this version's and put its own lessons policies back beside these. */
+    olderRules?: true;
 }
 
 interface TeamScope { organizationId: string; teamId: string; actorId: string }
@@ -25,15 +29,32 @@ interface Meta {
     run(sql: string, ...params: unknown[]): Promise<unknown>;
 }
 
-/** The command an owner runs to apply the team schema again, which adds both version keys and their rules. */
+/** The command an owner runs to apply this version's team schema, with its candidate rules. */
 export const REAPPLY_TEAM_SCHEMA = 'rigour team init-schema --database-url <administrator url>';
 
-/** Said wherever the database lacks either key: what holds until an owner applies the schema again. */
-export const TEAM_SCHEMA_UPGRADE = `Until an owner applies the team schema again (${REAPPLY_TEAM_SCHEMA}), an sme or owner sees only their own team candidates, and the database refuses a member's team memories.`;
+/** Said wherever the rules are missing: what holds until an owner applies this version's schema. */
+const TEAM_SCHEMA_UPGRADE = `Until an owner applies this version's team schema (${REAPPLY_TEAM_SCHEMA}), an sme or owner sees only their own team candidates, and the database refuses a member's team memories.`;
 
-/** Whether the database lacks the candidate rules of this version: an owner runs init-schema again. */
-export function needsSchemaUpgrade(access: TeamAccess): boolean {
-    return !access.candidateReview || !access.memberCandidates;
+/** Said where an older init-schema put its policies back: what an owner runs, and what never to run. */
+const OLDER_SCHEMA_APPLIED = `An older Rigour's init-schema ran on this team database and put its own lessons policies back beside this version's. An owner runs this version's (${REAPPLY_TEAM_SCHEMA}) again; never run an older init-schema on it.`;
+
+/** What an owner should know about the team database's candidate rules; undefined when they are in force. */
+export function schemaNote(access: TeamAccess): string | undefined {
+    if (access.olderRules) return OLDER_SCHEMA_APPLIED;
+    return access.candidateReview ? undefined : TEAM_SCHEMA_UPGRADE;
+}
+
+/** Whether this version's candidate rules are in force, read from rigour.meta and pg_policies (any login may read both). */
+export async function readCandidateRules(pool: Pool): Promise<{ ready: boolean; olderRules: boolean }> {
+    const row = (await pool.query(
+        `SELECT (SELECT value FROM rigour.meta WHERE key = 'candidate_review_version') AS version,
+                (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'rigour' AND tablename = 'lessons' AND policyname = ANY($1::text[])) AS rules,
+                (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'rigour' AND tablename = 'lessons' AND policyname = ANY($2::text[])) AS legacy`,
+        [LESSON_POLICIES, LEGACY_LESSON_POLICIES],
+    )).rows[0] ?? {};
+    const rules = Number(row.rules) === LESSON_POLICIES.length;
+    const legacy = Number(row.legacy) > 0;
+    return { ready: row.version === '2' && rules && !legacy, olderRules: rules && legacy };
 }
 
 function accessKey(scope: TeamScope): string {
@@ -65,9 +86,7 @@ export function sentActorOf(lesson: { visibility?: string; actorId?: string }, a
  */
 export async function readMembershipAccess(pool: Pool, scope: TeamScope): Promise<TeamAccess | undefined> {
     const result = await pool.query(
-        `SELECT membership.role,
-                (SELECT value FROM rigour.meta WHERE key = 'candidate_review_version') AS candidate_review_version,
-                (SELECT value FROM rigour.meta WHERE key = 'member_candidates_version') AS member_candidates_version
+        `SELECT membership.role
            FROM rigour.memberships membership
           WHERE membership.db_role = current_user AND membership.team_id = $1
             AND membership.actor_id = $2 AND membership.organization_id = $3`,
@@ -75,20 +94,28 @@ export async function readMembershipAccess(pool: Pool, scope: TeamScope): Promis
     );
     if (result.rowCount !== 1) return undefined;
     const row = result.rows[0] ?? {};
+    const rules = await readCandidateRules(pool);
     return {
         ...(isTeamRole(row.role) ? { role: row.role } : {}),
-        candidateReview: row.candidate_review_version === '1',
-        memberCandidates: row.member_candidates_version === '1',
+        candidateReview: rules.ready,
+        ...(rules.olderRules ? { olderRules: true as const } : {}),
     };
 }
 
 /**
- * Whether `access` widens what this login reads since the last recorded sync: it decides on members' candidates now
- * and did not then (a new role, or a schema an owner just applied again). The pull then reads the team from the start,
- * since the candidates it could not read before are older than its last pull.
+ * How `access` changed since the last recorded sync:
+ * - `widened`: it decides on members' candidates now and did not then (a new role, or a schema an owner just applied).
+ *   The pull reads the team from the start: the candidates it could not read before are older than its last pull.
+ * - `rulesArrived`: the candidate rules are in force now and were not then. Candidates of this person's the database
+ *   refused before go again.
+ * - `narrowed`: it decided on members' candidates then and does not now (a demoted sme). Their candidates leave this
+ *   machine.
  */
-export async function widensAccess(db: Meta, scope: TeamScope, access: TeamAccess): Promise<boolean> {
-    return decidesTeammatesCandidates(access) === true && decidesTeammatesCandidates(await recordedAccess(db, scope)) !== true;
+export async function accessChange(db: Meta, scope: TeamScope, access: TeamAccess): Promise<{ widened: boolean; rulesArrived: boolean; narrowed: boolean }> {
+    const before = await recordedAccess(db, scope);
+    const decidesNow = decidesTeammatesCandidates(access) === true;
+    const decidedThen = decidesTeammatesCandidates(before) === true;
+    return { widened: decidesNow && !decidedThen, rulesArrived: access.candidateReview && before?.candidateReview !== true, narrowed: decidedThen && !decidesNow };
 }
 
 /** Recorded once a sync has pulled, so a sync that fails before then reads from the start again next time. */
@@ -104,7 +131,7 @@ async function recordedAccess(db: Meta, scope: TeamScope): Promise<TeamAccess | 
             ? {
                 ...(isTeamRole(parsed.role) ? { role: parsed.role } : {}),
                 candidateReview: parsed.candidateReview,
-                ...(typeof parsed.memberCandidates === 'boolean' ? { memberCandidates: parsed.memberCandidates } : {}),
+                ...(parsed.olderRules === true ? { olderRules: true as const } : {}),
             }
             : undefined;
     } catch {

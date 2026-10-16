@@ -17,8 +17,8 @@ const DATABASE = `rigour_sme_${process.pid}`;
 const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', 'storage');
 const PASSWORD = 'synthetic-login-pass';
 
-/** The lessons policies as they were before candidate review (candidate_review_version), for the old-schema case. */
-const OLD_POLICIES = `
+/** The lessons policies of Rigour 7.0.10 and earlier, as its init-schema creates them. */
+const LEGACY_POLICIES = `
 DROP POLICY IF EXISTS lessons_read ON rigour.lessons;
 CREATE POLICY lessons_read ON rigour.lessons FOR SELECT USING (EXISTS (
     SELECT 1 FROM rigour.memberships membership
@@ -33,7 +33,16 @@ WITH CHECK (EXISTS (
     SELECT 1 FROM rigour.memberships membership
     WHERE membership.db_role = current_user AND membership.organization_id = lessons.organization_id AND membership.team_id = lessons.team_id
       AND membership.actor_id = lessons.actor_id AND (lessons.visibility = 'personal' OR membership.role IN ('sme', 'owner'))));
-DELETE FROM rigour.meta WHERE key IN ('candidate_review_version', 'member_candidates_version');
+`;
+/** A database as 7.0.10 left it: its policies only, no lesson guard, no candidate rules in meta. */
+const OLD_DATABASE = `
+DROP POLICY IF EXISTS lessons_read_v2 ON rigour.lessons;
+DROP POLICY IF EXISTS lessons_insert_v2 ON rigour.lessons;
+DROP POLICY IF EXISTS lessons_update_v2 ON rigour.lessons;
+DROP POLICY IF EXISTS lessons_delete_v2 ON rigour.lessons;
+DROP TRIGGER IF EXISTS lessons_guard ON rigour.lessons;
+${LEGACY_POLICIES}
+DELETE FROM rigour.meta WHERE key = 'candidate_review_version';
 `;
 
 describe.skipIf(!URL || !fs.existsSync(dist))('an sme deciding on teammates\' candidates, on a real PostgreSQL', () => {
@@ -59,6 +68,7 @@ describe.skipIf(!URL || !fs.existsSync(dist))('an sme deciding on teammates\' ca
 const teamStore = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'team-store.js')).href)});
 const versions = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'team-memory-versions.js')).href)});
 const outbox = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'team-outbox.js')).href)});
+const fixes = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'fix-lessons.js')).href)});
 const repo = ${JSON.stringify(who.repo)};
 const memories = async () => (await lessons.listKnowledgeLessons(repo)).filter(l => l.kind === 'memory');
 console.log(JSON.stringify(await (${body})()));`;
@@ -95,7 +105,7 @@ console.log(JSON.stringify(await (${body})()));`;
         await server.query(`DROP DATABASE IF EXISTS ${DATABASE}`);
         await server.query(`CREATE DATABASE ${DATABASE}`);
         for (const who of [author, sme, member]) {
-            await server.query(`DROP ROLE IF EXISTS ${who.login}`);
+            await server.query(`DROP ROLE IF EXISTS ${who.login}`).catch(() => undefined);
             await server.query(`CREATE ROLE ${who.login} LOGIN PASSWORD '${PASSWORD}'`);
         }
         await server.end();
@@ -107,6 +117,8 @@ console.log(JSON.stringify(await (${body})()));`;
             }
         });
         await initializeTeamSchema(teamUrl()); // grants each login its tables
+        // DELETE is not among the grants a sync needs; granted here so the policies, not the grants, are what refuse it.
+        await admin(team => team.query(`GRANT DELETE ON rigour.lessons TO ${[author, sme, member].map(who => who.login).join(', ')}`));
     });
 
     afterAll(async () => {
@@ -174,7 +186,7 @@ console.log(JSON.stringify(await (${body})()));`;
         ]);
     }, 120_000);
 
-    it('lets a member supersede their own candidate, and nothing else: no decision, no teammate\'s row, no promoted row', async () => {
+    it('lets a member supersede or drop their own candidate, and nothing else: no share, no teammate\'s row, no promoted row', async () => {
         await run(member, `async () => {
             await lessons.shareMemoryLesson(repo, 'logging', 'Log the request id.');
             await teamStore.syncTeamOutbox({ cwd: repo });
@@ -192,18 +204,41 @@ console.log(JSON.stringify(await (${body})()));`;
         const insert = (id: string, actor: string, state: string) => pool.query(`INSERT INTO rigour.lessons (id, organization_id, team_id, repository_id, actor_id, visibility, state, kind, subject, evidence_json, confidence, source, created_at, updated_at)
             VALUES ($1, 'example-org', 'web', 'r', $2, 'team', $3, 'memory', 'x: y', '{}', 0.5, 's', 1, 1)`, [id, actor, state]);
         try {
-            for (const state of ['promoted', 'rejected']) {
-                await expect(pool.query('UPDATE rigour.lessons SET state = $1 WHERE id = $2', [state, candidate])).rejects.toThrow(/row-level security/);
-            }
+            await expect(pool.query(`UPDATE rigour.lessons SET state = 'promoted' WHERE id = $1`, [candidate])).rejects.toThrow(/row-level security/);
             await expect(pool.query(`UPDATE rigour.lessons SET state = 'rejected' WHERE actor_id = 'dev-a'`)).resolves.toMatchObject({ rowCount: 0 });
             await expect(insert('lesson-b-as-a', 'dev-a', 'candidate')).rejects.toThrow(/row-level security/);
             await expect(insert('lesson-b-promoted', 'dev-b', 'promoted')).rejects.toThrow(/row-level security/);
             await expect(pool.query(`UPDATE rigour.lessons SET subject = 'changed' WHERE state = 'promoted'`)).resolves.toMatchObject({ rowCount: 0 });
+            await expect(pool.query(`UPDATE rigour.lessons SET state = 'rejected' WHERE state = 'promoted'`)).resolves.toMatchObject({ rowCount: 0 });
+            await expect(pool.query(`DELETE FROM rigour.lessons WHERE visibility = 'team'`)).resolves.toMatchObject({ rowCount: 0 }); // granted for this test
+            // A member drops their own candidate: the database stamps who decided.
+            await expect(pool.query(`UPDATE rigour.lessons SET state = 'rejected' WHERE id = $1`, [candidate])).resolves.toMatchObject({ rowCount: 1 });
+            await expect(pool.query(`UPDATE rigour.lessons SET state = 'candidate' WHERE id = $1`, [candidate])).resolves.toMatchObject({ rowCount: 0 });
         } finally {
             await pool.end();
         }
+        expect(await admin(async team => (await team.query('SELECT state, decided_by FROM rigour.lessons WHERE id = $1', [candidate])).rows[0])).toEqual({ state: 'rejected', decided_by: 'dev-b' });
         const states = await admin(async team => (await team.query(`SELECT state, count(*)::int AS n FROM rigour.lessons WHERE kind = 'memory' GROUP BY state ORDER BY state`)).rows);
-        expect(states).toEqual([{ state: 'candidate', n: 3 }, { state: 'promoted', n: 2 }, { state: 'rejected', n: 1 }, { state: 'superseded', n: 1 }]);
+        expect(states).toEqual([{ state: 'candidate', n: 2 }, { state: 'promoted', n: 2 }, { state: 'rejected', n: 2 }, { state: 'superseded', n: 1 }]);
+    }, 120_000);
+
+    it('keeps an sme to what sharing needs: no lesson under a non-member, no rewritten text, no deletes, no evidence of another\'s', async () => {
+        const pool = await pg(sme.url());
+        const insert = (actor: string) => pool.query(`INSERT INTO rigour.lessons (id, organization_id, team_id, repository_id, actor_id, visibility, state, kind, subject, evidence_json, confidence, source, created_at, updated_at)
+            VALUES ('lesson-ghost-' || $1, 'example-org', 'web', 'r', $1, 'team', 'promoted', 'memory', 'ghost: x', '{}', 0.5, 's', 1, 1)`, [actor]);
+        try {
+            await expect(insert('nobody-here')).rejects.toThrow(/row-level security/);
+            const promoted = (await pool.query(`SELECT id FROM rigour.lessons WHERE actor_id = 'dev-a' AND state = 'promoted' LIMIT 1`)).rows[0].id;
+            await expect(pool.query(`UPDATE rigour.lessons SET subject = 'rewritten' WHERE id = $1`, [promoted])).rejects.toThrow(/keeps its id, text, author/);
+            await expect(pool.query(`UPDATE rigour.lessons SET actor_id = 'reviewer-s' WHERE id = $1`, [promoted])).rejects.toThrow(/keeps its id, text, author/);
+            await expect(pool.query(`DELETE FROM rigour.lessons WHERE visibility = 'team'`)).resolves.toMatchObject({ rowCount: 0 }); // granted for this test
+            await pool.query(`UPDATE rigour.lessons SET evidence_json = '{"forged": true}', confidence = confidence WHERE id = $1`, [promoted]);
+            const row = await admin(async team => (await team.query(`SELECT evidence_json, decided_by FROM rigour.lessons WHERE id = $1`, [promoted])).rows[0]);
+            expect(row.evidence_json.forged).toBeUndefined();
+            expect(row.decided_by).toBe('reviewer-s');
+        } finally {
+            await pool.end();
+        }
     }, 120_000);
 
     it("replaces the shared version of a key when a corrected one is shared, and a take back drops one with no newer version", async () => {
@@ -221,7 +256,7 @@ console.log(JSON.stringify(await (${body})()));`;
             return taken;
         }`);
         const rows = await admin(async team => (await team.query(
-            `SELECT id, actor_id, state, subject, supersedes_id, evidence_json->>'supersededBy' AS superseded_by, evidence_json->>'takenBackBy' AS taken_back_by
+            `SELECT id, actor_id, state, subject, supersedes_id, decided_by AS superseded_by, decided_by AS taken_back_by
              FROM rigour.lessons WHERE (subject LIKE 'retries:%' OR subject LIKE 'timeouts:%') AND source LIKE 'published:%'`)).rows);
         const pick = (subject: string) => rows.find((r: any) => r.subject === subject);
         const [old, current, timeouts] = [pick('retries: Use withRetry from lib/net.'), pick('retries: Use withRetry from lib/net, three attempts.'), pick('timeouts: Every outbound call has a timeout.')];
@@ -237,8 +272,82 @@ console.log(JSON.stringify(await (${body})()));`;
         expect(await run(sme, `async () => (await memories()).filter(l => l.subject.startsWith('timeouts:') && l.state !== 'candidate').map(l => l.state)`)).toEqual(['rejected']);
     }, 120_000);
 
+    it("keeps an sme's own fix out of a teammate's shared fix lesson for the same rule", async () => {
+        const evidence = { rule: 'semantic-bugs', files: ['src/a.ts'], examples: [{ fixId: 'f-a', file: 'src/a.ts', resolvedAt: '2026-10-01T00:00:00Z' }] };
+        const repositoryId = await run(sme, 'async () => lessons.getRepositoryId(repo)');
+        await admin(team => team.query(`INSERT INTO rigour.lessons (id, organization_id, team_id, repository_id, actor_id, visibility, state, kind, subject, evidence_json, confidence, source, created_at, updated_at)
+            VALUES ('lesson-fix-a', 'example-org', 'web', $1, 'dev-a', 'team', 'promoted', 'fix', 'Fixed before: Header leaks (semantic-bugs). The header reaches fetch.', $2, 0.8, 'published:x', $3, $3)`, [repositoryId, JSON.stringify(evidence), Date.now()]));
+        await run(sme, `async () => {
+            await teamStore.syncTeamOutbox({ cwd: repo });
+            await fixes.recordFixLessons(repo, [{ id: 'f-s', rule: 'semantic-bugs', title: 'Header leaks', file: 'src/private/s.ts', details: 'Private detail.', resolvedAt: '2026-10-02T00:00:00Z' }]);
+            return teamStore.syncTeamOutbox({ cwd: repo });
+        }`);
+        expect(await admin(async team => (await team.query(`SELECT evidence_json FROM rigour.lessons WHERE id = 'lesson-fix-a'`)).rows[0].evidence_json)).toEqual(evidence);
+        expect(await run(sme, `async () => (await lessons.listKnowledgeLessons(repo)).filter(l => l.kind === 'fix').map(l => [l.actorId, l.visibility, l.evidence.files]).sort()`)).toEqual([
+            ['dev-a', 'team', ['src/a.ts']],
+            ['reviewer-s', 'personal', ['src/private/s.ts']],
+        ]);
+    }, 120_000);
+
+    it('takes back a lesson stamped by a clock ahead, and takes the team\'s version when a newer one is there', async () => {
+        const future = Date.now() + 10 * 24 * 3600_000;
+        const repositoryId = await run(sme, 'async () => lessons.getRepositoryId(repo)');
+        const promote = (id: string, key: string, at: number) => admin(team => team.query(`INSERT INTO rigour.lessons (id, organization_id, team_id, repository_id, actor_id, visibility, state, kind, subject, evidence_json, confidence, source, created_at, updated_at)
+            VALUES ($1, 'example-org', 'web', $2, 'dev-a', 'team', 'promoted', 'memory', $3, $4, 0.9, 'published:' || $1, $5, $5)`, [id, repositoryId, `${key}: from a fast clock`, JSON.stringify({ key, value: 'from a fast clock' }), at]));
+        await promote('lesson-skew', 'skew', future);
+        await promote('lesson-stale', 'stale', Date.now());
+        await sync(sme);
+        // Taken back here; before this machine sends it, someone's later change reaches the team database.
+        const sent = await run(sme, `async () => {
+            await versions.takeBackTeamMemory('lesson-skew');
+            await versions.takeBackTeamMemory('lesson-stale');
+            return true;
+        }`);
+        expect(sent).toBe(true);
+        await admin(team => team.query(`UPDATE rigour.lessons SET updated_at = $1 WHERE id = 'lesson-stale'`, [future + 1]));
+        const states = await run(sme, `async () => {
+            await teamStore.syncTeamOutbox({ cwd: repo });
+            const local = Object.fromEntries((await memories()).filter(l => l.id === 'lesson-skew' || l.id === 'lesson-stale').map(l => [l.id, l.state]));
+            return { local, skew: await outbox.teamSendStateOf('lesson-skew'), stale: await outbox.teamSendStateOf('lesson-stale') };
+        }`);
+        expect(await admin(async team => (await team.query(`SELECT id, state FROM rigour.lessons WHERE id IN ('lesson-skew', 'lesson-stale') ORDER BY id`)).rows))
+            .toEqual([{ id: 'lesson-skew', state: 'rejected' }, { id: 'lesson-stale', state: 'promoted' }]);
+        expect(states.skew).toEqual({ state: 'sent' });
+        expect(states.stale).toEqual({ state: 'not sent', reason: 'the team database has a newer version of this lesson; this machine now has it' });
+        expect(states.local).toEqual({ 'lesson-skew': 'rejected', 'lesson-stale': 'promoted' });
+    }, 120_000);
+
+    it("stops serving a shared lesson the team took back, even after a member's own change to it was refused", async () => {
+        await sync(member);
+        const refused = await run(member, `async () => {
+            await lessons.transitionLesson('lesson-stale', 'rejected', { queueSync: true });
+            await teamStore.syncTeamOutbox({ cwd: repo });
+            return { state: (await memories()).find(l => l.id === 'lesson-stale').state, sent: await outbox.teamSendStateOf('lesson-stale') };
+        }`);
+        // Refused, and this machine has the team's version back: never a local state the team database does not have.
+        expect(refused.state).toBe('promoted');
+        expect(refused.sent.reason).toMatch(/^refused by the team database/);
+        await run(sme, `async () => { await versions.takeBackTeamMemory('lesson-stale'); return teamStore.syncTeamOutbox({ cwd: repo }); }`);
+        expect(await run(member, `async () => {
+            await teamStore.syncTeamOutbox({ cwd: repo });
+            return (await lessons.getApplicableLessons(repo)).lessons.map(l => l.id).filter(id => id === 'lesson-stale');
+        }`)).toEqual([]);
+    }, 120_000);
+
+    it('tells an owner when an older init-schema put its policies back beside these', async () => {
+        const doctor = 'async () => { const result = await teamStore.doctorTeamConnection(); return [result.candidateReview, result.message]; }';
+        expect((await run(sme, doctor))[0]).toBe('ready');
+        await admin(team => team.query(LEGACY_POLICIES));
+        const [state, message] = await run(sme, doctor);
+        expect(state).toBe('older rules');
+        expect(message).toContain('never run an older init-schema');
+        const { initializeTeamSchema } = await import('./team-store.js');
+        await initializeTeamSchema(teamUrl());
+        expect((await run(sme, doctor))[0]).toBe('ready');
+    }, 120_000);
+
     it('syncs with the same clients on a database with the policies from before candidate review', async () => {
-        await admin(team => team.query(OLD_POLICIES));
+        await admin(team => team.query(OLD_DATABASE));
         await run(author, `async () => {
             await lessons.shareMemoryLesson(repo, 'naming', 'Hooks are named useX.');
             return teamStore.syncTeamOutbox({ cwd: repo });
@@ -246,7 +355,7 @@ console.log(JSON.stringify(await (${body})()));`;
         const result = await sync(sme);
         expect(result).toMatchObject({ synced: 0 });
         expect(await run(sme, `async () => (await memories()).map(l => l.subject)`)).not.toContain('naming: Hooks are named useX.');
-        expect((await reads(sme)).filter(row => row[2] === 'promoted').map(row => row[3])).toEqual(['retries: Use withRetry from lib/net, three attempts.']);
+        expect((await reads(sme)).filter(row => row[2] === 'promoted' && !String(row[3]).startsWith('Fixed')).map(row => row[3])).toEqual(['retries: Use withRetry from lib/net, three attempts.']);
         // Sharing its own correction there, the sme cannot retire the author's shared version: refused, and said so.
         const replaced = await run(sme, `async () => {
             await lessons.shareMemoryLesson(repo, 'retries', 'Use withRetry, three attempts, with jitter.');
@@ -258,7 +367,7 @@ console.log(JSON.stringify(await (${body})()));`;
         }`);
         expect(replaced.state).toBe('not sent');
         expect(replaced.reason).toMatch(/^refused by the team database: .*row-level security/);
-        expect((await reads(sme)).filter(row => row[2] === 'promoted').map(row => row[3]).sort()).toEqual([
+        expect((await reads(sme)).filter(row => row[2] === 'promoted' && !String(row[3]).startsWith('Fixed')).map(row => row[3]).sort()).toEqual([
             'retries: Use withRetry from lib/net, three attempts.', 'retries: Use withRetry, three attempts, with jitter.',
         ]);
         // A member's team memory is refused there, as before, and kept on record as refused: never silently lost.
@@ -271,5 +380,14 @@ console.log(JSON.stringify(await (${body})()));`;
         expect(sent.state.state).toBe('not sent');
         expect(sent.state.reason).toMatch(/^refused by the team database: .*row-level security/);
         expect(await admin(async team => (await team.query(`SELECT count(*)::int AS n FROM rigour.lessons WHERE subject LIKE 'caching:%'`)).rows[0].n)).toBe(0);
+    }, 120_000);
+
+    it("sends a member's candidates the old database refused once an owner applies this version's schema", async () => {
+        const { initializeTeamSchema } = await import('./team-store.js');
+        await initializeTeamSchema(teamUrl());
+        // The first sync sees the rules arrive and queues the refused candidates again; the next sends them.
+        await sync(member);
+        await sync(member);
+        expect(await admin(async team => (await team.query(`SELECT actor_id, state FROM rigour.lessons WHERE subject LIKE 'caching:%'`)).rows)).toEqual([{ actor_id: 'dev-b', state: 'candidate' }]);
     }, 120_000);
 });

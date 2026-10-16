@@ -60,8 +60,9 @@ const Proposal: React.FC<{ proposal: Journey; all: Journey[]; replaces: boolean;
         {p.canDecide
             ? (
                 <div className="st-row" style={{ marginTop: 10, gap: 8 }}>
-                    {replaces && <span className="st-sub">Sharing this replaces the shared version.</span>}
-                    <button className="st-btn primary" onClick={() => onDecide(p.id, 'promoted')} type="button">Share with team</button>
+                    {p.noShare
+                        ? <span className="st-sub">{p.noShare}</span>
+                        : <>{replaces && <span className="st-sub">Sharing this replaces the shared version.</span>}<button className="st-btn primary" onClick={() => onDecide(p.id, 'promoted')} type="button">Share with team</button></>}
                     <button className="st-btn" onClick={() => onDecide(p.id, 'rejected')} type="button">Drop</button>
                 </div>
             )
@@ -74,6 +75,7 @@ const SharedNow: React.FC<{ shared: Journey; onTakeBack?: TakeBack }> = ({ share
     <div className="st-card">
         <Chip tone="ok">Shared now</Chip>
         <div className="mem-lesson-text">{inlineCode(shared.memory?.value ?? shared.text)}</div>
+        {shared.sharedBy && <div className="st-sub">Shared by {shared.sharedBy}</div>}
         {shared.canRetire && <div className="st-row" style={{ marginTop: 10, gap: 8 }}><RetireButton id={shared.id} onTakeBack={onTakeBack} /></div>}
     </div>
 );

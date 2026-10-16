@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decidesTeammatesCandidates, readMembershipAccess, recordTeamAccess, sentActorOf, widensAccess } from './team-access.js';
+import { accessChange, decidesTeammatesCandidates, readMembershipAccess, recordTeamAccess, schemaNote, sentActorOf } from './team-access.js';
 import { isTrustedLesson } from './lessons.js';
 
 const scope = { organizationId: 'acme', teamId: 'web', actorId: 'reviewer-a' };
@@ -29,23 +29,28 @@ describe('team access', () => {
         expect(sentActorOf({ visibility: 'team', actorId: 'dev-b' }, { role: 'member', candidateReview: true }, 'reviewer-a')).toBeNull();
     });
 
-    it('reads the role and candidate review from the membership row, and nothing without one', async () => {
-        const pool = (rows: any[]) => ({ query: async () => ({ rowCount: rows.length, rows }) });
-        expect(await readMembershipAccess(pool([{ role: 'member', candidate_review_version: '1', member_candidates_version: '1' }]), scope))
-            .toEqual({ role: 'member', candidateReview: true, memberCandidates: true });
-        expect(await readMembershipAccess(pool([{ role: 'owner', candidate_review_version: null, member_candidates_version: null }]), scope))
-            .toEqual({ role: 'owner', candidateReview: false, memberCandidates: false });
-        expect(await readMembershipAccess(pool([]), scope)).toBeUndefined();
+    it('reads the role from the membership row, and the candidate rules from rigour.meta and pg_policies', async () => {
+        const pool = (role: string | undefined, rules: { version: string | null; rules: number; legacy: number }) => ({
+            query: async (sql: string) => (sql.includes('pg_policies') ? { rowCount: 1, rows: [rules] } : { rowCount: role ? 1 : 0, rows: role ? [{ role }] : [] }),
+        });
+        expect(await readMembershipAccess(pool('member', { version: '2', rules: 4, legacy: 0 }), scope)).toEqual({ role: 'member', candidateReview: true });
+        expect(await readMembershipAccess(pool('owner', { version: null, rules: 0, legacy: 1 }), scope)).toEqual({ role: 'owner', candidateReview: false });
+        // An older init-schema ran after this version's: its policies sit beside these, and the meta key alone would lie.
+        const older = await readMembershipAccess(pool('sme', { version: '2', rules: 4, legacy: 2 }), scope);
+        expect(older).toEqual({ role: 'sme', candidateReview: false, olderRules: true });
+        expect(schemaNote(older!)).toContain('never run an older init-schema');
+        expect(schemaNote({ candidateReview: false })).toContain('rigour team init-schema --database-url <administrator url>');
+        expect(await readMembershipAccess(pool(undefined, { version: '2', rules: 4, legacy: 0 }), scope)).toBeUndefined();
     });
 
-    it('widens once: the first sync that may read members\' candidates pulls from the start, later ones from their mark', async () => {
+    it('says once how access changed: widened for a new sme, rules arrived, narrowed for a demoted sme', async () => {
         const db = meta();
         const sme = { role: 'sme' as const, candidateReview: true };
         await recordTeamAccess(db, scope, { role: 'sme', candidateReview: false });
-        expect(await widensAccess(db, scope, sme)).toBe(true);
+        expect(await accessChange(db, scope, sme)).toEqual({ widened: true, rulesArrived: true, narrowed: false });
         await recordTeamAccess(db, scope, sme);
-        expect(await widensAccess(db, scope, sme)).toBe(false);
-        expect(await widensAccess(meta(), scope, { role: 'member', candidateReview: true })).toBe(false);
+        expect(await accessChange(db, scope, sme)).toEqual({ widened: false, rulesArrived: false, narrowed: false });
+        expect(await accessChange(db, scope, { role: 'member', candidateReview: true })).toEqual({ widened: false, rulesArrived: false, narrowed: true });
     });
 });
 

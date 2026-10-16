@@ -5,7 +5,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { TEAM_SCHEMA_UPGRADE, decidesTeammatesCandidates, needsSchemaUpgrade, type Config, type DeepRun, type TeamAccess, type TeamDecisionCache } from '@rigour-labs/core';
+import { decidesTeammatesCandidates, schemaNote, type Config, type DeepRun, type TeamAccess, type TeamDecisionCache } from '@rigour-labs/core';
 import { jsonLines, readJsonFile } from './studio-files.js';
 
 const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
@@ -141,6 +141,7 @@ export function teamState(config: { organizationId: string; teamId: string; acto
 /** Every member's candidates for an sme or owner where the database allows it; what an owner runs where it does not yet. */
 function candidatesLine(access: TeamAccess | undefined): string | null {
     if (!access) return null;
-    if (needsSchemaUpgrade(access)) return `Teammates' candidates are visible only to them until shared. ${TEAM_SCHEMA_UPGRADE}`;
+    const note = schemaNote(access);
+    if (note) return `Teammates' candidates are visible only to them until shared. ${note}`;
     return decidesTeammatesCandidates(access) ? 'As an sme or owner, you see every member\'s team candidates and share or drop them in Memory.' : null;
 }

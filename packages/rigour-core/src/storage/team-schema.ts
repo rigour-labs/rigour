@@ -1,8 +1,10 @@
 /**
- * PostgreSQL team schema. Idempotent: re-running it on an existing database
+ * PostgreSQL team schema (the lessons rules are in team-lesson-rules.ts). Idempotent: re-running it on an existing database
  * (`rigour team init-schema`) adds anything missing, including the RLS
  * policies, without touching data.
  */
+import { LESSON_RULES } from './team-lesson-rules.js';
+
 export const TEAM_SCHEMA = `
 CREATE SCHEMA IF NOT EXISTS rigour;
 CREATE TABLE IF NOT EXISTS rigour.meta (
@@ -36,52 +38,7 @@ CREATE TABLE IF NOT EXISTS rigour.lessons (
 );
 -- Every sync reads a team's lessons changed since its last read.
 CREATE INDEX IF NOT EXISTS lessons_team_updated ON rigour.lessons (organization_id, team_id, updated_at);
-ALTER TABLE rigour.lessons ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS lessons_read ON rigour.lessons;
-CREATE POLICY lessons_read ON rigour.lessons FOR SELECT USING (
-    EXISTS (
-        SELECT 1 FROM rigour.memberships membership
-        WHERE membership.db_role = current_user
-          AND membership.organization_id = lessons.organization_id
-          AND membership.team_id = lessons.team_id
-          AND ((lessons.visibility = 'team' AND lessons.state = 'promoted')
-               OR membership.actor_id = lessons.actor_id
-               -- An sme or owner reads every team row of their team, any state: members' candidates, to share or drop.
-               OR (lessons.visibility = 'team' AND membership.role IN ('sme', 'owner')))
-    )
-);
-DROP POLICY IF EXISTS lessons_write ON rigour.lessons;
-CREATE POLICY lessons_write ON rigour.lessons FOR ALL USING (
-    EXISTS (
-        SELECT 1 FROM rigour.memberships membership
-        WHERE membership.db_role = current_user
-          AND membership.organization_id = lessons.organization_id
-          AND membership.team_id = lessons.team_id
-          AND ((membership.actor_id = lessons.actor_id
-                AND (lessons.visibility = 'personal' OR membership.role IN ('sme', 'owner')))
-               -- An sme or owner writes any team row of their team: shares or drops a member's candidate.
-               OR (lessons.visibility = 'team' AND membership.role IN ('sme', 'owner'))
-               -- Anyone proposes a team candidate of their own, and supersedes it. Checked on the old row (USING) and
-               -- the new (WITH CHECK), so a member never promotes or rejects a row, nor changes one already decided.
-               OR (membership.actor_id = lessons.actor_id AND lessons.visibility = 'team'
-                   AND lessons.state IN ('candidate', 'superseded')))
-    )
-) WITH CHECK (
-    EXISTS (
-        SELECT 1 FROM rigour.memberships membership
-        WHERE membership.db_role = current_user
-          AND membership.organization_id = lessons.organization_id
-          AND membership.team_id = lessons.team_id
-          AND ((membership.actor_id = lessons.actor_id
-                AND (lessons.visibility = 'personal' OR membership.role IN ('sme', 'owner')))
-               -- An sme or owner writes any team row of their team: shares or drops a member's candidate.
-               OR (lessons.visibility = 'team' AND membership.role IN ('sme', 'owner'))
-               -- Anyone proposes a team candidate of their own, and supersedes it. Checked on the old row (USING) and
-               -- the new (WITH CHECK), so a member never promotes or rejects a row, nor changes one already decided.
-               OR (membership.actor_id = lessons.actor_id AND lessons.visibility = 'team'
-                   AND lessons.state IN ('candidate', 'superseded')))
-    )
-);
+${LESSON_RULES}
 -- Row-level security on every team table. A host (for example Supabase's
 -- security advisor) may enable RLS on its own; without a policy each member
 -- login would then see no rows at all. Members read only their own
@@ -191,13 +148,5 @@ ALTER TABLE rigour.review_decisions ADD CONSTRAINT review_decisions_kind_check
 INSERT INTO rigour.meta (key, value) VALUES ('review_decisions_version', '1')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 INSERT INTO rigour.meta (key, value) VALUES ('review_decision_kinds_version', '2')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
--- candidate_review_version 1: an sme or owner reads and writes every team row of their team (the lessons policies
--- above), so they see members' candidates and share or drop them. Clients and doctor read it to say so.
-INSERT INTO rigour.meta (key, value) VALUES ('candidate_review_version', '1')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
--- member_candidates_version 1: a member proposes team candidates of their own (the lessons_write policy above); sharing
--- (promoting) and dropping stay an sme's or owner's.
-INSERT INTO rigour.meta (key, value) VALUES ('member_candidates_version', '1')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 `;
