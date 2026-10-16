@@ -88,8 +88,8 @@ describe('the team card', () => {
 
     it('counts the changes the team database refused, with the latest reason', () => {
         const out = html(<TeamCard team={{ ...team, refused: { count: 2, latest: 'refused by the team database: new row violates row-level security policy' } }} />);
-        expect(out).toContain('Refused by the team database, 28 days');
+        expect(out).toContain('Not taken by the team database, 28 days');
         expect(out).toContain('The latest: refused by the team database: new row violates row-level security policy');
-        expect(html(<TeamCard team={team} />)).not.toContain('Refused by the team database');
+        expect(html(<TeamCard team={team} />)).not.toContain('Not taken by the team database');
     });
 });

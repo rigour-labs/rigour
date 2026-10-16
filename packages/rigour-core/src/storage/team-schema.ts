@@ -3,7 +3,7 @@
  * (`rigour team init-schema`) adds anything missing, including the RLS
  * policies, without touching data.
  */
-import { LESSON_RULES } from './team-lesson-rules.js';
+import { LESSON_RULES, RIGOUR_FUNCTIONS } from './team-lesson-rules.js';
 
 export const TEAM_SCHEMA = `
 CREATE SCHEMA IF NOT EXISTS rigour;
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS rigour.organization_salts (
     organization_id TEXT PRIMARY KEY,
     salt TEXT NOT NULL DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '')
 );
-CREATE OR REPLACE FUNCTION rigour.add_organization_salt() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION rigour.add_organization_salt() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
     INSERT INTO rigour.organization_salts (organization_id) VALUES (NEW.organization_id) ON CONFLICT DO NOTHING;
     RETURN NEW;
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS rigour.review_decisions (
     UNIQUE (organization_id, team_id, client_key)
 );
 -- The server sets when a decision arrived and who made it, by name: the client sends neither.
-CREATE OR REPLACE FUNCTION rigour.stamp_review_decision() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION rigour.stamp_review_decision() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
     NEW.received_at := clock_timestamp();
     NEW.actor_name := (
@@ -149,4 +149,8 @@ INSERT INTO rigour.meta (key, value) VALUES ('review_decisions_version', '1')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 INSERT INTO rigour.meta (key, value) VALUES ('review_decision_kinds_version', '2')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+-- Every rigour function runs with search_path pinned (an operator a login defines in a schema it may create in never
+-- stands in for pg_catalog's), and nobody executes one by default: init-schema grants the ones a sync calls to each
+-- member login (MEMBER_FUNCTIONS); trigger functions run as triggers, with no grant.
+REVOKE EXECUTE ON FUNCTION ${RIGOUR_FUNCTIONS.join(', ')} FROM PUBLIC;
 `;

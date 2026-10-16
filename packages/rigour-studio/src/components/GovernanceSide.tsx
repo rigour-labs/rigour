@@ -102,7 +102,7 @@ export const TeamCard: React.FC<{ team: TeamState }> = ({ team }) => (
                     <Row label="Your decisions" value={team.sharing ? (team.sharing.shares ? 'shared with the team' : 'kept on this machine') : 'not synced yet'} />
                     {team.sharing && !team.sharing.shares && team.sharing.reason && <small className="gov-note">{team.sharing.reason}</small>}
                     <Row label="Decisions received" value={team.received} />
-                    {team.refused && <Row label="Refused by the team database, 28 days" value={team.refused.count} />}
+                    {team.refused && <Row label="Not taken by the team database, 28 days" value={team.refused.count} />}
                     {team.refused?.latest && <small className="gov-note">The latest: {team.refused.latest}</small>}
                 </>
             )

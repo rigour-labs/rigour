@@ -32,6 +32,7 @@ describe('rigour team init-schema grants the member logins', () => {
             'GRANT SELECT, INSERT, UPDATE ON rigour.lessons TO "rigour_jane";',
             'GRANT SELECT ON rigour.organization_salts TO "rigour_jane";',
             'GRANT SELECT, INSERT ON rigour.review_decisions TO "rigour_jane";',
+            'GRANT EXECUTE ON FUNCTION rigour.team_actor(text, text, text), rigour.candidate_review_state() TO "rigour_jane";',
         ]); // no lesson_embeddings: that table is not there without pgvector
         expect(grants.granted[1].statements[0]).toBe('GRANT USAGE ON SCHEMA rigour TO "rigour ""q""";'); // a role name is quoted
     });
@@ -40,7 +41,11 @@ describe('rigour team init-schema grants the member logins', () => {
         Object.assign(db, { roles: ['rigour_jane'], tables: ['review_decisions'], denied: true, statements: [] });
         const grants = await initializeTeamSchema(URL);
         expect(grants.granted).toEqual([]);
-        expect(grants.manual).toEqual(['GRANT USAGE ON SCHEMA rigour TO "rigour_jane";', 'GRANT SELECT, INSERT ON rigour.review_decisions TO "rigour_jane";']);
+        expect(grants.manual).toEqual([
+            'GRANT USAGE ON SCHEMA rigour TO "rigour_jane";',
+            'GRANT SELECT, INSERT ON rigour.review_decisions TO "rigour_jane";',
+            'GRANT EXECUTE ON FUNCTION rigour.team_actor(text, text, text), rigour.candidate_review_state() TO "rigour_jane";',
+        ]);
     });
 
     it('has nothing to grant before any member login exists', async () => {

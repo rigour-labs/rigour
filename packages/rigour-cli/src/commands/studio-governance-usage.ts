@@ -40,7 +40,7 @@ export interface TeamState {
     received: number;
     /** What this person sees of teammates' candidates, from the last team sync; null leaves the card's general line. */
     candidates: string | null;
-    /** Changes the team database refused in the last 28 days (row-level security, a constraint), with the latest reason. */
+    /** Changes the team database refused (row-level security, a constraint) or did not apply (it held a newer version) in the last 28 days, with the latest reason. */
     refused?: { count: number; latest?: string };
 }
 

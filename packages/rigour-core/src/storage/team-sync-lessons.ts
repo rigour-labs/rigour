@@ -73,10 +73,10 @@ export async function pushLesson(pool: Pool, db: Db, config: TeamConfiguration, 
 }
 
 /**
- * Writes a lesson read from the team database here. It replaces the local one unless that has a change still waiting
- * to be sent (newer or not: the team's version wins once nothing here is pending), or `force`.
+ * Writes a lesson read from the team database here. A newer version there replaces the local one; an older one does
+ * too once nothing here is waiting to be sent (a later change still queued stays, and goes with the next sync).
  */
-export async function writePulledLesson(db: Db, row: any, force = false): Promise<void> {
+export async function writePulledLesson(db: Db, row: any): Promise<void> {
     const evidence = typeof row.evidence_json === 'string' ? JSON.parse(row.evidence_json) : row.evidence_json;
     await db.run(
         `INSERT INTO lessons (
@@ -87,11 +87,11 @@ export async function writePulledLesson(db: Db, row: any, force = false): Promis
             visibility=excluded.visibility, state=excluded.state, evidence_json=excluded.evidence_json,
             confidence=excluded.confidence, source=excluded.source, supersedes_id=excluded.supersedes_id,
             updated_at=excluded.updated_at, on_server=1, decided_by=excluded.decided_by
-        WHERE ? OR excluded.updated_at >= lessons.updated_at
+        WHERE excluded.updated_at >= lessons.updated_at
            OR NOT EXISTS (SELECT 1 FROM sync_outbox pending WHERE pending.entity_id = lessons.id AND pending.synced_at IS NULL)`,
         row.id, row.repository_id, row.actor_id, row.team_id, row.visibility, row.state,
         row.kind, row.subject, await encryptLocalPayload(evidence), row.confidence, row.source,
-        row.supersedes_id, Number(row.created_at), Number(row.updated_at), row.decided_by ?? null, force ? 1 : 0,
+        row.supersedes_id, Number(row.created_at), Number(row.updated_at), row.decided_by ?? null,
     );
 }
 
@@ -102,7 +102,7 @@ export async function writePulledLesson(db: Db, row: any, force = false): Promis
 async function restoreFromServer(pool: Pool, db: Db, id: string): Promise<void> {
     const row = (await pool.query('SELECT * FROM rigour.lessons WHERE id = $1', [id])).rows[0];
     if (row) {
-        await writePulledLesson(db, row, true);
+        await writePulledLesson(db, row);
     } else {
         await db.run("DELETE FROM lessons WHERE id = ? AND on_server = 0 AND state = 'promoted' AND source LIKE 'published:%'", id);
     }

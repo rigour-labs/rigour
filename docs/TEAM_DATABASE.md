@@ -84,12 +84,16 @@ Database roles decide who may write team lessons:
 
 Nobody reads or writes another person's personal lesson. Sharing (promoting) a team candidate and taking a shared one back stay an `sme`'s or `owner`'s, and Studio offers **Share with team** and **Take back** only to them: to nobody before a team sync has read their role. What the database lets an `sme` or `owner` do, and not do:
 
-- **May:** read every team lesson of the team; share a member's candidate (a new team row under that member's actor, who must be a member of the same team); change the state of any team lesson of the team (drop, replace, take back).
-- **May not:** write a lesson under an actor who is not a member of the team; change any lesson's id, text (subject), kind, author, organization, team, repository, origin (source), `supersedes_id` or creation time (a trigger refuses it, for everyone); change another person's evidence (the trigger keeps it as it was); delete any team lesson (a login deletes only its own personal lessons, where `DELETE` is granted at all; Rigour's grants do not include it); set who decided (`decided_by` is stamped by the database from the writer's membership, whatever the client sends).
+- **May:** read every team lesson of the team; share a member's candidate (a new team row under that member's actor, who must be a member of the same team, and only in a decided state: shared, replaced or dropped; a candidate is only ever written by its own author); change the state of any team lesson of the team (drop, replace, take back).
+- **May not:** write a lesson under an actor who is not a member of the team, or a candidate under anyone but themselves; change any lesson's id, text (subject), kind, author, organization, team, repository, origin (source), `supersedes_id` or creation time (a trigger refuses it, for everyone); change another person's evidence (the trigger keeps it as it was); delete any team lesson (a login deletes only its own personal lessons, where `DELETE` is granted at all; Rigour's grants do not include it); set who decided (`decided_by` is stamped by the database from the writer's membership, whatever the client sends).
+
+Sharing a teammate's candidate checks that the sharer is a member of the team by the connection's own login (`session_user`), so a login that only reaches the database through another (a pooler that connects as one role and switches with `SET ROLE`) fails closed: that `sme` or `owner` still shares their own candidates, but the database refuses sharing a teammate's. Connect each person with their own login.
 
 Every `sme` and `owner` receives members' team candidates at their next sync and decides on them in Studio, so a candidate no longer waits for its author to share it. A `member` sees no **Share with team** or **Drop** on a teammate's candidate: they never receive one.
 
-**Upgrading an existing team.** These rules need a database whose `init-schema` ran on Rigour 7.0.11 or later: `rigour.meta` records `candidate_review_version` 2 and the lessons policies are named `lessons_read_v2`, `lessons_insert_v2`, `lessons_update_v2` and `lessons_delete_v2`. Rigour checks both: on an older database an `sme` or `owner` still sees only their own candidates and the database refuses a `member`'s team memories, and Rigour says so: `rigour team doctor` reports `candidateReview: missing`, and Studio's Governance page names the command. An owner runs `rigour team init-schema --database-url <administrator url>` again; it replaces the lessons policies in place and touches no lesson. The first sync after that on each `sme`'s or `owner`'s machine reads the team's lessons from the start, so members' older candidates arrive too, and each member's machine sends again, at its next sync, the team candidates the old database refused.
+**Upgrading an existing team.** These rules need a database whose `init-schema` ran on Rigour 7.0.11 or later: `rigour.meta` records `candidate_review_version` 2 and the lessons policies are named `lessons_read_v2`, `lessons_insert_v2`, `lessons_update_v2` and `lessons_delete_v2`. Rigour checks both, through `rigour.candidate_review_state()`, which any member login may run (a managed host may keep `pg_policies` from them); a login that may not run it falls back to the version key, and `rigour team doctor` then reports `candidateReview: rules not verified`. On an older database an `sme` or `owner` still sees only their own candidates and the database refuses a `member`'s team memories, and Rigour says so: `rigour team doctor` reports `candidateReview: missing`, and Studio's Governance page names the command. An owner runs `rigour team init-schema --database-url <administrator url>` again; it replaces the lessons policies in place and touches no lesson. The first sync after that on each `sme`'s or `owner`'s machine reads the team's lessons from the start, so members' older candidates arrive too, and each member's machine sends again, at its next sync, the team candidates the old database refused.
+
+**Run `init-schema` again for 7.0.11's function fix.** Rigour's trigger functions (the review decision stamp since 7.0.0, and the lesson guard) now run with their `search_path` pinned to `pg_catalog`. Before, a login that may create objects in a schema on its `search_path` (`public`, by default before PostgreSQL 15) could define an operator there that stood in for the built-in one inside them. A database gets the fix when an owner runs this version's `init-schema`, which also stops anyone but a member login from running Rigour's functions.
 
 **Never run an older Rigour's `init-schema` on an upgraded database.** It puts its own lessons policies back beside these (permissive policies add up, so its looser write rule applies again) while the version key stays. Rigour reads the policies, not the key alone: `rigour team doctor` then reports `candidateReview: older rules` and says to run this version's `init-schema` again, which removes them.
 
@@ -266,6 +270,7 @@ GRANT SELECT ON rigour.meta, rigour.memberships TO rigour_jane;
 GRANT SELECT, INSERT, UPDATE ON rigour.lessons TO rigour_jane;
 GRANT SELECT ON rigour.organization_salts TO rigour_jane;
 GRANT SELECT, INSERT ON rigour.review_decisions TO rigour_jane;
+GRANT EXECUTE ON FUNCTION rigour.team_actor(text, text, text), rigour.candidate_review_state() TO rigour_jane;
 -- Only with --pgvector:
 GRANT SELECT, INSERT, UPDATE ON rigour.lesson_embeddings TO rigour_jane;
 
@@ -280,7 +285,7 @@ VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 - A login role can belong to a team once (the primary key is `db_role, team_id`).
 - **An automation gets a login of its own.** Give a review bot or CI agent its own login and membership, never a person's: its own `actor_id` (for example `review-bot`) and a `display_name` that says what it is ("Review bot"). As a `member` it receives every lesson the team promoted, which is what a reviewer needs; revoking it is dropping its login. A `member` cannot share team memories: what a `member` bot saves with scope `team` arrives as its candidate, and reaches teammates' agents only once an `sme` or `owner` shares it. Give the bot `sme` only if the team accepts everything an `sme` may do: share decisions on review lessons, and publish a lesson straight to every teammate's agent with no person deciding.
 
-Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-level security does not apply to a table's owner unless the table forces it, and Rigour's schema does not, so that login could read every personal lesson.
+Do not let member logins create objects in a schema on their `search_path`: run `REVOKE CREATE ON SCHEMA public FROM PUBLIC;` on a database created before PostgreSQL 15 (later versions do it already). Do not give anyone the schema owner's login, or a role with `BYPASSRLS`. Row-level security does not apply to a table's owner unless the table forces it, and Rigour's schema does not, so that login could read every personal lesson.
 
 ### 3. Give each person their connection URL
 
@@ -394,6 +399,7 @@ GRANT SELECT ON rigour.meta, rigour.memberships TO rigour_jane;
 GRANT SELECT, INSERT, UPDATE ON rigour.lessons, rigour.lesson_embeddings TO rigour_jane;
 GRANT SELECT ON rigour.organization_salts TO rigour_jane;
 GRANT SELECT, INSERT ON rigour.review_decisions TO rigour_jane;
+GRANT EXECUTE ON FUNCTION rigour.team_actor(text, text, text), rigour.candidate_review_state() TO rigour_jane;
 INSERT INTO rigour.memberships (db_role, organization_id, team_id, actor_id, role, display_name)
 VALUES ('rigour_jane', 'acme', 'web', 'jane', 'sme', 'Jane D.');
 SQL

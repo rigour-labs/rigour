@@ -124,7 +124,7 @@ async function initializeSchemaOrReport(databaseUrl: string, pgvector: boolean):
     try {
         const grants = await initializeTeamSchema(databaseUrl, { pgvector });
         // What every member login can now use, so no GRANT is left for doctor to find after an upgrade.
-        for (const { role, statements } of grants.granted) console.log(chalk.green(`Granted ${role}: ${statements.length - 1} table(s) and the schema, as a member's sync needs.`));
+        for (const { role, statements } of grants.granted) console.log(chalk.green(`Granted ${role}: ${statements.filter(s => / ON rigour\./.test(s)).length} table(s), the schema and its functions, as a member's sync needs.`));
         if (grants.manual.length) console.log(chalk.yellow(`This login may not grant on every table; ask the administrator to run:\n  ${grants.manual.join('\n  ')}`));
         if (!grants.granted.length && !grants.manual.length) console.log(chalk.dim('No member logins yet: grant each one as the team database guide shows when you add it.'));
         return true;

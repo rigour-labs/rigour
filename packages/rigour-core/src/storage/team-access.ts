@@ -1,11 +1,10 @@
 /**
  * What this person may do with team candidates, as the last team sync read it from the team database: their role, and
- * whether this version's candidate rules are in force there (team-lesson-rules.ts): `candidate_review_version` 2 in
- * rigour.meta and the lessons_*_v2 policies in pg_policies, with no older init-schema's policies put back beside them.
+ * whether this version's candidate rules are in force there (team-lesson-rules.ts), as rigour.candidate_review_state()
+ * reads them: `candidate_review_version` 2 and the lessons_*_v2 policies, with no older init-schema's put back.
  * Kept in the local store's meta, so Studio reads it without connecting.
  */
 import { openDatabase } from './db.js';
-import { LEGACY_LESSON_POLICIES, LESSON_POLICIES } from './team-lesson-rules.js';
 
 export type TeamRole = 'member' | 'sme' | 'owner';
 
@@ -18,6 +17,8 @@ export interface TeamAccess {
     candidateReview: boolean;
     /** An older init-schema ran after this version's and put its own lessons policies back beside these. */
     olderRules?: true;
+    /** Read from the version key alone: this login could not run rigour.candidate_review_state(). */
+    unverified?: true;
 }
 
 interface TeamScope { organizationId: string; teamId: string; actorId: string }
@@ -38,23 +39,31 @@ const TEAM_SCHEMA_UPGRADE = `Until an owner applies this version's team schema (
 /** Said where an older init-schema put its policies back: what an owner runs, and what never to run. */
 const OLDER_SCHEMA_APPLIED = `An older Rigour's init-schema ran on this team database and put its own lessons policies back beside this version's. An owner runs this version's (${REAPPLY_TEAM_SCHEMA}) again; never run an older init-schema on it.`;
 
+/** Said where the rules could not be verified: the key says they are there, the policies could not be read. */
+const RULES_NOT_VERIFIED = `The candidate rules could not be verified: this login may not run rigour.candidate_review_state(). An owner runs this version's init-schema (${REAPPLY_TEAM_SCHEMA}), which grants it to every member login.`;
+
 /** What an owner should know about the team database's candidate rules; undefined when they are in force. */
 export function schemaNote(access: TeamAccess): string | undefined {
     if (access.olderRules) return OLDER_SCHEMA_APPLIED;
+    if (access.unverified && access.candidateReview) return RULES_NOT_VERIFIED;
     return access.candidateReview ? undefined : TEAM_SCHEMA_UPGRADE;
 }
 
-/** Whether this version's candidate rules are in force, read from rigour.meta and pg_policies (any login may read both). */
-export async function readCandidateRules(pool: Pool): Promise<{ ready: boolean; olderRules: boolean }> {
-    const row = (await pool.query(
-        `SELECT (SELECT value FROM rigour.meta WHERE key = 'candidate_review_version') AS version,
-                (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'rigour' AND tablename = 'lessons' AND policyname = ANY($1::text[])) AS rules,
-                (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'rigour' AND tablename = 'lessons' AND policyname = ANY($2::text[])) AS legacy`,
-        [LESSON_POLICIES, LEGACY_LESSON_POLICIES],
-    )).rows[0] ?? {};
-    const rules = Number(row.rules) === LESSON_POLICIES.length;
-    const legacy = Number(row.legacy) > 0;
-    return { ready: row.version === '2' && rules && !legacy, olderRules: rules && legacy };
+/**
+ * Whether this version's candidate rules are in force, as rigour.candidate_review_state() says (any member login may
+ * run it; it reads pg_policies, which a managed host may keep from them). A database without it, or a login not granted
+ * it, falls back to the version key alone: `unverified`.
+ */
+export async function readCandidateRules(pool: Pool): Promise<{ ready: boolean; olderRules: boolean; unverified: boolean }> {
+    try {
+        const state = (await pool.query('SELECT rigour.candidate_review_state() AS state')).rows[0]?.state;
+        return { ready: state === 'ready', olderRules: state === 'older rules', unverified: false };
+    } catch (error) {
+        const code = (error as { code?: unknown })?.code;
+        if (code !== '42501' && code !== '42883') throw error; // not permitted, or no such function: read the key
+        const version = (await pool.query(`SELECT value FROM rigour.meta WHERE key = 'candidate_review_version'`)).rows[0]?.value;
+        return { ready: version === '2', olderRules: false, unverified: true };
+    }
 }
 
 function accessKey(scope: TeamScope): string {
@@ -99,6 +108,7 @@ export async function readMembershipAccess(pool: Pool, scope: TeamScope): Promis
         ...(isTeamRole(row.role) ? { role: row.role } : {}),
         candidateReview: rules.ready,
         ...(rules.olderRules ? { olderRules: true as const } : {}),
+        ...(rules.unverified ? { unverified: true as const } : {}),
     };
 }
 
@@ -132,6 +142,7 @@ async function recordedAccess(db: Meta, scope: TeamScope): Promise<TeamAccess | 
                 ...(isTeamRole(parsed.role) ? { role: parsed.role } : {}),
                 candidateReview: parsed.candidateReview,
                 ...(parsed.olderRules === true ? { olderRules: true as const } : {}),
+                ...(parsed.unverified === true ? { unverified: true as const } : {}),
             }
             : undefined;
     } catch {

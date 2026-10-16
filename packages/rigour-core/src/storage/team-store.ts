@@ -3,6 +3,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { openDatabase } from './db.js';
 import { TEAM_SCHEMA } from './team-schema.js';
+import { MEMBER_FUNCTIONS } from './team-lesson-rules.js';
 import { accessChange, readCandidateRules, readMembershipAccess, recordTeamAccess, schemaNote } from './team-access.js';
 import { pushLesson, writePulledLesson } from './team-sync-lessons.js';
 import { diagnoseMissingMembership, explainSyncError, explainTeamConnectionError, missingReviewDecisionGrants, TABLE_GRANTS } from './team-diagnostics.js';
@@ -66,9 +67,10 @@ export interface TeamDoctorResult extends TeamModeStatus {
     /**
      * Whether this version's candidate rules are in force (an sme or owner decides on every member's team candidates; a
      * member proposes their own): `missing` until an owner runs this version's init-schema; `older rules` when an older
-     * init-schema ran after it and put its own policies back.
+     * init-schema ran after it and put its own policies back; `rules not verified` when this login may not run
+     * rigour.candidate_review_state() and only the version key says they are there.
      */
-    candidateReview?: 'ready' | 'missing' | 'older rules';
+    candidateReview?: 'ready' | 'missing' | 'older rules' | 'rules not verified';
     databaseRole?: string;
     permissions?: string[];
     /** The repository doctor runs in, when it has an origin remote: whether the team lists it, and what adds it when not. */
@@ -233,7 +235,12 @@ async function grantMembers(pool: { query: (sql: string, params?: unknown[]) => 
     const result: SchemaGrants = { granted: [], manual: [] };
     for (const role of roles) {
         const quoted = `"${role.replace(/"/g, '""')}"`;
-        const statements = [`GRANT USAGE ON SCHEMA rigour TO ${quoted};`, ...tables.filter(table => present.has(table)).map(table => `GRANT ${TABLE_GRANTS[table]} ON rigour.${table} TO ${quoted};`)];
+        const statements = [
+            `GRANT USAGE ON SCHEMA rigour TO ${quoted};`,
+            ...tables.filter(table => present.has(table)).map(table => `GRANT ${TABLE_GRANTS[table]} ON rigour.${table} TO ${quoted};`),
+            // The functions a sync calls; none is executable by PUBLIC.
+            `GRANT EXECUTE ON FUNCTION ${MEMBER_FUNCTIONS.join(', ')} TO ${quoted};`,
+        ];
         const done: string[] = [];
         for (const statement of statements) {
             try {
@@ -322,7 +329,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
         const missingGrant = tables ? await missingReviewDecisionGrants(pool, String(result.rows[0].database_role), role) : undefined;
         const reviewDecisions = !tables ? 'missing' : missingGrant ? 'missing grant' : 'ready';
         const rules = await readCandidateRules(pool);
-        const candidateReview = rules.olderRules ? 'older rules' : rules.ready ? 'ready' : 'missing';
+        const candidateReview = rules.olderRules ? 'older rules' : !rules.ready ? 'missing' : rules.unverified ? 'rules not verified' : 'ready';
         return {
             mode: 'team',
             connectivity: 'online',
@@ -337,7 +344,7 @@ export async function doctorTeamConnection(config?: TeamConfiguration, cwd?: str
             reviewDecisions,
             candidateReview,
             repository: await repositoryInTeam(cwd, resolved),
-            message: doctorMessage(reviewDecisions, missingGrant, schemaNote({ candidateReview: rules.ready, ...(rules.olderRules ? { olderRules: true as const } : {}) })),
+            message: doctorMessage(reviewDecisions, missingGrant, schemaNote({ candidateReview: rules.ready, ...(rules.olderRules ? { olderRules: true as const } : {}), ...(rules.unverified ? { unverified: true as const } : {}) })),
         };
     } catch (error) {
         return offline(explainTeamConnectionError(error));
