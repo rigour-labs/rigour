@@ -1,112 +1,95 @@
 import React from 'react';
 import { studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
-import { BotPointsToggle, CompiledChecks, LearnsLead, LessonCard, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
+import { Empty, Kpis, PageHeader, TabPanel, Tabs } from './ui';
+import { BotPointsToggle, CompiledChecks, LessonCard, OutcomeCard, type CompiledCheck, type Journey, type OutcomeNumbers } from './LearningParts';
+import { FromReviews, LearnedRules, RememberedTable, RepeatsCard, memoryKpis, type Briefed, type LearnedRule, type LearningWeek, type Memory } from './MemoryParts';
+import { HowMemoryWorks, JourneyCard } from './MemoryStore';
 import './story.css';
+import './memory.css';
 
 interface LearningData {
     lessons: Journey[];
-    weeks: Array<{ from: string; stoppedInDevelopment: number; reachedPr: number | null }>;
+    weeks: LearningWeek[];
     prRecorded: boolean;
     outcomes?: OutcomeNumbers;
     compiled?: CompiledCheck[];
+    briefed?: Briefed;
 }
 
-/** "How it learns": each lesson's path across development and the PR, and whether repeats still reach a PR. */
-export const Learning: React.FC = () => {
-    const { data, error, reload } = useStudioJson<LearningData>('/api/learning');
-    const [showBots, setShowBots] = React.useState(false);
-    if (error) return <div className="st-page"><div className="st-empty">Couldn't load lessons: {error}.</div></div>;
-    if (!data) return <div className="st-page"><div className="st-sub">Loading…</div></div>;
-    const decide = async (id: string, state: 'validated' | 'promoted' | 'rejected') => {
-        const res = await studioWrite('/api/lessons', 'POST', JSON.stringify({ id, state }));
+type ReviewDecision = 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back' | 'reworded';
+
+/** The decisions a person makes on this page, each through an existing Studio write; the page reloads after one. */
+function useLessonActions(reload: () => void) {
+    const send = async (url: string, body: unknown, alertOnError = false) => {
+        const res = await studioWrite(url, 'POST', JSON.stringify(body));
         if (res.ok) reload();
+        else if (alertOnError) window.alert((await res.json().catch(() => ({}))).error ?? 'Could not record the decision.');
     };
-    const decideReview = async (id: string, decision: 'accepted' | 'rejected' | 'dismissed' | 'not-a-rule' | 'took-back' | 'reworded') => {
-        const res = await studioWrite('/api/review-lessons', 'POST', JSON.stringify({ id, decision }));
-        if (res.ok) reload();
+    return {
+        decide: (id: string, state: 'validated' | 'promoted' | 'rejected') => send('/api/lessons', { id, state }),
+        decideReview: (id: string, decision: ReviewDecision) => send('/api/review-lessons', { id, decision }),
+        scope: (id: string, to: 'file' | 'folder' | 'repo') => send('/api/review-lessons', { id, decision: 'scope', to }, true),
+        decideCheck: (id: string, state: 'active' | 'withdrawn') => send('/api/compiled-checks', { id, state }, true),
+        propose: () => send('/api/compiled-checks', { propose: true }),
     };
-    const scope = async (id: string, to: 'file' | 'folder' | 'repo') => {
-        const res = await studioWrite('/api/review-lessons', 'POST', JSON.stringify({ id, decision: 'scope', to }));
-        if (res.ok) reload(); else window.alert((await res.json().catch(() => ({}))).error ?? 'Could not record the decision.');
-    };
-    const decideCheck = async (id: string, state: 'active' | 'withdrawn') => {
-        const res = await studioWrite('/api/compiled-checks', 'POST', JSON.stringify({ id, state }));
-        if (res.ok) reload(); else window.alert((await res.json().catch(() => ({}))).error ?? 'Could not record the decision.');
-    };
-    const propose = async () => {
-        const res = await studioWrite('/api/compiled-checks', 'POST', JSON.stringify({ propose: true }));
-        if (res.ok) reload();
-    };
-    const fromBots = data.lessons.filter(l => l.fromBots).length;
-    const shown = showBots ? data.lessons : data.lessons.filter(l => !l.fromBots);
-    const peak = Math.max(1, ...data.weeks.map(w => Math.max(w.stoppedInDevelopment, w.reachedPr ?? 0)));
+}
+
+const TABS = [
+    { id: 'lessons', label: 'Lessons' },
+    { id: 'remembered', label: 'Remembered' },
+    { id: 'reviews', label: 'From reviews' },
+    { id: 'rules', label: 'Rules' },
+];
+
+interface TabProps { tab: string; data: LearningData; lessons: Journey[]; memories: Array<[string, Memory]>; rules: LearnedRule[]; actions: ReturnType<typeof useLessonActions>; botToggle: React.ReactNode }
+
+/** The open tab's content. */
+const LearningTab: React.FC<TabProps> = ({ tab, data, lessons, memories, rules, actions, botToggle }) => {
+    if (tab === 'remembered') return <RememberedTable memories={memories} />;
+    if (tab === 'reviews') return <><FromReviews lessons={lessons} />{botToggle}</>;
+    if (tab === 'rules') return <><LearnedRules rules={rules} /><CompiledChecks checks={data.compiled ?? []} onDecide={actions.decideCheck} onPropose={actions.propose} /></>;
     return (
-        <div className="st-page">
-            <h1 className="st-h1">How Rigour learns your codebase</h1>
-            <LearnsLead />
-
-            <section className="st-card" style={{ margin: '24px 0' }}>
-                <div className="st-row" style={{ justifyContent: 'space-between' }}>
-                    <strong>Repeat mistakes, by week</strong>
-                    <span className="st-sub">a mistake Rigour had already learned</span>
-                </div>
-                <div className="st-bars">
-                    {data.weeks.map(w => (
-                        <div className="st-bar" key={w.from}>
-                            <div style={{ fontSize: 13 }}>{w.stoppedInDevelopment} stopped{w.reachedPr === null ? '' : ` · ${w.reachedPr} reached a PR`}</div>
-                            <span style={{ height: `${Math.max(4, (w.stoppedInDevelopment / peak) * 80)}px` }} />
-                            <div className="st-sub">from {new Date(w.from).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>
-                        </div>
-                    ))}
-                </div>
-                {!data.prRecorded && (
-                    <div className="st-sub" style={{ marginTop: 14 }}>Repeats that reached a PR show once branch reviews run on this machine (<span className="st-mono">rigour review --base main</span>, for example in a pre-push hook). Reviews in CI stay in CI.</div>
-                )}
-            </section>
-
-            {data.outcomes && <OutcomeCard numbers={data.outcomes} />}
-            <CompiledChecks checks={data.compiled ?? []} onDecide={decideCheck} onPropose={propose} />
+        <>
+            <RepeatsCard weeks={data.weeks} prRecorded={data.prRecorded} />
             {data.lessons.length === 0
-                ? <div className="st-empty">No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</div>
-                : <div className="st-stack">{shown.map(l => <LessonCard key={l.id} lesson={l} onDecide={decide} onDecideReview={decideReview} onScope={scope} />)}</div>}
-            {fromBots > 0 && <BotPointsToggle count={fromBots} shown={showBots} onToggle={() => setShowBots(!showBots)} />}
-            <OtherKnowledge />
-        </div>
+                ? <Empty>No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</Empty>
+                : <div className="mem-list">{lessons.map(l => <LessonCard key={l.id} lesson={l} onDecide={actions.decide} onDecideReview={actions.decideReview} onScope={actions.scope} />)}</div>}
+            {botToggle}
+            {data.outcomes && <OutcomeCard numbers={data.outcomes} />}
+        </>
     );
 };
 
-interface LearnedRule { id: string; message: string; requirement: string; appliesTo: string }
-interface MemoryData { memories: Record<string, { value: string; timestamp?: string; source?: string }> }
-
-/** The rest of what Rigour knows: rules it enforces from fixes, facts agents were told, and the functions it can point to. */
-const OtherKnowledge: React.FC = () => {
+/** Memory: what Rigour has learned and remembered for this team, where each item came from, and whether it is working. */
+export const Learning: React.FC = () => {
+    const { data, error, reload } = useStudioJson<LearningData>('/api/learning');
+    const memories = Object.entries(useStudioJson<{ memories: Record<string, Memory> }>('/api/memory').data?.memories ?? {});
     const rules = useStudioJson<LearnedRule[]>('/api/learned-rules').data ?? [];
-    const memories = Object.entries(useStudioJson<MemoryData>('/api/memory').data?.memories ?? {});
-    const patterns = useStudioJson<{ stats?: { totalPatterns?: number } }>('/api/index-stats').data?.stats?.totalPatterns;
+    const [tab, setTab] = React.useState('lessons');
+    const [showBots, setShowBots] = React.useState(false);
+    const actions = useLessonActions(reload);
+    if (error) return <div className="ui-page"><Empty>Couldn't load lessons: {error}.</Empty></div>;
+    if (!data) return <div className="ui-page"><div className="mem-note">Loading…</div></div>;
+    const lessons = showBots ? data.lessons : data.lessons.filter(l => !l.fromBots);
+    const fromBots = data.lessons.filter(l => l.fromBots).length;
+    const botToggle = fromBots > 0 && <BotPointsToggle count={fromBots} shown={showBots} onToggle={() => setShowBots(!showBots)} />;
     return (
-        <div className="st-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
-            <section className="st-card">
-                <strong>Rules learned from fixes</strong>
-                <div className="st-sub" style={{ marginTop: 4 }}>Checked on every edit, like a built-in check.</div>
-                {rules.length === 0
-                    ? <div className="st-sub" style={{ marginTop: 10, lineHeight: 1.6 }}>None yet. rigour learn turns an agent's fixes into rules once they hold up.</div>
-                    : <ul style={{ margin: '10px 0 0', paddingLeft: 18, lineHeight: 1.6, fontSize: 14 }}>{rules.map(r => <li key={r.id}>{r.message}<div className="st-sub">{r.requirement} · {r.appliesTo}</div></li>)}</ul>}
-            </section>
-            <section className="st-card">
-                <strong>What your agents were told to remember</strong>
-                <div className="st-sub" style={{ marginTop: 4 }}>Facts saved with rigour_remember; agents recall them by meaning.</div>
-                {memories.length === 0
-                    ? <div className="st-sub" style={{ marginTop: 10, lineHeight: 1.6 }}>Nothing saved yet.</div>
-                    : <ul style={{ margin: '10px 0 0', paddingLeft: 18, lineHeight: 1.6, fontSize: 14 }}>{memories.slice(0, 12).map(([key, m]) => <li key={key}><strong>{key.replace(/_/g, ' ')}</strong>: {m.value.length > 220 ? `${m.value.slice(0, 220)}…` : m.value}</li>)}</ul>}
-                {memories.length > 12 && <div className="st-sub" style={{ marginTop: 6 }}>and {memories.length - 12} more</div>}
-            </section>
-            {typeof patterns === 'number' && patterns > 0 && (
-                <section className="st-card" style={{ gridColumn: '1 / -1' }}>
-                    <strong>{patterns} functions indexed</strong>
-                    <div className="st-sub" style={{ marginTop: 4, lineHeight: 1.6 }}>Before an agent writes a new helper, Rigour checks whether one already exists and points to it, so the codebase doesn't fill with near-copies.</div>
-                </section>
-            )}
+        <div className="ui-page">
+            <PageHeader title="Memory" lead="What Rigour has learned and remembered for this team, where each item came from, and whether it is working." />
+            <Kpis items={memoryKpis(data.lessons, data.weeks, data.briefed)} />
+            <div className="ui-cols">
+                <div className="ui-col">
+                    <Tabs id="memory" tabs={TABS} active={tab} onChange={setTab} />
+                    <TabPanel id="memory" active={tab}>
+                        <LearningTab tab={tab} data={data} lessons={lessons} memories={memories} rules={rules} actions={actions} botToggle={botToggle} />
+                    </TabPanel>
+                </div>
+                <div className="ui-col">
+                    <JourneyCard lessons={data.lessons} />
+                    <HowMemoryWorks lessons={data.lessons} memories={memories} />
+                </div>
+            </div>
         </div>
     );
 };

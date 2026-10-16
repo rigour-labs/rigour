@@ -3,15 +3,13 @@ import path from 'path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { SessionCard } from './Activity';
-import { WeeklyTable } from './AgentContext';
 import { HowItWorks } from './HowItWorks';
 import { BotPointsToggle, CompiledChecks, LearnsLead, LessonCard, OutcomeCard } from './LearningParts';
 import { ProjectIdentity } from './ProjectIdentity';
 import { Trend } from './Progress';
 import { ReadOnlyNote } from './ReadOnlyNote';
 import { inlineCode, plural } from './storyData';
-import { StoryCard } from './Week';
+import { StoryCard } from './WeekParts';
 import { groupNeeds, NeedGroupCard, needsHeading } from './NeedGroups';
 import { Agents, Settings, Verdict } from './ReviewerParts';
 import { SwitchSettings, type SwitchData } from './SwitchParts';
@@ -19,19 +17,6 @@ import { SwitchSettings, type SwitchData } from './SwitchParts';
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
 describe('Studio pages', () => {
-    it('summarises a session and lists only what mattered until asked', () => {
-        const out = html(<SessionCard session={{
-            start: '2026-10-02T08:16:00Z', end: '2026-10-02T10:32:00Z',
-            counts: { stopped: 1, reported: 0, fixed: 0, checked: 26, reviewed: 15, taught: 0, pr: 0, reviewedFixed: 3 },
-            highlights: [{ at: '2026-10-02T10:00:00Z', kind: 'reviewed', text: 'Fixed `api` in scripts/a.mjs', detail: 'redirect: "error" now' }],
-            rest: [{ at: '2026-10-02T09:00:00Z', kind: 'checked', text: 'Checked an edit to src/a.ts: nothing found' }],
-        }} />);
-        expect(out).toContain('3 problems fixed · 1 edit blocked · 15 risky functions reviewed (12 fine) · 26 edits checked clean');
-        expect(out).toContain('<code class="st-mono st-inline-code">api</code>');
-        expect(out).toContain('Show 1 routine item');
-        expect(out).not.toContain('nothing found');
-    });
-
     it('shows a lesson journey, a dash where repeats do not apply, and "not recorded here" where unknown', () => {
         const base = { id: 'l', text: 'Fixtures use `sk_test_` keys', learnedFrom: 'A fix while an agent was writing', state: 'validated', scope: 'team', told: 3, canDecide: false };
         const dev = html(<LessonCard lesson={{ ...base, origin: 'development', stoppedInDevelopment: 2, reachedPr: null }} onDecide={() => undefined} />);
@@ -48,14 +33,6 @@ describe('Studio pages', () => {
         const weeks = [{ from: '2026-10-02T00:00:00Z', stopped: 2, overruled: 0, repeatsStopped: 0, repeatsReachedPr: null, minutesToFix: 4, lessons: 1 }];
         expect(html(<Trend title="Reached a PR" hint="" weeks={weeks} value={w => w.repeatsReachedPr} empty="Shows once branch reviews run here." />)).toContain('Shows once branch reviews run here.');
         expect(html(<Trend title="Stopped" hint="" weeks={weeks} value={w => w.stopped} />)).toContain('>2<');
-    });
-
-    it('leaves quiet weeks out of the context table', () => {
-        const quiet = { from: '2026-09-25T00:00:00Z', scopes: 0, filesReturned: 0, filesConsidered: 0, recalls: 0, lessonsTold: 0, reuse: 0 };
-        expect(html(<WeeklyTable weeks={[quiet]} />)).toContain('No context requests in the last 8 weeks.');
-        const busy = html(<WeeklyTable weeks={[quiet, { ...quiet, from: '2026-10-02T00:00:00Z', scopes: 2, filesReturned: 9, filesConsidered: 300 }]} />);
-        expect(busy).toContain('9 of 300');
-        expect(busy.match(/<tr>/g)).toHaveLength(2); // header and the one active week
     });
 
     it('opens a story to its code change, and hides the code block when there is none', () => {
@@ -344,20 +321,6 @@ describe('how lessons reach an agent, on the learning page', () => {
         expect(html).toContain('An agent gets the lessons when it asks for a brief (the <code>rigour_brief</code> tool, or <code>rigour brief</code>).');
         expect(html).toContain('In Claude Code, <code>rigour hooks init --brief</code> hands them over by itself');
         expect(html).not.toMatch(/told before they write/);
-    });
-});
-
-describe('an edit check that ran without --block, on the activity page', () => {
-    it('reads as reported, never as blocked', () => {
-        const out = renderToStaticMarkup(<SessionCard session={{
-            start: '2026-10-02T08:16:00Z', end: '2026-10-02T08:16:00Z',
-            counts: { stopped: 0, reported: 2, fixed: 0, checked: 0, reviewed: 0, taught: 0, pr: 0, reviewedFixed: 0 },
-            highlights: [{ at: '2026-10-02T08:16:00Z', kind: 'reported', text: 'Reported on an edit to src/a.ts: Import not found' }],
-            rest: [],
-        }} />);
-        expect(out).toContain('2 edits reported on');
-        expect(out).toContain('>reported<');
-        expect(out).not.toMatch(/blocked|Stopped/);
     });
 });
 

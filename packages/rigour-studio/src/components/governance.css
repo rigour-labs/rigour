@@ -1,0 +1,26 @@
+/* Governance page: coverage cells, the decisions log, rule rows and small bar runs. */
+.gov-dim { color: var(--text-dim); }
+.gov-note { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.gov-agent { min-width: 190px; max-width: 260px; }
+.gov-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.gov-cell small { font-size: 11px; color: var(--text-dim); }
+.gov-foot { border-top: 1px solid var(--border-dim); }
+.gov-fixes { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.gov-fixes > div { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.gov-fixes code { color: var(--text-primary); overflow-wrap: anywhere; }
+.gov-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.gov-filters button { border: 1px solid var(--border-dim); background: var(--bg-card); color: var(--text-dim); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.gov-filters button.on { border-color: var(--accent-primary); color: var(--accent-primary); background: var(--accent-glow); font-weight: 600; }
+.gov-log { display: flex; flex-direction: column; }
+.gov-decision { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; border-bottom: 1px solid var(--border-dim); min-width: 0; }
+.gov-decision:last-child { border-bottom: 0; }
+.gov-decision-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.gov-decision-head small, .gov-decision small { font-size: 12px; color: var(--text-dim); }
+.gov-decision-text { font-size: 14px; line-height: 1.5; color: var(--text-primary); overflow-wrap: anywhere; }
+.gov-rules { display: flex; flex-direction: column; }
+.gov-rules > div { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border-dim); font-size: 13px; }
+.gov-rules > div:last-child { border-bottom: 0; }
+.gov-spark { display: flex; align-items: flex-end; gap: 2px; height: 44px; margin-top: 8px; }
+.gov-spark span { flex: 1; min-height: 2px; max-width: 14px; border-radius: 2px 2px 0 0; background: var(--accent-primary); opacity: 0.8; }
+.gov-judge { display: flex; flex-direction: column; gap: 3px; padding-top: 10px; border-top: 1px solid var(--border-dim); font-size: 14px; }
+.gov-judge small { font-size: 12px; line-height: 1.5; }

@@ -107,6 +107,9 @@ async function handleApiRequest(
 
     const { cwd, eventsPath } = ctx;
 
+    const { serveReadRoute } = await import('./studio-read-routes.js');
+    if (await serveReadRoute(req.method, url, cwd, res, sendJson)) return true;
+
     if (url.pathname === '/api/events') {
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',

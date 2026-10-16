@@ -1,0 +1,13 @@
+/* The Memory page: lessons, what was remembered, review evidence and how Rigour stores it. Page-local classes only. */
+.mem-note { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-dim); }
+.mem-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mem-lesson-text { font-size: 16px; line-height: 1.5; margin-top: 10px; color: var(--text-primary); overflow-wrap: anywhere; }
+.mem-list { display: flex; flex-direction: column; gap: 12px; }
+.mem-trail { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--border-dim); }
+.mem-trail-item { font-size: 13px; line-height: 1.5; color: var(--text-main); overflow-wrap: anywhere; }
+.mem-trail-item > span { color: var(--text-dim); }
+.mem-store { display: flex; flex-direction: column; gap: 12px; }
+.mem-store-item { font-size: 13px; line-height: 1.5; color: var(--text-dim); }
+.mem-store-item strong { display: block; margin-bottom: 2px; font-size: 14px; color: var(--text-primary); font-weight: 600; }
+.mem-store-item code, .mem-note code { font-family: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+.mem-value { max-width: 460px; white-space: normal; overflow-wrap: anywhere; }

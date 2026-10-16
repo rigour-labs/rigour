@@ -1,4 +1,4 @@
-/** The reviewer on Studio's pages: the verdict on the Review page, the settings on the Setup page. ReviewerParts.tsx draws them. */
+/** The reviewer on Studio's pages: the verdict on the Pull requests page, the settings on the Setup page. ReviewerParts.tsx draws them. */
 import React, { useState } from 'react';
 import { hasStudioKey, studioWrite } from '../studioWrite';
 import { useStudioJson } from './storyData';
@@ -10,7 +10,7 @@ function useReviewer() {
     return useStudioJson<ReviewerData>('/api/reviewer');
 }
 
-/** On the Review page: the reviewer's verdict on this branch, first, because it is what blocks. */
+/** On the Pull requests page: the reviewer's verdict on this branch, first, because it is what blocks. */
 export const BranchVerdict: React.FC = () => {
     const { data, error, reload } = useReviewer();
     if (error) return <div className="st-empty">Couldn't load the reviewer's verdict: {error}.</div>;

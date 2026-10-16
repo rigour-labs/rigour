@@ -10,6 +10,7 @@
 import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, lastDecision, takeBackable, readTeamDecisionCache, type TeamDecisionCache, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { decider } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
+import { briefedSince, contradictions, evidenceTrail, type EvidenceItem } from './studio-learning-health.js';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const WEEKS = 4;
@@ -50,6 +51,10 @@ export interface LessonJourney {
         decisions: Array<{ kind: string; name: string; at: string; detail?: string }>;
         overruled?: { yours: string; team: { kind: string; name: string; at: string }; yoursOnly?: string };
     };
+    /** Other lessons agents are given with the same words but different evidence (core getApplicableLessons). */
+    conflicts?: string[];
+    /** A review lesson's trail: who made each point at which pull request, and who decided and why. */
+    evidence?: EvidenceItem[];
 }
 
 export interface StudioLearning {
@@ -60,6 +65,8 @@ export interface StudioLearning {
     outcomes?: OutcomeMetrics;
     /** Lessons compiled into checks (core review-learning/compiled-lessons.ts), for a person to approve or take back; `suspended` says why one approved no longer runs. */
     compiled?: Array<CompiledCheck & { suspended?: string }>;
+    /** Lessons agents were given over the weeks shown, and in how many requests (recall, context, review or brief). */
+    briefed?: { lessons: number; requests: number; days: number };
 }
 
 interface Catch { at: string; prefix: string }
@@ -106,6 +113,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             ...decisionFor(l),
             ...(l.suggestedText ? { suggestedText: { text: l.suggestedText, why: l.suggestedWhy ?? 'reworded' } } : {}),
             reach: { scope: l.scope ?? ('file' as const), hasFile: !!l.file },
+            evidence: evidenceTrail(l),
             ...(quietBotCandidate(l) ? { fromBots: true as const } : {}),
             ...(takeBackable(l) ? { canTakeBack: true as const } : {}),
         })),
@@ -220,13 +228,24 @@ export function proposeChecksFromStudio(cwd: string): { proposed: number } {
 export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS): Promise<StudioLearning> {
     const roots = checkoutRoots(cwd);
     const reviewLessons = readLessons(cwd);
-    const built = buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons, stories: storiesAcross(roots), events: eventsAcross(roots), weeks });
+    const events = eventsAcross(roots);
+    const built = buildLearning({ now, lessons: await listKnowledgeLessons(cwd), reviewLessons, stories: storiesAcross(roots), events, weeks });
     // Teammates' decisions (team database), with why this machine does not share its person's when it does not.
     const sharing = readTeamDecisionCache(cwd)?.sharing;
     const byId = new Map(reviewLessons.map(l => [l.id, l]));
-    const learning = { ...built, lessons: built.lessons.map(j => (byId.has(j.id) ? { ...j, ...teamOn(byId.get(j.id)!, sharing) } : j)) };
+    const conflicts = await contradictions(cwd);
+    const lessons = built.lessons.map(j => ({
+        ...j,
+        ...(byId.has(j.id) ? teamOn(byId.get(j.id)!, sharing) : {}),
+        ...(conflicts.get(j.id)?.length ? { conflicts: conflicts.get(j.id) } : {}),
+    }));
     const outcomes = localOutcomeMetrics(cwd);
-    const withChecks = { ...learning, compiled: readCompiledChecks(cwd).map(c => ({ ...c, ...(suspension(c, byId) ? { suspended: suspension(c, byId) } : {}) })) };
+    const withChecks = {
+        ...built,
+        lessons,
+        compiled: readCompiledChecks(cwd).map(c => ({ ...c, ...(suspension(c, byId) ? { suspended: suspension(c, byId) } : {}) })),
+        briefed: briefedSince(events, now, weeks * 7),
+    };
     return outcomes ? { ...withChecks, outcomes } : withChecks;
 }
 
