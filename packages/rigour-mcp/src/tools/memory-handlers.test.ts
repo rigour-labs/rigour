@@ -3,12 +3,13 @@ import os from 'os';
 import path from 'path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const shared = vi.hoisted(() => ({ calls: [] as Array<[string, string]>, team: null as null | Record<string, unknown>, sync: (async () => ({ synced: 1 })) as () => Promise<unknown> }));
+const shared = vi.hoisted(() => ({ calls: [] as Array<[string, string]>, team: null as null | Record<string, unknown>, sync: (async () => ({ synced: 1 })) as () => Promise<unknown>, sendState: { state: 'sent' } as Record<string, unknown> }));
 vi.mock('@rigour-labs/core', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@rigour-labs/core')>()),
     shareMemoryLesson: async (_cwd: string, key: string, value: string) => { shared.calls.push([key, value]); return 'lesson-1'; },
     loadTeamConfiguration: async () => shared.team,
     syncTeamOutbox: () => shared.sync(),
+    teamSendStateOf: async () => shared.sendState,
 }));
 
 const { handleForget, handleRemember } = await import('./memory-handlers.js');
@@ -28,6 +29,7 @@ beforeEach(() => {
     shared.calls = [];
     shared.team = null;
     shared.sync = async () => ({ synced: 1 });
+    shared.sendState = { state: 'sent' };
 });
 afterEach(() => {
     if (realHome === undefined) delete process.env.RIGOUR_HOME;
@@ -99,6 +101,14 @@ describe('memory scopes', () => {
         it('says it reached the team database only once a sync sent it', async () => {
             withOrigin(repoA, 'git@remember-forge:example-org/api.git');
             expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('Sent to the team database as a candidate');
+        });
+
+        it('says NOT SENT when the sync ran but the team database refused this candidate', async () => {
+            withOrigin(repoA, 'git@remember-forge:example-org/api.git');
+            shared.sendState = { state: 'not sent', reason: 'refused by the team database: permission denied' };
+            const result = text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'));
+            expect(result).toContain('NOT SENT: the team database did not take this candidate (refused by the team database: permission denied).');
+            expect(result).not.toContain('Sent to the team database');
         });
 
         it('says NOT SENT, and why, when the team database could not be reached', async () => {

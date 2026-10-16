@@ -5,7 +5,7 @@ import { openDatabase } from './db.js';
 import { encryptLocalPayload } from './local-encryption.js';
 import { lessonRowToRecord as rowToLesson } from './lesson-record.js';
 import { loadTeamConfiguration } from './team-store.js';
-import { getRepositoryId, legacyRepositoryId, originOf } from './repository-origin.js';
+import { getRepositoryId, originOf, sameRepositoryIds } from './repository-origin.js';
 
 export { getRepositoryId };
 
@@ -94,27 +94,7 @@ export async function countInteractionEvidence(cwd: string): Promise<number> {
 }
 
 
-/** The local tables that file rows by repository id: re-keyed together when a repository's id changes. */
-const REPOSITORY_TABLES = ['lessons', 'interaction_events', 'review_decisions_sent', 'context_events', 'model_usage', 'checkpoint_metrics'];
-const rekeyed = new Set<string>();
-
-/**
- * Rows this store filed under the repository's id from before SSH host aliases were resolved move to its id now, once:
- * an SSH-alias checkout and an https clone of one repository then see the same lessons and candidates.
- */
-async function rekeyLegacyRows(db: { run(sql: string, ...params: unknown[]): Promise<unknown> }, cwd: string, repositoryId: string): Promise<void> {
-    const legacy = legacyRepositoryId(cwd);
-    if (!legacy || legacy === repositoryId || rekeyed.has(legacy)) return;
-    for (const table of REPOSITORY_TABLES) {
-        // OR IGNORE: a row already filed under the new id wins over its legacy twin; a table an old store lacks is skipped.
-        await db.run(`UPDATE OR IGNORE ${table} SET repository_id = ? WHERE repository_id = ?`, repositoryId, legacy).catch(() => undefined);
-    }
-    await db.run('DELETE FROM repositories WHERE id = ?', legacy).catch(() => undefined);
-    rekeyed.add(legacy);
-}
-
 export async function registerRepository(db: { run(sql: string, ...params: unknown[]): Promise<unknown> }, cwd: string, repositoryId: string): Promise<void> {
-    await rekeyLegacyRows(db, cwd, repositoryId);
     // Non-git workspaces use their resolved path as the canonical local identity.
     const canonicalUri = (await originOf(cwd)) ?? path.resolve(cwd);
     const remoteName = canonicalUri.split('/').filter(Boolean).at(-1);
@@ -146,12 +126,12 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
         // One check-and-write: two agents remembering the same key at once must not both leave a candidate.
         return await db.transaction(async (tx) => {
             const existing = await tx.get(
-                `SELECT id FROM lessons WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
-                repositoryId, subject,
+                `SELECT id FROM lessons WHERE repository_id IN (${sameRepositoryIds(cwd).map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
+                ...sameRepositoryIds(cwd), subject,
             );
             if (existing) return String(existing.id);
             // A corrected memory replaces its pending candidate: the old one is superseded (and synced so), never left beside it.
-            const replaced = await pendingMemoryCandidates(tx, { repositoryId, key, actorId, teamId });
+            const replaced = await pendingMemoryCandidates(tx, { repositoryIds: sameRepositoryIds(cwd), key, actorId, teamId });
             const id = `lesson-${randomUUID()}`;
             await tx.run(
                 `INSERT INTO lessons (
@@ -183,16 +163,16 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
  */
 async function pendingMemoryCandidates(
     db: { all(sql: string, ...params: unknown[]): Promise<any[]> },
-    scope: { repositoryId: string; key: string; actorId: string | null; teamId: string | null },
+    scope: { repositoryIds: string[]; key: string; actorId: string | null; teamId: string | null },
 ): Promise<string[]> {
     const rows = await db.all(
         `SELECT * FROM lessons
-         WHERE repository_id = ? AND kind = 'memory' AND visibility = 'team' AND state = 'candidate'
+         WHERE repository_id IN (${scope.repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND state = 'candidate'
            AND substr(subject, 1, length(?) + 2) = ? || ': '
            AND (actor_id IS ? OR actor_id IS NULL) AND (team_id IS ? OR team_id IS NULL)
            AND NOT EXISTS (SELECT 1 FROM lessons published WHERE published.source = 'published:' || lessons.id)
          ORDER BY updated_at DESC`,
-        scope.repositoryId, scope.key, scope.key, scope.actorId, scope.teamId,
+        ...scope.repositoryIds, scope.key, scope.key, scope.actorId, scope.teamId,
     );
     const ids: string[] = [];
     for (const row of rows) {
@@ -247,25 +227,28 @@ export async function listKnowledgeLessons(cwd: string, limit = 500): Promise<Le
         const repositoryId = await getRepositoryId(cwd);
         await registerRepository(db, cwd, repositoryId);
         const config = await loadTeamConfiguration();
+        // This checkout's lessons, and those filed under the same repository's other remote form (an https clone's).
+        const ids = sameRepositoryIds(cwd);
+        const marks = ids.map(() => '?').join(', ');
         const rows = config
             ? await db.all(
                 `SELECT lessons.*, repositories.display_name AS repository_name
                  FROM lessons LEFT JOIN repositories ON repositories.id = lessons.repository_id
                  WHERE lessons.kind != 'interaction'
-                   AND (lessons.repository_id = ?
+                   AND (lessons.repository_id IN (${marks})
                     OR (lessons.visibility = 'personal' AND lessons.actor_id = ?)
                     OR (lessons.visibility = 'team' AND lessons.team_id = ? AND lessons.state = 'promoted'))
                  ORDER BY lessons.updated_at DESC LIMIT ?`,
-                repositoryId, config.actorId, config.teamId, limit,
+                ...ids, config.actorId, config.teamId, limit,
             )
             : await db.all(
                 `SELECT lessons.*, repositories.display_name AS repository_name
                  FROM lessons LEFT JOIN repositories ON repositories.id = lessons.repository_id
                  WHERE lessons.kind != 'interaction'
-                   AND (lessons.repository_id = ?
+                   AND (lessons.repository_id IN (${marks})
                     OR (lessons.visibility = 'personal' AND lessons.actor_id IS NULL))
                  ORDER BY lessons.updated_at DESC LIMIT ?`,
-                repositoryId, limit,
+                ...ids, limit,
             );
         return await Promise.all(rows.map(rowToLesson));
     } finally {

@@ -64,3 +64,26 @@ export async function markNotSent(db: { run(sql: string, ...params: unknown[]): 
         await db.run('UPDATE sync_outbox SET synced_at = ?, last_error = ? WHERE id = ?', Date.now(), `not sent: ${item.reason}`, item.id);
     }
 }
+
+/** Where one lesson's latest change stands in the queue to the team database. */
+export type TeamSendState = { state: 'sent' } | { state: 'held' | 'not sent' | 'queued'; reason?: string };
+
+/**
+ * Whether the team database has the latest change to lesson `lessonId`: sent; held (its repository isn't in the team's
+ * list yet); not sent (set aside, with the reason); or still queued (not tried yet, or the last try failed).
+ */
+export async function teamSendStateOf(lessonId: string): Promise<TeamSendState> {
+    const db = await openDatabase().catch(() => null);
+    if (!db) return { state: 'queued' };
+    try {
+        const row = await db.get('SELECT synced_at, last_error FROM sync_outbox WHERE entity_id = ? ORDER BY created_at DESC LIMIT 1', lessonId);
+        if (!row) return { state: 'queued' };
+        const error = row.last_error ? String(row.last_error) : undefined;
+        if (row.synced_at && !error) return { state: 'sent' };
+        if (error?.startsWith('held: ')) return { state: 'held', reason: error.slice('held: '.length) };
+        if (row.synced_at) return { state: 'not sent', reason: error?.replace(/^not sent: /, '') };
+        return { state: 'queued', ...(error ? { reason: error } : {}) };
+    } finally {
+        await db.close();
+    }
+}

@@ -24,6 +24,7 @@ import {
     addToTeamList,
     originOf,
     syncTeamOutbox,
+    teamSendStateOf,
 } from '@rigour-labs/core';
 import {
     loadPatternIndex,
@@ -179,7 +180,7 @@ async function shareWithTeam(cwd: string, key: string, value: string): Promise<s
     if (!origin) return '\nKept as a team candidate on this machine; this repository has no origin remote, so it cannot be in the team\'s list and is not sent.';
     const add = addToTeamList(origin, config);
     if (add) return `\nKept as a team candidate on this machine; it is sent once this repository is in the team's list: ${add}`;
-    return sentNow(cwd);
+    return sentNow(cwd, lessonId);
 }
 
 /** How long a team save waits for its sync, so the agent learns whether the team database has the candidate. */
@@ -189,7 +190,7 @@ const SEND_WAIT_MS = 8_000;
  * Sends the queue now and says what happened, so an agent never reports a candidate as shared that only this machine
  * holds (a cloud agent's clone is discarded after its run): sent, still being sent, or not sent and why.
  */
-async function sentNow(cwd: string): Promise<string> {
+async function sentNow(cwd: string, lessonId: string): Promise<string> {
     let timer: NodeJS.Timeout | undefined;
     const late = new Promise<'late'>(resolve => { timer = setTimeout(() => resolve('late'), SEND_WAIT_MS); });
     const sync = syncTeamOutbox({ cwd }).then(result => ({ result }), (error: unknown) => ({ error }));
@@ -200,7 +201,12 @@ async function sentNow(cwd: string): Promise<string> {
             const reason = String(outcome.error instanceof Error ? outcome.error.message : outcome.error).split('\n')[0].trim().slice(0, 200);
             return `\nNOT SENT: saved as a team candidate on this machine only; the team database could not be reached (${reason}). It is sent with the next sync that reaches it; a clone that is about to be discarded loses it.`;
         }
-        return "\nSent to the team database as a candidate. Teammates' agents receive it once an sme or owner shares it from Studio (How it learns).";
+        // The sync ran: what it did with this candidate is in its own queue entry, not in whether the sync threw.
+        const sent = await teamSendStateOf(lessonId);
+        if (sent.state === 'sent') return "\nSent to the team database as a candidate. Teammates' agents receive it once an sme or owner shares it from Studio (How it learns).";
+        if (sent.state === 'held') return `\nKept as a team candidate on this machine, held: ${sent.reason ?? 'not sent yet'}.`;
+        if (sent.state === 'not sent') return `\nNOT SENT: the team database did not take this candidate (${sent.reason ?? 'no reason given'}).`;
+        return "\nSaved as a team candidate on this machine; it waits for the next sync (rigour team sync sends it now).";
     } finally {
         clearTimeout(timer);
     }
