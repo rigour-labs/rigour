@@ -183,6 +183,9 @@ With `--independent` the review trusts nothing the pull request wrote:
 - `.rigour/dismissed.json`, the check outcomes and `rigour.yml` are read as of the merge base, not as
   the pull request left them. A pull request cannot dismiss its own finding or switch a check off. A
   dismissal made in the pull request takes effect once it is merged.
+- Not covered: dismissals of the reviewer's own items (`.rigour/dismissed-review-items.json`) are read
+  from the pull request. They are off unless `review.reviewer.dismissals: true`; keep that off for an
+  enforcing check.
 
 **2. Use the pinned global install.** Keep `npm install -g "@rigour-labs/cli@${RIGOUR_VERSION}"` and
 call `rigour`, not `npx rigour`: the pull request's own lockfile should not choose the binary that

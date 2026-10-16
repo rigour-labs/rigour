@@ -1,5 +1,5 @@
 /**
- * Studio's "How it learns": each lesson's path from where it was learned to whether the same
+ * Studio's Memory page: each lesson's path from where it was learned to whether the same
  * mistake still reaches a PR, and the weekly count of repeats stopped in development against
  * repeats that reached a PR.
  *

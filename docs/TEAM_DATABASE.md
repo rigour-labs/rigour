@@ -63,15 +63,15 @@ A lesson has a visibility (`personal` or `team`) and a state (`candidate`, `vali
 | Memory saved with scope `team` | `team`, `candidate` | Its author, and every `sme` and `owner` of the team |
 | Memory approved in Studio | A new `team`, `promoted` copy of the candidate | Everyone in the same organization and team |
 
-To approve a team candidate, open Studio (`rigour studio`), go to **How it learns** and click **Share with team** on the lesson. **Drop** rejects it, and the drop is sent to the database too, so nobody is offered it again. Approving creates a separate team copy; the original candidate is left as it was. The copy keeps its author's actor, and its evidence records who shared it (`publishedBy`).
+To approve a team candidate, open Studio (`rigour studio`), go to **Memory** and click **Share with team** on the lesson. **Drop** rejects it, and the drop is sent to the database too, so nobody is offered it again. Approving creates a separate team copy; the original candidate is left as it was. The copy keeps its author's actor, and its evidence records who shared it (`publishedBy`).
 
 **One shared version per key.** Sharing a team memory whose key the team already shares replaces the shared version: in the same step the older one becomes `superseded`, its evidence records who shared the new one (`supersededBy`), the new copy's `supersedes_id` names it, and both changes go with the next sync. Teammates' agents then get only the new text. In Studio, a key with a shared version and a candidate waiting shows both on one card: the shared value, labelled **Shared now**, and each proposal with "Sharing this replaces the shared version". An `sme` or `owner` can share a teammate's correction this way only on a database with candidate review (below); on an older one the database refuses retiring a teammate's shared version, the sync sets that change aside as `refused by the team database`, and Studio's Governance page counts it with the reason, so an owner knows to run `init-schema` again.
 
 **Take back.** A shared team memory has **Take back** in Studio, for an `sme` or `owner` (and for anyone until a sync has read their role). Taking it back makes it `superseded` when a newer shared version of its key exists, and `rejected` otherwise; its evidence records who did it (`takenBackBy`), and the change goes with the next sync. Use it to clean up a key the team shares twice. A `member`'s login reads only shared rows, so it never sees a row's new state; instead each sync asks the database which of the shared rows this machine holds are still shared, and stops giving the others to agents.
 
-**A team memory does not reach teammates until a person shares it.** When `rigour_remember` with scope `team` reports "Shared with your team as a candidate", the candidate has been queued for the database, where its author and the team's `sme`s and `owner`s can read it. Teammates' agents receive the memory only after an `sme` or `owner` clicks **Share with team** in **How it learns** and the next sync sends the promoted copy. A candidate is never given to an agent, not even to the agents of an `sme` who holds a teammate's candidate to decide on it. To see the candidates waiting:
+**A team memory does not reach teammates until a person shares it.** When `rigour_remember` with scope `team` reports "Sent to the team database as a candidate", the candidate has been queued for the database, where its author and the team's `sme`s and `owner`s can read it. Teammates' agents receive the memory only after an `sme` or `owner` clicks **Share with team** in **Memory** and the next sync sends the promoted copy. A candidate is never given to an agent, not even to the agents of an `sme` who holds a teammate's candidate to decide on it. To see the candidates waiting:
 
-- In Studio, **How it learns** lists each one with **Share with team** and **Drop**. A teammate's candidate says who proposed it (their actor id). Candidates for the same memory key are shown together on one card, each with its value, who proposed it and when, and its own **Share with team** and **Drop**; two with the same value say so. Sharing one leaves the others as they are: drop those you do not want.
+- In Studio, **Memory** lists each one with **Share with team** and **Drop**. A teammate's candidate says who proposed it (their actor id). Candidates for the same memory key are shown together on one card, each with its value, who proposed it and when, and its own **Share with team** and **Drop**; two with the same value say so. Sharing one leaves the others as they are: drop those you do not want.
 - In the database, `SELECT actor_id, subject, created_at FROM rigour.lessons WHERE visibility = 'team' AND state = 'candidate' ORDER BY created_at;` lists those your login may read: your own as a `member`, every member's as an `sme` or `owner`.
 
 Database roles decide who may write team lessons:
@@ -161,7 +161,7 @@ question (accepted or rejected, how far it reaches, its wording) the latest pers
 - a decision this machine never sends (a `member`'s) counts from when it was made, so a later team decision wins on
   that machine.
 
-The brief cites a lesson a teammate settled with their display name ("approved by Jane D. (team)"). Studio's **How it learns** shows each team decision on the lesson's card ("Omar K. (team) rejected it on 2026-10-09: …"), and when a later team decision settled a lesson against your own, says so ("the team decided"), with why your decision is yours only when this machine does not share it. `rigour team
+The brief cites a lesson a teammate settled with their display name ("approved by Jane D. (team)"). Studio's **Memory** shows each team decision on the lesson's card ("Omar K. (team) rejected it on 2026-10-09: …"), and when a later team decision settled a lesson against your own, says so ("the team decided"), with why your decision is yours only when this machine does not share it. `rigour team
 doctor` says that a clone receives the team's decisions at its first sync. Evidence (a later fix, recurrence) never
 overrides a person. Deciding on a lesson known only from the team takes it into
 the repository's lessons file first (its wording, file and review points, without the team's decisions), and records
@@ -196,7 +196,7 @@ with no help from us; run end to end on a test database, the commands take a few
    pull requests' review comments (the last 100; `--pr <n>` reads one) and keeps what people asked for as candidates.
    It reads GitHub, so it needs read access: `gh auth login`, or `GITHUB_TOKEN`. A candidate becomes a lesson when an
    `sme` or `owner` confirms it: `rigour learn-reviews --list`, then `--promote <id> --why "…"` (or `--reject`), or
-   **How it learns** in `rigour studio`. Each clone can learn the same candidates from GitHub itself, so
+   **Memory** in `rigour studio`. Each clone can learn the same candidates from GitHub itself, so
    `.rigour/review-lessons.json` need not be committed; committing it is harmless, since teammates' decisions are never
    written to it.
 7. **Bring in the decisions people already made.** In each of the team's repositories, each `sme` or `owner` runs
@@ -316,8 +316,9 @@ once while the sync runs. A recall with no arguments lists the lessons too, afte
 promoted lessons from all its repositories, and this repository's validated ones. Lessons a person promoted reach every
 teammate whatever remote their clone uses (https or an SSH alias).
 
-Reading the team's lessons needs no repository list; sending this machine's own team memories and lessons does: set
-`RIGOUR_TEAM_REPOSITORIES` too for an agent that saves memories (see
+Pulling the team's promoted lessons needs no repository list. Two things do: sending this machine's own team memories
+and lessons, and receiving the team's decisions on this repository's review lessons (which `rigour brief` and reviews
+use). Set `RIGOUR_TEAM_REPOSITORIES` for a reviewer or an agent that saves memories (see
 [How a lesson reaches teammates](#how-a-lesson-reaches-teammates)).
 
 ### Several organizations on one machine
@@ -405,7 +406,7 @@ rigour team sync
 1. Provision two logins in the same organization and team: Jane as `sme`, Sam as `member`. Both configure their machines with the same `--repositories`.
 2. In a repository whose `origin` matches the list, Jane's agent saves a memory with scope `team`. Jane runs `rigour team sync`: `synced` is at least 1.
 3. Sam runs `rigour team sync`. The candidate does not arrive: `pulled` does not count it.
-4. Jane opens `rigour studio`, **How it learns**, and clicks **Share with team** on the memory, then runs `rigour team sync`.
+4. Jane opens `rigour studio`, **Memory**, and clicks **Share with team** on the memory, then runs `rigour team sync`.
 5. Sam runs `rigour team sync` again. `pulled` now includes the team copy, and Sam's agent receives it from `rigour_recall` and `rigour_context_scope`.
 6. Stop the database and use an agent as usual. Checks and learning continue locally; Studio's Storage indicator shows `offline` and the number queued. Start the database again and run `rigour team sync`: the queued items are sent.
 
