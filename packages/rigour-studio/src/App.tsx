@@ -47,6 +47,9 @@ const GROUPS = [
 /** An approval request is shown only while an answer can still count. */
 const APPROVAL_WINDOW_MS = 60_000;
 
+/** How long pages wait for the project's name before they render without it. */
+const INFO_WAIT_MS = 3_000;
+
 /** The width at and below which the navigation can fold to an icon rail; index.css uses the same 960px. */
 const NARROW = '(max-width: 960px)';
 
@@ -108,11 +111,14 @@ function App() {
                 // Not an event Studio understands; the pages read their own data.
             }
         };
-        fetch('/api/info').then(res => res.json())
+        // Pages wait for the project's name (it keys what they remember); a request that never answers must not hold them.
+        const infoRequest = new AbortController();
+        const infoTimeout = setTimeout(() => infoRequest.abort(), INFO_WAIT_MS);
+        fetch('/api/info', { signal: infoRequest.signal }).then(res => res.json())
             .then((info: ProjectInfo) => { setStorageRepository(info.projectName); setProjectInfo(info); })
             .catch(() => setProjectInfo(null))
-            .finally(() => setInfoRead(true));
-        return () => events.close();
+            .finally(() => { clearTimeout(infoTimeout); setInfoRead(true); });
+        return () => { events.close(); clearTimeout(infoTimeout); infoRequest.abort(); };
     }, []);
 
     useEffect(() => {
