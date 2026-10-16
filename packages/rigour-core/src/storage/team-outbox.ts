@@ -65,6 +65,20 @@ export async function markNotSent(db: { run(sql: string, ...params: unknown[]): 
     }
 }
 
+/** Changes the team database refused since `since` (ms): how many, and the latest one's reason. */
+export async function refusedChanges(since: number): Promise<{ count: number; latest?: string }> {
+    const db = await openDatabase().catch(() => null);
+    if (!db) return { count: 0 };
+    try {
+        const refused = `last_error LIKE 'refused by the team database:%' AND created_at >= ?`;
+        const count = Number((await db.get(`SELECT COUNT(*) AS count FROM sync_outbox WHERE ${refused}`, since))?.count ?? 0);
+        const latest = count ? (await db.get(`SELECT last_error FROM sync_outbox WHERE ${refused} ORDER BY created_at DESC, rowid DESC LIMIT 1`, since))?.last_error : undefined;
+        return { count, ...(latest ? { latest: String(latest) } : {}) };
+    } finally {
+        await db.close();
+    }
+}
+
 /** Where one lesson's latest change stands in the queue to the team database. */
 export type TeamSendState = { state: 'sent' | 'in the team database' } | { state: 'held' | 'not sent' | 'queued'; reason?: string };
 

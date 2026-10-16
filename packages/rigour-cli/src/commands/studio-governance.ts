@@ -6,7 +6,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { ConfigSchema, readCompiledChecks, readDeepRuns, readTeamAccess, readTeamDecisionCache, type Config, type TeamAccess, type TeamDecisionCache } from '@rigour-labs/core';
+import { ConfigSchema, readCompiledChecks, readDeepRuns, readTeamAccess, refusedChanges, readTeamDecisionCache, type Config, type TeamAccess, type TeamDecisionCache } from '@rigour-labs/core';
 import { agentHookConfigs, checkRepoSetup } from './repo-setup.js';
 import { pushHookTarget } from './hooks-git.js';
 import { reportOnly } from './report-only.js';
@@ -39,6 +39,7 @@ export interface GovernanceDeps {
     teamConfig?: () => Promise<{ organizationId: string; teamId: string; actorId: string } | null>;
     teamCache?: (cwd: string) => TeamDecisionCache | undefined;
     teamAccess?: (scope: { organizationId: string; teamId: string; actorId: string }) => Promise<TeamAccess | undefined>;
+    teamRefused?: (since: number) => Promise<{ count: number; latest?: string }>;
 }
 
 /** The route passes the request's URL second; nothing in it changes the page. `now` and `deps` are for tests. */
@@ -66,7 +67,9 @@ export async function loadGovernance(cwd: string, _url?: URL, now = new Date(), 
         decisionsRecent: decisions.filter(d => byPerson(d) && now.getTime() - Date.parse(d.at) <= WINDOW_MS).length,
         qualityGates: gates(cwd, { now, config: parsed, parsedFile: config !== undefined, scores: readScores(roots), threads }),
         reviewer: reviewerUsage(common && path.join(common, 'rigour-reviewer'), roots.flatMap(readDeepRuns), parsed, now),
-        team: teamState(teamConfig, teamCache, teamConfig ? await (deps.teamAccess ?? readTeamAccess)(teamConfig).catch(() => undefined) : undefined),
+        team: teamConfig
+            ? teamState(teamConfig, teamCache, await (deps.teamAccess ?? readTeamAccess)(teamConfig).catch(() => undefined), await (deps.teamRefused ?? refusedChanges)(now.getTime() - WINDOW_MS).catch(() => undefined))
+            : teamState(null, teamCache),
     };
 }
 

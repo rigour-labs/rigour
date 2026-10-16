@@ -10,6 +10,7 @@ import { rigourUserDir } from '../utils/user-state.js';
 import { addToTeamList } from './team-scope.js';
 import { markNotSent, outboxCounts, queuedChanges, QUEUED, SEND_BATCH, splitOutbox } from './team-outbox.js';
 import { getRepositoryId, originOf } from './repository-origin.js';
+import { retireUnshared } from './team-reconcile.js';
 import { previewReviewDecisions, syncReviewDecisions, type DecisionPreview, type DecisionSync } from './team-review-decisions.js';
 import { personOf } from '../utils/person.js';
 import {
@@ -521,6 +522,7 @@ async function syncOnce(options: { dryRun?: boolean; cwd: string }): Promise<Syn
                 // Pulled, found nothing yet: this machine has still pulled the team once (hasPulledTeamLessons).
                 await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', mark, '0');
             }
+            if (await retireUnshared(pool, db, config.teamId)) await db.run("DELETE FROM context_cache WHERE cache_type = 'semantic'");
             await recordTeamAccess(db, config, access);
         } finally {
             await pool.end();

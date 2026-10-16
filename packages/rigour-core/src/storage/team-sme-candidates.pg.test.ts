@@ -57,6 +57,8 @@ describe.skipIf(!URL || !fs.existsSync(dist))('an sme deciding on teammates\' ca
     const run = (who: Person, body: string) => new Promise<any>((resolve, reject) => {
         const script = `const lessons = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'lessons.js')).href)});
 const teamStore = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'team-store.js')).href)});
+const versions = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'team-memory-versions.js')).href)});
+const outbox = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'team-outbox.js')).href)});
 const repo = ${JSON.stringify(who.repo)};
 const memories = async () => (await lessons.listKnowledgeLessons(repo)).filter(l => l.kind === 'memory');
 console.log(JSON.stringify(await (${body})()));`;
@@ -204,6 +206,37 @@ console.log(JSON.stringify(await (${body})()));`;
         expect(states).toEqual([{ state: 'candidate', n: 3 }, { state: 'promoted', n: 2 }, { state: 'rejected', n: 1 }, { state: 'superseded', n: 1 }]);
     }, 120_000);
 
+    it("replaces the shared version of a key when a corrected one is shared, and a take back drops one with no newer version", async () => {
+        await run(author, `async () => {
+            await lessons.shareMemoryLesson(repo, 'retries', 'Use withRetry from lib/net, three attempts.');
+            return teamStore.syncTeamOutbox({ cwd: repo });
+        }`);
+        await run(sme, `async () => {
+            await teamStore.syncTeamOutbox({ cwd: repo });
+            const corrected = (await memories()).find(l => l.subject === 'retries: Use withRetry from lib/net, three attempts.');
+            await lessons.transitionLesson(corrected.id, 'promoted', { visibility: 'team', queueSync: true });
+            const timeouts = (await memories()).find(l => l.subject.startsWith('timeouts:') && l.state === 'promoted');
+            const taken = await versions.takeBackTeamMemory(timeouts.id);
+            await teamStore.syncTeamOutbox({ cwd: repo });
+            return taken;
+        }`);
+        const rows = await admin(async team => (await team.query(
+            `SELECT id, actor_id, state, subject, supersedes_id, evidence_json->>'supersededBy' AS superseded_by, evidence_json->>'takenBackBy' AS taken_back_by
+             FROM rigour.lessons WHERE (subject LIKE 'retries:%' OR subject LIKE 'timeouts:%') AND source LIKE 'published:%'`)).rows);
+        const pick = (subject: string) => rows.find((r: any) => r.subject === subject);
+        const [old, current, timeouts] = [pick('retries: Use withRetry from lib/net.'), pick('retries: Use withRetry from lib/net, three attempts.'), pick('timeouts: Every outbound call has a timeout.')];
+        expect([old.state, old.subject, old.superseded_by]).toEqual(['superseded', 'retries: Use withRetry from lib/net.', 'reviewer-s']);
+        expect([current.actor_id, current.state, current.subject, current.supersedes_id]).toEqual(['dev-a', 'promoted', 'retries: Use withRetry from lib/net, three attempts.', old.id]);
+        expect([timeouts.state, timeouts.taken_back_by]).toEqual(['rejected', 'reviewer-s']);
+        expect(rows).toHaveLength(3);
+
+        // Agents are given only the version shared now: a member's, who reads only promoted rows, and the sme's.
+        const served = 'async () => { await teamStore.syncTeamOutbox({ cwd: repo }); return (await lessons.getApplicableLessons(repo)).lessons.map(l => l.subject).sort(); }';
+        expect(await run(member, served)).toEqual(['retries: Use withRetry from lib/net, three attempts.']);
+        expect(await run(sme, served)).toEqual(['retries: Use withRetry from lib/net, three attempts.']);
+        expect(await run(sme, `async () => (await memories()).filter(l => l.subject.startsWith('timeouts:') && l.state !== 'candidate').map(l => l.state)`)).toEqual(['rejected']);
+    }, 120_000);
+
     it('syncs with the same clients on a database with the policies from before candidate review', async () => {
         await admin(team => team.query(OLD_POLICIES));
         await run(author, `async () => {
@@ -213,14 +246,25 @@ console.log(JSON.stringify(await (${body})()));`;
         const result = await sync(sme);
         expect(result).toMatchObject({ synced: 0 });
         expect(await run(sme, `async () => (await memories()).map(l => l.subject)`)).not.toContain('naming: Hooks are named useX.');
-        expect((await reads(sme)).filter(row => row[2] === 'promoted').map(row => row[3])).toEqual([
-            'retries: Use withRetry from lib/net.', 'timeouts: Every outbound call has a timeout.',
+        expect((await reads(sme)).filter(row => row[2] === 'promoted').map(row => row[3])).toEqual(['retries: Use withRetry from lib/net, three attempts.']);
+        // Sharing its own correction there, the sme cannot retire the author's shared version: refused, and said so.
+        const replaced = await run(sme, `async () => {
+            await lessons.shareMemoryLesson(repo, 'retries', 'Use withRetry, three attempts, with jitter.');
+            const own = (await memories()).find(l => l.subject === 'retries: Use withRetry, three attempts, with jitter.');
+            const shared = (await memories()).find(l => l.subject === 'retries: Use withRetry from lib/net, three attempts.' && l.state === 'promoted');
+            await lessons.transitionLesson(own.id, 'promoted', { visibility: 'team', queueSync: true });
+            await teamStore.syncTeamOutbox({ cwd: repo });
+            return outbox.teamSendStateOf(shared.id);
+        }`);
+        expect(replaced.state).toBe('not sent');
+        expect(replaced.reason).toMatch(/^refused by the team database: .*row-level security/);
+        expect((await reads(sme)).filter(row => row[2] === 'promoted').map(row => row[3]).sort()).toEqual([
+            'retries: Use withRetry from lib/net, three attempts.', 'retries: Use withRetry, three attempts, with jitter.',
         ]);
         // A member's team memory is refused there, as before, and kept on record as refused: never silently lost.
         const sent = await run(member, `async () => {
             const id = await lessons.shareMemoryLesson(repo, 'caching', 'Cache reads for a minute.');
             const synced = await teamStore.syncTeamOutbox({ cwd: repo });
-            const outbox = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'team-outbox.js')).href)});
             return { synced: synced.synced, state: await outbox.teamSendStateOf(id) };
         }`);
         expect(sent.synced).toBe(0);

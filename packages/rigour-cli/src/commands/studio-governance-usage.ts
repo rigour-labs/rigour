@@ -40,6 +40,8 @@ export interface TeamState {
     received: number;
     /** What this person sees of teammates' candidates, from the last team sync; null leaves the card's general line. */
     candidates: string | null;
+    /** Changes the team database refused in the last 28 days (row-level security, a constraint), with the latest reason. */
+    refused?: { count: number; latest?: string };
 }
 
 interface RecordJudge { reviewer: string; version?: string; model?: string; cost_usd?: number }
@@ -123,7 +125,7 @@ function deepUsage(runs: DeepRun[]): NonNullable<ReviewerUsage['deep']> {
     };
 }
 
-export function teamState(config: { organizationId: string; teamId: string; actorId: string } | null, cache: TeamDecisionCache | undefined, access?: TeamAccess): TeamState {
+export function teamState(config: { organizationId: string; teamId: string; actorId: string } | null, cache: TeamDecisionCache | undefined, access?: TeamAccess, refused?: TeamState['refused']): TeamState {
     return {
         sync: !!config,
         organization: config?.organizationId ?? null,
@@ -132,6 +134,7 @@ export function teamState(config: { organizationId: string; teamId: string; acto
         sharing: cache?.sharing ?? null,
         received: cache?.decisions.length ?? 0,
         candidates: config ? candidatesLine(access) : null,
+        ...(config && refused?.count ? { refused } : {}),
     };
 }
 

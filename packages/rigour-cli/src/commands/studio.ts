@@ -217,18 +217,24 @@ async function handleApiRequest(
         req.on('end', async () => {
             try {
                 const payload = JSON.parse(body || '{}');
+                const { sameRepositoryIds, takeBackTeamMemory, transitionLesson } = await import('@rigour-labs/core');
+                if (payload.takeBack === true && typeof payload.id === 'string') {
+                    const state = await takeBackTeamMemory(payload.id, sameRepositoryIds(cwd));
+                    sendJson(res, state ? 200 : 404, state ? { success: true, state } : { success: false });
+                    return;
+                }
                 const allowedStates = new Set(['validated', 'promoted', 'rejected', 'superseded']);
                 if (typeof payload.id !== 'string' || !allowedStates.has(payload.state)) {
                     sendJson(res, 400, { error: 'A lesson id and valid target state are required.' });
                     return;
                 }
-                const { transitionLesson } = await import('@rigour-labs/core');
                 const publishing = payload.state === 'promoted';
                 // A drop is sent too (a team lesson's only): the team database records it, so the next pull, which
                 // brings an sme or owner members' candidates, never offers it again.
                 const changed = await transitionLesson(payload.id, payload.state, {
                     visibility: publishing ? 'team' : undefined,
                     queueSync: publishing || payload.state === 'rejected',
+                    repositoryIds: sameRepositoryIds(cwd),
                 });
                 sendJson(res, changed ? 200 : 404, { success: changed });
             } catch (e: any) {

@@ -7,7 +7,7 @@
  * lesson's subject prefix). Counts that Rigour cannot know here are null, never 0: PR catches
  * recorded on another machine (CI) never reach this one.
  */
-import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, lastDecision, takeBackable, readTeamDecisionCache, loadTeamConfiguration, readTeamAccess, decidesTeammatesCandidates, type TeamDecisionCache, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
+import { acceptSuggestedText, scopeLesson, decideCompiledCheck, decideLesson, fixLessonPrefix, proposeCompiledChecks, readCompiledChecks, suspension, type CompiledCheck, localOutcomeMetrics, pendingDecision, quietBotCandidate, type OutcomeMetrics, listKnowledgeLessons, readLessons, lastDecision, takeBackable, readTeamDecisionCache, loadTeamConfiguration, readTeamAccess, decidesTeammatesCandidates, type TeamDecisionCache, type TeamRole, type AgentEvent, type LessonRecord, type ReviewLesson, type Story } from '@rigour-labs/core';
 import { decider } from './git-identity.js';
 import { checkoutRoots, eventsAcross, storiesAcross } from './studio-checkouts.js';
 import { briefedSince, contradictions, evidenceTrail, type EvidenceItem } from './studio-learning-health.js';
@@ -28,11 +28,13 @@ export interface LessonJourney {
     stoppedInDevelopment: number | null;
     reachedPr: number | null;
     canDecide: boolean;
-    /** A team memory candidate's key and value (its subject is `key: value`), so Studio shows proposals for one key together. */
+    /** A team memory's key and value (its subject is `key: value`), candidate or shared, so Studio shows one key's together. */
     memory?: { key: string; value: string };
     /** Who proposed a team candidate (their actor id), and whether it is this person; an sme or owner decides on a teammate's. */
     proposedBy?: string;
     yours?: true;
+    /** A shared team memory a person may take back (an sme or owner, or anyone while no sync has said the role). */
+    canRetire?: true;
     /** A review lesson evidence took back (review-learning/outcome-evidence.ts): why, and the pull requests that did. A person may promote it again. */
     takenBack?: { detail: string; prs: number[]; at: string };
     /** A later fix changed the point's own lines (review-learning/outcome-evidence.ts): evidence for a person to promote or dismiss, never a promotion on its own. */
@@ -145,13 +147,13 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
     return { lessons, weeks, prRecorded };
 }
 
-/** A team candidate's proposer (an actor id) and, for a memory, its key and value (the subject is `key: value`). */
+/** A team candidate's proposer (an actor id) and, for a team memory waiting or shared, its key and value (`key: value`). */
 function proposal(l: LessonRecord): Pick<LessonJourney, 'memory' | 'proposedBy'> {
-    if (l.visibility !== 'team' || l.state !== 'candidate') return {};
+    if (l.visibility !== 'team' || (l.state !== 'candidate' && l.state !== 'promoted')) return {};
     const split = l.kind === 'memory' ? l.subject.indexOf(': ') : -1;
     return {
         ...(split > 0 ? { memory: { key: l.subject.slice(0, split), value: l.subject.slice(split + 2) } } : {}),
-        ...(l.actorId ? { proposedBy: l.actorId } : {}),
+        ...(l.actorId && l.state === 'candidate' ? { proposedBy: l.actorId } : {}),
     };
 }
 
@@ -160,10 +162,14 @@ function proposal(l: LessonRecord): Pick<LessonJourney, 'memory' | 'proposedBy'>
  * sme or owner on a database with candidate review); undefined when no team sync has said yet: every candidate stays
  * decidable, as before.
  */
-interface LearningViewer { actorId?: string; decidesTeammates?: boolean }
+interface LearningViewer { actorId?: string; decidesTeammates?: boolean; role?: TeamRole }
 
-/** Whether a team candidate is this person's, and whether they may decide on it when it is a teammate's. */
-function forViewer(j: LessonJourney, viewer: LearningViewer): Pick<LessonJourney, 'canDecide' | 'yours'> {
+/**
+ * Whether a team candidate is this person's, and whether they may decide on it when it is a teammate's; and whether
+ * they may take back a shared team memory.
+ */
+function forViewer(j: LessonJourney, viewer: LearningViewer): Pick<LessonJourney, 'canDecide' | 'yours' | 'canRetire'> {
+    if (j.memory && j.state === 'promoted') return { canDecide: j.canDecide, ...(viewer.role === 'member' ? {} : { canRetire: true as const }) };
     if (!j.proposedBy) return { canDecide: j.canDecide };
     const yours = !viewer.actorId || j.proposedBy === viewer.actorId;
     return { canDecide: j.canDecide && (yours || viewer.decidesTeammates !== false), ...(yours ? { yours: true as const } : {}) };
@@ -289,8 +295,9 @@ export async function loadLearning(cwd: string, now = new Date(), weeks = WEEKS,
 async function learningViewer(): Promise<LearningViewer> {
     const config = await loadTeamConfiguration().catch(() => null);
     if (!config) return {};
-    const decides = decidesTeammatesCandidates(await readTeamAccess(config));
-    return { actorId: config.actorId, ...(decides === undefined ? {} : { decidesTeammates: decides }) };
+    const access = await readTeamAccess(config);
+    const decides = decidesTeammatesCandidates(access);
+    return { actorId: config.actorId, ...(decides === undefined ? {} : { decidesTeammates: decides }), ...(access?.role ? { role: access.role } : {}) };
 }
 
 /**

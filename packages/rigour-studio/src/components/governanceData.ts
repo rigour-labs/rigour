@@ -36,6 +36,8 @@ export interface TeamState {
     received: number;
     /** What this person sees of teammates' candidates; null (or absent, from older data) for the general line. */
     candidates?: string | null;
+    /** Changes the team database refused in the last 28 days, with the latest reason. */
+    refused?: { count: number; latest?: string };
 }
 
 export interface GovernanceData {

@@ -161,6 +161,8 @@ describe('governance reviewer usage', () => {
         const scope = { organizationId: 'acme', teamId: 'web', actorId: 'dev' };
         expect(teamState(scope, undefined, { role: 'sme', candidateReview: true, memberCandidates: true }).candidates).toContain("you see every member's team candidates");
         expect(teamState(scope, undefined, { role: 'member', candidateReview: true, memberCandidates: true }).candidates).toBeNull();
+        expect(teamState(scope, undefined, undefined, { count: 1, latest: 'refused by the team database: policy' }).refused).toEqual({ count: 1, latest: 'refused by the team database: policy' });
+        expect(teamState(scope, undefined, undefined, { count: 0 })).not.toHaveProperty('refused');
         for (const access of [{ role: 'owner' as const, candidateReview: false, memberCandidates: false }, { role: 'member' as const, candidateReview: true }]) {
             const missing = teamState(scope, undefined, access).candidates;
             expect(missing).toContain("Teammates' candidates are visible only to them until shared.");

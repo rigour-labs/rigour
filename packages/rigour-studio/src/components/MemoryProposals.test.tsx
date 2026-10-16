@@ -38,6 +38,23 @@ describe("team memory proposals for one key", () => {
         expect(out).toContain('Sharing one leaves the others as they are');
     });
 
+    it('shows the shared version beside a proposal for its key, with Take back, and says sharing replaces it', () => {
+        const shared = proposal('l-shared', 'Retry twice.', { state: 'promoted', canDecide: false, canRetire: true });
+        const out = html(<LessonList lessons={[cloud, shared]} onDecide={() => undefined} onTakeBack={() => undefined} />);
+        expect(out.match(/st-card mem-lesson/g)).toHaveLength(1);
+        expect(out).toContain('Shared now');
+        expect(out).toContain('Retry twice.');
+        expect(out).toContain('1 proposal');
+        expect(out).toContain('Sharing this replaces the shared version.');
+        expect(out.match(/>Take back</g)).toHaveLength(1);
+    });
+
+    it('offers Take back on a shared team memory of its own, only where the person may take it back', () => {
+        const shared = proposal('l-shared', 'Retry twice.', { state: 'promoted', canDecide: false });
+        expect(html(<LessonList lessons={[{ ...shared, canRetire: true }]} onDecide={() => undefined} />)).toContain('>Take back<');
+        expect(html(<LessonList lessons={[shared]} onDecide={() => undefined} />)).not.toContain('>Take back<');
+    });
+
     it("names a teammate's single candidate on its own card", () => {
         expect(html(<LessonList lessons={[cloud]} onDecide={() => undefined} />)).toContain('Proposed by cloud-agent');
         expect(html(<LessonList lessons={[laptop]} onDecide={() => undefined} />)).not.toContain('Proposed by');
@@ -49,5 +66,12 @@ describe('the team card', () => {
     it("says what this person sees of teammates' candidates when the last sync said, the general line otherwise", () => {
         expect(html(<TeamCard team={{ ...team, candidates: 'As an sme or owner, you see every member\'s team candidates.' }} />)).toContain('As an sme or owner');
         expect(html(<TeamCard team={team} />)).toContain('Teammates&#x27; candidates are visible only to them until shared.');
+    });
+
+    it('counts the changes the team database refused, with the latest reason', () => {
+        const out = html(<TeamCard team={{ ...team, refused: { count: 2, latest: 'refused by the team database: new row violates row-level security policy' } }} />);
+        expect(out).toContain('Refused by the team database, 28 days');
+        expect(out).toContain('The latest: refused by the team database: new row violates row-level security policy');
+        expect(html(<TeamCard team={team} />)).not.toContain('Refused by the team database');
     });
 });

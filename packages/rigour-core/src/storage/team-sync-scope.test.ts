@@ -35,6 +35,7 @@ vi.mock('pg', () => ({
                 state.sent.push(params[0]);
                 return { rowCount: 1, rows: [] };
             }
+            if (sql.includes('id = ANY')) return { rowCount: 0, rows: [] }; // which held shared lessons are still shared
             if (sql.includes('FROM rigour.lessons')) {
                 state.since.push(params[3]);
                 return { rowCount: 0, rows: state.remote.filter(row => row.updated_at > params[3]) };

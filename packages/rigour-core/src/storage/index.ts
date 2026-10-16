@@ -35,10 +35,11 @@ export {
 } from './team-store.js';
 export { explainTeamConnectionError } from './team-diagnostics.js';
 export { addToTeamList } from './team-scope.js';
-export { originOf } from './repository-origin.js';
+export { originOf, sameRepositoryIds } from './repository-origin.js';
 export type {
     TeamConfiguration, TeamSemanticConfiguration, TeamModeStatus, TeamDoctorResult,
     SemanticKnowledgeCandidate, SemanticKnowledgeResult,
 } from './team-store.js';
-export { teamSendStateOf, type TeamSendState } from './team-outbox.js';
+export { takeBackTeamMemory } from './team-memory-versions.js';
+export { teamSendStateOf, refusedChanges, type TeamSendState } from './team-outbox.js';
 export { readTeamAccess, decidesTeammatesCandidates, needsSchemaUpgrade, TEAM_SCHEMA_UPGRADE, REAPPLY_TEAM_SCHEMA, type TeamAccess, type TeamRole } from './team-access.js';

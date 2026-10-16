@@ -86,6 +86,16 @@ describe("team memory candidates, as an sme sees them", () => {
             expect(await decide({ actorId: 'reviewer-s', decidesTeammates: true })).toEqual([['dev-a', false, true], ['reviewer-s', true, true]]);
             expect(await decide({ actorId: 'reviewer-s', decidesTeammates: false })).toEqual([['dev-a', false, false], ['reviewer-s', true, true]]);
             expect(await decide({ actorId: 'reviewer-s' })).toEqual([['dev-a', false, true], ['reviewer-s', true, true]]);
+            // A shared team memory: an sme or owner (or anyone while no sync has said the role) may take it back.
+            const { openDatabase } = await import('@rigour-labs/core');
+            const db = (await openDatabase())!;
+            await db.run("UPDATE lessons SET state = 'promoted' WHERE actor_id = 'dev-a'");
+            await db.close();
+            const retire = async (viewer: { actorId?: string; role?: 'member' | 'sme' | 'owner' }) => (await loadLearning(repo, now, 4, viewer)).lessons
+                .filter(l => l.state === 'promoted').map(l => l.canRetire ?? false);
+            expect(await retire({ actorId: 'reviewer-s', role: 'sme' })).toEqual([true]);
+            expect(await retire({ actorId: 'reviewer-s' })).toEqual([true]);
+            expect(await retire({ actorId: 'reviewer-s', role: 'member' })).toEqual([false]);
         } finally {
             process.env = saved;
             fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

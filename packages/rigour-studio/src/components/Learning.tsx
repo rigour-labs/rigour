@@ -29,6 +29,7 @@ function useLessonActions(reload: () => void) {
     };
     return {
         decide: (id: string, state: 'validated' | 'promoted' | 'rejected') => send('/api/lessons', { id, state }),
+        takeBack: (id: string) => send('/api/lessons', { id, takeBack: true }, true),
         decideReview: (id: string, decision: ReviewDecision) => send('/api/review-lessons', { id, decision }),
         scope: (id: string, to: 'file' | 'folder' | 'repo') => send('/api/review-lessons', { id, decision: 'scope', to }, true),
         decideCheck: (id: string, state: 'active' | 'withdrawn') => send('/api/compiled-checks', { id, state }, true),
@@ -55,7 +56,7 @@ const LearningTab: React.FC<TabProps> = ({ tab, data, lessons, memories, rules, 
             <RepeatsCard weeks={data.weeks} prRecorded={data.prRecorded} />
             {data.lessons.length === 0
                 ? <Empty>No lessons yet. They form when an agent fixes something Rigour reported, when a PR comment leads to a fix, or when you tell your agent to remember something.</Empty>
-                : <LessonList lessons={lessons} onDecide={actions.decide} onDecideReview={actions.decideReview} onScope={actions.scope} />}
+                : <LessonList lessons={lessons} onDecide={actions.decide} onDecideReview={actions.decideReview} onScope={actions.scope} onTakeBack={actions.takeBack} />}
             {botToggle}
             {data.outcomes && <OutcomeCard numbers={data.outcomes} />}
         </>

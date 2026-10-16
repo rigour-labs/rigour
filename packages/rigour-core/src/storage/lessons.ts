@@ -6,8 +6,10 @@ import { encryptLocalPayload } from './local-encryption.js';
 import { lessonRowToRecord as rowToLesson } from './lesson-record.js';
 import { loadTeamConfiguration } from './team-store.js';
 import { getRepositoryId, originOf, sameRepositories, sameRepositoryIds } from './repository-origin.js';
+import { queueLessonSync } from './lesson-outbox.js';
+import { supersedeShared } from './team-memory-versions.js';
 
-export { getRepositoryId };
+export { getRepositoryId, queueLessonSync };
 
 export type LessonState = 'candidate' | 'validated' | 'promoted' | 'rejected' | 'superseded';
 export type LessonVisibility = 'personal' | 'team';
@@ -203,18 +205,6 @@ async function pendingMemoryCandidates(
     return ids;
 }
 
-export async function queueLessonSync(
-    db: { run(sql: string, ...params: unknown[]): Promise<unknown> },
-    lesson: LessonRecord,
-    now: number,
-): Promise<void> {
-    await db.run(
-        `INSERT INTO sync_outbox (id, operation, entity_type, entity_id, payload_json, created_at)
-         VALUES (?, 'upsert', 'lesson', ?, ?, ?)`,
-        `outbox-${randomUUID()}`, lesson.id, await encryptLocalPayload(lesson), now,
-    );
-}
-
 export async function listLessons(cwd: string, limit = 100): Promise<LessonRecord[]> {
     let db;
     try { db = await openDatabase(); } catch { return []; }
@@ -315,7 +305,7 @@ export async function getApplicableLessons(cwd: string, actorId?: string, teamId
 export async function transitionLesson(
     id: string,
     state: LessonState,
-    options: { visibility?: LessonVisibility; queueSync?: boolean } = {},
+    options: { visibility?: LessonVisibility; queueSync?: boolean; repositoryIds?: string[] } = {},
 ): Promise<boolean> {
     const db = await openDatabase();
     if (!db) return false;
@@ -345,6 +335,9 @@ export async function transitionLesson(
                     createdAt: now,
                     updatedAt: now,
                 };
+                // A memory's new shared version replaces the one the team has for its key, never sits beside it.
+                const replaced = await supersedeShared(tx, published, { repositoryIds: options.repositoryIds?.length ? options.repositoryIds : [source.repositoryId], sharer: teamConfig.actorId, now });
+                if (replaced.length) published.supersedesId = replaced[0];
                 await tx.run(
                     `INSERT INTO lessons (
                         id, repository_id, actor_id, team_id, visibility, state, kind, subject,
