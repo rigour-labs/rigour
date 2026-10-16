@@ -1,0 +1,18 @@
+{
+  "runs": [
+    {
+      "timestamp": "2026-10-16T03:01:34.764Z",
+      "passedGates": 23,
+      "failedGates": 1,
+      "totalFailures": 1,
+      "provenance": {
+        "aiDriftFailures": 0,
+        "structuralFailures": 1,
+        "securityFailures": 0,
+        "governanceFailures": 0,
+        "deepAnalysisFailures": 0
+      }
+    }
+  ],
+  "lastUpdated": "2026-10-16T03:01:34.764Z"
+}

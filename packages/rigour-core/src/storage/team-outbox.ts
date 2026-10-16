@@ -78,9 +78,9 @@ export async function teamSendStateOf(lessonId: string): Promise<TeamSendState> 
     try {
         const row = await db.get('SELECT synced_at, last_error FROM sync_outbox WHERE entity_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1', lessonId);
         if (!row) {
-            // Never queued here but filed under a team: pulled from the team database (another machine saved it first).
-            const lesson = await db.get('SELECT team_id FROM lessons WHERE id = ?', lessonId);
-            return lesson?.team_id ? { state: 'in the team database' } : { state: 'queued' };
+            // Never queued here: a promoted team lesson pulled from the team database (a candidate is always queued when saved).
+            const lesson = await db.get('SELECT team_id, state FROM lessons WHERE id = ?', lessonId);
+            return lesson?.team_id && lesson.state === 'promoted' ? { state: 'in the team database' } : { state: 'queued' };
         }
         const error = row.last_error ? String(row.last_error) : undefined;
         if (row.synced_at && !error) return { state: 'sent' };

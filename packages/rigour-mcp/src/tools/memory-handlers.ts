@@ -200,7 +200,7 @@ async function sentNow(cwd: string, lessonId: string): Promise<string> {
         // What happened to this candidate is in its own queue entry: a sync can throw after sending it (a later item, the pull).
         const sent = await teamSendStateOf(lessonId);
         if (sent.state === 'sent') return "\nSent to the team database as a candidate. Teammates' agents receive it once an sme or owner shares it from Studio (How it learns).";
-        if (sent.state === 'in the team database') return "\nAlready a team candidate in the team database (saved from another checkout); nothing new to send.";
+        if (sent.state === 'in the team database') return "\nAlready shared with the team: it is in the team database, and teammates' agents receive it.";
         if ('error' in outcome) {
             const reason = String(outcome.error instanceof Error ? outcome.error.message : outcome.error).split('\n')[0].trim().slice(0, 200);
             return `\nNOT SENT: saved as a team candidate on this machine only; the sync failed (${reason}). It is sent with the next sync that succeeds; a clone that is about to be discarded loses it.`;

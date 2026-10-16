@@ -128,10 +128,10 @@ describe('memory scopes', () => {
             expect(result).not.toContain('NOT SENT');
         });
 
-        it('says it is already in the team database when another checkout saved it first', async () => {
+        it('says it is already shared when the team database has it promoted', async () => {
             withOrigin(repoA, 'git@remember-forge:example-org/api.git');
             shared.sendState = { state: 'in the team database' };
-            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('Already a team candidate in the team database');
+            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('Already shared with the team');
         });
 
         it('says held, with the reason, when the candidate waits', async () => {

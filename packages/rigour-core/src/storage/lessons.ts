@@ -135,10 +135,19 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
         // One check-and-write: two agents remembering the same key at once must not both leave a candidate.
         return await db.transaction(async (tx) => {
             const existing = await tx.get(
-                `SELECT id FROM lessons WHERE repository_id IN (${repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
+                `SELECT id, state FROM lessons WHERE repository_id IN (${repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
                 ...repositoryIds, subject,
             );
-            if (existing) return String(existing.id);
+            if (existing) {
+                // A candidate saved before team mode was configured was never queued: queue it now. One pulled from the
+                // team database is this person's own (the pull reads only theirs), so sending it again changes nothing.
+                const queued = await tx.get('SELECT 1 FROM sync_outbox WHERE entity_id = ? LIMIT 1', existing.id);
+                if (config && existing.state === 'candidate' && !queued) {
+                    const lesson = await txSafeLesson(tx, String(existing.id));
+                    if (lesson) await queueLessonSync(tx, lesson, now);
+                }
+                return String(existing.id);
+            }
             // A corrected memory replaces its pending candidate: the old one is superseded (and synced so), never left beside it.
             const replaced = await pendingMemoryCandidates(tx, { repositoryIds, key, actorId, teamId });
             const id = `lesson-${randomUUID()}`;

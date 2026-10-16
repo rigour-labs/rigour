@@ -30,7 +30,7 @@ describe.skipIf(!URL || !fs.existsSync(dist))('team candidates across remote for
     const cloud = machine('cloud', 'https://forge.example.com/example-org/widgets.git');
     const laptop = machine('laptop', 'git@work-forge:example-org/widgets.git');
     /** Runs `body` (an async function of the dist modules `lessons` and `teamStore`) in a process of its own. */
-    const run = (on: { repo: string; home: string }, body: string) => new Promise<string>((resolve, reject) => {
+    const run = (on: { repo: string; home: string }, body: string, env: Record<string, string> = {}) => new Promise<string>((resolve, reject) => {
         const script = `const lessons = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'lessons.js')).href)});
 const teamStore = await import(${JSON.stringify(pathToFileURL(path.join(dist, 'team-store.js')).href)});
 const repo = ${JSON.stringify(on.repo)};
@@ -39,7 +39,7 @@ console.log(JSON.stringify(await (${body})()));`;
             env: {
                 ...process.env, RIGOUR_HOME: on.home, RIGOUR_SSH_CONFIG: sshConfig, RIGOUR_TELEMETRY: '0',
                 RIGOUR_TEAM_DATABASE_URL: teamUrl(), RIGOUR_ORGANIZATION_ID: 'example-org', RIGOUR_TEAM_ID: 'web',
-                RIGOUR_ACTOR_ID: 'reviewer-sme', RIGOUR_TEAM_REPOSITORIES: 'forge.example.com/example-org/widgets',
+                RIGOUR_ACTOR_ID: 'reviewer-sme', RIGOUR_TEAM_REPOSITORIES: 'forge.example.com/example-org/widgets', ...env,
             },
         });
         let out = '';
@@ -103,5 +103,17 @@ console.log(JSON.stringify(await (${body})()));`;
             ['retries: Use withRetry from lib/net.', 'candidate'],
             ['retries: Use withRetry from lib/net.', 'promoted'],
         ]);
+    }, 120_000);
+
+    it('sends a candidate saved before team mode was complete once the same memory is saved again', async () => {
+        await run(cloud, `async () => lessons.shareMemoryLesson(repo, 'naming', 'Hooks are named useX.')`, { RIGOUR_TEAM_DATABASE_URL: '' });
+        await run(cloud, `async () => {
+            await lessons.shareMemoryLesson(repo, 'naming', 'Hooks are named useX.');
+            return teamStore.syncTeamOutbox({ cwd: repo });
+        }`);
+        const team = await pg(teamUrl());
+        const { rows } = await team.query(`SELECT state FROM rigour.lessons WHERE subject = 'naming: Hooks are named useX.'`);
+        await team.end();
+        expect(rows.map(r => r.state)).toEqual(['candidate']);
     }, 120_000);
 });

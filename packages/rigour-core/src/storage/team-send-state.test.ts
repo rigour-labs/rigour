@@ -42,10 +42,12 @@ describe('teamSendStateOf', () => {
         expect(await teamSendStateOf('l1')).toEqual({ state: 'queued', reason: 'connect ECONNREFUSED' });
     });
 
-    it('is already in the team database when it was pulled from there, never queued here', async () => {
-        db.lesson = { team_id: 'web' };
+    it('is already in the team database only for a promoted team lesson pulled from there', async () => {
+        db.lesson = { team_id: 'web', state: 'promoted' };
         expect(await teamSendStateOf('l1')).toEqual({ state: 'in the team database' });
-        db.lesson = { team_id: null };
+        db.lesson = { team_id: 'web', state: 'candidate' };
+        expect(await teamSendStateOf('l1')).toEqual({ state: 'queued' });
+        db.lesson = { team_id: null, state: 'promoted' };
         expect(await teamSendStateOf('l1')).toEqual({ state: 'queued' });
     });
 });
