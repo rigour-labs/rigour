@@ -9,7 +9,7 @@ vi.mock('./db.js', () => {
             if (sql.includes('INSERT INTO sync_outbox')) db.outbox++;
             return { changes: 1, lastID: 0 };
         },
-        get: async (sql: string, ...params: any[]) => (sql.includes("kind = 'memory'") ? db.rows.find(r => r.subject === params[1]) : undefined),
+        get: async (sql: string, ...params: any[]) => (sql.includes("kind = 'memory'") ? db.rows.find(r => r.subject === params.at(-1)) : undefined),
         all: async () => [],
         exec: async () => undefined,
         close: async () => undefined,
