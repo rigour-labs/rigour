@@ -82,7 +82,7 @@ export function buildLearning(input: { now: Date; lessons: LessonRecord[]; revie
             id: l.id,
             text: l.kind === 'fix' ? readableFixLesson(l.subject) : l.subject,
             origin: l.kind === 'fix' ? 'development' as const : 'memory' as const,
-            learnedFrom: l.kind === 'fix' ? fixOrigin(l, input.stories) : l.actorId ? `Proposed by ${l.actorId}` : 'Told by a person or an agent',
+            learnedFrom: l.kind === 'fix' ? fixOrigin(l, input.stories) : 'Told by a person or an agent',
             learnedAt: learnedAt(l),
             state: l.state,
             scope: l.visibility === 'team' ? 'team' as const : l.visibility === 'personal' ? 'personal' as const : 'this repo' as const,

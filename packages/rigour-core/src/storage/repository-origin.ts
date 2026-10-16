@@ -48,9 +48,15 @@ function canonicalRemote(remote: string): string | undefined {
     const ssh = remote.match(/^ssh:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/) ?? remote.match(/^(?:[^@/:\s]+@)?([^/:\s]+):(?!\/\/)(.+)$/);
     if (ssh) {
         const host = ssh[1].toLowerCase();
-        return `https://${sshHostName(host) ?? host}/${ssh[2]}`.replace(/\.git$/, '').replace(/\/+$/, '').toLowerCase();
+        // A one-letter "host" is a Windows drive (C:\repos\api), as git reads it: a local path, not a remote.
+        if (host.length === 1) return undefined;
+        return withoutSuffix(`https://${sshHostName(host) ?? host}/${ssh[2]}`).toLowerCase();
     }
-    return /^https?:\/\//i.test(remote) ? normalizeRemote(remote).replace(/^http:\/\//, 'https://').replace(/\/+$/, '') : undefined;
+    return /^https?:\/\//i.test(remote) ? withoutSuffix(normalizeRemote(remote.trim().replace(/\/+$/, ''))).replace(/^http:\/\//, 'https://').replace(/^(https:\/\/)[^@/]+@/, '$1') : undefined;
+}
+
+function withoutSuffix(remote: string): string {
+    return remote.replace(/\/+$/, '').replace(/\.git$/, '');
 }
 
 export async function originOf(cwd: string): Promise<string | undefined> {
@@ -73,9 +79,16 @@ export async function getRepositoryId(cwd: string): Promise<string> {
  * clone (a cloud reviewer's). Stored ids never change.
  */
 export function sameRepositoryIds(cwd: string): string[] {
-    const own = repositoryIdSync(cwd);
+    return sameRepositories(cwd).map(repository => repository.id);
+}
+
+/** The repositories behind sameRepositoryIds, each with the origin it is recorded as: this checkout's own first. */
+export function sameRepositories(cwd: string): Array<{ id: string; canonicalUri: string }> {
     const remote = originRemote(cwd);
+    const ownUri = remote ? normalizeRemote(remote) : path.resolve(cwd);
+    const own = { id: createHash('sha256').update(ownUri).digest('hex'), canonicalUri: ownUri };
     const canonical = remote ? canonicalRemote(remote) : undefined;
-    const other = canonical ? createHash('sha256').update(canonical).digest('hex') : undefined;
-    return other && other !== own ? [own, other] : [own];
+    if (!canonical) return [own];
+    const other = { id: createHash('sha256').update(canonical).digest('hex'), canonicalUri: canonical };
+    return other.id === own.id ? [own] : [own, other];
 }

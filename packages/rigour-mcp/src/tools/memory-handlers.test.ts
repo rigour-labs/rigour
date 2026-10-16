@@ -111,12 +111,33 @@ describe('memory scopes', () => {
             expect(result).not.toContain('Sent to the team database');
         });
 
-        it('says NOT SENT, and why, when the team database could not be reached', async () => {
+        it('says NOT SENT, and why, when the sync failed before sending it', async () => {
             withOrigin(repoA, 'git@remember-forge:example-org/api.git');
+            shared.sendState = { state: 'queued', reason: 'connect ECONNREFUSED' };
             shared.sync = async () => { throw new Error('Cannot reach the team database (ECONNREFUSED)\nmore'); };
             const result = text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'));
-            expect(result).toContain('NOT SENT: saved as a team candidate on this machine only; the team database could not be reached (Cannot reach the team database (ECONNREFUSED)).');
+            expect(result).toContain('NOT SENT: saved as a team candidate on this machine only; the sync failed (Cannot reach the team database (ECONNREFUSED)).');
             expect(result).not.toContain('Sent to the team database');
+        });
+
+        it('says sent when the sync failed after sending it (a later item, or the pull)', async () => {
+            withOrigin(repoA, 'git@remember-forge:example-org/api.git');
+            shared.sync = async () => { throw new Error('pull failed'); };
+            const result = text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'));
+            expect(result).toContain('Sent to the team database as a candidate.');
+            expect(result).not.toContain('NOT SENT');
+        });
+
+        it('says it is already in the team database when another checkout saved it first', async () => {
+            withOrigin(repoA, 'git@remember-forge:example-org/api.git');
+            shared.sendState = { state: 'in the team database' };
+            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('Already a team candidate in the team database');
+        });
+
+        it('says held, with the reason, when the candidate waits', async () => {
+            withOrigin(repoA, 'git@remember-forge:example-org/api.git');
+            shared.sendState = { state: 'held', reason: 'waiting for the team list' };
+            expect(text(await handleRemember(repoA, 'retries', 'Use withRetry.', 'team'))).toContain('held: waiting for the team list.');
         });
 
         it('says a repository with no origin remote is not sent', async () => {

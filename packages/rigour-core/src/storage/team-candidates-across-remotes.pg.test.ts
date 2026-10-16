@@ -1,7 +1,8 @@
 /**
  * Against a real PostgreSQL, when RIGOUR_TEST_DATABASE_URL names a database an administrator owns (skipped otherwise):
  * team candidates an agent saves in one clone of a repository are listed, ready for a decision, in another checkout of
- * the same repository whose origin is written another way (an https clone and an SSH-alias checkout). Each "machine"
+ * the same repository whose origin is written another way (an https clone and an SSH-alias checkout), and a decision
+ * made there reaches the team database. Each "machine"
  * runs in its own process with its own local store, as two machines do.
  */
 import { spawn } from 'child_process';
@@ -81,6 +82,26 @@ console.log(JSON.stringify(await (${body})()));`;
         expect(listed).toEqual([
             ['paging: Use keyset pagination.', 'candidate'],
             ['retries: Use withRetry from lib/net.', 'candidate'],
+        ]);
+    }, 120_000);
+
+    it('shares one and supersedes another from the laptop, and the team database has both decisions', async () => {
+        await run(laptop, `async () => {
+            await teamStore.syncTeamOutbox({ cwd: repo });
+            const listed = (await lessons.listKnowledgeLessons(repo)).filter(l => l.kind === 'memory');
+            await lessons.transitionLesson(listed.find(l => l.subject.startsWith('retries:')).id, 'promoted', { visibility: 'team', queueSync: true });
+            await lessons.shareMemoryLesson(repo, 'paging', 'Use keyset pagination with a stable sort key.');
+            return teamStore.syncTeamOutbox({ cwd: repo });
+        }`);
+        const team = await pg(teamUrl());
+        const { rows } = await team.query(`SELECT subject, state FROM rigour.lessons WHERE kind = 'memory' ORDER BY subject`);
+        await team.end();
+        // Sharing publishes a promoted copy beside the candidate (transitionLesson), so both rows are there.
+        expect(rows.map(r => [r.subject, r.state])).toEqual([
+            ['paging: Use keyset pagination with a stable sort key.', 'candidate'],
+            ['paging: Use keyset pagination.', 'superseded'],
+            ['retries: Use withRetry from lib/net.', 'candidate'],
+            ['retries: Use withRetry from lib/net.', 'promoted'],
         ]);
     }, 120_000);
 });

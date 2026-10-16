@@ -60,4 +60,17 @@ describe("a repository's ids", () => {
         const unknown = checkout('unknown', 'git@no-such-alias:example-org/widgets.git');
         expect(sameRepositoryIds(unknown)).toContain(httpsId('https://no-such-alias/example-org/widgets'));
     });
+
+    it('reads local paths as no remote, and matches https written with a credential, http or a trailing slash', async () => {
+        const { sameRepositoryIds, getRepositoryId } = await import('./repository-origin.js');
+        for (const local of ['C:\\repos\\widgets', 'C:/repos/widgets.git']) {
+            const dir = checkout(`local-${httpsId(local).slice(0, 8)}`, local);
+            expect(sameRepositoryIds(dir), local).toEqual([await getRepositoryId(dir)]);
+        }
+        const clean = httpsId('https://forge.example.com/example-org/widgets');
+        for (const origin of ['https://x-access-token:abc@forge.example.com/example-org/widgets.git', 'http://forge.example.com/example-org/widgets', 'https://forge.example.com/example-org/widgets.git/']) {
+            const dir = checkout(`https-${httpsId(origin).slice(0, 8)}`, origin);
+            expect(sameRepositoryIds(dir), origin).toContain(clean);
+        }
+    });
 });

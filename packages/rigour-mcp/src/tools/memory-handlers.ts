@@ -196,14 +196,15 @@ async function sentNow(cwd: string, lessonId: string): Promise<string> {
     const sync = syncTeamOutbox({ cwd }).then(result => ({ result }), (error: unknown) => ({ error }));
     try {
         const outcome = await Promise.race([sync, late]);
-        if (outcome === 'late') return "\nSaved as a team candidate on this machine; it was still being sent to the team database when this answered, and the next sync finishes it (rigour team sync).";
-        if ('error' in outcome) {
-            const reason = String(outcome.error instanceof Error ? outcome.error.message : outcome.error).split('\n')[0].trim().slice(0, 200);
-            return `\nNOT SENT: saved as a team candidate on this machine only; the team database could not be reached (${reason}). It is sent with the next sync that reaches it; a clone that is about to be discarded loses it.`;
-        }
-        // The sync ran: what it did with this candidate is in its own queue entry, not in whether the sync threw.
+        if (outcome === 'late') return "\nNOT SENT YET: saved as a team candidate on this machine; the team database had not confirmed it when this answered. A sync still running here may finish it; on a clone that is about to be discarded, run rigour team sync and check it says sent.";
+        // What happened to this candidate is in its own queue entry: a sync can throw after sending it (a later item, the pull).
         const sent = await teamSendStateOf(lessonId);
         if (sent.state === 'sent') return "\nSent to the team database as a candidate. Teammates' agents receive it once an sme or owner shares it from Studio (How it learns).";
+        if (sent.state === 'in the team database') return "\nAlready a team candidate in the team database (saved from another checkout); nothing new to send.";
+        if ('error' in outcome) {
+            const reason = String(outcome.error instanceof Error ? outcome.error.message : outcome.error).split('\n')[0].trim().slice(0, 200);
+            return `\nNOT SENT: saved as a team candidate on this machine only; the sync failed (${reason}). It is sent with the next sync that succeeds; a clone that is about to be discarded loses it.`;
+        }
         if (sent.state === 'held') return `\nKept as a team candidate on this machine, held: ${sent.reason ?? 'not sent yet'}.`;
         if (sent.state === 'not sent') return `\nNOT SENT: the team database did not take this candidate (${sent.reason ?? 'no reason given'}).`;
         return "\nSaved as a team candidate on this machine; it waits for the next sync (rigour team sync sends it now).";

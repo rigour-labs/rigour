@@ -5,7 +5,7 @@ import { openDatabase } from './db.js';
 import { encryptLocalPayload } from './local-encryption.js';
 import { lessonRowToRecord as rowToLesson } from './lesson-record.js';
 import { loadTeamConfiguration } from './team-store.js';
-import { getRepositoryId, originOf, sameRepositoryIds } from './repository-origin.js';
+import { getRepositoryId, originOf, sameRepositories, sameRepositoryIds } from './repository-origin.js';
 
 export { getRepositoryId };
 
@@ -104,6 +104,14 @@ export async function registerRepository(db: { run(sql: string, ...params: unkno
              display_name=excluded.display_name, last_seen=excluded.last_seen`,
         repositoryId, canonicalUri, remoteName || path.basename(cwd), Date.now(),
     );
+    // The same repository's other id (an https clone's, seen from an SSH alias checkout) is known here too, so a lesson
+    // pulled under it can be shared or superseded from this checkout: the sync sends only lessons of known repositories.
+    for (const sibling of sameRepositories(cwd).filter(repository => repository.id !== repositoryId)) {
+        await db.run(
+            `INSERT INTO repositories (id, canonical_uri, display_name, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+            sibling.id, sibling.canonicalUri, remoteName || path.basename(cwd), Date.now(),
+        );
+    }
 }
 
 /**
@@ -123,15 +131,16 @@ export async function shareMemoryLesson(cwd: string, key: string, value: string)
         const subject = `${key}: ${value}`;
         const actorId = config?.actorId || process.env.RIGOUR_ACTOR_ID || null;
         const teamId = config?.teamId || process.env.RIGOUR_TEAM_ID || null;
+        const repositoryIds = sameRepositoryIds(cwd);
         // One check-and-write: two agents remembering the same key at once must not both leave a candidate.
         return await db.transaction(async (tx) => {
             const existing = await tx.get(
-                `SELECT id FROM lessons WHERE repository_id IN (${sameRepositoryIds(cwd).map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
-                ...sameRepositoryIds(cwd), subject,
+                `SELECT id FROM lessons WHERE repository_id IN (${repositoryIds.map(() => '?').join(', ')}) AND kind = 'memory' AND visibility = 'team' AND subject = ? AND state != 'superseded'`,
+                ...repositoryIds, subject,
             );
             if (existing) return String(existing.id);
             // A corrected memory replaces its pending candidate: the old one is superseded (and synced so), never left beside it.
-            const replaced = await pendingMemoryCandidates(tx, { repositoryIds: sameRepositoryIds(cwd), key, actorId, teamId });
+            const replaced = await pendingMemoryCandidates(tx, { repositoryIds, key, actorId, teamId });
             const id = `lesson-${randomUUID()}`;
             await tx.run(
                 `INSERT INTO lessons (
