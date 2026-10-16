@@ -102,9 +102,11 @@ export const TeamCard: React.FC<{ team: TeamState }> = ({ team }) => (
                     <Row label="Your decisions" value={team.sharing ? (team.sharing.shares ? 'shared with the team' : 'kept on this machine') : 'not synced yet'} />
                     {team.sharing && !team.sharing.shares && team.sharing.reason && <small className="gov-note">{team.sharing.reason}</small>}
                     <Row label="Decisions received" value={team.received} />
+                    {team.refused && <Row label="Not taken by the team database, 28 days" value={team.refused.count} />}
+                    {team.refused?.latest && <small className="gov-note">The latest: {team.refused.latest}</small>}
                 </>
             )
             : <Empty>Team sync is off: lessons and decisions stay on this machine. <span className="ui-mono">rigour team configure</span> connects a team database.</Empty>}
-        <small className="gov-note">Teammates' candidates are visible only to them until shared.</small>
+        <small className="gov-note">{team.candidates ?? 'Teammates\' candidates are visible only to them until shared.'}</small>
     </Card>
 );

@@ -216,19 +216,9 @@ async function handleApiRequest(
         req.on('data', (chunk) => (body += chunk));
         req.on('end', async () => {
             try {
-                const payload = JSON.parse(body || '{}');
-                const allowedStates = new Set(['validated', 'promoted', 'rejected', 'superseded']);
-                if (typeof payload.id !== 'string' || !allowedStates.has(payload.state)) {
-                    sendJson(res, 400, { error: 'A lesson id and valid target state are required.' });
-                    return;
-                }
-                const { transitionLesson } = await import('@rigour-labs/core');
-                const publishing = payload.state === 'promoted';
-                const changed = await transitionLesson(payload.id, payload.state, {
-                    visibility: publishing ? 'team' : undefined,
-                    queueSync: publishing,
-                });
-                sendJson(res, changed ? 200 : 404, { success: changed });
+                const { decideLessonFromStudio } = await import('./studio-lessons.js');
+                const decided = await decideLessonFromStudio(cwd, JSON.parse(body || '{}'));
+                sendJson(res, decided.status, decided.body);
             } catch (e: any) {
                 sendJson(res, 400, { error: e.message });
             }

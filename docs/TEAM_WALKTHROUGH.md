@@ -97,7 +97,7 @@ rigour learn-reviews --list
 rigour learn-reviews --promote <id> --why "unbounded windows re-ran a week of jobs in March"
 ```
 
-or with one click under **How it learns** in `rigour studio`. Jane could instead mark it `--not-a-rule` (it was
+or with one click under **Memory** in `rigour studio`. Jane could instead mark it `--not-a-rule` (it was
 about that one change), narrow it to a folder (`--scope <id> --to folder`), or take a decision back later
 (`--take-back <id>`). Each decision is recorded, with Jane's display name and the date.
 

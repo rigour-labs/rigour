@@ -118,6 +118,8 @@ describe('a sync failure, in one line', () => {
         expect(line).toBe('your login lacks SELECT on rigour.organization_salts; ask the administrator to run: GRANT SELECT ON rigour.organization_salts TO "rigour_jane";');
         expect(explainSyncError(denied('review_decisions'), URL)).toContain('GRANT SELECT, INSERT ON rigour.review_decisions TO "rigour_jane";');
         expect(explainSyncError(Object.assign(new Error('permission denied for schema rigour'), { code: '42501' }), URL)).toContain('GRANT USAGE ON SCHEMA rigour TO "rigour_jane";');
+        expect(explainSyncError(Object.assign(new Error('permission denied for function team_actor'), { code: '42501' }), URL))
+            .toBe('your login lacks EXECUTE on Rigour\'s functions; ask the administrator to run: GRANT EXECUTE ON FUNCTION rigour.team_actor(text, text, text), rigour.candidate_review_state() TO "rigour_jane";');
         for (const out of [line, explainSyncError(new Error('boom'), URL)]) {
             expect(out).not.toContain('secret');
             expect(out).not.toContain('\n');

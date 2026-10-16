@@ -61,9 +61,13 @@ export async function recordFixLessons(cwd: string, fixes: ResolvedFix[]): Promi
 async function recordOne(db: any, repositoryId: string, fix: ResolvedFix, config: Awaited<ReturnType<typeof loadTeamConfiguration>>): Promise<string> {
     const subject = fixLessonSubject(fix);
     const now = Date.now();
+    const actorId = config?.actorId || process.env.RIGOUR_ACTOR_ID || null;
+    // This person's own personal lesson for the rule only: never a teammate's shared one pulled here, whose evidence
+    // would otherwise carry this person's files and details to every teammate.
     const row = await db.get(
-        `SELECT id, evidence_json FROM lessons WHERE repository_id = ? AND kind = 'fix' AND substr(subject, 1, ?) = ?`,
-        repositoryId, fixLessonPrefix(fix).length, fixLessonPrefix(fix),
+        `SELECT id, evidence_json FROM lessons WHERE repository_id = ? AND kind = 'fix' AND substr(subject, 1, ?) = ?
+           AND visibility = 'personal' AND (actor_id IS ? OR actor_id IS NULL)`,
+        repositoryId, fixLessonPrefix(fix).length, fixLessonPrefix(fix), actorId,
     );
     const prior: FixEvidence = row ? await decryptLocalPayload(row.evidence_json) as FixEvidence : { rule: fix.rule, files: [], examples: [] };
     if (prior.examples.some(e => e.fixId === fix.id)) return row.id;
@@ -78,7 +82,7 @@ async function recordOne(db: any, repositoryId: string, fix: ResolvedFix, config
     if (row) {
         await db.run(
             `UPDATE lessons SET state = CASE WHEN state IN ('promoted', 'rejected') THEN state ELSE ? END,
-                evidence_json = ?, confidence = MAX(confidence, ?), updated_at = ? WHERE id = ?`,
+                evidence_json = ?, confidence = MAX(confidence, ?), updated_at = MAX(?, updated_at + 1) WHERE id = ?`,
             validated ? 'validated' : 'candidate', await encryptLocalPayload(evidence), confidence, now, id,
         );
     } else {
@@ -87,7 +91,7 @@ async function recordOne(db: any, repositoryId: string, fix: ResolvedFix, config
                 id, repository_id, actor_id, team_id, visibility, state, kind, subject,
                 evidence_json, confidence, source, created_at, updated_at
             ) VALUES (?, ?, ?, ?, 'personal', ?, 'fix', ?, ?, ?, 'agent-fix', ?, ?)`,
-            id, repositoryId, config?.actorId || process.env.RIGOUR_ACTOR_ID || null,
+            id, repositoryId, actorId,
             config?.teamId || process.env.RIGOUR_TEAM_ID || null, validated ? 'validated' : 'candidate',
             subject, await encryptLocalPayload(evidence), confidence, now, now,
         );

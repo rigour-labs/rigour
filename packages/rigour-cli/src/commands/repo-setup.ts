@@ -182,7 +182,7 @@ function prCheck(cwd: string): SetupCheck {
     const uses = workflows.find(f => /rigour-labs\/rigour@|rigour review|rigour-labs\/cli/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
     return uses
         ? { id: 'pr', name, state: 'set up', detail: `.github/workflows/${uses}` }
-        : { id: 'pr', name, state: 'missing', detail: 'Not on this repository yet: one workflow file adds it', fix: 'See docs/PR_BOT.md' };
+        : { id: 'pr', name, state: 'missing', detail: 'Not on this repository yet: one workflow file adds it', fix: 'See docs/CI.md' };
 }
 
 /** Configured; "working" when it fired in the last week, with how often and how recently. */

@@ -51,6 +51,62 @@ describe('buildLearning', () => {
     });
 });
 
+describe("team memory candidates, as an sme sees them", () => {
+    const memory = (id: string, actorId: string, value: string, over: Partial<LessonRecord> = {}): LessonRecord => ({
+        ...lesson, id, actorId, kind: 'memory', state: 'candidate' as any, visibility: 'team' as any, subject: `retries: ${value}`,
+        evidence: { key: 'retries', value }, source: 'rigour_remember', ...over,
+    });
+    const build = (lessons: LessonRecord[]) => buildLearning({ now, lessons, reviewLessons: [], stories: [], events: [] }).lessons;
+
+    it('names who proposed each, with its key and value, and keeps two proposals of the same value', () => {
+        expect(build([memory('a', 'dev-a', 'Use withRetry.'), memory('b', 'reviewer-s', 'Use withRetry.')]).map(l => [l.id, l.proposedBy, l.memory])).toEqual([
+            ['a', 'dev-a', { key: 'retries', value: 'Use withRetry.' }],
+            ['b', 'reviewer-s', { key: 'retries', value: 'Use withRetry.' }],
+        ]);
+    });
+
+    it('shows the published copy, not the candidate it was shared from', () => {
+        const listed = build([memory('a', 'dev-a', 'x'), memory('p', 'dev-a', 'x', { state: 'promoted' as any, source: 'published:a' })]);
+        expect(listed.map(l => [l.id, l.state, l.proposedBy])).toEqual([['p', 'promoted', undefined]]);
+    });
+
+    it("offers Share and Take back to an sme or owner only, Drop on a teammate's candidate only where they decide, and Drop on your own", async () => {
+        const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'learning-team-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'learning-team-home-'));
+        const saved = { ...process.env };
+        try {
+            Object.assign(process.env, { RIGOUR_HOME: home });
+            const { shareMemoryLesson } = await import('@rigour-labs/core');
+            process.env.RIGOUR_ACTOR_ID = 'dev-a';
+            await shareMemoryLesson(repo, 'retries', 'Use withRetry.');
+            process.env.RIGOUR_ACTOR_ID = 'reviewer-s';
+            await shareMemoryLesson(repo, 'retries', 'Use withRetry.');
+            const decide = async (viewer: { actorId?: string; decidesTeammates?: boolean; role?: 'member' | 'sme' | 'owner' }) => (await loadLearning(repo, now, 4, viewer)).lessons
+                .filter(l => l.memory).map(l => [l.proposedBy, l.yours ?? false, l.canDecide, l.noShare ?? null]).sort();
+            expect(await decide({ actorId: 'reviewer-s', decidesTeammates: true, role: 'sme' })).toEqual([['dev-a', false, true, null], ['reviewer-s', true, true, null]]);
+            const member = 'An sme or owner shares it with the team.';
+            expect(await decide({ actorId: 'reviewer-s', decidesTeammates: false, role: 'member' })).toEqual([['dev-a', false, false, member], ['reviewer-s', true, true, member]]);
+            // No sync has read the role yet: nothing is offered that the team database may refuse.
+            const unknown = 'Your team role is read at the first team sync (rigour team sync): sharing waits for it.';
+            expect(await decide({ actorId: 'reviewer-s' })).toEqual([['dev-a', false, false, unknown], ['reviewer-s', true, true, unknown]]);
+            // A shared team memory: an sme or owner may take it back.
+            const { openDatabase } = await import('@rigour-labs/core');
+            const db = (await openDatabase())!;
+            await db.run("UPDATE lessons SET state = 'promoted' WHERE actor_id = 'dev-a'");
+            await db.close();
+            const retire = async (viewer: { actorId?: string; role?: 'member' | 'sme' | 'owner' }) => (await loadLearning(repo, now, 4, viewer)).lessons
+                .filter(l => l.state === 'promoted').map(l => l.canRetire ?? false);
+            expect(await retire({ actorId: 'reviewer-s', role: 'sme' })).toEqual([true]);
+            expect(await retire({ actorId: 'reviewer-s' })).toEqual([false]);
+            expect(await retire({ actorId: 'reviewer-s', role: 'member' })).toEqual([false]);
+        } finally {
+            process.env = saved;
+            fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+            fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        }
+    });
+});
+
 describe('a review lesson evidence took back', () => {
     const takenBack = (extra: ReviewLesson['evidence'] = []): ReviewLesson => ({
         id: 'a1b2c3d4e5f6', text: 'take the lock before the first read', file: 'src/job.ts', symbols: [], state: extra.some(e => e.kind === 'accepted') ? 'verified' : 'candidate', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',

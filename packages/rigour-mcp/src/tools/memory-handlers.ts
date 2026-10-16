@@ -199,7 +199,7 @@ async function sentNow(cwd: string, lessonId: string): Promise<string> {
         if (outcome === 'late') return "\nNOT SENT YET: saved as a team candidate on this machine; the team database had not confirmed it when this answered. A sync still running here may finish it; on a clone that is about to be discarded, run rigour team sync and check it says sent.";
         // What happened to this candidate is in its own queue entry: a sync can throw after sending it (a later item, the pull).
         const sent = await teamSendStateOf(lessonId);
-        if (sent.state === 'sent') return "\nSent to the team database as a candidate. Teammates' agents receive it once an sme or owner shares it from Studio (How it learns).";
+        if (sent.state === 'sent') return "\nSent to the team database as a candidate. Teammates' agents receive it once an sme or owner shares it from Studio (Memory).";
         if (sent.state === 'in the team database') return "\nAlready shared with the team: it is in the team database, and teammates' agents receive it.";
         if ('error' in outcome) {
             const reason = String(outcome.error instanceof Error ? outcome.error.message : outcome.error).split('\n')[0].trim().slice(0, 200);
