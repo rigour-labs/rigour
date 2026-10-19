@@ -14,6 +14,7 @@ import type { Failure } from '../../types/index.js';
 import { FileScanner } from '../../utils/scanner.js';
 import { Logger } from '../../utils/logger.js';
 import { policyFilters, replayMigrations, type Schema } from './schema.js';
+import { loadMigrationSets } from './migrations.js';
 import { findReads, type Read } from './queries.js';
 import { seekColumns, servesRead } from './coverage.js';
 
@@ -23,7 +24,6 @@ export interface UnindexedReadsConfig {
     migrations?: string[];
 }
 
-const DEFAULT_MIGRATIONS = ['**/migrations/**/*.sql'];
 const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const SKIP = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.test.*', '**/*.spec.*', '**/__tests__/**', '**/*.d.ts'];
 
@@ -34,7 +34,7 @@ export class UnindexedReadsGate extends Gate {
 
     async run(context: GateContext): Promise<Failure[]> {
         if (!this.config.enabled) return [];
-        const schemas = await loadSchemas(context.cwd, this.config.migrations?.length ? this.config.migrations : DEFAULT_MIGRATIONS, context.ignore ?? []);
+        const schemas = (await loadMigrationSets(context.cwd, this.config.migrations ?? [], context.ignore ?? [])).map(replayMigrations);
         if (schemas.length === 0) return [];
         const files = (await FileScanner.findFiles({ cwd: context.cwd, patterns: context.patterns, ignore: [...(context.ignore ?? []), ...SKIP] }))
             .filter(file => SOURCE.test(file));
@@ -82,27 +82,4 @@ export function unservedColumns(read: Read, schemas: Schema[]): string[] | undef
 /** The read as Postgres runs it for a signed-in user: the policy's columns are compared too. */
 function withPolicyFilters(read: Read, columns: string[]): Read {
     return { ...read, filters: [...read.filters, ...columns.map(column => ({ column, op: 'eq' as const, value: undefined }))] };
-}
-
-/** One schema per migrations directory, replayed in filename order. */
-async function loadSchemas(cwd: string, globs: string[], ignore: string[]): Promise<Schema[]> {
-    const files = await FileScanner.findFiles({ cwd, patterns: globs, ignore });
-    const byDirectory = new Map<string, string[]>();
-    for (const file of files) {
-        const directory = migrationsRoot(file);
-        byDirectory.set(directory, [...(byDirectory.get(directory) ?? []), file]);
-    }
-    const schemas: Schema[] = [];
-    for (const group of byDirectory.values()) {
-        const sql = await Promise.all(group.sort().map(file => fs.readFile(path.join(cwd, file), 'utf-8')));
-        schemas.push(replayMigrations(sql));
-    }
-    return schemas;
-}
-
-/** The directory a migration belongs to: up to and including its `migrations` segment, else its own folder. */
-function migrationsRoot(file: string): string {
-    const parts = file.split('/');
-    const at = parts.lastIndexOf('migrations');
-    return at >= 0 ? parts.slice(0, at + 1).join('/') : path.posix.dirname(file);
 }

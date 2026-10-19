@@ -115,3 +115,29 @@ export function identifier(raw: string): string {
 
 /** One identifier, optionally schema-qualified and quoted: the `name` in `CREATE TABLE name (`. */
 export const NAME = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)(?:\.(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*))?`;
+
+/** The text with what is inside quotes and parentheses blanked (same length), so keywords there are not read as the column's. */
+export function mask(text: string): string {
+    const state: MaskState = { depth: 0, quote: null };
+    let out = '';
+    for (const ch of text) out += maskChar(state, ch);
+    return out;
+}
+
+interface MaskState { depth: number; quote: string | null }
+
+/** One character of mask(): kept at the top level and for the parentheses that open and close it, else blanked. */
+function maskChar(state: MaskState, ch: string): string {
+    const outer = state.depth === 0 && state.quote === null;
+    advance(state, ch);
+    const closes = ch === ')' && state.depth === 0 && state.quote === null;
+    return outer || closes ? ch : ' ';
+}
+
+/** Track quotes and parentheses: a quote ends at its own character; parentheses count only outside quotes. */
+function advance(state: MaskState, ch: string): void {
+    if (state.quote) state.quote = ch === state.quote ? null : state.quote;
+    else if (ch === "'" || ch === '"') state.quote = ch;
+    else if (ch === '(') state.depth++;
+    else if (ch === ')') state.depth--;
+}

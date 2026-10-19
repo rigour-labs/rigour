@@ -18,6 +18,12 @@ export abstract class Gate {
 
     abstract run(context: GateContext): Promise<Failure[]>;
 
+    /**
+     * A gate whose findings are notes until the team opts in to blocking: `rigour check` reports them, its summary says
+     * NOTE for the gate, and its verdict ignores them, as the review's does (they are `likely`).
+     */
+    get advisory(): boolean { return false; }
+
     /** Default provenance for this gate — subclasses override */
     protected get provenance(): Provenance { return 'traditional'; }
 

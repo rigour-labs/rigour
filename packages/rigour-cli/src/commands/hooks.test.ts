@@ -452,6 +452,16 @@ describe('which agent sent the hook payload', () => {
         expect(await run({ ...claude('PostToolUse', 'src/jobs/retry.ts', ''), hook_event_name: 'SomethingNew' }, {})).toMatchObject({ status: 'pass' });
     });
 
+    it('tells Claude Code, without blocking, about a write the migrations say the database will reject', async () => {
+        fs.mkdirSync(path.join(repo, 'supabase/migrations'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'supabase/migrations/20260101000000_jobs.sql'), 'create table acme_jobs (id uuid primary key default gen_random_uuid(), name text not null, ran_at timestamptz not null default now());');
+        fs.writeFileSync(path.join(repo, 'src/jobs/sync.ts'), "import { createClient } from '@supabase/supabase-js';\nexport const sync = () => createClient('u', 'k').from('acme_jobs').insert([{ name: 'a', ran_at: 'x' }, { name: 'b' }]);\n");
+        const out = await run(claude('PostToolUse', 'src/jobs/sync.ts', ''), { block: true });
+        expect(out.status).toBe('pass');
+        expect(out.hookSpecificOutput).toMatchObject({ hookEventName: 'PostToolUse', additionalContext: expect.stringContaining(`${path.join('src', 'jobs', 'sync.ts')}:2: Rows in this insert into \`acme_jobs\` don't all set \`ran_at\``) });
+        expect(process.exitCode).not.toBe(2);
+    });
+
     it("still answers Cursor in Cursor's format", async () => {
         const prompt = await run(cursor('beforeSubmitPrompt', { prompt: `my key is ${AWS_KEY}` }), { mode: 'dlp' });
         expect(prompt).toMatchObject({ continue: true, user_message: expect.stringContaining('credential') });

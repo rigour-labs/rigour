@@ -29,7 +29,7 @@ Two settings change the picture:
 
 | Moment | What runs |
 |:---|:---|
-| After every edit (agent hook) | A fast per-file subset: protected paths, file size, hallucinated imports and promise safety (JS/TS), security patterns. See [After-edit checks](#after-edit-checks). |
+| After every edit (agent hook) | A fast per-file subset: protected paths, file size, hallucinated imports and promise safety (JS/TS), security patterns, the write contract (JS/TS). See [After-edit checks](#after-edit-checks). |
 | Before the agent says done (stop hook) | The review below, without the typed checks, plus the branch checks when on a branch. At most three stops. It also asks the agent, once per session for each, to check the change against the team's verified review lessons that apply to it (and the repository rules that name it, when `gates.deep.repo_rules` is on). |
 | Before `git push` | The review with the typed checks, the branch checks, and the push-time toolchain. The reviewer too, when it is turned on ([REVIEWER.md](REVIEWER.md)). |
 | `rigour review` | The review with the typed checks. No branch checks, no toolchain. Model review only when you pass `--deep`, `--pro`, `--max` or `-k` ([MODEL_REVIEW.md](MODEL_REVIEW.md)). |
@@ -45,7 +45,7 @@ Two settings change the picture:
 | Typed checks (redundancy) | Yes | No |
 | `commands:` from rigour.yml | No (they run at push) | Yes; a command that exits non-zero is a finding |
 | Which findings count | Only those on changed lines that the base did not already have | Every finding |
-| What fails | Blocking findings only (the rule above) | Any finding of any severity |
+| What fails | Blocking findings only (the rule above) | Any finding of any severity, except the write contract's, which are notes unless `write_contract.block` is on |
 | Dismissals and muting | Applied | Not applied |
 | Exit codes | 0 pass, 1 fail, 3 a check could not run | 0 pass, 1 fail, 2 config error, 3 model review asked for but could not run |
 
@@ -107,6 +107,7 @@ Use `rigour review` for changes and pull requests ([CI.md](CI.md)). `rigour chec
 | Quadratic copy | An accumulator copied whole on every loop step (`acc = [...acc, item]`). | JS/TS | `quadratic-copy` | On (`change_sweep`) | Note |
 | Migration out of order | A migration the change adds that sorts before the newest migration on the base. Only folders in `dirs` (default `**/supabase/migrations`). | SQL migrations | `migration-order` | Off | Yes, when enabled |
 | Unindexed read | A supabase-js read whose table, as the repository's migrations define it, has no index that can serve it. Row-level policies and partial indexes are taken into account. | JS/TS, SQL migrations | `unindexed-reads` | Off | Note |
+| Write the database will reject | A supabase-js insert or upsert, or a raw SQL `INSERT` in a string, that the table's migrations say the database will reject: a required column no row sets, bulk rows whose keys differ, a literal outside a CHECK list or enum, an ON CONFLICT target with no unique constraint. See [The write contract](#the-write-contract). | JS/TS, SQL migrations | `write-contract` | On (`write_contract`) | Note; `write_contract.block: true` makes it block |
 
 ### Security and secrets
 
@@ -218,6 +219,57 @@ or files sets `block: true`, and from then on the review, the stop hook and the 
 
 Turn any review-only check off with `enabled: false` under its setting: `unused_exports`, `orphan_files`, `query_patterns`, `duplicate_functions`, `optional_params`, `change_sweep`, `redundancy`. `migration_order` and `unindexed_reads` are off until you set `enabled: true`.
 
+## The write contract
+
+A deterministic check, with no model cost, for inserts and upserts the database will reject. It reads the repository's
+own SQL migrations (every `.sql` file under a `migrations` folder, or the globs in `gates.write_contract.migrations`;
+each folder is its own database, replayed in file-name order) and learns each table's columns: NOT NULL, DEFAULT,
+generated and identity columns, CHECK constraints that limit a column to a list of literals, enum types, and the unique
+constraints and indexes an ON CONFLICT target can use. ALTER TABLE and ALTER TYPE are applied in order.
+
+It then reads the writes in the files a change touches: supabase-js `.from('t').insert(rows)` and
+`.upsert(rows, { onConflict, defaultToNull })`, where the rows are an object literal, an array of them, a `.map(…)` that
+returns them, or a `const` holding one of these; and raw SQL `INSERT INTO t (cols) VALUES …` / `ON CONFLICT (cols)` in a
+string. It reports, with the file, line, table and column:
+
+- **A required column no row sets**: NOT NULL, no default, not generated or identity. The database rejects the insert.
+- **Uneven keys in a bulk write**: an array whose rows set different keys, where a key some rows leave out is a NOT NULL
+  column. supabase-js names every key of every row as a column and sends a row's missing ones as NULL, so the whole batch
+  is rejected, even when the column has a default. With `defaultToNull: false` a missing key takes the column's default,
+  so only a NOT NULL column with no default is reported.
+- **A literal outside a CHECK list or enum** (`status: 'archived'` where the CHECK allows `'active', 'paused'`).
+- **An ON CONFLICT target no unique constraint or unique index covers**, which Postgres rejects. A partial unique index
+  (one with a WHERE) or a DEFERRABLE unique constraint does not count: Postgres can use neither as the arbiter for a
+  target without the index's predicate (supabase-js cannot write one), and the finding says which it was.
+
+It stays silent unless it can read both sides in full:
+
+- the rows' shape is unknown: a spread, a computed key, rows passed in from elsewhere, or a `const` something else uses;
+- the table is not created by the migrations, or by more than one migrations folder;
+- the table is touched by anything the replay does not model: a statement it cannot parse that names the table, an
+  ALTER TABLE action it does not know, a rename, inheritance or partitioning, a BEFORE or INSTEAD OF INSERT trigger or a
+  rule (either can fill in the row), or DDL inside a function or DO body;
+- the column is of a domain type, whose own NOT NULL and DEFAULT it does not read;
+- a key the write sets is not one of the table's columns, so the migrations here are not the schema the code runs against.
+
+Its findings are `likely`: a note in review, never deciding the verdict, and a warning the agent sees after the edit.
+They block only when the team opts in:
+
+```yaml
+gates:
+  write_contract:
+    block: true   # the edit, the stop and the push refuse a write the migrations say will be rejected
+```
+
+`enabled: false` turns it off. `rigour check`, the whole-repository audit, lists its findings as notes and passes
+(exit code 0) when they are the only ones; with `block: true` they fail it like any other finding. While they are
+notes, the check's status in the run's summary is `NOTE`, not `FAIL`: `rigour check` shows it with its own symbol,
+`--json` and `--ci` say `NOTE`, `rigour explain` lists them as notes, not blocking, and the MCP `rigour_check` and
+`rigour_explain` tools give the agent each note with its file and line.
+
+The parsed migrations are kept for the life of the process, keyed by each file's path, size and modification time, so
+an edit hook or a long-running server replays them only when a migration changes.
+
 ## The push-time toolchain
 
 Before a push, Rigour runs the repository's own tools on what the branch changed. Their failures block the push.
@@ -250,7 +302,8 @@ The edit hook runs a fast subset on each file an agent writes, with a default ti
 - protected paths (`safety.protected_paths`) and agent memory and skill paths (`governance`);
 - file size (`max_file_lines`);
 - hallucinated imports and promise safety, for JS/TS files;
-- security patterns, for every language.
+- security patterns, for every language;
+- the write contract, for JS/TS files: a note unless `gates.write_contract.block` is on, which Claude Code is given as context beside the edit.
 
 Only what the edit did blocks. Each file is compared with its last commit (HEAD): a finding the file already had there,
 the same check with the same message, is a note the hook prints and never blocks. File size is a note: a file's length

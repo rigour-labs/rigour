@@ -65,6 +65,8 @@ function checkRows({ review }: ReadinessInput): CoverageRow[] {
         const row = { category: 'checks' as const, item: check };
         if (status === 'PASS') return { ...row, state: 'verified' };
         if (status === 'SKIP') return { ...row, state: 'not verified', detail: 'not run' };
+        // A check whose findings are notes until the team opts in to blocking (the write contract): never failed.
+        if (status === 'NOTE') return { ...row, state: 'noted', detail: 'notes, not blocking' };
         if (status !== 'FAIL') return { ...row, state: 'not verified', detail: 'could not run' };
         if (blocking[check]) return { ...row, state: 'failed', detail: plural(blocking[check], 'blocking finding') };
         if (untied) return { ...row, state: 'failed', detail: 'a blocking finding could not be tied to its check' };

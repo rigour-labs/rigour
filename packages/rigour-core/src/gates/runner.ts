@@ -1,5 +1,5 @@
 import { Gate } from './base.js';
-import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
+import { Failure, Config, Report, RunStatus, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
 import { runDeepAnalysis } from './deep-runner.js';
 import { persistAndReinforce } from '../storage/local-memory.js';
 import { splitCommand } from '../utils/command-line.js';
@@ -32,6 +32,7 @@ import { StyleDriftGate } from './style-drift.js';
 import { SemanticBugsGate } from './semantic-bugs.js';
 import { LogicDriftGate } from './logic-drift.js';
 import { UnindexedReadsGate } from './unindexed-reads/index.js';
+import { WriteContractGate } from './write-contract/index.js';
 import { DeprecatedDependenciesGate } from './deprecated-dependencies.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
@@ -139,6 +140,10 @@ export class GateRunner {
             this.gates.push(new UnindexedReadsGate(this.config.gates.unindexed_reads));
         }
 
+        if (this.config.gates.write_contract?.enabled !== false) {
+            this.gates.push(new WriteContractGate(this.config.gates.write_contract));
+        }
+
         if (this.config.gates.deprecated_apis?.enabled !== false) {
             this.gates.push(new DeprecatedApisGate(this.config.gates.deprecated_apis));
         }
@@ -179,6 +184,8 @@ export class GateRunner {
     async run(cwd: string, patterns?: string[], deepOptions?: DeepOptions & { onProgress?: (msg: string) => void }, runOptions: { record?: boolean } = {}): Promise<Report> {
         const start = Date.now();
         const failures: Failure[] = [];
+        /** Findings of an advisory gate: listed, never deciding the run's status. */
+        const notes = new Set<Failure>();
         const summary: Record<string, Status> = {};
         const skips: Record<string, string> = {};
 
@@ -206,8 +213,9 @@ export class GateRunner {
                 const gateFailures = await gate.run({ cwd, record, ignore, patterns, fileCache, skip: reason => { skipped = reason; } });
                 if (gateFailures.length > 0) {
                     for (const f of gateFailures) GATE_OF.set(f, gate.id);
+                    if (gate.advisory) for (const f of gateFailures) notes.add(f);
                     failures.push(...gateFailures);
-                    summary[gate.id] = 'FAIL';
+                    summary[gate.id] = gate.advisory ? 'NOTE' : 'FAIL';
                 } else if (skipped !== undefined) {
                     summary[gate.id] = 'SKIP';
                     skips[gate.id] = skipped;
@@ -266,7 +274,7 @@ export class GateRunner {
             deepStats = deep.stats;
         }
 
-        const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
+        const status: RunStatus = failures.some(f => !notes.has(f)) ? 'FAIL' : 'PASS';
 
         // Severity-weighted scoring with per-gate cap and deduplication
         // Step 1: Deduplicate — the same rule on the same file and line should not stack

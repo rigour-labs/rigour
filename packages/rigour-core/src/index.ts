@@ -139,6 +139,7 @@ export type { IncrementalResult } from './services/incremental-cache.js';
 // Terminal Renderer (rich CLI/MCP output)
 export { renderScoreGauge, renderSeveritySection, renderGateGrid, renderBrainStatus, renderFullReport, renderMcpHeadline, renderFixAttribution } from './services/terminal-renderer.js';
 export type { RenderOptions, GateResult } from './services/terminal-renderer.js';
+export { blockingGates, noteLine, reportNotes } from './services/report-notes.js';
 // Context Telemetry & 4-Layer Caching Engine
 export * from './context/cache-engine.js';
 export * from './context/context-session.js';

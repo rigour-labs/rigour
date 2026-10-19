@@ -99,7 +99,7 @@ reviewer, and keep secrets out of the description.
 | --- | --- |
 | `verified` | Checked, and it holds. |
 | `failed` | Checked, and it blocks: a check with a blocking finding, a broken rule the team wrote as a requirement, an open human review point, a criterion shown not met. |
-| `noted` | Found, never blocking: a check whose findings are all notes, a broken rule written as guidance, a lesson the change repeats. Counted as "N noted" after `ready`. |
+| `noted` | Found, never blocking: a check whose findings are all notes (including a check whose summary is `NOTE`, such as the write contract until `write_contract.block` is on), a broken rule written as guidance, a lesson the change repeats. Counted as "N noted" after `ready`. |
 | `not verified` | Not checked: a check that is off or could not run, a changed unit nobody reviewed, a rule or lesson nobody answered, a criterion without evidence. Never a pass. |
 
 The categories are the checks, the changed units (reviewed by the model or before this change, or named

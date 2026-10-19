@@ -54,10 +54,10 @@ function readAt(source: ts.SourceFile, node: ts.Node): Read | undefined {
     return read;
 }
 
-interface ChainCall { method: string; args: readonly ts.Expression[] }
+export interface ChainCall { method: string; args: readonly ts.Expression[] }
 
 /** Calls chained onto `node`: `.from(…).select(…).eq(…)` gives select, eq. */
-function callsAfter(node: ts.CallExpression): ChainCall[] {
+export function callsAfter(node: ts.CallExpression): ChainCall[] {
     const calls: ChainCall[] = [];
     let current: ts.Node = node;
     while (ts.isPropertyAccessExpression(current.parent) && ts.isCallExpression(current.parent.parent) && current.parent.parent.expression === current.parent) {
@@ -68,13 +68,13 @@ function callsAfter(node: ts.CallExpression): ChainCall[] {
 }
 
 /** `client.schema('s').from(…)`: the schema name; undefined for the default; null when it is not a literal. */
-function schemaOf(target: ts.Expression): string | undefined | null {
+export function schemaOf(target: ts.Expression): string | undefined | null {
     if (!ts.isCallExpression(target) || !ts.isPropertyAccessExpression(target.expression) || target.expression.name.text !== 'schema') return undefined;
     const arg = target.arguments[0];
     return arg && ts.isStringLiteralLike(arg) ? arg.text : null;
 }
 
-function qualified(schema: string | undefined | null, table: string): string {
+export function qualified(schema: string | undefined | null, table: string): string {
     const name = table.toLowerCase();
     return schema && schema !== 'public' ? `${schema.toLowerCase()}.${name}` : name;
 }

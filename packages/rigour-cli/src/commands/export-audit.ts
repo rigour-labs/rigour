@@ -227,7 +227,7 @@ function renderMarkdown(audit: any): string {
     lines.push('| Gate | Status |');
     lines.push('|:-----|:-------|');
     for (const gate of audit.gate_results) {
-        const icon = gate.status === 'PASS' ? '✅' : gate.status === 'FAIL' ? '❌' : '⏭️';
+        const icon = gate.status === 'PASS' ? '✅' : gate.status === 'FAIL' ? '❌' : gate.status === 'NOTE' ? 'ℹ️' : '⏭️';
         lines.push(`| ${gate.gate} | ${icon} ${gate.status} |`);
     }
     lines.push('');

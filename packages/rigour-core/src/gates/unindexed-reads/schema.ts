@@ -13,6 +13,7 @@
  * `owner_id`. Policies made of such comparisons (or `true`) are kept per
  * table; any other policy expression makes the table uncertain.
  */
+import { columnConstraints, tableConstraint, type Constraint } from './constraints.js';
 import { NAME, identifier, parenthesized, relationName, splitStatements, splitTopLevel, unwrap } from './sql.js';
 
 /** One term of a partial index's WHERE, or `unknown` when it is not a plain comparison. */
@@ -27,6 +28,14 @@ export interface IndexDef {
     /** Leading key column, or null when the key starts with an expression. */
     leading: string | null;
     predicate: PredicateTerm[];
+    /** A unique index, primary key or unique constraint: what an ON CONFLICT target can name. */
+    unique: boolean;
+    /** Every key column, or null when some key is an expression. */
+    keys: string[] | null;
+    /** The constraint that owns the index (`DROP CONSTRAINT` removes it), named as Postgres names it when the DDL does not. */
+    constraint?: string;
+    /** A DEFERRABLE constraint, which Postgres refuses as an ON CONFLICT arbiter. */
+    deferrable: boolean;
 }
 
 export interface TableSchema {
@@ -79,23 +88,34 @@ function createTable(schema: Schema, statement: string): void {
         table.uncertain = true;
         return;
     }
-    for (const element of splitTopLevel(body.inner, /,/)) addTableElement(table, element);
+    for (const element of splitTopLevel(body.inner, /,/)) addTableElement(table, element, name);
 }
 
 /** A column definition (`id uuid PRIMARY KEY`) or a table constraint (`UNIQUE (a, b)`). */
-function addTableElement(table: TableSchema, element: string): void {
+function addTableElement(table: TableSchema, element: string, tableName: string): void {
     if (/^like\s/i.test(element)) {
         table.uncertain = true;
         return;
     }
-    const constraint = /^(?:constraint \S+ )?(primary key|unique)(?: nulls (?:not )?distinct)? \(([^)]*)\)/i.exec(element);
-    if (constraint) {
-        table.indexes.push({ leading: identifier(constraint[2].split(',')[0]), predicate: [] });
-        return;
-    }
+    const constraint = tableConstraint(element, tableName);
+    if (constraint) return addKey(table, constraint);
     if (/^(constraint|check|foreign key|exclude)\b/i.test(element)) return;
+    addColumnKeys(table, tableName, element);
+}
+
+/** A PRIMARY KEY or UNIQUE constraint's index: a new one, or (`USING INDEX i`) one the constraint adopts. */
+function addKey(table: TableSchema, constraint: Constraint): void {
+    if (constraint.kind !== 'primary key' && constraint.kind !== 'unique') return;
+    if (constraint.usingIndex) return adoptIndex(table, constraint);
+    const keys = constraint.columns;
+    table.indexes.push({ leading: keys?.[0] ?? null, predicate: [], unique: true, keys, constraint: constraint.name ?? undefined, deferrable: constraint.deferrable });
+}
+
+/** `code text UNIQUE`, `id uuid PRIMARY KEY`: the column's own key indexes. */
+function addColumnKeys(table: TableSchema, tableName: string, element: string): void {
     const column = new RegExp(String.raw`^(${NAME})\s`, 'i').exec(element);
-    if (column && /\b(primary key|unique)\b/i.test(element)) table.indexes.push({ leading: identifier(column[1]), predicate: [] });
+    if (!column) return;
+    for (const constraint of columnConstraints(element.slice(column[0].length), tableName, identifier(column[1]))) addKey(table, constraint);
 }
 
 function createIndex(schema: Schema, statement: string): void {
@@ -116,14 +136,23 @@ function createIndex(schema: Schema, statement: string): void {
     }
     const name = match[1] ? identifier(match[1].trim().split('.').pop()!) : undefined;
     if (name && /if not exists/i.test(statement) && findIndex(schema, name)) return;
-    const where = /^\s*(?:include \([^)]*\)\s*)?(?:with \([^)]*\)\s*)?(?:tablespace \S+\s*)?where (.*)$/i.exec(statement.slice(keys.end));
-    table.indexes.push({ name, leading: leadingColumn(keys.inner), predicate: where ? parsePredicate(where[1]) : [] });
+    table.indexes.push(indexOf(statement, keys, name));
 }
 
-/** The first key column, or null when the key starts with an expression such as `lower(email)`. */
-function leadingColumn(keys: string): string | null {
-    const first = splitTopLevel(keys, /,/)[0] ?? '';
-    const column = new RegExp(String.raw`^(${NAME})(?:\s+(?:asc|desc|nulls (?:first|last)|collate \S+|\w+_ops))*$`, 'i').exec(first);
+/** The index a CREATE INDEX statement makes, from its key list (`keys`) and what follows it. */
+function indexOf(statement: string, keys: { inner: string; end: number }, name: string | undefined): IndexDef {
+    const where = /^\s*(?:include \([^)]*\)\s*)?(?:with \([^)]*\)\s*)?(?:tablespace \S+\s*)?where (.*)$/i.exec(statement.slice(keys.end));
+    const columns = splitTopLevel(keys.inner, /,/).map(keyColumn);
+    const plain = columns.filter((column): column is string => column !== null);
+    return {
+        name, leading: columns[0] ?? null, predicate: where ? parsePredicate(where[1]) : [],
+        unique: /^create unique/i.test(statement), keys: plain.length === columns.length ? plain : null, deferrable: false,
+    };
+}
+
+/** One key's column, or null when the key is an expression such as `lower(email)`. */
+function keyColumn(key: string): string | null {
+    const column = new RegExp(String.raw`^(${NAME})(?:\s+(?:asc|desc|nulls (?:first|last)|collate \S+|\w+_ops))*$`, 'i').exec(key);
     return column ? identifier(column[1]) : null;
 }
 
@@ -168,21 +197,36 @@ function alterTable(schema: Schema, statement: string): void {
         schema.set(relationName(rename[1]), table);
         return;
     }
-    for (const action of splitTopLevel(match[2], /,/)) alterAction(table, action);
+    for (const action of splitTopLevel(match[2], /,/)) alterAction(table, action, name);
 }
 
-function alterAction(table: TableSchema, action: string): void {
+function alterAction(table: TableSchema, action: string, tableName: string): void {
     if (/^rename\b/i.test(action)) {
         table.uncertain = true;
         return;
     }
-    const constraint = /^add (?:constraint \S+ )?(primary key|unique)(?: nulls (?:not )?distinct)?\s*(?:\(([^)]*)\)|using index (\S+))/i.exec(action);
-    if (constraint) {
-        if (constraint[2]) table.indexes.push({ leading: identifier(constraint[2].split(',')[0]), predicate: [] });
+    const constraint = /^add /i.test(action) ? tableConstraint(action.slice(4), tableName) : undefined;
+    if (constraint) return addKey(table, constraint);
+    const dropped = /^drop constraint (?:if exists )?(\S+)/i.exec(action);
+    if (dropped) {
+        table.indexes = table.indexes.filter(index => index.constraint !== identifier(dropped[1]));
         return;
     }
-    const column = new RegExp(String.raw`^add (?:column )?(?:if not exists )?(${NAME})\s`, 'i').exec(action);
-    if (column && /\b(primary key|unique)\b/i.test(action)) table.indexes.push({ leading: identifier(column[1]), predicate: [] });
+    const altered = /^alter constraint (\S+) (not )?deferrable\b/i.exec(action);
+    if (altered) {
+        for (const index of table.indexes) if (index.constraint === identifier(altered[1])) index.deferrable = !altered[2];
+        return;
+    }
+    if (/^add /i.test(action)) addColumnKeys(table, tableName, action.replace(/^add (?:column )?(?:if not exists )?/i, ''));
+}
+
+/** `ADD CONSTRAINT c UNIQUE USING INDEX i`: the index now belongs to the constraint, and takes its name. */
+function adoptIndex(table: TableSchema, constraint: Constraint): void {
+    const index = table.indexes.find(candidate => candidate.name === constraint.usingIndex);
+    if (!index) return;
+    index.constraint = constraint.name ?? constraint.usingIndex;
+    index.name = index.constraint;
+    index.deferrable = constraint.deferrable;
 }
 
 function renameIndex(schema: Schema, statement: string): void {

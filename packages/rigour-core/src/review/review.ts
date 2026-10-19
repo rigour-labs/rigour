@@ -211,7 +211,7 @@ function passChecksOnlyLeftOut(report: Report, leftOut: Failure[], kept: Failure
     const check = (f: Failure) => gateOf(f) ?? f.id;
     for (const f of leftOut) byCheck[check(f)] = (byCheck[check(f)] ?? 0) + 1;
     const remaining = new Set(kept.map(check));
-    for (const id of Object.keys(byCheck)) if (report.summary[id] === 'FAIL' && !remaining.has(id)) report.summary[id] = 'PASS';
+    for (const id of Object.keys(byCheck)) if ((report.summary[id] === 'FAIL' || report.summary[id] === 'NOTE') && !remaining.has(id)) report.summary[id] = 'PASS';
     return byCheck;
 }
 
