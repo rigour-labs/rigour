@@ -548,12 +548,16 @@ export type RawCommands = z.input<typeof CommandsSchema>;
 export type RawHooks = z.input<typeof HooksSchema>;
 export type RawConfig = z.input<typeof ConfigSchema>;
 
+/** A run's status: PASS, or FAIL when something blocks (SKIP and ERROR as before). Never NOTE: notes do not decide a run. */
+export const RunStatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR']);
+export type RunStatus = z.infer<typeof RunStatusSchema>;
+
 /**
- * A run's status, and each check's in its summary. NOTE is a check's only: it found something, as notes that never
+ * Each check's status in a run's summary: a run status, or NOTE, a check that found something as notes that never
  * block (a gate the team has not opted in to blocking, such as the write contract). A reader that does not know NOTE
  * should read it as not PASS.
  */
-export const StatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR', 'NOTE']);
+export const StatusSchema = z.enum([...RunStatusSchema.options, 'NOTE']);
 export type Status = z.infer<typeof StatusSchema>;
 
 export const SeveritySchema = z.enum(['critical', 'high', 'medium', 'low', 'info']);
@@ -603,7 +607,7 @@ export const FailureSchema = z.object({
 export type Failure = z.infer<typeof FailureSchema>;
 
 export const ReportSchema = z.object({
-    status: StatusSchema,
+    status: RunStatusSchema,
     summary: z.record(StatusSchema),
     /** Why a check reported SKIP: it could not check (for example, no main branch to compare with). */
     skips: z.record(z.string()).optional(),

@@ -1,5 +1,5 @@
 import { Gate } from './base.js';
-import { Failure, Config, Report, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
+import { Failure, Config, Report, RunStatus, Status, Severity, Provenance, SEVERITY_WEIGHTS, DeepOptions } from '../types/index.js';
 import { runDeepAnalysis } from './deep-runner.js';
 import { persistAndReinforce } from '../storage/local-memory.js';
 import { splitCommand } from '../utils/command-line.js';
@@ -274,7 +274,7 @@ export class GateRunner {
             deepStats = deep.stats;
         }
 
-        const status: Status = failures.some(f => !notes.has(f)) ? 'FAIL' : 'PASS';
+        const status: RunStatus = failures.some(f => !notes.has(f)) ? 'FAIL' : 'PASS';
 
         // Severity-weighted scoring with per-gate cap and deduplication
         // Step 1: Deduplicate — the same rule on the same file and line should not stack

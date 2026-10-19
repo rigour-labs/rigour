@@ -170,8 +170,8 @@ The schema is `ReportSchema` in `packages/rigour-core/src/types/index.ts`, expor
 
 | Field | Type | Required | Meaning |
 |:---|:---|:---|:---|
-| `status` | `PASS` \| `FAIL` \| `SKIP` \| `ERROR` | Required | `FAIL` when there is at least one finding, else `PASS`. The check writes only these two values here. |
-| `summary` | object: gate id to status | Required | One entry per gate that ran. A gate is `PASS` or `FAIL`; `SKIP` when it could not check (its reason is in `skips`, for example style-drift and logic-drift with no main branch to compare with); `ERROR` when it crashed (the crash is also listed as a finding, titled `Gate Error: ...`, so the run is `FAIL`). Each key of `rigour.yml`'s `commands` section appears too: `SKIP` when the command is empty, else `PASS` or `FAIL`. Model review, when it ran, is under `deep-analysis`. |
+| `status` | `PASS` \| `FAIL` \| `SKIP` \| `ERROR` | Required | `FAIL` when there is at least one finding that is not a note, else `PASS`. The check writes only these two values here; never `NOTE`, which only a gate in `summary` can be. |
+| `summary` | object: gate id to status | Required | One entry per gate that ran. A gate is `PASS` or `FAIL`; `NOTE` when it found something as notes that do not block (the write contract until `write_contract.block` is on), which leaves the run's `status` alone; `SKIP` when it could not check (its reason is in `skips`, for example style-drift and logic-drift with no main branch to compare with); `ERROR` when it crashed (the crash is also listed as a finding, titled `Gate Error: ...`, so the run is `FAIL`). A reader that does not know a status should treat it as not `PASS`. Each key of `rigour.yml`'s `commands` section appears too: `SKIP` when the command is empty, else `PASS` or `FAIL`. Model review, when it ran, is under `deep-analysis`. |
 | `skips` | object: gate id to reason | Optional | Why each `SKIP` gate could not check. Absent when none skipped. |
 | `failures` | object[] | Required | Every finding, with duplicates of the same rule on the same file and line removed. |
 | `stats` | object | Required | Timing, scores and counts. |
