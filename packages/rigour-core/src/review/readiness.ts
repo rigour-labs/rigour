@@ -42,7 +42,7 @@ export interface ReadinessInput {
     /** The model reviewer's result: this run's when it asked for one, else the stored verdict on this commit, if any (reviewer/stored.ts). */
     reviewer?: ReviewerResult;
     receipt?: QualityReceipt | null;
-    /** The pull request's description (title and body), when one was read: where the acceptance criteria are. */
+    /** The pull request's description, when one was read: where the acceptance criteria are, and what a stored verdict's description hash is compared with. */
     description?: string;
     /** This run asked for the model review (`--reviewer`): without its verdict, the change is not known to be ready. */
     reviewerAsked: boolean;

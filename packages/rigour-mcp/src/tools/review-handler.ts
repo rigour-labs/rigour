@@ -36,11 +36,12 @@ function qualityReceipt(config: Config, cwd: string, diff: string): QualityRecei
 
 /**
  * Technically and product ready, and the coverage table, as `rigour review --json` gives them. The tool runs no model
- * reviewer and reads no description: the rows come from the verdict stored for this commit, if any, and what nothing
- * verified is listed as not verified, never as a pass.
+ * reviewer and reads no description: a branch review (`base`, nothing uncommitted) takes the rows from the verdict
+ * stored for this commit, if any, and what nothing verified is listed as not verified, never as a pass.
  */
-async function readinessReport(cwd: string, result: ReviewResult, receipt: QualityReceipt | null) {
-    return readinessJson(readiness({ review: result, reviewer: await storedReviewerResult(cwd), receipt, reviewerAsked: false }));
+async function readinessReport(cwd: string, args: ReviewArgs, result: ReviewResult, receipt: QualityReceipt | null) {
+    const branch = args.diff || args.files?.length ? undefined : args.base;
+    return readinessJson(readiness({ review: result, reviewer: await storedReviewerResult(cwd, branch), receipt, reviewerAsked: false }));
 }
 
 export async function handleReview(config: Config, cwd: string, args: ReviewArgs): Promise<ToolResult> {
@@ -56,7 +57,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
         const receipt = qualityReceipt(config, cwd, diff);
         return text({
             status: result.status,
-            readiness: await readinessReport(cwd, result, receipt),
+            readiness: await readinessReport(cwd, args, result, receipt),
             score: stats?.score ?? 100,
             ai_health_score: stats?.ai_health_score,
             structural_score: stats?.structural_score,

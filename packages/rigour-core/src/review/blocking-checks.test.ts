@@ -11,6 +11,13 @@ describe('blockingByCheck', () => {
         expect(blockingByCheck([{ ...produced, anchorLine: 4 }], [produced], owner)).toEqual({ 'unused-exports': 1 });
     });
 
+    it('counts a finding two checks produced for each of them', () => {
+        const first = failure('compiled-lesson', 'page every query');
+        const second = failure('compiled-lesson', 'page every query');
+        const owner = new Map([[first, 'compiled-lessons'], [second, 'query-patterns']]);
+        expect(blockingByCheck([{ ...first }], [first, second], owner)).toEqual({ 'compiled-lessons': 1, 'query-patterns': 1 });
+    });
+
     it('counts a finding no check owns under its own rule id', () => {
         expect(blockingByCheck([failure('diff-tests', 'changed output')], [], new Map())).toEqual({ 'diff-tests': 1 });
     });

@@ -51,12 +51,14 @@ exit code or what blocks.
 | `unknown` | The review is `ERROR`; or this run asked for the reviewer (`rigour review --reviewer`) and it gave no verdict (unavailable or skipped), or left changed units unreviewed. |
 | `ready` | Everything that ran passed and nothing this run asked for was left unverified. What did not run (the model review, checks that are off, a skipped deep review), checks that could not run, and how much was noted are listed after it, never hidden. |
 
-Only a run that asks for the reviewer is held to it. Any other run (CI, the MCP tool, a plain
-`rigour review`) reads the verdict the reviewer stored for this exact commit, when the branch's last
-verdict is a full review of HEAD whose record is intact; it says so ("model review from the stored verdict
-on this commit"). With no such verdict, "model review not run" is a caveat on `ready`. A stored verdict
-is matched by commit, its own fingerprint and its record's integrity: it reflects the description and the
-human reviews as they were when it ran, and its date is printed so you can tell.
+Only a run that asks for the reviewer is held to it. Any other run reads "model review not run" as a
+caveat on `ready`, unless it reviews exactly what the reviewer already stored a verdict for: the branch
+against its base (`rigour review --base <ref>`, or the MCP tool with `base`), with no uncommitted change
+to a tracked file, and the branch's last verdict a full review of HEAD against the same merge base, its
+file the one its fingerprint names and its record intact. Then that verdict fills the coverage rows and
+the line says "model review from the stored verdict on this commit" with its date. A review of
+uncommitted work never uses one: the verdict never saw that code. A stored verdict reflects the human
+reviews as they were when it ran.
 
 **Product ready** reads the acceptance criteria in the pull request's description, under the headings the
 [goal check](./GOAL.md) reads: `Done when`, `Acceptance criteria`, `Definition of done` or `Success criteria`.
@@ -66,19 +68,27 @@ human reviews as they were when it ran, and its date is printed so you can tell.
 | `unknown (no acceptance criteria)` | No description was read, or it has none of those sections. |
 | `unknown (not checked)` | Criteria exist and nothing checked any of them: no reviewer verdict, `review.goal` off, or the rules-and-goal step did not return. |
 | `unknown (not verified)` | Some criteria were checked, but not every one was shown met with evidence. |
+| `unknown (stored verdict; the description was not re-checked)` | The judge's answers come from a stored verdict, and this run did not read the same description it was built from. |
 | `not ready` | A criterion was shown not met. |
 | `ready` | Every criterion was shown met. |
 
 Each criterion is decided by evidence only:
 
-- One that names a file in backticks is the goal check's: verified when the change touches every file it
-  names, failed when it does not, and "checked by the goal check (not run)" when the goal check is off.
+- One that names a file in backticks fails when the goal check finds the change never touches a file it
+  names. Touching the file proves nothing, so a touched one reads "not verified (file touched, not
+  judged)", and "checked by the goal check (not run)" when the goal check is off.
 - Any other is the reviewer's goal step. It fails when any judge (with a panel, every judge's answer is
   kept) says not met with a quote that checks out against the checkout. It is verified only when every
   judge that answered says met, each with a file, line and quote that check out, the same check a not-met
   answer gets. Met without a quote that checks out is "not verified (no evidence)"; so is a judge that
   could not tell, or a not-met whose quote did not check out. The judge is not asked to quote what it
   finds met in this release, so expect `unknown (not verified)` until it does.
+
+A stored verdict's answers count only for the description it was built from: the reviewer keeps the
+description's hash beside the verdict (`inputs.body_sha256`, line endings and outer whitespace aside), and
+a later run compares it with the description it read (`--pr-body`, or the pull request's body in a GitHub
+Actions job). A different or missing hash (a verdict from before 7.1 has none) leaves product ready
+`unknown (stored verdict; the description was not re-checked)`.
 
 A criterion's text is given to the judge as written, in its prompt: write criteria as you would for a
 reviewer, and keep secrets out of the description.

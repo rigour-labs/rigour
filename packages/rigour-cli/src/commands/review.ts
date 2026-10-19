@@ -97,8 +97,9 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
         const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full, { ...(options.single ? { mode: 'single' as const } : {}), ...(options.panel !== undefined ? { panel: options.panel } : {}) }, result, { goal: options.goal, orchestrator: options.orchestrator, blind: !!options.blind }) : undefined;
         const checked = options.json ? whatWasChecked(cwd, options, trustedRef, result) : undefined;
-        // A run that did not ask for the reviewer reads the verdict the push already stored for this commit, if there is one.
-        const ready = readiness({ review: result, reviewer: reviewer ?? await storedReviewerResult(cwd), receipt, description: readPrBody(cwd, options), reviewerAsked: !!options.reviewer });
+        // A branch review that did not ask for the reviewer reads the verdict the push already stored for this commit, if any.
+        const stored = reviewer ? undefined : await storedReviewerResult(cwd, options.diff || options.files ? undefined : options.base);
+        const ready = readiness({ review: result, reviewer: reviewer ?? stored, receipt, description: readPullRequest(cwd, options, process.env)?.body, reviewerAsked: !!options.reviewer });
         await print({ result, ready, receipt, reviewer, checked, goal: goalReport(goal, goalDescription, result) }, options, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started });
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
@@ -152,16 +153,21 @@ async function readStdin(): Promise<string> {
  * event. It is reference for the max and cloud tiers, never required.
  */
 export function readPrBody(cwd: string, options: ReviewOptions, env: NodeJS.ProcessEnv = process.env): string | undefined {
+    const pr = readPullRequest(cwd, options, env);
+    return pr ? [pr.title, pr.body].filter(Boolean).join('\n\n') || undefined : undefined;
+}
+
+/** The pull request's title and body: --pr-body is the body alone; a GitHub Actions event has both. */
+function readPullRequest(cwd: string, options: ReviewOptions, env: NodeJS.ProcessEnv): { title?: string; body?: string } | undefined {
     if (options.prBody) {
         const bodyPath = path.resolve(cwd, options.prBody);
         if (!fs.existsSync(bodyPath)) throw new UsageError(`PR body file not found: ${bodyPath}`);
-        return fs.readFileSync(bodyPath, 'utf-8');
+        return { body: fs.readFileSync(bodyPath, 'utf-8') };
     }
     if (!env.GITHUB_EVENT_PATH) return undefined;
     try {
-        const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf-8'));
-        const pr = event.pull_request;
-        return pr ? [pr.title, pr.body].filter(Boolean).join('\n\n') || undefined : undefined;
+        const pr = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf-8')).pull_request;
+        return pr ? { title: pr.title || undefined, body: pr.body || undefined } : undefined;
     } catch {
         return undefined;
     }

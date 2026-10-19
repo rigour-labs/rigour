@@ -3,6 +3,7 @@
  * answer with whether its quote is the code at the line it names (the check every quote gets), and how many distinct
  * team lessons it answered as repeated or not. With a panel the judges' answers are all kept, so each can be weighed.
  */
+import { createHash } from 'crypto';
 import { parseGoal } from '../../goal/goal.js';
 import type { Verdict, Verify } from './verdict.js';
 
@@ -28,6 +29,11 @@ export function lessonAnswers(lessons: NonNullable<Verdict['lessons']>): LessonA
     const repeated = new Set(lessons.filter(l => l.applies === true).map(l => l.lesson));
     const notRepeated = new Set(lessons.filter(l => l.applies === false && !repeated.has(l.lesson)).map(l => l.lesson));
     return { repeated: repeated.size, notRepeated: notRepeated.size };
+}
+
+/** The pull request's description as a hash, line endings and outer whitespace aside: what a stored verdict was built from. */
+export function descriptionHash(body: string): string {
+    return createHash('sha256').update(body.replace(/\r\n/g, '\n').trim()).digest('hex');
 }
 
 /** The description's acceptance criteria: each "Done when" item and the files it names. */

@@ -6,6 +6,7 @@ import type { ReviewerResult } from './reviewer.js';
 import type { ReviewRecord } from './reviewer/record.js';
 import { readiness, type ReadinessInput } from './readiness.js';
 import { coverageText, readinessLine, readinessMarkdown } from './readiness-render.js';
+import { descriptionHash } from './reviewer/answers.js';
 
 const finding = { id: 'unused-export', title: 'export f is used nowhere', details: '', files: ['src/a.ts'], line: 1 } as Failure;
 
@@ -176,17 +177,29 @@ describe('readiness: product ready', () => {
         expect(rows(r, 'acceptance criteria')[0]).toMatchObject({ state: 'not verified', detail: 'judged not met, but its quote did not check out' });
     });
 
-    it('fills a criterion that names a file from the goal check, and says when the goal check did not run', () => {
+    it('fails a criterion whose file the change never touches; a touched file proves nothing', () => {
         const text = '`src/refund.ts` refuses a refund over the charge';
         const description = `## Done when\n- ${text}\n`;
         const goal = { doneWhen: [{ text, paths: ['src/refund.ts'], symbols: [] }], scope: [], outOfScope: [], invariants: [] };
         expect(rows(run({ description }), 'acceptance criteria')).toEqual([{ category: 'acceptance criteria', item: text, state: 'not verified', detail: 'checked by the goal check (not run)' }]);
         expect(run({ description }).product.caveats).toContain('the goal check did not run (review.goal is off, or no description)');
-        expect(run({ description, review: review({ goal }) }).product).toMatchObject({ state: 'ready' });
+        const touched = run({ description, review: review({ goal }) });
+        expect(touched.product).toEqual({ state: 'unknown', reasons: ['not verified'], caveats: ['1 of 1 criterion not verified'] });
+        expect(rows(touched, 'acceptance criteria')[0]).toMatchObject({ state: 'not verified', detail: 'file touched, not judged' });
         const missed = { id: 'goal-done-when', title: 'x', details: `The description's "Done when" says: ${text}`, files: [] } as unknown as Failure;
         const failed = run({ description, review: review({ goal, status: 'FAIL', findings: [missed], blockingByCheck: { goal: 1 } }, { goal: 'FAIL' }) });
         expect(failed.product).toMatchObject({ state: 'not ready' });
         expect(rows(failed, 'acceptance criteria')[0]).toMatchObject({ state: 'failed', detail: 'a file it names is not changed (goal check)' });
+    });
+
+    it('counts a stored verdict\'s answers only for the description it was built from, by hash', () => {
+        const goal = [met('a refund over the charge is refused'), met('the receipt shows the refund')];
+        const stored = (bodySha256?: string) => run({ description: DESCRIPTION, reviewer: reviewer({ goal, cached: true, stored: bodySha256 ? { bodySha256 } : {} }) });
+        expect(stored(descriptionHash(DESCRIPTION.replace(/\n/g, '\r\n'))).product).toEqual({ state: 'ready', reasons: ['2 of 2 criteria met'], caveats: [] });
+        const unchecked = { state: 'unknown', reasons: ['stored verdict; the description was not re-checked'], caveats: ['2 of 2 criteria not verified'] };
+        expect(stored().product).toEqual(unchecked);
+        expect(stored(descriptionHash('an older description')).product).toEqual(unchecked);
+        expect(rows(stored(), 'acceptance criteria')[0]).toMatchObject({ state: 'not verified', detail: 'stored verdict; the description was not re-checked' });
     });
 
     it('takes the criteria from the description the reviewer read', () => {

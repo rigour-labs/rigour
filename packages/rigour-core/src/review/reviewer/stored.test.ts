@@ -11,13 +11,13 @@ const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { 
 const FINGERPRINT = 'abcdef0123456789';
 
 /** A full verdict on HEAD as the reviewer stores it: the branch's state, the verdict, its open items and its record. */
-function store(head: string) {
+function store(head: string, base = git('merge-base', 'main', 'HEAD')) {
     const dir = path.join(repo, '.git', 'rigour-reviewer');
     fs.mkdirSync(path.join(dir, 'branches'), { recursive: true });
     const verdictFile = path.join(dir, `${head}.${FINGERPRINT.slice(0, 8)}.json`);
     const verdict = { prior_points: [], redundant: [], reads: [], scans: [], merge_impact: [], findings: [], carried: [], resolved_previous: [],
         goal: [{ item: 'refunds are capped', met: true, file: 'src/refund.ts', line: 1, quote: 'return Math.min(amount, charge);' }],
-        lessons: [{ lesson: 'page every query', applies: false }], inputs: { fingerprint: FINGERPRINT, reviewers: ['claude'] } };
+        lessons: [{ lesson: 'page every query', applies: false }], inputs: { fingerprint: FINGERPRINT, base, reviewers: ['claude'], body_sha256: 'b0d1' } };
     const record = buildRecord({ head, base: 'b'.repeat(40), scope: 'full', verdict: verdict as never, accounted: { open: [], advisory: [], unverified: [], notes: [], resolved: [], answerInReply: [], disputed: [], dismissed: [] }, judges: [{ reviewer: 'claude' }], lessonsServed: 1, humanReviews: 0 });
     fs.writeFileSync(verdictFile, JSON.stringify(verdict));
     fs.writeFileSync(verdictFile.replace(/\.json$/, '.open.json'), '[]');
@@ -28,10 +28,12 @@ function store(head: string) {
 
 beforeEach(() => {
     repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'stored-verdict-')));
-    git('init', '-q', '-b', 'feat');
+    git('init', '-q', '-b', 'main');
     git('config', 'user.email', 't@example.com');
     git('config', 'user.name', 't');
     git('config', 'commit.gpgsign', 'false');
+    git('commit', '-q', '--allow-empty', '-m', 'init');
+    git('checkout', '-q', '-b', 'feat');
     fs.mkdirSync(path.join(repo, 'src'));
     fs.writeFileSync(path.join(repo, 'src/refund.ts'), 'export const cap = (amount: number, charge: number) => {\n  return Math.min(amount, charge);\n};\n');
     git('add', '-A');
@@ -42,8 +44,8 @@ afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, r
 describe('storedReviewerResult', () => {
     it('reads a full verdict stored for this exact commit, with its record, goal answers checked against the checkout, and lesson answers', async () => {
         store(git('rev-parse', 'HEAD'));
-        const result = await storedReviewerResult(repo);
-        expect(result).toMatchObject({ outcome: 'passed', cached: true, goal: [{ item: 'refunds are capped', met: true, checked: true }], lessonAnswers: { repeated: 0, notRepeated: 1 } });
+        const result = await storedReviewerResult(repo, 'main');
+        expect(result).toMatchObject({ outcome: 'passed', cached: true, goal: [{ item: 'refunds are capped', met: true, checked: true }], lessonAnswers: { repeated: 0, notRepeated: 1 }, stored: { bodySha256: 'b0d1' } });
         expect(result?.record?.head).toBe(git('rev-parse', 'HEAD'));
     });
 
@@ -51,9 +53,21 @@ describe('storedReviewerResult', () => {
         const file = store(git('rev-parse', 'HEAD'));
         const record = JSON.parse(fs.readFileSync(file.replace(/\.json$/, '.record.json'), 'utf8'));
         fs.writeFileSync(file.replace(/\.json$/, '.record.json'), JSON.stringify({ ...record, verified: { ...record.verified, blocking: [], rules: { served: 9, followed: 9, broken: 0, not_applicable: 0 } } }));
-        expect(await storedReviewerResult(repo)).toBeUndefined();
+        expect(await storedReviewerResult(repo, 'main')).toBeUndefined();
         store(git('rev-parse', 'HEAD'));
         git('commit', '-q', '--allow-empty', '-m', 'more');
-        expect(await storedReviewerResult(repo)).toBeUndefined();
+        expect(await storedReviewerResult(repo, 'main')).toBeUndefined();
+    });
+
+    it('has none when this run reviews uncommitted work: changes to tracked files, or no branch base at all', async () => {
+        store(git('rev-parse', 'HEAD'));
+        expect(await storedReviewerResult(repo, undefined)).toBeUndefined();
+        fs.appendFileSync(path.join(repo, 'src/refund.ts'), '// not reviewed\n');
+        expect(await storedReviewerResult(repo, 'main')).toBeUndefined();
+    });
+
+    it('has none when the verdict reviewed the branch against another base', async () => {
+        store(git('rev-parse', 'HEAD'), 'f'.repeat(40));
+        expect(await storedReviewerResult(repo, 'main')).toBeUndefined();
     });
 });
