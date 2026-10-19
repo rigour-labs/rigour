@@ -26,22 +26,28 @@ function store(head: string, base = git('rev-parse', 'main^{commit}')) {
     return verdictFile;
 }
 
-beforeEach(() => {
-    repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'stored-verdict-')));
+/** A repository with `main`, and `feat` one commit ahead, under the given line-ending setting. */
+function setUp(autocrlf: string): void {
+    // The temporary folder as the OS names it, not its real path (macOS /var is /private/var; Windows' temp folder is an
+    // 8.3 short name): git names the store by the real path, so the store's paths and these spellings differ.
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'stored-verdict-'));
     git('init', '-q', '-b', 'main');
     git('config', 'user.email', 't@example.com');
     git('config', 'user.name', 't');
     git('config', 'commit.gpgsign', 'false');
+    git('config', 'core.autocrlf', autocrlf);
     git('commit', '-q', '--allow-empty', '-m', 'init');
     git('checkout', '-q', '-b', 'feat');
     fs.mkdirSync(path.join(repo, 'src'));
     fs.writeFileSync(path.join(repo, 'src/refund.ts'), 'export const cap = (amount: number, charge: number) => {\n  return Math.min(amount, charge);\n};\n');
     git('add', '-A');
     git('commit', '-qm', 'refunds');
-});
+}
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
-describe('storedReviewerResult', () => {
+describe.each(['false', 'true'])('storedReviewerResult, core.autocrlf %s', crlf => {
+    beforeEach(() => setUp(crlf));
+
     it('reads a full verdict stored for this exact commit, with its record, goal answers checked against the checkout, and lesson answers', async () => {
         store(git('rev-parse', 'HEAD'));
         const result = await storedReviewerResult(repo, 'main');

@@ -5,6 +5,7 @@
  * tracked file, the branch's last verdict a full review of HEAD, its file the one its own fingerprint names, and its
  * record intact. Otherwise there is no stored verdict, and the model review reads "not run".
  */
+import fs from 'fs';
 import type { ReviewerResult } from '../reviewer.js';
 import type { ReviewerName } from './adapters.js';
 import { goalAnswers, lessonAnswers } from './answers.js';
@@ -42,9 +43,23 @@ async function verdictOnHead(store: VerdictStore, git: Git, base: string): Promi
     const verdict = store.readJson<StoredVerdict>(state.verdict);
     const record = store.readJson<ReviewRecord>(store.recordPath(state.verdict));
     const fingerprint = verdict?.inputs?.fingerprint;
-    if (!verdict || !record || !fingerprint || state.verdict !== store.verdictPath(head, fingerprint)) return undefined;
+    if (!verdict || !record || !fingerprint || !sameFile(state.verdict, store.verdictPath(head, fingerprint))) return undefined;
     if (!baseSha || verdict.inputs?.base !== baseSha || record.head !== head || !recordIntact(record)) return undefined;
     return { state, verdict, record };
+}
+
+/**
+ * Whether two paths name the same file, however each is spelled: the branch's state keeps the path the writing run
+ * used, and the store's own comes from git, which names the real path (macOS /var is /private/var; on Windows, forward
+ * slashes, a long name for an 8.3 short one, a drive letter's case).
+ */
+function sameFile(a: string, b: string): boolean {
+    try {
+        const [x, y] = [fs.realpathSync.native(a), fs.realpathSync.native(b)];
+        return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y;
+    } catch {
+        return false;
+    }
 }
 
 function resultOf(cwd: string, store: VerdictStore, { state, verdict, record }: Found): ReviewerResult {
