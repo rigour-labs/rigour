@@ -11,7 +11,8 @@ import fs from 'fs';
 import path from 'path';
 import type { Config } from '../types/index.js';
 import { defaultExec, type Exec, type Progress } from './reviewer/exec.js';
-import { matches, runBacktest, type BacktestItem, type BacktestOptions, type Ledger, type LedgerRound, type RoundResult } from './backtest.js';
+import { replayWarnings } from './backtest-replay.js';
+import { matches, runBacktest, unadjudicatedLine, unadjudicatedTotal, type BacktestItem, type BacktestOptions, type Ledger, type LedgerRound, type RoundResult } from './backtest.js';
 import { mergedPrs, roundsForPr } from './backtest-init.js';
 
 export const LAST_LEDGER_PATH = '.rigour/backtest-last.json';
@@ -29,6 +30,8 @@ export interface LastReport {
     early: EarlyCatch[];
     /** Points caught in the round they were raised. */
     sameRound: number;
+    /** Blocking findings that match no point and no must_not_flag row, over every round: scored neither way. */
+    unadjudicated: number;
     /** Points raised after a pull request's first review: the pool `early` is drawn from. */
     pointsLater: number;
     /** Rounds whose commit is no longer reachable (a force-push), with why. */
@@ -38,7 +41,7 @@ export interface LastReport {
     results: RoundResult[];
 }
 
-export interface LastOptions extends Pick<BacktestOptions, 'reviewer' | 'exec' | 'progress' | 'collect'> {
+export interface LastOptions extends Pick<BacktestOptions, 'reviewer' | 'exec' | 'progress' | 'collect' | 'shareDeps' | 'configNow' | 'configFile' | 'depsEnv'> {
     last: number;
 }
 
@@ -74,7 +77,7 @@ export async function backtestLast(cwd: string, config: Config, options: LastOpt
     fs.mkdirSync(path.join(cwd, path.dirname(LAST_LEDGER_PATH)), { recursive: true });
     fs.writeFileSync(path.join(cwd, LAST_LEDGER_PATH), JSON.stringify(ledger, null, 2));
     progress(`backtest: ${rounds.length} round(s) from ${prs.length} merged pull request(s), ledger written to ${LAST_LEDGER_PATH}`);
-    const results = await runBacktest(cwd, config, ledger, { reviewer: options.reviewer, exec, progress, collect: options.collect });
+    const results = await runBacktest(cwd, config, ledger, { reviewer: options.reviewer, exec, progress, collect: options.collect, shareDeps: options.shareDeps, configNow: options.configNow, configFile: options.configFile, depsEnv: options.depsEnv });
     return { ...scoreLast(ledger, results), skipped };
 }
 
@@ -110,6 +113,7 @@ export function scoreLast(ledger: Ledger, results: RoundResult[]): Omit<LastRepo
         blocksOnApproved,
         early,
         sameRound: results.reduce((n, r) => n + r.points.filter(p => p.caught).length, 0),
+        unadjudicated: unadjudicatedTotal(results),
         pointsLater,
         ...(costs.length ? { costUsd: costs.reduce((a, b) => a + b, 0) } : {}),
         durationMs: results.reduce((n, r) => n + r.durationMs, 0),
@@ -133,7 +137,13 @@ export function formatLast(r: LastReport): string {
     }
     for (const e of r.early) lines.push(`  pr ${e.pr}, ${e.round}: "${e.point.slice(0, 100)}" blocked ${e.roundsEarlier} round(s) earlier by ${e.by}`);
     lines.push(`${r.sameRound} point(s) caught in the round they were raised. ${r.prs} pull request(s), ${r.rounds} round(s)${r.costUsd !== undefined ? `, $${r.costUsd.toFixed(2)}` : ''}, ${Math.round(r.durationMs / 1000)} s.`);
+    lines.push(...caveats(r.results));
     for (const s of r.skipped) lines.push(`skipped ${s}`);
     lines.push(`The ledger it ran is in ${LAST_LEDGER_PATH}; nothing was sent anywhere.`);
     return lines.join('\n');
+}
+
+/** What the numbers leave out: blocking findings no person judged, and each round that ran on something other than its commit's own. */
+function caveats(results: RoundResult[]): string[] {
+    return [unadjudicatedLine(results), ...results.flatMap(result => replayWarnings(result.replay).map(warning => `  ${result.round}: ${warning}`))];
 }

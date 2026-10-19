@@ -6,17 +6,23 @@
  * caught with no false block, so a rule change is measured, not believed.
  */
 import chalk from 'chalk';
-import { backtestLast, backtestPassed, formatBacktest, formatLast, loadLedger, runBacktest, scaffoldLedger, LEDGER_PATH } from '@rigour-labs/core';
+import path from 'path';
+import { backtestLast, backtestPassed, formatBacktest, formatLast, loadLedger, runBacktest, scaffoldLedger, unadjudicatedTotal, LEDGER_PATH } from '@rigour-labs/core';
 import { loadConfig, UsageError } from './review-config.js';
 
-export interface BacktestOptions { round?: string; reviewer?: boolean; json?: boolean; config?: string; last?: string }
+export interface BacktestOptions { round?: string; reviewer?: boolean; json?: boolean; config?: string; last?: string; shareDeps?: boolean; configNow?: boolean; depsEnv?: boolean }
+
+/** What every round is held to besides its commit: the settings (the file -c names, as it is today), and how its dependencies are installed. */
+function replayOptions(cwd: string, options: BacktestOptions) {
+    return { shareDeps: options.shareDeps, configNow: options.configNow, depsEnv: options.depsEnv, configFile: options.config ? path.relative(cwd, path.resolve(cwd, options.config)) : undefined };
+}
 
 export async function backtestCommand(cwd: string, options: BacktestOptions): Promise<number> {
     const config = await loadConfig(cwd, options);
     if (options.last !== undefined) {
         const last = Number(options.last);
         if (!Number.isInteger(last) || last <= 0) throw new UsageError('--last takes how many merged pull requests to run, a positive number');
-        const report = await backtestLast(cwd, config, { last, reviewer: options.reviewer, progress: message => process.stderr.write(`${message}\n`) });
+        const report = await backtestLast(cwd, config, { last, reviewer: options.reviewer, ...replayOptions(cwd, options), progress: message => process.stderr.write(`${message}\n`) });
         if (options.json) console.log(JSON.stringify(report, null, 2));
         else console.log((report.blocksOnApproved.length ? chalk.red : chalk.green)(formatLast(report)));
         return report.blocksOnApproved.length ? 1 : 0;
@@ -25,10 +31,11 @@ export async function backtestCommand(cwd: string, options: BacktestOptions): Pr
     const results = await runBacktest(cwd, config, ledger, {
         round: options.round,
         reviewer: options.reviewer,
+        ...replayOptions(cwd, options),
         progress: message => process.stderr.write(`${message}\n`),
     });
     const passed = backtestPassed(results);
-    if (options.json) console.log(JSON.stringify({ passed, rounds: results }, null, 2));
+    if (options.json) console.log(JSON.stringify({ passed, unadjudicated: unadjudicatedTotal(results), rounds: results }, null, 2));
     else console.log((passed ? chalk.green : chalk.red)(formatBacktest(results)));
     return passed ? 0 : 1;
 }
