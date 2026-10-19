@@ -1,0 +1,75 @@
+/**
+ * The model reviewer's stored verdict, for a readiness verdict (readiness.ts) on a run that did not ask for the
+ * reviewer: the background review at push already judged this commit. It is used only when this run reviews exactly
+ * what the verdict reviewed: the branch against the same base commit (`--base`), with no uncommitted change to a
+ * tracked file, the branch's last verdict a full review of HEAD, its file the one its own fingerprint names, and its
+ * record intact. Otherwise there is no stored verdict, and the model review reads "not run".
+ */
+import fs from 'fs';
+import type { ReviewerResult } from '../reviewer.js';
+import type { ReviewerName } from './adapters.js';
+import { goalAnswers, lessonAnswers } from './answers.js';
+import { dismissedAs, readReviewDismissals } from './context.js';
+import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
+import { recordIntact, type ReviewRecord } from './record.js';
+import { VerdictStore, type BranchState } from './store.js';
+import { checkoutVerifier, type OpenItem, type Verdict } from './verdict.js';
+
+type StoredVerdict = Verdict & { inputs?: { fingerprint?: string; base?: string; reviewers?: string[]; body_sha256?: string | null } };
+type Git = (args: string[]) => Promise<string>;
+
+/** `base`: the ref this run reviews the branch against; undefined when it reviews anything else (uncommitted work, a diff, files). */
+export async function storedReviewerResult(cwd: string, base: string | undefined, exec: Exec = defaultExec): Promise<ReviewerResult | undefined> {
+    if (!base) return undefined;
+    try {
+        const git: Git = async args => (await exec('git', args, { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout.trim();
+        if (await git(['status', '--porcelain', '--untracked-files=no'])) return undefined;
+        const store = await VerdictStore.open(cwd, exec);
+        const found = store ? await verdictOnHead(store, git, base) : undefined;
+        return found ? resultOf(cwd, store!, found) : undefined;
+    } catch {
+        return undefined; // a stored verdict is a courtesy: without one, the model review reads "not run"
+    }
+}
+
+interface Found { state: BranchState; verdict: StoredVerdict; record: ReviewRecord }
+
+/** The branch's last verdict, when it is a full review of HEAD against the commit this run's base names, unchanged since it was written. */
+async function verdictOnHead(store: VerdictStore, git: Git, base: string): Promise<Found | undefined> {
+    // The reviewer stores the base ref's tip (`rev-parse <base>^{commit}`), not the merge base: the same is compared here.
+    const [head, branch, baseSha] = [await git(['rev-parse', 'HEAD']), await git(['rev-parse', '--abbrev-ref', 'HEAD']), await git(['rev-parse', `${base}^{commit}`])];
+    const state = branch && branch !== 'HEAD' ? store.branchState(branch) : undefined;
+    if (!state || state.head !== head || state.mode !== 'full') return undefined;
+    const verdict = store.readJson<StoredVerdict>(state.verdict);
+    const record = store.readJson<ReviewRecord>(store.recordPath(state.verdict));
+    const fingerprint = verdict?.inputs?.fingerprint;
+    if (!verdict || !record || !fingerprint || !sameFile(state.verdict, store.verdictPath(head, fingerprint))) return undefined;
+    if (!baseSha || verdict.inputs?.base !== baseSha || record.head !== head || !recordIntact(record)) return undefined;
+    return { state, verdict, record };
+}
+
+/**
+ * Whether two paths name the same file, however each is spelled: the branch's state keeps the path the writing run
+ * used, and the store's own comes from git, which names the real path (macOS /var is /private/var; on Windows, forward
+ * slashes, a long name for an 8.3 short one, a drive letter's case).
+ */
+function sameFile(a: string, b: string): boolean {
+    try {
+        const [x, y] = [fs.realpathSync.native(a), fs.realpathSync.native(b)];
+        return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y;
+    } catch {
+        return false;
+    }
+}
+
+function resultOf(cwd: string, store: VerdictStore, { state, verdict, record }: Found): ReviewerResult {
+    const dismissals = readReviewDismissals(cwd);
+    const open = (store.readJson<OpenItem[]>(store.openPath(state.verdict)) ?? []).filter(item => !dismissedAs(item, dismissals));
+    return {
+        outcome: open.length ? 'findings' : 'passed', items: open, unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [],
+        reviewers: (verdict.inputs?.reviewers ?? []) as ReviewerName[], cached: true, record,
+        ...(verdict.goal?.length ? { goal: goalAnswers(verdict.goal, checkoutVerifier(cwd)) } : {}),
+        lessonAnswers: lessonAnswers(verdict.lessons ?? []),
+        stored: verdict.inputs?.body_sha256 ? { bodySha256: verdict.inputs.body_sha256 } : {},
+    };
+}

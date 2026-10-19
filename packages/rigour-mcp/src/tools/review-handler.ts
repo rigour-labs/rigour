@@ -5,7 +5,7 @@
  * With no diff, the change is taken from git: uncommitted work (what the
  * agent just wrote, new files included), or the branch against `base`.
  */
-import { acknowledgeReview, buildQualityReceipt, buildReviewTask, receiptReport, diffFromGit, recordFixLessons, recordLessonsServed, recordReviewOutcome, reviewChange, toReviewFinding, type Config } from "@rigour-labs/core";
+import { acknowledgeReview, buildQualityReceipt, buildReviewTask, receiptReport, diffFromGit, readiness, readinessJson, recordFixLessons, storedReviewerResult, recordLessonsServed, recordReviewOutcome, reviewChange, toReviewFinding, type Config, type QualityReceipt, type ReviewResult } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
@@ -26,12 +26,22 @@ export interface ReviewAckArgs {
 }
 
 /** What is known about each changed function before a model looks; never fails the review. */
-function qualityReceipt(config: Config, cwd: string, diff: string) {
+function qualityReceipt(config: Config, cwd: string, diff: string): QualityReceipt | null {
     try {
-        return { quality_receipt: receiptReport(buildQualityReceipt(cwd, diff, { policy: config.gates.deep?.router, lessonMode: config.gates.deep?.review_lessons })) };
+        return buildQualityReceipt(cwd, diff, { policy: config.gates.deep?.router, lessonMode: config.gates.deep?.review_lessons });
     } catch {
-        return {};
+        return null;
     }
+}
+
+/**
+ * Technically and product ready, and the coverage table, as `rigour review --json` gives them. The tool runs no model
+ * reviewer and reads no description: a branch review (`base`, nothing uncommitted) takes the rows from the verdict
+ * stored for this commit, if any, and what nothing verified is listed as not verified, never as a pass.
+ */
+async function readinessReport(cwd: string, args: ReviewArgs, result: ReviewResult, receipt: QualityReceipt | null) {
+    const branch = args.diff || args.files?.length ? undefined : args.base;
+    return readinessJson(readiness({ review: result, reviewer: await storedReviewerResult(cwd, branch), receipt, reviewerAsked: false }));
 }
 
 export async function handleReview(config: Config, cwd: string, args: ReviewArgs): Promise<ToolResult> {
@@ -44,8 +54,10 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
         if (task) recordLessonsServed(cwd, 'review', task.lessons.map(l => l.text));
         await recordFixLessons(cwd, capture.fixes).catch(() => undefined); // learning never fails a review
         const stats = result.report?.stats;
+        const receipt = qualityReceipt(config, cwd, diff);
         return text({
             status: result.status,
+            readiness: await readinessReport(cwd, args, result, receipt),
             score: stats?.score ?? 100,
             ai_health_score: stats?.ai_health_score,
             structural_score: stats?.structural_score,
@@ -59,7 +71,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
             preexisting_not_reported: result.preexisting,
             unlocated_failures: result.unlocated,
             gate_errors: result.gateErrors,
-            ...qualityReceipt(config, cwd, diff),
+            ...(receipt ? { quality_receipt: receiptReport(receipt) } : {}),
             ...(task ? { review_task: { items: task.items, already_reviewed: task.alreadyReviewed, team_lessons: task.lessons, repo_rules: task.rules, instructions: task.instructions } } : {}),
             next_step: nextStep(result.findings.length, task?.items.length ?? 0),
         });

@@ -6,7 +6,7 @@
  * first, each posted once across pushes, and one summary comment that is
  * edited in place on every push rather than re-posted.
  */
-import { recordLines, type ReviewRecord } from '@rigour-labs/core';
+import { readinessMarkdown, recordLines, type Readiness, type ReviewRecord } from '@rigour-labs/core';
 import crypto from 'crypto';
 import fs from 'fs';
 
@@ -41,6 +41,8 @@ export interface ReviewReport {
     receipt?: ReportReceipt;
     /** The reviewer's part of `rigour review --json`, when it ran: its record is what the summary shows. */
     reviewer?: { record?: ReviewRecord | null };
+    /** Technically and product ready, and the coverage table (review-readiness.ts); absent in a report from before 7.1. */
+    readiness?: Readiness;
 }
 
 /** The quality receipt as `rigour review --json` writes it (review-receipt.ts). */
@@ -136,6 +138,7 @@ export function summaryBody(report: ReviewReport, total: number, inline: number,
             ? 'No findings on the lines this PR changes.'
             : `${total} finding(s) on changed lines; ${inline} posted inline now${alreadyPosted ? `, ${alreadyPosted} posted on an earlier push` : ''}. The rest are in the job summary.`,
     ];
+    if (report.readiness) lines.push('', ...readinessMarkdown(report.readiness));
     if (report.context_findings?.length) lines.push('', `${report.context_findings.length} note(s) elsewhere in changed files (not blocking).`);
     if (report.receipt && report.receipt.functions > 0) lines.push('', ...receiptLines(report.receipt));
     if (report.reviewer?.record) lines.push('', ...recordLines(report.reviewer.record));
