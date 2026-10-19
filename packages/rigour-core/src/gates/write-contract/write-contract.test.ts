@@ -3,6 +3,8 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WriteContractGate } from './index.js';
+import { GateRunner } from '../runner.js';
+import { ConfigSchema } from '../../types/index.js';
 
 let repo: string;
 const write = (rel: string, body: string) => {
@@ -192,5 +194,15 @@ export const a = () => supabase.from('acme_invoices').insert({ total: 1 });
 export const b = () => supabase.from('acme_accounts').insert({ org_id: '1', nickname: 'x' });
 `);
         expect(await run()).toEqual([]);
+    });
+});
+
+describe('the write contract in a run\'s summary', () => {
+    it('is NOTE, not FAIL, while the gate does not block, and FAIL once it does', async () => {
+        migrate(ACCOUNTS);
+        write('src/create.ts', `${client}export const create = (orgId: string) => supabase.from('acme_accounts').insert({ org_id: orgId });\n`);
+        const summary = async (block: boolean) => (await new GateRunner(ConfigSchema.parse({ version: 1, gates: { write_contract: { block } } })).run(repo, ['src/**/*.ts'])).summary['write-contract'];
+        expect(await summary(false)).toBe('NOTE');
+        expect(await summary(true)).toBe('FAIL');
     });
 });

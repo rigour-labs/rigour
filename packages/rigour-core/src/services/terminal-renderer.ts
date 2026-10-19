@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import type { Report, Failure, Severity, Status } from '../types/index.js';
+import { noteLine, reportNotes } from './report-notes.js';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ export function renderGateGrid(gates: GateResult[]): string {
 
     const lines: string[] = ['  Gates:'];
     const entries = gates.map(g => {
-        const icon = g.status === 'PASS' ? chalk.green('\u{2705}') : g.status === 'FAIL' ? chalk.red('\u{274C}') : chalk.dim('\u{23ED}');
+        const icon = g.status === 'PASS' ? chalk.green('\u{2705}') : g.status === 'FAIL' ? chalk.red('\u{274C}') : g.status === 'NOTE' ? chalk.blue('\u{2139}') : chalk.dim('\u{23ED}');
         return `${icon} ${g.id}`;
     });
 
@@ -259,37 +260,17 @@ export function renderFullReport(report: Report, options: RenderOptions = {}): s
 // ── MCP Headline (for agent tool responses) ────────────────────────
 
 export function renderMcpHeadline(report: Report): string {
+    const notes = reportNotes(report);
     if (report.status === 'PASS') {
         const score = report.stats.score ?? 100;
-        return `\u{2705} RIGOUR: ALL GATES PASSED (Score: ${score}/100)`;
+        const count = notes.length ? ` (${notes.length} note${notes.length === 1 ? '' : 's'}, not blocking)` : '';
+        return `\u{2705} RIGOUR: ALL GATES PASSED${count} (Score: ${score}/100)${notesList(notes)}`;
     }
-
-    const sev = report.stats.severity_breakdown || {};
-    const critical = sev['critical'] || 0;
-    const high = sev['high'] || 0;
-    const total = report.failures.length;
-
-    const parts: string[] = [];
-
-    // Lead with scariest findings
-    const secrets = report.failures.filter(f => f.id === 'security-patterns' && f.severity === 'critical');
-    const hallucinated = report.failures.filter(f => f.id === 'hallucinated-imports');
-
-    if (secrets.length > 0) {
-        const loc = secrets[0].files?.[0] || '';
-        parts.push(`Hardcoded secret${secrets.length > 1 ? 's' : ''} in ${loc || 'source'}`);
-    }
-    if (hallucinated.length > 0) {
-        parts.push(`${hallucinated.length} hallucinated import(s)`);
-    }
-
-    // Add top critical/high by title if we haven't filled 3 yet
-    const topFindings = report.failures
-        .filter(f => (f.severity === 'critical' || f.severity === 'high') && f.id !== 'security-patterns' && f.id !== 'hallucinated-imports')
-        .slice(0, 3 - parts.length);
-    for (const f of topFindings) {
-        parts.push(f.title);
-    }
+    const blocking = report.failures.filter(f => !notes.includes(f));
+    const critical = blocking.filter(f => f.severity === 'critical').length;
+    const high = blocking.filter(f => f.severity === 'high').length;
+    const total = blocking.length;
+    const parts = scariest(blocking);
 
     const headline = critical > 0
         ? `\u{26A8} RIGOUR BLOCKED ${critical} CRITICAL ISSUE${critical !== 1 ? 'S' : ''}`
@@ -302,7 +283,26 @@ export function renderMcpHeadline(report: Report): string {
         : '';
 
     const score = report.stats.score ?? 0;
-    return `${headline}${bulletList}\n\nScore: ${score}/100 | ${total} violations`;
+    const noted = notes.length ? `\nAlso ${notes.length} note${notes.length === 1 ? '' : 's'}, not blocking:${notesList(notes)}` : '';
+    return `${headline}${bulletList}\n\nScore: ${score}/100 | ${total} violations${noted}`;
+}
+
+/** Up to three findings to lead with: secrets, hallucinated imports, then the worst by severity. */
+function scariest(failures: Failure[]): string[] {
+    const parts: string[] = [];
+    const secrets = failures.filter(f => f.id === 'security-patterns' && f.severity === 'critical');
+    const hallucinated = failures.filter(f => f.id === 'hallucinated-imports');
+    if (secrets.length > 0) parts.push(`Hardcoded secret${secrets.length > 1 ? 's' : ''} in ${secrets[0].files?.[0] || 'source'}`);
+    if (hallucinated.length > 0) parts.push(`${hallucinated.length} hallucinated import(s)`);
+    const top = failures
+        .filter(f => (f.severity === 'critical' || f.severity === 'high') && f.id !== 'security-patterns' && f.id !== 'hallucinated-imports')
+        .slice(0, 3 - parts.length);
+    return [...parts, ...top.map(f => f.title)];
+}
+
+/** Notes the agent should see, one per line with file and line. */
+function notesList(notes: Failure[]): string {
+    return notes.map(note => `\n- [${note.id}] ${noteLine(note)}`).join('');
 }
 
 // ── MCP Fix Attribution ────────────────────────────────────────────

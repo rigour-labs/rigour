@@ -262,7 +262,10 @@ gates:
 ```
 
 `enabled: false` turns it off. `rigour check`, the whole-repository audit, lists its findings as notes and passes
-(exit code 0) when they are the only ones; with `block: true` they fail it like any other finding.
+(exit code 0) when they are the only ones; with `block: true` they fail it like any other finding. While they are
+notes, the check's status in the run's summary is `NOTE`, not `FAIL`: `rigour check` shows it with its own symbol,
+`--json` and `--ci` say `NOTE`, `rigour explain` lists them as notes, not blocking, and the MCP `rigour_check` and
+`rigour_explain` tools give the agent each note with its file and line.
 
 The parsed migrations are kept for the life of the process, keyed by each file's path, size and modification time, so
 an edit hook or a long-running server replays them only when a migration changes.

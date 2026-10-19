@@ -548,7 +548,12 @@ export type RawCommands = z.input<typeof CommandsSchema>;
 export type RawHooks = z.input<typeof HooksSchema>;
 export type RawConfig = z.input<typeof ConfigSchema>;
 
-export const StatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR']);
+/**
+ * A run's status, and each check's in its summary. NOTE is a check's only: it found something, as notes that never
+ * block (a gate the team has not opted in to blocking, such as the write contract). A reader that does not know NOTE
+ * should read it as not PASS.
+ */
+export const StatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR', 'NOTE']);
 export type Status = z.infer<typeof StatusSchema>;
 
 export const SeveritySchema = z.enum(['critical', 'high', 'medium', 'low', 'info']);

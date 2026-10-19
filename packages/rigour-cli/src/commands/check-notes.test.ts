@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkCommand } from './check.js';
+import { explainCommand } from './explain.js';
 
 let repo: string;
 const write = (rel: string, body: string) => {
@@ -17,7 +18,29 @@ async function check(): Promise<{ code: number | undefined; report: any }> {
     vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string, done?: () => void) => { out += chunk; done?.(); return true; }) as never);
     vi.spyOn(process, 'exit').mockImplementation(((c?: number) => { code = c; }) as never);
     await checkCommand(repo, [], { json: true, cache: false });
+    vi.restoreAllMocks();
     return { code, report: JSON.parse(out) };
+}
+
+/** Runs `rigour check --ci` (with the incremental cache unless told otherwise) and returns what it printed and its exit code. */
+async function checkCi(cache = true): Promise<{ code: number | undefined; out: string }> {
+    const lines: string[] = [];
+    let code: number | undefined;
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { lines.push(args.join(' ')); });
+    // The first exit is the command's verdict; throwing stops it there, as a real exit would.
+    vi.spyOn(process, 'exit').mockImplementation(((c?: number) => { code ??= c; throw new Error('exit'); }) as never);
+    await checkCommand(repo, [], { ci: true, cache }).catch(() => undefined);
+    vi.restoreAllMocks();
+    return { code, out: lines.join('\n') };
+}
+
+/** Runs `rigour explain` on the report the last check wrote and returns what it printed. */
+async function explain(): Promise<string> {
+    const lines: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { lines.push(args.join(' ')); });
+    await explainCommand(repo);
+    vi.restoreAllMocks();
+    return lines.join('\n').replace(/\x1b\[[0-9;]*m/g, '');
 }
 
 beforeEach(() => {
@@ -39,7 +62,23 @@ describe('rigour check and a check that does not block', () => {
         const { code, report } = await check();
         expect(report.failures.map((f: any) => f.id)).toEqual(['write-contract']);
         expect(report.status).toBe('PASS');
+        expect(report.summary['write-contract']).toBe('NOTE');
         expect(code).toBe(0);
+    });
+
+    it('prints the note in --ci, fresh and from the cache, and explain calls it a note, not a violation', async () => {
+        write('rigour.yml', 'version: 1\n');
+        const NOTE_LINE = "  - [NOTE] [write-contract] src/sync.ts:3: Rows in this insert into `acme_jobs` don't all set `ran_at`";
+        for (const run of [await checkCi(), await checkCi()]) {
+            expect(run.code).toBe(0);
+            expect(run.out).toContain(NOTE_LINE);
+        }
+        expect((await checkCi()).out).toContain('(cached)');
+        const explained = await explain();
+        expect(explained).toContain('Status: ✅ PASS (1 note, not blocking)');
+        expect(explained).toContain('ℹ️ write-contract: notes, not blocking');
+        expect(explained).not.toContain('Violation(s) to Fix');
+        expect(explained).toContain("1. [WRITE-CONTRACT] src/sync.ts:3: Rows in this insert");
     });
 
     it('fails on it once the team opts in to blocking', async () => {

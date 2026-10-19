@@ -38,7 +38,7 @@ export class WriteContractGate extends Gate {
         super('write-contract', 'Write the database will reject');
     }
 
-    override get reportOnly(): boolean {
+    override get advisory(): boolean {
         return !this.config.block;
     }
 

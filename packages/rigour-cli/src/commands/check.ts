@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import yaml from 'yaml';
-import { GateRunner, ConfigSchema, normalizeScopePatterns, deepAnalysisError, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend, IncrementalCache, renderFullReport, type RenderOptions } from '@rigour-labs/core';
+import { GateRunner, ConfigSchema, normalizeScopePatterns, noteLine, reportNotes, type Report, deepAnalysisError, Failure, recordScore, getScoreTrend, resolveDeepOptions, loadSettings, generateTemporalDriftReport, getProvenanceTrends, getQualityTrend, IncrementalCache, renderFullReport, type RenderOptions } from '@rigour-labs/core';
 import type { DeepOptions } from '@rigour-labs/core';
 import { input, select, Separator } from '@inquirer/prompts';
 import { randomUUID } from 'crypto';
@@ -97,6 +97,7 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
                     if (options.ci) {
                         const scoreStr = result.report.stats.score !== undefined ? ` (${result.report.stats.score}/100)` : '';
                         console.log(`${result.report.status}${scoreStr} (cached)`);
+                        printCiNotes(result.report);
                         process.exit(result.report.status === 'PASS' ? EXIT_PASS : EXIT_FAIL);
                     }
 
@@ -240,19 +241,20 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
 
         // CI mode: minimal output with score
         if (options.ci) {
+            const notes = reportNotes(report);
             if (report.status === 'PASS') {
                 const scoreStr = report.stats.score !== undefined ? ` (${report.stats.score}/100)` : '';
-                const noteStr = report.failures.length ? `, ${report.failures.length} note(s), not blocking` : '';
-                console.log(`PASS${scoreStr}${noteStr}`);
-                report.failures.forEach((f: Failure) => console.log(`  - [NOTE] [${f.id}] ${f.title}`));
+                console.log(`PASS${scoreStr}`);
             } else {
                 const scoreStr = report.stats.score !== undefined ? ` Score: ${report.stats.score}/100` : '';
-                console.log(`FAIL: ${report.failures.length} violation(s)${scoreStr}`);
-                report.failures.forEach((f: Failure) => {
+                const blocking = report.failures.filter((f: Failure) => !notes.includes(f));
+                console.log(`FAIL: ${blocking.length} violation(s)${scoreStr}`);
+                blocking.forEach((f: Failure) => {
                     const sev = (f.severity || 'medium').toUpperCase();
                     console.log(`  - [${sev}] [${f.id}] ${f.title}`);
                 });
             }
+            printCiNotes(report);
             process.exit(exitCodeFor(report));
         }
 
@@ -515,6 +517,11 @@ function renderDeepOutput(
 /**
  * Render standard AST-only output — uses shared terminal renderer.
  */
+/** `--ci`: each note on its own line, after the verdict it does not change. */
+function printCiNotes(report: Report): void {
+    for (const note of reportNotes(report)) console.log(`  - [NOTE] [${note.id}] ${noteLine(note)}`);
+}
+
 function renderStandardOutput(report: any, _config: any) {
     const trend = getScoreTrend(process.cwd());
     const renderOpts: RenderOptions = {

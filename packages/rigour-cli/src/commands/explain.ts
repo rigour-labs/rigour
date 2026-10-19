@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
+import { noteLine, reportNotes } from '@rigour-labs/core';
 
 export async function explainCommand(cwd: string) {
     const configPath = path.join(cwd, 'rigour.yml');
@@ -29,9 +30,12 @@ export async function explainCommand(cwd: string) {
         const report = JSON.parse(reportContent);
 
         console.log(chalk.bold('\n📋 Rigour Report Explanation\n'));
+        const notes = reportNotes(report);
+        const blocking = report.failures?.filter((f: any) => !notes.includes(f)) ?? [];
+        const noted = notes.length ? ` (${notes.length} note${notes.length === 1 ? '' : 's'}, not blocking)` : '';
         console.log(chalk.bold('Status: ') + (report.status === 'PASS'
-            ? chalk.green.bold('✅ PASS')
-            : chalk.red.bold('🛑 FAIL')));
+            ? chalk.green.bold(`✅ PASS${noted}`)
+            : chalk.red.bold(`🛑 FAIL${noted}`)));
 
         // Score summary
         if (report.stats) {
@@ -67,12 +71,12 @@ export async function explainCommand(cwd: string) {
 
         console.log(chalk.bold('\nGate Summary:'));
         for (const [gate, status] of Object.entries(report.summary || {})) {
-            const icon = status === 'PASS' ? '✅' : status === 'FAIL' ? '❌' : '⏭️';
-            console.log(`  ${icon} ${gate}: ${status}`);
+            const icon = status === 'PASS' ? '✅' : status === 'FAIL' ? '❌' : status === 'NOTE' ? 'ℹ️' : '⏭️';
+            console.log(`  ${icon} ${gate}: ${status === 'NOTE' ? 'notes, not blocking' : status}`);
         }
 
-        if (report.failures && report.failures.length > 0) {
-            console.log(chalk.bold.red(`\n🔧 ${report.failures.length} Violation(s) to Fix:\n`));
+        if (blocking.length > 0) {
+            console.log(chalk.bold.red(`\n🔧 ${blocking.length} Violation(s) to Fix:\n`));
 
             // Severity color helper
             const sevColor = (s: string) => {
@@ -85,7 +89,7 @@ export async function explainCommand(cwd: string) {
                 }
             };
 
-            report.failures.forEach((failure: any, index: number) => {
+            blocking.forEach((failure: any, index: number) => {
                 const sev = failure.severity || 'medium';
                 const sevLabel = sevColor(sev)(`[${sev.toUpperCase()}]`);
                 const provLabel = failure.provenance ? chalk.dim(`(${failure.provenance})`) : '';
@@ -100,7 +104,16 @@ export async function explainCommand(cwd: string) {
                 console.log('');
             });
         } else if (report.status === 'PASS') {
-            console.log(chalk.green('\n✨ All quality gates passed! No violations found.\n'));
+            console.log(chalk.green(`\n✨ All quality gates passed! ${notes.length ? 'Nothing blocks.' : 'No violations found.'}\n`));
+        }
+
+        if (notes.length > 0) {
+            console.log(chalk.bold.blue(`ℹ️  ${notes.length} note${notes.length === 1 ? '' : 's'}, not blocking (the team has not set the check to block):\n`));
+            notes.forEach((note: any, index: number) => {
+                console.log(`${index + 1}. ` + chalk.bold.blue(`[${note.id.toUpperCase()}]`) + ` ${noteLine(note)}`);
+                if (note.hint) console.log(chalk.green(`   💡 Hint: ${note.hint}`));
+            });
+            console.log('');
         }
 
         if (report.status === 'FAIL') {

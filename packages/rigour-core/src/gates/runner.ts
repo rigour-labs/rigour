@@ -184,7 +184,7 @@ export class GateRunner {
     async run(cwd: string, patterns?: string[], deepOptions?: DeepOptions & { onProgress?: (msg: string) => void }, runOptions: { record?: boolean } = {}): Promise<Report> {
         const start = Date.now();
         const failures: Failure[] = [];
-        /** Findings of a report-only gate: listed, never deciding the run's status. */
+        /** Findings of an advisory gate: listed, never deciding the run's status. */
         const notes = new Set<Failure>();
         const summary: Record<string, Status> = {};
         const skips: Record<string, string> = {};
@@ -213,9 +213,9 @@ export class GateRunner {
                 const gateFailures = await gate.run({ cwd, record, ignore, patterns, fileCache, skip: reason => { skipped = reason; } });
                 if (gateFailures.length > 0) {
                     for (const f of gateFailures) GATE_OF.set(f, gate.id);
-                    if (gate.reportOnly) for (const f of gateFailures) notes.add(f);
+                    if (gate.advisory) for (const f of gateFailures) notes.add(f);
                     failures.push(...gateFailures);
-                    summary[gate.id] = 'FAIL';
+                    summary[gate.id] = gate.advisory ? 'NOTE' : 'FAIL';
                 } else if (skipped !== undefined) {
                     summary[gate.id] = 'SKIP';
                     skips[gate.id] = skipped;
