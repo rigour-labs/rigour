@@ -17,7 +17,7 @@ export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, typ
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
 export { isControlFile, mergeBaseOf, readStateFile } from './review/trusted-state.js';
 export { dismissFinding, dismissedKeys, findingKey, isProven, mustFix, quietSplit, shownSeverity, DISMISSED_FILE } from './review/quiet.js';
-export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest, LEDGER_PATH, type Ledger, type RoundResult } from './review/backtest.js';
+export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest, unadjudicatedTotal, LEDGER_PATH, type Ledger, type RoundResult } from './review/backtest.js';
 export { scaffoldLedger } from './review/backtest-init.js';
 export type { CiResult, FollowUp, PrOutcome } from './outcomes/outcome.js';
 export { localOutcomeMetrics, runOutcomes, type OutcomesRun } from './outcomes/run.js';
@@ -50,6 +50,10 @@ export { decideCompiledCheck, proposeCompiledChecks, readCompiledChecks, suspens
 export { ruleWriterFor } from './review/reviewer/rule-writer.js';
 export { backtestLast, formatLast, scoreLast, LAST_LEDGER_PATH, type LastReport } from './review/backtest-last.js';
 export { buildRecord, coverageLine, recordLines, recordIntact, type ReviewRecord } from './review/reviewer/record.js';
+export { readiness, type Readiness, type ReadinessInput, type ReadinessVerdict, type ReadyState } from './review/readiness.js';
+export { type CoverageRow, type CoverageState } from './review/readiness-coverage.js';
+export { readinessJson, readinessLine, readinessMarkdown, coverageText } from './review/readiness-render.js';
+export { storedReviewerResult } from './review/reviewer/stored.js';
 export { readLessons, writeLessons, decideLesson, acceptSuggestedText, scopeLesson, lessonState, lastDecision, takeBackable, pendingDecision, quietBotCandidate, matchLessons, lessonText, lessonsPath, type ReviewLesson, type LessonEvidence } from './review-learning/lessons.js';
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
 export { recordAgentWrites, captureHumanEdits } from './review-learning/human-edits.js';

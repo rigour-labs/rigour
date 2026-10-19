@@ -19,6 +19,11 @@ import { reviewChange } from './review.js';
 import { defaultExec, runReviewer, type Exec, type OpenItem, type Progress } from './reviewer.js';
 import { reviewerInputs } from './reviewer/context.js';
 import { formatJudges, judgedFrom, type JudgeCatches, type JudgeRun } from './backtest-judges.js';
+import { linkDependencies } from './backtest-deps.js';
+import { configAtCommit, formatReplay, lessonsEnvIgnored, notIsolated, replayMoment, type Replay } from './backtest-replay.js';
+import { backtestJudgeHomes } from './reviewer/judge-isolation.js';
+import { readLessons } from '../review-learning/lessons.js';
+import { withLessonCutoff } from '../review-learning/lesson-cutoff.js';
 
 const Match = z.object({
     /** A regular expression over the finding's file path. */
@@ -66,6 +71,10 @@ export interface RoundResult {
     base: string;
     points: PointOutcome[];
     falseBlocks: BacktestItem[];
+    /** Blocking findings that match no point and no must_not_flag row: scored neither way. */
+    unadjudicated: number;
+    /** `pass`, `pass (N unadjudicated)` or `fail`: a pass never hides what was not scored. */
+    status: string;
     items: BacktestItem[];
     durationMs: number;
     /** Why the reviewer gave no verdict, when it ran. */
@@ -74,6 +83,8 @@ export interface RoundResult {
     costUsd?: number;
     /** With two or more judges: the ledger points each raised on its own, and the round's runs and cost. */
     judges?: JudgeCatches;
+    /** What the round ran with besides the commit's code: settings, dependencies, lessons and judges, each the commit's or today's. */
+    replay?: Replay;
 }
 
 export interface BacktestOptions {
@@ -83,6 +94,14 @@ export interface BacktestOptions {
     progress?: Progress;
     /** Produces the findings for a worktree; tests replace it. */
     collect?: (worktree: string, round: LedgerRound, config: Config) => Promise<Collected>;
+    /** Run every round on this checkout's dependencies, not the commit's (`--share-deps`). */
+    shareDeps?: boolean;
+    /** Review every round with today's settings, not the commit's rigour.yml (`--config-now`). */
+    configNow?: boolean;
+    /** The file -c named: every round reviews with it as it is today. */
+    configFile?: string;
+    /** Install the commit's dependencies with your whole environment, registry credentials included (`--deps-env`). */
+    depsEnv?: boolean;
 }
 
 export function loadLedger(cwd: string): Ledger {
@@ -126,19 +145,33 @@ export async function runBacktest(cwd: string, config: Config, ledger: Ledger, o
     const progress = options.progress ?? (() => undefined);
     const results: RoundResult[] = [];
     for (const round of rounds) {
-        const started = Date.now();
-        const worktree = await worktreeFor(cwd, round.commit, exec);
-        const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: worktree, timeoutMs: GIT_TIMEOUT_MS })).stdout.trim();
-        progress(`backtest ${round.id}: ${head.slice(0, 9)} against ${round.base}${round.reviewed_at ? `, reviews hidden from ${reviewsHiddenFrom(round)}` : ''}`);
-        const stale = await staleBase(worktree, head, round.base, exec);
-        if (stale) progress(`backtest ${round.id}: warning: ${stale}`);
-        const collect = options.collect ?? ((tree, r, c) => collectItems(tree, r, c, !!options.reviewer, exec, progress));
-        const { items, reviewerError, judged, costUsd } = await collect(worktree, round, config);
-        const result = { ...score(round, head, items, Date.now() - started, reviewerError), ...(judged ? { judges: judgeCatches(round, judged) } : {}), ...(costUsd !== undefined ? { costUsd } : {}) };
+        const result = await runRound(cwd, config, round, options, { exec, progress });
         record(cwd, result);
         results.push(result);
     }
     return results;
+}
+
+/** One round in the worktree at its commit, with the commit's settings and dependencies and the lessons as of its review. */
+async function runRound(cwd: string, today: Config, round: LedgerRound, options: BacktestOptions, { exec, progress }: { exec: Exec; progress: Progress }): Promise<RoundResult> {
+    const started = Date.now();
+    const worktree = await worktreeFor(cwd, round.commit, exec);
+    const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: worktree, timeoutMs: GIT_TIMEOUT_MS })).stdout.trim();
+    progress(`backtest ${round.id}: ${head.slice(0, 9)} against ${round.base}${round.reviewed_at ? `, reviews hidden from ${reviewsHiddenFrom(round)}` : ''}`);
+    const stale = await staleBase(worktree, head, round.base, exec);
+    if (stale) progress(`backtest ${round.id}: warning: ${stale}`);
+    const dependencies = await linkDependencies(cwd, worktree, { share: options.shareDeps, fullEnv: options.depsEnv, exec });
+    const { config, source } = configAtCommit(worktree, { today, cwd, now: options.configNow, file: options.configFile });
+    const moment = await replayMoment(worktree, round.reviewed_at, exec);
+    const envIgnored = lessonsEnvIgnored();
+    if (envIgnored) progress(`backtest ${round.id}: ${envIgnored}`);
+    const collect = options.collect ?? ((tree, r, c) => collectItems(tree, r, c, !!options.reviewer, exec, progress));
+    return withLessonCutoff(worktree, moment.at, async lessons => {
+        readLessons(worktree); // the report counts what the cutoff left out even when nothing in the round reads lessons
+        const { items, reviewerError, judged, costUsd, judgesNotIsolated } = await collect(worktree, round, config);
+        const replay: Replay = { asOf: `${moment.at} (${moment.why})`, config: source, dependencies, lessons: { ...lessons }, ...(envIgnored ? { lessonsEnvIgnored: envIgnored } : {}), ...(judgesNotIsolated?.length ? { judgesNotIsolated } : {}) };
+        return { ...score(round, head, items, Date.now() - started, reviewerError), ...(judged ? { judges: judgeCatches(round, judged) } : {}), ...(costUsd !== undefined ? { costUsd } : {}), replay };
+    });
 }
 
 /**
@@ -160,7 +193,7 @@ async function staleBase(worktree: string, head: string, base: string, exec: Exe
 
 /** Every point caught, nothing the reviewer called good flagged, and a verdict when the reviewer ran. */
 export function backtestPassed(results: RoundResult[]): boolean {
-    return results.every(r => r.points.every(p => p.caught) && r.falseBlocks.length === 0 && !r.reviewerError);
+    return results.every(r => r.status !== undefined && r.status !== 'fail');
 }
 
 export function score(round: LedgerRound, head: string, items: BacktestItem[], durationMs: number, reviewerError: string | undefined): RoundResult {
@@ -169,8 +202,13 @@ export function score(round: LedgerRound, head: string, items: BacktestItem[], d
         const noted = !hit && items.some(item => !item.blocking && matches(point, item));
         return { id: point.id, point: point.point, caught: !!hit, noted, ...(hit ? { by: `${hit.gate} ${hit.file}${hit.line ? `:${hit.line}` : ''}` } : {}) };
     });
-    const falseBlocks = items.filter(item => item.blocking && round.must_not_flag.some(guard => matches(guard, item)));
-    return { round: round.id, head, base: round.base, points, falseBlocks, items, durationMs, ...(reviewerError ? { reviewerError } : {}) };
+    // A head a person approved is code they called good as a whole: every block on it is a false block (backtest-init.ts).
+    const falseBlocks = items.filter(item => item.blocking && (round.approved || round.must_not_flag.some(guard => matches(guard, item))));
+    // An approved head's blocks are its false blocks above, never also unadjudicated.
+    const unadjudicated = round.approved ? 0 : items.filter(item => item.blocking && ![...round.points, ...round.must_not_flag].some(row => matches(row, item))).length;
+    const passed = points.every(p => p.caught) && falseBlocks.length === 0 && !reviewerError;
+    const status = !passed ? 'fail' : unadjudicated ? `pass (${unadjudicated} unadjudicated)` : 'pass';
+    return { round: round.id, head, base: round.base, points, falseBlocks, unadjudicated, status, items, durationMs, ...(reviewerError ? { reviewerError } : {}) };
 }
 
 /** The file pattern must match, then either the line window holds the finding's line or the text pattern matches its text. */
@@ -202,20 +240,13 @@ async function worktreeFor(cwd: string, commit: string, exec: Exec): Promise<str
     } else {
         const moved = await exec('git', ['checkout', '-q', '--detach', '--force', sha], { cwd: dir, timeoutMs: 5 * GIT_TIMEOUT_MS });
         if (moved.exitCode !== 0) throw new Error(`could not check out ${commit} for the backtest: ${moved.stderr.trim()}`);
-        // What the last round left behind (untracked files) must not reach this one; the linked dependencies stay.
+        // What the last round left behind (untracked files) must not reach this one; the dependencies link is chosen again (backtest-deps.ts).
         await exec('git', ['clean', '-q', '-fdx', '-e', 'node_modules'], { cwd: dir, timeoutMs: GIT_TIMEOUT_MS });
     }
-    shareDependencies(cwd, dir);
     return dir;
 }
 
-/** The checkout's installed dependencies serve the worktree too (the typed checks need the project's compiler), never a download. */
-function shareDependencies(cwd: string, worktree: string): void {
-    const root = path.join(cwd, 'node_modules');
-    if (fs.existsSync(root) && !fs.existsSync(path.join(worktree, 'node_modules'))) fs.symlinkSync(root, path.join(worktree, 'node_modules'), 'junction');
-}
-
-interface Collected { items: BacktestItem[]; reviewerError?: string; judged?: JudgeRun; costUsd?: number }
+interface Collected { items: BacktestItem[]; reviewerError?: string; judged?: JudgeRun; costUsd?: number; judgesNotIsolated?: string[] }
 
 /** Which ledger points each judge raised itself, matched the way the score matches any finding. */
 function judgeCatches(round: LedgerRound, judged: JudgeRun): JudgeCatches {
@@ -230,13 +261,16 @@ async function collectItems(worktree: string, round: LedgerRound, config: Config
         ...[...review.advisory, ...review.contextFindings].map(f => asItem(f, false)),
     ];
     if (!reviewer) return { items };
-    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: reviewsHiddenFrom(round), blind: round.pr === undefined, trigger: 'backtest', force: true, ...reviewerInputs(review) });
+    const judgeHome = path.join(path.dirname(worktree), 'judge-home');
+    const judges = backtestJudgeHomes(judgeHome);
+    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: reviewsHiddenFrom(round), blind: round.pr === undefined, trigger: 'backtest', force: true, judgeHomes: judges.homes, ...reviewerInputs(review) });
     if (result.outcome === 'unavailable' || result.outcome === 'skipped') return { items, reviewerError: result.reason ?? result.outcome };
+    const judgesNotIsolated = notIsolated(result.record, judgeHome, judges.notIsolated);
     // The reviewer behind each catch is part of the score, so the gate is `reviewer:<name>`.
     const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.consequence, item.evidence].filter(Boolean).join(' '), blocking });
     items.push(...result.items.map(i => asReviewerItem(i, true)), ...[...result.advisory, ...result.unverified, ...result.notes, ...result.disputed].map(i => asReviewerItem(i, false)));
     const judged = judgedFrom(result);
-    return { items, ...(judged ? { judged } : {}), ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}) };
+    return { items, judgesNotIsolated, ...(judged ? { judged } : {}), ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}) };
 }
 
 function asItem(failure: Failure, blocking: boolean): BacktestItem {
@@ -258,12 +292,24 @@ export function formatBacktest(results: RoundResult[]): string {
     const lines: string[] = [];
     for (const r of results) {
         const caught = r.points.filter(p => p.caught).length;
-        lines.push(`${r.round} at ${r.head.slice(0, 9)}: ${caught}/${r.points.length} caught, ${r.falseBlocks.length} false block(s), ${r.items.length} finding(s), ${Math.round(r.durationMs / 1000)}s${byGate(r)}`);
+        lines.push(`${r.round} at ${r.head.slice(0, 9)}: ${r.status}; ${caught}/${r.points.length} caught, ${r.falseBlocks.length} false block(s), ${r.unadjudicated} unadjudicated, ${r.items.length} finding(s), ${Math.round(r.durationMs / 1000)}s${byGate(r)}`);
         for (const p of r.points) lines.push(`  ${p.caught ? 'caught ' : p.noted ? 'noted  ' : 'MISSED '} ${p.id} ${p.point}${p.by ? ` (${p.by})` : p.noted ? ' (advisory only)' : ''}`);
         for (const f of r.falseBlocks) lines.push(`  FALSE   ${f.gate} ${f.file}${f.line ? `:${f.line}` : ''} ${f.text.slice(0, 100)}`);
         if (r.reviewerError) lines.push(`  NO VERDICT ${r.reviewerError}`);
+        lines.push(...formatReplay(r.replay));
     }
+    lines.push(unadjudicatedLine(results));
     return lines.join('\n') + formatJudges(results);
+}
+
+/** Blocking findings that match no point and no must_not_flag row, over every round. */
+export function unadjudicatedTotal(results: RoundResult[]): number {
+    return results.reduce((n, r) => n + r.unadjudicated, 0);
+}
+
+/** The summary's plain word on what the score did not count. */
+export function unadjudicatedLine(results: RoundResult[]): string {
+    return `${unadjudicatedTotal(results)} unadjudicated blocking finding(s): they match no point and no must_not_flag row, so they were not scored either way (neither a catch nor a false block).`;
 }
 
 /** Which gate (or the reviewer) caught what: `; caught by unused-export 2, reviewer 1`, so a rule is judged on its own rows. */

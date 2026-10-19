@@ -44,9 +44,10 @@ import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relate
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
+import { acceptanceCriteria, descriptionHash, goalAnswers, lessonAnswers, type GoalAnswer, type LessonAnswers } from './reviewer/answers.js';
 import { emptyAnswer, insideAgentNote } from './reviewer/judge-empty.js';
 import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
-import { judgeIsolation, type JudgeIsolation } from './reviewer/judge-isolation.js';
+import { judgeIsolation, withJudgeHome, type JudgeHomes, type JudgeIsolation } from './reviewer/judge-isolation.js';
 import { appliedProfile } from '../utils/profile.js';
 import { appendTaskEvent } from '../task/thread.js';
 import type { CoveredLesson } from './settled-checks.js';
@@ -87,6 +88,8 @@ export interface ReviewerOptions {
     goal?: boolean;
     /** This run's choice for the orchestrator (`--orchestrator` / `--no-orchestrator`), the nearest layer of switches.ts. */
     orchestrator?: boolean;
+    /** A backtest's judge homes (judge-isolation.ts), for judges no profile already isolates. */
+    judgeHomes?: JudgeHomes;
 }
 
 export interface ReviewerResult {
@@ -152,6 +155,14 @@ export interface ReviewerResult {
     pr?: number;
     /** The pull request's title, when one was read. */
     prTitle?: string;
+    /** The acceptance criteria ("Done when" items, and the files each names) of the description it read; absent when it read none. */
+    criteria?: Array<{ text: string; paths: string[] }>;
+    /** Every judge's answer per declared goal item (step 12), with whether its quote checked out; present when the goal check was on. */
+    goal?: GoalAnswer[];
+    /** How many distinct team lessons the judges answered repeated, or not repeated. */
+    lessonAnswers?: LessonAnswers;
+    /** A verdict stored by an earlier run (reviewer/stored.ts), with the hash of the description it was built from, if it kept one. */
+    stored?: { bodySha256?: string };
 }
 
 export interface ModeRecord {
@@ -256,7 +267,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         }
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
         if (!found) continue;
-        const isolated = judgeIsolation(name, profile);
+        const isolated = withJudgeHome(judgeIsolation(name, profile), options.judgeHomes?.[name]);
         if (isolated.skip) {
             skipped.push(`${name} skipped under profile ${profile!.name}: ${isolated.skip}`);
             continue;
@@ -313,8 +324,13 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         : pr?.body || '(no pull request description)\n';
     const rules = rulesText(cwd);
     // The goal the description declares, for step 12: only what a model must judge (goal/goal.ts proves the rest), only with the goal check on.
-    const goalItems = resolveSwitch('goal', config, options.goal).enabled ? modelGoalItems(parseGoal(body)) : [];
+    const goalOn = resolveSwitch('goal', config, options.goal).enabled;
+    const goalItems = goalOn ? modelGoalItems(parseGoal(body)) : [];
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
+    // The acceptance criteria a readiness verdict reads (readiness.ts), from the description this review read.
+    const criteria = pr ? acceptanceCriteria(body) : undefined;
+    // The description this verdict was built from, so a later run reusing it can tell it read the same one (reviewer/stored.ts).
+    const bodySha256 = pr?.body ? descriptionHash(pr.body) : null;
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
     // A delta verdict never answers a full request; a full one answers either.
@@ -399,7 +415,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count, blind: options.blind });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
         const applied = lessonsApplied(verdict.lessons ?? [], context.servedLessons);
-        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}), ...(verdict.coverage ? { coverage: verdict.coverage } : {}) };
+        const goal = goalOn ? { goal: goalAnswers(verdict.goal ?? [], verify) } : {};
+        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}), ...(verdict.coverage ? { coverage: verdict.coverage } : {}), ...(criteria ? { criteria } : {}), ...goal, lessonAnswers: lessonAnswers(verdict.lessons ?? []) };
     };
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
@@ -421,7 +438,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         if (verdict) {
             why = `same content as the verdict on ${reused.head.slice(0, 9)}`;
             const accounted = decide(verdict, undefined, verify, prior, dismissals);
-            store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: null, at: new Date().toISOString(), cache: 'content', from: reused.head } });
+            store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: null, at: new Date().toISOString(), cache: 'content', from: reused.head, body_sha256: bodySha256 } });
             store.writeJson(openFile, accounted.open);
             store.writeJson(store.decidedPath(verdictFile), accounted);
             // A reused verdict ran nothing: it credits the savings ledger with what one judge would have been given.
@@ -717,7 +734,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const accounted = decide(verdict, previousOpen, verify, prior, dismissals);
         // Said every run where the reviews carry labels, so a matcher that takes none is visible rather than silent.
         if (accounted.labels?.served) progress(`Rigour reviewer: ${accounted.labels.taken} of ${verdict.prior_points.length} prior point(s) took the review's own severity label (${accounted.labels.served} labelled line(s)); the judge read ${accounted.labels.disagreed} otherwise`);
-        store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString() } });
+        store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString(), body_sha256: bodySha256 } });
         store.writeJson(openFile, accounted.open);
         store.writeJson(store.decidedPath(verdictFile), accounted);
         recordReviewCost();
