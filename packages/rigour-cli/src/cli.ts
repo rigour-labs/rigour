@@ -605,6 +605,8 @@ const backtestCmd = program
     .option('--last <n>', 'The front door: run on the last n merged pull requests (their human reviews and approved heads), no ledger needed')
     .option('--round <id>', 'Run one round only')
     .option('--reviewer', 'Run the reviewer too, with each round\'s human review hidden')
+    .option('--share-deps', 'Run every round on this checkout\'s node_modules, not the commit\'s own lockfile (each round\'s report says so)')
+    .option('--config-now', 'Review every round with today\'s rigour.yml, not the one at the commit')
     .option('--json', 'Output the score in JSON format')
     .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
     .action(async (options: any) => {

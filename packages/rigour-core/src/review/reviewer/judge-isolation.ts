@@ -52,3 +52,29 @@ export function judgesUnderProfile(names: ReviewerName[], profile: RigourProfile
         return { name, runs: true, detail: 'a model API: reads only what Rigour sends it' };
     });
 }
+
+/** The judges' own variables for a backtest: codex in a home holding only the login, so no memories or AGENTS.md of today reach a past review. */
+export type JudgeHomes = Partial<Record<ReviewerName, Record<string, string>>>;
+
+/**
+ * A Codex home for a backtest under `dir`, holding nothing but a link to the login (auth.json) of the home codex uses
+ * otherwise. Cursor has no such switch (see above): it is not given one, and the review's record says what it read.
+ * Empty when the home cannot be made: codex then runs as it would, and its record says what it read.
+ */
+export function backtestJudgeHomes(dir: string, home: string = os.homedir(), env: NodeJS.ProcessEnv = process.env): JudgeHomes {
+    try {
+        const codexHome = path.join(dir, 'codex-home');
+        fs.mkdirSync(codexHome, { recursive: true });
+        const login = path.join(env.CODEX_HOME?.trim() || path.join(home, '.codex'), 'auth.json');
+        const link = path.join(codexHome, 'auth.json');
+        if (fs.existsSync(login) && !fs.lstatSync(link, { throwIfNoEntry: false })) fs.symlinkSync(login, link);
+        return { codex: { CODEX_HOME: codexHome } };
+    } catch {
+        return {};
+    }
+}
+
+/** A profile's isolation wins; a judge it leaves as it is runs with the backtest's home when there is one. */
+export function withJudgeHome(isolation: JudgeIsolation, home: Record<string, string> | undefined): JudgeIsolation {
+    return isolation.skip || isolation.env || !home ? isolation : { env: home };
+}

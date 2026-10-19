@@ -17,7 +17,7 @@ export { reviewChange, toReviewFinding, type ReviewInput, type ReviewResult, typ
 export { splitByChangedLines, type ChangedLineSplit } from './review/changed-lines.js';
 export { isControlFile, mergeBaseOf, readStateFile } from './review/trusted-state.js';
 export { dismissFinding, dismissedKeys, findingKey, isProven, mustFix, quietSplit, shownSeverity, DISMISSED_FILE } from './review/quiet.js';
-export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest, LEDGER_PATH, type Ledger, type RoundResult } from './review/backtest.js';
+export { loadLedger, ledgerProblems, runBacktest, backtestPassed, formatBacktest, unadjudicatedTotal, LEDGER_PATH, type Ledger, type RoundResult } from './review/backtest.js';
 export { scaffoldLedger } from './review/backtest-init.js';
 export type { CiResult, FollowUp, PrOutcome } from './outcomes/outcome.js';
 export { localOutcomeMetrics, runOutcomes, type OutcomesRun } from './outcomes/run.js';

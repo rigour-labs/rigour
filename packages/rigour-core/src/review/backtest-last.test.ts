@@ -11,7 +11,7 @@ import { roundsForPr } from './backtest-init.js';
 
 const config = ConfigSchema.parse({ version: 1 });
 const item = (file: string, line: number, blocking = true, gate = 'reviewer:claude') => ({ gate, file, line, text: `${file} scan has no upper bound`, blocking });
-const result = (round: string, items: ReturnType<typeof item>[], caught = 0, costUsd?: number): RoundResult => ({ round, head: 'h', base: 'b', points: Array.from({ length: caught }, (_, i) => ({ id: `p${i}`, point: 'p', caught: true, noted: false })), falseBlocks: [], items, durationMs: 1000, ...(costUsd !== undefined ? { costUsd } : {}) });
+const result = (round: string, items: ReturnType<typeof item>[], caught = 0, costUsd?: number): RoundResult => ({ round, head: 'h', base: 'b', points: Array.from({ length: caught }, (_, i) => ({ id: `p${i}`, point: 'p', caught: true, noted: false })), falseBlocks: [], unadjudicated: items.filter(i => i.blocking).length, status: 'pass', items, durationMs: 1000, ...(costUsd !== undefined ? { costUsd } : {}) });
 
 describe('the front door report', () => {
     const ledger: Ledger = { rounds: [
@@ -35,6 +35,10 @@ describe('the front door report', () => {
         expect(text.split('\n')[0]).toBe('1 blocking item(s) on 2 approved head(s): every one is a block the team would have overridden.'); // the worse number first
         expect(text).toContain('2 of 2 point(s) people raised in a later round were already blocked, 1.5 round(s) earlier on average.');
         expect(text).toContain('skipped pr9-r1: commit abcdef012');
+        expect(r.unadjudicated).toBe(3);
+        expect(text).toContain('3 unadjudicated blocking finding(s): they match no point and no must_not_flag row, so they were not scored either way');
+        const onToday = formatLast({ ...scoreLast(ledger, [{ ...results[0], replay: { asOf: 'then', config: "the commit's rigour.yml", dependencies: { used: 'today', detail: '--share-deps' } } }]), skipped: [] });
+        expect(onToday).toContain("  pr7-r1: dependencies: today's, not the commit's (--share-deps)");
         const clean = formatLast({ ...scoreLast(ledger, results.map(x => (x.round.endsWith('-approved') ? { ...x, items: [] } : x))), skipped: [] });
         expect(clean.split('\n')[0]).toContain('point(s) people raised in a later round were already blocked'); // nothing on approved heads: the catches lead
         expect(clean).toContain('0 blocking items on 2 approved head(s).');

@@ -21,8 +21,10 @@ It lists merged pull requests by last update and keeps the N merged most recentl
 2. **Points people raised in a later round that an earlier round had already blocked**, with how
    many rounds earlier. What the review would have saved the reviewer.
 
-Then what was caught in its own round, the cost and the time. Add `--reviewer` to run the model
-reviewer too; without it, only the free checks run.
+Then what was caught in its own round, the unadjudicated blocking findings, the cost and the time,
+and any round that ran on something other than its commit's own (today's dependencies or settings,
+a judge's memory). Add `--reviewer` to run the model reviewer too; without it, only the free checks
+run. `--share-deps` and `--config-now` work here too.
 
 ```bash
 rigour backtest --last 20 --reviewer
@@ -97,22 +99,48 @@ Rounds already in the ledger with the same `id` are replaced; others are kept. T
 rigour backtest                 # every round
 rigour backtest --round pr212-r2  # one round
 rigour backtest --reviewer      # the reviewer too, with each round's review hidden
-rigour backtest --json          # { passed, rounds } as JSON
-rigour backtest -c <path>       # another rigour.yml
+rigour backtest --json          # { passed, unadjudicated, rounds } as JSON
+rigour backtest -c <path>       # another rigour.yml (read at each round's commit)
+rigour backtest --config-now    # today's rigour.yml for every round, not the commit's
+rigour backtest --share-deps    # your checkout's node_modules for every round, not the commit's
 ```
 
-Each round is checked out in one detached worktree under the git directory, `<git common dir>/rigour-backtest/checkout`, moved from round to round, so the branch you are on does not move and a backtest of many pull requests takes the disk of one checkout. Run one backtest at a time per repository. The worktree is reused on the next run, and your checkout's `node_modules` is linked into it rather than installed again. The score and every finding reported are written to `.rigour/backtest/<round>-<commit>.json` (not committed), so a pattern that missed can be checked against what was actually reported.
+Each round is checked out in one detached worktree under the git directory, `<git common dir>/rigour-backtest/checkout`, moved from round to round, so the branch you are on does not move and a backtest of many pull requests takes the disk of one checkout. Run one backtest at a time per repository. The worktree is reused on the next run. The score and every finding reported are written to `.rigour/backtest/<round>-<commit>.json` (not committed), so a pattern that missed can be checked against what was actually reported.
 
 ```
-pr212-r2 at 3f9c2a1d: 1/3 caught, 0 false block(s), 12 finding(s), 15s; caught by unbounded-window 1
+pr212-r2 at 3f9c2a1d: pass (1 unadjudicated); 3/3 caught, 0 false block(s), 1 unadjudicated, 12 finding(s), 15s; caught by unbounded-window 2, reviewer:claude 1
+  caught  R2-1 the checkout link drops the currency (reviewer:claude src/lib/checkout.ts:18)
   caught  R2-2 the export reads every line item (unbounded-window src/lib/server/invoices.ts:41)
-  noted   R2-3 quadratic scan in latestPayment (advisory only)
-  MISSED  R2-1 the checkout link drops the currency
+  caught  R2-3 quadratic scan in latestPayment (unbounded-window src/lib/server/payments.ts:12)
+  config: the commit's rigour.yml
+  dependencies: the commit's, installed from its lockfile (cache 5be1c0d2a7f3e914)
+  lessons as of 2026-04-12T12:00:00.000Z (reviewed_at): 14 served, 3 learned later left out, 0 with no timestamp left out
+1 unadjudicated blocking finding(s): they match no point and no must_not_flag row, so they were not scored either way (neither a catch nor a false block).
 ```
 
-A false block is listed on a `FALSE` line with the check, file and line. When the reviewer ran and gave no verdict, the round shows `NO VERDICT` and the reason.
+A false block is listed on a `FALSE` line with the check, file and line. When the reviewer ran and gave no verdict, the round shows `NO VERDICT` and the reason. Each round says `pass`, `pass (N unadjudicated)` or `fail` (see [Unadjudicated findings](#unadjudicated-findings)), then what it ran with (see [What a round holds fixed to its time](#what-a-round-holds-fixed-to-its-time)).
+
+### What a round holds fixed to its time
+
+A round replays the review as it could have run when the person reviewed. Besides the code at the commit, these are held to the round's moment: its `reviewed_at`, or the commit's own time when the round has none (the report says which).
+
+| What | In a round | What the report says |
+| --- | --- | --- |
+| Settings | The `rigour.yml` at the commit (or the file `-c` names, read at the commit); Rigour's defaults when the commit has none. `--config-now` uses today's. If the commit's file does not parse, today's is used | `config: the commit's rigour.yml`, `the defaults (the commit has no rigour.yml)`, or `today's rigour.yml, not the commit's (…)` |
+| Dependencies | When the commit's lockfile is byte for byte your checkout's, your `node_modules` is the commit's and is linked in. Otherwise the commit's lockfile is installed, frozen, offline first and with no install scripts, with the package manager its lockfile belongs to, into `<git common dir>/rigour-backtest/deps/<lockfile hash>/`; rounds with the same lockfile reuse it, and only the three used last are kept. When the install fails, the commit has no lockfile, or you pass `--share-deps`, the round runs on your checkout's `node_modules` | `dependencies: the commit's (…)`, or `dependencies: today's, not the commit's (why)`. Never silently |
+| Lessons | Only lessons created at or before the moment, with only their evidence from then: a later acceptance, rewording or scoping is left out and the lesson's state, wording and reach are worked out from what is left. A lesson with no creation time is left out and counted | `lessons as of <time>: N served, N learned later left out, N with no timestamp left out` |
+| `RIGOUR_REVIEW_LESSONS` | Not read: the round reads only the lessons store at the commit | `RIGOUR_REVIEW_LESSONS (…) is set and ignored` |
+| Team decisions | A teammate's decision (team mode) counts only when it was decided before the moment | `N team decision(s) made later left out` |
+| Judges (`--reviewer`) | codex runs in a Codex home of its own holding only your login, so your Codex memories, `config.toml` and `AGENTS.md` stay out (a profile with its own Codex home keeps it). `claude` already runs with no CLAUDE.md and no auto-memory. `cursor-agent` has no switch to keep your Cursor rules out | `judge memory not isolated: <judge>: <what it read>`, from the review's own record |
+| Human reviews and the description | Hidden from `reviewed_at` on, and the description as it read then (see the ledger) | The `reviews hidden from` line |
+
+What is not held to the commit's time: the Rigour version and its checks (today's Rigour reviews the past code), and the agent CLIs and the models behind them. A round reads lessons only from the commit's own `.rigour/review-lessons.json`, which exists when a team commits that file; a clone's own lessons, which `rigour init` keeps out of git, are not read by a round at all.
 
 A point counts as **caught** only when a blocking finding matches it. A match in an advisory note or a context finding is shown as **noted** and still counted as missed, because nothing advisory stops a push. With `--reviewer`, the reviewer's confirmed items count as blocking; its unverified items, notes and disputed items count as advisory.
+
+### Unadjudicated findings
+
+A blocking finding that matches no point and no `must_not_flag` row is **unadjudicated**: no person said whether it was right, so it is scored neither as a catch nor as a false block. Each round counts them, the summary gives the total and says they were not scored, and the JSON carries `unadjudicated` on each round and in total. The pass rule is unchanged, but a round that passes with unadjudicated findings says `pass (N unadjudicated)`, never a plain `pass`: a reviewer that blocks on everything would catch every point, and the count is where that shows. To score them, add the code a person called good to `must_not_flag`, or a point for what they would have raised.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -142,6 +170,6 @@ To decide whether `escalate: risk` is safe, run the same rounds with it and with
 
 ## What the number means
 
-The score is on your own history, not a benchmark: the reviewer's points are the standard, so the ledger says what your team's reviews would have been spared. It measures recall against points people made and false blocks on code they approved. It does not measure findings no one wrote down: a finding that matches no point and no `must_not_flag` row counts for nothing either way.
+The score is on your own history, not a benchmark: the reviewer's points are the standard, so the ledger says what your team's reviews would have been spared. It measures recall against points people made and false blocks on code they approved. It does not measure findings no one wrote down: a blocking finding that matches no point and no `must_not_flag` row is counted as unadjudicated and scored neither way.
 
 Keep the rounds of every reviewed pull request you care about, and judge a rule by its rows rather than by what it should catch.

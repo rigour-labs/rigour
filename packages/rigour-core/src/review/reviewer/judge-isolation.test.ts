@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { judgeIsolation, judgesUnderProfile } from './judge-isolation.js';
+import { backtestJudgeHomes, judgeIsolation, judgesUnderProfile, withJudgeHome } from './judge-isolation.js';
 import { ADAPTERS } from './adapters.js';
 
 let home: string;
@@ -81,5 +81,27 @@ describe("doctor's view of the judges under a profile", () => {
         expect(lines[1].detail).toContain('--codex-home');
         const own = judgesUnderProfile(['codex', 'cursor'], { ...profile, codexHome: '/synthetic/codex', cursorShared: true }, home, {});
         expect(own.map(line => line.detail)).toEqual(["isolated: this profile's Codex home /synthetic/codex", expect.stringContaining('not isolated')]);
+    });
+});
+
+describe('a backtest\'s judges', () => {
+    it('run codex in a home of their own holding only the login, so today\'s memories and AGENTS.md stay out', () => {
+        const shared = codexHome(path.join(home, '.codex'), ['config.toml', 'AGENTS.md', 'memories', 'auth.json']);
+        const homes = backtestJudgeHomes(path.join(home, 'backtest'), home, {});
+        const codex = homes.codex!.CODEX_HOME;
+        expect(fs.readdirSync(codex)).toEqual(['auth.json']);
+        expect(fs.realpathSync(path.join(codex, 'auth.json'))).toBe(fs.realpathSync(path.join(shared, 'auth.json')));
+        expect(ADAPTERS.codex.outsideRepo!(home, undefined, homes.codex)).toBeUndefined();
+        expect(ADAPTERS.codex.outsideRepo!(home, undefined, {})).toContain('AGENTS.md'); // what a live review reads, said on its record
+        expect(backtestJudgeHomes(path.join(home, 'backtest'), home, {})).toEqual(homes); // made once, reused
+        expect(homes.cursor).toBeUndefined(); // no switch exists: its record says what it read
+    });
+
+    it('defer to a profile\'s own isolation, and leave a live review as it was', () => {
+        const backtest = { CODEX_HOME: '/tmp/backtest-codex' };
+        expect(withJudgeHome({}, backtest)).toEqual({ env: backtest });
+        expect(withJudgeHome({ env: { CODEX_HOME: '/profile' } }, backtest)).toEqual({ env: { CODEX_HOME: '/profile' } });
+        expect(withJudgeHome({ skip: 'not under this profile' }, backtest)).toEqual({ skip: 'not under this profile' });
+        expect(withJudgeHome({}, undefined)).toEqual({});
     });
 });
