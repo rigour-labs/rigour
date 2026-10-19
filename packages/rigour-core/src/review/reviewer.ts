@@ -152,6 +152,10 @@ export interface ReviewerResult {
     pr?: number;
     /** The pull request's title, when one was read. */
     prTitle?: string;
+    /** The acceptance criteria ("Done when" items) of the description it read; absent when it read none. */
+    criteria?: string[];
+    /** The judge's answer per declared goal item (step 12), present when the goal check was on for this review. */
+    goal?: Array<{ item: string; met: boolean | null }>;
 }
 
 export interface ModeRecord {
@@ -313,8 +317,11 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         : pr?.body || '(no pull request description)\n';
     const rules = rulesText(cwd);
     // The goal the description declares, for step 12: only what a model must judge (goal/goal.ts proves the rest), only with the goal check on.
-    const goalItems = resolveSwitch('goal', config, options.goal).enabled ? modelGoalItems(parseGoal(body)) : [];
+    const goalOn = resolveSwitch('goal', config, options.goal).enabled;
+    const goalItems = goalOn ? modelGoalItems(parseGoal(body)) : [];
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
+    // The acceptance criteria a readiness verdict reads (readiness.ts), from the description this review read.
+    const criteria = pr ? parseGoal(body).doneWhen.map(item => item.text) : undefined;
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
     // A delta verdict never answers a full request; a full one answers either.
@@ -399,7 +406,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count, blind: options.blind });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
         const applied = lessonsApplied(verdict.lessons ?? [], context.servedLessons);
-        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}), ...(verdict.coverage ? { coverage: verdict.coverage } : {}) };
+        const goal = goalOn ? { goal: (verdict.goal ?? []).map(g => ({ item: g.item, met: g.met })) } : {};
+        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}), ...(verdict.coverage ? { coverage: verdict.coverage } : {}), ...(criteria ? { criteria } : {}), ...goal };
     };
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;

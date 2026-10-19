@@ -32,6 +32,20 @@ describe('rigour_review', () => {
         expect(payload.status).toBe('FAIL');
         expect(payload.failures).toContainEqual(expect.objectContaining({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2 }));
         expect(payload.next_step).toContain('call rigour_review again');
+        expect(payload.readiness.technical).toMatchObject({ state: 'not ready', reasons: ['1 blocking finding'] });
+        expect(payload.readiness.line).toMatch(/^Technically ready: not ready \(1 blocking finding; model review not run.*\) · Product ready: unknown \(no acceptance criteria;/);
+    });
+
+    it('gives readiness and the coverage table, with what it cannot verify listed as not verified', async () => {
+        fs.mkdirSync(path.join(repo, 'src'));
+        fs.writeFileSync(path.join(repo, 'src/label.ts'), 'export function label(name: string) {\n  return name.trim();\n}\n');
+        const { readiness } = JSON.parse((await handleReview(config, repo, {})).content[0].text);
+        expect(readiness.technical.state).toBe('ready');
+        expect(readiness.technical.caveats).toContain('model review not run');
+        expect(readiness.product).toMatchObject({ state: 'unknown', reasons: ['no acceptance criteria'] });
+        expect(readiness.coverage).toContainEqual({ category: 'team rules', item: 'team rules', state: 'not verified', detail: 'model review not run' });
+        expect(readiness.coverage).toContainEqual({ category: 'checks', item: 'semantic-bugs', state: 'verified' });
+        expect(readiness.coverage.some((row: { state: string }) => row.state === 'not verified')).toBe(true);
     });
 
     it('passes a clean working tree', async () => {

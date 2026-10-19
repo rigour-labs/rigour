@@ -73,3 +73,5 @@ The check runs in `rigour review` (and so in CI), and before an agent stops and 
 ## In the JSON
 
 `rigour review --json` carries a `goal` record: whether the check was on and which layer decided (`enabled`, `source`, `required`), any `refused` choices, whether the description `declared` anything checkable, the `scope` and `out_of_scope` it read and how many `done_when` items, and a `reason` when a check that was on checked nothing. The report's summary names `goal` as PASS or FAIL when it ran.
+
+The same "Done when" items are the acceptance criteria behind "Product ready" (`readiness.product`): each one is verified only by the reviewer's recorded answer, and listed as not verified otherwise ([Ready, and what was verified](./CI.md#ready-and-what-was-verified)).

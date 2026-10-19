@@ -31,12 +31,62 @@ The verdict is one of three:
 | `FAIL` | At least one finding on the changed lines must be fixed. |
 | `ERROR` | The review did not finish: a model review was asked for and did not run, or a check that can block crashed. An `ERROR` is never a pass. |
 
+### Ready, and what was verified
+
+Every review also answers two questions, the same way in the terminal, `--json`, `--github-summary`, the
+pull request's summary comment and the MCP `rigour_review` tool:
+
+```
+Technically ready: ready (model review not run; 1 check not run) · Product ready: unknown (no acceptance criteria)
+```
+
+Each answer is `ready`, `not ready` or `unknown`. They read the review; they never change the verdict, the
+exit code or what blocks.
+
+**Technically ready**
+
+| Answer | When |
+| --- | --- |
+| `not ready` | A blocking finding (a check that failed on the changed lines), or an open item from the [reviewer](./REVIEWER.md). |
+| `unknown` | The review is `ERROR`; or the reviewer is required and gave no verdict (not run, unavailable or skipped); or it is required and left changed units unreviewed. |
+| `ready` | Everything that ran passed and nothing required was left unverified. What did not run (the model review, checks that are off, a skipped deep review) and what failed without blocking are listed after it, never hidden. |
+
+The reviewer is required when the run asks for it (`rigour review --reviewer`) or when `rigour.yml` holds
+every push for it (`review.reviewer.enabled` with `on_push: wait`). Otherwise a missing model review is a
+caveat on `ready`.
+
+**Product ready** reads the acceptance criteria in the pull request's description, under the headings the
+[goal check](./GOAL.md) reads: `Done when`, `Acceptance criteria`, `Definition of done` or `Success criteria`.
+
+| Answer | When |
+| --- | --- |
+| `unknown (no acceptance criteria)` | No description was read, or it has none of those sections. |
+| `unknown (not checked)` | Criteria exist, but the reviewer's goal step did not judge them (no reviewer, `review.goal` off, the rules-and-goal step did not return), or judged only some of them. |
+| `not ready` | The reviewer recorded a criterion as not met, with a quote that checked out against the code. |
+| `ready` | The reviewer recorded every criterion as met. |
+
+It is never a guess: a criterion the reviewer did not judge, could not tell, or judged not met with a
+quote that did not check out is `not verified`. A criterion that names a file in backticks is proven or
+broken by the goal check, not judged by a model, so it stays `not verified` here.
+
+**The coverage table** follows the two answers. Each row is `verified`, `failed` or `not verified`, by
+category: the checks (each one: passed, failed, or not run or crashed), the changed units (reviewed by
+the model or before this change, or named as not reviewed), the team's rules (followed, not applicable,
+broken, not answered), the team's lessons (covered by compiled checks, not repeated, repeated), human
+review points (resolved, open, to answer in the reply) and each acceptance criterion. What the review did
+not check is a `not verified` row, never a pass: without the reviewer, the rules, lessons and review
+points rows say so. A check that found only notes reads `failed` (as its summary does), with
+"notes only, never blocking". The terminal and markdown show one row per category, naming every failed
+and not verified item (the first six, then a count); `--json` and the MCP tool carry every row under
+`readiness.coverage`, beside `readiness.technical`, `readiness.product` and the printed `readiness.line`.
+
 `rigour review-post` then posts (and, when the report includes the reviewer's record, the summary carries it: blocking items, up to five should-fixes, the counts and the integrity hash):
 
 - **Inline comments**, at most two by default (`--max-comments`). The most severe go first, and among
   equal severity, security findings before model findings before the rest. A finding is posted once:
   a later push does not repeat it.
-- **One summary comment**, edited in place on every push: the verdict, the number of findings, notes
+- **One summary comment**, edited in place on every push: the verdict, the two readiness answers and the
+  coverage table (from the report's `readiness`), the number of findings, notes
   elsewhere in changed files, how many findings were dismissed, any change the pull request makes to
   `rigour.yml` or `.rigour/`, and, with a model, how many changed functions it reviewed, the model and
   what the run cost.

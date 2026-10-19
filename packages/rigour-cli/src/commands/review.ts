@@ -16,8 +16,8 @@ import { execFileSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { learningUsage, type Config, buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, resolveSwitch, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
-import type { DeepOptions, DiffSource, QualityReceipt, ReviewerResult, ReviewResult } from '@rigour-labs/core';
+import { learningUsage, readiness, readinessJson, reviewerRequired, type Config, buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, resolveSwitch, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
+import type { DeepOptions, DiffSource, QualityReceipt, Readiness, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { goalReport, type GoalReport } from './review-goal.js';
 import { receiptFor } from './review-receipt.js';
 import { whatWasChecked, type Checked } from './review-checked.js';
@@ -29,6 +29,7 @@ import { deepProvider } from './deep-provider.js';
 import { buildCiReviewSummary, renderGithubSummary } from './review-summary.js';
 import { EXIT_PASS, EXIT_FAIL, EXIT_CONFIG_ERROR, EXIT_INTERNAL_ERROR } from './exit-codes.js';
 import { scoreNote } from './score-note.js';
+import { printReadiness, readinessSummary } from './review-readiness.js';
 
 export interface ReviewOptions {
     json?: boolean;
@@ -96,7 +97,8 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
         const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full, { ...(options.single ? { mode: 'single' as const } : {}), ...(options.panel !== undefined ? { panel: options.panel } : {}) }, result, { goal: options.goal, orchestrator: options.orchestrator, blind: !!options.blind }) : undefined;
         const checked = options.json ? whatWasChecked(cwd, options, trustedRef, result) : undefined;
-        await print(result, options, receipt, reviewer, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started }, checked, goalReport(goal, goalDescription, result));
+        const ready = readiness({ review: result, reviewer, receipt, description: readPrBody(cwd, options), reviewerRequired: reviewerRequired(config, !!options.reviewer) });
+        await print({ result, ready, receipt, reviewer, checked, goal: goalReport(goal, goalDescription, result) }, options, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started });
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);
         }
@@ -181,19 +183,33 @@ function deepOptions(cwd: string, options: ReviewOptions): Omit<DeepOptions, 'fo
     };
 }
 
-async function print(result: ReviewResult, options: ReviewOptions, receipt: QualityReceipt | null, reviewer: ReviewerResult | undefined, context: Omit<HumanContext, 'receipt'>, checked?: Checked, goal?: GoalReport): Promise<void> {
+/** Everything one review produced, as the outputs print it. */
+interface Outcome {
+    result: ReviewResult;
+    ready: Readiness;
+    receipt: QualityReceipt | null;
+    reviewer: ReviewerResult | undefined;
+    checked: Checked | undefined;
+    goal: GoalReport | undefined;
+}
+
+async function print(outcome: Outcome, options: ReviewOptions, context: Omit<HumanContext, 'receipt'>): Promise<void> {
+    const { result, ready, receipt, reviewer, goal } = outcome;
     const summary = buildCiReviewSummary(result.findings, result.report?.failures.length ?? 0, result.changedLines,
         result.unlocated + result.fileFindings.length);
-    if (options.json) return writeJson(result, summary, receipt, reviewer, checked, goal);
+    if (options.json) return writeJson(outcome, summary);
     if (goal?.refused.length && !options.githubSummary) console.error(chalk.yellow(`Goal check: ${goal.refused.join('; ')}`));
     if (options.githubSummary || options.ci) {
         // The machine-read outputs say why a review is not a pass on stderr; the human one says it in its verdict.
         if (result.deepError) console.error(chalk.red(`Deep analysis did not run: ${result.deepError}`));
         if (result.gateErrors.length) console.error(chalk.yellow(`Checks that could not run, so this is not a pass: ${result.gateErrors.join(', ')}${result.typedError ? ` (${result.typedError})` : ''}`));
-        return options.githubSummary ? void console.log(renderGithubSummary(summary)) : printCi(result);
+        if (options.githubSummary) return void console.log(renderGithubSummary(summary) + readinessSummary(ready));
+        printCi(result);
+        return printReadiness(ready, false);
     }
     printHuman(result, { ...context, receipt, all: options.all, notes: options.notes, showReceipt: options.receipt });
     if (reviewer) printReviewer(reviewer, { notes: options.notes });
+    if (result.report) printReadiness(ready);
 }
 
 function scopeOf(options: ReviewOptions): string {
@@ -222,10 +238,11 @@ function changeDiff(cwd: string, source: DiffSource): string | undefined {
     }
 }
 
-function writeJson(result: ReviewResult, summary: ReturnType<typeof buildCiReviewSummary>, receipt: QualityReceipt | null, reviewer?: ReviewerResult, checked?: Checked, goal?: GoalReport): Promise<void> {
+function writeJson({ result, ready, receipt, reviewer, checked, goal }: Outcome, summary: ReturnType<typeof buildCiReviewSummary>): Promise<void> {
     const stats = result.report?.stats;
     const json = JSON.stringify({
         status: result.status,
+        readiness: readinessJson(ready),
         ...(checked ? { checked } : {}),
         ...(goal ? { goal } : {}),
         score: stats?.score ?? 100,
