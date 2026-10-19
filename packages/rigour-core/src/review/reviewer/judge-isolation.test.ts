@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { judgeIsolation, judgesUnderProfile } from './judge-isolation.js';
+import { backtestJudgeHomes, judgeIsolation, judgesUnderProfile, withJudgeHome } from './judge-isolation.js';
 import { ADAPTERS } from './adapters.js';
 
 let home: string;
@@ -81,5 +81,38 @@ describe("doctor's view of the judges under a profile", () => {
         expect(lines[1].detail).toContain('--codex-home');
         const own = judgesUnderProfile(['codex', 'cursor'], { ...profile, codexHome: '/synthetic/codex', cursorShared: true }, home, {});
         expect(own.map(line => line.detail)).toEqual(["isolated: this profile's Codex home /synthetic/codex", expect.stringContaining('not isolated')]);
+    });
+});
+
+describe('a backtest\'s judges', () => {
+    it('run codex in a home of their own holding only the login and the model settings, so today\'s memories and AGENTS.md stay out', () => {
+        const shared = codexHome(path.join(home, '.codex'), ['AGENTS.md', 'memories', 'auth.json']);
+        fs.writeFileSync(path.join(shared, 'config.toml'), [
+            'model = "example-model"', 'model_provider = "example"', 'experimental_instructions_file = "/somewhere/instructions.md"',
+            '[model_providers.example]', 'name = "Example"', 'base_url = "https://llm.example.com/v1"',
+            '[mcp_servers.notes]', 'command = "notes-server"', '[memories]', 'enabled = true', '',
+        ].join('\n'));
+        const judges = backtestJudgeHomes(path.join(home, 'backtest'), home, {});
+        const codex = judges.homes.codex!.CODEX_HOME;
+        expect(judges.notIsolated).toEqual([]);
+        expect(fs.readdirSync(codex).sort()).toEqual(['auth.json', 'config.toml']);
+        expect(fs.realpathSync(path.join(codex, 'auth.json'))).toBe(fs.realpathSync(path.join(shared, 'auth.json')));
+        expect(fs.readFileSync(path.join(codex, 'config.toml'), 'utf8')).toBe('model = "example-model"\nmodel_provider = "example"\n[model_providers.example]\nname = "Example"\nbase_url = "https://llm.example.com/v1"\n');
+        expect(ADAPTERS.codex.outsideRepo!(home, undefined, {})).toContain('AGENTS.md'); // what a live review reads, said on its record
+        expect(backtestJudgeHomes(path.join(home, 'backtest'), home, {})).toEqual(judges); // made once, reused
+        expect(judges.homes.cursor).toBeUndefined(); // no switch exists: its record says what it read
+    });
+
+    it('leave codex in its own home when there is no auth file to carry (a keyring login), and say so', () => {
+        codexHome(path.join(home, '.codex'), ['AGENTS.md']);
+        expect(backtestJudgeHomes(path.join(home, 'backtest'), home, {})).toEqual({ homes: {}, notIsolated: [{ judge: 'codex', why: 'no auth file to carry' }] });
+    });
+
+    it('defer to a profile\'s own isolation, and leave a live review as it was', () => {
+        const backtest = { CODEX_HOME: '/tmp/backtest-codex' };
+        expect(withJudgeHome({}, backtest)).toEqual({ env: backtest });
+        expect(withJudgeHome({ env: { CODEX_HOME: '/profile' } }, backtest)).toEqual({ env: { CODEX_HOME: '/profile' } });
+        expect(withJudgeHome({ skip: 'not under this profile' }, backtest)).toEqual({ skip: 'not under this profile' });
+        expect(withJudgeHome({}, undefined)).toEqual({});
     });
 });
