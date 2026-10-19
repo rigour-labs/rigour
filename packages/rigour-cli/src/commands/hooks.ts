@@ -911,6 +911,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
     let cursorMode = false;
 
     let hookSession: string | undefined;
+    let hookEvent: unknown;
     let shellWrites: string[] | undefined;
     if (options.stdin) {
         rawStdin = await hookStdin();
@@ -920,6 +921,7 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             if (isCursorHookPayload(payload) || typeof payload.new_content === 'string') {
                 cursorMode = true;
             }
+            hookEvent = payload.hook_event_name;
             // The session's first edit fixes the commit its stop review starts from (hooks-stop.ts).
             const session = payload.session_id || payload.conversation_id;
             if (typeof session === 'string') {
@@ -1008,7 +1010,9 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
             process.stdout.write(JSON.stringify({ continue: true }));
         }
     } else {
-        process.stdout.write(JSON.stringify(result));
+        // A write the database will reject, while it is a note: told to Claude Code beside the edit, never blocking it.
+        const warning = hookEvent === 'PostToolUse' ? writeContractWarning(result.notes ?? []) : '';
+        process.stdout.write(JSON.stringify(warning ? { ...result, hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: warning } } : result));
     }
 
     // What the file already had before this change: said, never blocking.
@@ -1021,6 +1025,12 @@ export async function hooksCheckCommand(cwd: string, options: HooksCheckOptions 
         if (blocking) process.exitCode = 2;
         else if (options.block) process.stderr.write(`${REPORT_ONLY_PREFIX} the edit would have been blocked for the above.\n`);
     }
+}
+
+/** The write-contract notes, as the warning the agent is given; empty when there are none. */
+function writeContractWarning(notes: HookCheckerResult['failures']): string {
+    const lines = notes.filter(note => note.gate === 'write-contract').map(note => `- ${note.file}${note.line ? `:${note.line}` : ''}: ${note.message}`);
+    return lines.length ? `Rigour (not blocked): the repository's migrations say the database will reject these writes.\n${lines.join('\n')}` : '';
 }
 
 /** One verdict for a hook call that checked files in several repositories. */

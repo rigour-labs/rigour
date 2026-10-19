@@ -32,6 +32,7 @@ import { StyleDriftGate } from './style-drift.js';
 import { SemanticBugsGate } from './semantic-bugs.js';
 import { LogicDriftGate } from './logic-drift.js';
 import { UnindexedReadsGate } from './unindexed-reads/index.js';
+import { WriteContractGate } from './write-contract/index.js';
 import { DeprecatedDependenciesGate } from './deprecated-dependencies.js';
 import { execa } from 'execa';
 import { Logger } from '../utils/logger.js';
@@ -137,6 +138,10 @@ export class GateRunner {
 
         if (this.config.gates.unindexed_reads?.enabled) {
             this.gates.push(new UnindexedReadsGate(this.config.gates.unindexed_reads));
+        }
+
+        if (this.config.gates.write_contract?.enabled !== false) {
+            this.gates.push(new WriteContractGate(this.config.gates.write_contract));
         }
 
         if (this.config.gates.deprecated_apis?.enabled !== false) {

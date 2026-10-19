@@ -18,6 +18,10 @@ import { resolveTsPathTarget } from '../gates/hallucinated-imports/ts-path-targe
 import type { HookCheckerResult } from './types.js';
 import { scanInputForCredentials } from './input-validator.js';
 import { evaluateWriteScope, loadAgentScopesFromDisk } from '../firewall/scope-enforcement.js';
+import { lazyDatabases, writeContractFindings } from '../gates/write-contract/index.js';
+import type { Database } from '../gates/write-contract/findings.js';
+
+type Databases = () => Promise<Database[]>;
 
 type FailureEntry = HookCheckerResult['failures'][number];
 
@@ -77,7 +81,7 @@ async function resolveFile(filePath: string, cwd: string): Promise<{ absPath: st
 /**
  * Run all fast gates on a single file's content.
  */
-async function checkFile(content: string, relPath: string, cwd: string, config: Config): Promise<FailureEntry[]> {
+async function checkFile(content: string, relPath: string, cwd: string, config: Config, databases: Databases): Promise<FailureEntry[]> {
     const failures: FailureEntry[] = [];
 
     // Gate 0a: Protected paths — BLOCK writes to .github/, rigour.yml, etc.
@@ -86,11 +90,11 @@ async function checkFile(content: string, relPath: string, cwd: string, config: 
     // Gate 0b: Memory & Skills Governance — block writes to agent-native memory paths
     checkGovernance(content, relPath, config, failures);
 
-    return [...failures, ...await checkContent(content, relPath, cwd, config)];
+    return [...failures, ...await checkContent(content, relPath, cwd, config, databases)];
 }
 
 /** The gates that judge what the file holds rather than the write itself: run on the file before the change too. */
-async function checkContent(content: string, relPath: string, cwd: string, config: Config): Promise<FailureEntry[]> {
+async function checkContent(content: string, relPath: string, cwd: string, config: Config, databases: Databases): Promise<FailureEntry[]> {
     const failures: FailureEntry[] = [];
     const lines = content.split('\n');
 
@@ -120,6 +124,11 @@ async function checkContent(content: string, relPath: string, cwd: string, confi
     // Gate 4: Security patterns (all languages)
     checkSecurityPatterns(lines, relPath, failures);
 
+    // Gate 5: Writes the database will reject, judged against the repository's migrations
+    if (config.gates.write_contract?.enabled !== false) {
+        for (const f of await writeContractFindings(relPath, content, databases)) failures.push({ gate: 'write-contract', file: relPath, message: f.message, severity: 'high', line: f.line });
+    }
+
     return failures;
 }
 
@@ -139,6 +148,7 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
         const deadline = start + timeout_ms;
 
         const ignorePatterns = config.ignore ?? [];
+        const databases = lazyDatabases(cwd, config.gates.write_contract?.migrations ?? [], ignorePatterns);
         const agentScopes = await loadAgentScopesFromDisk(cwd);
 
         for (const filePath of files) {
@@ -176,15 +186,16 @@ export async function runHookChecker(options: CheckerOptions): Promise<HookCheck
                 }
             }
 
-            const fileFailures = await checkFile(resolved.content, resolved.relPath, cwd, config);
+            const fileFailures = await checkFile(resolved.content, resolved.relPath, cwd, config, databases);
             const before = committedContent(cwd, resolved.relPath);
             const split = before === undefined
                 ? { blocks: fileFailures, notes: [] }
-                : splitIntroduced(fileFailures, await checkContent(before, resolved.relPath, cwd, config), resolved.content, before, config);
-            // A file's length is a team's preference: a crossing blocks only with gates.file_size.block, else it is a note.
-            const sizeBlocks = !!config.gates.file_size?.block;
-            failures.push(...split.blocks.filter(f => sizeBlocks || f.gate !== 'file-size'));
-            notes.push(...split.blocks.filter(f => !sizeBlocks && f.gate === 'file-size'), ...split.notes);
+                : splitIntroduced(fileFailures, await checkContent(before, resolved.relPath, cwd, config, databases), resolved.content, before, config);
+            // A file's length is a team's preference, and a write contract finding a warning until the team opts in:
+            // each blocks only with its gate's `block`, else it is a note.
+            const blocks = (f: FailureEntry) => (f.gate === 'file-size' ? !!config.gates.file_size?.block : f.gate === 'write-contract' ? !!config.gates.write_contract?.block : true);
+            failures.push(...split.blocks.filter(blocks));
+            notes.push(...split.blocks.filter(f => !blocks(f)), ...split.notes);
         }
 
         if (timedOut) {

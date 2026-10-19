@@ -10,6 +10,7 @@ const BUILT_IN = new Set([
     'dependency-guardian', 'deprecated-apis', 'deprecated-dependencies', 'duplication-drift', 'environment-alignment', 'file-guard', 'file-size',
     'frontend-secret-exposure', 'hallucinated-imports', 'inconsistent-error-handling', 'logic-drift', 'phantom-apis', 'promise-safety',
     'retry_loop_breaker', 'security-patterns', 'semantic-bugs', 'side-effect-analysis', 'structure-check', 'style-drift', 'test-quality', 'unindexed-reads',
+    'write-contract',
     // The review's own checks (review/review.ts) and their typed checks
     'unused-export', 'orphan-file', 'offset-paging', 'unbounded-window', 'duplicate-function', 'partial-fix', 'partial-wiring', 'quadratic-copy',
     'migration-order', 'diff-tests', 'compiled-lesson', 'goal-scope', 'goal-done-when', 'duplicate-null-filter', 'nullable-filtered-column',

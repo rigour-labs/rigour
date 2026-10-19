@@ -252,6 +252,16 @@ export const GatesSchema = z.object({
         enabled: z.boolean().optional().default(false),
         migrations: z.array(z.string()).optional().default([]),
     }).optional().default({}),
+    /**
+     * An insert or upsert the repository's migrations say the database will reject (gates/write-contract): a required
+     * column no row sets, bulk rows with uneven keys, a literal outside a CHECK list or enum, an ON CONFLICT target with no
+     * unique constraint. On, and a note (a warning at the edit) unless `block`. Silent wherever the schema is not fully read.
+     */
+    write_contract: z.object({
+        enabled: z.boolean().optional().default(true),
+        migrations: z.array(z.string()).optional().default([]),
+        block: z.boolean().optional().default(false),
+    }).optional().default({}),
     // A dependency whose installed version npm marks deprecated (advisory, off by default: it asks the registry).
     deprecated_dependencies: z.object({
         enabled: z.boolean().optional().default(false),
