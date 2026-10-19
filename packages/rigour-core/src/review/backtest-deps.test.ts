@@ -4,11 +4,16 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
+import { repositoryIdSync } from '../storage/repository-origin.js';
 import { defaultExec, type Exec } from './reviewer/exec.js';
 import { formatBacktest, runBacktest, type Ledger } from './backtest.js';
 
 describe('a backtest round runs on the dependencies of its commit', () => {
     let repo: string;
+    let home: string;
+    const savedHome = process.env.RIGOUR_HOME;
+    /** This repository's dependency cache, under the test's own RIGOUR_HOME. */
+    const cache = () => path.join(home, '.rigour', 'cache', 'backtest-deps', repositoryIdSync(repo).slice(0, 16));
     let installs: Array<{ command: string; args: string[]; lock: string }>;
     let failing: Set<string>;
     const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
@@ -47,9 +52,10 @@ describe('a backtest round runs on the dependencies of its commit', () => {
         } });
         return { results, seen };
     };
-    const cache = () => path.join(repo, '.git', 'rigour-backtest', 'deps');
 
     beforeEach(() => {
+        home = fs.mkdtempSync(path.join(os.tmpdir(), 'backtest-home-'));
+        process.env.RIGOUR_HOME = home;
         repo = fs.mkdtempSync(path.join(os.tmpdir(), 'backtest-deps-'));
         installs = [];
         failing = new Set();
@@ -65,6 +71,9 @@ describe('a backtest round runs on the dependencies of its commit', () => {
         write('node_modules/today-marker', ''); // this checkout's installed dependencies
     });
     afterEach(() => {
+        if (savedHome === undefined) delete process.env.RIGOUR_HOME;
+        else process.env.RIGOUR_HOME = savedHome;
+        fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         try { git('worktree', 'prune'); } catch { /* the repository may be gone */ }
         fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });

@@ -28,6 +28,8 @@ const YARN_PATH = /^\s*(yarnPath|yarn-path)\b.*$/m;
 /** The only variables the install inherits: where programs are, how to reach the registry through a proxy, which CAs to trust. */
 const INHERITED = ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'ComSpec', 'COMSPEC', 'TEMP', 'TMP', 'TMPDIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'NODE_EXTRA_CA_CERTS', 'npm_config_cafile', 'NPM_CONFIG_CAFILE'];
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
+/** The name the commit's `.yarnrc.yml` is written under for yarn 2+, which no folder above the install has. */
+const YARN_RC = '.rigour-yarnrc.yml';
 /** Why a commit is not installed when it brings its own yarn. */
 export const OWN_YARN = 'this commit installs with its own yarn release, which Rigour does not run';
 
@@ -47,26 +49,44 @@ export interface InstallPlan {
     registrySettings: boolean;
     /** Settings left out of each copied config, by key name (never a value). */
     settingsLeftOut: SettingsLeftOut[];
+    /** Why the plan must not run at all (a patch that writes outside its package). */
+    unsafe?: string;
 }
 
 /** What to install from the commit's checkout, read without following a link out of it. */
-export async function planInstall(worktree: string, manager: Manager, exec: Exec): Promise<InstallPlan | string> {
+export async function planInstall(worktree: string, manager: Manager, exec: Exec, fullEnv = false): Promise<InstallPlan | string> {
     const listed = await exec('git', ['ls-files', '-z'], { cwd: worktree, timeoutMs: 60_000 });
     if (listed.exitCode !== 0) return listed.stderr.trim() || 'git ls-files failed';
     const tracked = listed.stdout.split('\0').filter(file => file && !file.split('/').includes('node_modules'));
     const root = fs.realpathSync(worktree);
+    const { files, settingsLeftOut } = inputs(root, tracked, fullEnv);
+    const yarnrc = files.find(f => f.rel === '.yarnrc.yml');
+    const ownYarn = manager === 'yarn' && !!yarnrc && (tracked.some(file => /^\.yarn\/releases\//.test(file)) || YARN_PATH.test(readInside(root, '.yarnrc.yml')?.toString('utf8') ?? ''));
+    const unsafe = escapingPatch(files);
+    return { manager, files, leftOut: tracked.filter(file => EXECUTABLE.test(file)), ownYarn, registrySettings: files.some(f => /(^|\/)\.(npmrc|yarnrc(\.yml)?)$/.test(f.rel)), settingsLeftOut, ...(unsafe ? { unsafe } : {}) };
+}
+
+/** The install's inputs from the commit, its settings cut to the allowlist, with what each lost. */
+function inputs(root: string, tracked: string[], fullEnv: boolean): { files: InstallFile[]; settingsLeftOut: SettingsLeftOut[] } {
     const files: InstallFile[] = [];
     const settingsLeftOut: SettingsLeftOut[] = [];
     for (const rel of tracked.filter(file => INPUTS.test(file) || LOCKFILES.some(([name]) => name === file))) {
         const bytes = readInside(root, rel);
         if (!bytes) continue;
-        const allowed = allowedSettings(rel, bytes.toString('utf8'));
+        const allowed = allowedSettings(rel, bytes.toString('utf8'), fullEnv);
         if (allowed?.dropped.length) settingsLeftOut.push({ file: rel, keys: [...new Set(allowed.dropped)] });
         files.push({ rel, bytes: allowed ? Buffer.from(allowed.text) : bytes });
     }
-    const yarnrc = files.find(f => f.rel === '.yarnrc.yml');
-    const ownYarn = manager === 'yarn' && !!yarnrc && (tracked.some(file => /^\.yarn\/releases\//.test(file)) || YARN_PATH.test(readInside(root, '.yarnrc.yml')?.toString('utf8') ?? ''));
-    return { manager, files, leftOut: tracked.filter(file => EXECUTABLE.test(file)), ownYarn, registrySettings: files.some(f => /(^|\/)\.(npmrc|yarnrc(\.yml)?)$/.test(f.rel)), settingsLeftOut };
+    return { files, settingsLeftOut };
+}
+
+/** A patch naming a path with `..` or an absolute path could write outside its package: why, for the first such patch. */
+function escapingPatch(files: InstallFile[]): string | undefined {
+    for (const file of files.filter(f => /^(patches|\.yarn\/patches)\//.test(f.rel))) {
+        const paths = [...file.bytes.toString('utf8').matchAll(/^(?:diff --git a\/(\S+) b\/(\S+)|(?:---|\+\+\+) (?:[ab]\/)?(\S+))/gm)].flatMap(m => m.slice(1).filter(Boolean));
+        if (paths.some(p => p !== '/dev/null' && (path.posix.isAbsolute(p) || path.win32.isAbsolute(p) || p.split(/[\\/]/).includes('..')))) return `the commit's ${file.rel} names a path outside its package (.. or absolute), so Rigour does not install it`;
+    }
+    return undefined;
 }
 
 /** The file's bytes, or undefined when it is a link leading out of the checkout or to nothing. */
@@ -90,14 +110,16 @@ export function planKey(plan: InstallPlan): string {
 /** Writes the plan's files into `dir` and installs there; the error, or undefined. */
 export async function runInstall(plan: InstallPlan, dir: string, exec: Exec, fullEnv: boolean): Promise<string | undefined> {
     for (const file of plan.files) {
-        fs.mkdirSync(path.dirname(path.join(dir, file.rel)), { recursive: true });
-        fs.writeFileSync(path.join(dir, file.rel), file.bytes);
+        // yarn 2+ reads every `.yarnrc.yml` up to the root: the commit's is written under a name only this install looks for.
+        const rel = plan.manager === 'yarn' ? file.rel.replace(/(^|\/)\.yarnrc\.yml$/, `$1${YARN_RC}`) : file.rel;
+        fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+        fs.writeFileSync(path.join(dir, rel), file.bytes);
     }
     const home = path.join(dir, '.rigour-home');
     fs.mkdirSync(home, { recursive: true });
-    const [command, args] = installCommand(plan.manager, plan.files.some(f => f.rel === '.yarnrc.yml'));
+    const [command, args] = installCommand(plan);
     try {
-        const ran = await exec(command, args, { cwd: dir, timeoutMs: INSTALL_TIMEOUT_MS, ...installEnv(home, fullEnv) });
+        const ran = await exec(command, args, { cwd: dir, timeoutMs: INSTALL_TIMEOUT_MS, ...installEnv(home, fullEnv, yarnRc(plan)) });
         if (ran.exitCode !== 0) return failure(plan, `${command} ${args.join(' ')}: ${(ran.stderr || ran.stdout).trim().split('\n').at(-1) ?? `exit ${ran.exitCode}`}`, fullEnv);
         return fs.existsSync(path.join(dir, 'node_modules')) ? undefined : `${command} installed no node_modules`;
     } finally {
@@ -113,17 +135,34 @@ function failure(plan: InstallPlan, reason: string, fullEnv: boolean): string {
     return parts.join('; ');
 }
 
-/** Frozen to the lockfile, offline first where the manager can be, no lifecycle scripts, no pnpmfile. */
-function installCommand(manager: Manager, yarnBerry: boolean): [string, string[]] {
-    if (manager === 'pnpm') return ['pnpm', ['install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts', '--ignore-pnpmfile']];
-    if (manager === 'yarn') return yarnBerry ? ['yarn', ['install', '--immutable', '--mode=skip-build']] : ['yarn', ['install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts', '--non-interactive']];
+function berry(plan: InstallPlan): boolean {
+    return plan.manager === 'yarn' && plan.files.some(f => f.rel === '.yarnrc.yml');
+}
+
+/**
+ * yarn 2+ reads the rc file named by YARN_RC_FILENAME in every folder from the install up to the root (Configuration.find
+ * in @yarnpkg/core); under this name it finds only the commit's, filtered. Set for any yarn: yarn 1 ignores it.
+ */
+function yarnRc(plan: InstallPlan): Record<string, string> {
+    return plan.manager === 'yarn' ? { YARN_RC_FILENAME: YARN_RC } : {};
+}
+
+/**
+ * Frozen to the lockfile, offline first where the manager can be, no lifecycle scripts, no pnpmfile; pnpm without a
+ * workspace file of the commit's never looks above the install for one.
+ */
+function installCommand(plan: InstallPlan): [string, string[]] {
+    const manager = plan.manager;
+    const ownWorkspace = plan.files.some(f => f.rel === 'pnpm-workspace.yaml');
+    if (manager === 'pnpm') return ['pnpm', ['install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts', '--ignore-pnpmfile', ...(ownWorkspace ? [] : ['--ignore-workspace'])]];
+    if (manager === 'yarn') return berry(plan) ? ['yarn', ['install', '--immutable', '--mode=skip-build']] : ['yarn', ['install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts', '--non-interactive']];
     if (manager === 'bun') return ['bun', ['install', '--frozen-lockfile', '--ignore-scripts']];
     return ['npm', ['ci', '--prefer-offline', '--ignore-scripts', '--no-audit', '--no-fund']];
 }
 
 /** The install's environment: the inherited few and a scratch HOME, or (`--deps-env`) everything. */
-function installEnv(home: string, fullEnv: boolean, env: NodeJS.ProcessEnv = process.env): { env: Record<string, string>; unset?: string[] } {
-    const own = { CI: 'true', COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' };
+function installEnv(home: string, fullEnv: boolean, extra: Record<string, string>, env: NodeJS.ProcessEnv = process.env): { env: Record<string, string>; unset?: string[] } {
+    const own = { CI: 'true', COREPACK_ENABLE_DOWNLOAD_PROMPT: '0', ...extra };
     if (fullEnv) return { env: own };
     const kept = Object.fromEntries(INHERITED.filter(name => env[name] !== undefined).map(name => [name, env[name] as string]));
     const set = { ...kept, ...own, HOME: home, USERPROFILE: home };

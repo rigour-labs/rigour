@@ -2,13 +2,15 @@
  * A backtest round's dependencies, as of its commit: the typed checks type-check the commit against what is installed,
  * so today's packages would judge yesterday's code. When the commit's lockfile is byte for byte this checkout's, the
  * checkout's node_modules is the commit's and is shared. Otherwise the commit's own lockfile is installed (frozen, no
- * scripts, none of the commit's code run: backtest-install.ts) into a cache under the git directory keyed by what the
- * install reads, reused by every round that reads the same and bounded to the few used last. Only when that cannot be
+ * scripts, none of the commit's code run: backtest-install.ts) into a cache in the user's cache directory, outside every
+ * project (a package manager looks upward for a workspace and settings), keyed by what the install reads, reused by every round that reads the same and bounded to the few used last. Only when that cannot be
  * done, or `--share-deps` asks, does a round run on today's dependencies, and its report says so.
  */
 import fs from 'fs';
 import path from 'path';
 import type { Exec } from './reviewer.js';
+import { rigourCacheDir } from '../utils/user-state.js';
+import { repositoryIdSync } from '../storage/repository-origin.js';
 import { LOCKFILES, OWN_YARN, planInstall, planKey, runInstall, type Manager, type SettingsLeftOut } from './backtest-install.js';
 
 /** Which dependencies a round ran with. */
@@ -51,7 +53,7 @@ async function chooseDependencies(cwd: string, worktree: string, options: Depend
     if (theirs.length === 0) return shared({ used: 'today', detail: 'the commit has no lockfile to install from' });
     if (sameLockfiles(theirs, lockfiles(cwd))) return shared({ used: 'same-lockfile' });
     if (options.share) return shared({ used: 'today', detail: '--share-deps' });
-    const installed = await fromCache(worktree, theirs[0].manager, options);
+    const installed = await fromCache(cwd, worktree, theirs[0].manager, options);
     const leftOut = installed.settingsLeftOut?.length ? { settingsLeftOut: installed.settingsLeftOut } : {};
     if ('error' in installed) return shared({ used: 'today', detail: installed.error, ...leftOut });
     return { use: { used: 'commit', detail: installed.key, ...leftOut }, target: installed.modules };
@@ -74,15 +76,18 @@ function sameLockfiles(a: Lockfile[], b: Lockfile[]): boolean {
 }
 
 /** The commit's dependencies installed in the cache, reused when they already are; why not, when they cannot be. */
-async function fromCache(worktree: string, manager: Manager, options: DependencyOptions): Promise<({ key: string; modules: string } | { error: string }) & { settingsLeftOut?: SettingsLeftOut[] }> {
-    const cache = path.join(path.dirname(worktree), 'deps');
+async function fromCache(cwd: string, worktree: string, manager: Manager, options: DependencyOptions): Promise<({ key: string; modules: string } | { error: string }) & { settingsLeftOut?: SettingsLeftOut[] }> {
+    const cache = depsCache(cwd);
     let dir: string | undefined;
     let settingsLeftOut: SettingsLeftOut[] | undefined;
     try {
-        const plan = await planInstall(worktree, manager, options.exec);
+        const plan = await planInstall(worktree, manager, options.exec, !!options.fullEnv);
         if (typeof plan === 'string') return { error: `reading the commit's install inputs failed: ${plan}` };
         settingsLeftOut = plan.settingsLeftOut;
         if (plan.ownYarn) return { error: OWN_YARN, settingsLeftOut };
+        if (plan.unsafe) return { error: plan.unsafe, settingsLeftOut };
+        const above = projectAbove(cache);
+        if (above) return { error: `the dependency cache ${cache} sits under ${above}, which the package manager would read as a project of its own; set RIGOUR_HOME to a folder outside any project`, settingsLeftOut };
         const key = planKey(plan);
         dir = path.join(cache, key);
         if (!fs.existsSync(path.join(dir, READY))) {
@@ -96,6 +101,20 @@ async function fromCache(worktree: string, manager: Manager, options: Dependency
     } catch (error) {
         if (dir) fs.rmSync(dir, { recursive: true, force: true });
         return { error: `installing the commit's lockfile failed: ${error instanceof Error ? error.message : String(error)}`, settingsLeftOut };
+    }
+}
+
+/** This repository's installs, in the user's cache directory (RIGOUR_HOME's when set): never inside a checkout. */
+function depsCache(cwd: string): string {
+    return path.join(rigourCacheDir(), 'backtest-deps', repositoryIdSync(cwd).slice(0, 16));
+}
+
+/** What a package manager would take for a project above the cache: a manifest, a pnpm workspace or yarn settings. */
+function projectAbove(dir: string): string | undefined {
+    for (let at = path.dirname(path.resolve(dir)); ; at = path.dirname(at)) {
+        const found = ['package.json', 'pnpm-workspace.yaml', '.yarnrc.yml'].map(name => path.join(at, name)).find(file => fs.existsSync(file));
+        if (found) return found;
+        if (path.dirname(at) === at) return undefined;
     }
 }
 

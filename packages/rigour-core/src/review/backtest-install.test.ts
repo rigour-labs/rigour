@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
+import { repositoryIdSync } from '../storage/repository-origin.js';
 import { defaultExec, type Exec } from './reviewer/exec.js';
 import { formatBacktest, runBacktest, type BacktestOptions, type Ledger, type RoundResult } from './backtest.js';
 
@@ -11,6 +12,10 @@ const MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 
 describe('installing a commit\'s dependencies runs none of the commit\'s code', () => {
     let repo: string;
+    let home: string;
+    const savedHome = process.env.RIGOUR_HOME;
+    /** This repository's dependency cache, under the test's own RIGOUR_HOME. */
+    const cache = () => path.join(home, '.rigour', 'cache', 'backtest-deps', repositoryIdSync(repo).slice(0, 16));
     let installs: Array<{ command: string; args: string[]; files: string[]; env?: Record<string, string>; unset?: string[]; npmrc?: string; yarnrc?: string; read: (rel: string) => string | undefined }>;
     let fail: string | undefined;
     let last: RoundResult | undefined;
@@ -57,6 +62,8 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
     };
 
     beforeEach(() => {
+        home = fs.mkdtempSync(path.join(os.tmpdir(), 'backtest-home-'));
+        process.env.RIGOUR_HOME = home;
         repo = fs.mkdtempSync(path.join(os.tmpdir(), 'backtest-install-'));
         installs = [];
         fail = undefined;
@@ -71,6 +78,9 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
         write('node_modules/today-marker', '');
     });
     afterEach(() => {
+        if (savedHome === undefined) delete process.env.RIGOUR_HOME;
+        else process.env.RIGOUR_HOME = savedHome;
+        fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         try { git('worktree', 'prune'); } catch { /* the repository may be gone */ }
         fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
@@ -110,7 +120,7 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
             const minimal = installs[0];
             expect(minimal.unset).toContain('EXAMPLE_REGISTRY_TOKEN');
             expect(minimal.env?.EXAMPLE_REGISTRY_TOKEN).toBeUndefined();
-            expect(minimal.env?.HOME).toMatch(/rigour-backtest[\\/]deps[\\/][0-9a-f]{16}[\\/]\.rigour-home$/);
+            expect(minimal.env?.HOME).toBe(path.join(cache(), path.basename(path.dirname(minimal.env!.HOME)), '.rigour-home'));
             expect(minimal.env?.PATH).toBe(process.env.PATH);
             expect([minimal.env?.HTTPS_PROXY, minimal.env?.NODE_EXTRA_CA_CERTS]).toEqual([vars.HTTPS_PROXY, vars.NODE_EXTRA_CA_CERTS]);
             expect(minimal.unset).not.toContain('HTTPS_PROXY');
@@ -146,7 +156,7 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
         fail = 'throw';
         const thrown = await round({ 'package-lock.json': 'lock 8' });
         expect(thrown).toEqual({ used: 'today', detail: "installing the commit's lockfile failed: the package manager could not start" });
-        expect(fs.readdirSync(path.join(repo, '.git', 'rigour-backtest', 'deps'))).toHaveLength(1); // nothing of the failed one is kept
+        expect(fs.readdirSync(cache())).toHaveLength(1); // nothing of the failed one is kept
     }, 60_000);
 
     it('keeps only allowlisted settings, so npm\'s node-options and git never run repository code while it prepares a git dependency', async () => {
@@ -169,24 +179,58 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
                 'pnpm-workspace.yaml': 'packages:\n  - packages/*\nnodeOptions: --require ./tools/prepare.js\npnpmfile: ./tools/prepare.js\noverrides:\n  example-tool: 1.0.0\n',
             });
             expect(fs.existsSync(marker)).toBe(false); // nothing of the commit ran
-            expect(installs[0].npmrc).toBe(['registry=https://registry.example.com/', '@example-org:registry=https://npm.example.com/', 'strict-ssl=true', 'cafile=./certs/example-ca.pem', '//npm.example.com/:_authToken=${EXAMPLE_TOKEN}', '//npm.example.com/:always-auth=true', ''].join('\n'));
+            expect(installs[0].npmrc).toBe(['registry=https://registry.example.com/', '@example-org:registry=https://npm.example.com/', 'strict-ssl=true', 'cafile=./certs/example-ca.pem', '//npm.example.com/:always-auth=true', ''].join('\n'));
             expect(installs[0].read('packages/app/.npmrc')).toBe('registry=https://registry.example.com/\n');
             expect(installs[0].read('.yarnrc.yml')).toBe('npmRegistryServer: https://registry.example.com\nnpmScopes:\n  example-org:\n    npmRegistryServer: https://npm.example.com\n    npmAuthToken: x\n');
             expect(installs[0].read('bunfig.toml')).toBe('[install]\nregistry = "https://registry.example.com"\n[install.scopes]\nexample-org = "https://npm.example.com"\n');
             expect(installs[0].read('pnpm-workspace.yaml')).toBe('packages:\n  - packages/*\noverrides:\n  example-tool: 1.0.0\n');
             expect(installs[0].files.some(f => f.startsWith('tools/'))).toBe(false);
             expect(used.settingsLeftOut).toEqual([
-                { file: '.npmrc', keys: ['node-options', 'git', 'script-shell', 'prefix', 'globalconfig', 'onload-script', 'init-module'] },
+                { file: '.npmrc', keys: ['node-options', 'git', 'script-shell', 'prefix', 'globalconfig', 'onload-script', 'init-module', '//npm.example.com/:_authToken (expands a variable)'] },
                 { file: '.yarnrc.yml', keys: ['npmScopes.example-org.npmPublishRegistry', 'plugins', 'injectEnvironmentFiles'] },
                 { file: 'bunfig.toml', keys: ['preload', 'install.cache', 'run.shell'] },
                 { file: 'packages/app/.npmrc', keys: ['node-options'] },
                 { file: 'pnpm-workspace.yaml', keys: ['nodeOptions', 'pnpmfile'] },
             ]);
             const text = formatBacktest([last!]);
-            expect(text).toContain("install settings left out of the commit's .npmrc: 7 key(s) (node-options, git, script-shell, prefix, globalconfig, onload-script, init-module)");
+            expect(text).toContain("install settings left out of the commit's .npmrc: 8 key(s) (node-options, git, script-shell, prefix, globalconfig, onload-script, init-module, //npm.example.com/:_authToken (expands a variable))");
             expect(text).not.toContain('/bin/sh'); // names, never values
         } finally {
             fs.rmSync(marker, { force: true });
         }
+    }, 60_000);
+
+    it('leaves out an allowed setting that expands a variable, unless --deps-env', async () => {
+        const files = { 'package-lock.json': 'lock 9', '.npmrc': 'registry=https://registry.example.com/\n//registry.example.com/:_authToken=${HTTPS_PROXY}\n', 'bunfig.toml': '[install]\nregistry = "$HTTPS_PROXY"\n' };
+        const minimal = await round(files);
+        expect(installs[0].npmrc).toBe('registry=https://registry.example.com/\n');
+        expect(minimal.settingsLeftOut).toEqual([{ file: '.npmrc', keys: ['//registry.example.com/:_authToken (expands a variable)'] }, { file: 'bunfig.toml', keys: ['install.registry (expands a variable)'] }]);
+        const opted = await round({ ...files, 'package-lock.json': 'lock 10' }, { depsEnv: true });
+        expect(installs[1].npmrc).toBe(files['.npmrc']);
+        expect(opted.settingsLeftOut).toBeUndefined();
+    }, 60_000);
+
+    it('keeps the install from finding a project above it: pnpm without a workspace of the commit\'s, yarn 2+ by its rc file name, and a cache under a project falls back', async () => {
+        await round({ 'pnpm-lock.yaml': 'lock 11' });
+        expect(installs[0].args).toContain('--ignore-workspace');
+        await round({ 'yarn.lock': 'lock 12', '.yarnrc.yml': 'npmRegistryServer: https://registry.example.com\n' });
+        expect(installs[1].args).toEqual(['install', '--immutable', '--mode=skip-build']);
+        expect(installs[1].files).toContain('.rigour-yarnrc.yml');
+        expect(installs[1].files).not.toContain('.yarnrc.yml');
+        expect(installs[1].env?.YARN_RC_FILENAME).toBe('.rigour-yarnrc.yml');
+        fs.writeFileSync(path.join(home, 'package.json'), '{}'); // the cache now sits under a project
+        const under = await round({ 'package-lock.json': 'lock 13' });
+        expect(under.used).toBe('today');
+        expect(under.detail).toContain(`sits under ${path.join(home, 'package.json')}, which the package manager would read as a project of its own`);
+        expect(installs).toHaveLength(2);
+    }, 60_000);
+
+    it('does not install a commit whose patch names a path outside its package', async () => {
+        const patch = 'diff --git a/../../escaped.txt b/../../escaped.txt\nnew file mode 100644\n--- /dev/null\n+++ b/../../escaped.txt\n@@ -0,0 +1 @@\n+escaped\n';
+        const used = await round({ 'pnpm-lock.yaml': 'lock 14', 'pnpm-workspace.yaml': 'packages: []\npatchedDependencies:\n  example-tool@1.0.0: patches/example-tool.patch\n', 'patches/example-tool.patch': patch });
+        expect(used).toEqual({ used: 'today', detail: "the commit's patches/example-tool.patch names a path outside its package (.. or absolute), so Rigour does not install it" });
+        expect(installs).toEqual([]);
+        const fine = await round({ 'pnpm-lock.yaml': 'lock 15', 'patches/example-tool.patch': 'diff --git a/index.js b/index.js\n--- a/index.js\n+++ b/index.js\n@@ -1 +1 @@\n-a\n+b\n' });
+        expect(fine.used).toBe('commit');
     }, 60_000);
 });
