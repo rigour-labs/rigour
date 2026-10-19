@@ -45,7 +45,7 @@ Two settings change the picture:
 | Typed checks (redundancy) | Yes | No |
 | `commands:` from rigour.yml | No (they run at push) | Yes; a command that exits non-zero is a finding |
 | Which findings count | Only those on changed lines that the base did not already have | Every finding |
-| What fails | Blocking findings only (the rule above) | Any finding of any severity |
+| What fails | Blocking findings only (the rule above) | Any finding of any severity, except the write contract's, which are notes unless `write_contract.block` is on |
 | Dismissals and muting | Applied | Not applied |
 | Exit codes | 0 pass, 1 fail, 3 a check could not run | 0 pass, 1 fail, 2 config error, 3 model review asked for but could not run |
 
@@ -238,7 +238,9 @@ string. It reports, with the file, line, table and column:
   is rejected, even when the column has a default. With `defaultToNull: false` a missing key takes the column's default,
   so only a NOT NULL column with no default is reported.
 - **A literal outside a CHECK list or enum** (`status: 'archived'` where the CHECK allows `'active', 'paused'`).
-- **An ON CONFLICT target no unique constraint or unique index covers**, which Postgres rejects.
+- **An ON CONFLICT target no unique constraint or unique index covers**, which Postgres rejects. A partial unique index
+  (one with a WHERE) or a DEFERRABLE unique constraint does not count: Postgres can use neither as the arbiter for a
+  target without the index's predicate (supabase-js cannot write one), and the finding says which it was.
 
 It stays silent unless it can read both sides in full:
 
@@ -259,7 +261,11 @@ gates:
     block: true   # the edit, the stop and the push refuse a write the migrations say will be rejected
 ```
 
-`enabled: false` turns it off. `rigour check`, the whole-repository audit, reports its findings like every other gate's.
+`enabled: false` turns it off. `rigour check`, the whole-repository audit, lists its findings as notes and passes
+(exit code 0) when they are the only ones; with `block: true` they fail it like any other finding.
+
+The parsed migrations are kept for the life of the process, keyed by each file's path, size and modification time, so
+an edit hook or a long-running server replays them only when a migration changes.
 
 ## The push-time toolchain
 

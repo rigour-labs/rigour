@@ -118,12 +118,15 @@ function bodyTriggers(contracts: Contracts, statement: string): void {
     if (/\btrigger\b/i.test(statement)) createTrigger(contracts, statement);
 }
 
-/** A statement this does not read: every table it names is unknown. */
+/** A statement this does not read: every table it names is unknown. One pass over its names, never one regex per table. */
 function markNamed(contracts: Contracts, statement: string): void {
-    const text = statement.toLowerCase();
-    for (const name of contracts.tables.keys()) {
-        const bare = name.split('.').pop()!.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
-        const pattern = new RegExp(String.raw`(?:^|[^\w$."])(?:"?\w+"?\.)?"?${bare}"?(?![\w$])`, 'i');
-        if (pattern.test(text)) markTable(contracts, name);
+    for (const [name] of statement.matchAll(NAMES)) {
+        const parts = name.split('.');
+        // `s.t`, and either part alone (`t.col` names `t`): marking a table too many keeps the check silent, never wrong.
+        for (const candidate of new Set([name, parts[0], parts[parts.length - 1]])) {
+            if (contracts.tables.has(relationName(candidate))) markTable(contracts, relationName(candidate));
+        }
     }
 }
+
+const NAMES = new RegExp(String.raw`(?<![\w$])${NAME}(?![\w$])`, 'g');

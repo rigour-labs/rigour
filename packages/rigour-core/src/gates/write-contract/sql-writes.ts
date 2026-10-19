@@ -39,7 +39,8 @@ function parseInsert(statement: string): ParsedInsert | undefined {
     const rest = statement.slice(list.end).trim();
     const rows = rowsAfter(rest, columns as string[]);
     if (!rows) return undefined;
-    return { table: relationName(head[1]), verb: /\bon conflict\b/i.test(blank(rest)) ? 'upsert' : 'insert', rows, bulk: false, defaultToNull: undefined, onConflict: conflictTarget(rest) };
+    const conflict = conflictTarget(rest);
+    return { table: relationName(head[1]), verb: /\bon conflict\b/i.test(blank(rest)) ? 'upsert' : 'insert', rows, bulk: false, defaultToNull: undefined, ...conflict };
 }
 
 /** `VALUES (…), (…)` read row by row; `SELECT …` as one row of unknown values. */
@@ -66,13 +67,14 @@ function valueOf(text: string): Value {
     return literal(text) ?? { kind: 'other' };
 }
 
-/** `ON CONFLICT (a, b)`: its columns; undefined for `ON CONFLICT ON CONSTRAINT`, no target, or an expression. */
-function conflictTarget(rest: string): string[] | undefined {
+/** `ON CONFLICT (a, b) [WHERE …]`: its columns, and whether a predicate follows; none for `ON CONSTRAINT`, no target, or an expression. */
+function conflictTarget(rest: string): Pick<Write, 'onConflict' | 'conflictPredicate'> {
     const at = /\bon conflict ?\(/i.exec(blank(rest));
     const group = at ? parenthesized(rest, at.index + at[0].length - 1) : undefined;
-    if (!group) return undefined;
+    if (!group) return {};
     const columns = splitTopLevel(group.inner, /,/);
-    return columns.every(column => new RegExp(String.raw`^${NAME}$`, 'i').test(column)) ? columns.map(identifier) : undefined;
+    if (!columns.every(column => new RegExp(String.raw`^${NAME}$`, 'i').test(column))) return {};
+    return { onConflict: columns.map(identifier), conflictPredicate: /^\s*where\b/i.test(rest.slice(group.end)) };
 }
 
 /** The text with string literals emptied (same length), so a value never reads as a keyword. */

@@ -22,6 +22,8 @@ export interface Write {
     defaultToNull: boolean | undefined;
     /** The ON CONFLICT columns; undefined when there are none or they are not literal. */
     onConflict?: string[];
+    /** Raw SQL `ON CONFLICT (cols) WHERE …`: a partial unique index can arbitrate it. */
+    conflictPredicate?: boolean;
 }
 
 const WRITE_METHODS = new Set(['insert', 'upsert']);
@@ -94,7 +96,7 @@ function booleanLiteral(node: ts.Expression | undefined): boolean | undefined {
     return node?.kind === ts.SyntaxKind.FalseKeyword ? false : undefined;
 }
 
-/** `'org_id, "Slug"'`: the columns, as Postgres folds them. */
+/** `'org_id, slug'`: the columns, by the exact names PostgREST is given (it quotes them; nothing is folded). */
 function conflictColumns(text: string): string[] | undefined {
     const columns = text.split(',').map(c => c.trim()).filter(Boolean);
     if (columns.length === 0 || columns.some(c => !/^(?:"[^"]+"|[A-Za-z_][\w$]*)$/.test(c))) return undefined;

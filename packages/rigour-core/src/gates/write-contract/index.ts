@@ -12,9 +12,7 @@ import path from 'path';
 import { Gate, type GateContext } from '../base.js';
 import type { Failure } from '../../types/index.js';
 import { FileScanner } from '../../utils/scanner.js';
-import { loadMigrationSets } from '../unindexed-reads/migrations.js';
-import { replayMigrations } from '../unindexed-reads/schema.js';
-import { replayContracts } from './contracts.js';
+import { loadDatabases } from './databases.js';
 import { writeIssues, type Database } from './findings.js';
 import { findWrites } from './writes.js';
 
@@ -38,6 +36,10 @@ const SKIPPED = /(^|\/)(node_modules|dist|build|__tests__|migrations|seeds)\/|\.
 export class WriteContractGate extends Gate {
     constructor(private config: WriteContractConfig = {}) {
         super('write-contract', 'Write the database will reject');
+    }
+
+    override get reportOnly(): boolean {
+        return !this.config.block;
     }
 
     async run(context: GateContext): Promise<Failure[]> {
@@ -67,9 +69,7 @@ export function lazyDatabases(cwd: string, globs: string[], ignore: string[]): (
     let loaded: Promise<Database[]> | undefined;
     return () => {
         // Migrations that cannot be read leave nothing to judge against: the check stays silent rather than fail the run.
-        loaded ??= loadMigrationSets(cwd, globs, ignore)
-            .then(sets => sets.map(sql => ({ contracts: replayContracts(sql), indexes: replayMigrations(sql) })))
-            .catch(() => []);
+        loaded ??= loadDatabases(cwd, globs, ignore).catch(() => []);
         return loaded;
     };
 }

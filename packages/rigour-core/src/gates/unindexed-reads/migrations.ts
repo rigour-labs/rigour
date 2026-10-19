@@ -10,6 +10,12 @@ const DEFAULT_MIGRATIONS = ['**/migrations/**/*.sql'];
 
 /** One list of SQL texts per migrations directory, each in apply (filename) order. */
 export async function loadMigrationSets(cwd: string, globs: string[], ignore: string[]): Promise<string[][]> {
+    const groups = await migrationGroups(cwd, globs, ignore);
+    return Promise.all(groups.map(group => Promise.all(group.map(file => fs.readFile(path.join(cwd, file), 'utf-8')))));
+}
+
+/** The migration files (relative to `cwd`), one list per migrations directory, each in apply (filename) order. */
+export async function migrationGroups(cwd: string, globs: string[], ignore: string[]): Promise<string[][]> {
     const files = await FileScanner.findFiles({ cwd, patterns: globs.length ? globs : DEFAULT_MIGRATIONS, ignore });
     const byDirectory = new Map<string, string[]>();
     for (const file of files) {
@@ -17,7 +23,7 @@ export async function loadMigrationSets(cwd: string, globs: string[], ignore: st
         if (!byDirectory.has(directory)) byDirectory.set(directory, []);
         byDirectory.get(directory)!.push(file);
     }
-    return Promise.all([...byDirectory.values()].map(group => Promise.all(group.sort().map(file => fs.readFile(path.join(cwd, file), 'utf-8')))));
+    return [...byDirectory.values()].map(group => group.sort());
 }
 
 /** The directory a migration belongs to: up to and including its `migrations` segment, else its own folder. */

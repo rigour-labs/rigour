@@ -89,13 +89,28 @@ function same(allowed: Literal, value: Literal): boolean {
 function conflictIssues(write: Write, table: TableContract, indexes: IndexDef[]): Issue[] {
     if (!write.onConflict || table.exclusion) return [];
     const target = new Set(write.onConflict);
-    const matches = indexes.some(index => index.unique && index.keys && index.keys.length === target.size && index.keys.every(key => target.has(key)));
-    if (matches) return [];
+    const covering = indexes.filter(index => index.unique && index.keys && index.keys.length === target.size && index.keys.every(key => target.has(key)));
+    // A partial index arbitrates only for a target with a WHERE (raw SQL can write one); a deferrable constraint never does.
+    if (covering.some(index => !index.deferrable && (index.predicate.length === 0 || write.conflictPredicate))) return [];
     const list = write.onConflict.map(c => `\`${c}\``).join(', ');
+    if (covering.length > 0) return [unusableKey(write, list, covering.some(index => index.deferrable))];
     return [{
         message: `The ${write.verb} on \`${write.table}\` resolves conflicts on (${list}), but no unique constraint or unique index on \`${write.table}\` covers exactly those columns: Postgres rejects it ("there is no unique or exclusion constraint matching the ON CONFLICT specification").`,
         hint: `Add a unique constraint on (${list}) in a new migration, or name the columns of an existing one.`,
     }];
+}
+
+/** Only a partial or a deferrable unique key covers the target: Postgres cannot use either as the arbiter. */
+function unusableKey(write: Write, list: string, deferrable: boolean): Issue {
+    const why = deferrable
+        ? 'only a deferrable unique constraint covers those columns, and Postgres refuses a deferrable constraint as an ON CONFLICT arbiter'
+        : 'only a partial unique index (one with a WHERE) covers those columns, and a conflict target without that predicate cannot use it';
+    return {
+        message: `The ${write.verb} on \`${write.table}\` resolves conflicts on (${list}), but ${why}: Postgres rejects it ("there is no unique or exclusion constraint matching the ON CONFLICT specification").`,
+        hint: deferrable
+            ? `Add a unique constraint on (${list}) that is NOT DEFERRABLE.`
+            : `Add a unique constraint on (${list}) without a WHERE, or write the insert in SQL with the index's predicate after the target.`,
+    };
 }
 
 function missing(write: Write, column: string): Issue {

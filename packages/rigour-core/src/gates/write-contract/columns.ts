@@ -6,7 +6,8 @@
  * other shape is kept by name only, so dropping it is understood; it limits
  * nothing this check reports.
  */
-import { NAME, identifier, parenthesized, splitTopLevel, unwrap } from '../unindexed-reads/sql.js';
+import { columnConstraints } from '../unindexed-reads/constraints.js';
+import { NAME, identifier, mask, parenthesized, splitTopLevel, unwrap } from '../unindexed-reads/sql.js';
 
 export interface Literal { kind: 'string' | 'number'; text: string }
 
@@ -55,7 +56,7 @@ export function parseColumn(element: string, table: string): ColumnDef | undefin
         generated,
         type,
     };
-    return { name, column, checks: columnChecks(tail, maskedTail, table, name), constraints: columnConstraints(maskedTail, tail, table, name) };
+    return { name, column, checks: columnChecks(tail, maskedTail, table, name), constraints: columnConstraints(tail, table, name).map(constraint => constraint.name).filter((n): n is string => n !== null) };
 }
 
 /** `DEFAULT expr` other than `DEFAULT NULL`, which leaves a NOT NULL column with no usable default. */
@@ -87,15 +88,6 @@ function columnChecks(tail: string, maskedTail: string, table: string, column: s
     return checks;
 }
 
-/** Names of the column's other constraints (`references`, `unique`), so `DROP CONSTRAINT` on them is understood. */
-function columnConstraints(maskedTail: string, tail: string, table: string, column: string): string[] {
-    const names = [...maskedTail.matchAll(/\bconstraint (\S+) (?!check\b)/gi)].map(m => identifier(tail.slice(m.index + 11, m.index + 11 + m[1].length)));
-    if (/\breferences\b/i.test(maskedTail)) names.push(`${table}_${column}_fkey`);
-    if (/\bunique\b/i.test(maskedTail)) names.push(`${table}_${column}_key`);
-    if (/\bprimary key\b/i.test(maskedTail)) names.push(`${table}_pkey`);
-    return names;
-}
-
 /** A table CHECK: `[CONSTRAINT name] CHECK (expr)`, named as Postgres names it when the list's column is known. */
 export function tableCheck(element: string, table: string): CheckDef | undefined {
     const match = /^(?:constraint (\S+) )?check \(/i.exec(element);
@@ -124,30 +116,4 @@ export function literal(text: string): Literal | undefined {
     const quoted = /^'((?:[^']|'')*)'$/.exec(bare);
     if (quoted) return { kind: 'string', text: quoted[1].replace(/''/g, "'") };
     return /^-?\d+(\.\d+)?$/.test(bare) ? { kind: 'number', text: bare } : undefined;
-}
-
-/** The text with what is inside quotes and parentheses blanked (same length), so keywords there are not read as the column's. */
-function mask(text: string): string {
-    const state: MaskState = { depth: 0, quote: null };
-    let out = '';
-    for (const ch of text) out += maskChar(state, ch);
-    return out;
-}
-
-interface MaskState { depth: number; quote: string | null }
-
-/** One character of mask(): kept at the top level and for the parentheses that open and close it, else blanked. */
-function maskChar(state: MaskState, ch: string): string {
-    const outer = state.depth === 0 && state.quote === null;
-    advance(state, ch);
-    const closes = ch === ')' && state.depth === 0 && state.quote === null;
-    return outer || closes ? ch : ' ';
-}
-
-/** Track quotes and parentheses: a quote ends at its own character; parentheses count only outside quotes. */
-function advance(state: MaskState, ch: string): void {
-    if (state.quote) state.quote = ch === state.quote ? null : state.quote;
-    else if (ch === "'" || ch === '"') state.quote = ch;
-    else if (ch === '(') state.depth++;
-    else if (ch === ')') state.depth--;
 }

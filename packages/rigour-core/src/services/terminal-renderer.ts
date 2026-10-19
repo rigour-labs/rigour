@@ -190,7 +190,9 @@ export function renderFullReport(report: Report, options: RenderOptions = {}): s
         lines.push(chalk.red.bold(`  \u{26A0}\u{FE0F}  RIGOUR CAUGHT ${totalFindings} ISSUE${totalFindings !== 1 ? 'S' : ''}`));
     } else {
         lines.push('');
-        lines.push(chalk.green.bold(`  \u{2705}  RIGOUR: ALL GATES PASSED`));
+        // A passing run can still list notes: findings of a gate that does not block unless the team opts in.
+        const notes = totalFindings > 0 ? ` (${totalFindings} NOTE${totalFindings !== 1 ? 'S' : ''}, NOT BLOCKING)` : '';
+        lines.push(chalk.green.bold(`  \u{2705}  RIGOUR: ALL GATES PASSED${notes}`));
     }
     lines.push('');
 

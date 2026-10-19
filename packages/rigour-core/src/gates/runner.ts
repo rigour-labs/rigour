@@ -184,6 +184,8 @@ export class GateRunner {
     async run(cwd: string, patterns?: string[], deepOptions?: DeepOptions & { onProgress?: (msg: string) => void }, runOptions: { record?: boolean } = {}): Promise<Report> {
         const start = Date.now();
         const failures: Failure[] = [];
+        /** Findings of a report-only gate: listed, never deciding the run's status. */
+        const notes = new Set<Failure>();
         const summary: Record<string, Status> = {};
         const skips: Record<string, string> = {};
 
@@ -211,6 +213,7 @@ export class GateRunner {
                 const gateFailures = await gate.run({ cwd, record, ignore, patterns, fileCache, skip: reason => { skipped = reason; } });
                 if (gateFailures.length > 0) {
                     for (const f of gateFailures) GATE_OF.set(f, gate.id);
+                    if (gate.reportOnly) for (const f of gateFailures) notes.add(f);
                     failures.push(...gateFailures);
                     summary[gate.id] = 'FAIL';
                 } else if (skipped !== undefined) {
@@ -271,7 +274,7 @@ export class GateRunner {
             deepStats = deep.stats;
         }
 
-        const status: Status = failures.length > 0 ? 'FAIL' : 'PASS';
+        const status: Status = failures.some(f => !notes.has(f)) ? 'FAIL' : 'PASS';
 
         // Severity-weighted scoring with per-gate cap and deduplication
         // Step 1: Deduplicate — the same rule on the same file and line should not stack

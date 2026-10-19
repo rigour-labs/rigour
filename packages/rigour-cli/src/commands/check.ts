@@ -242,7 +242,9 @@ export async function checkCommand(cwd: string, files: string[] = [], options: C
         if (options.ci) {
             if (report.status === 'PASS') {
                 const scoreStr = report.stats.score !== undefined ? ` (${report.stats.score}/100)` : '';
-                console.log(`PASS${scoreStr}`);
+                const noteStr = report.failures.length ? `, ${report.failures.length} note(s), not blocking` : '';
+                console.log(`PASS${scoreStr}${noteStr}`);
+                report.failures.forEach((f: Failure) => console.log(`  - [NOTE] [${f.id}] ${f.title}`));
             } else {
                 const scoreStr = report.stats.score !== undefined ? ` Score: ${report.stats.score}/100` : '';
                 console.log(`FAIL: ${report.failures.length} violation(s)${scoreStr}`);

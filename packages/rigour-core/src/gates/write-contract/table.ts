@@ -1,5 +1,5 @@
 /** A table's write contract, and the edits a CREATE TABLE or ALTER TABLE ADD makes to it. */
-import { identifier, splitTopLevel } from '../unindexed-reads/sql.js';
+import { tableConstraint, type Constraint } from '../unindexed-reads/constraints.js';
 import { parseColumn, tableCheck, type CheckDef, type Column } from './columns.js';
 
 export interface TableContract {
@@ -27,8 +27,8 @@ export function addElement(table: TableContract, element: string, bare: string):
         table.checks.push(check);
         return;
     }
-    const constraint = /^(?:constraint (\S+) )?(primary key|unique|foreign key|exclude)\b(?: nulls (?:not )?distinct)?(?: using \w+)? ?\(([^)]*)\)/i.exec(element);
-    if (constraint) return addConstraint(table, bare, constraint);
+    const constraint = tableConstraint(element, bare);
+    if (constraint) return addConstraint(table, constraint);
     if (/^(constraint|primary key|unique|foreign key|exclude|like|check)\b/i.test(element)) {
         table.unknown = true;
         return;
@@ -43,15 +43,12 @@ export function addElement(table: TableContract, element: string, bare: string):
     for (const name of column.constraints) table.constraints.add(name);
 }
 
-/** A table key or foreign key: its name (as written, or as Postgres derives it); a primary key makes its columns NOT NULL. */
-function addConstraint(table: TableContract, bare: string, match: RegExpExecArray): void {
-    const kind = match[2].toLowerCase();
-    const columns = splitTopLevel(match[3], /,/).map(identifier);
-    if (kind === 'exclude') table.exclusion = true;
-    const suffix = kind === 'primary key' ? null : kind === 'unique' ? 'key' : kind === 'foreign key' ? 'fkey' : 'excl';
-    table.constraints.add(match[1] ? identifier(match[1]) : suffix ? `${bare}_${columns.join('_')}_${suffix}` : `${bare}_pkey`);
-    if (kind !== 'primary key') return;
-    for (const name of columns) {
+/** A table key or foreign key: its name, so dropping it is understood; a primary key makes its columns NOT NULL. */
+function addConstraint(table: TableContract, constraint: Constraint): void {
+    if (constraint.kind === 'exclude') table.exclusion = true;
+    if (constraint.name) table.constraints.add(constraint.name);
+    if (constraint.kind !== 'primary key') return;
+    for (const name of constraint.columns ?? []) {
         const column = table.columns.get(name);
         if (column) column.notNull = true;
     }
