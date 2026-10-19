@@ -1,7 +1,7 @@
 /**
  * The model reviewer's stored verdict, for a readiness verdict (readiness.ts) on a run that did not ask for the
  * reviewer: the background review at push already judged this commit. It is used only when this run reviews exactly
- * what the verdict reviewed: the branch against the same merge base (`--base`), with no uncommitted change to a
+ * what the verdict reviewed: the branch against the same base commit (`--base`), with no uncommitted change to a
  * tracked file, the branch's last verdict a full review of HEAD, its file the one its own fingerprint names, and its
  * record intact. Otherwise there is no stored verdict, and the model review reads "not run".
  */
@@ -33,16 +33,17 @@ export async function storedReviewerResult(cwd: string, base: string | undefined
 
 interface Found { state: BranchState; verdict: StoredVerdict; record: ReviewRecord }
 
-/** The branch's last verdict, when it is a full review of HEAD against this run's merge base, unchanged since it was written. */
+/** The branch's last verdict, when it is a full review of HEAD against the commit this run's base names, unchanged since it was written. */
 async function verdictOnHead(store: VerdictStore, git: Git, base: string): Promise<Found | undefined> {
-    const [head, branch, mergeBase] = [await git(['rev-parse', 'HEAD']), await git(['rev-parse', '--abbrev-ref', 'HEAD']), await git(['merge-base', base, 'HEAD'])];
+    // The reviewer stores the base ref's tip (`rev-parse <base>^{commit}`), not the merge base: the same is compared here.
+    const [head, branch, baseSha] = [await git(['rev-parse', 'HEAD']), await git(['rev-parse', '--abbrev-ref', 'HEAD']), await git(['rev-parse', `${base}^{commit}`])];
     const state = branch && branch !== 'HEAD' ? store.branchState(branch) : undefined;
     if (!state || state.head !== head || state.mode !== 'full') return undefined;
     const verdict = store.readJson<StoredVerdict>(state.verdict);
     const record = store.readJson<ReviewRecord>(store.recordPath(state.verdict));
     const fingerprint = verdict?.inputs?.fingerprint;
     if (!verdict || !record || !fingerprint || state.verdict !== store.verdictPath(head, fingerprint)) return undefined;
-    if (!mergeBase || verdict.inputs?.base !== mergeBase || record.head !== head || !recordIntact(record)) return undefined;
+    if (!baseSha || verdict.inputs?.base !== baseSha || record.head !== head || !recordIntact(record)) return undefined;
     return { state, verdict, record };
 }
 

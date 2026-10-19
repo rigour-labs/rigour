@@ -11,7 +11,7 @@ const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { 
 const FINGERPRINT = 'abcdef0123456789';
 
 /** A full verdict on HEAD as the reviewer stores it: the branch's state, the verdict, its open items and its record. */
-function store(head: string, base = git('merge-base', 'main', 'HEAD')) {
+function store(head: string, base = git('rev-parse', 'main^{commit}')) {
     const dir = path.join(repo, '.git', 'rigour-reviewer');
     fs.mkdirSync(path.join(dir, 'branches'), { recursive: true });
     const verdictFile = path.join(dir, `${head}.${FINGERPRINT.slice(0, 8)}.json`);
@@ -64,6 +64,15 @@ describe('storedReviewerResult', () => {
         expect(await storedReviewerResult(repo, undefined)).toBeUndefined();
         fs.appendFileSync(path.join(repo, 'src/refund.ts'), '// not reviewed\n');
         expect(await storedReviewerResult(repo, 'main')).toBeUndefined();
+    });
+
+    it('reads the verdict on a branch behind its base, which the reviewer stored against the base\'s tip', async () => {
+        git('checkout', '-q', 'main');
+        git('commit', '-q', '--allow-empty', '-m', 'main moved on');
+        git('checkout', '-q', 'feat');
+        store(git('rev-parse', 'HEAD'));
+        expect(git('merge-base', 'main', 'HEAD')).not.toBe(git('rev-parse', 'main'));
+        expect(await storedReviewerResult(repo, 'main')).toMatchObject({ outcome: 'passed', cached: true });
     });
 
     it('has none when the verdict reviewed the branch against another base', async () => {

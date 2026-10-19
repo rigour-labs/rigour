@@ -54,7 +54,7 @@ exit code or what blocks.
 Only a run that asks for the reviewer is held to it. Any other run reads "model review not run" as a
 caveat on `ready`, unless it reviews exactly what the reviewer already stored a verdict for: the branch
 against its base (`rigour review --base <ref>`, or the MCP tool with `base`), with no uncommitted change
-to a tracked file, and the branch's last verdict a full review of HEAD against the same merge base, its
+to a tracked file, and the branch's last verdict a full review of HEAD against the same base commit, its
 file the one its fingerprint names and its record intact. Then that verdict fills the coverage rows and
 the line says "model review from the stored verdict on this commit" with its date. A review of
 uncommitted work never uses one: the verdict never saw that code. A stored verdict reflects the human

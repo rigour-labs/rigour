@@ -154,6 +154,8 @@ async function readStdin(): Promise<string> {
  */
 export function readPrBody(cwd: string, options: ReviewOptions, env: NodeJS.ProcessEnv = process.env): string | undefined {
     const pr = readPullRequest(cwd, options, env);
+    // A --pr-body file is the description as written, an empty one included: the goal check then says it declares nothing.
+    if (options.prBody) return pr?.body;
     return pr ? [pr.title, pr.body].filter(Boolean).join('\n\n') || undefined : undefined;
 }
 
