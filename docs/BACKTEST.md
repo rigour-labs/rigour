@@ -138,7 +138,19 @@ A round replays the review as it could have run when the person reviewed. Beside
 
 #### What a dependency install runs and sends
 
-Only data is taken from the commit: its lockfiles, every tracked `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `.yarnrc`, `.yarnrc.yml`, `bunfig.toml`, and the files under `patches/` and `.yarn/patches/`. A link among them that leads out of the commit's checkout, or to nothing, is skipped. Nothing executable is taken: no `.pnpmfile.cjs`, nothing under `.yarn/plugins` or `.yarn/releases`, and the `yarnPath` / `yarn-path` lines are removed. A commit whose yarn is its own release (`.yarn/releases`, or `yarnPath` in `.yarnrc.yml`) is not installed at all: the round runs on your `node_modules` with the reason "this commit installs with its own yarn release, which Rigour does not run". When a frozen install fails because of what was left out, the round says so the same way.
+Only data is taken from the commit: its lockfiles, every tracked `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `.yarnrc`, `.yarnrc.yml`, `bunfig.toml`, and the files under `patches/` and `.yarn/patches/`. A link among them that leads out of the commit's checkout, or to nothing, is skipped. Nothing executable is taken: no `.pnpmfile.cjs`, nothing under `.yarn/plugins` or `.yarn/releases`. A commit whose yarn is its own release (`.yarn/releases`, or `yarnPath` in `.yarnrc.yml`) is not installed at all: the round runs on your `node_modules` with the reason "this commit installs with its own yarn release, which Rigour does not run". When a frozen install fails because of what was left out, the round says so the same way.
+
+Every package-manager settings file is cut to an allowlist before the install, at any depth, because almost any other setting can name a program or code to run (npm's `node-options` and `git`, for example, run while npm prepares a git dependency, whatever `--ignore-scripts` says):
+
+| File | Kept | Left out |
+| --- | --- | --- |
+| `.npmrc` | `registry`, `@scope:registry`, `ca`, `cafile`, `strict-ssl`, and per-registry sign-in (`//host/…:_authToken`, `_auth`, `username`, `_password`, `always-auth`) | Every other line: `node-options`, `git`, `script-shell`, `shell`, `prefix`, `globalconfig`, `userconfig`, `cache`, `init-*`, `onload-script`, sections, and so on |
+| `.yarnrc.yml` (yarn 2+) | `npmRegistryServer`, `npmScopes` (each scope's `npmRegistryServer`, `npmAuthToken`, `npmAuthIdent`, `npmAlwaysAuth`), `npmAuthToken`, `npmAuthIdent`, `npmAlwaysAuth`, `httpsCaFilePath`, `caFilePath`, `enableStrictSsl`, and `nodeLinker` (a layout name; without it yarn writes no `node_modules`) | Everything else: `yarnPath`, `plugins`, `injectEnvironmentFiles`, … |
+| `.yarnrc` (yarn 1) | `registry` and scoped registries (`"@scope:registry"`) | Everything else, `yarn-path` included |
+| `bunfig.toml` | `[install]`'s `registry`, and the `[install.scopes]` table | Everything else, `preload` included |
+| `pnpm-workspace.yaml` | `packages`, `catalog`, `catalogs`, `overrides`, `patchedDependencies`, `packageExtensions` (what the frozen lockfile is checked against) | Everything else: `nodeOptions`, `pnpmfile`, … |
+
+The round lists what was left out of each file by key name and count (`install settings left out of the commit's .npmrc: 2 key(s) (node-options, git)`), never a value. The sign-in keys that are kept carry nothing without `--deps-env`, since the install's environment is minimal (below).
 
 The package manager on your `PATH` runs: `pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --ignore-pnpmfile`, `npm ci --prefer-offline --ignore-scripts --no-audit --no-fund`, `yarn install --frozen-lockfile --prefer-offline --ignore-scripts --non-interactive` (yarn 1), `yarn install --immutable --mode=skip-build` (yarn 2 and later), or `bun install --frozen-lockfile --ignore-scripts`. No lifecycle script runs.
 

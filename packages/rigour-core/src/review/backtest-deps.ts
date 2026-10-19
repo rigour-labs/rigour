@@ -9,7 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Exec } from './reviewer.js';
-import { LOCKFILES, OWN_YARN, planInstall, planKey, runInstall, type Manager } from './backtest-install.js';
+import { LOCKFILES, OWN_YARN, planInstall, planKey, runInstall, type Manager, type SettingsLeftOut } from './backtest-install.js';
 
 /** Which dependencies a round ran with. */
 export interface DependencyUse {
@@ -17,6 +17,8 @@ export interface DependencyUse {
     used: 'same-lockfile' | 'commit' | 'today' | 'none';
     /** Why, for `today` and `none`; the cache's key for `commit`. */
     detail?: string;
+    /** Settings the install left out of the commit's package-manager configs, by key name (backtest-install-config.ts). */
+    settingsLeftOut?: SettingsLeftOut[];
 }
 
 export interface DependencyOptions {
@@ -50,8 +52,9 @@ async function chooseDependencies(cwd: string, worktree: string, options: Depend
     if (sameLockfiles(theirs, lockfiles(cwd))) return shared({ used: 'same-lockfile' });
     if (options.share) return shared({ used: 'today', detail: '--share-deps' });
     const installed = await fromCache(worktree, theirs[0].manager, options);
-    if ('error' in installed) return shared({ used: 'today', detail: installed.error });
-    return { use: { used: 'commit', detail: installed.key }, target: installed.modules };
+    const leftOut = installed.settingsLeftOut?.length ? { settingsLeftOut: installed.settingsLeftOut } : {};
+    if ('error' in installed) return shared({ used: 'today', detail: installed.error, ...leftOut });
+    return { use: { used: 'commit', detail: installed.key, ...leftOut }, target: installed.modules };
 }
 
 interface Lockfile { name: string; manager: Manager; bytes: Buffer }
@@ -71,13 +74,15 @@ function sameLockfiles(a: Lockfile[], b: Lockfile[]): boolean {
 }
 
 /** The commit's dependencies installed in the cache, reused when they already are; why not, when they cannot be. */
-async function fromCache(worktree: string, manager: Manager, options: DependencyOptions): Promise<{ key: string; modules: string } | { error: string }> {
+async function fromCache(worktree: string, manager: Manager, options: DependencyOptions): Promise<({ key: string; modules: string } | { error: string }) & { settingsLeftOut?: SettingsLeftOut[] }> {
     const cache = path.join(path.dirname(worktree), 'deps');
     let dir: string | undefined;
+    let settingsLeftOut: SettingsLeftOut[] | undefined;
     try {
         const plan = await planInstall(worktree, manager, options.exec);
         if (typeof plan === 'string') return { error: `reading the commit's install inputs failed: ${plan}` };
-        if (plan.ownYarn) return { error: OWN_YARN };
+        settingsLeftOut = plan.settingsLeftOut;
+        if (plan.ownYarn) return { error: OWN_YARN, settingsLeftOut };
         const key = planKey(plan);
         dir = path.join(cache, key);
         if (!fs.existsSync(path.join(dir, READY))) {
@@ -87,10 +92,10 @@ async function fromCache(worktree: string, manager: Manager, options: Dependency
         }
         fs.writeFileSync(path.join(dir, READY), new Date().toISOString());
         bound(cache, key, options.keep ?? KEEP);
-        return { key, modules: path.join(dir, 'node_modules') };
+        return { key, modules: path.join(dir, 'node_modules'), settingsLeftOut };
     } catch (error) {
         if (dir) fs.rmSync(dir, { recursive: true, force: true });
-        return { error: `installing the commit's lockfile failed: ${error instanceof Error ? error.message : String(error)}` };
+        return { error: `installing the commit's lockfile failed: ${error instanceof Error ? error.message : String(error)}`, settingsLeftOut };
     }
 }
 

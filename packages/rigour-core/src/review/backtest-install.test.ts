@@ -5,14 +5,16 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { defaultExec, type Exec } from './reviewer/exec.js';
-import { runBacktest, type BacktestOptions, type Ledger } from './backtest.js';
+import { formatBacktest, runBacktest, type BacktestOptions, type Ledger, type RoundResult } from './backtest.js';
 
 const MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 
 describe('installing a commit\'s dependencies runs none of the commit\'s code', () => {
     let repo: string;
-    let installs: Array<{ command: string; args: string[]; files: string[]; env?: Record<string, string>; unset?: string[]; npmrc?: string; yarnrc?: string }>;
+    let installs: Array<{ command: string; args: string[]; files: string[]; env?: Record<string, string>; unset?: string[]; npmrc?: string; yarnrc?: string; read: (rel: string) => string | undefined }>;
     let fail: string | undefined;
+    let last: RoundResult | undefined;
+    let rounds = 0;
     const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
     const write = (rel: string, body: string) => {
         fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
@@ -23,15 +25,25 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
     const exec: Exec = async (command, args, options) => {
         if (!MANAGERS.has(command)) return defaultExec(command, args, options);
         const read = (name: string) => (fs.existsSync(path.join(options.cwd, name)) ? fs.readFileSync(path.join(options.cwd, name), 'utf8') : undefined);
-        installs.push({ command, args, files: listFiles(options.cwd).sort(), env: options.env, unset: options.unset, npmrc: read('.npmrc'), yarnrc: read('.yarnrc') });
+        const copied = Object.fromEntries(listFiles(options.cwd).map(rel => [rel, read(rel)]));
+        installs.push({ command, args, files: Object.keys(copied).sort(), env: options.env, unset: options.unset, npmrc: read('.npmrc'), yarnrc: read('.yarnrc'), read: rel => copied[rel] });
+        honourNpmrc(read('.npmrc'));
         if (fail === 'throw') throw new Error('the package manager could not start');
         if (fail) return { exitCode: 1, stdout: '', stderr: fail };
         fs.mkdirSync(path.join(options.cwd, 'node_modules'), { recursive: true });
         return { exitCode: 0, stdout: '', stderr: '' };
     };
+    /** As npm does when it prepares a git dependency: a child process with node-options as NODE_OPTIONS, and the configured git. */
+    const honourNpmrc = (npmrc: string | undefined) => {
+        const setting = (key: string) => new RegExp(`^${key}\\s*=\\s*(.+)$`, 'm').exec(npmrc ?? '')?.[1].trim();
+        const nodeOptions = setting('node-options');
+        if (nodeOptions) execFileSync(process.execPath, ['-e', ''], { env: { ...process.env, NODE_OPTIONS: nodeOptions } });
+        const gitBinary = setting('git');
+        if (gitBinary) execFileSync(process.execPath, [gitBinary]);
+    };
     /** A commit on its own branch with these files, run as one round. */
     const round = async (files: Record<string, string>, options: Partial<BacktestOptions> = {}, links: Record<string, string> = {}) => {
-        git('checkout', '-q', '-B', `round-${installs.length}-${Object.keys(files).join('-')}`, 'main');
+        git('checkout', '-q', '-B', `round-${++rounds}`, 'main');
         for (const [rel, body] of Object.entries(files)) write(rel, body);
         for (const [rel, target] of Object.entries(links)) fs.symlinkSync(target, path.join(repo, rel));
         git('add', '-A');
@@ -40,6 +52,7 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
         git('checkout', '-q', 'main');
         const ledger: Ledger = { rounds: [{ id: 'r1', commit, base: commit, points: [], must_not_flag: [] }] };
         const results = await runBacktest(repo, ConfigSchema.parse({ version: 1 }), ledger, { exec, ...options, progress: () => undefined, collect: async () => ({ items: [] }) });
+        last = results[0];
         return results[0].replay!.dependencies;
     };
 
@@ -80,11 +93,12 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
 
     it('does not run a commit that brings its own yarn release, and strips yarn-path from a classic one', async () => {
         const berry = await round({ 'yarn.lock': 'lock 3', '.yarnrc.yml': 'yarnPath: .yarn/releases/yarn-4.0.0.cjs\nnodeLinker: node-modules\n', '.yarn/releases/yarn-4.0.0.cjs': 'process.exit(0)', '.yarn/plugins/plugin.cjs': 'x' });
-        expect(berry).toEqual({ used: 'today', detail: 'this commit installs with its own yarn release, which Rigour does not run' });
+        expect(berry).toEqual({ used: 'today', detail: 'this commit installs with its own yarn release, which Rigour does not run', settingsLeftOut: [{ file: '.yarnrc.yml', keys: ['yarnPath'] }] });
         expect(installs).toEqual([]); // nothing ran
         const classic = await round({ 'yarn.lock': 'lock 4', '.yarnrc': 'yarn-path "./tools/yarn.js"\nregistry "https://registry.example.com"\n' });
         expect(classic.used).toBe('commit');
-        expect(installs[0].yarnrc).toBe('\nregistry "https://registry.example.com"\n');
+        expect(installs[0].yarnrc).toBe('registry "https://registry.example.com"\n');
+        expect(classic.settingsLeftOut).toEqual([{ file: '.yarnrc', keys: ['yarn-path'] }]);
     }, 60_000);
 
     it('installs with a minimal environment and a scratch HOME, unless --deps-env asks for everything', async () => {
@@ -133,5 +147,46 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
         const thrown = await round({ 'package-lock.json': 'lock 8' });
         expect(thrown).toEqual({ used: 'today', detail: "installing the commit's lockfile failed: the package manager could not start" });
         expect(fs.readdirSync(path.join(repo, '.git', 'rigour-backtest', 'deps'))).toHaveLength(1); // nothing of the failed one is kept
+    }, 60_000);
+
+    it('keeps only allowlisted settings, so npm\'s node-options and git never run repository code while it prepares a git dependency', async () => {
+        const marker = path.join(repo, '..', `${path.basename(repo)}-ran`);
+        const checkout = path.join(repo, '.git', 'rigour-backtest', 'checkout'); // where the commit's code lands: predictable
+        const payload = `require("fs").writeFileSync(${JSON.stringify(marker)}, "ran")`;
+        const lock = JSON.stringify({ lockfileVersion: 3, packages: { '': { dependencies: { 'example-tool': 'git+ssh://git@example.com/example-org/example-tool.git' } }, 'node_modules/example-tool': { resolved: 'git+ssh://git@example.com/example-org/example-tool.git#0123456789abcdef0123456789abcdef01234567' } } });
+        const npmrc = [
+            `node-options=--require ${path.join(checkout, 'tools', 'prepare.js')}`, `git=${path.join(checkout, 'tools', 'git.js')}`,
+            'script-shell=/bin/sh', 'prefix=/tmp/example', 'globalconfig=/tmp/example/npmrc', 'onload-script=./tools/prepare.js', 'init-module=./tools/prepare.js',
+            'registry=https://registry.example.com/', '@example-org:registry=https://npm.example.com/', 'strict-ssl=true', 'cafile=./certs/example-ca.pem',
+            '//npm.example.com/:_authToken=${EXAMPLE_TOKEN}', '//npm.example.com/:always-auth=true', '; a comment',
+        ].join('\n');
+        try {
+            const used = await round({
+                'package-lock.json': lock, '.npmrc': npmrc, 'packages/app/.npmrc': 'node-options=--require ./x.js\nregistry=https://registry.example.com/\n',
+                'tools/prepare.js': payload, 'tools/git.js': payload,
+                '.yarnrc.yml': 'npmRegistryServer: https://registry.example.com\nnpmScopes:\n  example-org:\n    npmRegistryServer: https://npm.example.com\n    npmAuthToken: x\n    npmPublishRegistry: https://p.example.com\nplugins:\n  - path: .yarn/plugins/p.cjs\ninjectEnvironmentFiles: [.env]\n',
+                'bunfig.toml': 'preload = ["./tools/prepare.js"]\n[install]\nregistry = "https://registry.example.com"\ncache = "/tmp/x"\n[install.scopes]\nexample-org = "https://npm.example.com"\n[run]\nshell = "system"\n',
+                'pnpm-workspace.yaml': 'packages:\n  - packages/*\nnodeOptions: --require ./tools/prepare.js\npnpmfile: ./tools/prepare.js\noverrides:\n  example-tool: 1.0.0\n',
+            });
+            expect(fs.existsSync(marker)).toBe(false); // nothing of the commit ran
+            expect(installs[0].npmrc).toBe(['registry=https://registry.example.com/', '@example-org:registry=https://npm.example.com/', 'strict-ssl=true', 'cafile=./certs/example-ca.pem', '//npm.example.com/:_authToken=${EXAMPLE_TOKEN}', '//npm.example.com/:always-auth=true', ''].join('\n'));
+            expect(installs[0].read('packages/app/.npmrc')).toBe('registry=https://registry.example.com/\n');
+            expect(installs[0].read('.yarnrc.yml')).toBe('npmRegistryServer: https://registry.example.com\nnpmScopes:\n  example-org:\n    npmRegistryServer: https://npm.example.com\n    npmAuthToken: x\n');
+            expect(installs[0].read('bunfig.toml')).toBe('[install]\nregistry = "https://registry.example.com"\n[install.scopes]\nexample-org = "https://npm.example.com"\n');
+            expect(installs[0].read('pnpm-workspace.yaml')).toBe('packages:\n  - packages/*\noverrides:\n  example-tool: 1.0.0\n');
+            expect(installs[0].files.some(f => f.startsWith('tools/'))).toBe(false);
+            expect(used.settingsLeftOut).toEqual([
+                { file: '.npmrc', keys: ['node-options', 'git', 'script-shell', 'prefix', 'globalconfig', 'onload-script', 'init-module'] },
+                { file: '.yarnrc.yml', keys: ['npmScopes.example-org.npmPublishRegistry', 'plugins', 'injectEnvironmentFiles'] },
+                { file: 'bunfig.toml', keys: ['preload', 'install.cache', 'run.shell'] },
+                { file: 'packages/app/.npmrc', keys: ['node-options'] },
+                { file: 'pnpm-workspace.yaml', keys: ['nodeOptions', 'pnpmfile'] },
+            ]);
+            const text = formatBacktest([last!]);
+            expect(text).toContain("install settings left out of the commit's .npmrc: 7 key(s) (node-options, git, script-shell, prefix, globalconfig, onload-script, init-module)");
+            expect(text).not.toContain('/bin/sh'); // names, never values
+        } finally {
+            fs.rmSync(marker, { force: true });
+        }
     }, 60_000);
 });

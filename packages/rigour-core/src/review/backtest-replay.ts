@@ -83,6 +83,11 @@ export async function replayMoment(worktree: string, reviewedAt: string | undefi
     return { at, why: reviewedAt ? `the commit's time: reviewed_at "${reviewedAt}" is not a time` : "the commit's time: the round has no reviewed_at" };
 }
 
+/** What the install left out of the commit's package-manager settings: key names and counts, never values. */
+function settingsLeftOut(use: DependencyUse): string[] {
+    return (use.settingsLeftOut ?? []).map(({ file, keys }) => `install settings left out of the commit's ${file}: ${keys.length} key(s) (${keys.join(', ')})`);
+}
+
 /** RIGOUR_REVIEW_LESSONS, when set: a backtest reads the worktree's own lessons instead, and says so. */
 export function lessonsEnvIgnored(): string | undefined {
     const set = process.env.RIGOUR_REVIEW_LESSONS?.trim();
@@ -94,7 +99,7 @@ export function formatReplay(replay: Replay | undefined): string[] {
     if (!replay) return [];
     const l = replay.lessons;
     const lessons = l ? `lessons as of ${replay.asOf}: ${l.served} served, ${l.later} learned later left out, ${l.untimed} with no timestamp left out${l.teamLeftOut ? `, ${l.teamLeftOut} team decision(s) made later left out` : ''}` : `lessons as of ${replay.asOf}`;
-    const lines = [`  config: ${replay.config}`, `  dependencies: ${describeDependencies(replay.dependencies)}`, `  ${lessons}`];
+    const lines = [`  config: ${replay.config}`, `  dependencies: ${describeDependencies(replay.dependencies)}`, ...settingsLeftOut(replay.dependencies).map(line => `  ${line}`), `  ${lessons}`];
     if (replay.lessonsEnvIgnored) lines.push(`  ${replay.lessonsEnvIgnored}`);
     for (const judge of replay.judgesNotIsolated ?? []) lines.push(`  ${judge}`);
     return lines;
@@ -105,6 +110,7 @@ export function replayWarnings(replay: Replay | undefined): string[] {
     if (!replay) return [];
     const lines: string[] = [];
     if (replay.dependencies.used === 'today') lines.push(`dependencies: ${describeDependencies(replay.dependencies)}`);
+    lines.push(...settingsLeftOut(replay.dependencies));
     lines.push(`config: ${replay.config}`);
     if (replay.lessons?.untimed) lines.push(`${replay.lessons.untimed} lesson(s) with no timestamp left out`);
     if (replay.lessonsEnvIgnored) lines.push(replay.lessonsEnvIgnored);

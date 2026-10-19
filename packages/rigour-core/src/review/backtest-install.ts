@@ -1,9 +1,9 @@
 /**
  * Installing a commit's own dependencies for a backtest round without running the commit's code. Only data is taken
  * from the commit: its lockfiles, manifests, workspace and registry settings, and patches. Nothing executable is:
- * no `.pnpmfile.cjs` (and pnpm runs with `--ignore-pnpmfile`), no `.yarn/plugins` or `.yarn/releases`, and no
- * `yarnPath` / `yarn-path` line; a commit that installs with its own yarn release is not installed at all. Lifecycle
- * scripts are off. A symlink whose target leaves the commit's checkout is skipped.
+ * no `.pnpmfile.cjs` (and pnpm runs with `--ignore-pnpmfile`), no `.yarn/plugins` or `.yarn/releases`, and every
+ * package-manager settings file is cut to an allowlist of registry, trust and sign-in keys (backtest-install-config.ts);
+ * a commit that installs with its own yarn release is not installed at all. Lifecycle scripts are off. A symlink whose target leaves the commit's checkout is skipped.
  *
  * The package manager runs with a minimal environment: PATH, a scratch HOME (so your own `~/.npmrc` and its tokens are
  * not read), the proxy and certificate variables, and nothing else, so a `${NPM_TOKEN}` in the commit's `.npmrc` gets
@@ -13,6 +13,7 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { Exec } from './reviewer.js';
+import { allowedSettings } from './backtest-install-config.js';
 
 export type Manager = 'pnpm' | 'yarn' | 'npm' | 'bun';
 
@@ -32,6 +33,9 @@ export const OWN_YARN = 'this commit installs with its own yarn release, which R
 
 export interface InstallFile { rel: string; bytes: Buffer }
 
+/** One copied config's keys left out, by name. */
+export interface SettingsLeftOut { file: string; keys: string[] }
+
 export interface InstallPlan {
     manager: Manager;
     files: InstallFile[];
@@ -41,6 +45,8 @@ export interface InstallPlan {
     ownYarn: boolean;
     /** The commit carries registry settings: a failure may be a private registry, which needs `--deps-env`. */
     registrySettings: boolean;
+    /** Settings left out of each copied config, by key name (never a value). */
+    settingsLeftOut: SettingsLeftOut[];
 }
 
 /** What to install from the commit's checkout, read without following a link out of it. */
@@ -50,13 +56,17 @@ export async function planInstall(worktree: string, manager: Manager, exec: Exec
     const tracked = listed.stdout.split('\0').filter(file => file && !file.split('/').includes('node_modules'));
     const root = fs.realpathSync(worktree);
     const files: InstallFile[] = [];
+    const settingsLeftOut: SettingsLeftOut[] = [];
     for (const rel of tracked.filter(file => INPUTS.test(file) || LOCKFILES.some(([name]) => name === file))) {
         const bytes = readInside(root, rel);
-        if (bytes) files.push({ rel, bytes: stripYarnPath(rel, bytes) });
+        if (!bytes) continue;
+        const allowed = allowedSettings(rel, bytes.toString('utf8'));
+        if (allowed?.dropped.length) settingsLeftOut.push({ file: rel, keys: [...new Set(allowed.dropped)] });
+        files.push({ rel, bytes: allowed ? Buffer.from(allowed.text) : bytes });
     }
     const yarnrc = files.find(f => f.rel === '.yarnrc.yml');
     const ownYarn = manager === 'yarn' && !!yarnrc && (tracked.some(file => /^\.yarn\/releases\//.test(file)) || YARN_PATH.test(readInside(root, '.yarnrc.yml')?.toString('utf8') ?? ''));
-    return { manager, files, leftOut: tracked.filter(file => EXECUTABLE.test(file)), ownYarn, registrySettings: files.some(f => /(^|\/)\.(npmrc|yarnrc(\.yml)?)$/.test(f.rel)) };
+    return { manager, files, leftOut: tracked.filter(file => EXECUTABLE.test(file)), ownYarn, registrySettings: files.some(f => /(^|\/)\.(npmrc|yarnrc(\.yml)?)$/.test(f.rel)), settingsLeftOut };
 }
 
 /** The file's bytes, or undefined when it is a link leading out of the checkout or to nothing. */
@@ -68,11 +78,6 @@ function readInside(root: string, rel: string): Buffer | undefined {
     } catch {
         return undefined;
     }
-}
-
-function stripYarnPath(rel: string, bytes: Buffer): Buffer {
-    if (!/(^|\/)\.yarnrc(\.yml)?$/.test(rel)) return bytes;
-    return Buffer.from(bytes.toString('utf8').replace(new RegExp(YARN_PATH.source, 'gm'), ''));
 }
 
 /** The cache key: the lockfiles and every input copied, so a changed patch or .npmrc is a different install. */
