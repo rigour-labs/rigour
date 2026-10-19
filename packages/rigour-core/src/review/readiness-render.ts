@@ -73,11 +73,13 @@ function cellParts(cell: CoverageCell): string[] {
 function wrap(prefix: string, text: string, width: number, indent: string): string[] {
     const lines: string[] = [];
     let line = prefix;
+    let fresh = true;
     for (const word of text.split(' ')) {
-        if (line.trim() && line.length + 1 + word.length > width) {
+        if (!fresh && line.length + 1 + word.length > width) {
             lines.push(line);
             line = indent + word;
-        } else line = line.trim() ? `${line} ${word}` : line + word;
+        } else line = fresh ? line + word : `${line} ${word}`;
+        fresh = false;
     }
     return [...lines, line];
 }

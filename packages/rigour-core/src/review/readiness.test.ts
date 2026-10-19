@@ -209,7 +209,7 @@ describe('readiness rendering', () => {
         const lines = coverageText(r, 60);
         expect(lines.every(line => line.length <= 60)).toBe(true);
         expect(lines.join(' ').replace(/\s+/g, ' ')).toContain('not verified: a refund over the charge is refused (not checked), the receipt shows the refund (not checked)');
-        expect(lines).toContain('                     not verified: migration-order (not run)');
+        expect(lines.slice(0, 2)).toEqual(['checks               2 verified', '                     not verified: migration-order (not run)']);
     });
 
     it('renders markdown with a noted column, a not verified column that is never empty for what was not checked, and more in the report artifact', () => {
