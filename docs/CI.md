@@ -47,13 +47,16 @@ exit code or what blocks.
 
 | Answer | When |
 | --- | --- |
-| `not ready` | A blocking finding (a check that failed on the changed lines), or an open item from the [reviewer](./REVIEWER.md). |
-| `unknown` | The review is `ERROR`; or the reviewer is required and gave no verdict (not run, unavailable or skipped); or it is required and left changed units unreviewed. |
-| `ready` | Everything that ran passed and nothing required was left unverified. What did not run (the model review, checks that are off, a skipped deep review) and what failed without blocking are listed after it, never hidden. |
+| `not ready` | A blocking finding, or an open item from the [reviewer](./REVIEWER.md). |
+| `unknown` | The review is `ERROR`; or this run asked for the reviewer (`rigour review --reviewer`) and it gave no verdict (unavailable or skipped), or left changed units unreviewed. |
+| `ready` | Everything that ran passed and nothing this run asked for was left unverified. What did not run (the model review, checks that are off, a skipped deep review), checks that could not run, and how much was noted are listed after it, never hidden. |
 
-The reviewer is required when the run asks for it (`rigour review --reviewer`) or when `rigour.yml` holds
-every push for it (`review.reviewer.enabled` with `on_push: wait`). Otherwise a missing model review is a
-caveat on `ready`.
+Only a run that asks for the reviewer is held to it. Any other run (CI, the MCP tool, a plain
+`rigour review`) reads the verdict the reviewer stored for this exact commit, when the branch's last
+verdict is a full review of HEAD whose record is intact; it says so ("model review from the stored verdict
+on this commit"). With no such verdict, "model review not run" is a caveat on `ready`. A stored verdict
+is matched by commit, its own fingerprint and its record's integrity: it reflects the description and the
+human reviews as they were when it ran, and its date is printed so you can tell.
 
 **Product ready** reads the acceptance criteria in the pull request's description, under the headings the
 [goal check](./GOAL.md) reads: `Done when`, `Acceptance criteria`, `Definition of done` or `Success criteria`.
@@ -61,24 +64,44 @@ caveat on `ready`.
 | Answer | When |
 | --- | --- |
 | `unknown (no acceptance criteria)` | No description was read, or it has none of those sections. |
-| `unknown (not checked)` | Criteria exist, but the reviewer's goal step did not judge them (no reviewer, `review.goal` off, the rules-and-goal step did not return), or judged only some of them. |
-| `not ready` | The reviewer recorded a criterion as not met, with a quote that checked out against the code. |
-| `ready` | The reviewer recorded every criterion as met. |
+| `unknown (not checked)` | Criteria exist and nothing checked any of them: no reviewer verdict, `review.goal` off, or the rules-and-goal step did not return. |
+| `unknown (not verified)` | Some criteria were checked, but not every one was shown met with evidence. |
+| `not ready` | A criterion was shown not met. |
+| `ready` | Every criterion was shown met. |
 
-It is never a guess: a criterion the reviewer did not judge, could not tell, or judged not met with a
-quote that did not check out is `not verified`. A criterion that names a file in backticks is proven or
-broken by the goal check, not judged by a model, so it stays `not verified` here.
+Each criterion is decided by evidence only:
 
-**The coverage table** follows the two answers. Each row is `verified`, `failed` or `not verified`, by
-category: the checks (each one: passed, failed, or not run or crashed), the changed units (reviewed by
-the model or before this change, or named as not reviewed), the team's rules (followed, not applicable,
-broken, not answered), the team's lessons (covered by compiled checks, not repeated, repeated), human
-review points (resolved, open, to answer in the reply) and each acceptance criterion. What the review did
-not check is a `not verified` row, never a pass: without the reviewer, the rules, lessons and review
-points rows say so. A check that found only notes reads `failed` (as its summary does), with
-"notes only, never blocking". The terminal and markdown show one row per category, naming every failed
-and not verified item (the first six, then a count); `--json` and the MCP tool carry every row under
-`readiness.coverage`, beside `readiness.technical`, `readiness.product` and the printed `readiness.line`.
+- One that names a file in backticks is the goal check's: verified when the change touches every file it
+  names, failed when it does not, and "checked by the goal check (not run)" when the goal check is off.
+- Any other is the reviewer's goal step. It fails when any judge (with a panel, every judge's answer is
+  kept) says not met with a quote that checks out against the checkout. It is verified only when every
+  judge that answered says met, each with a file, line and quote that check out, the same check a not-met
+  answer gets. Met without a quote that checks out is "not verified (no evidence)"; so is a judge that
+  could not tell, or a not-met whose quote did not check out. The judge is not asked to quote what it
+  finds met in this release, so expect `unknown (not verified)` until it does.
+
+A criterion's text is given to the judge as written, in its prompt: write criteria as you would for a
+reviewer, and keep secrets out of the description.
+
+**The coverage table** follows the two answers. Each row is one of four states:
+
+| State | Means |
+| --- | --- |
+| `verified` | Checked, and it holds. |
+| `failed` | Checked, and it blocks: a check with a blocking finding, a broken rule the team wrote as a requirement, an open human review point, a criterion shown not met. |
+| `noted` | Found, never blocking: a check whose findings are all notes, a broken rule written as guidance, a lesson the change repeats. Counted as "N noted" after `ready`. |
+| `not verified` | Not checked: a check that is off or could not run, a changed unit nobody reviewed, a rule or lesson nobody answered, a criterion without evidence. Never a pass. |
+
+The categories are the checks, the changed units (reviewed by the model or before this change, or named
+as not reviewed), the team's rules, the team's lessons (covered by compiled checks, answered not repeated,
+repeated, not answered), human review points (resolved, open, to answer in the reply) and each acceptance
+criterion. Without a reviewer verdict, the rules, lessons and review points rows say the model review did
+not run; a part a stored record from an older Rigour does not have reads "not in the stored record". The
+terminal and `--ci` text show one row per category, wrapped to the terminal's width, naming every failed,
+noted and not verified item (the first six, then a count); the markdown table has the same columns and
+points at the JSON report (the job's report artifact) for the rest. `--json` and the MCP tool carry every
+row under `readiness.coverage`, beside `readiness.technical`, `readiness.product` and the printed
+`readiness.line`.
 
 `rigour review-post` then posts (and, when the report includes the reviewer's record, the summary carries it: blocking items, up to five should-fixes, the counts and the integrity hash):
 

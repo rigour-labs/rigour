@@ -16,7 +16,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { learningUsage, readiness, readinessJson, reviewerRequired, type Config, buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, resolveSwitch, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
+import { learningUsage, readiness, readinessJson, storedReviewerResult, type Config, buildReviewTask, costBucket, diffFromGit, durationBucket, flushDailyUsage, Logger, LogLevel, resolveDeepOptions, trackUsage, resolveSwitch, reviewChange, toReviewFinding, GitDiffError, mergeBaseOf, receiptReport, recordPrCatches, reviewerBlocks } from '@rigour-labs/core';
 import type { DeepOptions, DiffSource, QualityReceipt, Readiness, ReviewerResult, ReviewResult } from '@rigour-labs/core';
 import { goalReport, type GoalReport } from './review-goal.js';
 import { receiptFor } from './review-receipt.js';
@@ -97,7 +97,8 @@ export async function reviewCommand(cwd: string, options: ReviewOptions = {}) {
         const receipt = receiptFor(cwd, diff ?? changeDiff(cwd, source), config, !!options.independent);
         const reviewer = options.reviewer ? await reviewerFor(cwd, reviewerBase(cwd, options.base), config, !!options.full, { ...(options.single ? { mode: 'single' as const } : {}), ...(options.panel !== undefined ? { panel: options.panel } : {}) }, result, { goal: options.goal, orchestrator: options.orchestrator, blind: !!options.blind }) : undefined;
         const checked = options.json ? whatWasChecked(cwd, options, trustedRef, result) : undefined;
-        const ready = readiness({ review: result, reviewer, receipt, description: readPrBody(cwd, options), reviewerRequired: reviewerRequired(config, !!options.reviewer) });
+        // A run that did not ask for the reviewer reads the verdict the push already stored for this commit, if there is one.
+        const ready = readiness({ review: result, reviewer: reviewer ?? await storedReviewerResult(cwd), receipt, description: readPrBody(cwd, options), reviewerAsked: !!options.reviewer });
         await print({ result, ready, receipt, reviewer, checked, goal: goalReport(goal, goalDescription, result) }, options, { cwd, scope: scopeOf(options), commits: commitsOf(cwd, options.base), ms: Date.now() - started });
         if (!isDeep && !receipt && !options.ci && !options.json && !options.githubSummary) {
             hintReviewTask(cwd, diff ?? diffFromGit(cwd, source), config.gates.deep?.router);

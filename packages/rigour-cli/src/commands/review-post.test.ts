@@ -65,12 +65,12 @@ describe('the summary with a review record', () => {
 
 describe('the summary with readiness', () => {
     it('leads with the two readiness lines and the coverage table, read back from the JSON report', () => {
-        const review = { status: 'FAIL', findings: [{ id: 'x' }], report: { failures: [], summary: { 'semantic-bugs': 'FAIL', 'migration-order': 'SKIP' }, stats: {} }, gateErrors: [], covered: [] } as unknown as ReviewResult;
-        const json = JSON.parse(JSON.stringify(readinessJson(readiness({ review, receipt: null, reviewerRequired: false }))));
+        const review = { status: 'FAIL', findings: [{ id: 'x' }], report: { failures: [], summary: { 'semantic-bugs': 'FAIL', 'migration-order': 'SKIP' }, stats: {} }, gateErrors: [], covered: [], blockingByCheck: { 'semantic-bugs': 1 } } as unknown as ReviewResult;
+        const json = JSON.parse(JSON.stringify(readinessJson(readiness({ review, receipt: null, reviewerAsked: false }))));
         const body = summaryBody({ ...report, readiness: json }, 1, 1, 0);
         expect(body).toContain('**Technically ready: not ready (1 blocking finding; model review not run; 1 check not run) · Product ready: unknown (no acceptance criteria;');
-        expect(body).toContain('| checks | 0 | semantic-bugs | migration-order (not run) |');
-        expect(body).toContain('| changed units | 0 | — | changed functions (no review recorded) |');
+        expect(body).toContain('| checks | 0 | semantic-bugs (1 blocking finding) | — | migration-order (not run) |');
+        expect(body).toContain('| changed units | 0 | — | — | changed functions (no review recorded) |');
         expect(summaryBody(report, 1, 1, 0)).not.toContain('Technically ready');
     });
 });

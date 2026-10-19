@@ -5,7 +5,7 @@
  * With no diff, the change is taken from git: uncommitted work (what the
  * agent just wrote, new files included), or the branch against `base`.
  */
-import { acknowledgeReview, buildQualityReceipt, buildReviewTask, receiptReport, diffFromGit, readiness, readinessJson, recordFixLessons, reviewerRequired, recordLessonsServed, recordReviewOutcome, reviewChange, toReviewFinding, type Config, type QualityReceipt, type ReviewResult } from "@rigour-labs/core";
+import { acknowledgeReview, buildQualityReceipt, buildReviewTask, receiptReport, diffFromGit, readiness, readinessJson, recordFixLessons, storedReviewerResult, recordLessonsServed, recordReviewOutcome, reviewChange, toReviewFinding, type Config, type QualityReceipt, type ReviewResult } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 
 type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
@@ -36,10 +36,11 @@ function qualityReceipt(config: Config, cwd: string, diff: string): QualityRecei
 
 /**
  * Technically and product ready, and the coverage table, as `rigour review --json` gives them. The tool runs no model
- * reviewer and reads no description: what those would verify is listed as not verified, never as a pass.
+ * reviewer and reads no description: the rows come from the verdict stored for this commit, if any, and what nothing
+ * verified is listed as not verified, never as a pass.
  */
-function readinessReport(config: Config, result: ReviewResult, receipt: QualityReceipt | null) {
-    return readinessJson(readiness({ review: result, receipt, reviewerRequired: reviewerRequired(config, false) }));
+async function readinessReport(cwd: string, result: ReviewResult, receipt: QualityReceipt | null) {
+    return readinessJson(readiness({ review: result, reviewer: await storedReviewerResult(cwd), receipt, reviewerAsked: false }));
 }
 
 export async function handleReview(config: Config, cwd: string, args: ReviewArgs): Promise<ToolResult> {
@@ -55,7 +56,7 @@ export async function handleReview(config: Config, cwd: string, args: ReviewArgs
         const receipt = qualityReceipt(config, cwd, diff);
         return text({
             status: result.status,
-            readiness: readinessReport(config, result, receipt),
+            readiness: await readinessReport(cwd, result, receipt),
             score: stats?.score ?? 100,
             ai_health_score: stats?.ai_health_score,
             structural_score: stats?.structural_score,

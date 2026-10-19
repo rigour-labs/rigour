@@ -6,10 +6,14 @@
 import chalk from 'chalk';
 import { coverageText, readinessLine, readinessMarkdown, type Readiness } from '@rigour-labs/core';
 
-export function printReadiness(r: Readiness, color = true): void {
-    const paint = color ? (text: string) => chalk.bold(text) : (text: string) => text;
-    console.log(paint(readinessLine(r)));
-    for (const line of coverageText(r)) console.log(color ? chalk.dim(`  ${line}`) : `  ${line}`);
+/** The terminal's width, less a margin; CI logs and pipes have none, and read 100 columns. */
+function terminalWidth(): number {
+    return Math.max(60, (process.stdout.columns || 102) - 2);
+}
+
+export function printReadiness(r: Readiness, color = true, width = terminalWidth()): void {
+    console.log(color ? chalk.bold(readinessLine(r)) : readinessLine(r));
+    for (const line of coverageText(r, width - 2)) console.log(color ? chalk.dim(`  ${line}`) : `  ${line}`);
     console.log('');
 }
 

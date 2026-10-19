@@ -621,8 +621,9 @@ git email set in the checkout, the decision is refused. Each finding names its l
   full, up to five should-fixes, the counts and the hash.
 - **Readiness**, after the verdict in every output: "Technically ready" and "Product ready", and the
   coverage table filled from the record (changed units, rules, lessons, human review points) and the
-  judge's answer on each acceptance criterion. With the reviewer required and no verdict, technically
-  ready is `unknown`, never `ready` ([Ready, and what was verified](./CI.md#ready-and-what-was-verified)).
+  judges' answers on each acceptance criterion (met counts only with a quote that checks out). A run
+  that asked for the reviewer and got no verdict is `unknown`, never `ready`; any other run reads the
+  verdict stored for this commit, if there is one ([Ready, and what was verified](./CI.md#ready-and-what-was-verified)).
 - Telemetry, only if you opted in: one anonymous `reviewer_completed` event with counts and a cost
   bucket, never code or finding text ([Telemetry](../TELEMETRY.md)).
 - `rigour review --status`: what the background reviewer last decided on this branch, or why its

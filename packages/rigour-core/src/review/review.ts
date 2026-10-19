@@ -35,6 +35,7 @@ import { partialWiringFailures } from './partial-wiring.js';
 import { isControlFile } from './trusted-state.js';
 import { baseCommit, baseFindings, splitIntroduced } from './baseline.js';
 import { fileSizeFailures } from './file-size.js';
+import { blockingByCheck } from './blocking-checks.js';
 import { goalFailures, hasCheckableGoal, parseGoal, type Goal } from '../goal/goal.js';
 
 export interface ReviewInput {
@@ -95,6 +96,8 @@ export interface ReviewResult {
     goal?: Goal;
     /** The lessons the team's compiled checks covered on this change: a model reviewer is told so instead of the lesson. */
     covered: CoveredLesson[];
+    /** Blocking findings by the check that produced them, as the summary names it (blocking-checks.ts). */
+    blockingByCheck: Record<string, number>;
 }
 
 export interface ReviewFinding {
@@ -119,7 +122,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const changedLines = withoutGenerated(input.cwd, parseDiff(diff));
     const targets = input.files?.length ? input.files : Object.keys(changedLines);
     if (targets.length === 0) {
-        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, preexistingByCheck: {}, outsideChangeByCheck: {}, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [], covered: [] };
+        return { status: 'PASS', findings: [], fileFindings: [], contextFindings: [], advisory: [], muted: 0, dismissed: 0, dismissedByGate: {}, unlocated: 0, excludedOutsideChangedLines: 0, preexisting: 0, preexistingByCheck: {}, outsideChangeByCheck: {}, changedLines, report: null, gateErrors: [], controlFilesChanged: controlFiles(diff), hints: [], covered: [], blockingByCheck: {} };
     }
     // The team's compiled checks run before the deep review, so it is told what they found and which lessons they covered.
     const compiled = compiledChecksOn(input.cwd, changedLines, input.config);
@@ -130,7 +133,9 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     const goal = input.goalDescription !== undefined ? parseGoal(input.goalDescription, fileNames(input.cwd, diff)) : undefined;
     if (input.diffTests && deep) report.failures.push(...withDiffTestCertainty(await diffTestFailures(input.cwd, input.source, deep), !!goal?.invariants.length));
     // The review's own checks, each recorded in the summary beside the gates, so a report says everything that ran.
+    const owner = new Map<Failure, string>();
     const reviewCheck = (id: string, key: keyof Config['gates'], failures: Failure[]) => {
+        for (const f of failures) owner.set(f, id);
         const enabled = (input.config.gates[key] as { enabled?: boolean } | undefined)?.enabled;
         report.summary[id] = !enabled ? 'SKIP' : failures.length ? 'FAIL' : 'PASS';
         report.failures.push(...failures);
@@ -162,6 +167,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
     // The goal's findings are about the change as a whole (a file it should not touch, an item it never did), not a line, so they skip the changed-line split.
     const checkedGoal = goal && hasCheckableGoal(goal) ? goal : undefined;
     const goalFindings = checkedGoal ? goalFailures(checkedGoal, changedLines, diff, file => isGeneratedFile(input.cwd, file)) : [];
+    for (const f of goalFindings) owner.set(f, 'goal');
     if (checkedGoal) report.summary.goal = goalFindings.length ? 'FAIL' : 'PASS';
     const quiet = quietSplit(input.cwd, [...split.findings, ...goalFindings], input.config.review?.include_heuristics, input.trustedRef);
     rememberReported(input.cwd, [...quiet.speaking, ...quiet.advisory].map(f => ({ key: findingKey(f), check: checkId(f) })));
@@ -188,6 +194,7 @@ export async function reviewChange(input: ReviewInput): Promise<ReviewResult> {
         controlFilesChanged: controlFiles(diff),
         hints: typed.hints,
         covered: compiled.covered,
+        blockingByCheck: blockingByCheck(quiet.speaking, [...report.failures, ...goalFindings], owner),
         ...(deepError ? { deepError } : {}),
         ...(typed.error ? { typedError: typed.error } : {}),
         ...(checkedGoal ? { goal: checkedGoal } : {}),

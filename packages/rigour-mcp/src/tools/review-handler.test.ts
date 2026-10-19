@@ -33,6 +33,7 @@ describe('rigour_review', () => {
         expect(payload.failures).toContainEqual(expect.objectContaining({ id: 'semantic-bugs', file: 'src/notify.ts', line: 2 }));
         expect(payload.next_step).toContain('call rigour_review again');
         expect(payload.readiness.technical).toMatchObject({ state: 'not ready', reasons: ['1 blocking finding'] });
+        expect(payload.readiness.coverage).toContainEqual({ category: 'checks', item: 'semantic-bugs', state: 'failed', detail: '1 blocking finding' });
         expect(payload.readiness.line).toMatch(/^Technically ready: not ready \(1 blocking finding; model review not run.*\) · Product ready: unknown \(no acceptance criteria;/);
     });
 

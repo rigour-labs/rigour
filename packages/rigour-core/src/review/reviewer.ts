@@ -44,6 +44,7 @@ import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relate
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
+import { acceptanceCriteria, goalAnswers, lessonAnswers, type GoalAnswer, type LessonAnswers } from './reviewer/answers.js';
 import { emptyAnswer, insideAgentNote } from './reviewer/judge-empty.js';
 import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
 import { judgeIsolation, type JudgeIsolation } from './reviewer/judge-isolation.js';
@@ -152,10 +153,12 @@ export interface ReviewerResult {
     pr?: number;
     /** The pull request's title, when one was read. */
     prTitle?: string;
-    /** The acceptance criteria ("Done when" items) of the description it read; absent when it read none. */
-    criteria?: string[];
-    /** The judge's answer per declared goal item (step 12), present when the goal check was on for this review. */
-    goal?: Array<{ item: string; met: boolean | null }>;
+    /** The acceptance criteria ("Done when" items, and the files each names) of the description it read; absent when it read none. */
+    criteria?: Array<{ text: string; paths: string[] }>;
+    /** Every judge's answer per declared goal item (step 12), with whether its quote checked out; present when the goal check was on. */
+    goal?: GoalAnswer[];
+    /** How many distinct team lessons the judges answered repeated, or not repeated. */
+    lessonAnswers?: LessonAnswers;
 }
 
 export interface ModeRecord {
@@ -321,7 +324,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const goalItems = goalOn ? modelGoalItems(parseGoal(body)) : [];
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
     // The acceptance criteria a readiness verdict reads (readiness.ts), from the description this review read.
-    const criteria = pr ? parseGoal(body).doneWhen.map(item => item.text) : undefined;
+    const criteria = pr ? acceptanceCriteria(body) : undefined;
     const previous = branch !== 'HEAD' ? store.branchState(branch) : undefined;
     // The same commit, asked again with the same settings and reviews (the background run, then the person): the verdict it already has.
     // A delta verdict never answers a full request; a full one answers either.
@@ -406,8 +409,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count, blind: options.blind });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
         const applied = lessonsApplied(verdict.lessons ?? [], context.servedLessons);
-        const goal = goalOn ? { goal: (verdict.goal ?? []).map(g => ({ item: g.item, met: g.met })) } : {};
-        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}), ...(verdict.coverage ? { coverage: verdict.coverage } : {}), ...(criteria ? { criteria } : {}), ...goal };
+        const goal = goalOn ? { goal: goalAnswers(verdict.goal ?? [], verify) } : {};
+        return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}), ...(verdict.coverage ? { coverage: verdict.coverage } : {}), ...(criteria ? { criteria } : {}), ...goal, lessonAnswers: lessonAnswers(verdict.lessons ?? []) };
     };
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
