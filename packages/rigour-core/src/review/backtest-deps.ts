@@ -1,15 +1,15 @@
 /**
  * A backtest round's dependencies, as of its commit: the typed checks type-check the commit against what is installed,
  * so today's packages would judge yesterday's code. When the commit's lockfile is byte for byte this checkout's, the
- * checkout's node_modules is the commit's and is shared. Otherwise the commit's own lockfile is installed, frozen,
- * offline first and with no scripts, into a cache under the git directory keyed by the lockfile's hash, reused by every
- * round with the same lockfile and bounded to the few used last. Only when that cannot be done, or `--share-deps` asks,
- * does a round run on today's dependencies, and its report says so.
+ * checkout's node_modules is the commit's and is shared. Otherwise the commit's own lockfile is installed (frozen, no
+ * scripts, none of the commit's code run: backtest-install.ts) into a cache under the git directory keyed by what the
+ * install reads, reused by every round that reads the same and bounded to the few used last. Only when that cannot be
+ * done, or `--share-deps` asks, does a round run on today's dependencies, and its report says so.
  */
-import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { Exec } from './reviewer.js';
+import { LOCKFILES, OWN_YARN, planInstall, planKey, runInstall, type Manager } from './backtest-install.js';
 
 /** Which dependencies a round ran with. */
 export interface DependencyUse {
@@ -19,15 +19,15 @@ export interface DependencyUse {
     detail?: string;
 }
 
-export interface DependencyOptions { share?: boolean; exec: Exec; keep?: number }
+export interface DependencyOptions {
+    share?: boolean;
+    exec: Exec;
+    keep?: number;
+    /** Install with your whole environment, registry credentials included (`--deps-env`). */
+    fullEnv?: boolean;
+}
 
-/** Lockfiles by the package manager that reads them, in the order a project with several is installed by. */
-const LOCKFILES: Array<[string, Manager]> = [['pnpm-lock.yaml', 'pnpm'], ['yarn.lock', 'yarn'], ['package-lock.json', 'npm'], ['npm-shrinkwrap.json', 'npm'], ['bun.lock', 'bun'], ['bun.lockb', 'bun']];
-type Manager = 'pnpm' | 'yarn' | 'npm' | 'bun';
-/** What an install of the commit's lockfile reads besides the lockfile: its manifests, workspace and registry settings, patches. */
-const INSTALL_INPUTS = /(^|\/)(package\.json|pnpm-workspace\.yaml|\.npmrc|\.yarnrc(\.yml)?|\.pnpmfile\.cjs|bunfig\.toml)$|^(patches|\.yarn\/(releases|plugins|patches))\//;
 const KEEP = 3;
-const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const READY = '.rigour-ready';
 
 /** Links the round's dependencies into the worktree and says which they are. */
@@ -49,7 +49,7 @@ async function chooseDependencies(cwd: string, worktree: string, options: Depend
     if (theirs.length === 0) return shared({ used: 'today', detail: 'the commit has no lockfile to install from' });
     if (sameLockfiles(theirs, lockfiles(cwd))) return shared({ used: 'same-lockfile' });
     if (options.share) return shared({ used: 'today', detail: '--share-deps' });
-    const installed = await fromCache(worktree, theirs, options);
+    const installed = await fromCache(worktree, theirs[0].manager, options);
     if ('error' in installed) return shared({ used: 'today', detail: installed.error });
     return { use: { used: 'commit', detail: installed.key }, target: installed.modules };
 }
@@ -70,47 +70,28 @@ function sameLockfiles(a: Lockfile[], b: Lockfile[]): boolean {
     return a.length === b.length && a.every((lock, i) => lock.name === b[i].name && lock.bytes.equals(b[i].bytes));
 }
 
-/** The commit's lockfile installed in the cache, reused when it already is; an error when it cannot be. */
-async function fromCache(worktree: string, locks: Lockfile[], options: DependencyOptions): Promise<{ key: string; modules: string } | { error: string }> {
-    const hash = createHash('sha256');
-    for (const lock of locks) hash.update(lock.name).update('\0').update(lock.bytes).update('\0');
-    const key = hash.digest('hex').slice(0, 16);
+/** The commit's dependencies installed in the cache, reused when they already are; why not, when they cannot be. */
+async function fromCache(worktree: string, manager: Manager, options: DependencyOptions): Promise<{ key: string; modules: string } | { error: string }> {
     const cache = path.join(path.dirname(worktree), 'deps');
-    const dir = path.join(cache, key);
-    if (!fs.existsSync(path.join(dir, READY))) {
-        fs.rmSync(dir, { recursive: true, force: true });
-        const error = await install(worktree, dir, locks[0].manager, options.exec);
-        if (error) {
+    let dir: string | undefined;
+    try {
+        const plan = await planInstall(worktree, manager, options.exec);
+        if (typeof plan === 'string') return { error: `reading the commit's install inputs failed: ${plan}` };
+        if (plan.ownYarn) return { error: OWN_YARN };
+        const key = planKey(plan);
+        dir = path.join(cache, key);
+        if (!fs.existsSync(path.join(dir, READY))) {
             fs.rmSync(dir, { recursive: true, force: true });
-            return { error: `installing the commit's lockfile failed: ${error}` };
+            const error = await runInstall(plan, dir, options.exec, !!options.fullEnv);
+            if (error) throw new Error(error);
         }
+        fs.writeFileSync(path.join(dir, READY), new Date().toISOString());
+        bound(cache, key, options.keep ?? KEEP);
+        return { key, modules: path.join(dir, 'node_modules') };
+    } catch (error) {
+        if (dir) fs.rmSync(dir, { recursive: true, force: true });
+        return { error: `installing the commit's lockfile failed: ${error instanceof Error ? error.message : String(error)}` };
     }
-    fs.writeFileSync(path.join(dir, READY), new Date().toISOString());
-    bound(cache, key, options.keep ?? KEEP);
-    return { key, modules: path.join(dir, 'node_modules') };
-}
-
-/** Copies what the install reads from the commit into `dir` and installs there; the error, or undefined. */
-async function install(worktree: string, dir: string, manager: Manager, exec: Exec): Promise<string | undefined> {
-    const listed = await exec('git', ['ls-files', '-z'], { cwd: worktree, timeoutMs: 60_000 });
-    if (listed.exitCode !== 0) return listed.stderr.trim() || 'git ls-files failed';
-    const inputs = listed.stdout.split('\0').filter(file => INSTALL_INPUTS.test(file) && !file.split('/').includes('node_modules'));
-    for (const file of [...inputs, ...LOCKFILES.map(([name]) => name).filter(name => fs.existsSync(path.join(worktree, name)))]) {
-        fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
-        fs.copyFileSync(path.join(worktree, file), path.join(dir, file));
-    }
-    const [command, args] = installCommand(manager, fs.existsSync(path.join(dir, '.yarnrc.yml')));
-    const ran = await exec(command, args, { cwd: dir, timeoutMs: INSTALL_TIMEOUT_MS, env: { CI: 'true' } });
-    if (ran.exitCode !== 0) return `${command} ${args.join(' ')}: ${(ran.stderr || ran.stdout).trim().split('\n').at(-1) ?? `exit ${ran.exitCode}`}`;
-    return fs.existsSync(path.join(dir, 'node_modules')) ? undefined : `${command} installed no node_modules`;
-}
-
-/** Frozen to the lockfile, offline first, no lifecycle scripts: nothing the commit's packages run, nothing re-resolved. */
-function installCommand(manager: Manager, yarnBerry: boolean): [string, string[]] {
-    if (manager === 'pnpm') return ['pnpm', ['install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts']];
-    if (manager === 'yarn') return yarnBerry ? ['yarn', ['install', '--immutable', '--mode=skip-build']] : ['yarn', ['install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts', '--non-interactive']];
-    if (manager === 'bun') return ['bun', ['install', '--frozen-lockfile', '--ignore-scripts']];
-    return ['npm', ['ci', '--prefer-offline', '--ignore-scripts', '--no-audit', '--no-fund']];
 }
 
 /** Keeps the `keep` installs used last, this round's first, and deletes the rest: each is a whole node_modules. */

@@ -24,7 +24,7 @@ It lists merged pull requests by last update and keeps the N merged most recentl
 Then what was caught in its own round, the unadjudicated blocking findings, the cost and the time,
 and any round that ran on something other than its commit's own (today's dependencies or settings,
 a judge's memory). Add `--reviewer` to run the model reviewer too; without it, only the free checks
-run. `--share-deps` and `--config-now` work here too.
+run. `--share-deps`, `--deps-env`, `--config-now` and `-c` work here too, and every round's line says which settings it used.
 
 ```bash
 rigour backtest --last 20 --reviewer
@@ -100,9 +100,10 @@ rigour backtest                 # every round
 rigour backtest --round pr212-r2  # one round
 rigour backtest --reviewer      # the reviewer too, with each round's review hidden
 rigour backtest --json          # { passed, unadjudicated, rounds } as JSON
-rigour backtest -c <path>       # another rigour.yml (read at each round's commit)
+rigour backtest -c <path>       # this rigour.yml, as it is in your working tree today, for every round
 rigour backtest --config-now    # today's rigour.yml for every round, not the commit's
 rigour backtest --share-deps    # your checkout's node_modules for every round, not the commit's
+rigour backtest --deps-env      # install a commit's dependencies with your whole environment (see below)
 ```
 
 Each round is checked out in one detached worktree under the git directory, `<git common dir>/rigour-backtest/checkout`, moved from round to round, so the branch you are on does not move and a backtest of many pull requests takes the disk of one checkout. Run one backtest at a time per repository. The worktree is reused on the next run. The score and every finding reported are written to `.rigour/backtest/<round>-<commit>.json` (not committed), so a pattern that missed can be checked against what was actually reported.
@@ -122,17 +123,25 @@ A false block is listed on a `FALSE` line with the check, file and line. When th
 
 ### What a round holds fixed to its time
 
-A round replays the review as it could have run when the person reviewed. Besides the code at the commit, these are held to the round's moment: its `reviewed_at`, or the commit's own time when the round has none (the report says which).
+A round replays the review as it could have run when the person reviewed. Besides the code at the commit, these are held to the round's moment: its `reviewed_at`, or the commit's own time when the round has none (the report says which). Only what is from strictly before the moment counts, as with the human reviews. A `reviewed_at` with no time zone (`2026-04-12T12:00:00`) is read as UTC.
 
 | What | In a round | What the report says |
 | --- | --- | --- |
-| Settings | The `rigour.yml` at the commit (or the file `-c` names, read at the commit); Rigour's defaults when the commit has none. `--config-now` uses today's. If the commit's file does not parse, today's is used | `config: the commit's rigour.yml`, `the defaults (the commit has no rigour.yml)`, or `today's rigour.yml, not the commit's (…)` |
-| Dependencies | When the commit's lockfile is byte for byte your checkout's, your `node_modules` is the commit's and is linked in. Otherwise the commit's lockfile is installed, frozen, offline first and with no install scripts, with the package manager its lockfile belongs to, into `<git common dir>/rigour-backtest/deps/<lockfile hash>/`; rounds with the same lockfile reuse it, and only the three used last are kept. When the install fails, the commit has no lockfile, or you pass `--share-deps`, the round runs on your checkout's `node_modules` | `dependencies: the commit's (…)`, or `dependencies: today's, not the commit's (why)`. Never silently |
-| Lessons | Only lessons created at or before the moment, with only their evidence from then: a later acceptance, rewording or scoping is left out and the lesson's state, wording and reach are worked out from what is left. A lesson with no creation time is left out and counted | `lessons as of <time>: N served, N learned later left out, N with no timestamp left out` |
+| Settings | The `rigour.yml` at the commit. When the commit has none (a repository that adopted Rigour later) or it does not parse, today's `rigour.yml` (Rigour's defaults when your checkout has none either). `-c <file>` uses exactly that file as it is in your working tree today, on every round, never read at the commit. `--config-now` uses today's `rigour.yml` | `config: the commit's rigour.yml`, `config: today's rigour.yml (the commit had none)`, `config: today's <file> (-c)`, or `config: today's rigour.yml (--config-now)`; on every round, `--last` included |
+| Dependencies | When the commit's lockfile is byte for byte your checkout's, your `node_modules` is the commit's and is linked in. Otherwise the commit's lockfile is installed, with the package manager its lockfile belongs to, into `<git common dir>/rigour-backtest/deps/<hash>/`, keyed by the lockfiles and every other file the install reads; rounds that read the same reuse it, and only the three used last are kept. See [What a dependency install runs and sends](#what-a-dependency-install-runs-and-sends). When the install fails, the commit has no lockfile, it installs with its own yarn release, or you pass `--share-deps`, the round runs on your checkout's `node_modules` | `dependencies: the commit's (…)`, or `dependencies: today's, not the commit's (why)`. Never silently |
+| Lessons | Only lessons learned before the moment, with only their evidence from before it: a later acceptance, rewording or scoping is left out, and the lesson's state, wording and reach are worked out from what is left by the store's own rules. A lesson's time is when Rigour learned it (`createdAt`, and each evidence's `at`), not when its point was posted on GitHub (`postedAt`, used only for evidence with no `at`), so lessons backfilled by `rigour learn-reviews` after adopting Rigour count as learned later. A lesson with no creation time is left out and counted | `lessons as of <time>: N served, N learned later left out, N with no timestamp left out` |
 | `RIGOUR_REVIEW_LESSONS` | Not read: the round reads only the lessons store at the commit | `RIGOUR_REVIEW_LESSONS (…) is set and ignored` |
 | Team decisions | A teammate's decision (team mode) counts only when it was decided before the moment | `N team decision(s) made later left out` |
-| Judges (`--reviewer`) | codex runs in a Codex home of its own holding only your login, so your Codex memories, `config.toml` and `AGENTS.md` stay out (a profile with its own Codex home keeps it). `claude` already runs with no CLAUDE.md and no auto-memory. `cursor-agent` has no switch to keep your Cursor rules out | `judge memory not isolated: <judge>: <what it read>`, from the review's own record |
+| Judges (`--reviewer`) | codex runs in a Codex home of its own under `<git common dir>/rigour-backtest/judge-home/codex-home`, holding a link to your login (`auth.json`) and, from your `config.toml`, only `model`, `model_provider` and the `[model_providers.*]` tables; your Codex memories, instructions and `AGENTS.md` stay out (a profile with its own Codex home keeps it). With no `auth.json` (a keyring login) codex runs in its own home. `claude` already runs with no CLAUDE.md and no auto-memory. `cursor-agent` has no switch to keep your Cursor rules out | `<judge> judge memory not isolated (<what it read>)`, from the review's own record, or `codex judge memory not isolated (no auth file to carry)` |
 | Human reviews and the description | Hidden from `reviewed_at` on, and the description as it read then (see the ledger) | The `reviews hidden from` line |
+
+#### What a dependency install runs and sends
+
+Only data is taken from the commit: its lockfiles, every tracked `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `.yarnrc`, `.yarnrc.yml`, `bunfig.toml`, and the files under `patches/` and `.yarn/patches/`. A link among them that leads out of the commit's checkout, or to nothing, is skipped. Nothing executable is taken: no `.pnpmfile.cjs`, nothing under `.yarn/plugins` or `.yarn/releases`, and the `yarnPath` / `yarn-path` lines are removed. A commit whose yarn is its own release (`.yarn/releases`, or `yarnPath` in `.yarnrc.yml`) is not installed at all: the round runs on your `node_modules` with the reason "this commit installs with its own yarn release, which Rigour does not run". When a frozen install fails because of what was left out, the round says so the same way.
+
+The package manager on your `PATH` runs: `pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --ignore-pnpmfile`, `npm ci --prefer-offline --ignore-scripts --no-audit --no-fund`, `yarn install --frozen-lockfile --prefer-offline --ignore-scripts --non-interactive` (yarn 1), `yarn install --immutable --mode=skip-build` (yarn 2 and later), or `bun install --frozen-lockfile --ignore-scripts`. No lifecycle script runs.
+
+It runs with a minimal environment: `PATH`, a scratch `HOME` (deleted after the install, so your own `~/.npmrc`, its tokens and your package cache are not read), the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`), the certificate variables (`NODE_EXTRA_CA_CERTS`, `npm_config_cafile`), and nothing else. A `${NPM_TOKEN}` in the commit's `.npmrc` therefore gets nothing. What is sent is what the package manager sends to fetch the lockfile's packages, to the registries the commit's `.npmrc` / `.yarnrc` name (or the public registry). An install that needs a private registry fails and the round runs on your `node_modules`, saying so. `--deps-env` runs the install with your whole environment instead: it **sends your registry credentials to the registries the commit's .npmrc names**, so use it only for commits whose registry settings you trust.
 
 What is not held to the commit's time: the Rigour version and its checks (today's Rigour reviews the past code), and the agent CLIs and the models behind them. A round reads lessons only from the commit's own `.rigour/review-lessons.json`, which exists when a team commits that file; a clone's own lessons, which `rigour init` keeps out of git, are not read by a round at all.
 
@@ -140,7 +149,7 @@ A point counts as **caught** only when a blocking finding matches it. A match in
 
 ### Unadjudicated findings
 
-A blocking finding that matches no point and no `must_not_flag` row is **unadjudicated**: no person said whether it was right, so it is scored neither as a catch nor as a false block. Each round counts them, the summary gives the total and says they were not scored, and the JSON carries `unadjudicated` on each round and in total. The pass rule is unchanged, but a round that passes with unadjudicated findings says `pass (N unadjudicated)`, never a plain `pass`: a reviewer that blocks on everything would catch every point, and the count is where that shows. To score them, add the code a person called good to `must_not_flag`, or a point for what they would have raised.
+A blocking finding that matches no point and no `must_not_flag` row is **unadjudicated**: no person said whether it was right, so it is scored neither as a catch nor as a false block. Each round counts them, the summary gives the total and says they were not scored, and the JSON carries `unadjudicated` on each round and in total. A round on a head a person approved (`approved: true`, which has no points) is left out of this count: every block there is already reported as a block on an approved head. The pass rule is unchanged, but a round that passes with unadjudicated findings says `pass (N unadjudicated)`, never a plain `pass`: a reviewer that blocks on everything would catch every point, and the count is where that shows. To score them, add the code a person called good to `must_not_flag`, or a point for what they would have raised.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -166,7 +175,12 @@ Judges (4 round(s), 11 human point(s))
 
 Kappa is Cohen's kappa over the ledger's points: agreement beyond chance on which points each judge raised. Above 0.8 the report adds that the judges share blind spots and a second one adds little. A judge whose catches the others always make too is not earning its runs. Dollars appear only when the CLIs report them, and the cost per caught point divides by every point caught in those rounds, by any check or judge.
 
-To decide whether `escalate: risk` is safe, run the same rounds with it and with `escalate: always`, and compare: switch only if no point the always-on panel caught goes missing.
+To decide whether `escalate: risk` is safe, run the same rounds with it and with `escalate: always`, and compare: switch only if no point the always-on panel caught goes missing. Write each setting into its own copy of `rigour.yml` and pass it with `-c`, which uses that file exactly, on every round, whatever the commits had:
+
+```bash
+rigour backtest --reviewer -c rigour.risk.yml --json > risk.json
+rigour backtest --reviewer -c rigour.always.yml --json > always.json
+```
 
 ## What the number means
 

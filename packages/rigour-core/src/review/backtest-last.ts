@@ -41,7 +41,7 @@ export interface LastReport {
     results: RoundResult[];
 }
 
-export interface LastOptions extends Pick<BacktestOptions, 'reviewer' | 'exec' | 'progress' | 'collect' | 'shareDeps' | 'configNow' | 'configFile'> {
+export interface LastOptions extends Pick<BacktestOptions, 'reviewer' | 'exec' | 'progress' | 'collect' | 'shareDeps' | 'configNow' | 'configFile' | 'depsEnv'> {
     last: number;
 }
 
@@ -77,7 +77,7 @@ export async function backtestLast(cwd: string, config: Config, options: LastOpt
     fs.mkdirSync(path.join(cwd, path.dirname(LAST_LEDGER_PATH)), { recursive: true });
     fs.writeFileSync(path.join(cwd, LAST_LEDGER_PATH), JSON.stringify(ledger, null, 2));
     progress(`backtest: ${rounds.length} round(s) from ${prs.length} merged pull request(s), ledger written to ${LAST_LEDGER_PATH}`);
-    const results = await runBacktest(cwd, config, ledger, { reviewer: options.reviewer, exec, progress, collect: options.collect, shareDeps: options.shareDeps, configNow: options.configNow, configFile: options.configFile });
+    const results = await runBacktest(cwd, config, ledger, { reviewer: options.reviewer, exec, progress, collect: options.collect, shareDeps: options.shareDeps, configNow: options.configNow, configFile: options.configFile, depsEnv: options.depsEnv });
     return { ...scoreLast(ledger, results), skipped };
 }
 

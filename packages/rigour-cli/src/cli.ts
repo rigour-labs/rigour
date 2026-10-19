@@ -607,8 +607,9 @@ const backtestCmd = program
     .option('--reviewer', 'Run the reviewer too, with each round\'s human review hidden')
     .option('--share-deps', 'Run every round on this checkout\'s node_modules, not the commit\'s own lockfile (each round\'s report says so)')
     .option('--config-now', 'Review every round with today\'s rigour.yml, not the one at the commit')
+    .option('--deps-env', 'Install a commit\'s dependencies with your whole environment: sends your registry credentials to the registries the commit\'s .npmrc names')
     .option('--json', 'Output the score in JSON format')
-    .option('-c, --config <path>', 'Path to custom rigour.yml configuration')
+    .option('-c, --config <path>', 'A rigour.yml to review every round with, as it is today (default: each commit\'s own rigour.yml)')
     .action(async (options: any) => {
         try {
             process.exit(await backtestCommand(process.cwd(), options));

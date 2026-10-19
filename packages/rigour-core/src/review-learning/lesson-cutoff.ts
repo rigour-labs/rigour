@@ -6,7 +6,7 @@
  *
  * Under a cutoff:
  *   - the store is the worktree's own; RIGOUR_REVIEW_LESSONS, which can point at a file outside it, is not read;
- *   - a lesson created after the moment is left out, and so is one with no creation time (it cannot be shown to have existed);
+ *   - a lesson created at or after the moment (when it was learned, not when its point was posted) is left out, and so is one with no creation time (it cannot be shown to have existed);
  *   - a lesson's evidence after the moment is left out, as is evidence with no time unless it only holds a lesson back;
  *     its state, wording and reach are worked out again from what is left;
  *   - a team decision (team-decisions.ts) counts only when it was decided before the moment.
@@ -18,8 +18,6 @@ import type { EvidenceKind, LessonEvidence, ReviewLesson } from './lessons.js';
 
 /** What a cutoff left out, for the backtest's report. */
 export interface LessonCutoffReport {
-    /** The moment, as an ISO time. */
-    at: string;
     /** Lessons a reader got. */
     served: number;
     /** Lessons created after the moment. */
@@ -47,7 +45,7 @@ function key(cwd: string): string {
 
 /** Runs `work` with the lessons in `cwd` as they were at `at` (an ISO time); the report says what was left out. */
 export async function withLessonCutoff<T>(cwd: string, at: string, work: (report: LessonCutoffReport) => Promise<T>): Promise<T> {
-    const report: LessonCutoffReport = { at, served: 0, later: 0, untimed: 0, teamLeftOut: 0 };
+    const report: LessonCutoffReport = { served: 0, later: 0, untimed: 0, teamLeftOut: 0 };
     const k = key(cwd);
     cutoffs.set(k, { atMs: Date.parse(at), report });
     try {
@@ -76,7 +74,7 @@ export function lessonsAtCutoff(cwd: string, stored: ReviewLesson[], team: TeamD
     for (const lesson of all) {
         const created = Date.parse(lesson.createdAt ?? '');
         if (Number.isNaN(created)) report.untimed++;
-        else if (created > cutoff.atMs) report.later++;
+        else if (created >= cutoff.atMs) report.later++;
         else {
             const past = lessonAt(lesson, cutoff.atMs, state);
             if (past) kept.push(past);
@@ -89,7 +87,7 @@ export function lessonsAtCutoff(cwd: string, stored: ReviewLesson[], team: TeamD
 
 function before(at: string | undefined, atMs: number): boolean {
     const t = Date.parse(at ?? '');
-    return !Number.isNaN(t) && t <= atMs;
+    return !Number.isNaN(t) && t < atMs;
 }
 
 /** One lesson as it stood at the moment, or undefined when none of its evidence can be shown to be from before it. */
@@ -102,12 +100,12 @@ function lessonAt(lesson: ReviewLesson, atMs: number, state: (lesson: ReviewLess
     delete past.suggestedText;
     delete past.suggestedWhy;
     reachAt(past, later);
-    // A state recorded later must not carry over: the evidence left decides it, as lessonState does for any lesson.
-    if (evidence.some(e => e.kind)) {
-        past.state = 'candidate';
-        delete past.promotedBy;
-    }
-    return { ...past, ...state(past) };
+    // The evidence left decides the state, by the store's own rule (a person's keeping included).
+    const { state: at, promotedBy } = state(past);
+    past.state = at;
+    if (promotedBy) past.promotedBy = promotedBy;
+    else delete past.promotedBy;
+    return past;
 }
 
 /** The wording before the first rewording left out (`<why>; was: <text>`), else the lesson's own. */

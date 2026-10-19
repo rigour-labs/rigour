@@ -32,10 +32,10 @@ describe('a backtest round sees only what existed at its time', () => {
         return git('rev-parse', 'HEAD');
     };
     /** Runs one round on `sha`, returning what the round saw. */
-    const replay = async (sha: string, options: { configNow?: boolean; today?: Config; reviewedAt?: string } = {}) => {
+    const replay = async (sha: string, options: { configNow?: boolean; configFile?: string; today?: Config; reviewedAt?: string } = {}) => {
         const ledger: Ledger = { rounds: [{ id: 'r1', commit: sha, base: sha, ...(options.reviewedAt !== undefined ? { reviewed_at: options.reviewedAt } : { reviewed_at: REVIEWED_AT }), points: [], must_not_flag: [] }] };
         const seen: { config?: Config; lessons: ReviewLesson[]; path?: string } = { lessons: [] };
-        const results = await runBacktest(repo, options.today ?? ConfigSchema.parse({ version: 1 }), ledger, { configNow: options.configNow, progress: () => undefined, collect: async (tree, _round, config) => {
+        const results = await runBacktest(repo, options.today ?? ConfigSchema.parse({ version: 1 }), ledger, { configNow: options.configNow, configFile: options.configFile, progress: () => undefined, collect: async (tree, _round, config) => {
             seen.config = config;
             seen.lessons = readLessons(tree);
             seen.path = lessonsPath(tree);
@@ -66,26 +66,40 @@ describe('a backtest round sees only what existed at its time', () => {
         fs.rmSync(home, { recursive: true, force: true });
     });
 
-    it('reviews with the commit\'s rigour.yml, the defaults when it had none, and today\'s only when asked', async () => {
+    it('reviews with the commit\'s rigour.yml, today\'s when the commit had none or asked, and a -c file exactly as it is today', async () => {
         const without = commit('no settings yet');
         write('rigour.yml', 'version: 1\ngates:\n  max_file_lines: 123\n');
         const withFile = commit('settings');
+        write('rigour.yml', 'version: 1\ngates:\n  max_file_lines: [not, a, number]\n');
+        const broken = commit('settings that no longer parse');
+        write('rigour.yml', 'version: 1\ngates:\n  max_file_lines: 999\n'); // today's, uncommitted
         const today = ConfigSchema.parse({ version: 1, gates: { max_file_lines: 999 } });
-        const atCommit = await replay(withFile, { today });
-        expect(atCommit.seen.config?.gates.max_file_lines).toBe(123);
-        expect(atCommit.result.replay?.config).toBe("the commit's rigour.yml");
-        const defaults = await replay(without, { today });
-        expect(defaults.seen.config?.gates.max_file_lines).toBe(ConfigSchema.parse({}).gates.max_file_lines);
-        expect(defaults.result.replay?.config).toBe('the defaults (the commit has no rigour.yml)');
-        const now = await replay(withFile, { today, configNow: true });
-        expect(now.seen.config?.gates.max_file_lines).toBe(999);
-        expect(formatBacktest([now.result])).toContain("config: today's rigour.yml (--config-now)");
+        const lines = async (sha: string, options: Parameters<typeof replay>[1] = {}) => {
+            const { result, seen } = await replay(sha, { today, ...options });
+            return [seen.config?.gates.max_file_lines, result.replay?.config];
+        };
+        expect(await lines(withFile)).toEqual([123, "the commit's rigour.yml"]);
+        expect(await lines(without)).toEqual([999, "today's rigour.yml (the commit had none)"]);
+        expect(await lines(withFile, { configNow: true })).toEqual([999, "today's rigour.yml (--config-now)"]);
+        expect((await lines(broken))[0]).toBe(999);
+        expect((await lines(broken))[1]).toMatch(/^today's rigour\.yml \(the commit's does not parse: gates\.max_file_lines/);
+        // An experiment file nobody committed: used exactly, on every round, whatever the commit has.
+        const experiment = ConfigSchema.parse({ version: 1, gates: { max_file_lines: 7 } });
+        expect(await lines(withFile, { today: experiment, configFile: 'experiment.yml' })).toEqual([7, "today's experiment.yml (-c)"]);
+        fs.rmSync(path.join(repo, 'rigour.yml'));
+        expect((await lines(without))[1]).toBe("today's defaults (this checkout has no rigour.yml) (the commit had none)");
     }, 60_000);
 
     it('serves only lessons learned before the review, as they stood then, and counts those with no timestamp', async () => {
         write('.rigour/review-lessons.json', JSON.stringify({ version: 1, lessons: [
             lesson('before', '2026-04-01T00:00:00Z'),
             lesson('after', '2026-06-01T00:00:00Z'),
+            lesson('at-the-review', REVIEWED_AT), // learned as the review was posted: not before it
+            // Verified by a person keeping it (its reach) before the review, on one pull request: still verified then.
+            lesson('kept', '2026-04-01T00:00:00Z', { state: 'verified', promotedBy: 'person', scope: 'repo', evidence: [
+                { kind: 'point', pr: 1, comment: 'c-k', author: 'a reviewer', source: 'person', at: '2026-04-01T00:00:00Z' },
+                { kind: 'scoped', pr: 1, comment: 'scoped-1', author: 'a lead', detail: 'repo: every service', at: '2026-04-02T00:00:00Z' },
+            ] }),
             lesson('untimed', undefined, { evidence: [{ kind: 'point', pr: 1, comment: 'c-u', author: 'a reviewer', source: 'person' }] }),
             // Accepted and reworded after the review: then, it was a candidate with its first wording.
             lesson('decided', '2026-04-01T00:00:00Z', { state: 'verified', promotedBy: 'person', text: 'the newer wording', evidence: [
@@ -96,10 +110,11 @@ describe('a backtest round sees only what existed at its time', () => {
         ] }));
         const sha = commit('lessons tracked with the code');
         const { result, seen } = await replay(sha);
-        expect(seen.lessons.map(l => l.id).sort()).toEqual(['before', 'decided']);
+        expect(seen.lessons.map(l => l.id).sort()).toEqual(['before', 'decided', 'kept']);
         expect(seen.lessons.find(l => l.id === 'decided')).toMatchObject({ state: 'candidate', text: 'the first wording' });
-        expect(result.replay?.lessons).toMatchObject({ served: 2, later: 1, untimed: 1 });
-        expect(formatBacktest([result])).toContain(`lessons as of 2026-05-01T12:00:00.000Z (reviewed_at): 2 served, 1 learned later left out, 1 with no timestamp left out`);
+        expect(seen.lessons.find(l => l.id === 'kept')).toMatchObject({ state: 'verified', scope: 'repo' });
+        expect(result.replay?.lessons).toMatchObject({ served: 3, later: 2, untimed: 1 });
+        expect(formatBacktest([result])).toContain(`lessons as of 2026-05-01T12:00:00.000Z (reviewed_at): 3 served, 2 learned later left out, 1 with no timestamp left out`);
         expect(readLessons(path.join(repo, '.git', 'rigour-backtest', 'checkout')).map(l => l.id)).toContain('after'); // outside the round, nothing is cut off
     }, 60_000);
 
@@ -125,18 +140,27 @@ describe('a backtest round sees only what existed at its time', () => {
         expect(readLessons(repo).map(l => l.id).sort()).toEqual(['team-early', 'team-late', 'team-odd']); // a live read is unchanged
     }, 60_000);
 
-    it('cuts a round with no reviewed_at off at its commit\'s time', async () => {
+    it('cuts a round with no reviewed_at off at its commit\'s time, and reads a time with no zone as UTC', async () => {
         const sha = commit('code');
         const { result } = await replay(sha, { reviewedAt: '' });
         expect(result.replay?.asOf).toMatch(/\(the commit's time: the round has no reviewed_at\)$/);
+        const zone = process.env.TZ;
+        process.env.TZ = 'America/New_York'; // a reviewed_at with no zone is UTC wherever the backtest runs
+        try {
+            expect((await replay(sha, { reviewedAt: '2026-05-01T12:00:00' })).result.replay?.asOf).toBe('2026-05-01T12:00:00.000Z (reviewed_at)');
+        } finally {
+            if (zone === undefined) delete process.env.TZ;
+            else process.env.TZ = zone;
+        }
     }, 60_000);
 });
 
 describe('a judge that read the machine\'s own memory', () => {
-    it('is named on the round as not isolated, from what its review record says', () => {
-        const judges = notIsolated({ judges: [{ reviewer: 'claude' }, { reviewer: 'cursor', outside_repo: 'cursor also reads your own Cursor rules and settings' }] });
-        expect(judges).toEqual(['cursor: cursor also reads your own Cursor rules and settings']);
-        expect(formatReplay({ asOf: REVIEWED_AT, config: "the commit's rigour.yml", dependencies: { used: 'same-lockfile' }, judgesNotIsolated: judges })).toContain('  judge memory not isolated: cursor: cursor also reads your own Cursor rules and settings');
-        expect(notIsolated(undefined)).toEqual([]);
+    it('is named on the round as not isolated, from what its review record says or the home it could not be given', () => {
+        const record = { judges: [{ reviewer: 'claude' }, { reviewer: 'cursor', outside_repo: 'cursor also reads your own Cursor rules and settings' }, { reviewer: 'codex', outside_repo: 'codex also reads /repo/.git/rigour-backtest/judge-home/codex-home/config.toml' }] };
+        const judges = notIsolated(record, '/repo/.git/rigour-backtest/judge-home', [{ judge: 'codex', why: 'no auth file to carry' }, { judge: 'api', why: 'never ran' }]);
+        expect(judges).toEqual(['cursor judge memory not isolated (cursor also reads your own Cursor rules and settings)', 'codex judge memory not isolated (no auth file to carry)']);
+        expect(formatReplay({ asOf: REVIEWED_AT, config: "the commit's rigour.yml", dependencies: { used: 'same-lockfile' }, judgesNotIsolated: judges })).toContain('  codex judge memory not isolated (no auth file to carry)');
+        expect(notIsolated(undefined, '/x')).toEqual([]);
     });
 });

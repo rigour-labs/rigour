@@ -86,6 +86,11 @@ describe('scoring a round', () => {
         expect(unadjudicatedTotal([clean, noisy])).toBe(2);
         const failed = score(round, 'h', extra, 1, undefined);
         expect([failed.unadjudicated, failed.status]).toEqual([2, 'fail']);
+        // An approved head has no points: its blocks are blocks on approved code (rigour backtest --last), never also unadjudicated.
+        const approved = score({ ...round, id: 'pr1-approved', approved: true, points: [], must_not_flag: [] }, 'h', extra, 1, undefined);
+        expect(approved.unadjudicated).toBe(0);
+        const { status: _status, ...unscored } = clean;
+        expect(backtestPassed([unscored as typeof clean])).toBe(false); // a result with no status is not a pass
     });
 });
 

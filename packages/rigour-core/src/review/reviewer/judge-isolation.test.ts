@@ -85,16 +85,27 @@ describe("doctor's view of the judges under a profile", () => {
 });
 
 describe('a backtest\'s judges', () => {
-    it('run codex in a home of their own holding only the login, so today\'s memories and AGENTS.md stay out', () => {
-        const shared = codexHome(path.join(home, '.codex'), ['config.toml', 'AGENTS.md', 'memories', 'auth.json']);
-        const homes = backtestJudgeHomes(path.join(home, 'backtest'), home, {});
-        const codex = homes.codex!.CODEX_HOME;
-        expect(fs.readdirSync(codex)).toEqual(['auth.json']);
+    it('run codex in a home of their own holding only the login and the model settings, so today\'s memories and AGENTS.md stay out', () => {
+        const shared = codexHome(path.join(home, '.codex'), ['AGENTS.md', 'memories', 'auth.json']);
+        fs.writeFileSync(path.join(shared, 'config.toml'), [
+            'model = "example-model"', 'model_provider = "example"', 'experimental_instructions_file = "/somewhere/instructions.md"',
+            '[model_providers.example]', 'name = "Example"', 'base_url = "https://llm.example.com/v1"',
+            '[mcp_servers.notes]', 'command = "notes-server"', '[memories]', 'enabled = true', '',
+        ].join('\n'));
+        const judges = backtestJudgeHomes(path.join(home, 'backtest'), home, {});
+        const codex = judges.homes.codex!.CODEX_HOME;
+        expect(judges.notIsolated).toEqual([]);
+        expect(fs.readdirSync(codex).sort()).toEqual(['auth.json', 'config.toml']);
         expect(fs.realpathSync(path.join(codex, 'auth.json'))).toBe(fs.realpathSync(path.join(shared, 'auth.json')));
-        expect(ADAPTERS.codex.outsideRepo!(home, undefined, homes.codex)).toBeUndefined();
+        expect(fs.readFileSync(path.join(codex, 'config.toml'), 'utf8')).toBe('model = "example-model"\nmodel_provider = "example"\n[model_providers.example]\nname = "Example"\nbase_url = "https://llm.example.com/v1"\n');
         expect(ADAPTERS.codex.outsideRepo!(home, undefined, {})).toContain('AGENTS.md'); // what a live review reads, said on its record
-        expect(backtestJudgeHomes(path.join(home, 'backtest'), home, {})).toEqual(homes); // made once, reused
-        expect(homes.cursor).toBeUndefined(); // no switch exists: its record says what it read
+        expect(backtestJudgeHomes(path.join(home, 'backtest'), home, {})).toEqual(judges); // made once, reused
+        expect(judges.homes.cursor).toBeUndefined(); // no switch exists: its record says what it read
+    });
+
+    it('leave codex in its own home when there is no auth file to carry (a keyring login), and say so', () => {
+        codexHome(path.join(home, '.codex'), ['AGENTS.md']);
+        expect(backtestJudgeHomes(path.join(home, 'backtest'), home, {})).toEqual({ homes: {}, notIsolated: [{ judge: 'codex', why: 'no auth file to carry' }] });
     });
 
     it('defer to a profile\'s own isolation, and leave a live review as it was', () => {

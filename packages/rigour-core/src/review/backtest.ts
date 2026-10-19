@@ -98,8 +98,10 @@ export interface BacktestOptions {
     shareDeps?: boolean;
     /** Review every round with today's settings, not the commit's rigour.yml (`--config-now`). */
     configNow?: boolean;
-    /** The settings file, relative to the repository, when -c names another than rigour.yml. */
+    /** The file -c named: every round reviews with it as it is today. */
     configFile?: string;
+    /** Install the commit's dependencies with your whole environment, registry credentials included (`--deps-env`). */
+    depsEnv?: boolean;
 }
 
 export function loadLedger(cwd: string): Ledger {
@@ -158,8 +160,8 @@ async function runRound(cwd: string, today: Config, round: LedgerRound, options:
     progress(`backtest ${round.id}: ${head.slice(0, 9)} against ${round.base}${round.reviewed_at ? `, reviews hidden from ${reviewsHiddenFrom(round)}` : ''}`);
     const stale = await staleBase(worktree, head, round.base, exec);
     if (stale) progress(`backtest ${round.id}: warning: ${stale}`);
-    const dependencies = await linkDependencies(cwd, worktree, { share: options.shareDeps, exec });
-    const { config, source } = configAtCommit(worktree, { today, now: options.configNow, file: options.configFile });
+    const dependencies = await linkDependencies(cwd, worktree, { share: options.shareDeps, fullEnv: options.depsEnv, exec });
+    const { config, source } = configAtCommit(worktree, { today, cwd, now: options.configNow, file: options.configFile });
     const moment = await replayMoment(worktree, round.reviewed_at, exec);
     const envIgnored = lessonsEnvIgnored();
     if (envIgnored) progress(`backtest ${round.id}: ${envIgnored}`);
@@ -191,7 +193,7 @@ async function staleBase(worktree: string, head: string, base: string, exec: Exe
 
 /** Every point caught, nothing the reviewer called good flagged, and a verdict when the reviewer ran. */
 export function backtestPassed(results: RoundResult[]): boolean {
-    return results.every(r => r.status !== 'fail');
+    return results.every(r => r.status !== undefined && r.status !== 'fail');
 }
 
 export function score(round: LedgerRound, head: string, items: BacktestItem[], durationMs: number, reviewerError: string | undefined): RoundResult {
@@ -201,7 +203,8 @@ export function score(round: LedgerRound, head: string, items: BacktestItem[], d
         return { id: point.id, point: point.point, caught: !!hit, noted, ...(hit ? { by: `${hit.gate} ${hit.file}${hit.line ? `:${hit.line}` : ''}` } : {}) };
     });
     const falseBlocks = items.filter(item => item.blocking && round.must_not_flag.some(guard => matches(guard, item)));
-    const unadjudicated = items.filter(item => item.blocking && ![...round.points, ...round.must_not_flag].some(row => matches(row, item))).length;
+    // An approved head has no points: every block on it is already a block the team would have overridden (backtest-last.ts), never also unadjudicated.
+    const unadjudicated = round.approved ? 0 : items.filter(item => item.blocking && ![...round.points, ...round.must_not_flag].some(row => matches(row, item))).length;
     const passed = points.every(p => p.caught) && falseBlocks.length === 0 && !reviewerError;
     const status = !passed ? 'fail' : unadjudicated ? `pass (${unadjudicated} unadjudicated)` : 'pass';
     return { round: round.id, head, base: round.base, points, falseBlocks, unadjudicated, status, items, durationMs, ...(reviewerError ? { reviewerError } : {}) };
@@ -257,10 +260,11 @@ async function collectItems(worktree: string, round: LedgerRound, config: Config
         ...[...review.advisory, ...review.contextFindings].map(f => asItem(f, false)),
     ];
     if (!reviewer) return { items };
-    const judgeHomes = backtestJudgeHomes(path.join(path.dirname(worktree), 'judge-home'));
-    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: reviewsHiddenFrom(round), blind: round.pr === undefined, trigger: 'backtest', force: true, judgeHomes, ...reviewerInputs(review) });
+    const judgeHome = path.join(path.dirname(worktree), 'judge-home');
+    const judges = backtestJudgeHomes(judgeHome);
+    const result = await runReviewer(worktree, round.base, config, exec, progress, { pr: round.pr, reviewsBefore: reviewsHiddenFrom(round), blind: round.pr === undefined, trigger: 'backtest', force: true, judgeHomes: judges.homes, ...reviewerInputs(review) });
     if (result.outcome === 'unavailable' || result.outcome === 'skipped') return { items, reviewerError: result.reason ?? result.outcome };
-    const judgesNotIsolated = notIsolated(result.record);
+    const judgesNotIsolated = notIsolated(result.record, judgeHome, judges.notIsolated);
     // The reviewer behind each catch is part of the score, so the gate is `reviewer:<name>`.
     const asReviewerItem = (item: OpenItem, blocking: boolean): BacktestItem => ({ gate: `reviewer:${item.reviewer ?? result.reviewers[0]}`, file: item.file ?? '', line: item.line, text: [item.issue, item.consequence, item.evidence].filter(Boolean).join(' '), blocking });
     items.push(...result.items.map(i => asReviewerItem(i, true)), ...[...result.advisory, ...result.unverified, ...result.notes, ...result.disputed].map(i => asReviewerItem(i, false)));

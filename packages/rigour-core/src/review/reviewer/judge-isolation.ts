@@ -56,22 +56,53 @@ export function judgesUnderProfile(names: ReviewerName[], profile: RigourProfile
 /** The judges' own variables for a backtest: codex in a home holding only the login, so no memories or AGENTS.md of today reach a past review. */
 export type JudgeHomes = Partial<Record<ReviewerName, Record<string, string>>>;
 
+/** A backtest's judge homes, and the judges it could not give one, each with why. */
+export interface BacktestJudges { homes: JudgeHomes; notIsolated: Array<{ judge: ReviewerName; why: string }> }
+
 /**
- * A Codex home for a backtest under `dir`, holding nothing but a link to the login (auth.json) of the home codex uses
- * otherwise. Cursor has no such switch (see above): it is not given one, and the review's record says what it read.
- * Empty when the home cannot be made: codex then runs as it would, and its record says what it read.
+ * A Codex home for a backtest under `dir`: a link to the login (auth.json) of the home codex uses otherwise, and from
+ * that home's config.toml only which model and provider to use (model, model_provider, [model_providers.*]); never its
+ * memories, instructions or AGENTS.md. With no auth.json to carry (a keyring login), codex runs in its own home and the
+ * round says so. Cursor has no such switch (see above): its review record says what it read.
  */
-export function backtestJudgeHomes(dir: string, home: string = os.homedir(), env: NodeJS.ProcessEnv = process.env): JudgeHomes {
+export function backtestJudgeHomes(dir: string, home: string = os.homedir(), env: NodeJS.ProcessEnv = process.env): BacktestJudges {
+    const source = env.CODEX_HOME?.trim() || path.join(home, '.codex');
+    const login = path.join(source, 'auth.json');
+    if (!fs.existsSync(login)) return { homes: {}, notIsolated: [{ judge: 'codex', why: 'no auth file to carry' }] };
     try {
         const codexHome = path.join(dir, 'codex-home');
         fs.mkdirSync(codexHome, { recursive: true });
-        const login = path.join(env.CODEX_HOME?.trim() || path.join(home, '.codex'), 'auth.json');
         const link = path.join(codexHome, 'auth.json');
-        if (fs.existsSync(login) && !fs.lstatSync(link, { throwIfNoEntry: false })) fs.symlinkSync(login, link);
-        return { codex: { CODEX_HOME: codexHome } };
-    } catch {
-        return {};
+        if (!fs.lstatSync(link, { throwIfNoEntry: false })) fs.symlinkSync(login, link);
+        const settings = modelSettings(readText(path.join(source, 'config.toml')));
+        const config = path.join(codexHome, 'config.toml');
+        if (settings) fs.writeFileSync(config, settings, { mode: 0o600 });
+        else fs.rmSync(config, { force: true });
+        return { homes: { codex: { CODEX_HOME: codexHome } }, notIsolated: [] };
+    } catch (error) {
+        return { homes: {}, notIsolated: [{ judge: 'codex', why: `its backtest home could not be made: ${error instanceof Error ? error.message : String(error)}` }] };
     }
+}
+
+function readText(file: string): string {
+    try {
+        return fs.readFileSync(file, 'utf8');
+    } catch {
+        return '';
+    }
+}
+
+/** From a config.toml, only the model and provider: the top-level `model` and `model_provider`, and `[model_providers.*]` tables. */
+function modelSettings(toml: string): string {
+    const kept: string[] = [];
+    let table: string | undefined;
+    for (const line of toml.split(/\r?\n/)) {
+        const header = /^\s*\[+\s*([^\]]+?)\s*\]+\s*(#.*)?$/.exec(line)?.[1];
+        if (header !== undefined) table = header;
+        const keep = table === undefined ? /^\s*(model|model_provider)\s*=/.test(line) : /^model_providers(\.|$)/.test(table);
+        if (keep) kept.push(line);
+    }
+    return kept.length ? `${kept.join('\n')}\n` : '';
 }
 
 /** A profile's isolation wins; a judge it leaves as it is runs with the backtest's home when there is one. */

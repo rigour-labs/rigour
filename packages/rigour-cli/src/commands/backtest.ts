@@ -10,11 +10,11 @@ import path from 'path';
 import { backtestLast, backtestPassed, formatBacktest, formatLast, loadLedger, runBacktest, scaffoldLedger, unadjudicatedTotal, LEDGER_PATH } from '@rigour-labs/core';
 import { loadConfig, UsageError } from './review-config.js';
 
-export interface BacktestOptions { round?: string; reviewer?: boolean; json?: boolean; config?: string; last?: string; shareDeps?: boolean; configNow?: boolean }
+export interface BacktestOptions { round?: string; reviewer?: boolean; json?: boolean; config?: string; last?: string; shareDeps?: boolean; configNow?: boolean; depsEnv?: boolean }
 
-/** What every round is held to besides its commit: the settings file it reads at the commit, unless today's are asked for, and whose dependencies. */
+/** What every round is held to besides its commit: the settings (the file -c names, as it is today), and how its dependencies are installed. */
 function replayOptions(cwd: string, options: BacktestOptions) {
-    return { shareDeps: options.shareDeps, configNow: options.configNow, configFile: options.config ? path.relative(cwd, path.resolve(cwd, options.config)) : undefined };
+    return { shareDeps: options.shareDeps, configNow: options.configNow, depsEnv: options.depsEnv, configFile: options.config ? path.relative(cwd, path.resolve(cwd, options.config)) : undefined };
 }
 
 export async function backtestCommand(cwd: string, options: BacktestOptions): Promise<number> {
