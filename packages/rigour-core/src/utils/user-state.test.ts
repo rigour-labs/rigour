@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { applyStateMerge, homeFor, legacyStateNote, planStateMerge, rigourUserDir } from './user-state.js';
+import { applyStateMerge, homeFor, legacyStateNote, planStateMerge, rigourCacheDir, rigourUserDir } from './user-state.js';
 
 let dir: string;
 const set = process.env.RIGOUR_HOME;
@@ -102,5 +102,16 @@ describe('rigour doctor --merge-state', () => {
         stateIn(path.join(dir, '.rigour'));
         expect(planStateMerge()).toBeUndefined();
         expect(homeFor(path.join(dir, 'fresh', '.rigour'))).toBe(path.join(dir, 'fresh')); // a new home ending in .rigour is that folder
+    });
+});
+
+describe('the cache directory', () => {
+    it('is the OS cache directory, or under the Rigour directory when RIGOUR_HOME is set, never a repository', () => {
+        const home = os.homedir();
+        expect(rigourCacheDir({}, 'darwin')).toBe(path.join(home, 'Library', 'Caches', 'rigour'));
+        expect(rigourCacheDir({}, 'linux')).toBe(path.join(home, '.cache', 'rigour'));
+        expect(rigourCacheDir({ XDG_CACHE_HOME: '/var/cache/example' }, 'linux')).toBe(path.join('/var/cache/example', 'rigour'));
+        expect(rigourCacheDir({ LOCALAPPDATA: 'C:\\Users\\example\\AppData\\Local' }, 'win32')).toBe(path.join('C:\\Users\\example\\AppData\\Local', 'rigour'));
+        expect(rigourCacheDir({ RIGOUR_HOME: '/srv/example-home' }, 'linux')).toBe(path.join('/srv/example-home', '.rigour', 'cache'));
     });
 });

@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
-import { backtestPassed, formatBacktest, ledgerProblems, loadLedger, runBacktest, score, LEDGER_PATH, type BacktestItem, type Ledger, type LedgerPoint, type LedgerRound } from './backtest.js';
+import { backtestPassed, formatBacktest, unadjudicatedTotal, ledgerProblems, loadLedger, runBacktest, score, LEDGER_PATH, type BacktestItem, type Ledger, type LedgerPoint, type LedgerRound } from './backtest.js';
 
 const item = (over: Partial<BacktestItem> = {}): BacktestItem => ({ gate: 'unused-export', file: 'src/lib/server/billing/invoices.ts', line: 40, text: 'Unused export `isRefund` is not imported anywhere', blocking: true, ...over });
 
@@ -60,7 +60,7 @@ describe('scoring a round', () => {
         ]);
         expect(result.falseBlocks).toHaveLength(1);
         expect(backtestPassed([result])).toBe(false);
-        expect(formatBacktest([result])).toContain('r1 at abcdef012: 1/3 caught, 1 false block(s), 3 finding(s), 1s; caught by unused-export 1');
+        expect(formatBacktest([result])).toContain('r1 at abcdef012: fail; 1/3 caught, 1 false block(s), 0 unadjudicated, 3 finding(s), 1s; caught by unused-export 1');
         expect(formatBacktest([result])).toContain('noted   P2 copies the accumulator (advisory only)');
         expect(formatBacktest([result])).toContain('MISSED  P3');
         expect(formatBacktest([result])).toContain('FALSE   reviewer src/hooks/session.ts:53');
@@ -70,6 +70,32 @@ describe('scoring a round', () => {
         const all = [item(), item({ gate: 'quadratic-copy', file: 'src/totals.ts', text: 'copied whole' }), item({ gate: 'reviewer', file: 'src/checkout.ts', text: 'drops the currency' })];
         expect(backtestPassed([score(round, 'h', all, 1, undefined)])).toBe(true);
         expect(backtestPassed([score(round, 'h', all, 1, 'the reviewer did not answer')])).toBe(false);
+    });
+
+    it('counts blocking findings that match no point and no must_not_flag row as unadjudicated, and never shows such a round as a plain pass', () => {
+        const all = [item(), item({ gate: 'quadratic-copy', file: 'src/totals.ts', text: 'copied whole' }), item({ gate: 'reviewer', file: 'src/checkout.ts', text: 'drops the currency' })];
+        const extra = [item({ gate: 'reviewer', file: 'src/report.ts', line: 9, text: 'the report is never closed' }), item({ gate: 'reviewer', file: 'src/export.ts', line: 3, text: 'unbounded read' }), item({ gate: 'reviewer', file: 'src/other.ts', text: 'a note', blocking: false })];
+        const clean = score(round, 'abcdef0123456', all, 1, undefined);
+        const noisy = score(round, 'abcdef0123456', [...all, ...extra], 1, undefined);
+        expect([clean.unadjudicated, clean.status]).toEqual([0, 'pass']);
+        expect([noisy.unadjudicated, noisy.status]).toEqual([2, 'pass (2 unadjudicated)']); // the advisory one is not a block
+        expect(backtestPassed([noisy])).toBe(true); // the pass rule is the same; the label says what it did not score
+        const text = formatBacktest([clean, noisy]);
+        expect(text).toContain('r1 at abcdef012: pass (2 unadjudicated); 3/3 caught, 0 false block(s), 2 unadjudicated');
+        expect(text).toContain('2 unadjudicated blocking finding(s): they match no point and no must_not_flag row, so they were not scored either way');
+        expect(unadjudicatedTotal([clean, noisy])).toBe(2);
+        const failed = score(round, 'h', extra, 1, undefined);
+        expect([failed.unadjudicated, failed.status]).toEqual([2, 'fail']);
+        // An approved head has no points: its blocks are blocks on approved code (rigour backtest --last), never also unadjudicated.
+        const approved = score({ ...round, id: 'pr1-approved', approved: true, points: [], must_not_flag: [] }, 'abcdef0123456', extra, 1, undefined);
+        expect(approved.unadjudicated).toBe(0);
+        // A block on a head a person approved is a false block: the round fails, and says what blocked.
+        expect([approved.falseBlocks.map(f => f.file), approved.status, backtestPassed([approved])]).toEqual([['src/report.ts', 'src/export.ts'], 'fail', false]);
+        expect(formatBacktest([approved])).toContain('FALSE   reviewer src/report.ts:9 the report is never closed');
+        const quiet = score({ ...round, id: 'pr1-approved', approved: true, points: [], must_not_flag: [] }, 'h', [extra[2]], 1, undefined);
+        expect(quiet.status).toBe('pass'); // an advisory note on an approved head blocks nothing
+        const { status: _status, ...unscored } = clean;
+        expect(backtestPassed([unscored as typeof clean])).toBe(false); // a result with no status is not a pass
     });
 });
 
@@ -126,7 +152,7 @@ describe('rigour backtest on a repository', () => {
             must_not_flag: [{ file: 'app\\.ts', lines: [1, 1] }],
         }] }));
         const config = ConfigSchema.parse({ version: 1, gates: { unused_exports: { block: true } } });
-        const results = await runBacktest(repo, config, loadLedger(repo), { progress: () => undefined });
+        const results = await runBacktest(repo, config, loadLedger(repo), { progress: () => undefined, configNow: true });
         expect(results).toHaveLength(1);
         expect(results[0].points).toMatchObject([{ id: 'R1-1', caught: true, by: 'unused-export src/lib/util.ts:1' }, { id: 'R1-2', caught: false, noted: false }]);
         expect(results[0].falseBlocks).toEqual([]);
@@ -137,7 +163,7 @@ describe('rigour backtest on a repository', () => {
         expect(fs.existsSync(path.join(repo, '.git/rigour-backtest/checkout/src/lib/util.ts'))).toBe(true);
         expect(fs.readdirSync(path.join(repo, '.rigour/backtest'))).toEqual([`r1-${reviewed.slice(0, 12)}.json`]);
         // The worktree is reused on the next run.
-        const again = await runBacktest(repo, config, loadLedger(repo), { round: 'r1', progress: () => undefined });
+        const again = await runBacktest(repo, config, loadLedger(repo), { round: 'r1', progress: () => undefined, configNow: true });
         expect(again[0].points[0].caught).toBe(true);
     }, 60_000); // a real worktree and a typed review: over 10s on a Windows runner
 

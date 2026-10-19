@@ -47,7 +47,7 @@ import { judgeUnset } from './reviewer/judge-env.js';
 import { acceptanceCriteria, descriptionHash, goalAnswers, lessonAnswers, type GoalAnswer, type LessonAnswers } from './reviewer/answers.js';
 import { emptyAnswer, insideAgentNote } from './reviewer/judge-empty.js';
 import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
-import { judgeIsolation, type JudgeIsolation } from './reviewer/judge-isolation.js';
+import { judgeIsolation, withJudgeHome, type JudgeHomes, type JudgeIsolation } from './reviewer/judge-isolation.js';
 import { appliedProfile } from '../utils/profile.js';
 import { appendTaskEvent } from '../task/thread.js';
 import type { CoveredLesson } from './settled-checks.js';
@@ -88,6 +88,8 @@ export interface ReviewerOptions {
     goal?: boolean;
     /** This run's choice for the orchestrator (`--orchestrator` / `--no-orchestrator`), the nearest layer of switches.ts. */
     orchestrator?: boolean;
+    /** A backtest's judge homes (judge-isolation.ts), for judges no profile already isolates. */
+    judgeHomes?: JudgeHomes;
 }
 
 export interface ReviewerResult {
@@ -265,7 +267,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         }
         const found = await resolveAdapter(ADAPTERS[name], cwd, exec);
         if (!found) continue;
-        const isolated = judgeIsolation(name, profile);
+        const isolated = withJudgeHome(judgeIsolation(name, profile), options.judgeHomes?.[name]);
         if (isolated.skip) {
             skipped.push(`${name} skipped under profile ${profile!.name}: ${isolated.skip}`);
             continue;

@@ -19,6 +19,7 @@ import type { Git, ReviewBody, ReviewComment } from './acted-on.js';
 import { readBody, withoutEmphasis } from './review-points.js';
 import { withFileLock, writeJsonAtomic } from '../utils/file-lock.js';
 import { foldTeamDecisions, readTeamDecisionCache } from './team-decisions.js';
+import { hasLessonCutoff, lessonsAtCutoff } from './lesson-cutoff.js';
 import { notARequest, skippedByPlace, type NotRequestReason } from './requests.js';
 
 const STORE = path.join('.rigour', 'review-lessons.json');
@@ -458,18 +459,22 @@ function storedOrAdopted(cwd: string, stored: ReviewLesson[], id: string): Revie
     return adopted;
 }
 
-/** RIGOUR_REVIEW_LESSONS points at a lessons file outside the clone (CI, or a team's shared copy). */
+/** RIGOUR_REVIEW_LESSONS points at a lessons file outside the clone (CI, or a team's shared copy); never in a backtest's worktree (lesson-cutoff.ts). */
 export function lessonsPath(cwd: string): string {
+    if (hasLessonCutoff(cwd)) return path.join(cwd, STORE);
     return process.env.RIGOUR_REVIEW_LESSONS?.trim() || path.join(cwd, STORE);
 }
 
 /**
  * What this team knows: the store, with the decisions teammates shared folded in (team-decisions.ts). Every reader (the
  * brief, review, Studio) reads this; a writer reads readStoredLessons, so what the team sent never enters the store.
+ * In a backtest's worktree, it is all as it was at the reviewed moment (lesson-cutoff.ts).
  */
 export function readLessons(cwd: string): ReviewLesson[] {
     const stored = readStoredLessons(cwd);
     const team = readTeamDecisionCache(cwd);
+    const past = lessonsAtCutoff(cwd, stored, team, lessonState);
+    if (past) return past;
     return team?.decisions.length ? foldTeamDecisions(stored, team, lessonState) : stored;
 }
 

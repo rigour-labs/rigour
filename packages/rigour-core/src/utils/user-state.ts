@@ -105,6 +105,18 @@ export function rigourUserDir(): string {
 }
 
 /**
+ * Where Rigour keeps caches it can rebuild: under the Rigour directory when RIGOUR_HOME is set (a profile, a sandbox,
+ * tests), else the OS cache directory (XDG_CACHE_HOME or ~/.cache on Linux, ~/Library/Caches on macOS, LOCALAPPDATA on
+ * Windows). Never inside a repository.
+ */
+export function rigourCacheDir(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
+    if (env.RIGOUR_HOME) return path.join(homeFor(env.RIGOUR_HOME), '.rigour', 'cache');
+    if (platform === 'darwin') return path.join(os.homedir(), 'Library', 'Caches', 'rigour');
+    if (platform === 'win32') return path.join(env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'rigour');
+    return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'rigour');
+}
+
+/**
  * Per-repository state kept outside the workspace, where an agent editing the repository
  * cannot rewrite it: arbitration tokens, stop-hook attempt counts. Keyed by the real path.
  */
