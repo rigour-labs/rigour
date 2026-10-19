@@ -28,7 +28,7 @@ describe('the edit hook and the write contract', () => {
         write('src/sync.ts', UNEVEN);
         const result = await runHookChecker({ cwd: repo, files: ['src/sync.ts'] });
         expect(result.status).toBe('pass');
-        expect(result.notes).toEqual([expect.objectContaining({ gate: 'write-contract', file: 'src/sync.ts', line: 4, message: expect.stringContaining("don't all set `ran_at`") })]);
+        expect(result.notes).toEqual([expect.objectContaining({ gate: 'write-contract', file: path.join('src', 'sync.ts'), line: 4, message: expect.stringContaining("don't all set `ran_at`") })]);
     });
 
     it('blocks it when the team opts in, and says nothing when the team turns it off', async () => {
