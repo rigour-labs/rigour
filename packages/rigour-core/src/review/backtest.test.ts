@@ -87,8 +87,13 @@ describe('scoring a round', () => {
         const failed = score(round, 'h', extra, 1, undefined);
         expect([failed.unadjudicated, failed.status]).toEqual([2, 'fail']);
         // An approved head has no points: its blocks are blocks on approved code (rigour backtest --last), never also unadjudicated.
-        const approved = score({ ...round, id: 'pr1-approved', approved: true, points: [], must_not_flag: [] }, 'h', extra, 1, undefined);
+        const approved = score({ ...round, id: 'pr1-approved', approved: true, points: [], must_not_flag: [] }, 'abcdef0123456', extra, 1, undefined);
         expect(approved.unadjudicated).toBe(0);
+        // A block on a head a person approved is a false block: the round fails, and says what blocked.
+        expect([approved.falseBlocks.map(f => f.file), approved.status, backtestPassed([approved])]).toEqual([['src/report.ts', 'src/export.ts'], 'fail', false]);
+        expect(formatBacktest([approved])).toContain('FALSE   reviewer src/report.ts:9 the report is never closed');
+        const quiet = score({ ...round, id: 'pr1-approved', approved: true, points: [], must_not_flag: [] }, 'h', [extra[2]], 1, undefined);
+        expect(quiet.status).toBe('pass'); // an advisory note on an approved head blocks nothing
         const { status: _status, ...unscored } = clean;
         expect(backtestPassed([unscored as typeof clean])).toBe(false); // a result with no status is not a pass
     });

@@ -202,8 +202,9 @@ export function score(round: LedgerRound, head: string, items: BacktestItem[], d
         const noted = !hit && items.some(item => !item.blocking && matches(point, item));
         return { id: point.id, point: point.point, caught: !!hit, noted, ...(hit ? { by: `${hit.gate} ${hit.file}${hit.line ? `:${hit.line}` : ''}` } : {}) };
     });
-    const falseBlocks = items.filter(item => item.blocking && round.must_not_flag.some(guard => matches(guard, item)));
-    // An approved head has no points: every block on it is already a block the team would have overridden (backtest-last.ts), never also unadjudicated.
+    // A head a person approved is code they called good as a whole: every block on it is a false block (backtest-init.ts).
+    const falseBlocks = items.filter(item => item.blocking && (round.approved || round.must_not_flag.some(guard => matches(guard, item))));
+    // An approved head's blocks are its false blocks above, never also unadjudicated.
     const unadjudicated = round.approved ? 0 : items.filter(item => item.blocking && ![...round.points, ...round.must_not_flag].some(row => matches(row, item))).length;
     const passed = points.every(p => p.caught) && falseBlocks.length === 0 && !reviewerError;
     const status = !passed ? 'fail' : unadjudicated ? `pass (${unadjudicated} unadjudicated)` : 'pass';

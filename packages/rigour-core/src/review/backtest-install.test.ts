@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../types/index.js';
 import { defaultExec, type Exec } from './reviewer/exec.js';
 import { runBacktest, type BacktestOptions, type Ledger } from './backtest.js';
-import { installEnv } from './backtest-install.js';
 
 const MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 
@@ -89,7 +88,9 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
     }, 60_000);
 
     it('installs with a minimal environment and a scratch HOME, unless --deps-env asks for everything', async () => {
-        process.env.EXAMPLE_REGISTRY_TOKEN = 'not-a-real-token';
+        const vars = { EXAMPLE_REGISTRY_TOKEN: 'not-a-real-token', HTTPS_PROXY: 'http://proxy.example.com:3128', NODE_EXTRA_CA_CERTS: '/etc/example-ca.pem' };
+        const before = Object.fromEntries(Object.keys(vars).map(name => [name, process.env[name]]));
+        Object.assign(process.env, vars);
         try {
             await round({ 'package-lock.json': 'lock 5', '.npmrc': '//registry.example.com/:_authToken=${EXAMPLE_REGISTRY_TOKEN}\n' });
             const minimal = installs[0];
@@ -97,16 +98,17 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
             expect(minimal.env?.EXAMPLE_REGISTRY_TOKEN).toBeUndefined();
             expect(minimal.env?.HOME).toMatch(/rigour-backtest[\\/]deps[\\/][0-9a-f]{16}[\\/]\.rigour-home$/);
             expect(minimal.env?.PATH).toBe(process.env.PATH);
+            expect([minimal.env?.HTTPS_PROXY, minimal.env?.NODE_EXTRA_CA_CERTS]).toEqual([vars.HTTPS_PROXY, vars.NODE_EXTRA_CA_CERTS]);
+            expect(minimal.unset).not.toContain('HTTPS_PROXY');
             await round({ 'package-lock.json': 'lock 6', '.npmrc': 'registry=https://registry.example.com/\n' }, { depsEnv: true });
             expect(installs[1].unset).toBeUndefined();
             expect(installs[1].env).toEqual({ CI: 'true', COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' });
         } finally {
-            delete process.env.EXAMPLE_REGISTRY_TOKEN;
+            for (const [name, value] of Object.entries(before)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
         }
-        expect(installEnv('/scratch', false, { PATH: '/bin', HTTPS_PROXY: 'http://proxy.example.com', NODE_EXTRA_CA_CERTS: '/ca.pem', HOME: '/home/me', GH_TOKEN: 'x' })).toEqual({
-            env: { PATH: '/bin', HTTPS_PROXY: 'http://proxy.example.com', NODE_EXTRA_CA_CERTS: '/ca.pem', CI: 'true', COREPACK_ENABLE_DOWNLOAD_PROMPT: '0', HOME: '/scratch', USERPROFILE: '/scratch' },
-            unset: ['GH_TOKEN'],
-        });
     }, 60_000);
 
     it('keys the cache on what the install reads, not only the lockfile', async () => {

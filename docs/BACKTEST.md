@@ -72,6 +72,7 @@ One round per human review:
 | `reviewed_at` | Optional. With `--reviewer`, reviews and comments posted from this time on are hidden from the reviewer, and it reads the pull request description as it was at that time (from GitHub's edit history). If that version cannot be recovered, it gets no description, never today's |
 | `pr` | Optional. The pull request the reviewer reads, since the round's checkout is detached. Without it, `--reviewer` reviews the commit **blind**: no human review, no description, and GitHub is never asked |
 | `points` | What the person said. Each has an `id`, a `point` (the sentence, for the report) and a match |
+| `approved` | Optional. `true` for the head a person approved (`rigour backtest --last` and `init` write it, with no points): the whole head is code they called good, so every blocking finding on it is a false block and the round fails. Reviews are hidden from just after the approval, so the approval itself is seen |
 | `must_not_flag` | Code the person called good, as matches. A blocking finding there is a false block. Optional |
 
 A match always has a `file` pattern, a regular expression over the finding's path. It also needs a `lines` window (`[first, last]` at the reviewed commit) or a `text` pattern (a regular expression over the finding's title, details and hint), or both. The file pattern must match, and then either the finding's line falls inside the window or its text matches. Both patterns ignore case.
@@ -149,11 +150,11 @@ A point counts as **caught** only when a blocking finding matches it. A match in
 
 ### Unadjudicated findings
 
-A blocking finding that matches no point and no `must_not_flag` row is **unadjudicated**: no person said whether it was right, so it is scored neither as a catch nor as a false block. Each round counts them, the summary gives the total and says they were not scored, and the JSON carries `unadjudicated` on each round and in total. A round on a head a person approved (`approved: true`, which has no points) is left out of this count: every block there is already reported as a block on an approved head. The pass rule is unchanged, but a round that passes with unadjudicated findings says `pass (N unadjudicated)`, never a plain `pass`: a reviewer that blocks on everything would catch every point, and the count is where that shows. To score them, add the code a person called good to `must_not_flag`, or a point for what they would have raised.
+A blocking finding that matches no point and no `must_not_flag` row is **unadjudicated**: no person said whether it was right, so it is scored neither as a catch nor as a false block. Each round counts them, the summary gives the total and says they were not scored, and the JSON carries `unadjudicated` on each round and in total. A round on a head a person approved (`approved: true`) has none: every block there is a false block, listed on a `FALSE` line with what blocked. The pass rule is unchanged, but a round that passes with unadjudicated findings says `pass (N unadjudicated)`, never a plain `pass`: a reviewer that blocks on everything would catch every point, and the count is where that shows. To score them, add the code a person called good to `must_not_flag`, or a point for what they would have raised.
 
 | Exit code | Meaning |
 | --- | --- |
-| 0 | Every point in the rounds run was caught, nothing was falsely blocked, and the reviewer, if it ran, gave a verdict |
+| 0 | Every point in the rounds run was caught, nothing was falsely blocked (no blocking finding on a `must_not_flag` row or on an approved head), and the reviewer, if it ran, gave a verdict |
 | 1 | Anything else |
 | 2 | The run could not start: no ledger, an invalid ledger, an unknown round, a commit not in the repository |
 

@@ -117,7 +117,7 @@ function installCommand(manager: Manager, yarnBerry: boolean): [string, string[]
 }
 
 /** The install's environment: the inherited few and a scratch HOME, or (`--deps-env`) everything. */
-export function installEnv(home: string, fullEnv: boolean, env: NodeJS.ProcessEnv = process.env): { env: Record<string, string>; unset?: string[] } {
+function installEnv(home: string, fullEnv: boolean, env: NodeJS.ProcessEnv = process.env): { env: Record<string, string>; unset?: string[] } {
     const own = { CI: 'true', COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' };
     if (fullEnv) return { env: own };
     const kept = Object.fromEntries(INHERITED.filter(name => env[name] !== undefined).map(name => [name, env[name] as string]));
