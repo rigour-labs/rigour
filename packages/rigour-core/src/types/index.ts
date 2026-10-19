@@ -252,6 +252,16 @@ export const GatesSchema = z.object({
         enabled: z.boolean().optional().default(false),
         migrations: z.array(z.string()).optional().default([]),
     }).optional().default({}),
+    /**
+     * An insert or upsert the repository's migrations say the database will reject (gates/write-contract): a required
+     * column no row sets, bulk rows with uneven keys, a literal outside a CHECK list or enum, an ON CONFLICT target with no
+     * unique constraint. On, and a note (a warning at the edit) unless `block`. Silent wherever the schema is not fully read.
+     */
+    write_contract: z.object({
+        enabled: z.boolean().optional().default(true),
+        migrations: z.array(z.string()).optional().default([]),
+        block: z.boolean().optional().default(false),
+    }).optional().default({}),
     // A dependency whose installed version npm marks deprecated (advisory, off by default: it asks the registry).
     deprecated_dependencies: z.object({
         enabled: z.boolean().optional().default(false),
@@ -538,7 +548,16 @@ export type RawCommands = z.input<typeof CommandsSchema>;
 export type RawHooks = z.input<typeof HooksSchema>;
 export type RawConfig = z.input<typeof ConfigSchema>;
 
-export const StatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR']);
+/** A run's status: PASS, or FAIL when something blocks (SKIP and ERROR as before). Never NOTE: notes do not decide a run. */
+export const RunStatusSchema = z.enum(['PASS', 'FAIL', 'SKIP', 'ERROR']);
+export type RunStatus = z.infer<typeof RunStatusSchema>;
+
+/**
+ * Each check's status in a run's summary: a run status, or NOTE, a check that found something as notes that never
+ * block (a gate the team has not opted in to blocking, such as the write contract). A reader that does not know NOTE
+ * should read it as not PASS.
+ */
+export const StatusSchema = z.enum([...RunStatusSchema.options, 'NOTE']);
 export type Status = z.infer<typeof StatusSchema>;
 
 export const SeveritySchema = z.enum(['critical', 'high', 'medium', 'low', 'info']);
@@ -588,7 +607,7 @@ export const FailureSchema = z.object({
 export type Failure = z.infer<typeof FailureSchema>;
 
 export const ReportSchema = z.object({
-    status: StatusSchema,
+    status: RunStatusSchema,
     summary: z.record(StatusSchema),
     /** Why a check reported SKIP: it could not check (for example, no main branch to compare with). */
     skips: z.record(z.string()).optional(),

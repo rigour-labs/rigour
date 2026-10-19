@@ -6,7 +6,7 @@
  *
  * @since v2.17.0 — extracted from monolithic index.ts
  */
-import { GateRunner, Report, changeReview, renderMcpHeadline } from "@rigour-labs/core";
+import { GateRunner, Report, changeReview, noteLine, renderMcpHeadline, reportNotes } from "@rigour-labs/core";
 import type { ChangeReview, Config, DeepOptions } from "@rigour-labs/core";
 import { notifyProgress } from '../utils/notifications.js';
 import { DEFAULT_FIX_PACKET_PAGE_SIZE, FIX_PACKET_INSTRUCTION, MAX_FIX_PACKET_PAGE_SIZE, formatFixPacketPage } from './fix-packet-format.js';
@@ -144,25 +144,33 @@ async function checkChange(cwd: string, config: Config, review: ReviewChange): P
 
 export async function handleExplain(runner: GateRunner, cwd: string): Promise<ToolResult> {
     const report = await runner.run(cwd);
+    const notes = reportNotes(report);
 
     if (report.status === "PASS") {
         const passScore = report.stats.score !== undefined ? ` Score: ${report.stats.score}/100.` : '';
-        return {
-            content: [{ type: "text", text: `ALL QUALITY GATES PASSED.${passScore} No failures to explain.` }],
-        };
+        const text = notes.length === 0
+            ? `ALL QUALITY GATES PASSED.${passScore} No failures to explain.`
+            : `ALL QUALITY GATES PASSED.${passScore} ${explainNotes(notes)}`;
+        return { content: [{ type: "text", text }] };
     }
 
     let header = 'RIGOUR EXPLAIN:';
     header += formatScoreText(report.stats);
     header += formatSeverityText(report.stats);
 
-    const bullets = report.failures.map((f, i) => {
+    const bullets = report.failures.filter(f => !notes.includes(f)).map((f, i) => {
         const sev = (f.severity || 'medium').toUpperCase();
         const prov = f.provenance ? ` (${f.provenance})` : '';
         return `${i + 1}. [${sev}] [${f.id.toUpperCase()}]${prov} ${f.title}: ${f.details}${f.hint ? ` (Hint: ${f.hint})` : ''}`;
     }).join("\n");
 
-    return { content: [{ type: "text", text: `${header}\n\n${bullets}` }] };
+    return { content: [{ type: "text", text: `${header}\n\n${bullets}${notes.length ? `\n\n${explainNotes(notes)}` : ''}` }] };
+}
+
+/** Notes, not blocking: what each says will happen, where, and how to address it. */
+function explainNotes(notes: Report['failures']): string {
+    const lines = notes.map((note, i) => `${i + 1}. [NOTE] [${note.id.toUpperCase()}] ${noteLine(note)}${note.hint ? ` (Hint: ${note.hint})` : ''}`);
+    return `${notes.length} note${notes.length === 1 ? '' : 's'}, not blocking (the team has not set this check to block):\n${lines.join('\n')}`;
 }
 
 export async function handleStatus(runner: GateRunner, cwd: string): Promise<ToolResult> {

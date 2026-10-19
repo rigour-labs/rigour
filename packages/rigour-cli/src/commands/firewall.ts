@@ -17,6 +17,7 @@ import {
     loadCurrentTransaction,
     listTransactions,
     GateRunner,
+    blockingGates,
     ConfigSchema,
     loadAgentScopesFromDisk,
     getRepositoryControlId,
@@ -77,7 +78,8 @@ export async function firewallTransactCommand(
     const runner = new GateRunner(config);
     const { ok, gateResults } = await tx.verify(async () => {
         const report = await runner.run(gateCwd);
-        const failedGates = [...new Set(report.failures.map(f => f.id))];
+        // A gate whose findings are notes (summary NOTE) did not fail: it is not named among the failed gates.
+        const failedGates = blockingGates(report);
         return { status: report.status, failedGates, score: report.stats.score };
     });
 

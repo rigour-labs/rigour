@@ -50,6 +50,10 @@ export { decideCompiledCheck, proposeCompiledChecks, readCompiledChecks, suspens
 export { ruleWriterFor } from './review/reviewer/rule-writer.js';
 export { backtestLast, formatLast, scoreLast, LAST_LEDGER_PATH, type LastReport } from './review/backtest-last.js';
 export { buildRecord, coverageLine, recordLines, recordIntact, type ReviewRecord } from './review/reviewer/record.js';
+export { readiness, type Readiness, type ReadinessInput, type ReadinessVerdict, type ReadyState } from './review/readiness.js';
+export { type CoverageRow, type CoverageState } from './review/readiness-coverage.js';
+export { readinessJson, readinessLine, readinessMarkdown, coverageText } from './review/readiness-render.js';
+export { storedReviewerResult } from './review/reviewer/stored.js';
 export { readLessons, writeLessons, decideLesson, acceptSuggestedText, scopeLesson, lessonState, lastDecision, takeBackable, pendingDecision, quietBotCandidate, matchLessons, lessonText, lessonsPath, type ReviewLesson, type LessonEvidence } from './review-learning/lessons.js';
 export { lessonsForDiff, lessonsSection, type LessonMode } from './review-learning/team-lessons.js';
 export { recordAgentWrites, captureHumanEdits } from './review-learning/human-edits.js';
@@ -135,6 +139,7 @@ export type { IncrementalResult } from './services/incremental-cache.js';
 // Terminal Renderer (rich CLI/MCP output)
 export { renderScoreGauge, renderSeveritySection, renderGateGrid, renderBrainStatus, renderFullReport, renderMcpHeadline, renderFixAttribution } from './services/terminal-renderer.js';
 export type { RenderOptions, GateResult } from './services/terminal-renderer.js';
+export { blockingGates, noteLine, reportNotes } from './services/report-notes.js';
 // Context Telemetry & 4-Layer Caching Engine
 export * from './context/cache-engine.js';
 export * from './context/context-session.js';

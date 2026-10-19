@@ -115,6 +115,11 @@
             "summary": "Reports a supabase-js read whose table, as the repository's SQL migrations define it, has no index that can serve the read's filters or sort. Off by default; teams with Supabase migrations in the repository turn it on.",
             "blocks": "Advisory: never blocks"
         },
+        "gates.write_contract": {
+            "title": "Writes the database will reject",
+            "summary": "Reports a supabase-js insert or upsert, or a raw SQL INSERT in a string, that the table's SQL migrations say the database will reject: a NOT NULL column with no default that no row sets, bulk rows whose keys differ (supabase-js sends a missing key as NULL), a literal outside a CHECK list or enum, and an ON CONFLICT target with no unique constraint. Silent for any write or table it cannot read in full. Teams opt in to blocking once they trust it.",
+            "blocks": "Notes by default (a warning at the edit); block: true makes them block"
+        },
         "gates.deprecated_dependencies": {
             "title": "Deprecated npm dependencies",
             "summary": "Reports package.json dependencies whose installed version npm marks deprecated, by asking the registry (answers cached for a day). Off by default because it sends package names and versions to the registry.",
@@ -336,6 +341,9 @@
         "gates.governance.exempt_paths": "Glob patterns for files that governance never checks, such as Rigour's own hook configuration.",
         "gates.unindexed_reads.enabled": "Turns the unindexed Supabase read check on or off.",
         "gates.unindexed_reads.migrations": "Glob patterns for the SQL migration files to replay, each directory as its own database; when empty, every .sql file under a migrations folder is used.",
+        "gates.write_contract.enabled": "Turns the write contract check on or off; it reads only the files a change touches, plus the migrations.",
+        "gates.write_contract.migrations": "Glob patterns for the SQL migration files to replay, each directory as its own database; when empty, every .sql file under a migrations folder is used.",
+        "gates.write_contract.block": "Off by default: a write the migrations say the database will reject is a note in review and a warning at the edit. On: it blocks the edit, the stop and the push.",
         "gates.deprecated_dependencies.enabled": "Turns the deprecated npm dependency check on, which sends package names and installed versions to the registry.",
         "gates.deprecated_dependencies.registry": "Base URL of the npm registry to ask about deprecations, for teams behind a private registry or mirror; npm's public registry is used when unset.",
         "gates.unused_exports.enabled": "Turns the unused-export check on or off.",

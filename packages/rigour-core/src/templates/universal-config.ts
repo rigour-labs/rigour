@@ -210,6 +210,11 @@ export const UNIVERSAL_CONFIG: Config = {
             enabled: false,
             migrations: [],
         },
+        write_contract: {
+            enabled: true,
+            migrations: [],
+            block: false,
+        },
         deprecated_dependencies: {
             enabled: false,
         },

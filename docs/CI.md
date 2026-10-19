@@ -31,12 +31,95 @@ The verdict is one of three:
 | `FAIL` | At least one finding on the changed lines must be fixed. |
 | `ERROR` | The review did not finish: a model review was asked for and did not run, or a check that can block crashed. An `ERROR` is never a pass. |
 
+### Ready, and what was verified
+
+Every review also answers two questions, the same way in the terminal, `--json`, `--github-summary`, the
+pull request's summary comment and the MCP `rigour_review` tool:
+
+```
+Technically ready: ready (model review not run; 1 check not run) · Product ready: unknown (no acceptance criteria)
+```
+
+Each answer is `ready`, `not ready` or `unknown`. They read the review; they never change the verdict, the
+exit code or what blocks.
+
+**Technically ready**
+
+| Answer | When |
+| --- | --- |
+| `not ready` | A blocking finding, or an open item from the [reviewer](./REVIEWER.md). |
+| `unknown` | The review is `ERROR`; or this run asked for the reviewer (`rigour review --reviewer`) and it gave no verdict (unavailable or skipped), or left changed units unreviewed. |
+| `ready` | Everything that ran passed and nothing this run asked for was left unverified. What did not run (the model review, checks that are off, a skipped deep review), checks that could not run, and how much was noted are listed after it, never hidden. |
+
+Only a run that asks for the reviewer is held to it. Any other run reads "model review not run" as a
+caveat on `ready`, unless it reviews exactly what the reviewer already stored a verdict for: the branch
+against its base (`rigour review --base <ref>`, or the MCP tool with `base`), with no uncommitted change
+to a tracked file, and the branch's last verdict a full review of HEAD against the same base commit, its
+file the one its fingerprint names and its record intact. Then that verdict fills the coverage rows and
+the line says "model review from the stored verdict on this commit" with its date. A review of
+uncommitted work never uses one: the verdict never saw that code. A stored verdict reflects the human
+reviews as they were when it ran.
+
+**Product ready** reads the acceptance criteria in the pull request's description, under the headings the
+[goal check](./GOAL.md) reads: `Done when`, `Acceptance criteria`, `Definition of done` or `Success criteria`.
+
+| Answer | When |
+| --- | --- |
+| `unknown (no acceptance criteria)` | No description was read, or it has none of those sections. |
+| `unknown (not checked)` | Criteria exist and nothing checked any of them: no reviewer verdict, `review.goal` off, or the rules-and-goal step did not return. |
+| `unknown (not verified)` | Some criteria were checked, but not every one was shown met with evidence. |
+| `unknown (stored verdict; the description was not re-checked)` | The judge's answers come from a stored verdict, and this run did not read the same description it was built from. |
+| `not ready` | A criterion was shown not met. |
+| `ready` | Every criterion was shown met. |
+
+Each criterion is decided by evidence only:
+
+- One that names a file in backticks fails when the goal check finds the change never touches a file it
+  names. Touching the file proves nothing, so a touched one reads "not verified (file touched, not
+  judged)", and "checked by the goal check (not run)" when the goal check is off.
+- Any other is the reviewer's goal step. It fails when any judge (with a panel, every judge's answer is
+  kept) says not met with a quote that checks out against the checkout. It is verified only when every
+  judge that answered says met, each with a file, line and quote that check out, the same check a not-met
+  answer gets. Met without a quote that checks out is "not verified (no evidence)"; so is a judge that
+  could not tell, or a not-met whose quote did not check out. The judge is not asked to quote what it
+  finds met in this release, so expect `unknown (not verified)` until it does.
+
+A stored verdict's answers count only for the description it was built from: the reviewer keeps the
+description's hash beside the verdict (`inputs.body_sha256`, line endings and outer whitespace aside), and
+a later run compares it with the description it read (`--pr-body`, or the pull request's body in a GitHub
+Actions job). A different or missing hash (a verdict from before 7.1 has none) leaves product ready
+`unknown (stored verdict; the description was not re-checked)`.
+
+A criterion's text is given to the judge as written, in its prompt: write criteria as you would for a
+reviewer, and keep secrets out of the description.
+
+**The coverage table** follows the two answers. Each row is one of four states:
+
+| State | Means |
+| --- | --- |
+| `verified` | Checked, and it holds. |
+| `failed` | Checked, and it blocks: a check with a blocking finding, a broken rule the team wrote as a requirement, an open human review point, a criterion shown not met. |
+| `noted` | Found, never blocking: a check whose findings are all notes (including a check whose summary is `NOTE`, such as the write contract until `write_contract.block` is on), a broken rule written as guidance, a lesson the change repeats. Counted as "N noted" after `ready`. |
+| `not verified` | Not checked: a check that is off or could not run, a changed unit nobody reviewed, a rule or lesson nobody answered, a criterion without evidence. Never a pass. |
+
+The categories are the checks, the changed units (reviewed by the model or before this change, or named
+as not reviewed), the team's rules, the team's lessons (covered by compiled checks, answered not repeated,
+repeated, not answered), human review points (resolved, open, to answer in the reply) and each acceptance
+criterion. Without a reviewer verdict, the rules, lessons and review points rows say the model review did
+not run; a part a stored record from an older Rigour does not have reads "not in the stored record". The
+terminal and `--ci` text show one row per category, wrapped to the terminal's width, naming every failed,
+noted and not verified item (the first six, then a count); the markdown table has the same columns and
+points at the JSON report (the job's report artifact) for the rest. `--json` and the MCP tool carry every
+row under `readiness.coverage`, beside `readiness.technical`, `readiness.product` and the printed
+`readiness.line`.
+
 `rigour review-post` then posts (and, when the report includes the reviewer's record, the summary carries it: blocking items, up to five should-fixes, the counts and the integrity hash):
 
 - **Inline comments**, at most two by default (`--max-comments`). The most severe go first, and among
   equal severity, security findings before model findings before the rest. A finding is posted once:
   a later push does not repeat it.
-- **One summary comment**, edited in place on every push: the verdict, the number of findings, notes
+- **One summary comment**, edited in place on every push: the verdict, the two readiness answers and the
+  coverage table (from the report's `readiness`), the number of findings, notes
   elsewhere in changed files, how many findings were dismissed, any change the pull request makes to
   `rigour.yml` or `.rigour/`, and, with a model, how many changed functions it reviewed, the model and
   what the run cost.
