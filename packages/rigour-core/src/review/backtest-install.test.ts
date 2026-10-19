@@ -225,6 +225,24 @@ describe('installing a commit\'s dependencies runs none of the commit\'s code', 
         expect(installs).toHaveLength(2);
     }, 60_000);
 
+    it('finds a project above the cache on its real path, so a RIGOUR_HOME linked into a repository falls back', async () => {
+        const project = fs.mkdtempSync(path.join(os.tmpdir(), 'backtest-project-'));
+        try {
+            fs.writeFileSync(path.join(project, '.yarnrc'), 'registry "https://registry.example.com"\n');
+            fs.mkdirSync(path.join(project, 'sub'));
+            const linked = path.join(home, 'linked');
+            fs.symlinkSync(path.join(project, 'sub'), linked, 'junction');
+            process.env.RIGOUR_HOME = linked;
+            const used = await round({ 'package-lock.json': 'lock 15' });
+            expect(used.used).toBe('today');
+            expect(used.detail).toContain(`sits under ${path.join(fs.realpathSync(project), '.yarnrc')}`);
+            expect(installs).toEqual([]);
+        } finally {
+            process.env.RIGOUR_HOME = home;
+            fs.rmSync(project, { recursive: true, force: true });
+        }
+    }, 60_000);
+
     it('does not install a commit whose patch names a path outside its package', async () => {
         const patch = 'diff --git a/../../escaped.txt b/../../escaped.txt\nnew file mode 100644\n--- /dev/null\n+++ b/../../escaped.txt\n@@ -0,0 +1 @@\n+escaped\n';
         const used = await round({ 'pnpm-lock.yaml': 'lock 14', 'pnpm-workspace.yaml': 'packages: []\npatchedDependencies:\n  example-tool@1.0.0: patches/example-tool.patch\n', 'patches/example-tool.patch': patch });

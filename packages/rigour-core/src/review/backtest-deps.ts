@@ -47,7 +47,10 @@ export async function linkDependencies(cwd: string, worktree: string, options: D
 
 async function chooseDependencies(cwd: string, worktree: string, options: DependencyOptions): Promise<{ use: DependencyUse; target?: string }> {
     const today = path.join(cwd, 'node_modules');
-    const shared = (use: DependencyUse) => (fs.existsSync(today) ? { use, target: today } : { use: { used: 'none' as const, detail: 'this checkout has no node_modules to share' } });
+    // With nothing to share, the reason the round could not use the commit's own still shows.
+    const shared = (use: DependencyUse) => (fs.existsSync(today)
+        ? { use, target: today }
+        : { use: { used: 'none' as const, detail: `this checkout has no node_modules to share${use.detail ? ` (${use.detail})` : ''}` } });
     if (!fs.existsSync(path.join(worktree, 'package.json'))) return { use: { used: 'none', detail: 'the commit has no package.json' } };
     const theirs = lockfiles(worktree);
     if (theirs.length === 0) return shared({ used: 'today', detail: 'the commit has no lockfile to install from' });
@@ -110,9 +113,24 @@ function depsCache(cwd: string): string {
 }
 
 /** What a package manager would take for a project above the cache: a manifest, a pnpm workspace or yarn settings. */
+const PROJECT_FILES = ['package.json', 'pnpm-workspace.yaml', '.yarnrc.yml', '.yarnrc'];
+
+/**
+ * The first project file above the cache, on the path as written and on its real path: a RIGOUR_HOME that is a
+ * symlink into a repository is where the install would really land.
+ */
 function projectAbove(dir: string): string | undefined {
-    for (let at = path.dirname(path.resolve(dir)); ; at = path.dirname(at)) {
-        const found = ['package.json', 'pnpm-workspace.yaml', '.yarnrc.yml'].map(name => path.join(at, name)).find(file => fs.existsSync(file));
+    fs.mkdirSync(dir, { recursive: true });
+    for (const start of new Set([path.resolve(dir), fs.realpathSync(dir)])) {
+        const found = projectAboveFrom(start);
+        if (found) return found;
+    }
+    return undefined;
+}
+
+function projectAboveFrom(dir: string): string | undefined {
+    for (let at = path.dirname(dir); ; at = path.dirname(at)) {
+        const found = PROJECT_FILES.map(name => path.join(at, name)).find(file => fs.existsSync(file));
         if (found) return found;
         if (path.dirname(at) === at) return undefined;
     }
