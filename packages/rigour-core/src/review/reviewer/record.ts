@@ -6,6 +6,7 @@
  * answers it kept. The receipt a pull request carries is built from this.
  */
 import { createHash } from 'crypto';
+import { ranCodeLabel } from './run-code.js';
 import type { Accounting, OpenItem, Verdict } from './verdict.js';
 
 export interface ReviewRecord {
@@ -15,7 +16,11 @@ export interface ReviewRecord {
     scope: 'full' | 'delta';
     at: string;
     /** `outside_repo`: what the judge also read from the machine's own config (a person's instructions); absent when it read only the repository and Rigour's inputs. */
-    judges: Array<{ reviewer: string; version?: string; model?: string; cost_usd?: number; turns?: number; outside_repo?: string }>;
+    judges: Array<{ reviewer: string; version?: string; model?: string; cost_usd?: number; turns?: number; outside_repo?: string; ran_code?: true }>;
+    /** The team's review instructions (review.reviewer.instructions): the file, where it was read, its hash, whether the judges got it. */
+    instructions?: { path: string; from: string; hash?: string; served: boolean };
+    /** How the judges ran, when it is not the plain review: instructions not served or cut, run_code refused. */
+    caveats?: string[];
     /** Checked by Rigour against the checkout. */
     verified: {
         blocking: OpenItem[];
@@ -56,6 +61,8 @@ export interface RecordInput {
     at?: string;
     /** Reviewed without pull request context (`--blind`). */
     blind?: boolean;
+    instructions?: ReviewRecord['instructions'];
+    caveats?: string[];
 }
 
 export function buildRecord(input: RecordInput): ReviewRecord {
@@ -82,6 +89,8 @@ export function buildRecord(input: RecordInput): ReviewRecord {
         reported: { human_reviews: input.humanReviews },
         people: { dismissed: input.accounted.dismissed.length },
         ...(input.blind ? { blind: true as const } : {}),
+        ...(input.instructions ? { instructions: input.instructions } : {}),
+        ...(input.caveats?.length ? { caveats: input.caveats } : {}),
         ...(input.verdict.coverage ? { coverage: { units: input.verdict.coverage.units, accounted: input.verdict.coverage.accounted, not_reviewed: input.verdict.coverage.notReviewed, not_offered: input.verdict.coverage.notOffered } } : {}),
     };
     return { ...body, integrity: integrityOf(body) };
@@ -119,7 +128,8 @@ export function recordLines(r: ReviewRecord, shouldFixShown = 5): string[] {
     if (v.should_fix.length > shouldFixShown) lines.push(`- …and ${v.should_fix.length - shouldFixShown} more should-fix in the record.`);
     const folded = [[v.notes, 'working note'], [v.disputed, 'disputed'], [v.unverified, 'unverified'], [r.people.dismissed, 'dismissed']].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
     if (folded.length) lines.push(`Also seen, never blocking: ${folded.map(([n, w]) => `${n} ${w}${n === 1 || w === 'disputed' || w === 'unverified' || w === 'dismissed' ? '' : 's'}`).join(', ')}.`);
-    lines.push(`Judged by ${r.judges.map(j => `${j.reviewer}${j.version ? ` ${j.version}` : ''}${j.model ? ` (${j.model})` : ''}${typeof j.cost_usd === 'number' ? ` $${j.cost_usd.toFixed(2)}` : ''}${j.outside_repo ? ` [${j.outside_repo}]` : ''}`).join(', ') || 'no judge'} on \`${r.head.slice(0, 9)}\` against \`${r.base.slice(0, 9)}\` (${r.scope}); ${r.blind ? 'reviewed without pull request context' : `${r.reported.human_reviews} human review(s) seen`}. Integrity \`${r.integrity.slice(0, 16)}\`.`);
+    lines.push(`Judged by ${r.judges.map(j => `${j.ran_code ? ranCodeLabel(j.reviewer) : j.reviewer}${j.version ? ` ${j.version}` : ''}${j.model ? ` (${j.model})` : ''}${typeof j.cost_usd === 'number' ? ` $${j.cost_usd.toFixed(2)}` : ''}${j.outside_repo ? ` [${j.outside_repo}]` : ''}`).join(', ') || 'no judge'} on \`${r.head.slice(0, 9)}\` against \`${r.base.slice(0, 9)}\` (${r.scope}); ${r.blind ? 'reviewed without pull request context' : `${r.reported.human_reviews} human review(s) seen`}. Integrity \`${r.integrity.slice(0, 16)}\`.`);
+    lines.push(...setupLines(r));
     return lines;
 }
 
@@ -134,5 +144,13 @@ function countLines(r: ReviewRecord): string[] {
     return [
         ...(v.review_points ? [`Review points, never blocking: ${v.review_points.shown}${v.review_points.hidden ? ` shown, ${v.review_points.hidden} more in the record` : ''}${v.review_points.outside_change ? `; ${v.review_points.outside_change} outside the change, not shown` : ''}.`] : []),
         ...(r.coverage ? [coverageLine(r.coverage)] : []),
+    ];
+}
+
+/** The team's instructions the judges were given, and how the judges ran when it is not the plain review. */
+function setupLines(r: ReviewRecord): string[] {
+    return [
+        ...(r.instructions?.served ? [`Team review instructions: \`${r.instructions.path}\` from ${r.instructions.from}${r.instructions.hash ? ` (sha256 ${r.instructions.hash})` : ''}.`] : []),
+        ...(r.caveats ?? []).map(caveat => `- ${caveat}`),
     ];
 }

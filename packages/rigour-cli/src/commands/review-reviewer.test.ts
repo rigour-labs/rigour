@@ -88,12 +88,18 @@ describe('the reviewer without pull request context', () => {
     it('is asked for with --blind or RIGOUR_REVIEWER_BLIND=1, and never otherwise', async () => {
         const review = {} as any;
         asked.options = [];
-        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: true });
-        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: false });
+        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: true, trustedRef: undefined, ci: false, independent: false });
+        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: false, trustedRef: undefined, ci: false, independent: false });
         vi.stubEnv('RIGOUR_REVIEWER_BLIND', '1');
-        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: false });
+        await reviewerFor('/repo', 'main', {} as any, false, {}, review, { goal: undefined, orchestrator: undefined, blind: false, trustedRef: undefined, ci: false, independent: false });
         vi.unstubAllEnvs();
         expect(asked.options.map(o => (o as { blind?: boolean }).blind)).toEqual([true, undefined, true]);
+    });
+
+    it('passes an independent review\'s base and CI on to the reviewer, for the team\'s instructions and run_code', async () => {
+        asked.options = [];
+        await reviewerFor('/repo', 'main', {} as any, false, {}, {} as any, { goal: undefined, orchestrator: undefined, blind: false, trustedRef: 'abc123', ci: true, independent: true });
+        expect(asked.options[0]).toMatchObject({ trustedRef: 'abc123', ci: true, independent: true });
     });
 
     it('says so in the output and the JSON', () => {
@@ -101,5 +107,17 @@ describe('the reviewer without pull request context', () => {
         expect(out.join('\n')).toContain('reviewed without pull request context');
         expect(reviewerJson({ ...base, blind: true })).toMatchObject({ blind: true });
         expect(reviewerJson(base)).toMatchObject({ blind: false });
+    });
+});
+
+describe("the judges' instructions and run_code as the CLI prints them", () => {
+    it('names a judge that ran code, says what was refused or not served, and names the instructions served', () => {
+        const mode = { asked: 'full' as const, ran: 'full' as const, source: 'team' as const, ranCode: ['codex' as const], caveats: ["run_code: cursor's sandbox lets commands write to /tmp and $TMPDIR outside the throwaway copy, and no switch narrows it; cursor stays read-only"], instructions: { path: 'docs/review-rubric.md', from: 'the working tree', hash: '0123456789abcdef', served: true } };
+        printReviewer({ ...base, mode });
+        const printed = out.join('\n');
+        expect(printed).toContain('claude + codex (ran code in a throwaway copy)');
+        expect(printed).toContain('cursor stays read-only');
+        expect(printed).toContain('team review instructions: docs/review-rubric.md (from the working tree, sha256 0123456789abcdef)');
+        expect(reviewerJson({ ...base, mode })).toMatchObject({ judged_by: ['claude', 'codex (ran code in a throwaway copy)'] });
     });
 });

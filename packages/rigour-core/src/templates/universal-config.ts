@@ -322,6 +322,7 @@ export const UNIVERSAL_CONFIG: Config = {
             tiers: { cheap: {} },
             judge_env: {},
             reasoning: {},
+            run_code: 'off',
         },
     },
     ignore: [],

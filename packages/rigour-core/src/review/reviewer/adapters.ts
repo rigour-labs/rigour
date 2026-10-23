@@ -1,6 +1,6 @@
 /**
  * Reviewer adapters: the person's own coding-agent CLIs, each run headless and read-only on the
- * same prompt. `review.reviewer.reviewers` is the contract (an explicit list, any vendors); the
+ * same prompt (a judge whose sandbox was verified may run scratch code with review.reviewer.run_code: run-code.ts). `review.reviewer.reviewers` is the contract (an explicit list, any vendors); the
  * mode picks among it: `single` runs the first available (the default, and the fastest), `cross`
  * prefers a vendor not on the commits' Co-Authored-By trailers, `full` runs two vendors and the
  * verdicts are merged. Which mode earns its minutes is decided by the backtest ledger, which
@@ -19,13 +19,18 @@ export interface Adapter {
     vendor: Vendor;
     binary: string;
     /** The command line for one review: the prompt is passed as text, never through a shell. */
-    args(prompt: string, model: string | undefined, options?: { reasoning?: 'low' | 'medium' | 'high'; version?: string }): string[];
+    args(prompt: string, model: string | undefined, options?: { reasoning?: 'low' | 'medium' | 'high'; version?: string; runCode?: boolean }): string[];
     /** The reviewer's final message and, when the CLI reports them, what the run cost and the tokens it used. */
     answer(stdout: string): { text: string } & Spend;
     /** Variables the judge runs with, on top of what it inherits: what keeps a person's own instructions out of it. */
     env?: Record<string, string>;
     /** What this judge still reads from outside the repository on this machine (a person's own config), or undefined: said on the record, never hidden. `env` is what the judge runs with on top of this process's (a profile's Codex home). */
     outsideRepo?(home: string, version: string | undefined, env?: Record<string, string>): string | undefined;
+    /**
+     * Why this judge may not run code (review.reviewer.run_code), or undefined when it may: only a judge whose sandbox was
+     * verified with a real run (no write outside its throwaway copy, no network, a scratch test runs; docs/REVIEWER.md).
+     */
+    runCodeRefusal(version: string | undefined): string | undefined;
 }
 
 /** What a run used: dollars when the CLI reports them (Claude Code), tokens otherwise (Codex reports only tokens). */
@@ -61,6 +66,24 @@ const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const CLAUDE_MEMORY_ISOLATION = '2.1.285';
 
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git log:*)', 'Bash(git grep:*)'];
+/** With run_code: any shell command, every one inside the sandbox below; the file tools still cannot write. */
+const RUN_CODE_TOOLS = ['Read', 'Grep', 'Glob', 'Bash'];
+
+/**
+ * Claude Code's sandbox for a judge that runs code, verified on 2.1.285 with a real `claude -p` run: commands run
+ * sandboxed and without a prompt, the dangerouslyDisableSandbox escape is ignored, a sandbox that cannot start fails the
+ * run instead of running unsandboxed, and no host is reachable. Writes outside the working directory were refused
+ * (home, /tmp and $TMPDIR alike), example.com was refused, and a scratch test in the working directory ran.
+ */
+const CLAUDE_SANDBOX = { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { allowedDomains: [], strictAllowlist: true } };
+
+/**
+ * Codex's workspace-write sandbox with network off and the temporary directories left out of what it may write, so it
+ * writes only its working directory: verified on codex-cli 0.160.1 with a real `codex exec` run (home, /tmp and $TMPDIR
+ * writes refused, example.com unresolvable, a scratch test ran). Network is off by default; set here so no config.toml
+ * turns it on.
+ */
+const CODEX_RUN_CODE = ['--sandbox', 'workspace-write', '-c', 'sandbox_workspace_write.network_access=false', '-c', 'sandbox_workspace_write.exclude_tmpdir_env_var=true', '-c', 'sandbox_workspace_write.exclude_slash_tmp=true'];
 /** The tools the judge loads at all: Bash only for the git commands READ_ONLY_TOOLS allows. */
 const JUDGE_TOOLS = ['Read', 'Grep', 'Glob', 'Bash'];
 
@@ -86,10 +109,10 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             '--output-format', 'stream-json', '--verbose', // every turn's usage and tool calls, for the run's trace
             '--max-turns', '80',
             '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
-            '--setting-sources', 'project', '--settings', '{"hooks":{},"outputStyle":"default"}',
+            '--setting-sources', 'project', '--settings', JSON.stringify({ hooks: {}, outputStyle: 'default', ...(options?.runCode ? { sandbox: CLAUDE_SANDBOX } : {}) }),
             // Below the verified version, or when it cannot be read, the CLI may not know --tools: today's args, said on the record.
             ...(atLeast(options?.version, CLAUDE_MEMORY_ISOLATION) ? ['--tools', ...JUDGE_TOOLS] : []),
-            '--allowedTools', ...READ_ONLY_TOOLS,
+            '--allowedTools', ...(options?.runCode ? RUN_CODE_TOOLS : READ_ONLY_TOOLS),
             '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'Bash(git push:*)', 'Bash(git commit:*)',
         ],
         // No memory file loads itself: not ~/.claude/CLAUDE.md, not one in a folder above the repository, not the repository's
@@ -104,6 +127,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             return `claude ${found?.[0] ?? '(version unknown)'}: memory isolation unverified and every built-in tool loaded (needs ${CLAUDE_MEMORY_ISOLATION} or later)`;
         },
         answer: stdout => claudeAnswer(stdout),
+        runCodeRefusal: version => (atLeast(version, CLAUDE_MEMORY_ISOLATION) ? undefined : `its sandbox is verified on Claude Code ${CLAUDE_MEMORY_ISOLATION} or later, and this is ${version?.trim() || 'an unknown version'}`),
     },
     cursor: {
         vendor: 'cursor',
@@ -111,6 +135,9 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         // Ask mode is read-only and cannot run git: every input the prompt names is a file. It reads ~/.cursor (rules, MCP
         // servers, hooks) whatever CURSOR_CONFIG_DIR says: under a profile it runs only when the profile allows it.
         outsideRepo: () => 'cursor also reads your own Cursor rules and settings',
+        // Verified on 2026.10.19 with `--sandbox enabled`: home writes and example.com were refused, but /tmp and $TMPDIR
+        // writes were not, and no switch narrows them; its network rules are the person's own Cursor settings.
+        runCodeRefusal: () => "cursor's sandbox lets commands write to /tmp and $TMPDIR outside the throwaway copy, and no switch narrows it",
         args: (prompt, model) => ['-p', '--print', '--output-format', 'json', '--trust', '--mode', 'ask', '--model', model ?? 'auto', prompt],
         answer: stdout => {
             try {
@@ -132,7 +159,8 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             const read = ['config.toml', 'AGENTS.md'].filter(name => fs.existsSync(path.join(dir, name)));
             return read.length ? `codex also reads ${read.map(name => path.join(dir, name)).join(' and ')}` : undefined;
         },
-        args: (prompt, model, options) => ['exec', '--sandbox', 'read-only', '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
+        runCodeRefusal: () => undefined,
+        args: (prompt, model, options) => ['exec', ...(options?.runCode ? CODEX_RUN_CODE : ['--sandbox', 'read-only']), '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
         // `codex exec --json` streams events; the last text-bearing one carries the answer.
         // Warnings arrive as `error` items with a `message`, not `text`, so they are never taken for the answer.
         // `turn.completed` carries the tokens (Codex reports no dollars).
@@ -157,6 +185,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
         vendor: 'other',
         binary: 'api',
         args: () => [],
+        runCodeRefusal: () => 'an API judge runs no commands',
         answer: stdout => {
             try {
                 const parsed = JSON.parse(stdout);

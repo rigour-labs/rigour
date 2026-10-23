@@ -28,7 +28,9 @@ import { defaultExec, GH_TIMEOUT_MS, githubEnv, type Exec, type Progress } from 
 import { bodyAsOf, findPullRequest, ghFor, humanReviews, linesChanged, mergesBaseIn, rulesText, sha, type HumanReviews, type PullRequest } from './reviewer/inputs.js';
 import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
-import { crossExamPrompt, deltaBlock, goalStep, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
+import { beforeAnswerFormat, crossExamPrompt, deltaBlock, goalStep, instructionsBlock, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
+import { instructionsCaveats, instructionsKey, readInstructions } from './reviewer/instructions.js';
+import { isCi, judgeRunCodeRefusal, runCodeAllowed, runInThrowawayCopy } from './reviewer/run-code.js';
 import { changedUnits, coverageStep, followUpPrompt, unaccounted, unitLabel, unitsText, type ChangedUnit, type Coverage } from './reviewer/coverage.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
 import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, touchesData, triage, type Pass } from './reviewer/triage.js';
@@ -43,7 +45,7 @@ import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
-import { judgeUnset } from './reviewer/judge-env.js';
+import { judgeUnset, secretVariables } from './reviewer/judge-env.js';
 import { emptyAnswer, insideAgentNote } from './reviewer/judge-empty.js';
 import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
 import { judgeIsolation, withJudgeHome, type JudgeHomes, type JudgeIsolation } from './reviewer/judge-isolation.js';
@@ -89,6 +91,12 @@ export interface ReviewerOptions {
     orchestrator?: boolean;
     /** A backtest's judge homes (judge-isolation.ts), for judges no profile already isolates. */
     judgeHomes?: JudgeHomes;
+    /** An independent review's base (`--independent --base`): the team's review instructions are read there, and no judge runs code. */
+    trustedRef?: string;
+    /** `--ci`: no judge runs code (CI and GITHUB_ACTIONS say so too). */
+    ci?: boolean;
+    /** `--independent`: no judge runs code. */
+    independent?: boolean;
 }
 
 export interface ReviewerResult {
@@ -172,6 +180,8 @@ export interface ModeRecord {
         /** The most diff one pass could be given, and the judge it came from (orchestrator.ts passLimit). */
         limit: { judge: ReviewerName; chars: number };
         plan?: string; fallback?: string; none?: string;
+        /** With the team's review instructions served: whether every pass's prompt carried them in full. */
+        instructionsEveryPass?: boolean;
     };
     source: Source;
     /** Why fewer judges ran than were asked for. */
@@ -184,6 +194,12 @@ export interface ModeRecord {
     escalation?: string;
     /** With cheap-model-first tiering on: the tier, why, and whether it turned itself off or escalated (reviewer/tiering.ts). */
     tier?: TierDecision;
+    /** The team's review instructions (review.reviewer.instructions): the file, where it was read, its hash, and whether the judges got it. */
+    instructions?: { path: string; from: string; hash?: string; served: boolean };
+    /** What the review says about how its judges ran (instructions not served or cut, run_code refused): shown, never hidden. */
+    caveats?: string[];
+    /** The judges that ran code in a throwaway copy (review.reviewer.run_code). */
+    ranCode?: ReviewerName[];
 }
 
 /** Findings and no verdict stop a push; a skipped review does not, and is reported as owed. */
@@ -314,6 +330,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         ? (await bodyAsOf(gh, pr.number, options.reviewsBefore)) ?? '(the description as of this review could not be recovered: judge claims against the code and its comments only)\n'
         : pr?.body || '(no pull request description)\n';
     const rules = rulesText(cwd);
+    // The team's review instructions, read where the reviewer reads its settings: the base for an independent review.
+    const instructions = settings.instructions ? readInstructions(repoRoot, settings.instructions, options.trustedRef) : undefined;
+    const teamBlock = instructions?.text ? instructionsBlock(instructions.path, instructions.text) : undefined;
+    const runCode = runCodeAllowed(settings.run_code, { ci: isCi(options.ci), independent: !!options.independent || !!options.trustedRef, backtest: trigger === 'backtest' });
+    // In the fingerprint only when set: with both off, every key is what it was before these switches existed.
+    const switchKeys = [...instructionsKey(instructions), ...(runCode.on ? ['run_code on'] : [])];
     // The goal the description declares, for step 12: only what a model must judge (goal/goal.ts proves the rest), only with the goal check on.
     const goalItems = resolveSwitch('goal', config, options.goal).enabled ? modelGoalItems(parseGoal(body)) : [];
     const goalText = goalItems.map(item => `- [${item.kind}] ${item.text}`).join('\n');
@@ -322,7 +344,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // A delta verdict never answers a full request; a full one answers either.
     const coverageOn = config.review?.coverage !== false;
     const reviewPointsOn = config.review?.review_points !== false;
-    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([coverageOn, reviewPointsOn, settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';')]);
+    const inputsKey = sha([PROMPT_VERSION, rules, body, goalText, reviews.key, JSON.stringify([coverageOn, reviewPointsOn, settings.mode, settings.panel, settings.judges, settings.escalate, settings.panel_max_items, settings.cross_models, settings.models, candidates, orchestrate ? SPECIALISTS_KEY : '']), [...installed].map(([n, i]) => `${n} ${i.version}`).join(';'), ...switchKeys]);
     if (!options.force && previous?.head === head && previous.inputsKey === inputsKey && !(options.full && previous.mode === 'delta') && fs.existsSync(store.decidedPath(previous.verdict))) {
         const verdict = store.readJson<Verdict & { inputs?: { mode?: ModeRecord; reviewers?: ReviewerName[] } }>(previous.verdict);
         const decided = store.readJson<Decided>(store.decidedPath(previous.verdict));
@@ -351,7 +373,13 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     }
     const reviewerVersions = reviewers.map(name => `${name} ${installed.get(name)!.version}`).join(';');
     // What changes the instructions themselves; the context pack changes with every commit, so it is in the fingerprint, not here.
-    const rulesHash = sha([reviewerVersions, PROMPT_VERSION, rules, body, reviews.key]);
+    const rulesHash = sha([reviewerVersions, PROMPT_VERSION, rules, body, reviews.key, ...switchKeys]);
+    // What the review says about the instructions and run_code, and which judges run code (those whose sandbox was verified).
+    const caveats = [...instructionsCaveats(instructions), ...(runCode.refused ? [runCode.refused] : []), ...(runCode.on ? reviewers.map(name => judgeRunCodeRefusal(name, installed.get(name)?.version)).filter((line): line is string => !!line) : [])];
+    if (instructions) modeRecord = { ...modeRecord, instructions: { path: instructions.path, from: instructions.from, ...(instructions.hash ? { hash: instructions.hash } : {}), served: !!teamBlock } };
+    if (caveats.length) modeRecord = { ...modeRecord, caveats };
+    const ranCode = new Set<ReviewerName>();
+    const runsCode = (name: ReviewerName) => runCode.on && !judgeRunCodeRefusal(name, installed.get(name)?.version);
 
     // Full or delta.
     const mergedBase = await mergesBaseIn(cwd, baseSha, exec);
@@ -392,13 +420,13 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // What a judge reads besides the repository and Rigour's inputs, on this machine: on the record, so "the same judge" is a claim it can check.
     const outsideOf = (reviewer: string) => {
         const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir(), installed.get(reviewer as ReviewerName)?.version, isolation.get(reviewer as ReviewerName)?.env);
-        return outside ? { outside_repo: outside } : {};
+        return { ...(outside ? { outside_repo: outside } : {}), ...(ranCode.has(reviewer.split(/[: ]/)[0] as ReviewerName) ? { ran_code: true as const } : {}) };
     };
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
         const res = result(accounted, verdict, reviewers, scope, why, cached, reviews, pr, modeRecord, settings.dismissals);
         const judges = (verdict.reviewers ?? []).map(r => ({ reviewer: r.reviewer, ...(installed.get(r.reviewer as ReviewerName)?.version ? { version: installed.get(r.reviewer as ReviewerName)!.version } : {}), ...(modelFor(r.reviewer as ReviewerName) ? { model: modelFor(r.reviewer as ReviewerName) } : {}), ...(typeof r.cost_usd === 'number' ? { cost_usd: r.cost_usd } : {}), ...(r.trace?.turns ? { turns: r.trace.turns } : {}), ...outsideOf(r.reviewer) }));
         const recordPath = store.recordPath(verdictFile);
-        const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count, blind: options.blind });
+        const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count, blind: options.blind, instructions: modeRecord.instructions, caveats: modeRecord.caveats });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
         const applied = lessonsApplied(verdict.lessons ?? [], context.servedLessons);
         return { ...res, record, recordPath, ...(applied.length ? { lessonsApplied: applied } : {}), ...(verdict.coverage ? { coverage: verdict.coverage } : {}) };
@@ -411,7 +439,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // What one judge would be given: the shared input files and the reviewable diff. Both modes' cost rows measure this.
     const hunks = parseHunks(fullDiff);
     const size = reviewable(hunks);
-    const shared = reviews.markdown.length + body.length + context.text.length + (options.hints?.trim() || 'none\n').length + (goalText?.length ?? 0);
+    const shared = reviews.markdown.length + body.length + context.text.length + (options.hints?.trim() || 'none\n').length + (goalText?.length ?? 0) + (teamBlock?.length ?? 0);
     const projectedSingle = shared + size.chars;
 
     // The same content, reviewed on another commit (a rebase, an amend, a cherry-pick, another branch): its verdict, once the
@@ -440,7 +468,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const selected = SPECIALISTS.map(s => s.id).filter(id => picked.has(id));
     let passes: Pass[] = [];
     let planNote: string | undefined;
-    const limit = { judge: reviewers[0], chars: passLimit(reviewers[0], settings.timeout_ms) };
+    // Every pass carries the team's instructions in full: they come out of what a pass's diff may take.
+    const limit = { judge: reviewers[0], chars: Math.max(1, passLimit(reviewers[0], settings.timeout_ms) - (teamBlock?.length ?? 0)) };
     if (orchestrate) {
         const baseline = store.freezeBaseline(BASELINE_MIN_SINGLES);
         const plan = planPasses(hunks, picked, SPECIALISTS, limit.chars);
@@ -489,9 +518,16 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     let inlineInputs: Array<{ path: string; text: string }> = [];
     const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
         ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, cache: apiVendor(settings.api) === 'anthropic', ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
-        : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name], version: installed.get(name)!.version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
+        : runsCode(name) ? codeRun(name, prompt, model)
+            : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name], version: installed.get(name)!.version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
+    // run_code: each run in its own throwaway copy (parallel passes never share one), removed afterwards.
+    const codeRun = (name: ReviewerName, prompt: string, model: string | undefined) => {
+        ranCode.add(name);
+        modeRecord = { ...modeRecord, ranCode: [...ranCode] };
+        return runInThrowawayCopy(repoRoot, head, exec, { binary: installed.get(name)!.binary, name, version: installed.get(name)!.version, prompt, model, reasoning: settings.reasoning[name], timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
+    };
     // A failed run's own output can say why (a refused API key): the reason carries it.
-    const hinted = <T extends object>(name: ReviewerName, run: { stdout: string; stderr: string }, answer: T | { error: string }) => withFailureHint(answer, name === 'api' ? undefined : judgeFailureHint(name, run, judgeUnset(name, settings.judge_env)));
+    const hinted = <T extends object>(name: ReviewerName, run: { stdout: string; stderr: string }, answer: T | { error: string }) => withFailureHint(answer, name === 'api' ? undefined : judgeFailureHint(name, run, [...judgeUnset(name, settings.judge_env), ...(runsCode(name) ? secretVariables() : [])]));
     try {
         const file = (name: string, text: string) => {
             const target = path.join(work, name);
@@ -533,7 +569,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         prior.units = units;
         const unitsFile = units.length ? file('changed-units.txt', unitsText(units, offered!.total - units.length)) : undefined;
         if (unitsFile) inlineInputs.push({ path: unitsFile, text: unitsText(units, offered!.total - units.length) });
-        const prompt = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}), ...(unitsFile ? { coverageBlock: coverageStep(unitsFile) } : {}), reviewPoints: reviewPointsOn, dataAccess: touchesData(deltaDiff ? parseHunks(deltaDiff) : hunks) });
+        const rendered = renderPrompt({ repoRoot, branch, head: head.slice(0, 9), base, baseSha, mode: scope, reviewsFile, humanCount: reviews.count, prBodyFile, diffstatFile, diffFile, hintsFile, contextFile, deltaBlock: delta, mergeBlock: merge, ...(goalFile ? { goalBlock: goalStep(goalFile) } : {}), ...(unitsFile ? { coverageBlock: coverageStep(unitsFile) } : {}), reviewPoints: reviewPointsOn, dataAccess: touchesData(deltaDiff ? parseHunks(deltaDiff) : hunks) });
+        const prompt = teamBlock ? beforeAnswerFormat(rendered, teamBlock) : rendered;
         progress(`Rigour reviewer: reviewing ${head.slice(0, 9)} against ${base} (${scope}: ${why}; ${reviews.count} human review(s), written by ${[...authors].join(', ') || 'a person'}) with ${reviewers.join(', ')}`);
         const started = Date.now();
         const ticker = setInterval(() => progress(`Rigour reviewer: still working (${Math.round((Date.now() - started) / 60_000)} min)`), PROGRESS_EVERY_MS);
@@ -548,9 +585,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             } else if (orchestrate) {
                 const judge = reviewers[0];
                 const ran: NonNullable<ModeRecord['specialists']>['passes'] = [];
+                let everyPass = true;
                 const run = await runPasses(judge, passes.map((pass, i) => ({ ...pass, file: file(`part-${i + 1}.diff`, pass.diff) })), async pass => {
                     const assigned = pass.specialists.map(id => SPECIALISTS.find(s => s.id === id)!);
-                    const result = await runJudge(judge, `${prompt}${focusBlock(assigned, pass.file)}`, modelFor(judge));
+                    const passPrompt = `${prompt}${focusBlock(assigned, pass.file, !!teamBlock)}`;
+                    everyPass &&= !teamBlock || passPrompt.includes(teamBlock);
+                    const result = await runJudge(judge, passPrompt, modelFor(judge));
                     const answer = ADAPTERS[judge].answer(result.stdout);
                     spent(answer.costUsd, shared + pass.diff.length); // every pass counts against the caps and the ledger, an answer or not
                     progress(`Rigour reviewer: ${judge} (${pass.specialists.join(', ')}) finished in ${Math.round((Date.now() - started) / 1000)}s (exit ${result.exitCode})`);
@@ -569,7 +609,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
                     ran.push({ specialists: pass.specialists, hunks: pass.hunks.length, chars: pass.diff.length, readBeyondSlice: beyond });
                     return verdict;
                 });
-                const specialists = { selected, returned: run.returned, missing: run.missing, passes: ran, limit, ...(planNote ? { plan: planNote } : {}) };
+                const specialists = { selected, returned: run.returned, missing: run.missing, passes: ran, limit, ...(planNote ? { plan: planNote } : {}), ...(teamBlock ? { instructionsEveryPass: everyPass } : {}) };
                 if (orchestrator.required && run.missing.length) {
                     // A required orchestrator reviews every part or gives no verdict: a partial review, or one judge instead, is a quieter one.
                     recordReviewCost();

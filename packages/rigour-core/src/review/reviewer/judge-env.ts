@@ -27,3 +27,23 @@ export function judgeUnset(name: string, judgeEnv: Record<string, { unset: strin
 export function insideAgentSession(env: NodeJS.ProcessEnv = process.env): boolean {
     return AGENT_SESSION_MARKERS.some(name => !!env[name]?.trim());
 }
+
+/** A variable whose name says it holds a secret. */
+const SECRET_NAME = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_PAT)$/i;
+const SECRET_PREFIX = /^(AWS_|GH_)/i;
+const SECRET_NAMES = new Set(['DATABASE_URL', 'GITHUB_TOKEN', 'NPM_TOKEN', 'NODE_AUTH_TOKEN']);
+/** A URL with a user (and usually a password) in it: `postgres://user:pass@host`. */
+const URL_WITH_CREDENTIALS = /^[a-z][a-z0-9+.-]*:\/\/[^/\s@]+@/i;
+/** What a judge's own login needs, kept: the Codex home its login lives in (judge-isolation.ts sets it under a profile). */
+const LOGIN = new Set(['CODEX_HOME']);
+
+/**
+ * The variables a judge that runs code must not see: whatever a scratch script could read and print. Its login
+ * stays with the CLI's own stored login (`codex login`, `claude` signed in), never a key in the environment.
+ */
+export function secretVariables(env: NodeJS.ProcessEnv = process.env): string[] {
+    return Object.keys(env).filter(name => !LOGIN.has(name) && (
+        SECRET_NAME.test(name) || SECRET_PREFIX.test(name) || SECRET_NAMES.has(name.toUpperCase())
+        || (/_URL$/i.test(name) && URL_WITH_CREDENTIALS.test(env[name] ?? ''))
+    )).sort();
+}

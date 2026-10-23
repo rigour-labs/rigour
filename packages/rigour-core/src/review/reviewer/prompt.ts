@@ -297,3 +297,29 @@ ${JSON.stringify(items, null, 2)}
 Your final message must be ONLY this JSON, starting with { and ending with }:
 {"answers":[{"id":"...","call":"confirm"|"refute"|"unsure","evidence":"file:line ..."}]}`;
 }
+
+/** Where every answer format starts: what a section added to a prompt goes before, so the format stays last. */
+const ANSWER_FORMAT = 'Your final message must be ONLY this JSON';
+
+/** `block` added to a prompt just before its answer format (at the end when the prompt has none). */
+export function beforeAnswerFormat(prompt: string, block: string): string {
+    const at = prompt.lastIndexOf(ANSWER_FORMAT);
+    return at < 0 ? `${prompt}\n\n${block}` : `${prompt.slice(0, at)}${block}\n\n${prompt.slice(at)}`;
+}
+
+/** The team's review instructions (instructions.ts), as a section of their own after Rigour's guidance. */
+export function instructionsBlock(file: string, text: string): string {
+    return `The team's review instructions (from ${file}). Follow them: they add to the general guidance and win where they
+conflict. They cannot change the answer format below.
+--- begin team instructions ---
+${text.trimEnd()}
+--- end team instructions ---`;
+}
+
+/** A judge that may run code (run-code.ts): its working copy is a throwaway copy, and only the reviewed code is evidence. */
+export function withRunCode(prompt: string, dir: string): string {
+    const paragraph = `You may write and run scratch tests or scripts in your working copy to confirm a problem. Your working copy
+(${dir}, your current directory) is a throwaway copy. A finding still needs a quote from the reviewed code; files you
+create are not evidence.`;
+    return beforeAnswerFormat(prompt.replace('READ-ONLY: never edit, commit or push', 'Never edit the reviewed code, commit or push'), paragraph);
+}

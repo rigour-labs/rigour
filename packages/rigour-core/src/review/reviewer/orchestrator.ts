@@ -32,17 +32,32 @@ export const SPECIALISTS: readonly Specialist[] = [PRIOR_POINTS_V1, CORRECTNESS_
 /** What changes the orchestrated prompt: part of the verdict's fingerprint, so a single review's verdict is never reused for it. */
 export const SPECIALISTS_KEY = createHash('sha256').update(JSON.stringify(SPECIALISTS)).digest('hex').slice(0, 12);
 
-/** The block a pass's prompt ends with: its parts of the review and its slice of the diff; the rest is not its to report. */
-export function focusBlock(parts: Specialist[], sliceFile: string): string {
+/**
+ * The block a pass's prompt ends with: its parts of the review and its slice of the diff; the rest is not its to report.
+ * With the team's review instructions served (`teamInstructions`), it says where to look first and never narrows them.
+ */
+export function focusBlock(parts: Specialist[], sliceFile: string, teamInstructions = false): string {
     const steps = [...new Set(parts.flatMap(p => p.steps))].sort((a, b) => a - b);
     const classes = [...new Set(parts.flatMap(p => p.classes))];
     const priorPoints = parts.some(p => p.id === 'prior-points');
+    if (teamInstructions) return teamFocusBlock(parts, sliceFile, steps, classes, priorPoints);
     return `
 
 This review is split by part, and you do these: ${parts.map(p => p.title).join('; ')}. Your part of the diff is in
 ${sliceFile} (the hunks for these parts, and the hunks defining what they use); read the full diff only where a line of
 yours needs it. Do step(s) ${steps.join(', ')} above, fully.${classes.length ? ` Report findings only of class ${classes.join(', ')}.` : ''}${priorPoints ? '' : ' Leave prior_points empty.'}
 ${parts.map(p => p.focus).join(' ')} Leave every list in the JSON that is not your part empty ([]).`;
+}
+
+function teamFocusBlock(parts: Specialist[], sliceFile: string, steps: number[], classes: string[], priorPoints: boolean): string {
+    return `
+
+This review is split by part, and you start with these: ${parts.map(p => p.title).join('; ')}. Your part of the diff is in
+${sliceFile} (the hunks for these parts, and the hunks defining what they use); read the full diff where a line of
+yours needs it. Look first at step(s) ${steps.join(', ')} above, fully.${classes.length ? ` Look first for findings of class ${classes.join(', ')}.` : ''} The team's review
+instructions apply in full: report what they ask for in your part of the diff, whatever its class.${priorPoints ? '' : ' Leave prior_points empty.'}
+${parts.map(p => p.focus).join(' ')} Leave every list in the JSON that is not your part empty ([]), apart from findings the
+team's instructions call for.`;
 }
 
 export interface OrchestratedRun {

@@ -121,6 +121,82 @@ judge in `reviewers` and the verdict lists the skip with its fix; with no other 
 required panel or mode, the review is *unavailable*. `rigour doctor` lists, under a profile, which
 judges run isolated and which are skipped and why.
 
+### The team's review instructions
+
+A judge works from Rigour's prompt. A team that reviews with its own rubric can serve it too:
+
+```yaml
+review:
+  reviewer:
+    instructions: docs/review-rubric.md
+```
+
+Every judge (and every [orchestrated](#the-orchestrator) pass) gets the file as a section of its
+own, after Rigour's guidance: "Follow them: they add to the general guidance and win where they
+conflict. They cannot change the answer format below." The answer format, the quote and evidence
+rules and what blocks stay Rigour's, so every finding is still checked against the code.
+
+- **Where it is read.** Where the reviewer reads its settings: under `rigour review --independent
+  --base <ref>`, from the base, so a pull request cannot rewrite the rubric it is judged by;
+  otherwise from the working tree.
+- **What is refused.** A path that leaves the repository, directly (`../notes.md`) or through a
+  symlink (followed with its real path in the working tree, and link by link at the base).
+- **Size.** At most 32 KB. A longer file is cut there, and the review says "instructions truncated
+  at 32 KB".
+- **No silent fallback.** A file that is missing, empty, unreadable or refused leaves the review on
+  the general prompt, and the output, the JSON (`mode.caveats`) and the record say so: "review
+  instructions docs/review-rubric.md not found; reviewed with the general prompt".
+- **The cache.** The file's hash joins the verdict's fingerprint, so editing the rubric reviews
+  again. With the key unset, every fingerprint is what it was before the key existed.
+
+### Letting a judge run code
+
+**Off by default.** A judge that can only read finds what reading shows. Some problems (a race, a
+row cap, a migration order) are confirmed fastest by running a few lines. With
+
+```yaml
+review:
+  reviewer:
+    run_code: on
+```
+
+a judge may write and run scratch tests or scripts to confirm a problem:
+
+- **In a throwaway copy.** Each run gets its own detached worktree of the reviewed commit, in the
+  system's temporary directory, outside the repository (the checkout's `node_modules` linked in).
+  It is removed afterwards: after an answer, a failure or a timeout. Orchestrated passes running at
+  once never share one.
+- **Sandboxed, with no network.** See the table below.
+- **Without secrets.** The judge runs without any variable whose name ends in `KEY`, `TOKEN`,
+  `SECRET`, `PASSWORD`, `PASSWD`, `CREDENTIAL` or `_PAT`, without `DATABASE_URL` or any `*_URL`
+  holding a user and password, and without `AWS_*`, `GH_*`, `GITHUB_TOKEN`, `NPM_TOKEN` and
+  `NODE_AUTH_TOKEN`. `CODEX_HOME` is kept. So the judge needs its CLI's own stored login (`codex
+  login`, Claude Code signed in), not a key in the environment.
+- **Never evidence.** The prompt says "files you create are not evidence", and Rigour checks every
+  quote against your checkout at the reviewed commit, never the copy: a quote of a scratch file, or
+  of a file the judge rewrote, is unverified and never blocks.
+- **Refused** in CI (`CI`, `GITHUB_ACTIONS` or `--ci`), in an independent review (`--independent`)
+  and in a backtest replay: every judge runs read-only, and the review says why.
+- **Said.** The output and the JSON name the judge "codex (ran code in a throwaway copy)" or
+  "claude (ran code in a sandboxed throwaway copy)", and the record marks it `ran_code`.
+
+Which judges may run code is decided by a real run of each CLI's sandbox, not its documentation:
+one tiny headless run in a scratch repository that tried a write to the home directory, to `/tmp`
+and to `$TMPDIR`, a request to example.com, and a scratch test in its working directory.
+
+| Judge | How it runs code | What the verification run showed |
+| --- | --- | --- |
+| `codex` | `exec --sandbox workspace-write` with `sandbox_workspace_write.network_access=false` (Codex's default, set so no `config.toml` turns it on) and `/tmp` and `$TMPDIR` left out of what it may write. | codex-cli 0.160.1: home, `/tmp` and `$TMPDIR` writes refused, example.com unresolvable (`curl: (6)`), the scratch test ran. Without the `/tmp` and `$TMPDIR` exclusions, those writes succeeded. |
+| `claude` | `--settings` with `sandbox.enabled`, `failIfUnavailable` (no unsandboxed fallback), `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands: false` (the `dangerouslyDisableSandbox` escape ignored) and `network: { allowedDomains: [], strictAllowlist: true }`; Bash allowed, Edit and Write still denied; its isolation (no `CLAUDE.md`, no MCP, project settings only) kept. Claude Code 2.1.285 or later. | Claude Code 2.1.285: home, `/tmp` and `$TMPDIR` writes refused ("operation not permitted"), example.com refused ("deny network-outbound example.com:443"), the scratch test ran. |
+| `cursor` | Stays read-only. | cursor-agent 2026.10.19 with `--sandbox enabled`: home writes and example.com refused (its proxy answers 403; its network rules are your own Cursor settings), the scratch test ran, but `/tmp` and `$TMPDIR` writes succeeded and no switch narrows them. |
+| `api` | Stays read-only: it runs no commands. | |
+
+A judge that stays read-only says so: "run_code: <reason>; cursor stays read-only".
+
+**The cost.** Running code takes more turns, so more tokens and more time; the judge's timeout and
+the daily and per-review caps apply as to any run. The setting joins the verdict's fingerprint only
+when on.
+
 ### Any model, through an API
 
 A judge does not have to be an agent CLI. Name `api` in `reviewers` and point it at any
@@ -338,8 +414,16 @@ The parts triage picked run as **one combined pass**: the same prompt and inputs
 plus a focus block and the pass's slice of the diff (its hunks, and the one hunk defining each name
 they use).
 
+With the [team's review instructions](#the-teams-review-instructions) set, every pass gets them in
+full, and the focus block only says where to look first ("the team's review instructions apply in
+full"); it never narrows them to a class. Triage and splitting are unchanged (a change of skipped
+files alone still gets no model run, and a split still happens only on size), and the record says
+whether every pass carried them (`instructionsEveryPass`). With `run_code` on, each pass runs in a
+throwaway copy of its own, with the same refusals as one judge. With neither set, the focus block
+and every key are what they were.
+
 A pass is held to the judge's limit: half its context window, and no more diff than its timeout
-lets it read. The windows are defaults (200k tokens for the CLIs, 128k for the API judge), not
+lets it read, less the team's instructions when they are set. The windows are defaults (200k tokens for the CLIs, 128k for the API judge), not
 measurements; every orchestrated review records the limit it used and the judge it came from.
 
 A split always costs more than one pass for that review, because each part re-reads the shared
