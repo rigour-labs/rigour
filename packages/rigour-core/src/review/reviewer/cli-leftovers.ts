@@ -43,10 +43,30 @@ const holderOf = (lock: string): Owner | undefined => {
 };
 
 /**
+ * Removes `gone`'s lock by moving it aside first (one atomic rename), then removing what was moved only if it is still
+ * that holder's: a lock another waiter took over and re-took meanwhile is put back where it was, never deleted.
+ */
+function takeOver(lockFile: string, gone: Owner): void {
+    const aside = `${lockFile}.stale-${process.pid}-${Date.now()}`;
+    try {
+        fs.renameSync(lockFile, aside);
+    } catch {
+        return; // already moved or removed by another waiter
+    }
+    if (JSON.stringify(holderOf(aside)) !== JSON.stringify(gone)) {
+        try {
+            fs.linkSync(aside, lockFile);
+        } catch {
+            // the lock was taken again meanwhile: that one stays
+        }
+    }
+    fs.rmSync(aside, { force: true });
+}
+
+/**
  * Takes `<file>.rigour.lock`, holding this process's pid and start time, or says why not. Only an existing lock
  * (EEXIST) is waited for, at most LOCK_WAIT_MS; any other error (a read-only folder, one owned by root) is said at once.
- * A lock is taken over only when its holder is gone (owner-process.ts), never for its age, and only if it is still
- * that holder's when it is removed.
+ * A lock is taken over only when its holder is gone (owner-process.ts), never for its age (takeOver).
  */
 function lock(file: string): { release: () => void } | { note: string } {
     const lockFile = `${file}.rigour.lock`;
@@ -60,7 +80,7 @@ function lock(file: string): { release: () => void } | { note: string } {
             const code = (error as NodeJS.ErrnoException).code;
             if (code !== 'EEXIST') return { note: `could not lock ${file}: ${code ?? 'error'}; trust entry left in place` };
             const holder = holderOf(lockFile);
-            if (holder && ownerState(holder) === 'gone' && JSON.stringify(holderOf(lockFile)) === JSON.stringify(holder)) fs.rmSync(lockFile, { force: true });
+            if (holder && ownerState(holder) === 'gone') takeOver(lockFile, holder);
         }
     }
     return { note: `could not lock ${file}: another process held it for ${LOCK_WAIT_MS / 1000} s; trust entry left in place` };

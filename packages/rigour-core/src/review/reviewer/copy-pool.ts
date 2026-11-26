@@ -19,7 +19,7 @@ interface Slot { copy: Copy; busy: boolean; pid?: number }
 
 export interface CopyPool {
     /** Runs `work` in a copy, handing it a place to record the judge's pid; a copy that cannot be had is an error. */
-    run<T>(work: (dir: string, started: (pid: number) => void) => Promise<T>, judgeEnv?: Record<string, string>): Promise<T | { error: string }>;
+    run<T>(work: (dir: string, started: (pid: number) => void, tmp: string) => Promise<T>, judgeEnv?: Record<string, string>): Promise<T | { error: string }>;
     /** Removes every copy and what the CLIs kept under it. */
     close(): void;
 }
@@ -79,7 +79,7 @@ export function copyPool(cwd: string, head: string, exec: Exec, note: (line: str
                 return await work(slot.copy.dir, pid => {
                     slot.pid = pid;
                     stopWatch = watchJudge(pid, slot.copy.dir);
-                });
+                }, slot.copy.tmp);
             } finally {
                 endJudgeProcesses(slot.pid, slot.copy.dir);
                 for (let i = 0; slot.pid && i < 40 && alive(slot.pid); i++) await new Promise(resolve => setTimeout(resolve, 50));

@@ -18,7 +18,7 @@ describe("removing codex's trust entries", () => {
     const config = 'model = "example-model"\n\n[projects."/tmp/rigour-judge-copy-AbC123/repo"]\ntrust_level = "trusted"\n';
     const ours = (p: string) => p === '/tmp/rigour-judge-copy-AbC123/repo';
     const file = () => path.join(home, 'config.toml');
-    const holder = (pid: number) => JSON.stringify({ pid, started: execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim() });
+    const holder = (pid: number) => JSON.stringify({ pid, started: execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANG: 'C', TZ: 'UTC' } }).trim() });
 
     it('in a folder it cannot write (0555): says so at once, leaves the entry, and never waits', () => {
         fs.writeFileSync(file(), config);
@@ -52,6 +52,30 @@ describe("removing codex's trust entries", () => {
         expect(removeCodexTrust(home, ours)).toBeUndefined();
         expect(fs.readFileSync(file(), 'utf8')).toBe('model = "example-model"\n');
         expect(fs.existsSync(lock)).toBe(false);
+    }, 20_000);
+
+    it('takes a gone holder\'s lock over by moving it aside first: a lock another waiter took meanwhile is put back, never deleted', () => {
+        fs.writeFileSync(file(), config);
+        const lock = `${fs.realpathSync(file())}.rigour.lock`;
+        const dead = spawnSync('sh', ['-c', 'echo $$'], { encoding: 'utf8' }).stdout.trim();
+        fs.writeFileSync(lock, JSON.stringify({ pid: Number(dead), started: 'Thu Jan  1 00:00:00 2026' }));
+        const sleeper = spawn('sleep', ['30'], { stdio: 'ignore' });
+        const taken = holder(sleeper.pid!);
+        const rename = fs.renameSync;
+        // Between this waiter's check and its move, another waiter took the lock over and re-took it.
+        const spy = vi.spyOn(fs, 'renameSync').mockImplementation(((from: fs.PathLike, to: fs.PathLike) => {
+            if (String(from) === lock && !fs.readFileSync(lock, 'utf8').includes(String(sleeper.pid))) fs.writeFileSync(lock, taken);
+            return rename(from, to);
+        }) as typeof fs.renameSync);
+        try {
+            expect(removeCodexTrust(home, ours)).toMatch(/held it for 5 s; trust entry left in place$/);
+        } finally {
+            spy.mockRestore();
+            sleeper.kill('SIGKILL');
+        }
+        expect(fs.readFileSync(lock, 'utf8')).toBe(taken); // the other waiter's lock, still there
+        expect(fs.readdirSync(home).filter(name => /stale/.test(name))).toEqual([]);
+        expect(fs.readFileSync(file(), 'utf8')).toBe(config);
     }, 20_000);
 
     it('leaves the file alone when it changed between Rigour\'s read and its rename (codex takes no lock)', () => {

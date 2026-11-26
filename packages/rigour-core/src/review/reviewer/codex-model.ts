@@ -2,9 +2,9 @@
  * The person's own model for a codex judge that runs code. It runs with `--ignore-user-config` (judge-sandbox.ts), so
  * from its home's config.toml Rigour passes back, as `-c` overrides, only `model`, `model_provider`, and of the chosen
  * provider's table only `name`, `base_url`, `env_key` and `wire_api`. A provider whose table carries credentials
- * (headers, a bearer token, query parameters) is refused for run_code: Rigour won't put them on a command line, where
- * any process can read them. The provider's key variable is the judge's own login, kept in its environment; the
- * record names the model.
+ * (headers, a bearer token, query parameters, a base_url with a user, a password or a key in its query) is refused
+ * for run_code: Rigour won't put them on a command line, where any process can read them. The provider's key variable
+ * is the judge's own login, kept in its environment; the record names the model.
  */
 import fs from 'fs';
 import path from 'path';
@@ -15,6 +15,17 @@ export interface CodexModel { overrides: string[]; model?: string; keyVariable?:
 const PROVIDER_KEYS = new Set(['name', 'base_url', 'env_key', 'wire_api']);
 /** What carries a credential in a provider's table, or a way to one. */
 const CREDENTIAL_KEY = /header|bearer|token|query_params|secret|password|auth/i;
+
+/** A URL with a user or password in it, or a query parameter that names a key, a token, a secret or a signature. */
+function urlCarriesCredential(text: string): boolean {
+    let url: URL;
+    try {
+        url = new URL(text);
+    } catch {
+        return /@|[?&][^=]*(key|token|secret|sig|auth|pass)/i.test(text); // not a URL Node reads: judged by its text
+    }
+    return !!url.username || !!url.password || [...url.searchParams.keys()].some(name => /key|token|secret|sig|auth|pass|credential/i.test(name));
+}
 
 /** A TOML `key = value` line's value, its trailing comment dropped when it is outside a string. */
 function valueOf(raw: string): string {
@@ -53,7 +64,8 @@ export function codexModel(codexHome: string): CodexModel {
     const provider = settings.get('model_provider');
     const table = provider ? `model_providers.${unquote(provider)}.` : undefined;
     const ofProvider = [...settings].filter(([key]) => table && key.startsWith(table)).map(([key, value]) => [key.slice(table!.length), value] as const);
-    if (ofProvider.some(([key]) => CREDENTIAL_KEY.test(key) && key !== 'env_key')) {
+    const baseUrl = ofProvider.find(([key]) => key === 'base_url')?.[1];
+    if (ofProvider.some(([key]) => CREDENTIAL_KEY.test(key) && key !== 'env_key') || (baseUrl && urlCarriesCredential(unquote(baseUrl)))) {
         return { overrides: [], refused: "codex's provider config carries credentials Rigour won't put on a command line" };
     }
     const pass: Array<[string, string]> = [

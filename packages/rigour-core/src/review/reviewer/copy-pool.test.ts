@@ -16,10 +16,14 @@ describe("one review's copies", () => {
         const pool = copyPool(repo, gitIn(repo, 'rev-parse', 'HEAD').trim(), defaultExec);
         let running = 0;
         let most = 0;
-        const seen: Array<{ dir: string; before: string[] }> = [];
-        const pass = (i: number) => pool.run(async dir => {
+        const seen: Array<{ dir: string; before: string[]; tmp: string[] }> = [];
+        const tmps = new Set<string>();
+        const pass = (i: number) => pool.run(async (dir, _started, tmp) => {
             most = Math.max(most, ++running);
-            seen.push({ dir, before: fs.readdirSync(dir).sort() });
+            const judgeTmp = path.join(tmp, `claude-${process.getuid!()}`); // the TMPDIR its commands get
+            seen.push({ dir, before: fs.readdirSync(dir).sort(), tmp: fs.readdirSync(judgeTmp) });
+            fs.mkdirSync(path.join(judgeTmp, 'pytest-of-dev-a'));
+            tmps.add(tmp);
             fs.writeFileSync(path.join(dir, `scratch-${i}.mjs`), '');
             fs.writeFileSync(path.join(dir, 'a.ts'), 'rewritten\n');
             await new Promise(resolve => setTimeout(resolve, 200));
@@ -31,9 +35,11 @@ describe("one review's copies", () => {
         const dirs = [...new Set(seen.map(s => s.dir))];
         expect(dirs).toHaveLength(2);
         for (const s of seen) expect(s.before).toEqual(['.git', 'a.ts', 'src']); // no earlier pass's scratch file
+        for (const s of seen) expect(s.tmp).toEqual([]); // nor its temporary files
         for (const dir of dirs) expect(fs.readFileSync(path.join(dir, 'a.ts'), 'utf8')).toBe('rewritten\n');
         pool.close();
         for (const dir of dirs) expect([fs.existsSync(dir), fs.existsSync(path.dirname(dir))]).toEqual([false, false]);
+        expect([...tmps].filter(tmp => fs.existsSync(tmp))).toEqual([]); // the judges' temporary bases with them
     });
 
     it('give the next pass the checkout\'s node_modules again, whatever a judge put in its place', async () => {

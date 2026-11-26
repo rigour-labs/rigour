@@ -9,7 +9,8 @@ export interface Owner { pid: number; started: string }
 
 /** When `pid` started, as `ps` says; undefined when ps could not say (it failed, or was not allowed to run). */
 function startedAt(pid: number): string | undefined {
-    const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' });
+    // lstart is written in the locale and time zone ps runs in: fixed, so every review reads the same string.
+    const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANG: 'C', TZ: 'UTC' } });
     return ps.status === 0 && !ps.error ? ps.stdout.trim() || undefined : undefined;
 }
 

@@ -6,6 +6,7 @@
  * checkout. Refused, and said, where the change's code must not run on the reviewer's say-so: CI, an independent
  * review, a backtest replay. Running code costs more tokens and time; the caps apply as to any run.
  */
+import path from 'path';
 import { ADAPTERS, type ReviewerName } from './adapters.js';
 import { CI_MARKERS } from '../../telemetry/telemetry.js';
 import type { Exec } from './exec.js';
@@ -14,6 +15,7 @@ import { withRunCode } from './prompt.js';
 import { codexHomeOf } from './cli-leftovers.js';
 import { codexModel } from './codex-model.js';
 import type { CopyPool } from './copy-pool.js';
+import { judgeTmpDir } from './throwaway-copy.js';
 
 export interface RunCodeContext { ci: boolean; independent: boolean; backtest: boolean }
 
@@ -66,11 +68,24 @@ export function runCodeModel(run: Pick<CodeRun, 'name' | 'model' | 'env'>): stri
  */
 export async function runInCopy(pool: CopyPool, repo: string, exec: Exec, run: CodeRun): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     const codex = run.name === 'codex' ? codexModel(codexHomeOf(run.env)) : undefined;
-    const result = await pool.run((dir, started) => exec(run.binary, ADAPTERS[run.name].args(withRunCode(run.prompt, dir), run.model, {
-        reasoning: run.reasoning, version: run.version, runCode: true, place: { copy: dir, repo, ...(run.work ? { work: run.work } : {}) }, ...(codex ? { codexConfig: codex.overrides } : {}),
+    const result = await pool.run((dir, started, tmp) => exec(run.binary, ADAPTERS[run.name].args(withRunCode(run.prompt, dir), run.model, {
+        reasoning: run.reasoning, version: run.version, runCode: true, place: { copy: dir, repo, tmp, ...(run.work ? { work: run.work } : {}) }, ...(codex ? { codexConfig: codex.overrides } : {}),
     }), {
         cwd: dir, timeoutMs: run.timeoutMs, unset: runCodeUnset(run.name, run.unset, codex?.keyVariable ? [codex.keyVariable] : []),
-        env: { ...run.env, ...GIT_WITHOUT_CREDENTIALS }, detached: true, onSpawn: started,
+        env: { ...run.env, ...GIT_WITHOUT_CREDENTIALS, ...judgeTmpEnv(tmp) }, detached: true, onSpawn: started,
     }), run.env);
     return 'error' in result ? { exitCode: 1, stdout: '', stderr: result.error } : result;
+}
+
+/**
+ * The judge's own temporary directory (throwaway-copy.ts), removed with its copy: every tool's TMPDIR (a fixed-name
+ * folder such as pytest's would collide with another session's in a shared one), Claude Code's base for it, and Go's
+ * build cache, temporary files and telemetry.
+ */
+function judgeTmpEnv(tmp: string): Record<string, string> {
+    const dir = judgeTmpDir(tmp);
+    return {
+        CLAUDE_CODE_TMPDIR: tmp, TMPDIR: dir, TMP: dir, TEMP: dir,
+        GOCACHE: path.join(dir, 'go-build'), GOTMPDIR: dir, GOTELEMETRY: 'off', GOTELEMETRYDIR: path.join(dir, 'go-telemetry'),
+    };
 }

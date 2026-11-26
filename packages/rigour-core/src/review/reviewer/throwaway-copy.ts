@@ -24,22 +24,40 @@ export function copyPrefix(): string {
     return path.join(fs.realpathSync(os.tmpdir()), COPY_PREFIX);
 }
 
-export interface Copy { root: string; dir: string }
-interface FolderOwner extends Owner { uid: number }
+/**
+ * `tmp`: the judge's own temporary base, `/tmp/rgr-XXXXXX`, removed with the copy. Short on purpose: Claude Code gives
+ * the commands it runs `<CLAUDE_CODE_TMPDIR>/claude-<uid>` as their TMPDIR only when that path is about 30 bytes or
+ * less (Unix socket paths), and falls back to the shared `/tmp/claude-<uid>` otherwise (a real run did).
+ */
+export interface Copy { root: string; dir: string; tmp: string }
+interface FolderOwner extends Owner { uid: number; tmp?: string }
+
+const JUDGE_TMP_PREFIX = '/tmp/rgr-';
+
+/** The TMPDIR a judge's commands get in its temporary base: Claude Code's per-user folder there, made private. */
+export const judgeTmpDir = (tmp: string) => path.join(tmp, `claude-${process.getuid?.() ?? 0}`);
 
 /** A new, empty folder in the temporary directory, named `prefix…`, that names this process as its owner. */
-function ownedDir(prefix: string, tmp: string): string {
+function ownedDir(prefix: string, tmp: string, extra: { tmp?: string } = {}): string {
     const root = fs.mkdtempSync(path.join(tmp, prefix));
-    const owner: FolderOwner = { ...thisProcess(), uid: process.getuid?.() ?? -1 };
+    const owner: FolderOwner = { ...thisProcess(), uid: process.getuid?.() ?? -1, ...extra };
     fs.writeFileSync(path.join(root, 'owner.json'), JSON.stringify(owner));
     return root;
 }
 
-/** A new, empty copy root owned by this process. */
+/** The judge's temporary base, private (Claude Code uses it only then), with its TMPDIR inside. */
+function newJudgeTmp(): string {
+    const tmp = fs.mkdtempSync(JUDGE_TMP_PREFIX);
+    fs.mkdirSync(judgeTmpDir(tmp), { mode: 0o700 });
+    return tmp;
+}
+
+/** A new, empty copy root owned by this process, its judge's temporary base named in its owner.json. */
 function newRoot(): Copy {
+    const tmp = newJudgeTmp();
     // The real path: what the system reports as a process's working directory in it (judge-processes.ts).
-    const root = ownedDir(COPY_PREFIX, fs.realpathSync(os.tmpdir()));
-    return { root, dir: path.join(root, 'repo') };
+    const root = ownedDir(COPY_PREFIX, fs.realpathSync(os.tmpdir()), { tmp });
+    return { root, dir: path.join(root, 'repo'), tmp };
 }
 
 /** A review's input folder, owned by this process: removed by the review, or by the sweep once the review is gone. */
@@ -86,6 +104,9 @@ export async function resetCopy(cwd: string, copy: Copy, head: string, exec: Exe
         const done = await exec('git', args, { cwd: copy.dir, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_LFS_SKIP_SMUDGE: '1' } });
         if (done.exitCode !== 0) return done.stderr.trim() || `git exited ${done.exitCode}`;
     }
+    // The last judge's temporary files go too: a fixed-name folder (pytest's) starts empty for the next.
+    fs.rmSync(judgeTmpDir(copy.tmp), { recursive: true, force: true });
+    fs.mkdirSync(judgeTmpDir(copy.tmp), { mode: 0o700 });
     const link = path.join(copy.dir, 'node_modules');
     const theirs = path.join(cwd, 'node_modules');
     const now = fs.lstatSync(link, { throwIfNoEntry: false });
@@ -99,14 +120,26 @@ export async function resetCopy(cwd: string, copy: Copy, head: string, exec: Exe
 
 export function removeCopy(copy: Copy): void {
     fs.rmSync(copy.root, { recursive: true, force: true });
+    removeJudgeTmp(copy.tmp);
+}
+
+/** Removes a judge's temporary base: only ever one of Rigour's, by its prefix. */
+function removeJudgeTmp(tmp: string | undefined): void {
+    if (tmp?.startsWith(JUDGE_TMP_PREFIX) && !tmp.slice(JUDGE_TMP_PREFIX.length).includes('/')) fs.rmSync(tmp, { recursive: true, force: true });
 }
 
 /** Whether the process that made the copy at `root` is gone: its pid ended, or now another process's. */
-function orphaned(root: string): boolean {
-    let owner: FolderOwner;
+function ownerOf(root: string): FolderOwner | undefined {
     try {
-        owner = JSON.parse(fs.readFileSync(path.join(root, 'owner.json'), 'utf8')) as FolderOwner;
+        return JSON.parse(fs.readFileSync(path.join(root, 'owner.json'), 'utf8')) as FolderOwner;
     } catch {
+        return undefined;
+    }
+}
+
+function orphaned(root: string): boolean {
+    const owner = ownerOf(root);
+    if (!owner) {
         // No owner: a copy made before owners were written, or one interrupted before it wrote its own (within a
         // millisecond of being made). Either way not a live review's once it is an hour old.
         return Date.now() - fs.statSync(root).mtimeMs > 3_600_000;
@@ -126,6 +159,7 @@ export function sweepStaleCopies(): string[] {
         const root = path.join(tmp, name);
         try {
             if (fs.statSync(root).uid !== process.getuid?.() || !orphaned(root)) continue;
+            removeJudgeTmp(ownerOf(root)?.tmp);
             fs.rmSync(root, { recursive: true, force: true });
             swept.push(root);
         } catch {

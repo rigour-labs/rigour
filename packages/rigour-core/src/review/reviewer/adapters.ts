@@ -10,7 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { defaultExec, type Exec } from './exec.js';
-import { claudeSandbox, CODEX_RUN_CODE, runCodePlatformRefusal, type SandboxPlace } from './judge-sandbox.js';
+import { claudeSandbox, CODEX_RUN_CODE, codexWritable, runCodePlatformRefusal, type SandboxPlace } from './judge-sandbox.js';
 
 export type ReviewerName = 'claude' | 'cursor' | 'codex' | 'api';
 export type Vendor = 'anthropic' | 'cursor' | 'openai' | 'google' | 'other';
@@ -156,7 +156,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             return read.length ? `codex also reads ${read.map(name => path.join(dir, name)).join(' and ')}` : undefined;
         },
         runCodeRefusal: () => runCodePlatformRefusal(),
-        args: (prompt, model, options) => ['exec', ...(options?.runCode ? [...CODEX_RUN_CODE, ...(options.codexConfig ?? [])] : ['--sandbox', 'read-only']), '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
+        args: (prompt, model, options) => ['exec', ...(options?.runCode ? [...CODEX_RUN_CODE, ...codexWritable(options.place), ...(options.codexConfig ?? [])] : ['--sandbox', 'read-only']), '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
         // `codex exec --json` streams events; the last text-bearing one carries the answer.
         // Warnings arrive as `error` items with a `message`, not `text`, so they are never taken for the answer.
         // `turn.completed` carries the tokens (Codex reports no dollars).

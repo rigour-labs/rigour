@@ -3,10 +3,10 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultExec } from './exec.js';
 import { bigChange, EMPTY_VERDICT, gitIn } from './__tests__/judge-fakes.js';
-import { cleanedUp, gone, inCopy, reviewIn, runCodeHarness } from './__tests__/run-code-harness.js';
+import { cleanedUp, gone, harnessEnv, inCopy, reviewIn, runCodeHarness } from './__tests__/run-code-harness.js';
 import { VerdictStore } from './store.js';
 import { sweepStaleCopies } from './throwaway-copy.js';
 
@@ -108,12 +108,14 @@ describe('run_code cleans up after itself', () => {
             const { child, exited } = await reviewInChild();
             const [run] = h.judges.runs();
             expect(fs.existsSync(run.cwd)).toBe(true);
+            expect(fs.existsSync(run.env.CLAUDE_CODE_TMPDIR)).toBe(true);
             child.kill(signal);
             expect(await exited).toBe(code);
             expect(fs.existsSync(path.dirname(run.cwd))).toBe(false);
             expect(gone(run.pid)).toBe(true);
             expect(gone(h.judges.grandchild())).toBe(true);
             expect(ownedBy(child.pid)).toEqual([]); // its input folder too
+            expect(fs.existsSync(run.env.CLAUDE_CODE_TMPDIR)).toBe(false); // and the judge's temporary base
         });
     }
 
@@ -124,15 +126,23 @@ describe('run_code cleans up after itself', () => {
         await exited;
         for (let i = 0; i < 100 && !(gone(run.pid) && gone(h.judges.grandchild())); i++) await new Promise(r => setTimeout(r, 100));
         expect([gone(run.pid), gone(h.judges.grandchild())]).toEqual([true, true]);
-        expect(fs.existsSync(path.dirname(run.cwd))).toBe(true); // nothing ran to remove it
-        const left = ownedBy(child.pid).map(name => fs.realpathSync(path.join(os.tmpdir(), name)));
-        expect(left).toHaveLength(2); // the copy and the review's input folder
-        expect(sweepStaleCopies()).toEqual(expect.arrayContaining(left));
+        // Nothing in the killed review removed its copy; the next review's sweep does (a review in another test file may
+        // run that sweep first, which is the point).
+        sweepStaleCopies();
+        expect(fs.existsSync(path.dirname(run.cwd))).toBe(false);
+        expect(fs.existsSync(run.env.CLAUDE_CODE_TMPDIR)).toBe(false); // the judge's temporary base, named in its owner.json
         expect(ownedBy(child.pid)).toEqual([]);
     });
 });
 
 describe('a copy a killed review left behind', () => {
+    // A temporary directory of these tests' own: a review in another test file sweeps the shared one meanwhile.
+    beforeEach(() => {
+        const tmp = path.join(h.homes, 'tmp');
+        fs.mkdirSync(tmp);
+        harnessEnv.set({ TMPDIR: tmp });
+    });
+
     /** A copy root as run_code makes one, owned by `owner` (none: a copy from before owners were written), `ageMs` old. */
     function copyRoot(owner: { pid: number; started: string } | undefined, ageMs = 0): string {
         const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-judge-copy-')));
@@ -143,7 +153,7 @@ describe('a copy a killed review left behind', () => {
         fs.utimesSync(root, then, then);
         return root;
     }
-    const startedAt = (pid: number) => execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+    const startedAt = (pid: number) => execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANG: 'C', TZ: 'UTC' } }).trim();
     /** A pid whose process has ended. */
     const deadPid = () => {
         const ended = spawnSync('sh', ['-c', 'echo $$']);

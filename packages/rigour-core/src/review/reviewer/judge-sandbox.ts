@@ -24,10 +24,15 @@ export function runCodePlatformRefusal(platform: NodeJS.Platform = process.platf
 export const CODEX_RUN_CODE = [
     '--ignore-user-config', '--ignore-rules', '--sandbox', 'workspace-write',
     '-c', 'sandbox_workspace_write.network_access=false', '-c', 'sandbox_workspace_write.exclude_tmpdir_env_var=true',
-    '-c', 'sandbox_workspace_write.exclude_slash_tmp=true', '-c', 'sandbox_workspace_write.writable_roots=[]', '-c', 'approval_policy=never',
+    '-c', 'sandbox_workspace_write.exclude_slash_tmp=true', '-c', 'approval_policy=never',
     // A login shell sources the person's profile, which can export the very secrets Rigour removed (a real run did).
     '-c', 'allow_login_shell=false',
 ];
+
+/** What codex may write besides its working directory: only the judge's own temporary directory, never a root the repo names. */
+export function codexWritable(place: SandboxPlace | undefined): string[] {
+    return ['-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(place?.tmp ? [real(place.tmp)] : [])}`];
+}
 
 /**
  * What a judge that runs code may read back under the home directory, which its sandbox otherwise denies whole: the
@@ -58,7 +63,7 @@ function claudeTmpEntries(env: NodeJS.ProcessEnv): string[] {
 }
 
 /** Where a judge that runs code works: its copy, the person's repository it was made from, and the review's input folder. */
-export interface SandboxPlace { copy: string; repo: string; work?: string }
+export interface SandboxPlace { copy: string; repo: string; work?: string; tmp?: string }
 
 /**
  * Claude Code 2.1.285's sandbox for a judge that runs code, verified with real runs (docs/REVIEWER.md): commands run
@@ -69,7 +74,7 @@ export interface SandboxPlace { copy: string; repo: string; work?: string }
  * (whose objects are the person's, hardlinked) nor what other sessions keep in Claude Code's temporary folder.
  */
 export function claudeSandbox(place: SandboxPlace, home: string = os.homedir(), env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
-    const allowRead = [place.copy, ...(place.work ? [real(place.work)] : []), real(path.join(place.repo, 'node_modules')), ...TOOLCHAINS.map(p => real(path.join(home, p)))].filter(p => fs.existsSync(p));
+    const allowRead = [place.copy, ...(place.tmp ? [real(place.tmp)] : []), ...(place.work ? [real(place.work)] : []), real(path.join(place.repo, 'node_modules')), ...TOOLCHAINS.map(p => real(path.join(home, p)))].filter(p => fs.existsSync(p));
     return {
         enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { allowedDomains: [], strictAllowlist: true },

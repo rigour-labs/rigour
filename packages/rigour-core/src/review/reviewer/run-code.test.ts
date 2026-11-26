@@ -22,10 +22,16 @@ describe('run_code: codex', () => {
         h.judges.behave({ answer: JSON.stringify(EMPTY_VERDICT), scratch: { file: 'scratch.test.mjs', content: 'console.log(1)\n' } });
         const result = await review();
         const [run] = h.judges.runs();
+        // Writable besides the copy: only the judge's own temporary base, short (/tmp/rgr-XXXXXX), removed with the copy.
+        const tmp = run.env.CLAUDE_CODE_TMPDIR;
+        expect(tmp).toMatch(/^\/tmp\/rgr-[A-Za-z0-9]{6}$/);
+        expect(fs.existsSync(tmp)).toBe(false);
+        const dir = path.join(tmp, `claude-${process.getuid!()}`);
         expect(run.argv.slice(0, 18)).toEqual([
             'exec', '--ignore-user-config', '--ignore-rules', '--sandbox', 'workspace-write', '-c', 'sandbox_workspace_write.network_access=false', '-c', 'sandbox_workspace_write.exclude_tmpdir_env_var=true',
-            '-c', 'sandbox_workspace_write.exclude_slash_tmp=true', '-c', 'sandbox_workspace_write.writable_roots=[]', '-c', 'approval_policy=never', '-c', 'allow_login_shell=false', '--json',
+            '-c', 'sandbox_workspace_write.exclude_slash_tmp=true', '-c', 'approval_policy=never', '-c', 'allow_login_shell=false', '-c', `sandbox_workspace_write.writable_roots=${JSON.stringify([`/private${tmp}`])}`, '--json',
         ]);
+        expect(run.env).toMatchObject({ TMPDIR: dir, TMP: dir, TEMP: dir, GOCACHE: path.join(dir, 'go-build'), GOTMPDIR: dir, GOTELEMETRY: 'off' });
         expect(run.argv.join(' ')).not.toMatch(/read-only|danger|network_access=true/);
         expect(inCopy(run)).toBe(true);
         expect(run.files.sort()).toEqual(['.git', 'a.ts', 'rigour.yml', 'scratch.test.mjs', 'src']); // a checkout of the head, and the judge's scratch file
@@ -71,7 +77,7 @@ describe('run_code: codex', () => {
         gitIn(h.repo, 'commit', '-qm', 'hostile codex config');
         await review();
         const [run] = h.judges.runs();
-        expect(run.argv).toEqual(expect.arrayContaining(['--ignore-user-config', '--ignore-rules', 'sandbox_workspace_write.writable_roots=[]', 'sandbox_workspace_write.network_access=false']));
+        expect(run.argv).toEqual(expect.arrayContaining(['--ignore-user-config', '--ignore-rules', `sandbox_workspace_write.writable_roots=${JSON.stringify([`/private${run.env.CLAUDE_CODE_TMPDIR}`])}`, 'sandbox_workspace_write.network_access=false']));
         expect(run.files).toContain('.codex'); // the copy has the file; codex is told not to load it
         fs.rmSync(outside, { recursive: true, force: true });
     });
@@ -159,6 +165,16 @@ describe("run_code: codex keeps the person's model", () => {
         expect(overrides).toEqual(['model_provider="acme"', 'model_providers.acme.base_url="https://llm.example.com/v1"', 'model_providers.acme.wire_api="responses"']);
     });
 
+    for (const url of ['https://dev-a:pw@llm.example.com/v1', 'https://llm.example.com/v1?api-key=k', 'https://llm.example.com/v1?sig=abc&x=1']) {
+        it(`keeps codex read-only when its provider's base_url carries a credential: ${url.replace(/\/\/.*@/, '//…@')}`, async () => {
+            fs.writeFileSync(path.join(h.homes, 'codex', 'config.toml'), ['model_provider = "acme"', '[model_providers.acme]', `base_url = "${url}"`, ''].join('\n'));
+            const result = await review();
+            expect(h.judges.runs()[0].argv).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
+            expect(h.judges.runs()[0].argv.join(' ')).not.toContain(url);
+            expect(result.mode?.caveats).toContain("run_code: codex's provider config carries credentials Rigour won't put on a command line; codex stays read-only");
+        });
+    }
+
     it("from a profile's own Codex home, when the judge runs with one", async () => {
         const profileHome = path.join(h.homes, 'profile-codex');
         fs.mkdirSync(profileHome);
@@ -194,6 +210,11 @@ describe('run_code: claude', () => {
         expect(settings.sandbox.filesystem.allowRead).toEqual(expect.arrayContaining([run.cwd]));
         expect(settings.sandbox.filesystem.allowRead).not.toContain(fs.realpathSync(os.tmpdir())); // not the whole temporary directory
         expect(settings.sandbox.filesystem.allowRead.filter((p: string) => p.startsWith(fs.realpathSync(os.tmpdir())))).toEqual([run.cwd, expect.stringMatching(/\/rigour-reviewer-[A-Za-z0-9]+$/)]);
+        // Its own temporary base: short, so Claude Code gives its commands TMPDIR there, not the shared /tmp/claude-<uid>.
+        expect(run.env.CLAUDE_CODE_TMPDIR).toMatch(/^\/tmp\/rgr-[A-Za-z0-9]{6}$/);
+        expect(`${run.env.CLAUDE_CODE_TMPDIR}/claude-${process.getuid!()}`.length).toBeLessThanOrEqual(30);
+        expect(run.env.TMPDIR).toBe(`${run.env.CLAUDE_CODE_TMPDIR}/claude-${process.getuid!()}`);
+        expect(settings.sandbox.filesystem.allowRead).toContain(`/private${run.env.CLAUDE_CODE_TMPDIR}`);
         for (const allowed of settings.sandbox.filesystem.allowRead) expect(allowed.startsWith(home) ? /\/(\.nvm|\.volta|\.asdf|\.pyenv|\.rbenv|\.rustup|\.cargo\/bin|go\/(bin|pkg\/mod)|\.bun\/bin|\.deno\/bin|\.local\/bin|Library\/pnpm|\.npm\/_cacache|\.npm\/_npx)$/.test(allowed) : true, allowed).toBe(true);
         expect(settings.sandbox.filesystem.denyWrite).toEqual([fs.realpathSync(session), path.join(run.cwd, '.git')]);
         expect(run.argv.slice(run.argv.indexOf('--allowedTools') + 1, run.argv.indexOf('--disallowedTools'))).toEqual(['Read', 'Grep', 'Glob', 'Bash']);
