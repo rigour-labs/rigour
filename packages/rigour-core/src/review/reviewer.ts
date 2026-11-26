@@ -30,7 +30,7 @@ import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { beforeAnswerFormat, crossExamPrompt, deltaBlock, goalStep, instructionsBlock, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { instructionsCaveats, instructionsKey, readInstructions } from './reviewer/instructions.js';
-import { isCi, judgeRunCodeRefusal, runCodeAllowed, runInThrowawayCopy } from './reviewer/run-code.js';
+import { isCi, judgeRunCodeRefusal, runCodeAllowed, runCodeUnset, runInThrowawayCopy } from './reviewer/run-code.js';
 import { changedUnits, coverageStep, followUpPrompt, unaccounted, unitLabel, unitsText, type ChangedUnit, type Coverage } from './reviewer/coverage.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
 import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, touchesData, triage, type Pass } from './reviewer/triage.js';
@@ -45,7 +45,9 @@ import { reviewerUsage } from './reviewer/usage.js';
 import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relatedDocs, type ReviewDismissal } from './reviewer/context.js';
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
-import { judgeUnset, secretVariables } from './reviewer/judge-env.js';
+import { judgeUnset } from './reviewer/judge-env.js';
+import { redactionCaveat, redactRun } from './reviewer/redact.js';
+import { sweepStaleCopies } from './reviewer/throwaway-copy.js';
 import { emptyAnswer, insideAgentNote } from './reviewer/judge-empty.js';
 import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
 import { judgeIsolation, withJudgeHome, type JudgeHomes, type JudgeIsolation } from './reviewer/judge-isolation.js';
@@ -516,7 +518,18 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     };
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
     let inlineInputs: Array<{ path: string; text: string }> = [];
-    const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
+    // Every judge's raw output passes Rigour's secret scanner before anything reads, stores or prints it (redact.ts).
+    let redacted = 0;
+    const runJudge = async (name: ReviewerName, prompt: string, model: string | undefined) => {
+        const run = redactRun(await rawRun(name, prompt, model));
+        if (run.redacted) {
+            const before = redactionCaveat(redacted);
+            redacted += run.redacted;
+            modeRecord = { ...modeRecord, caveats: [...(modeRecord.caveats ?? []).filter(line => line !== before), redactionCaveat(redacted)!] };
+        }
+        return run;
+    };
+    const rawRun = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
         ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, cache: apiVendor(settings.api) === 'anthropic', ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
         : runsCode(name) ? codeRun(name, prompt, model)
             : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name], version: installed.get(name)!.version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
@@ -527,7 +540,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         return runInThrowawayCopy(repoRoot, head, exec, { binary: installed.get(name)!.binary, name, version: installed.get(name)!.version, prompt, model, reasoning: settings.reasoning[name], timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
     };
     // A failed run's own output can say why (a refused API key): the reason carries it.
-    const hinted = <T extends object>(name: ReviewerName, run: { stdout: string; stderr: string }, answer: T | { error: string }) => withFailureHint(answer, name === 'api' ? undefined : judgeFailureHint(name, run, [...judgeUnset(name, settings.judge_env), ...(runsCode(name) ? secretVariables() : [])]));
+    const hinted = <T extends object>(name: ReviewerName, run: { stdout: string; stderr: string }, answer: T | { error: string }) => withFailureHint(answer, name === 'api' ? undefined : judgeFailureHint(name, run, runsCode(name) ? runCodeUnset(name, judgeUnset(name, settings.judge_env)) : judgeUnset(name, settings.judge_env), process.env, runsCode(name)));
+    // A copy a killed run_code review left behind goes before this one makes its own.
+    if (reviewers.some(runsCode)) sweepStaleCopies(repoRoot, settings.timeout_ms);
     try {
         const file = (name: string, text: string) => {
             const target = path.join(work, name);

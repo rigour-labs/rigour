@@ -1,14 +1,20 @@
 /** How the reviewer runs commands (git, gh, the agent CLIs); tests replace it. */
 import { execa } from 'execa';
 
-/** `env` adds variables to the inherited environment; `unset` removes inherited ones the command must not see. */
-export type Exec = (command: string, args: string[], options: { cwd: string; timeoutMs: number; env?: Record<string, string>; unset?: string[] }) =>
+/**
+ * `env` adds variables to the inherited environment; `unset` removes inherited ones the command must not see.
+ * `detached` starts the command in a process group of its own, and `onSpawn` is told its pid: a caller that must end
+ * everything the command started (a judge that runs code) kills the group.
+ */
+export type Exec = (command: string, args: string[], options: { cwd: string; timeoutMs: number; env?: Record<string, string>; unset?: string[]; detached?: boolean; onSpawn?: (pid: number) => void }) =>
     Promise<{ exitCode: number; stdout: string; stderr: string }>;
 
 export const defaultExec: Exec = async (command, args, options) => {
     // stdin is /dev/null, not an empty pipe: an agent CLI that reads stdin sees its end at once, and a command that exits
     // before an empty write lands (git rev-parse) cannot fail the run with EPIPE, as it did on Linux.
-    const result = await execa(command, args, { cwd: options.cwd, reject: false, timeout: options.timeoutMs, stdin: 'ignore', ...childEnv(options), maxBuffer: 64 * 1024 * 1024 });
+    const child = execa(command, args, { cwd: options.cwd, reject: false, timeout: options.timeoutMs, stdin: 'ignore', ...childEnv(options), maxBuffer: 64 * 1024 * 1024, ...(options.detached ? { detached: true } : {}) });
+    if (options.onSpawn && child.pid) options.onSpawn(child.pid);
+    const result = await child;
     const stderr = String(result.stderr ?? '');
     // A command that could not start, timed out or was killed writes nothing itself: say which, never an empty failure.
     return { exitCode: result.exitCode ?? 1, stdout: String(result.stdout ?? ''), stderr: stderr || (result.failed && 'shortMessage' in result ? String(result.shortMessage) : '') };

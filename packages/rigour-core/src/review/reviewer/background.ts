@@ -13,7 +13,7 @@ import type { Config } from '../../types/index.js';
 import { reviewChange } from '../review.js';
 import { pushReviewSkip, runReviewer, type ModeRecord, type ReviewerResult } from '../reviewer.js';
 import { defaultExec, type Exec } from './exec.js';
-import { addDetachedWorktree, removeWorktree, shareDependencies } from './throwaway-worktree.js';
+import { addDetachedWorktree, removeWorktree, removeWorktreeOnTermination, shareDependencies } from './throwaway-worktree.js';
 import { dismissedAs, readReviewDismissals, reviewerInputs } from './context.js';
 import { VerdictStore, type DaySpend, type ReviewAttempt } from './store.js';
 import { itemLine, type OpenItem, type Verdict } from './verdict.js';
@@ -51,6 +51,8 @@ export async function backgroundReview(cwd: string, job: BackgroundJob, config: 
     const worktree = store.worktreeDir(job.head);
     const failed = await addDetachedWorktree(cwd, worktree, job.head, exec);
     if (failed) throw new Error(`could not check out ${job.head.slice(0, 9)} for the review: ${failed}`);
+    // A newer push ends this review with SIGTERM: the worktree goes with it, not left on the disk.
+    const unregister = removeWorktreeOnTermination(cwd, worktree);
     try {
         shareDependencies(cwd, worktree);
         // The typed checks' hints (a nested scan, a value that only leaves through serialisation) are the reviewer's candidates to confirm.
@@ -63,6 +65,7 @@ export async function backgroundReview(cwd: string, job: BackgroundJob, config: 
         return result;
     } finally {
         await removeWorktree(cwd, worktree, exec);
+        unregister();
         clearPid(store, job.branch);
     }
 }

@@ -114,7 +114,7 @@ export function setTelemetryEnabled(enabled: boolean, home = rigourHome()): Tele
 }
 
 /** CI systems by the variable each always sets; Jenkins, Azure Pipelines and TeamCity do not set CI. */
-const CI_MARKERS = ['CI', 'GITHUB_ACTIONS', 'BUILDKITE', 'GITLAB_CI', 'CIRCLECI', 'JENKINS_URL', 'TF_BUILD', 'TEAMCITY_VERSION'];
+export const CI_MARKERS = ['CI', 'GITHUB_ACTIONS', 'BUILDKITE', 'GITLAB_CI', 'CIRCLECI', 'JENKINS_URL', 'TF_BUILD', 'TEAMCITY_VERSION'];
 
 function isCi(env: Env): boolean {
     return CI_MARKERS.some(name => !!env[name]);

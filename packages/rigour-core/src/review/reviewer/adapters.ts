@@ -10,6 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { defaultExec, type Exec } from './exec.js';
+import { claudeSandbox, CODEX_RUN_CODE, runCodePlatformRefusal } from './judge-sandbox.js';
 
 export type ReviewerName = 'claude' | 'cursor' | 'codex' | 'api';
 export type Vendor = 'anthropic' | 'cursor' | 'openai' | 'google' | 'other';
@@ -69,21 +70,6 @@ const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git s
 /** With run_code: any shell command, every one inside the sandbox below; the file tools still cannot write. */
 const RUN_CODE_TOOLS = ['Read', 'Grep', 'Glob', 'Bash'];
 
-/**
- * Claude Code's sandbox for a judge that runs code, verified on 2.1.285 with a real `claude -p` run: commands run
- * sandboxed and without a prompt, the dangerouslyDisableSandbox escape is ignored, a sandbox that cannot start fails the
- * run instead of running unsandboxed, and no host is reachable. Writes outside the working directory were refused
- * (home, /tmp and $TMPDIR alike), example.com was refused, and a scratch test in the working directory ran.
- */
-const CLAUDE_SANDBOX = { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { allowedDomains: [], strictAllowlist: true } };
-
-/**
- * Codex's workspace-write sandbox with network off and the temporary directories left out of what it may write, so it
- * writes only its working directory: verified on codex-cli 0.160.1 with a real `codex exec` run (home, /tmp and $TMPDIR
- * writes refused, example.com unresolvable, a scratch test ran). Network is off by default; set here so no config.toml
- * turns it on.
- */
-const CODEX_RUN_CODE = ['--sandbox', 'workspace-write', '-c', 'sandbox_workspace_write.network_access=false', '-c', 'sandbox_workspace_write.exclude_tmpdir_env_var=true', '-c', 'sandbox_workspace_write.exclude_slash_tmp=true'];
 /** The tools the judge loads at all: Bash only for the git commands READ_ONLY_TOOLS allows. */
 const JUDGE_TOOLS = ['Read', 'Grep', 'Glob', 'Bash'];
 
@@ -109,7 +95,11 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             '--output-format', 'stream-json', '--verbose', // every turn's usage and tool calls, for the run's trace
             '--max-turns', '80',
             '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
-            '--setting-sources', 'project', '--settings', JSON.stringify({ hooks: {}, outputStyle: 'default', ...(options?.runCode ? { sandbox: CLAUDE_SANDBOX } : {}) }),
+            // Running code: --restricted reads no settings file (a committed .claude/settings.json is never loaded) and
+            // confines the file tools to the working directory; --settings, with the sandbox, still applies. No session
+            // is kept: each copy is a new path, so each run would leave a project of its own under ~/.claude.
+            ...(options?.runCode ? ['--restricted', '--no-session-persistence'] : ['--setting-sources', 'project']),
+            '--settings', JSON.stringify({ hooks: {}, outputStyle: 'default', ...(options?.runCode ? { sandbox: claudeSandbox() } : {}) }),
             // Below the verified version, or when it cannot be read, the CLI may not know --tools: today's args, said on the record.
             ...(atLeast(options?.version, CLAUDE_MEMORY_ISOLATION) ? ['--tools', ...JUDGE_TOOLS] : []),
             '--allowedTools', ...(options?.runCode ? RUN_CODE_TOOLS : READ_ONLY_TOOLS),
@@ -127,7 +117,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             return `claude ${found?.[0] ?? '(version unknown)'}: memory isolation unverified and every built-in tool loaded (needs ${CLAUDE_MEMORY_ISOLATION} or later)`;
         },
         answer: stdout => claudeAnswer(stdout),
-        runCodeRefusal: version => (atLeast(version, CLAUDE_MEMORY_ISOLATION) ? undefined : `its sandbox is verified on Claude Code ${CLAUDE_MEMORY_ISOLATION} or later, and this is ${version?.trim() || 'an unknown version'}`),
+        runCodeRefusal: version => runCodePlatformRefusal() ?? (atLeast(version, CLAUDE_MEMORY_ISOLATION) ? undefined : `its sandbox is verified on Claude Code ${CLAUDE_MEMORY_ISOLATION} or later, and this is ${version?.trim() || 'an unknown version'}`),
     },
     cursor: {
         vendor: 'cursor',
@@ -159,7 +149,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             const read = ['config.toml', 'AGENTS.md'].filter(name => fs.existsSync(path.join(dir, name)));
             return read.length ? `codex also reads ${read.map(name => path.join(dir, name)).join(' and ')}` : undefined;
         },
-        runCodeRefusal: () => undefined,
+        runCodeRefusal: () => runCodePlatformRefusal(),
         args: (prompt, model, options) => ['exec', ...(options?.runCode ? CODEX_RUN_CODE : ['--sandbox', 'read-only']), '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
         // `codex exec --json` streams events; the last text-bearing one carries the answer.
         // Warnings arrive as `error` items with a `message`, not `text`, so they are never taken for the answer.

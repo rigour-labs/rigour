@@ -1,12 +1,13 @@
 /**
  * A detached git worktree of one commit, made to be thrown away: the background review reads a pushed commit in one
- * (background.ts), and a judge that runs code works in one of its own (run-code.ts), so nothing it writes reaches the
- * person's checkout. Removal is forced (untracked scratch files go with it) and pruned, whatever the run did.
+ * (background.ts). Removal is forced (untracked files go with it). A judge that runs code gets a standalone copy
+ * instead (throwaway-copy.ts): a worktree resolves to the person's checkout, whose trust and settings it would share.
  */
+import { spawnSync } from 'child_process';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { GH_TIMEOUT_MS, type Exec } from './exec.js';
+import { onTermination } from './on-termination.js';
 
 const WORKTREE_TIMEOUT_MS = 5 * GH_TIMEOUT_MS;
 
@@ -22,26 +23,13 @@ export async function removeWorktree(cwd: string, dir: string, exec: Exec): Prom
     await exec('git', ['worktree', 'remove', '--force', dir], { cwd, timeoutMs: WORKTREE_TIMEOUT_MS });
 }
 
+/** Removes the worktree if Rigour is interrupted before the returned function is called (which unregisters it). */
+export function removeWorktreeOnTermination(cwd: string, dir: string): () => void {
+    return onTermination(() => { spawnSync('git', ['worktree', 'remove', '--force', dir], { cwd, stdio: 'ignore' }); });
+}
+
 /** The checkout's installed dependencies serve the worktree too (a compiler, a test runner), never a download. */
 export function shareDependencies(cwd: string, worktree: string): void {
     const root = path.join(cwd, 'node_modules');
     if (fs.existsSync(root) && !fs.existsSync(path.join(worktree, 'node_modules'))) fs.symlinkSync(root, path.join(worktree, 'node_modules'), 'junction');
-}
-
-/**
- * Runs `work` in a new worktree of `head` under the system's temporary directory, outside the repository, and removes
- * it afterwards: after an answer, an error or a timeout alike.
- */
-export async function withThrowawayWorktree<T>(cwd: string, head: string, exec: Exec, work: (dir: string) => Promise<T>): Promise<T | { error: string }> {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-judge-copy-'));
-    try {
-        const failed = await addDetachedWorktree(cwd, dir, head, exec);
-        if (failed) return { error: `could not make a throwaway copy of ${head.slice(0, 9)}: ${failed}` };
-        shareDependencies(cwd, dir);
-        return await work(dir);
-    } finally {
-        await removeWorktree(cwd, dir, exec);
-        fs.rmSync(dir, { recursive: true, force: true });
-        await exec('git', ['worktree', 'prune'], { cwd, timeoutMs: WORKTREE_TIMEOUT_MS });
-    }
 }

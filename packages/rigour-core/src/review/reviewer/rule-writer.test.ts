@@ -24,13 +24,13 @@ afterEach(() => {
 });
 
 /** Answers git for real, the fake claude with a priced reply, and any other copy of claude as not installed. */
-function fake(calls: Array<{ args: string[]; unset?: string[] }>): Exec {
+function fake(calls: Array<{ args: string[]; unset?: string[] }>, result = '{"rules":[]}'): Exec {
     return async (command, args, options) => {
         if (command === 'git') return { exitCode: 0, stdout: execFileSync('git', args, { cwd: options.cwd, encoding: 'utf8' }), stderr: '' };
         if (!command.startsWith(bin)) return { exitCode: 127, stdout: '', stderr: 'not found' };
         if (args[0] === '--version') return { exitCode: 0, stdout: '2.1.0 (Claude Code)\n', stderr: '' };
         calls.push({ args, unset: options.unset });
-        return { exitCode: 0, stdout: JSON.stringify({ result: '{"rules":[]}', total_cost_usd: 0.6 }), stderr: '' };
+        return { exitCode: 0, stdout: JSON.stringify({ result, total_cost_usd: 0.6 }), stderr: '' };
     };
 }
 
@@ -45,6 +45,13 @@ describe('the rule writer', () => {
         expect(calls).toHaveLength(2);
         expect(calls[0].args).toEqual(expect.arrayContaining(['--strict-mcp-config', '--disallowedTools', 'Edit', 'Write']));
         expect(calls[0].unset).toContain('RIGOUR_API_KEY');
+    });
+
+    it('passes its answer through the secret scanner, as every judge\'s: a credential in a drafted rule is redacted', async () => {
+        const token = ['ghp', 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'].join('_'); // built at run time: no literal in the source
+        const config = ConfigSchema.parse({ version: 1, review: { reviewer: { reviewers: ['claude'] } } });
+        const write = (await ruleWriterFor(repo, config, fake([], JSON.stringify({ rules: [{ text: `never commit ${token}` }] }))))!;
+        expect(JSON.parse((await write('first'))!)).toEqual({ rules: [{ text: 'never commit [redacted: github_token]' }] });
     });
 
     it("stops one rule-writing run at its cost cap, and a later run starts afresh", async () => {

@@ -1,7 +1,8 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../../types/index.js';
 import { backgroundReview, reviewStatus, startBackgroundReview } from './background.js';
@@ -105,6 +106,28 @@ describe('the background review', () => {
         expect(alive(first!.pid)).toBe(false);
         process.kill(second!.pid);
     });
+
+    it('on SIGTERM (a newer push ends it) its worktree is removed and it exits 143', async () => {
+        const head = git('rev-parse', 'HEAD');
+        const here = path.dirname(new URL(import.meta.url).pathname);
+        const worktree = path.join(bin, 'review-worktree');
+        git('worktree', 'add', '--quiet', '--detach', worktree, head);
+        const script = path.join(bin, 'background.mts');
+        // What backgroundReview does around its review, the review itself one that never ends.
+        fs.writeFileSync(script, [
+            `import { removeWorktreeOnTermination } from ${JSON.stringify(pathToFileURL(path.join(here, 'throwaway-worktree.ts')).href)};`,
+            `removeWorktreeOnTermination(${JSON.stringify(repo)}, ${JSON.stringify(worktree)});`,
+            `console.log('ready');`,
+            'setInterval(() => undefined, 1000);',
+        ].join('\n'));
+        const child = spawn(process.execPath, ['--import', 'tsx', script], { cwd: path.join(here, '..', '..', '..'), stdio: ['ignore', 'pipe', 'ignore'] });
+        const exited = new Promise<number | null>(resolve => child.on('close', code => resolve(code)));
+        await new Promise(resolve => child.stdout.once('data', resolve));
+        child.kill('SIGTERM');
+        expect(await exited).toBe(143);
+        expect(fs.existsSync(worktree)).toBe(false);
+        expect(git('worktree', 'list', '--porcelain').split('\n').filter(line => line.startsWith('worktree ')).length).toBe(1);
+    }, 60_000);
 });
 
 function alive(pid: number): boolean {

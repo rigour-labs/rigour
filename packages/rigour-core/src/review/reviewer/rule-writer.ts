@@ -2,7 +2,7 @@
  * The model call behind turning reviews into rules (review-learning/rules-from-reviews.ts): the
  * team's first installed reviewer CLI, isolated and read-only exactly as a judge is, its spend
  * counted with the reviewer's and stopped by the same caps (caps.ts): the day's runs and dollars, and
- * max_usd_per_review for one rule-writing run. No CLI, or a cap reached: undefined, and the points stay
+ * max_usd_per_review for one rule-writing run; its answer redacted as every judge's (redact.ts). No CLI, or a cap reached: undefined, and the points stay
  * as the person wrote them.
  */
 import type { Config } from '../../types/index.js';
@@ -11,6 +11,7 @@ import { ADAPTERS, isReviewerName, resolveAdapter } from './adapters.js';
 import type { Exec } from './exec.js';
 import { judgeUnset } from './judge-env.js';
 import { judgeIsolation } from './judge-isolation.js';
+import { redactRun } from './redact.js';
 import { appliedProfile } from '../../utils/profile.js';
 import { resolveReviewer } from './settings.js';
 import { VerdictStore } from './store.js';
@@ -40,7 +41,7 @@ export async function ruleWriterFor(cwd: string, config: Config, exec: Exec, pro
             progress(`rules from reviews: ${capped}; the rest stay as people wrote them`);
             return undefined;
         }
-        const run = await exec(binary, ADAPTERS[name].args(prompt, model, { version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...(Object.keys(env).length ? { env } : {}) });
+        const run = redactRun(await exec(binary, ADAPTERS[name].args(prompt, model, { version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...(Object.keys(env).length ? { env } : {}) }));
         const answer = ADAPTERS[name].answer(run.stdout);
         store.addSpend(1, answer.costUsd);
         spent += answer.costUsd ?? 0;
