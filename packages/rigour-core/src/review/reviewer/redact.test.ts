@@ -39,6 +39,21 @@ describe('what is not a secret stays as it is', () => {
     });
 });
 
+describe('what a redaction takes, and what it leaves', () => {
+    it('takes the whole value, even past a pattern\'s fixed length', () => {
+        const value = ['wJalrXUtnFEMI', 'K7MDENGbPxRfiCYzQ8Hd2Lq9TwXvB3kNpRmTz'].join('/');
+        expect(value.length).toBeGreaterThan(40);
+        expect(redactDeep(`aws_secret_access_key = ${value} # rotated`).value).toBe('[redacted: aws_secret_key] # rotated');
+    });
+
+    it('removes invisible characters only inside what it redacts, never in the rest', () => {
+        const zw = '\u200B';
+        const bidi = '\u202E';
+        const text = `keep${zw}this ${bidi}and ${TOKEN.slice(0, 10)}${zw}${TOKEN.slice(10)} done${zw}`;
+        expect(redactDeep(text).value).toBe(`keep${zw}this ${bidi}and [redacted: github_token] done${zw}`);
+    });
+});
+
 describe('the token shapes the scanner lacks, with fake but well-formed values', () => {
     const fake = (...parts: string[]) => parts.join('');
     const hex = (n: number) => 'a1b2c3d4e5f6'.repeat(12).slice(0, n);

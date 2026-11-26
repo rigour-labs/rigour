@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { runReviewer, type ReviewerOptions } from '../reviewer.js';
 import { ADAPTERS } from './adapters.js';
 import { defaultExec } from './exec.js';
-import { EMPTY_VERDICT, gitIn, write } from './__tests__/judge-fakes.js';
+import { EMPTY_VERDICT, gitIn, makeRepo, write } from './__tests__/judge-fakes.js';
 import { cleanedUp, harnessEnv, inCopy, reviewIn, runCodeConfig, runCodeHarness } from './__tests__/run-code-harness.js';
 import { recordLines } from './record.js';
 import { copyPool } from './copy-pool.js';
@@ -28,7 +28,7 @@ describe('run_code: codex', () => {
         ]);
         expect(run.argv.join(' ')).not.toMatch(/read-only|danger|network_access=true/);
         expect(inCopy(run)).toBe(true);
-        expect(run.files.sort()).toEqual(['.git', 'a.ts', 'scratch.test.mjs', 'src']); // a checkout of the head, and the judge's scratch file
+        expect(run.files.sort()).toEqual(['.git', 'a.ts', 'rigour.yml', 'scratch.test.mjs', 'src']); // a checkout of the head, and the judge's scratch file
         const told = /Your working copy\n\((\S+), your current directory\) is a throwaway copy/.exec(run.prompt);
         expect(told?.[1]).toBe(run.cwd); // the copy's real path, as the judge's working directory
         expect(run.prompt).toContain('files you\ncreate are not evidence');
@@ -105,6 +105,22 @@ describe('run_code: codex', () => {
     });
 });
 
+describe('run_code: a repository that borrows its objects', () => {
+    it('is copied whole (--dissociate): the copy has no alternates file, so nothing leads back', async () => {
+        const borrower = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'judge-switches-')));
+        h.made.push(borrower);
+        gitIn(h.repo, 'clone', '--quiet', '--shared', h.repo, borrower);
+        expect(fs.existsSync(path.join(borrower, '.git', 'objects', 'info', 'alternates'))).toBe(true);
+        gitIn(borrower, 'checkout', '-q', 'feature');
+        let alternates: boolean | undefined;
+        await runReviewer(borrower, 'origin/main', runCodeConfig(), async (command, args, options) => {
+            if (path.basename(command) === 'codex' && args[0] !== '--version') alternates = fs.existsSync(path.join(options.cwd, '.git', 'objects', 'info', 'alternates'));
+            return defaultExec(command, args, options);
+        }, () => undefined, { blind: true, force: true });
+        expect(alternates).toBe(false);
+    });
+});
+
 describe("run_code: codex keeps the person's model", () => {
     const config = (model: string) => [
         `model = "${model}"`, 'model_provider = "acme"', 'approval_policy = "on-request"', '',
@@ -124,6 +140,23 @@ describe("run_code: codex keeps the person's model", () => {
         expect(run.argv).toContain('--ignore-user-config');
         expect([run.env.ACME_API_KEY, run.env.OTHER_API_KEY]).toEqual(['k', undefined]);
         expect(result.record?.judges[0]).toMatchObject({ reviewer: 'codex', ran_code: true, model: 'acme-large' });
+    });
+
+    it('passes no other provider key, and refuses run_code for codex when its provider carries credentials', async () => {
+        const secretHeader = ['x-example', 'auth: s3cr3t-header-value'].join('-');
+        fs.writeFileSync(path.join(h.homes, 'codex', 'config.toml'), [
+            'model = "acme-large"', 'model_provider = "acme"', '', '[model_providers.acme]', 'base_url = "https://llm.example.com/v1"', 'request_max_retries = 4', 'wire_api = "responses"',
+            `http_headers = { "${secretHeader}" = "1" }`, '',
+        ].join('\n'));
+        const result = await review();
+        const [run] = h.judges.runs();
+        expect(run.argv).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
+        expect(run.argv.join(' ')).not.toContain('s3cr3t');
+        expect(result.mode?.caveats).toContain("run_code: codex's provider config carries credentials Rigour won't put on a command line; codex stays read-only");
+        fs.writeFileSync(path.join(h.homes, 'codex', 'config.toml'), ['model = "acme-large"', 'model_provider = "acme"', '', '[model_providers.acme]', 'base_url = "https://llm.example.com/v1"', 'request_max_retries = 4', 'wire_api = "responses"', ''].join('\n'));
+        await review();
+        const overrides = h.judges.runs()[1].argv.flatMap((arg, i, all) => (arg === '-c' ? [all[i + 1]] : [])).filter(value => /^model_provider/.test(value));
+        expect(overrides).toEqual(['model_provider="acme"', 'model_providers.acme.base_url="https://llm.example.com/v1"', 'model_providers.acme.wire_api="responses"']);
     });
 
     it("from a profile's own Codex home, when the judge runs with one", async () => {
@@ -157,8 +190,10 @@ describe('run_code: claude', () => {
         expect(settings).toMatchObject({ hooks: {}, outputStyle: 'default', sandbox: { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { allowedDomains: [], strictAllowlist: true } } });
         // The whole home is denied and only the copy, the temporary directory and toolchains read back; the person's .git is denied.
         const home = fs.realpathSync(os.homedir());
-        expect(settings.sandbox.filesystem.denyRead).toEqual([home, path.join(fs.realpathSync(h.repo), '.git')]);
-        expect(settings.sandbox.filesystem.allowRead).toEqual(expect.arrayContaining([run.cwd, fs.realpathSync(os.tmpdir())]));
+        expect(settings.sandbox.filesystem.denyRead).toEqual([home, fs.realpathSync(os.tmpdir()), path.join(fs.realpathSync(h.repo), '.git')]);
+        expect(settings.sandbox.filesystem.allowRead).toEqual(expect.arrayContaining([run.cwd]));
+        expect(settings.sandbox.filesystem.allowRead).not.toContain(fs.realpathSync(os.tmpdir())); // not the whole temporary directory
+        expect(settings.sandbox.filesystem.allowRead.filter((p: string) => p.startsWith(fs.realpathSync(os.tmpdir())))).toEqual([run.cwd, expect.stringMatching(/\/rigour-reviewer-[A-Za-z0-9]+$/)]);
         for (const allowed of settings.sandbox.filesystem.allowRead) expect(allowed.startsWith(home) ? /\/(\.nvm|\.volta|\.asdf|\.pyenv|\.rbenv|\.rustup|\.cargo\/bin|go\/(bin|pkg\/mod)|\.bun\/bin|\.deno\/bin|\.local\/bin|Library\/pnpm|\.npm\/_cacache|\.npm\/_npx)$/.test(allowed) : true, allowed).toBe(true);
         expect(settings.sandbox.filesystem.denyWrite).toEqual([fs.realpathSync(session), path.join(run.cwd, '.git')]);
         expect(run.argv.slice(run.argv.indexOf('--allowedTools') + 1, run.argv.indexOf('--disallowedTools'))).toEqual(['Read', 'Grep', 'Glob', 'Bash']);
@@ -182,6 +217,26 @@ describe('run_code: claude', () => {
         expect((await review({ reviewers: ['claude'] })).reason).toContain("run_code removed ANTHROPIC_API_KEY from the judge's environment; sign in with `claude` instead");
         h.judges.behave({ exitCode: 1, answer: '401 Unauthorized' });
         expect((await review()).reason).toContain("run_code removed OPENAI_API_KEY from the judge's environment; sign in with `codex login` instead");
+    });
+});
+
+describe('run_code read from the base', () => {
+    it('a branch that turns run_code on in its own rigour.yml gets a read-only review that says where run_code is read from', async () => {
+        for (const [base, says] of [[{}, 'which has no rigour.yml'], [{ 'rigour.yml': 'version: 1\n' }, 'where it is off']] as const) {
+            const repo = makeRepo(base, { 'rigour.yml': 'version: 1\nreview:\n  reviewer:\n    run_code: "on"\n' });
+            h.made.push(repo);
+            const result = await reviewIn(repo);
+            const mergeBase = gitIn(repo, 'merge-base', 'main', 'HEAD').trim().slice(0, 9);
+            expect(h.judges.runs().at(-1)!.argv).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
+            expect(result.mode?.ranCode).toBeUndefined();
+            expect(result.mode?.caveats).toContain(`run_code refused: run_code is read from ${mergeBase}, ${says}; every judge stays read-only`);
+        }
+    });
+
+    it('a branch that turns it off is reviewed read-only, without a word: off is the default', async () => {
+        const result = await reviewIn(h.repo, { run_code: 'off' });
+        expect(h.judges.runs().at(-1)!.argv).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
+        expect(result.mode?.caveats ?? []).toEqual([]);
     });
 });
 

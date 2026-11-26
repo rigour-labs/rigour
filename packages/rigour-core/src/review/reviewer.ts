@@ -34,6 +34,7 @@ import { isCi, judgeRunCodeRefusal, runCodeAllowed, runCodeModel, runCodeUnset, 
 import { codexHomeOf, sweepCliLeftovers } from './reviewer/cli-leftovers.js';
 import { copyPool, MAX_COPIES, type CopyPool } from './reviewer/copy-pool.js';
 import { copyCaveats, copySizeRefusal } from './reviewer/copy-size.js';
+import { baseRunCode, runCodeBase } from './reviewer/run-code-base.js';
 import { changedUnits, coverageStep, followUpPrompt, unaccounted, unitLabel, unitsText, type ChangedUnit, type Coverage } from './reviewer/coverage.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
 import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, touchesData, triage, type Pass } from './reviewer/triage.js';
@@ -347,8 +348,11 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // The team's review instructions, read where the reviewer reads its settings: the base for an independent review.
     const instructions = settings.instructions ? readInstructions(repoRoot, settings.instructions, options.trustedRef) : undefined;
     const teamBlock = instructions?.text ? instructionsBlock(instructions.path, instructions.text) : undefined;
-    const runCode = runCodeAllowed(settings.run_code, { ci: isCi(options.ci), independent: !!options.independent || !!options.trustedRef, backtest: trigger === 'backtest' },
-        () => copySizeRefusal(repoRoot, head, settings.run_code_max_mb, orchestrate ? MAX_COPIES : 1));
+    // run_code is read from the base's rigour.yml (run-code-base.ts): a branch cannot turn it on for itself.
+    const runCode = runCodeAllowed(settings.run_code, { ci: isCi(options.ci), independent: !!options.independent || !!options.trustedRef, backtest: trigger === 'backtest' }, () => {
+        const fromBase = baseRunCode(repoRoot, runCodeBase(repoRoot, head, baseSha, options.trustedRef), settings.run_code);
+        return fromBase.refused ?? copySizeRefusal(repoRoot, head, fromBase.maxMb, orchestrate ? MAX_COPIES : 1);
+    });
     // In the fingerprint only when set: with both off, every key is what it was before these switches existed.
     const switchKeys = [...instructionsKey(instructions), ...(runCode.on ? ['run_code on'] : [])];
     // The goal the description declares, for step 12: only what a model must judge (goal/goal.ts proves the rest), only with the goal check on.
@@ -390,11 +394,11 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // What changes the instructions themselves; the context pack changes with every commit, so it is in the fingerprint, not here.
     const rulesHash = sha([reviewerVersions, PROMPT_VERSION, rules, body, reviews.key, ...switchKeys]);
     // What the review says about the instructions and run_code, and which judges run code (those whose sandbox was verified).
-    const caveats = [...instructionsCaveats(instructions), ...(runCode.refused ? [runCode.refused] : []), ...(runCode.on ? [...reviewers.map(name => judgeRunCodeRefusal(name, installed.get(name)?.version)).filter((line): line is string => !!line), ...copyCaveats(repoRoot, head)] : [])];
+    const caveats = [...instructionsCaveats(instructions), ...(runCode.refused ? [runCode.refused] : []), ...(runCode.on ? [...reviewers.map(name => judgeRunCodeRefusal(name, installed.get(name)?.version, isolation.get(name)?.env)).filter((line): line is string => !!line), ...copyCaveats(repoRoot, head)] : [])];
     if (instructions) modeRecord = { ...modeRecord, instructions: { path: instructions.path, from: instructions.from, ...(instructions.hash ? { hash: instructions.hash } : {}), served: !!teamBlock } };
     if (caveats.length) modeRecord = { ...modeRecord, caveats };
     const ranCode = new Set<ReviewerName>();
-    const runsCode = (name: ReviewerName) => runCode.on && !judgeRunCodeRefusal(name, installed.get(name)?.version);
+    const runsCode = (name: ReviewerName) => runCode.on && !judgeRunCodeRefusal(name, installed.get(name)?.version, isolation.get(name)?.env);
 
     // Full or delta.
     const mergedBase = await mergesBaseIn(cwd, baseSha, exec);
@@ -548,14 +552,14 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const codeRun = (name: ReviewerName, prompt: string, model: string | undefined) => {
         ranCode.add(name);
         modeRecord = { ...modeRecord, ranCode: [...ranCode] };
-        return runInCopy(pool ??= copyPool(repoRoot, head, exec), repoRoot, exec, { binary: installed.get(name)!.binary, name, version: installed.get(name)!.version, prompt, model, reasoning: settings.reasoning[name], timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
+        return runInCopy(pool ??= copyPool(repoRoot, head, exec, progress), repoRoot, exec, { binary: installed.get(name)!.binary, name, version: installed.get(name)!.version, prompt, model, reasoning: settings.reasoning[name], timeoutMs: settings.timeout_ms, work, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
     };
     // A failed run's own output can say why (a refused API key): the reason carries it.
     const hinted = <T extends object>(name: ReviewerName, run: { stdout: string; stderr: string }, answer: T | { error: string }) => withFailureHint(answer, name === 'api' ? undefined : judgeFailureHint(name, run, runsCode(name) ? runCodeUnset(name, judgeUnset(name, settings.judge_env)) : judgeUnset(name, settings.judge_env), process.env, runsCode(name)));
     // What a killed run_code review left behind (its copies, what the CLIs kept under them) goes before this one starts.
     if (reviewers.some(runsCode)) {
         sweepStaleCopies();
-        sweepCliLeftovers(copyPrefix(), [codexHomeOf(undefined), codexHomeOf(isolation.get('codex')?.env)]);
+        for (const left of sweepCliLeftovers(copyPrefix(), [codexHomeOf(undefined), codexHomeOf(isolation.get('codex')?.env)])) progress(`Rigour reviewer: ${left}`);
     }
     try {
         const file = (name: string, text: string) => {

@@ -26,20 +26,49 @@ function spans(text: string): Array<{ type: string; start: number; end: number }
     const scanned = scanInputForCredentials(text, { use_learned_feedback: false }).detections
         .filter(d => d.position && !NOT_SECRETS.has(d.type) && (d.type !== 'env_variable' || secretEnvLine(text.slice(d.position.start, d.position.end))))
         .map(d => ({ type: d.type, start: d.position!.start, end: blockEnd(text, d.type, d.position!.end) }));
-    const all = [...scanned, ...shapeMatches(text)].sort((x, y) => x.start - y.start || y.end - x.end);
+    const all = [...scanned, ...shapeMatches(text)].map(span => ({ ...span, end: valueEnd(text, span.end) })).sort((x, y) => x.start - y.start || y.end - x.end);
     const kept: typeof all = [];
     for (const span of all) if (!kept.length || span.start >= kept[kept.length - 1].end) kept.push(span);
     return kept;
 }
 
-/** `text` with every secret replaced, and how many there were. */
+/** A match that stops inside a value (a pattern's fixed length, `{40}`) runs to the value's end: none of it is left. */
+function valueEnd(text: string, end: number): number {
+    while (end < text.length && /[A-Za-z0-9/+=_.~-]/.test(text[end])) end++;
+    return end;
+}
+
+const INVISIBLE = /[\u200B\u200C\u200D\uFEFF\u202A-\u202E\u061C\u2066-\u2069]/;
+
+/**
+ * `text` as the scanner reads it (zero-width and bidi characters removed), and where each of its characters is in
+ * `text`; no map when NFC changes the text too (then positions cannot be carried back).
+ */
+function scannable(text: string): { scanned: string; at?: number[] } {
+    const at: number[] = [];
+    let stripped = '';
+    for (let i = 0; i < text.length; i++) {
+        if (INVISIBLE.test(text[i])) continue;
+        at.push(i);
+        stripped += text[i];
+    }
+    const scanned = stripped.normalize('NFC');
+    return scanned === stripped ? { scanned, at } : { scanned };
+}
+
+/**
+ * `text` with every secret replaced, and how many there were. Invisible characters are removed only inside what is
+ * redacted; the rest of the text stays as it was (when NFC would change it, the scanner's text is what is returned).
+ */
 function redactText(text: string): Redaction {
-    // The scanner reads the text with zero-width and bidi characters removed: its positions are in that text.
-    const normalized = text.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').replace(/[\u202A-\u202E\u061C\u2066-\u2069]/g, '').normalize('NFC');
-    const found = spans(normalized);
+    const { scanned, at } = scannable(text);
+    const found = spans(scanned);
     if (found.length === 0) return { text, count: 0 };
-    let out = normalized;
-    for (const d of [...found].reverse()) out = `${out.slice(0, d.start)}[redacted: ${d.type}]${out.slice(d.end)}`;
+    let out = at ? text : scanned;
+    for (const d of [...found].reverse()) {
+        const [start, end] = at ? [at[d.start], at[d.end - 1] + 1] : [d.start, d.end];
+        out = `${out.slice(0, start)}[redacted: ${d.type}]${out.slice(end)}`;
+    }
     return { text: out, count: found.length };
 }
 

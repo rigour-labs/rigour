@@ -1,4 +1,5 @@
 import os from 'os';
+import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultExec, githubReader, githubToken, type Exec } from './exec.js';
 
@@ -37,6 +38,16 @@ describe('running a command', () => {
         const slow = await defaultExec(process.execPath, ['-e', 'setTimeout(() => {}, 10_000)'], { cwd: os.tmpdir(), timeoutMs: 200 });
         expect(slow.exitCode).not.toBe(0);
         expect(slow.stderr).toMatch(/timed out/i);
+    });
+
+    it('never says the command line in that reason: an argument (a header, a prompt) can be a secret', async () => {
+        const secret = ['x-example', 'auth=s3cr3t-arg-value'].join('-');
+        const slow = await defaultExec(process.execPath, ['-e', 'setTimeout(() => {}, 10_000)', secret], { cwd: os.tmpdir(), timeoutMs: 200 });
+        expect(slow.stderr).toBe(`${path.basename(process.execPath)} timed out after 200 ms`);
+        const missing = await defaultExec('rigour-no-such-command', [secret], { cwd: os.tmpdir(), timeoutMs: 30_000 });
+        expect(missing.stderr).toBe('rigour-no-such-command could not start (ENOENT)');
+        const killed = await defaultExec('sh', ['-c', 'kill -9 $$', secret], { cwd: os.tmpdir(), timeoutMs: 30_000 });
+        expect(killed.stderr).toBe('sh was killed (SIGKILL)');
     });
 });
 

@@ -1,4 +1,5 @@
 /** How the reviewer runs commands (git, gh, the agent CLIs); tests replace it. */
+import path from 'path';
 import { execa } from 'execa';
 
 /**
@@ -17,8 +18,20 @@ export const defaultExec: Exec = async (command, args, options) => {
     const result = await child;
     const stderr = String(result.stderr ?? '');
     // A command that could not start, timed out or was killed writes nothing itself: say which, never an empty failure.
-    return { exitCode: result.exitCode ?? 1, stdout: String(result.stdout ?? ''), stderr: stderr || (result.failed && 'shortMessage' in result ? String(result.shortMessage) : '') };
+    return { exitCode: result.exitCode ?? 1, stdout: String(result.stdout ?? ''), stderr: stderr || (result.failed ? failure(command, result, options.timeoutMs) : '') };
 };
+
+/**
+ * Why a command failed without a word of its own, by its name only: execa's own message quotes the whole command line,
+ * and an argument can be a secret (a header in a codex override, a prompt).
+ */
+function failure(command: string, result: { timedOut?: boolean; signal?: string | null; code?: string; exitCode?: number | null }, timeoutMs: number): string {
+    const name = path.basename(command);
+    if (result.timedOut) return `${name} timed out after ${timeoutMs} ms`;
+    if (result.code) return `${name} could not start (${result.code})`;
+    if (result.signal) return `${name} was killed (${result.signal})`;
+    return `${name} failed (exit ${result.exitCode ?? 'unknown'})`;
+}
 
 /** The environment a command runs with: the inherited one plus `env`, minus `unset` (then nothing is inherited implicitly). */
 function childEnv(options: { env?: Record<string, string>; unset?: string[] }): { env?: Record<string, string | undefined>; extendEnv?: boolean } {

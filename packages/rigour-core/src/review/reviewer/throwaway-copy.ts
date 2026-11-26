@@ -11,6 +11,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { GH_TIMEOUT_MS, type Exec } from './exec.js';
+import { ownerState, thisProcess, type Owner } from './owner-process.js';
 import { shareDependencies } from './throwaway-worktree.js';
 
 const COPY_PREFIX = 'rigour-judge-copy-';
@@ -24,18 +25,12 @@ export function copyPrefix(): string {
 }
 
 export interface Copy { root: string; dir: string }
-interface Owner { pid: number; started: string; uid: number }
-
-/** When a process started, as `ps` says: with its pid, what tells it from a later process given the same pid. */
-function startedAt(pid: number): string | undefined {
-    const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' });
-    return ps.status === 0 ? ps.stdout.trim() || undefined : undefined;
-}
+interface FolderOwner extends Owner { uid: number }
 
 /** A new, empty folder in the temporary directory, named `prefix…`, that names this process as its owner. */
 function ownedDir(prefix: string, tmp: string): string {
     const root = fs.mkdtempSync(path.join(tmp, prefix));
-    const owner: Owner = { pid: process.pid, started: startedAt(process.pid) ?? '', uid: process.getuid?.() ?? -1 };
+    const owner: FolderOwner = { ...thisProcess(), uid: process.getuid?.() ?? -1 };
     fs.writeFileSync(path.join(root, 'owner.json'), JSON.stringify(owner));
     return root;
 }
@@ -52,31 +47,52 @@ export function reviewWorkDir(): string {
     return ownedDir(WORK_PREFIX, os.tmpdir());
 }
 
+/** Whether the repository at `dir` borrows objects through `objects/info/alternates`. */
+function hasAlternates(dir: string): boolean {
+    const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' });
+    const file = common.status === 0 ? path.join(common.stdout.trim(), 'objects', 'info', 'alternates') : '';
+    return !!file && fs.existsSync(file) && fs.readFileSync(file, 'utf8').trim() !== '';
+}
+
 /** A copy of `head` (LFS files left as pointers: nothing is fetched), or why it could not be made. */
 export async function makeCopy(cwd: string, head: string, exec: Exec): Promise<Copy | { error: string }> {
     const copy = newRoot();
     const git = (args: string[], at = copy.dir) => exec('git', args, { cwd: at, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_LFS_SKIP_SMUDGE: '1' } });
     const steps: Array<() => ReturnType<Exec>> = [
-        () => git(['clone', '--quiet', '--local', '--no-checkout', cwd, copy.dir], copy.root),
+        // --dissociate: a repository that borrows objects (its own alternates) is copied whole, never borrowed from.
+        () => git(['clone', '--quiet', '--local', ...(hasAlternates(cwd) ? ['--dissociate'] : []), '--no-checkout', cwd, copy.dir], copy.root),
         () => git(['checkout', '--quiet', '--detach', head]),
         () => git(['remote', 'remove', 'origin']),
     ];
+    const fail = (why: string) => {
+        removeCopy(copy);
+        return { error: `could not make a throwaway copy of ${head.slice(0, 9)}: ${why}` };
+    };
     for (const step of steps) {
         const done = await step();
-        if (done.exitCode !== 0) {
-            removeCopy(copy);
-            return { error: `could not make a throwaway copy of ${head.slice(0, 9)}: ${done.stderr.trim() || `git exited ${done.exitCode}`}` };
-        }
+        if (done.exitCode !== 0) return fail(done.stderr.trim() || `git exited ${done.exitCode}`);
     }
+    if (hasAlternates(copy.dir)) return fail('it would borrow objects through an alternates file, which leads back to your repository');
     shareDependencies(cwd, copy.dir);
     return copy;
 }
 
-/** The copy back at `head` with nothing the last judge wrote (its linked dependencies kept), or why not. */
-export async function resetCopy(copy: Copy, head: string, exec: Exec): Promise<string | undefined> {
+/**
+ * The copy back at `head` with nothing the last judge wrote, or why not. Its node_modules is kept only while it is
+ * still the link to the checkout's: one a judge replaced (a folder of its own, a link elsewhere) is removed and linked again.
+ */
+export async function resetCopy(cwd: string, copy: Copy, head: string, exec: Exec): Promise<string | undefined> {
     for (const args of [['checkout', '--quiet', '--force', '--detach', head], ['clean', '-ffdxq', '-e', '/node_modules']]) {
         const done = await exec('git', args, { cwd: copy.dir, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_LFS_SKIP_SMUDGE: '1' } });
         if (done.exitCode !== 0) return done.stderr.trim() || `git exited ${done.exitCode}`;
+    }
+    const link = path.join(copy.dir, 'node_modules');
+    const theirs = path.join(cwd, 'node_modules');
+    const now = fs.lstatSync(link, { throwIfNoEntry: false });
+    const intact = fs.existsSync(theirs) ? !!now?.isSymbolicLink() && fs.readlinkSync(link) === theirs : !now;
+    if (!intact) {
+        fs.rmSync(link, { recursive: true, force: true });
+        shareDependencies(cwd, copy.dir);
     }
     return undefined;
 }
@@ -87,9 +103,9 @@ export function removeCopy(copy: Copy): void {
 
 /** Whether the process that made the copy at `root` is gone: its pid ended, or now another process's. */
 function orphaned(root: string): boolean {
-    let owner: Owner;
+    let owner: FolderOwner;
     try {
-        owner = JSON.parse(fs.readFileSync(path.join(root, 'owner.json'), 'utf8')) as Owner;
+        owner = JSON.parse(fs.readFileSync(path.join(root, 'owner.json'), 'utf8')) as FolderOwner;
     } catch {
         // No owner: a copy made before owners were written, or one interrupted before it wrote its own (within a
         // millisecond of being made). Either way not a live review's once it is an hour old.
@@ -97,12 +113,13 @@ function orphaned(root: string): boolean {
     }
     // Another user's copy is never this one's to judge, whatever its pid.
     if (owner.uid !== (process.getuid?.() ?? -1)) return false;
-    const now = startedAt(owner.pid);
-    return now === undefined || (!!owner.started && now !== owner.started);
+    return ownerState(owner) === 'gone';
 }
 
 /** Removes the copies and review folders whose Rigour process is gone, this user's only; returns them. */
 export function sweepStaleCopies(): string[] {
+    // Without ps no owner can be told from a later process with its pid: nothing is removed.
+    if (!thisProcess().started) return [];
     const tmp = fs.realpathSync(os.tmpdir());
     const swept: string[] = [];
     for (const name of fs.readdirSync(tmp).filter(entry => entry.startsWith(COPY_PREFIX) || entry.startsWith(WORK_PREFIX))) {

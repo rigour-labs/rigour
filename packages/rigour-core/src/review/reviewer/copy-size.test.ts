@@ -33,12 +33,11 @@ describe('whether the judges\' copies fit', () => {
 
 describe('a review whose copy would not fit', () => {
     const h = runCodeHarness();
-    it('runs every judge read-only and says why', async () => {
-        fs.writeFileSync(path.join(h.repo, 'big.bin'), 'x'.repeat(3 * MB));
-        gitIn(h.repo, 'add', '-A');
-        gitIn(h.repo, 'commit', '-qm', 'big');
-        const result = await reviewIn(h.repo, { run_code_max_mb: 1 });
-        expect(h.judges.runs()[0].argv).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
+    it('runs every judge read-only and says why, the cap read from the base', async () => {
+        const repo = makeRepo({ 'rigour.yml': 'version: 1\nreview:\n  reviewer:\n    run_code: "on"\n    run_code_max_mb: 1\n' }, { 'big.bin': 'x'.repeat(3 * MB) });
+        h.made.push(repo);
+        const result = await reviewIn(repo, { run_code_max_mb: 4096 }); // the branch's own cap is not the one that counts
+        expect(h.judges.runs().at(-1)!.argv).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
         expect(result.mode?.caveats).toEqual([expect.stringMatching(/^run_code refused: a copy of \w{9} takes 4 MB, over review\.reviewer\.run_code_max_mb \(1\); every judge stays read-only$/)]);
     });
 });

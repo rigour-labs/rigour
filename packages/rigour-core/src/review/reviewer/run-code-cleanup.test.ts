@@ -165,6 +165,19 @@ describe('a copy a killed review left behind', () => {
         expect(fs.existsSync(another)).toBe(false);
     });
 
+    it('takes nothing when ps cannot run: no owner can be told from a later process with its pid', () => {
+        const dead = copyRoot({ pid: deadPid(), started: 'Thu Jan  1 00:00:00 2026' });
+        const ownerless = copyRoot(undefined, 2 * 3_600_000);
+        const path0 = process.env.PATH;
+        process.env.PATH = h.homes; // no ps here
+        try {
+            expect(sweepStaleCopies()).toEqual([]);
+        } finally {
+            process.env.PATH = path0;
+        }
+        expect([fs.existsSync(dead), fs.existsSync(ownerless)]).toEqual([true, true]);
+    });
+
     it('takes what the CLIs kept for it: codex\'s trust entry and Claude Code\'s folders; a live copy\'s and anyone else\'s stay', async () => {
         const live = path.join(copyRoot({ pid: process.pid, started: startedAt(process.pid) }), 'repo');
         const gone = path.join(path.dirname(live) + 'Zz', 'repo'); // a copy's path whose root no longer exists

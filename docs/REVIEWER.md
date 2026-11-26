@@ -160,14 +160,25 @@ review:
     run_code: on
 ```
 
-a judge may write and run scratch tests or scripts to confirm a problem:
+a judge may write and run scratch tests or scripts to confirm a problem.
+
+**Read from the base.** `run_code` and `run_code_max_mb` are read from the base's `rigour.yml`:
+the commit the branch left the review's base at (the merge-base), or the trusted ref when one is
+given, never the reviewed branch's own. A branch cannot turn `run_code` on for itself: it gets a
+read-only review that says "run_code refused: run_code is read from <base>, where it is off" (or
+"which has no rigour.yml"). A branch can still turn it off. The team's review instructions are not
+read this way: they come from the working tree, or from the base under `--independent`.
+
 
 - **In a throwaway copy.** A review's judges work in at most two copies of the reviewed commit,
   however many orchestrated passes it runs: a pass takes a free copy, reset to the commit with
   nothing the last pass wrote, or waits for one. Two keep the disk bounded and still let two passes
-  run at once. A copy is `<tmp>/rigour-judge-copy-XXXXXX/repo`, a standalone clone (`--local`) in
-  the system's temporary directory: its objects are hardlinked from your repository, nothing is
-  copied, and no alternates file or remote points back at your `.git`. It is not a worktree of
+  run at once. A reset also puts back the link to your checkout's `node_modules`: one a judge
+  replaced with a folder or another link is removed and linked again. A copy is
+  `<tmp>/rigour-judge-copy-XXXXXX/repo`, a standalone clone (`--local`) in the system's temporary
+  directory: its objects are hardlinked from your repository, nothing is copied, and no alternates
+  file or remote points back at your `.git` (a repository that borrows objects through its own
+  alternates is copied whole, `--dissociate`, and a copy that would still borrow is refused). It is not a worktree of
   your checkout, so no CLI takes your checkout's trust or settings, or writes into it. Your
   checkout's `node_modules` is linked in. Submodules are not checked out, and Git LFS files stay
   pointers; the review says so when the commit has either.
@@ -180,13 +191,19 @@ a judge may write and run scratch tests or scripts to confirm a problem:
   group, and every process still working in the copy (a `nohup` job Claude Code's shell started
   outlives the judge's group, and is ended this way), then removes the copies and what each CLI
   kept under their paths: Claude Code's temporary and session folders, and the trusted-project
-  entry codex writes into your `config.toml` (edited under a lock, re-read, replaced atomically,
-  no other line touched). If Rigour is killed outright (`kill -9`), the judge's watchdog, a small
+  entry codex writes into your `config.toml`. That edit takes a lock file naming its holder (pid
+  and start time), taken over only when that holder is gone, never for its age; it waits at most
+  five seconds, and a lock that cannot be made at all (a read-only folder) is said at once: "could
+  not lock <path>: EACCES; trust entry left in place". The file is read, the new text written
+  beside it, the file read again, and renamed over only if it did not change meanwhile; no other
+  line is touched. Codex itself takes no lock, so a write codex made in that last instant would be
+  lost. If Rigour is killed outright (`kill -9`), the judge's watchdog, a small
   process that checks every half second that Rigour is alive, ends the judge and what still works
   in the copy. Each copy names its owner beside it (`owner.json`: Rigour's pid, its start time,
   your user), and so does the review's own input folder (`rigour-reviewer-XXXXXX`): the next
   `run_code` review removes every copy and input folder whose owner is gone, with what the CLIs
-  kept for it; a copy whose owner still runs is never removed, however old. Not found: a
+  kept for it; a copy whose owner still runs is never removed, however old, and when `ps` cannot
+  run, nothing is removed at all. Not found: a
   process that moved out of the copy and detached itself; it stays inside the judge's sandbox.
 - **Sandboxed, with no network.** See the table below. The repository's own configuration cannot
   widen the sandbox: codex runs with `--ignore-user-config` and `--ignore-rules` (so no project
@@ -194,10 +211,12 @@ a judge may write and run scratch tests or scripts to confirm a problem:
   Claude Code runs with `--restricted`, which loads no settings file (a committed
   `.claude/settings.json`, its hooks and its `env` are ignored), the sandbox given by `--settings`.
 - **Your codex model.** Without its `config.toml`, codex would fall back to its default model. So
-  the `model`, `model_provider` and `[model_providers.*]` lines of the judge's Codex home (a
-  profile's own home when it has one), and nothing else, are passed back as `-c` overrides, the
-  provider's key variable (`env_key`) is kept as the judge's own login, and the record names the
-  model that ran. A model your codex login cannot use fails here as it does in any codex run.
+  from the judge's Codex home (a profile's own home when it has one) `model`, `model_provider` and,
+  of the chosen provider's table, only `name`, `base_url`, `env_key` and `wire_api` are passed back
+  as `-c` overrides; the provider's key variable (`env_key`) is kept as the judge's own login, and
+  the record names the model that ran. A provider whose table carries credentials (headers, a
+  bearer token, query parameters) keeps codex read-only: "codex's provider config carries
+  credentials Rigour won't put on a command line". No failure reason quotes a command line. A model your codex login cannot use fails here as it does in any codex run.
 - **Without secret variables.** The judge runs without any variable whose name contains `SECRET`,
   `TOKEN`, `PASSWORD`, `PASSWD`, `KEY` or `CREDENTIAL` anywhere, in any case
   (`LANGFUSE_SECRET_KEY_PR`), or ends in `_PASS`, `_PWD`, `_PAT`, `_URI`, `_DSN`, `WEBHOOK` or
@@ -231,18 +250,19 @@ a hostile `.claude/settings.json` (the sandbox off, a hook, a variable set).
 | Judge | How it runs code | What the verification run showed |
 | --- | --- | --- |
 | `codex` | `exec --ignore-user-config --ignore-rules --sandbox workspace-write` with `sandbox_workspace_write.network_access=false`, `writable_roots=[]`, `/tmp` and `$TMPDIR` left out of what it may write, `approval_policy=never`, `allow_login_shell=false`, and your model settings as overrides. | codex-cli 0.160.1: writes to the home directory, `/tmp`, `$TMPDIR`, the hostile writable root, Claude Code's temporary folder and the copy's `.git` refused; example.com refused; the hostile config's variable not set; a secret your shell profile exports not set (with a login shell, the default, it came back from the profile after Rigour removed it); the trusted-project entry codex writes for the copy, even with `--ignore-user-config`, removed after the run; `git credential fill` returned no password, even naming the keychain helper; `security find-internet-password` failed; the scratch test ran; a `nohup` job it left was ended. **Reads are not confined:** your home directory (`~/.ssh`, `~/.npmrc`, `~/.config/gh`, shell history, browser profiles) is readable, as it is to a read-only judge. |
-| `claude` | `--restricted`, `--no-session-persistence` and `--settings` with `sandbox.enabled`, `failIfUnavailable` (no unsandboxed fallback), `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands: false` (the `dangerouslyDisableSandbox` escape ignored), `network: { allowedDomains: [], strictAllowlist: true }`, `filesystem.denyRead` of your **whole home directory** and of your repository's `.git`, `filesystem.allowRead` of only the copy, the temporary directory, your checkout's `node_modules` and the toolchains a test runs with (`~/.nvm`, `~/.volta`, `~/.asdf`, `~/.pyenv`, `~/.rbenv`, `~/.rustup`, `~/.cargo/bin`, `~/go/bin`, `~/go/pkg/mod`, `~/.bun/bin`, `~/.deno/bin`, `~/.local/bin`, `~/Library/pnpm`, npm's cache), and `filesystem.denyWrite` of the copy's `.git` and of what other sessions keep in Claude Code's temporary folder; Bash allowed, Edit and Write still denied; no `CLAUDE.md`, no MCP. Claude Code 2.1.285 or later. | Claude Code 2.1.285: everything in your home directory outside those toolchains unreadable (`~/.ssh`, `~/.npmrc`, `~/.config/gh`, shell history, `~/.yarnrc.yml`, `~/.config/configstore`, `~/.cursor/mcp.json`, VS Code's and Claude's app settings, Chrome's cookies and saved logins, the Firefox profile, `~/.codex/config.toml`, `~/.claude/settings.json`), and your repository's `.git/config`; writes to the home directory, `/tmp`, `$TMPDIR`, the hostile writable root and the copy's `.git` refused; another session's files in Claude Code's temporary folder could not be written or deleted; example.com refused; `git credential fill` returned no password, even naming the keychain helper; `security find-internet-password` failed; the hostile settings' hook did not run and its variable was not set; the scratch test ran, importing a dependency from `node_modules`; nothing was written into the checkout. **Not closed:** it can still create new files of its own in Claude Code's temporary folder (`/tmp/claude-<uid>`), which its sandbox always allows; Rigour removes the folder Claude Code makes there for the run, not a file the judge put elsewhere in it. |
+| `claude` | `--restricted`, `--no-session-persistence` and `--settings` with `sandbox.enabled`, `failIfUnavailable` (no unsandboxed fallback), `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands: false` (the `dangerouslyDisableSandbox` escape ignored), `network: { allowedDomains: [], strictAllowlist: true }`, `filesystem.denyRead` of your **whole home directory**, the **temporary directory** and your repository's `.git`, `filesystem.allowRead` of only the copy, this review's input folder, your checkout's `node_modules` and the toolchains a test runs with (`~/.nvm`, `~/.volta`, `~/.asdf`, `~/.pyenv`, `~/.rbenv`, `~/.rustup`, `~/.cargo/bin`, `~/go/bin`, `~/go/pkg/mod`, `~/.bun/bin`, `~/.deno/bin`, `~/.local/bin`, `~/Library/pnpm`, npm's cache), and `filesystem.denyWrite` of the copy's `.git` and of what other sessions keep in Claude Code's temporary folder; Bash allowed, Edit and Write still denied; no `CLAUDE.md`, no MCP. Claude Code 2.1.285 or later. | Claude Code 2.1.285: everything in your home directory outside those toolchains unreadable (`~/.ssh`, `~/.npmrc`, `~/.config/gh`, shell history, `~/.yarnrc.yml`, `~/.config/configstore`, `~/.cursor/mcp.json`, VS Code's and Claude's app settings, Chrome's cookies and saved logins, the Firefox profile, `~/.codex/config.toml`, `~/.claude/settings.json`), and your repository's `.git/config`; another process's file in the temporary directory unreadable and the directory unlistable, while the review's input folder was readable; writes to the home directory, `/tmp`, `$TMPDIR`, the hostile writable root and the copy's `.git` refused; another session's files in Claude Code's temporary folder could not be written or deleted; example.com refused; `git credential fill` returned no password, even naming the keychain helper; `security find-internet-password` failed; the hostile settings' hook did not run and its variable was not set; the scratch test ran, importing a dependency from `node_modules`; nothing was written into the checkout. **Not closed:** it can still create new files of its own in Claude Code's temporary folder (`/tmp/claude-<uid>`), which its sandbox always allows; Rigour removes the folder Claude Code makes there for the run, not a file the judge put elsewhere in it. |
 | `cursor` | Stays read-only. | cursor-agent 2026.10.19 with `--sandbox enabled`: home writes and example.com refused (its proxy answers 403; its network rules are your own Cursor settings), the scratch test ran, but `/tmp` and `$TMPDIR` writes succeeded and no switch narrows them. |
 | `api` | Stays read-only: it runs no commands. | |
 
 **What is not protected.** A codex judge can read any file your user can; a Claude Code judge
-cannot read your home directory but can read the rest of the machine your user can (other
-volumes, `/etc`). A judge that reads a secret can quote it, so what leaves a review, read-only or
+cannot read your home directory or the temporary directory but can read the rest of the machine
+your user can (other volumes, `/etc`). A judge that reads a secret can quote it, so what leaves a review, read-only or
 not, the rule writer's included, passes Rigour's own secret scanner (the DLP check) and the token
 shapes it lacks (`npm_…`, `AIza…`, `ASIA…`, Slack webhooks and `xoxp`/`xoxa`/`xoxr` tokens,
 `Bearer` tokens, GitLab, PyPI, Hugging Face, Discord, Shopify, DigitalOcean, Doppler, Linear,
 Postman, Supabase, Stripe webhook, Telegram, Groq, age and Mailgun keys) before it is stored,
-printed or posted: each value becomes `[redacted: <kind>]`, and the review carries a caveat ("the
+printed or posted: each value becomes `[redacted: <kind>]`, the whole value even past a pattern's fixed length, and
+invisible characters (zero-width, bidi) are removed only inside what is redacted; the review carries a caveat ("the
 judge's answer contained 1 secret-like value; redacted"). An env-style line is redacted only when
 its name says secret or its value is a token (`PWD=/var/folders/…` is not). Quotes are checked
 against your checkout before redaction, so a finding on a committed token stays verified and

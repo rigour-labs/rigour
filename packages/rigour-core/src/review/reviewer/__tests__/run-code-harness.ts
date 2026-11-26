@@ -13,6 +13,9 @@ import { defaultExec } from '../exec.js';
 import { gitIn, installFakeJudges, makeRepo, type FakeJudges, type JudgeRun } from './judge-fakes.js';
 
 /** `homes`: the CLIs' homes for the test; `made`: what a test creates besides, removed after it even when it fails. */
+/** The team's rigour.yml on the base: run_code on. */
+export const BASE_RUN_CODE = 'version: 1\nreview:\n  reviewer:\n    run_code: "on"\n';
+
 export interface Harness { repo: string; judges: FakeJudges; homes: string; made: string[] }
 
 export function runCodeHarness(): Harness {
@@ -20,7 +23,8 @@ export function runCodeHarness(): Harness {
     const saved: Record<string, string | undefined> = {};
     beforeEach(() => {
         h.judges = installFakeJudges();
-        h.repo = makeRepo();
+        // run_code is read from the base (run-code-base.ts): the team turned it on on main.
+        h.repo = makeRepo({ 'rigour.yml': BASE_RUN_CODE });
         // The CLIs' own homes, empty and the test's: nothing reads or edits this machine's Codex or Claude Code state.
         h.homes = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-homes-')));
         for (const dir of ['codex', 'claude', 'claude-tmp']) fs.mkdirSync(path.join(h.homes, dir));

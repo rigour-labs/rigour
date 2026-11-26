@@ -35,4 +35,26 @@ describe("one review's copies", () => {
         pool.close();
         for (const dir of dirs) expect([fs.existsSync(dir), fs.existsSync(path.dirname(dir))]).toEqual([false, false]);
     });
+
+    it('give the next pass the checkout\'s node_modules again, whatever a judge put in its place', async () => {
+        fs.mkdirSync(path.join(repo, 'node_modules', 'dep'), { recursive: true });
+        fs.writeFileSync(path.join(repo, 'node_modules', 'dep', 'index.js'), 'module.exports = "real";\n');
+        const pool = copyPool(repo, gitIn(repo, 'rev-parse', 'HEAD').trim(), defaultExec, () => undefined, 1);
+        const seen: string[] = [];
+        const poison = [
+            (link: string) => { fs.rmSync(link); fs.mkdirSync(path.join(link, 'dep'), { recursive: true }); fs.writeFileSync(path.join(link, 'dep', 'index.js'), 'module.exports = "poisoned";\n'); },
+            (link: string) => { fs.rmSync(link); fs.symlinkSync(fs.mkdtempSync(path.join(path.dirname(path.dirname(link)), 'elsewhere-')), link); },
+            () => undefined,
+        ];
+        for (const act of poison) {
+            await pool.run(async dir => {
+                const link = path.join(dir, 'node_modules');
+                seen.push(`${fs.lstatSync(link).isSymbolicLink() ? 'link' : 'folder'} to ${fs.realpathSync(link) === fs.realpathSync(path.join(repo, 'node_modules')) ? 'the checkout' : 'elsewhere'}`);
+                act(link);
+            });
+        }
+        pool.close();
+        expect(seen).toEqual(['link to the checkout', 'link to the checkout', 'link to the checkout']);
+        expect(fs.readFileSync(path.join(repo, 'node_modules', 'dep', 'index.js'), 'utf8')).toBe('module.exports = "real";\n');
+    });
 });

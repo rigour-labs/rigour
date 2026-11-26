@@ -57,24 +57,25 @@ function claudeTmpEntries(env: NodeJS.ProcessEnv): string[] {
     }
 }
 
-/** Where a judge that runs code works: its copy, and the person's repository it was made from. */
-export interface SandboxPlace { copy: string; repo: string }
+/** Where a judge that runs code works: its copy, the person's repository it was made from, and the review's input folder. */
+export interface SandboxPlace { copy: string; repo: string; work?: string }
 
 /**
  * Claude Code 2.1.285's sandbox for a judge that runs code, verified with real runs (docs/REVIEWER.md): commands run
  * sandboxed without a prompt, the dangerouslyDisableSandbox escape is ignored, a sandbox that cannot start fails the
- * run, no host is reachable. Reads: the whole home directory is denied (logins, keys, history, browser profiles, app
- * settings) and only the copy, the temporary directory, the repository's installed dependencies and the toolchains
- * above are read back; the repository's own .git is denied wherever it lives. Writes: only the copy, never its .git
+ * run, no host is reachable. Reads: the whole home directory and the temporary directory are denied (logins, keys,
+ * history, browser profiles, app settings, other processes' temporary files) and only the copy, this review's input
+ * folder, the repository's installed dependencies and the toolchains above are read back; the repository's own .git is denied wherever it lives. Writes: only the copy, never its .git
  * (whose objects are the person's, hardlinked) nor what other sessions keep in Claude Code's temporary folder.
  */
 export function claudeSandbox(place: SandboxPlace, home: string = os.homedir(), env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
-    const allowRead = [place.copy, real(os.tmpdir()), real(path.join(place.repo, 'node_modules')), ...TOOLCHAINS.map(p => real(path.join(home, p)))].filter(p => fs.existsSync(p));
+    const allowRead = [place.copy, ...(place.work ? [real(place.work)] : []), real(path.join(place.repo, 'node_modules')), ...TOOLCHAINS.map(p => real(path.join(home, p)))].filter(p => fs.existsSync(p));
     return {
         enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { allowedDomains: [], strictAllowlist: true },
         filesystem: {
-            denyRead: [real(home), real(path.join(place.repo, '.git'))],
+            // The temporary directory holds other processes' files (other reviews' inputs, other tools' state): denied too.
+            denyRead: [real(home), real(os.tmpdir()), real(path.join(place.repo, '.git'))],
             allowRead: [...new Set(allowRead)],
             denyWrite: [...claudeTmpEntries(env), path.join(place.copy, '.git')],
         },

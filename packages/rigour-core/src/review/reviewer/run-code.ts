@@ -30,14 +30,14 @@ export function runCodeAllowed(setting: 'off' | 'on', context: RunCodeContext, s
         : context.independent ? 'an independent review runs none of the change\'s code'
             : context.backtest ? 'a backtest replays reviews read-only' : undefined;
     if (why) return { on: false, refused: `run_code refused: ${why}; every judge stays read-only` };
-    // Measured last, and only when everything else allows it: the copies must fit (copy-size.ts).
+    // Last, and only when everything else allows it: the base must turn it on, and the copies must fit (copy-size.ts).
     const tooBig = size();
     return tooBig ? { on: false, refused: tooBig } : { on: true };
 }
 
 /** Why `name` stays read-only although run_code is on, or undefined when it runs code. */
-export function judgeRunCodeRefusal(name: ReviewerName, version: string | undefined): string | undefined {
-    const why = ADAPTERS[name].runCodeRefusal(version);
+export function judgeRunCodeRefusal(name: ReviewerName, version: string | undefined, env?: Record<string, string>): string | undefined {
+    const why = ADAPTERS[name].runCodeRefusal(version) ?? (name === 'codex' ? codexModel(codexHomeOf(env)).refused : undefined);
     return why ? `run_code: ${why}; ${name} stays read-only` : undefined;
 }
 
@@ -46,7 +46,7 @@ export function ranCodeLabel(name: string): string {
     return name === 'claude' ? `${name} (ran code in a sandboxed throwaway copy)` : `${name} (ran code in a throwaway copy)`;
 }
 
-export interface CodeRun { binary: string; name: ReviewerName; version: string; prompt: string; model: string | undefined; reasoning?: 'low' | 'medium' | 'high'; timeoutMs: number; unset: string[]; env?: Record<string, string> }
+export interface CodeRun { binary: string; name: ReviewerName; version: string; prompt: string; model: string | undefined; reasoning?: 'low' | 'medium' | 'high'; timeoutMs: number; unset: string[]; env?: Record<string, string>; work?: string }
 
 /** The variables a judge that runs code runs without: what run-code removes on top of the judge's own unset list. */
 export function runCodeUnset(name: ReviewerName, unset: string[], keep: string[] = []): string[] {
@@ -67,7 +67,7 @@ export function runCodeModel(run: Pick<CodeRun, 'name' | 'model' | 'env'>): stri
 export async function runInCopy(pool: CopyPool, repo: string, exec: Exec, run: CodeRun): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     const codex = run.name === 'codex' ? codexModel(codexHomeOf(run.env)) : undefined;
     const result = await pool.run((dir, started) => exec(run.binary, ADAPTERS[run.name].args(withRunCode(run.prompt, dir), run.model, {
-        reasoning: run.reasoning, version: run.version, runCode: true, place: { copy: dir, repo }, ...(codex ? { codexConfig: codex.overrides } : {}),
+        reasoning: run.reasoning, version: run.version, runCode: true, place: { copy: dir, repo, ...(run.work ? { work: run.work } : {}) }, ...(codex ? { codexConfig: codex.overrides } : {}),
     }), {
         cwd: dir, timeoutMs: run.timeoutMs, unset: runCodeUnset(run.name, run.unset, codex?.keyVariable ? [codex.keyVariable] : []),
         env: { ...run.env, ...GIT_WITHOUT_CREDENTIALS }, detached: true, onSpawn: started,

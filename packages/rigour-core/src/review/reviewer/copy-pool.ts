@@ -24,7 +24,7 @@ export interface CopyPool {
     close(): void;
 }
 
-export function copyPool(cwd: string, head: string, exec: Exec, max = MAX_COPIES): CopyPool {
+export function copyPool(cwd: string, head: string, exec: Exec, note: (line: string) => void = line => process.stderr.write(`${line}\n`), max = MAX_COPIES): CopyPool {
     const slots: Slot[] = [];
     const waiting: Array<() => void> = [];
     const codexHomes = new Set<string>([codexHomeOf(undefined)]);
@@ -38,7 +38,10 @@ export function copyPool(cwd: string, head: string, exec: Exec, max = MAX_COPIES
         }
         slots.length = 0;
         for (const dir of made) removeClaudeLeftovers(dir);
-        for (const home of codexHomes) removeCodexTrust(home, project => made.has(project));
+        for (const home of codexHomes) {
+            const left = removeCodexTrust(home, project => made.has(project));
+            if (left) note(`Rigour reviewer: ${left}`);
+        }
     };
     const unregister = onTermination(removeAll);
     const acquire = async (): Promise<Slot | { error: string }> => {
@@ -46,7 +49,7 @@ export function copyPool(cwd: string, head: string, exec: Exec, max = MAX_COPIES
             const free = slots.find(slot => !slot.busy);
             if (free) {
                 free.busy = true;
-                const failed = await resetCopy(free.copy, head, exec);
+                const failed = await resetCopy(cwd, free.copy, head, exec);
                 if (!failed) return free;
                 // A copy that cannot be reset is no one's: removed, so the next pass makes a new one.
                 slots.splice(slots.indexOf(free), 1);

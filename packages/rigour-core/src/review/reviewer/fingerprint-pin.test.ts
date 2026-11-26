@@ -49,7 +49,12 @@ describe('the verdict fingerprint with the judge switches unset', () => {
         expect(withInstructions.inputsKey).not.toBe(PINNED.single.inputsKey);
         expect(withInstructions.rulesHash).not.toBe(PINNED.single.rulesHash);
         expect(withInstructions.prompt).not.toBe(PINNED.single.prompt);
+        // run_code is read from the base (run-code-base.ts): the team turns it on on main.
+        fs.rmSync(repo, { recursive: true, force: true });
+        repo = makeRepo({ 'AGENTS.md': '# Rules\n- Bound every read.\n', 'rigour.yml': 'version: 1\nreview:\n  reviewer:\n    run_code: "on"\n' });
+        const withoutRunCode = await keysOf({}, false);
         const withRunCode = await keysOf({ run_code: 'on' }, false);
+        expect(withRunCode.inputsKey).not.toBe(withoutRunCode.inputsKey);
         expect(withRunCode.inputsKey).not.toBe(PINNED.single.inputsKey);
         expect(withRunCode.inputsKey).not.toBe(withInstructions.inputsKey);
     });
