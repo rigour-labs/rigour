@@ -8,9 +8,9 @@
       "check": "security-patterns: Security: REDOS"
     },
     {
-      "key": "9a72a516a6ca3134",
-      "reason": "hooks/input-validator.ts exists and exports scanInputForCredentials; rigour.yml ignores that file (detection patterns), so the import check cannot see it",
-      "at": "2026-11-26T13:21:40.689Z",
+      "key": "56f47b4e6793cd57",
+      "reason": "A false positive of the check itself: hallucinated-imports treats a file that rigour.yml ignores as missing. hooks/input-validator.ts exists and exports scanInputForCredentials; rigour.yml ignores it (detection patterns), so the check cannot see it. Kept for 7.1.0.",
+      "at": "2026-11-26T14:04:57.350Z",
       "check": "hallucinated-imports: Hallucinated Imports"
     }
   ]

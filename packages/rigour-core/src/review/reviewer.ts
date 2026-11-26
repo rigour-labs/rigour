@@ -30,7 +30,10 @@ import { mergeImpact } from './reviewer/merge-impact.js';
 import { applyPanel, parseAnswers, runPanel, type PanelItem } from './reviewer/panel.js';
 import { beforeAnswerFormat, crossExamPrompt, deltaBlock, goalStep, instructionsBlock, mergeBlock, PROMPT_VERSION, renderPrompt } from './reviewer/prompt.js';
 import { instructionsCaveats, instructionsKey, readInstructions } from './reviewer/instructions.js';
-import { isCi, judgeRunCodeRefusal, runCodeAllowed, runCodeUnset, runInThrowawayCopy } from './reviewer/run-code.js';
+import { isCi, judgeRunCodeRefusal, runCodeAllowed, runCodeModel, runCodeUnset, runInCopy } from './reviewer/run-code.js';
+import { codexHomeOf, sweepCliLeftovers } from './reviewer/cli-leftovers.js';
+import { copyPool, MAX_COPIES, type CopyPool } from './reviewer/copy-pool.js';
+import { copyCaveats, copySizeRefusal } from './reviewer/copy-size.js';
 import { changedUnits, coverageStep, followUpPrompt, unaccounted, unitLabel, unitsText, type ChangedUnit, type Coverage } from './reviewer/coverage.js';
 import { BASELINE_MIN_SINGLES, focusBlock, formatLedger, ledger, passLimit, runPasses, SPECIALISTS, SPECIALISTS_KEY, splitNeeds } from './reviewer/orchestrator.js';
 import { isMigration, MAX_PARTS, parseHunks, planPasses, reviewable, skipped, touchesData, triage, type Pass } from './reviewer/triage.js';
@@ -46,8 +49,9 @@ import { buildContext, dismissedAs, lessonsApplied, readReviewDismissals, relate
 import { buildRecord, type ReviewRecord } from './reviewer/record.js';
 import { account, attachServedRules, changedLinesOf, checkoutSearch, checkoutVerifier, carryResolved, evidenceTouched, mergeVerdicts, parseVerdict, type Accounting, type OpenItem, type PriorChecks, type PriorPoint, type Verdict } from './reviewer/verdict.js';
 import { judgeUnset } from './reviewer/judge-env.js';
-import { redactionCaveat, redactRun } from './reviewer/redact.js';
-import { sweepStaleCopies } from './reviewer/throwaway-copy.js';
+import { confirmingVerifier, redactDeep, redactionCaveat, storedVerifier } from './reviewer/redact.js';
+import { copyPrefix, reviewWorkDir, sweepStaleCopies } from './reviewer/throwaway-copy.js';
+import { onTermination } from './reviewer/on-termination.js';
 import { emptyAnswer, insideAgentNote } from './reviewer/judge-empty.js';
 import { hintIn, judgeFailureHint, withFailureHint } from './reviewer/judge-failure.js';
 import { judgeIsolation, withJudgeHome, type JudgeHomes, type JudgeIsolation } from './reviewer/judge-isolation.js';
@@ -215,7 +219,8 @@ const MAX_DELTA_LINES = 400;
 
 /** The reviewer, and one anonymous usage event for what it did (only when the person opted in to telemetry). */
 export async function runReviewer(cwd: string, base: string, config: Config, exec: Exec = defaultExec, progress: Progress = message => process.stderr.write(`${message}\n`), options: ReviewerOptions = {}): Promise<ReviewerResult> {
-    const result = withoutPrMarked(await review(cwd, base, config, exec, progress, options), options);
+    // Nothing a judge said leaves unredacted: a failed run's reason quotes its output, and so can a progress line.
+    const result = redactedResult(withoutPrMarked(await review(cwd, base, config, exec, message => progress(redactDeep(message).value), options), options));
     const trigger = options.trigger ?? (options.reviewsBefore ? 'backtest' : 'review');
     await trackUsage('reviewer_completed', reviewerUsage(result, trigger));
     // On the task's thread, unless it replays history: a backtest's worktree is not anyone's task.
@@ -232,6 +237,13 @@ export async function runReviewer(cwd: string, base: string, config: Config, exe
         cost_basis: 'runs',
     });
     return result;
+}
+
+/** The result with any secret left in it redacted (a failed run's reason), said once as the verdict's own count is. */
+function redactedResult(result: ReviewerResult): ReviewerResult {
+    const safe = redactDeep(result);
+    if (!safe.count || safe.value.mode?.caveats?.some(line => line.startsWith("the judge's answer contained"))) return safe.value;
+    return { ...safe.value, mode: { ...safe.value.mode!, caveats: [...(safe.value.mode?.caveats ?? []), redactionCaveat(safe.count)!] } };
 }
 
 /** A blind review says so on its result, whatever the outcome: no pull request context was read. */
@@ -335,7 +347,8 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // The team's review instructions, read where the reviewer reads its settings: the base for an independent review.
     const instructions = settings.instructions ? readInstructions(repoRoot, settings.instructions, options.trustedRef) : undefined;
     const teamBlock = instructions?.text ? instructionsBlock(instructions.path, instructions.text) : undefined;
-    const runCode = runCodeAllowed(settings.run_code, { ci: isCi(options.ci), independent: !!options.independent || !!options.trustedRef, backtest: trigger === 'backtest' });
+    const runCode = runCodeAllowed(settings.run_code, { ci: isCi(options.ci), independent: !!options.independent || !!options.trustedRef, backtest: trigger === 'backtest' },
+        () => copySizeRefusal(repoRoot, head, settings.run_code_max_mb, orchestrate ? MAX_COPIES : 1));
     // In the fingerprint only when set: with both off, every key is what it was before these switches existed.
     const switchKeys = [...instructionsKey(instructions), ...(runCode.on ? ['run_code on'] : [])];
     // The goal the description declares, for step 12: only what a model must judge (goal/goal.ts proves the rest), only with the goal check on.
@@ -377,7 +390,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // What changes the instructions themselves; the context pack changes with every commit, so it is in the fingerprint, not here.
     const rulesHash = sha([reviewerVersions, PROMPT_VERSION, rules, body, reviews.key, ...switchKeys]);
     // What the review says about the instructions and run_code, and which judges run code (those whose sandbox was verified).
-    const caveats = [...instructionsCaveats(instructions), ...(runCode.refused ? [runCode.refused] : []), ...(runCode.on ? reviewers.map(name => judgeRunCodeRefusal(name, installed.get(name)?.version)).filter((line): line is string => !!line) : [])];
+    const caveats = [...instructionsCaveats(instructions), ...(runCode.refused ? [runCode.refused] : []), ...(runCode.on ? [...reviewers.map(name => judgeRunCodeRefusal(name, installed.get(name)?.version)).filter((line): line is string => !!line), ...copyCaveats(repoRoot, head)] : [])];
     if (instructions) modeRecord = { ...modeRecord, instructions: { path: instructions.path, from: instructions.from, ...(instructions.hash ? { hash: instructions.hash } : {}), served: !!teamBlock } };
     if (caveats.length) modeRecord = { ...modeRecord, caveats };
     const ranCode = new Set<ReviewerName>();
@@ -406,7 +419,10 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     const openFile = store.openPath(verdictFile);
     const previousOpen = scope === 'delta' ? store.readJson<OpenItem[]>(store.openPath(previous!.verdict)) ?? [] : undefined;
 
-    const verify = checkoutVerifier(cwd);
+    // Quotes checked as the judge gave them; a confirmed quote that holds a secret is kept, redacted, with the verdict.
+    const confirming = confirmingVerifier(checkoutVerifier(cwd));
+    const verify = confirming.verify;
+    const reuseVerify = (stored: Verdict) => storedVerifier(checkoutVerifier(cwd), stored.redacted_quotes);
     const prior: PriorChecks = { approvals: reviews.approvals, inCheckout: checkoutSearch(cwd), changed: changedLinesOf(fullDiff), labels: reviews.labels };
     // Cheap-model-first (reviewer/tiering.ts): decided before any run, from facts about the change only, for one judge.
     let tier = reviewers.length === 1 && (modeRecord.ran === 'single' || modeRecord.ran === 'orchestrator')
@@ -424,9 +440,11 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const outside = ADAPTERS[reviewer as ReviewerName]?.outsideRepo?.(os.homedir(), installed.get(reviewer as ReviewerName)?.version, isolation.get(reviewer as ReviewerName)?.env);
         return { ...(outside ? { outside_repo: outside } : {}), ...(ranCode.has(reviewer.split(/[: ]/)[0] as ReviewerName) ? { ran_code: true as const } : {}) };
     };
+    // The model that ran: a codex judge that ran code runs without its config.toml, so the person's own model is named.
+    const judgeModel = (name: ReviewerName) => modelFor(name) ?? (ranCode.has(name) ? runCodeModel({ name, model: undefined, env: isolation.get(name)?.env }) : undefined);
     const withRecord = (accounted: Decided, verdict: Verdict, cached: boolean): ReviewerResult => {
         const res = result(accounted, verdict, reviewers, scope, why, cached, reviews, pr, modeRecord, settings.dismissals);
-        const judges = (verdict.reviewers ?? []).map(r => ({ reviewer: r.reviewer, ...(installed.get(r.reviewer as ReviewerName)?.version ? { version: installed.get(r.reviewer as ReviewerName)!.version } : {}), ...(modelFor(r.reviewer as ReviewerName) ? { model: modelFor(r.reviewer as ReviewerName) } : {}), ...(typeof r.cost_usd === 'number' ? { cost_usd: r.cost_usd } : {}), ...(r.trace?.turns ? { turns: r.trace.turns } : {}), ...outsideOf(r.reviewer) }));
+        const judges = (verdict.reviewers ?? []).map(r => ({ reviewer: r.reviewer, ...(installed.get(r.reviewer as ReviewerName)?.version ? { version: installed.get(r.reviewer as ReviewerName)!.version } : {}), ...(judgeModel(r.reviewer as ReviewerName) ? { model: judgeModel(r.reviewer as ReviewerName) } : {}), ...(typeof r.cost_usd === 'number' ? { cost_usd: r.cost_usd } : {}), ...(r.trace?.turns ? { turns: r.trace.turns } : {}), ...outsideOf(r.reviewer) }));
         const recordPath = store.recordPath(verdictFile);
         const record = (cached && store.readJson<ReviewRecord>(recordPath)) || buildRecord({ head, base: baseSha, scope, verdict, accounted, judges, lessonsServed: context.lessons, humanReviews: reviews.count, blind: options.blind, instructions: modeRecord.instructions, caveats: modeRecord.caveats });
         if (!cached || !fs.existsSync(recordPath)) store.writeJson(recordPath, record);
@@ -435,7 +453,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     };
     if (!options.force && fs.existsSync(verdictFile) && fs.existsSync(openFile)) {
         const verdict = store.readJson<Verdict>(verdictFile)!;
-        return withRecord(decide(verdict, previousOpen, verify, prior, dismissals), verdict, true);
+        return withRecord(decide(verdict, previousOpen, reuseVerify(verdict), prior, dismissals), verdict, true);
     }
 
     // What one judge would be given: the shared input files and the reviewable diff. Both modes' cost rows measure this.
@@ -452,7 +470,7 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         const verdict = store.readJson<Verdict>(reused.verdict);
         if (verdict) {
             why = `same content as the verdict on ${reused.head.slice(0, 9)}`;
-            const accounted = decide(verdict, undefined, verify, prior, dismissals);
+            const accounted = decide(verdict, undefined, reuseVerify(verdict), prior, dismissals);
             store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: null, at: new Date().toISOString(), cache: 'content', from: reused.head } });
             store.writeJson(openFile, accounted.open);
             store.writeJson(store.decidedPath(verdictFile), accounted);
@@ -496,7 +514,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     // A team that requires the reviewer, or the orchestrator, gets no quieter review when the caps are reached: unavailable.
     if (over) return none(settings.required.panel || settings.required.mode || orchestrator.required ? 'unavailable' : 'skipped', over, { reviewers, scope, why, pr: pr?.number });
 
-    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'rigour-reviewer-'));
+    // Removed in the finally below; on a SIGINT, SIGTERM or SIGHUP too, and by the next run_code review's sweep after a kill -9.
+    const work = reviewWorkDir();
+    const unregisterWork = onTermination(() => fs.rmSync(work, { recursive: true, force: true }));
     // Every run this review makes, failed ones included: the caps count each, and the review's cost row sums them.
     const tally = { runs: 0, chars: 0, usd: 0 };
     const spent = (usd: number | undefined, chars: number) => {
@@ -518,31 +538,25 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
     };
     // One judge run, by CLI or by API: the same prompt, the same cost accounting, the same trace.
     let inlineInputs: Array<{ path: string; text: string }> = [];
-    // Every judge's raw output passes Rigour's secret scanner before anything reads, stores or prints it (redact.ts).
-    let redacted = 0;
-    const runJudge = async (name: ReviewerName, prompt: string, model: string | undefined) => {
-        const run = redactRun(await rawRun(name, prompt, model));
-        if (run.redacted) {
-            const before = redactionCaveat(redacted);
-            redacted += run.redacted;
-            modeRecord = { ...modeRecord, caveats: [...(modeRecord.caveats ?? []).filter(line => line !== before), redactionCaveat(redacted)!] };
-        }
-        return run;
-    };
-    const rawRun = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
+    // The raw answer: its quotes are checked against the checkout as the judge gave them; what is stored is redacted (redact.ts).
+    const runJudge = (name: ReviewerName, prompt: string, model: string | undefined) => name === 'api'
         ? runApiJudge(prompt, { url: settings.api!.url, model: settings.api!.model, key: process.env[settings.api!.key_env] ?? '', maxTurns: settings.api!.max_turns, timeoutMs: settings.timeout_ms, cwd, roots: [cwd, work], inputs: inlineInputs, cache: apiVendor(settings.api) === 'anthropic', ...(settings.reasoning[name] ? { reasoning: settings.reasoning[name] } : {}), ...(options.fetch ? { fetchImpl: options.fetch } : {}) })
         : runsCode(name) ? codeRun(name, prompt, model)
             : exec(installed.get(name)!.binary, ADAPTERS[name].args(prompt, model, { reasoning: settings.reasoning[name], version: installed.get(name)!.version }), { cwd, timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
-    // run_code: each run in its own throwaway copy (parallel passes never share one), removed afterwards.
+    // run_code: each run in a copy of the review's pool (at most two, reset between passes), removed when the review ends.
+    let pool: CopyPool | undefined;
     const codeRun = (name: ReviewerName, prompt: string, model: string | undefined) => {
         ranCode.add(name);
         modeRecord = { ...modeRecord, ranCode: [...ranCode] };
-        return runInThrowawayCopy(repoRoot, head, exec, { binary: installed.get(name)!.binary, name, version: installed.get(name)!.version, prompt, model, reasoning: settings.reasoning[name], timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
+        return runInCopy(pool ??= copyPool(repoRoot, head, exec), repoRoot, exec, { binary: installed.get(name)!.binary, name, version: installed.get(name)!.version, prompt, model, reasoning: settings.reasoning[name], timeoutMs: settings.timeout_ms, unset: judgeUnset(name, settings.judge_env), ...judgeEnv(name, isolation.get(name)) });
     };
     // A failed run's own output can say why (a refused API key): the reason carries it.
     const hinted = <T extends object>(name: ReviewerName, run: { stdout: string; stderr: string }, answer: T | { error: string }) => withFailureHint(answer, name === 'api' ? undefined : judgeFailureHint(name, run, runsCode(name) ? runCodeUnset(name, judgeUnset(name, settings.judge_env)) : judgeUnset(name, settings.judge_env), process.env, runsCode(name)));
-    // A copy a killed run_code review left behind goes before this one makes its own.
-    if (reviewers.some(runsCode)) sweepStaleCopies(repoRoot, settings.timeout_ms);
+    // What a killed run_code review left behind (its copies, what the CLIs kept under them) goes before this one starts.
+    if (reviewers.some(runsCode)) {
+        sweepStaleCopies();
+        sweepCliLeftovers(copyPrefix(), [codexHomeOf(undefined), codexHomeOf(isolation.get('codex')?.env)]);
+    }
     try {
         const file = (name: string, text: string) => {
             const target = path.join(work, name);
@@ -771,7 +785,12 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
             });
             verdict = { ...verdict, panel: { judgeItemIds: judgeItems.flat().map(item => item.id), items }, reviewers: [...(verdict.reviewers ?? []), ...cross] };
         }
-        const accounted = decide(verdict, previousOpen, verify, prior, dismissals);
+        const raw = decide(verdict, previousOpen, verify, prior, dismissals);
+        // What is stored, printed and posted is redacted; the verdict keeps which redacted quotes this review confirmed.
+        const safe = redactDeep(verdict);
+        if (safe.count) modeRecord = { ...modeRecord, caveats: [...(modeRecord.caveats ?? []), redactionCaveat(safe.count)!] };
+        verdict = confirming.confirmed().length ? { ...safe.value, redacted_quotes: confirming.confirmed() } : safe.value;
+        const accounted = redactDeep(raw).value;
         // Said every run where the reviews carry labels, so a matcher that takes none is visible rather than silent.
         if (accounted.labels?.served) progress(`Rigour reviewer: ${accounted.labels.taken} of ${verdict.prior_points.length} prior point(s) took the review's own severity label (${accounted.labels.served} labelled line(s)); the judge read ${accounted.labels.disagreed} otherwise`);
         store.writeJson(verdictFile, { ...verdict, inputs: { head, base: baseSha, scope, why, mode: modeRecord, reviewers, versions: reviewerVersions, authors: [...authors], fingerprint, human_reviews: reviews.count, reviews_before: options.reviewsBefore ?? null, since: previous?.head ?? null, at: new Date().toISOString() } });
@@ -785,7 +804,9 @@ async function review(cwd: string, base: string, config: Config, exec: Exec, pro
         }
         return { ...withRecord(accounted, verdict, false), spentUsd: spentUsd() };
     } finally {
+        pool?.close();
         fs.rmSync(work, { recursive: true, force: true });
+        unregisterWork();
     }
 }
 

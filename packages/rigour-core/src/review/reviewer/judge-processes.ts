@@ -38,7 +38,10 @@ function descendants(pid: number): number[] {
     const children = new Map<number, number[]>();
     for (const line of table.stdout.split('\n')) {
         const [child, parent] = line.trim().split(/\s+/).map(Number);
-        if (child && parent) children.set(parent, [...(children.get(parent) ?? []), child]);
+        if (!child || !parent) continue;
+        const siblings = children.get(parent);
+        if (siblings) siblings.push(child);
+        else children.set(parent, [child]);
     }
     const found: number[] = [];
     for (const queue = [...(children.get(pid) ?? [])]; queue.length;) {

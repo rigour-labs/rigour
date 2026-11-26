@@ -6,15 +6,14 @@
  * checkout. Refused, and said, where the change's code must not run on the reviewer's say-so: CI, an independent
  * review, a backtest replay. Running code costs more tokens and time; the caps apply as to any run.
  */
-import os from 'os';
-import path from 'path';
 import { ADAPTERS, type ReviewerName } from './adapters.js';
 import { CI_MARKERS } from '../../telemetry/telemetry.js';
 import type { Exec } from './exec.js';
 import { GIT_WITHOUT_CREDENTIALS, secretVariables } from './judge-env.js';
 import { withRunCode } from './prompt.js';
-import { removeClaudeTmpOf, removeCodexTrustOf } from './judge-sandbox.js';
-import { withThrowawayCopy } from './throwaway-copy.js';
+import { codexHomeOf } from './cli-leftovers.js';
+import { codexModel } from './codex-model.js';
+import type { CopyPool } from './copy-pool.js';
 
 export interface RunCodeContext { ci: boolean; independent: boolean; backtest: boolean }
 
@@ -25,12 +24,15 @@ export function isCi(flag: boolean | undefined, env: NodeJS.ProcessEnv = process
 }
 
 /** Whether any judge may run code on this run, and the line that says why not when the team turned it on. */
-export function runCodeAllowed(setting: 'off' | 'on', context: RunCodeContext): { on: boolean; refused?: string } {
+export function runCodeAllowed(setting: 'off' | 'on', context: RunCodeContext, size: () => string | undefined = () => undefined): { on: boolean; refused?: string } {
     if (setting !== 'on') return { on: false };
     const why = context.ci ? 'this is CI (a CI variable such as CI or GITHUB_ACTIONS, or --ci)'
         : context.independent ? 'an independent review runs none of the change\'s code'
             : context.backtest ? 'a backtest replays reviews read-only' : undefined;
-    return why ? { on: false, refused: `run_code refused: ${why}; every judge stays read-only` } : { on: true };
+    if (why) return { on: false, refused: `run_code refused: ${why}; every judge stays read-only` };
+    // Measured last, and only when everything else allows it: the copies must fit (copy-size.ts).
+    const tooBig = size();
+    return tooBig ? { on: false, refused: tooBig } : { on: true };
 }
 
 /** Why `name` stays read-only although run_code is on, or undefined when it runs code. */
@@ -47,24 +49,28 @@ export function ranCodeLabel(name: string): string {
 export interface CodeRun { binary: string; name: ReviewerName; version: string; prompt: string; model: string | undefined; reasoning?: 'low' | 'medium' | 'high'; timeoutMs: number; unset: string[]; env?: Record<string, string> }
 
 /** The variables a judge that runs code runs without: what run-code removes on top of the judge's own unset list. */
-export function runCodeUnset(name: ReviewerName, unset: string[]): string[] {
-    return [...new Set([...unset, ...secretVariables(name)])];
+export function runCodeUnset(name: ReviewerName, unset: string[], keep: string[] = []): string[] {
+    return [...new Set([...unset, ...secretVariables(name)])].filter(variable => !keep.includes(variable));
+}
+
+/** The model a codex judge that runs code uses: Rigour's choice, else the person's own (codex-model.ts). */
+export function runCodeModel(run: Pick<CodeRun, 'name' | 'model' | 'env'>): string | undefined {
+    return run.model ?? (run.name === 'codex' ? codexModel(codexHomeOf(run.env)).model : undefined);
 }
 
 /**
- * One judge run that may run code: in a throwaway copy of `head`, told so in its prompt, without secret-looking
- * variables or git credentials, in a process group of its own. The group is ended and the copy removed afterwards (a
- * timeout and SIGINT or SIGTERM included). A copy that cannot be made is a failed run, said as one.
+ * One judge run that may run code: in a copy from the review's pool (copy-pool.ts), told so in its prompt, without
+ * secret-looking variables (its own login kept: for codex, its provider's key variable) or git credentials or the
+ * person's global git config, in a process group of its own, ended afterwards. A copy that cannot be had is a failed
+ * run, said as one.
  */
-export async function runInThrowawayCopy(cwd: string, head: string, exec: Exec, run: CodeRun): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-    const result = await withThrowawayCopy(cwd, head, exec, (dir, started) => exec(run.binary, ADAPTERS[run.name].args(withRunCode(run.prompt, dir), run.model, { reasoning: run.reasoning, version: run.version, runCode: true }), {
-        cwd: dir, timeoutMs: run.timeoutMs, unset: runCodeUnset(run.name, run.unset), env: { ...run.env, ...GIT_WITHOUT_CREDENTIALS }, detached: true, onSpawn: started,
-    }), dir => leftoversOf(run, dir));
+export async function runInCopy(pool: CopyPool, repo: string, exec: Exec, run: CodeRun): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    const codex = run.name === 'codex' ? codexModel(codexHomeOf(run.env)) : undefined;
+    const result = await pool.run((dir, started) => exec(run.binary, ADAPTERS[run.name].args(withRunCode(run.prompt, dir), run.model, {
+        reasoning: run.reasoning, version: run.version, runCode: true, place: { copy: dir, repo }, ...(codex ? { codexConfig: codex.overrides } : {}),
+    }), {
+        cwd: dir, timeoutMs: run.timeoutMs, unset: runCodeUnset(run.name, run.unset, codex?.keyVariable ? [codex.keyVariable] : []),
+        env: { ...run.env, ...GIT_WITHOUT_CREDENTIALS }, detached: true, onSpawn: started,
+    }), run.env);
     return 'error' in result ? { exitCode: 1, stdout: '', stderr: result.error } : result;
-}
-
-/** What each CLI keeps under the copy's path outside it: Claude Code's temporary folder, Codex's trusted project. */
-function leftoversOf(run: CodeRun, dir: string): void {
-    if (run.name === 'claude') removeClaudeTmpOf(dir);
-    if (run.name === 'codex') removeCodexTrustOf(dir, run.env?.CODEX_HOME || process.env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex'));
 }

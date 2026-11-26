@@ -1,22 +1,45 @@
 /**
- * A judge's raw output, with anything Rigour's own secret scanner (hooks/input-validator.ts, the DLP check) finds
- * replaced by `[redacted: <kind>]`, before any of it is parsed, stored, printed or posted. Every judge, always: a
- * read-only judge can read a home directory too. Only the count and the kinds leave this file, never a value.
- * JSON is redacted string by string (a JSON answer inside a JSON event too), so the answer still parses.
+ * What leaves a review, with anything Rigour's own secret scanner (hooks/input-validator.ts, the DLP check) or the
+ * token shapes it lacks (secret-shapes.ts) find replaced by `[redacted: <kind>]`: what is stored, printed or posted.
+ * Every judge, always: a read-only judge can read a home directory too. The judge's raw answer is what Rigour checks
+ * quotes against, so a finding on a committed secret stays verified; a stored verdict carries which redacted quotes
+ * were confirmed, and a reused one is never matched against the checkout through a redacted quote. Only the count and
+ * the kinds leave this file, never a value. JSON is redacted string by string, so it still parses.
  */
 import { scanInputForCredentials } from '../../hooks/input-validator.js';
+import { secretName } from './judge-env.js';
+import { shapeMatches } from './secret-shapes.js';
+import type { Verify } from './verdict.js';
 
 export interface Redaction { text: string; count: number }
 
-/** `text` with every secret the scanner is sure enough to act on (block or warn) replaced, and how many there were. */
+/** Not a secret, though the scanner reports it: who and where to ssh to. */
+const NOT_SECRETS = new Set(['ssh_credentials']);
+
+/** An env-style line is a secret only when its name says so (`PWD=/var/folders/…` is not), or a shape is in its value. */
+function secretEnvLine(match: string): boolean {
+    return secretName(match.slice(0, match.indexOf('=')).trim());
+}
+
+/** Every span to redact in `text` (already normalized), overlapping ones merged into the first. */
+function spans(text: string): Array<{ type: string; start: number; end: number }> {
+    const scanned = scanInputForCredentials(text, { use_learned_feedback: false }).detections
+        .filter(d => d.position && !NOT_SECRETS.has(d.type) && (d.type !== 'env_variable' || secretEnvLine(text.slice(d.position.start, d.position.end))))
+        .map(d => ({ type: d.type, start: d.position!.start, end: blockEnd(text, d.type, d.position!.end) }));
+    const all = [...scanned, ...shapeMatches(text)].sort((x, y) => x.start - y.start || y.end - x.end);
+    const kept: typeof all = [];
+    for (const span of all) if (!kept.length || span.start >= kept[kept.length - 1].end) kept.push(span);
+    return kept;
+}
+
+/** `text` with every secret replaced, and how many there were. */
 function redactText(text: string): Redaction {
-    const found = scanInputForCredentials(text, { use_learned_feedback: false }).detections.filter(d => d.position);
-    if (found.length === 0) return { text, count: 0 };
     // The scanner reads the text with zero-width and bidi characters removed: its positions are in that text.
-    let out = text.replace(/[​‌‍﻿]/g, '').replace(/[‪-‮؜⁦-⁩]/g, '').normalize('NFC');
-    for (const d of [...found].sort((a, b) => b.position!.start - a.position!.start)) {
-        out = `${out.slice(0, d.position!.start)}[redacted: ${d.type}]${out.slice(blockEnd(out, d.type, d.position!.end))}`;
-    }
+    const normalized = text.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').replace(/[\u202A-\u202E\u061C\u2066-\u2069]/g, '').normalize('NFC');
+    const found = spans(normalized);
+    if (found.length === 0) return { text, count: 0 };
+    let out = normalized;
+    for (const d of [...found].reverse()) out = `${out.slice(0, d.start)}[redacted: ${d.type}]${out.slice(d.end)}`;
     return { text: out, count: found.length };
 }
 
@@ -95,4 +118,33 @@ export function redactRun<T extends { stdout: string; stderr: string }>(run: T):
 /** The caveat a review carries when it redacted any value. */
 export function redactionCaveat(count: number): string | undefined {
     return count ? `the judge's answer contained ${count} secret-like value${count === 1 ? '' : 's'}; redacted` : undefined;
+}
+
+/** Any value (a verdict, an accounting, a result) with every string in it redacted, and how many values were. */
+export function redactDeep<T>(value: T): { value: T; count: number } {
+    const tally = { count: 0 };
+    const done = redactValue(value, tally) as T;
+    return { value: tally.count ? done : value, count: tally.count };
+}
+
+const REDACTED = /\[redacted: [a-z0-9_]+\]/;
+const quoteKey = (file: string, line: number | undefined, quote: string) => JSON.stringify([file, line ?? null, redactDeep(quote).value]);
+
+/** `verify`, recording each confirmed quote that holds a secret, as it will be stored (redacted): kept with the verdict. */
+export function confirmingVerifier(verify: Verify): { verify: Verify; confirmed: () => string[] } {
+    const confirmed = new Set<string>();
+    return {
+        verify: (file, line, quote) => {
+            const ok = verify(file, line, quote);
+            if (ok && quote !== undefined && redactDeep(quote).count) confirmed.add(quoteKey(file, line, quote));
+            return ok;
+        },
+        confirmed: () => [...confirmed],
+    };
+}
+
+/** For a stored verdict: a redacted quote is confirmed only when its review confirmed it; any other is checked as ever. */
+export function storedVerifier(verify: Verify, confirmed: string[] | undefined): Verify {
+    const known = new Set(confirmed ?? []);
+    return (file, line, quote) => (quote !== undefined && REDACTED.test(quote) ? known.has(quoteKey(file, line, quote)) : verify(file, line, quote));
 }

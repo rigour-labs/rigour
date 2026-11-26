@@ -323,6 +323,7 @@ export const UNIVERSAL_CONFIG: Config = {
             judge_env: {},
             reasoning: {},
             run_code: 'off',
+            run_code_max_mb: 2048,
         },
     },
     ignore: [],

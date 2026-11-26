@@ -534,6 +534,8 @@ export const ConfigSchema = z.object({
              * independent review or a backtest. More tokens and time; the caps still apply.
              */
             run_code: z.enum(['off', 'on']).optional().default('off'),
+            /** The largest throwaway copy run_code makes, in MB; a bigger commit is reviewed read-only, and the review says why. */
+            run_code_max_mb: z.number().int().positive().optional().default(2048),
         }).optional().default({}),
     }).optional().default({}),
     ignore: z.array(z.string()).optional().default([]),

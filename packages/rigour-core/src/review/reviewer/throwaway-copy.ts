@@ -1,97 +1,119 @@
 /**
- * The throwaway copy a judge that runs code works in (run-code.ts): a standalone clone of the reviewed commit in the
- * system's temporary directory, sharing the person's objects (`--shared`, nothing copied) with no remote. Not a git
- * worktree: a worktree resolves to the person's checkout, so a CLI took that checkout's trust and wrote its own files
- * there (Claude Code's `.claude/.cc-writes`). Every copy is removed afterwards, and so is every process the judge
- * started (judge-processes.ts): after an answer, an error, a timeout, or a SIGINT or SIGTERM to Rigour itself. A copy
- * a killed process left behind is swept at the next run_code review, once it is older than the judge's timeout.
+ * The throwaway copy a judge that runs code works in (run-code.ts, copy-pool.ts): `<tmp>/rigour-judge-copy-XXXXXX/repo`,
+ * a standalone clone of the reviewed commit with no remote. `--local`: its objects are hardlinked, never an alternates
+ * file, so no path in it leads back to the person's .git (and the sandboxes keep the judge from writing its .git).
+ * Not a git worktree: a worktree resolves to the person's checkout, whose trust and settings a CLI would take. Beside
+ * `repo`, outside what the judge may write, `owner.json` names the Rigour process that made it (pid, start time, user):
+ * a copy is swept only once that process is gone, never because it is old.
  */
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { GH_TIMEOUT_MS, type Exec } from './exec.js';
-import { alive, endJudgeProcesses } from './judge-processes.js';
-import { onTermination } from './on-termination.js';
 import { shareDependencies } from './throwaway-worktree.js';
 
 const COPY_PREFIX = 'rigour-judge-copy-';
+/** A review's own input folder (reviewer.ts): owned the same way, so a killed review's is swept too. */
+const WORK_PREFIX = 'rigour-reviewer-';
 const GIT_TIMEOUT_MS = 5 * GH_TIMEOUT_MS;
 
-/** Ends the judge and what it started, then waits (at most two seconds) until the judge has exited. */
-async function endJudge(pid: number | undefined, dir: string): Promise<void> {
-    endJudgeProcesses(pid, dir);
-    for (let i = 0; pid && i < 40 && alive(pid); i++) await new Promise(resolve => setTimeout(resolve, 50));
+/** Every Rigour copy's path starts with this (the real temporary directory and the prefix). */
+export function copyPrefix(): string {
+    return path.join(fs.realpathSync(os.tmpdir()), COPY_PREFIX);
 }
 
-/** The person's object store, where a copy of this repository points its alternates. */
-function objectsDir(cwd: string): string | undefined {
-    const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
-    return common.status === 0 ? fs.realpathSync(path.join(common.stdout.trim(), 'objects')) : undefined;
+export interface Copy { root: string; dir: string }
+interface Owner { pid: number; started: string; uid: number }
+
+/** When a process started, as `ps` says: with its pid, what tells it from a later process given the same pid. */
+function startedAt(pid: number): string | undefined {
+    const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' });
+    return ps.status === 0 ? ps.stdout.trim() || undefined : undefined;
 }
 
-/**
- * Removes the copies of this repository a killed run left behind: named with Rigour's prefix, pointing at this
- * repository's objects, and older than `olderThanMs` (a copy a running review still uses is younger than its timeout).
- */
-export function sweepStaleCopies(cwd: string, olderThanMs: number, now = Date.now()): string[] {
-    const objects = objectsDir(cwd);
-    if (!objects) return [];
-    const swept: string[] = [];
-    for (const name of fs.readdirSync(os.tmpdir()).filter(entry => entry.startsWith(COPY_PREFIX))) {
-        const dir = path.join(os.tmpdir(), name);
-        try {
-            const alternates = fs.readFileSync(path.join(dir, '.git', 'objects', 'info', 'alternates'), 'utf8').trim();
-            if (fs.realpathSync(alternates) !== objects || now - fs.statSync(dir).mtimeMs < olderThanMs) continue;
-            fs.rmSync(dir, { recursive: true, force: true });
-            swept.push(dir);
-        } catch {
-            // not a copy of this repository
-        }
-    }
-    return swept;
+/** A new, empty folder in the temporary directory, named `prefix…`, that names this process as its owner. */
+function ownedDir(prefix: string, tmp: string): string {
+    const root = fs.mkdtempSync(path.join(tmp, prefix));
+    const owner: Owner = { pid: process.pid, started: startedAt(process.pid) ?? '', uid: process.getuid?.() ?? -1 };
+    fs.writeFileSync(path.join(root, 'owner.json'), JSON.stringify(owner));
+    return root;
 }
 
-/** A standalone copy of `head`, or why it could not be made. */
-async function makeCopy(cwd: string, dir: string, head: string, exec: Exec): Promise<string | undefined> {
-    const git = (args: string[], at = dir) => exec('git', args, { cwd: at, timeoutMs: GIT_TIMEOUT_MS });
+/** A new, empty copy root owned by this process. */
+function newRoot(): Copy {
+    // The real path: what the system reports as a process's working directory in it (judge-processes.ts).
+    const root = ownedDir(COPY_PREFIX, fs.realpathSync(os.tmpdir()));
+    return { root, dir: path.join(root, 'repo') };
+}
+
+/** A review's input folder, owned by this process: removed by the review, or by the sweep once the review is gone. */
+export function reviewWorkDir(): string {
+    return ownedDir(WORK_PREFIX, os.tmpdir());
+}
+
+/** A copy of `head` (LFS files left as pointers: nothing is fetched), or why it could not be made. */
+export async function makeCopy(cwd: string, head: string, exec: Exec): Promise<Copy | { error: string }> {
+    const copy = newRoot();
+    const git = (args: string[], at = copy.dir) => exec('git', args, { cwd: at, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_LFS_SKIP_SMUDGE: '1' } });
     const steps: Array<() => ReturnType<Exec>> = [
-        () => git(['clone', '--quiet', '--shared', '--no-checkout', cwd, dir], cwd),
+        () => git(['clone', '--quiet', '--local', '--no-checkout', cwd, copy.dir], copy.root),
         () => git(['checkout', '--quiet', '--detach', head]),
         () => git(['remote', 'remove', 'origin']),
     ];
     for (const step of steps) {
         const done = await step();
+        if (done.exitCode !== 0) {
+            removeCopy(copy);
+            return { error: `could not make a throwaway copy of ${head.slice(0, 9)}: ${done.stderr.trim() || `git exited ${done.exitCode}`}` };
+        }
+    }
+    shareDependencies(cwd, copy.dir);
+    return copy;
+}
+
+/** The copy back at `head` with nothing the last judge wrote (its linked dependencies kept), or why not. */
+export async function resetCopy(copy: Copy, head: string, exec: Exec): Promise<string | undefined> {
+    for (const args of [['checkout', '--quiet', '--force', '--detach', head], ['clean', '-ffdxq', '-e', '/node_modules']]) {
+        const done = await exec('git', args, { cwd: copy.dir, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_LFS_SKIP_SMUDGE: '1' } });
         if (done.exitCode !== 0) return done.stderr.trim() || `git exited ${done.exitCode}`;
     }
-    shareDependencies(cwd, dir);
     return undefined;
 }
 
-/**
- * Runs `work` in a new copy of `head`, handing it a place to record the judge's pid; afterwards (an answer, an error,
- * a timeout, or Rigour interrupted) every process the judge started is ended, the copy removed, and `leftovers` told
- * the copy's path, to remove what a CLI kept under it elsewhere.
- */
-export async function withThrowawayCopy<T>(cwd: string, head: string, exec: Exec, work: (dir: string, started: (pid: number) => void) => Promise<T>, leftovers: (dir: string) => void = () => undefined): Promise<T | { error: string }> {
-    // The real path: what the system reports as a process's working directory inside the copy (judge-processes.ts).
-    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), COPY_PREFIX)));
-    let pid: number | undefined;
-    const remove = () => {
-        fs.rmSync(dir, { recursive: true, force: true });
-        leftovers(dir);
-    };
-    const unregister = onTermination(() => {
-        endJudgeProcesses(pid, dir);
-        remove();
-    });
+export function removeCopy(copy: Copy): void {
+    fs.rmSync(copy.root, { recursive: true, force: true });
+}
+
+/** Whether the process that made the copy at `root` is gone: its pid ended, or now another process's. */
+function orphaned(root: string): boolean {
+    let owner: Owner;
     try {
-        const failed = await makeCopy(cwd, dir, head, exec);
-        if (failed) return { error: `could not make a throwaway copy of ${head.slice(0, 9)}: ${failed}` };
-        return await work(dir, started => { pid = started; });
-    } finally {
-        await endJudge(pid, dir);
-        remove();
-        unregister();
+        owner = JSON.parse(fs.readFileSync(path.join(root, 'owner.json'), 'utf8')) as Owner;
+    } catch {
+        // No owner: a copy made before owners were written, or one interrupted before it wrote its own (within a
+        // millisecond of being made). Either way not a live review's once it is an hour old.
+        return Date.now() - fs.statSync(root).mtimeMs > 3_600_000;
     }
+    // Another user's copy is never this one's to judge, whatever its pid.
+    if (owner.uid !== (process.getuid?.() ?? -1)) return false;
+    const now = startedAt(owner.pid);
+    return now === undefined || (!!owner.started && now !== owner.started);
+}
+
+/** Removes the copies and review folders whose Rigour process is gone, this user's only; returns them. */
+export function sweepStaleCopies(): string[] {
+    const tmp = fs.realpathSync(os.tmpdir());
+    const swept: string[] = [];
+    for (const name of fs.readdirSync(tmp).filter(entry => entry.startsWith(COPY_PREFIX) || entry.startsWith(WORK_PREFIX))) {
+        const root = path.join(tmp, name);
+        try {
+            if (fs.statSync(root).uid !== process.getuid?.() || !orphaned(root)) continue;
+            fs.rmSync(root, { recursive: true, force: true });
+            swept.push(root);
+        } catch {
+            // gone meanwhile, or not readable: not this user's to remove
+        }
+    }
+    return swept;
 }

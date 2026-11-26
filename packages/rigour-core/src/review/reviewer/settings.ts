@@ -53,6 +53,8 @@ export interface ResolvedReviewer {
     instructions?: string;
     /** Whether a judge may run scratch code in a throwaway copy (the team's, never a person's). */
     run_code: 'off' | 'on';
+    /** The largest copy run_code makes, in MB (the team's). */
+    run_code_max_mb: number;
     /** Where the mode and the panel choice came from. */
     source: { mode: Source; panel: Source };
     /** The team's floor: a run that cannot meet it is unavailable, never a quieter review. */
@@ -66,7 +68,7 @@ const RANK: Record<Mode, number> = { single: 0, cross: 1, full: 2 };
 const NEAR: Record<Source, number> = { flag: 0, env: 1, user: 2, team: 3 };
 
 export function resolveReviewer(config: Config, choice: RunChoice = {}, user: UserReviewerSettings | undefined = loadSettings().reviewer, env: NodeJS.ProcessEnv = process.env): ResolvedReviewer {
-    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, dismissals: false, orchestrator: 'off' as const, judges: 2 as const, escalate: 'always' as const, cross_models: {}, tiers: { cheap: {} }, judge_env: {}, reasoning: {}, run_code: 'off' as const };
+    const team = config.review?.reviewer ?? { enabled: false, on_push: 'background' as const, reviewers: ['claude'], mode: 'single' as const, models: {}, timeout_ms: 15 * 60_000, panel: 'off' as const, mode_required: false, panel_max_items: 20, dismissals: false, orchestrator: 'off' as const, judges: 2 as const, escalate: 'always' as const, cross_models: {}, tiers: { cheap: {} }, judge_env: {}, reasoning: {}, run_code: 'off' as const, run_code_max_mb: 2048 };
     const refused: string[] = [];
     const envMode = parseMode(env.RIGOUR_REVIEWER_MODE);
     const envPanel = parseSwitch(env.RIGOUR_REVIEWER_PANEL);
@@ -130,6 +132,7 @@ export function resolveReviewer(config: Config, choice: RunChoice = {}, user: Us
         judge_env: team.judge_env ?? {},
         ...(team.instructions ? { instructions: team.instructions } : {}),
         run_code: team.run_code ?? 'off',
+        run_code_max_mb: team.run_code_max_mb ?? 2048,
         reasoning: team.reasoning ?? {},
         ...(team.api ? { api: team.api } : {}),
         source: { mode: modeSource, panel: panelSource },

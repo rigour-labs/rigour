@@ -23,9 +23,10 @@ export const defaultExec: Exec = async (command, args, options) => {
 /** The environment a command runs with: the inherited one plus `env`, minus `unset` (then nothing is inherited implicitly). */
 function childEnv(options: { env?: Record<string, string>; unset?: string[] }): { env?: Record<string, string | undefined>; extendEnv?: boolean } {
     if (!options.unset?.length) return options.env ? { env: { ...process.env, ...options.env } } : {};
-    const env: Record<string, string | undefined> = { ...process.env, ...options.env };
+    // `unset` removes what is inherited; what the caller sets itself stays (git's GIT_CONFIG_KEY_0 names no secret).
+    const env: Record<string, string | undefined> = { ...process.env };
     for (const name of options.unset) delete env[name];
-    return { env, extendEnv: false };
+    return { env: { ...env, ...options.env }, extendEnv: false };
 }
 
 /** Called while the reviewer works, so a slow run and a stuck one look different. */

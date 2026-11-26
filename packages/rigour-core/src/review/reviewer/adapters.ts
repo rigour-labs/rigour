@@ -10,17 +10,23 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { defaultExec, type Exec } from './exec.js';
-import { claudeSandbox, CODEX_RUN_CODE, runCodePlatformRefusal } from './judge-sandbox.js';
+import { claudeSandbox, CODEX_RUN_CODE, runCodePlatformRefusal, type SandboxPlace } from './judge-sandbox.js';
 
 export type ReviewerName = 'claude' | 'cursor' | 'codex' | 'api';
 export type Vendor = 'anthropic' | 'cursor' | 'openai' | 'google' | 'other';
 export type ReviewMode = 'single' | 'cross' | 'full';
 
+/**
+ * How one run is asked for. With `runCode`, `place` is where it works (its copy, and the repository it was made from),
+ * and `codexConfig` the person's own model settings as overrides (codex runs without its config.toml then).
+ */
+export interface ArgOptions { reasoning?: 'low' | 'medium' | 'high'; version?: string; runCode?: boolean; place?: SandboxPlace; codexConfig?: string[] }
+
 export interface Adapter {
     vendor: Vendor;
     binary: string;
     /** The command line for one review: the prompt is passed as text, never through a shell. */
-    args(prompt: string, model: string | undefined, options?: { reasoning?: 'low' | 'medium' | 'high'; version?: string; runCode?: boolean }): string[];
+    args(prompt: string, model: string | undefined, options?: ArgOptions): string[];
     /** The reviewer's final message and, when the CLI reports them, what the run cost and the tokens it used. */
     answer(stdout: string): { text: string } & Spend;
     /** Variables the judge runs with, on top of what it inherits: what keeps a person's own instructions out of it. */
@@ -99,7 +105,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             // confines the file tools to the working directory; --settings, with the sandbox, still applies. No session
             // is kept: each copy is a new path, so each run would leave a project of its own under ~/.claude.
             ...(options?.runCode ? ['--restricted', '--no-session-persistence'] : ['--setting-sources', 'project']),
-            '--settings', JSON.stringify({ hooks: {}, outputStyle: 'default', ...(options?.runCode ? { sandbox: claudeSandbox() } : {}) }),
+            '--settings', JSON.stringify({ hooks: {}, outputStyle: 'default', ...(options?.runCode ? { sandbox: claudeSandbox(options.place ?? { copy: process.cwd(), repo: process.cwd() }) } : {}) }),
             // Below the verified version, or when it cannot be read, the CLI may not know --tools: today's args, said on the record.
             ...(atLeast(options?.version, CLAUDE_MEMORY_ISOLATION) ? ['--tools', ...JUDGE_TOOLS] : []),
             '--allowedTools', ...(options?.runCode ? RUN_CODE_TOOLS : READ_ONLY_TOOLS),
@@ -150,7 +156,7 @@ export const ADAPTERS: Record<ReviewerName, Adapter> = {
             return read.length ? `codex also reads ${read.map(name => path.join(dir, name)).join(' and ')}` : undefined;
         },
         runCodeRefusal: () => runCodePlatformRefusal(),
-        args: (prompt, model, options) => ['exec', ...(options?.runCode ? CODEX_RUN_CODE : ['--sandbox', 'read-only']), '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
+        args: (prompt, model, options) => ['exec', ...(options?.runCode ? [...CODEX_RUN_CODE, ...(options.codexConfig ?? [])] : ['--sandbox', 'read-only']), '--json', ...(model ? ['--model', model] : []), '-c', `model_reasoning_effort=${options?.reasoning ?? 'high'}`, prompt],
         // `codex exec --json` streams events; the last text-bearing one carries the answer.
         // Warnings arrive as `error` items with a `message`, not `text`, so they are never taken for the answer.
         // `turn.completed` carries the tokens (Codex reports no dollars).

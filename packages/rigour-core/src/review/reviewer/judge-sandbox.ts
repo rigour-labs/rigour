@@ -6,6 +6,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { claudeTmp } from './cli-leftovers.js';
 
 /** Where the sandboxes were verified: run_code is refused on any other platform. */
 export function runCodePlatformRefusal(platform: NodeJS.Platform = process.platform): string | undefined {
@@ -17,30 +18,35 @@ export function runCodePlatformRefusal(platform: NodeJS.Platform = process.platf
  * working directory. `--ignore-user-config` drops the person's config.toml, and with it every project trust entry, so a
  * `.codex/config.toml` the reviewed commit carries is never loaded (a committed one that widened writable_roots, turned
  * the network on and set variables was ignored); `--ignore-rules` drops execpolicy rules; the keys a project config
- * could set are pinned besides. Its sandbox cannot deny reads: home files stay readable, as in read-only mode, while
- * the keychain and git's credential helper stayed closed (no password returned).
+ * could set are pinned besides, and its shell is not a login shell. Its sandbox cannot deny reads: home files stay
+ * readable, as in read-only mode, while the keychain and git's credential helper stayed closed (no password returned).
  */
 export const CODEX_RUN_CODE = [
     '--ignore-user-config', '--ignore-rules', '--sandbox', 'workspace-write',
     '-c', 'sandbox_workspace_write.network_access=false', '-c', 'sandbox_workspace_write.exclude_tmpdir_env_var=true',
     '-c', 'sandbox_workspace_write.exclude_slash_tmp=true', '-c', 'sandbox_workspace_write.writable_roots=[]', '-c', 'approval_policy=never',
+    // A login shell sources the person's profile, which can export the very secrets Rigour removed (a real run did).
+    '-c', 'allow_login_shell=false',
 ];
 
-/** Home paths holding credentials: a judge that runs code under Claude Code's sandbox cannot read them. */
-const SECRET_HOME_PATHS = [
-    '.ssh', '.aws', '.npmrc', '.netrc', '.config/gh', '.docker', '.kube', '.gnupg', 'Library/Keychains', '.git-credentials',
-    '.config/git/credentials', '.local/share/keyrings', '.password-store', '.config/gcloud', '.azure', '.pypirc', '.terraform.d',
-    '.cargo/credentials.toml', '.gem/credentials', '.claude/.credentials.json', '.claude.json', '.codex/auth.json',
+/**
+ * What a judge that runs code may read back under the home directory, which its sandbox otherwise denies whole: the
+ * toolchains a scratch test runs with (version managers, package caches, user-installed binaries), never a folder that
+ * holds a login or a person's settings.
+ */
+const TOOLCHAINS = [
+    '.nvm', '.volta', '.asdf', '.pyenv', '.rbenv', '.rustup', '.cargo/bin', 'go/bin', 'go/pkg/mod', '.bun/bin', '.deno/bin',
+    '.local/bin', 'Library/pnpm', '.npm/_cacache', '.npm/_npx',
 ];
 
-/** Claude Code's own temporary folder, `<CLAUDE_CODE_TMPDIR or /tmp>/claude-<uid>`: other sessions keep their files there. */
-function claudeTmp(env: NodeJS.ProcessEnv): string | undefined {
+/** A path as the sandbox matches it: the real one, when it exists. */
+const real = (p: string) => {
     try {
-        return path.join(fs.realpathSync(env.CLAUDE_CODE_TMPDIR || '/tmp'), `claude-${process.getuid?.() ?? 0}`);
+        return fs.realpathSync(p);
     } catch {
-        return undefined;
+        return p;
     }
-}
+};
 
 function claudeTmpEntries(env: NodeJS.ProcessEnv): string[] {
     const dir = claudeTmp(env);
@@ -51,50 +57,26 @@ function claudeTmpEntries(env: NodeJS.ProcessEnv): string[] {
     }
 }
 
-/**
- * Removes the folder Claude Code made for a run in `copy` in its temporary folder: named after the working directory,
- * every character but a letter or digit a `-`. The copy's path is new for each run, so the name is the run's alone.
- */
-export function removeClaudeTmpOf(copy: string, env: NodeJS.ProcessEnv = process.env): void {
-    const dir = claudeTmp(env);
-    if (dir) fs.rmSync(path.join(dir, copy.replace(/[^a-zA-Z0-9]/g, '-')), { recursive: true, force: true });
-}
+/** Where a judge that runs code works: its copy, and the person's repository it was made from. */
+export interface SandboxPlace { copy: string; repo: string }
 
 /**
- * Claude Code 2.1.285's sandbox for a judge that runs code, verified: commands run sandboxed without a prompt, the
- * dangerouslyDisableSandbox escape is ignored, a sandbox that cannot start fails the run, no host is reachable, writes
- * outside the working directory are refused, the credential files above and the keychain cannot be read (no password
- * from `git credential fill`, even naming the keychain helper; `security find-internet-password` fails), and what other
- * sessions keep in its temporary folder cannot be written or deleted. It still writes new files of its own there.
+ * Claude Code 2.1.285's sandbox for a judge that runs code, verified with real runs (docs/REVIEWER.md): commands run
+ * sandboxed without a prompt, the dangerouslyDisableSandbox escape is ignored, a sandbox that cannot start fails the
+ * run, no host is reachable. Reads: the whole home directory is denied (logins, keys, history, browser profiles, app
+ * settings) and only the copy, the temporary directory, the repository's installed dependencies and the toolchains
+ * above are read back; the repository's own .git is denied wherever it lives. Writes: only the copy, never its .git
+ * (whose objects are the person's, hardlinked) nor what other sessions keep in Claude Code's temporary folder.
  */
-export function claudeSandbox(home: string = os.homedir(), env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
+export function claudeSandbox(place: SandboxPlace, home: string = os.homedir(), env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
+    const allowRead = [place.copy, real(os.tmpdir()), real(path.join(place.repo, 'node_modules')), ...TOOLCHAINS.map(p => real(path.join(home, p)))].filter(p => fs.existsSync(p));
     return {
         enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { allowedDomains: [], strictAllowlist: true },
-        filesystem: { denyRead: SECRET_HOME_PATHS.map(p => path.join(home, p)), denyWrite: claudeTmpEntries(env) },
+        filesystem: {
+            denyRead: [real(home), real(path.join(place.repo, '.git'))],
+            allowRead: [...new Set(allowRead)],
+            denyWrite: [...claudeTmpEntries(env), path.join(place.copy, '.git')],
+        },
     };
-}
-
-/**
- * codex-cli 0.160.1 records the directory it runs in as a trusted project in `<CODEX_HOME>/config.toml`, even with
- * `--ignore-user-config` (a real run): the copy's entry is removed, so no review leaves one behind. The copy's path is
- * the run's alone; nothing else in the file changes.
- */
-export function removeCodexTrustOf(copy: string, codexHome: string): void {
-    const file = path.join(codexHome, 'config.toml');
-    let text: string;
-    try {
-        text = fs.readFileSync(file, 'utf8');
-    } catch {
-        return;
-    }
-    const lines = text.split('\n');
-    const at = lines.indexOf(`[projects.${JSON.stringify(copy)}]`);
-    if (at < 0) return;
-    let end = at + 1;
-    while (end < lines.length && !lines[end].startsWith('[')) end++;
-    while (end > at + 1 && lines[end - 1] === '') end--; // the blank line before the next table stays
-    const start = at > 0 && lines[at - 1] === '' ? at - 1 : at;
-    lines.splice(start, end - start);
-    fs.writeFileSync(file, lines.join('\n'));
 }
