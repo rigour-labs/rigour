@@ -3,28 +3,27 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { alive, descendants, endJudgeProcesses, processesIn } from './judge-processes.js';
+import { alive, endJudgeProcesses } from './judge-processes.js';
 
 const waitFor = async (check: () => boolean) => {
     for (let i = 0; i < 100 && !check(); i++) await new Promise(resolve => setTimeout(resolve, 50));
 };
 
 describe.skipIf(process.platform === 'win32')('ending what a judge started', () => {
-    it('finds a process by its parent, by its working directory in the copy, and ends both, in whatever session they are', async () => {
+    it('ends the judge, a child in a session of its own outside the copy, and an orphan still working in the copy', async () => {
         const copy = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'judge-processes-')));
-        const elsewhere = fs.realpathSync(os.tmpdir());
-        // A judge (its own group) whose shell started one command in the copy and one, in a session of its own, elsewhere.
-        const judge = spawn('sh', ['-c', `(cd ${JSON.stringify(elsewhere)} && exec sleep 301) & (cd ${JSON.stringify(copy)} && exec sleep 302) & wait`], { detached: true, stdio: 'ignore' });
-        let below: number[] = [];
-        await waitFor(() => (below = descendants(judge.pid!)).length >= 2);
-        expect(below.length).toBeGreaterThanOrEqual(2);
-        await waitFor(() => processesIn(copy).length > 0);
-        const inCopy = processesIn(copy);
-        expect(inCopy.length).toBeGreaterThan(0);
-        expect(inCopy.every(pid => below.includes(pid) || pid === judge.pid)).toBe(true);
+        const pids = path.join(copy, 'pids');
+        // The orphan: started in the copy, its parent gone, in no group or tree of the judge's.
+        spawn('sh', ['-c', `(exec sleep 303) & echo $! >> ${JSON.stringify(pids)}`], { cwd: copy, detached: true, stdio: 'ignore' });
+        // The judge, in a group of its own, with a child in a session of its own outside the copy.
+        const judge = spawn(process.execPath, ['-e', `const c = require('child_process').spawn('sleep', ['301'], { cwd: '/', detached: true, stdio: 'ignore' }); require('fs').appendFileSync(${JSON.stringify(pids)}, c.pid + '\\n'); setInterval(() => {}, 1000);`], { detached: true, stdio: 'ignore' });
+        const started = () => (fs.existsSync(pids) ? fs.readFileSync(pids, 'utf8').trim().split('\n').filter(Boolean).map(Number) : []);
+        await waitFor(() => started().length === 2);
+        const all = [judge.pid!, ...started()];
+        expect(all.every(alive)).toBe(true);
         endJudgeProcesses(judge.pid, copy);
-        await waitFor(() => ![judge.pid!, ...below].some(alive));
-        expect([judge.pid!, ...below].filter(alive)).toEqual([]);
+        await waitFor(() => !all.some(alive));
+        expect(all.filter(alive)).toEqual([]);
         fs.rmSync(copy, { recursive: true, force: true });
     });
 });

@@ -2,14 +2,18 @@
  * review.reviewer.run_code: a judge may write and run scratch code to confirm a problem. Off by default. When on, a judge
  * whose sandbox was verified (judge-sandbox.ts) runs in a throwaway copy of the reviewed commit (throwaway-copy.ts),
  * sandboxed, with no network, no secret-looking variable and no git credential helper, in a process group of its own
- * that is ended afterwards, and its working copy is never evidence: quotes are still checked against the person's checkout. Refused, and said, where the change's code must not run on the reviewer's say-so: CI,
- * an independent review, a backtest replay. Running code costs more tokens and time; the caps apply as to any run.
+ * that is ended afterwards, and its working copy is never evidence: quotes are still checked against the person's
+ * checkout. Refused, and said, where the change's code must not run on the reviewer's say-so: CI, an independent
+ * review, a backtest replay. Running code costs more tokens and time; the caps apply as to any run.
  */
+import os from 'os';
+import path from 'path';
 import { ADAPTERS, type ReviewerName } from './adapters.js';
 import { CI_MARKERS } from '../../telemetry/telemetry.js';
 import type { Exec } from './exec.js';
 import { GIT_WITHOUT_CREDENTIALS, secretVariables } from './judge-env.js';
 import { withRunCode } from './prompt.js';
+import { removeClaudeTmpOf, removeCodexTrustOf } from './judge-sandbox.js';
 import { withThrowawayCopy } from './throwaway-copy.js';
 
 export interface RunCodeContext { ci: boolean; independent: boolean; backtest: boolean }
@@ -55,6 +59,12 @@ export function runCodeUnset(name: ReviewerName, unset: string[]): string[] {
 export async function runInThrowawayCopy(cwd: string, head: string, exec: Exec, run: CodeRun): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     const result = await withThrowawayCopy(cwd, head, exec, (dir, started) => exec(run.binary, ADAPTERS[run.name].args(withRunCode(run.prompt, dir), run.model, { reasoning: run.reasoning, version: run.version, runCode: true }), {
         cwd: dir, timeoutMs: run.timeoutMs, unset: runCodeUnset(run.name, run.unset), env: { ...run.env, ...GIT_WITHOUT_CREDENTIALS }, detached: true, onSpawn: started,
-    }));
+    }), dir => leftoversOf(run, dir));
     return 'error' in result ? { exitCode: 1, stdout: '', stderr: result.error } : result;
+}
+
+/** What each CLI keeps under the copy's path outside it: Claude Code's temporary folder, Codex's trusted project. */
+function leftoversOf(run: CodeRun, dir: string): void {
+    if (run.name === 'claude') removeClaudeTmpOf(dir);
+    if (run.name === 'codex') removeCodexTrustOf(dir, run.env?.CODEX_HOME || process.env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex'));
 }

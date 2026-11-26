@@ -6,6 +6,12 @@
       "reason": "ledger patterns come from the repository's own committed .rigour/backtest.json, written by the team, never from user input",
       "at": "2026-10-06T04:52:36.945Z",
       "check": "security-patterns: Security: REDOS"
+    },
+    {
+      "key": "9a72a516a6ca3134",
+      "reason": "hooks/input-validator.ts exists and exports scanInputForCredentials; rigour.yml ignores that file (detection patterns), so the import check cannot see it",
+      "at": "2026-11-26T13:21:40.689Z",
+      "check": "hallucinated-imports: Hallucinated Imports"
     }
   ]
 }

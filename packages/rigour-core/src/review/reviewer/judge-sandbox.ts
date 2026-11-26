@@ -74,3 +74,27 @@ export function claudeSandbox(home: string = os.homedir(), env: NodeJS.ProcessEn
         filesystem: { denyRead: SECRET_HOME_PATHS.map(p => path.join(home, p)), denyWrite: claudeTmpEntries(env) },
     };
 }
+
+/**
+ * codex-cli 0.160.1 records the directory it runs in as a trusted project in `<CODEX_HOME>/config.toml`, even with
+ * `--ignore-user-config` (a real run): the copy's entry is removed, so no review leaves one behind. The copy's path is
+ * the run's alone; nothing else in the file changes.
+ */
+export function removeCodexTrustOf(copy: string, codexHome: string): void {
+    const file = path.join(codexHome, 'config.toml');
+    let text: string;
+    try {
+        text = fs.readFileSync(file, 'utf8');
+    } catch {
+        return;
+    }
+    const lines = text.split('\n');
+    const at = lines.indexOf(`[projects.${JSON.stringify(copy)}]`);
+    if (at < 0) return;
+    let end = at + 1;
+    while (end < lines.length && !lines[end].startsWith('[')) end++;
+    while (end > at + 1 && lines[end - 1] === '') end--; // the blank line before the next table stays
+    const start = at > 0 && lines[at - 1] === '' ? at - 1 : at;
+    lines.splice(start, end - start);
+    fs.writeFileSync(file, lines.join('\n'));
+}

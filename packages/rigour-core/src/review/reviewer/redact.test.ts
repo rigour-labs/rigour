@@ -5,7 +5,7 @@ import { ConfigSchema } from '../../types/index.js';
 import { runReviewer } from '../reviewer.js';
 import { defaultExec } from './exec.js';
 import { EMPTY_VERDICT, installFakeJudges, makeRepo, type FakeJudges } from './__tests__/judge-fakes.js';
-import { redactOutput } from './redact.js';
+import { redactRun } from './redact.js';
 import { VerdictStore } from './store.js';
 
 /** Synthetic credentials in the shapes the scanner knows, built at run time so no literal sits in the source. */
@@ -15,8 +15,10 @@ const KEY = ['-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAABG5
 describe("redacting a judge's output", () => {
     it('replaces each secret with its kind, keeps the JSON parsing, a private key to its END line, and nothing else changes', () => {
         const answer = JSON.stringify({ findings: [{ quote: `token = "${TOKEN}"` }, { quote: '[1, 2]' }] });
-        const out = redactOutput([JSON.stringify({ type: 'result', result: answer }), 'plain', KEY, 'after'].join('\n'));
-        expect(out.count).toBe(2);
+        const run = redactRun({ exitCode: 0, stdout: [JSON.stringify({ type: 'result', result: answer }), 'plain', KEY, 'after'].join('\n'), stderr: `failed on ${TOKEN}` });
+        const out = { text: run.stdout, count: run.redacted };
+        expect(out.count).toBe(3); // two in the output, one in the errors
+        expect(run.stderr).toBe('failed on [redacted: github_token]');
         expect(out.text).not.toContain(TOKEN);
         expect(out.text).not.toContain('b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ');
         const result = JSON.parse(JSON.parse(out.text.split('\n')[0]).result);
@@ -24,7 +26,7 @@ describe("redacting a judge's output", () => {
         expect(result.findings[1].quote).toBe('[1, 2]'); // a quote that looks like JSON is untouched
         expect(out.text.split('\n').slice(1)).toEqual(['plain', '[redacted: private_key]', 'after']);
         const clean = '{"a": 1}\nno secrets here';
-        expect(redactOutput(clean)).toEqual({ text: clean, count: 0 });
+        expect(redactRun({ stdout: clean, stderr: '' })).toEqual({ stdout: clean, stderr: '', redacted: 0 });
     });
 });
 

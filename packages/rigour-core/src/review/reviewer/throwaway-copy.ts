@@ -12,7 +12,6 @@ import os from 'os';
 import path from 'path';
 import { GH_TIMEOUT_MS, type Exec } from './exec.js';
 import { alive, endJudgeProcesses } from './judge-processes.js';
-import { removeClaudeTmpOf } from './judge-sandbox.js';
 import { onTermination } from './on-termination.js';
 import { shareDependencies } from './throwaway-worktree.js';
 
@@ -71,15 +70,16 @@ async function makeCopy(cwd: string, dir: string, head: string, exec: Exec): Pro
 
 /**
  * Runs `work` in a new copy of `head`, handing it a place to record the judge's pid; afterwards (an answer, an error,
- * a timeout, or Rigour interrupted) every process the judge started is ended and the copy removed.
+ * a timeout, or Rigour interrupted) every process the judge started is ended, the copy removed, and `leftovers` told
+ * the copy's path, to remove what a CLI kept under it elsewhere.
  */
-export async function withThrowawayCopy<T>(cwd: string, head: string, exec: Exec, work: (dir: string, started: (pid: number) => void) => Promise<T>): Promise<T | { error: string }> {
+export async function withThrowawayCopy<T>(cwd: string, head: string, exec: Exec, work: (dir: string, started: (pid: number) => void) => Promise<T>, leftovers: (dir: string) => void = () => undefined): Promise<T | { error: string }> {
     // The real path: what the system reports as a process's working directory inside the copy (judge-processes.ts).
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), COPY_PREFIX)));
     let pid: number | undefined;
     const remove = () => {
         fs.rmSync(dir, { recursive: true, force: true });
-        removeClaudeTmpOf(dir);
+        leftovers(dir);
     };
     const unregister = onTermination(() => {
         endJudgeProcesses(pid, dir);

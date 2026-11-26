@@ -58,7 +58,7 @@ function jsonOf(text: string): unknown {
 }
 
 /** A CLI's output: a JSON line is redacted value by value, and each run of other lines as one text (a key spans lines). */
-export function redactOutput(output: string): Redaction {
+function redactOutput(output: string): Redaction {
     const tally = { count: 0 };
     const out: string[] = [];
     let plain: string[] = [];

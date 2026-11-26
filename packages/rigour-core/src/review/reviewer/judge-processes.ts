@@ -20,7 +20,7 @@ const signal = (pid: number, name: NodeJS.Signals | 0 = 'SIGKILL') => {
 export const alive = (pid: number) => signal(pid, 0);
 
 /** Ends a process group (a judge and what stayed in its group), and the judge itself; one already gone is fine. */
-export function killGroup(pid: number | undefined): void {
+function killGroup(pid: number | undefined): void {
     if (!pid || process.platform === 'win32') return;
     // ESRCH: the group is gone, and its pid may be someone else's by now: nothing more. EPERM (macOS, while the judge
     // is still exiting after a timeout, so the pid is still ours): the judge itself.
@@ -32,7 +32,7 @@ export function killGroup(pid: number | undefined): void {
 }
 
 /** Every live process below `pid`, from the process table: what the judge started, in whatever group or session. */
-export function descendants(pid: number): number[] {
+function descendants(pid: number): number[] {
     const table = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
     if (table.status !== 0) return [];
     const children = new Map<number, number[]>();
@@ -50,7 +50,7 @@ export function descendants(pid: number): number[] {
 }
 
 /** The processes whose working directory is `dir` or below it (lsof; `dir` as the real path the system reports). */
-export function processesIn(dir: string): number[] {
+function processesIn(dir: string): number[] {
     const listed = spawnSync('lsof', ['-a', '-d', 'cwd', '-Fpn'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     const found: number[] = [];
     let pid = 0;

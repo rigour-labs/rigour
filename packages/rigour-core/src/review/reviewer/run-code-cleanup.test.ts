@@ -62,6 +62,17 @@ describe('run_code cleans up after itself', () => {
         fs.rmSync(tmpBase, { recursive: true, force: true });
     });
 
+    it('removes the trusted-project entry codex records for the copy, and nothing else in its config.toml', async () => {
+        const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-'));
+        const config = 'model = "example-model"\n\n[projects."/Users/dev-a/project"]\ntrust_level = "trusted"\n';
+        fs.writeFileSync(path.join(codexHome, 'config.toml'), config);
+        harnessEnv.set({ CODEX_HOME: codexHome });
+        h.judges.behave({ answer: JSON.stringify(EMPTY_VERDICT), codexTrust: true });
+        expect((await reviewIn(h.repo)).outcome).toBe('passed');
+        expect(fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8')).toBe(config);
+        fs.rmSync(codexHome, { recursive: true, force: true });
+    });
+
     it('gives each orchestrated pass its own copy, all removed', async () => {
         bigChange(h.repo, 20);
         (await VerdictStore.open(h.repo, defaultExec))!.recordCost({ at: new Date().toISOString(), mode: 'orchestrator', lines: 1, projectedSingleChars: 10_000_000, actualChars: 0, actualUsd: 0, runs: 0 });
