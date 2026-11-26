@@ -206,7 +206,8 @@ describe('run_code: claude', () => {
         expect(settings).toMatchObject({ hooks: {}, outputStyle: 'default', sandbox: { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { allowedDomains: [], strictAllowlist: true } } });
         // The whole home is denied and only the copy, the temporary directory and toolchains read back; the person's .git is denied.
         const home = fs.realpathSync(os.homedir());
-        expect(settings.sandbox.filesystem.denyRead).toEqual([home, fs.realpathSync(os.tmpdir()), path.join(fs.realpathSync(h.repo), '.git')]);
+        // /tmp too: other judges' temporary bases (/tmp/rgr-*) and Claude Code's shared /tmp/claude-<uid> are there.
+        expect(settings.sandbox.filesystem.denyRead).toEqual([home, fs.realpathSync(os.tmpdir()), fs.realpathSync('/tmp'), path.join(fs.realpathSync(h.repo), '.git')]);
         expect(settings.sandbox.filesystem.allowRead).toEqual(expect.arrayContaining([run.cwd]));
         expect(settings.sandbox.filesystem.allowRead).not.toContain(fs.realpathSync(os.tmpdir())); // not the whole temporary directory
         expect(settings.sandbox.filesystem.allowRead.filter((p: string) => p.startsWith(fs.realpathSync(os.tmpdir())))).toEqual([run.cwd, expect.stringMatching(/\/rigour-reviewer-[A-Za-z0-9]+$/)]);

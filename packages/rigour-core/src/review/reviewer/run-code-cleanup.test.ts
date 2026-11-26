@@ -175,6 +175,85 @@ describe('a copy a killed review left behind', () => {
         expect(fs.existsSync(another)).toBe(false);
     });
 
+    it('takes a judge\'s temporary base no live copy names once it is an hour old, this user\'s and private only', () => {
+        const rgr = (ageMs: number, mode = 0o700) => {
+            const dir = fs.mkdtempSync('/tmp/rgr-');
+            h.made.push(dir);
+            fs.chmodSync(dir, mode);
+            const then = (Date.now() - ageMs) / 1000;
+            fs.utimesSync(dir, then, then);
+            return dir;
+        };
+        const named = rgr(2 * 3_600_000);
+        const live = copyRoot({ pid: process.pid, started: startedAt(process.pid) });
+        fs.writeFileSync(path.join(live, 'owner.json'), JSON.stringify({ pid: process.pid, started: startedAt(process.pid), uid: process.getuid!(), tmp: named }));
+        const orphan = rgr(2 * 3_600_000);
+        const young = rgr(60_000);
+        const shared = rgr(2 * 3_600_000, 0o755);
+        const owned = (pid: number, started: string) => {
+            const dir = rgr(60_000);
+            fs.writeFileSync(path.join(dir, 'owner.json'), JSON.stringify({ pid, started, uid: process.getuid!() }));
+            return dir;
+        };
+        const ownerRuns = owned(process.pid, startedAt(process.pid));
+        const ownerGone = owned(deadPid(), 'Thu Jan  1 00:00:00 2026');
+        for (const dir of [ownerRuns, ownerGone]) fs.utimesSync(dir, (Date.now() - 2 * 3_600_000) / 1000, (Date.now() - 2 * 3_600_000) / 1000);
+        sweepStaleCopies();
+        expect([named, orphan, young, shared, ownerRuns, ownerGone].map(dir => fs.existsSync(dir))).toEqual([true, false, true, true, true, false]);
+    });
+
+    it('never removes a temporary base another user owns', async () => {
+        const { removeCopy } = await import('./throwaway-copy.js');
+        const tmp = fs.mkdtempSync('/tmp/rgr-');
+        h.made.push(tmp);
+        const stat = fs.statSync;
+        const spy = vi.spyOn(fs, 'statSync').mockImplementation(((p: fs.PathLike, o?: fs.StatSyncOptions) => {
+            const st = stat(p, o as fs.StatSyncOptions);
+            return String(p) === tmp && st ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { uid: process.getuid!() + 1 }) : st;
+        }) as typeof fs.statSync);
+        try {
+            removeCopy({ root: path.join(h.homes, 'no-root'), dir: path.join(h.homes, 'no-root', 'repo'), tmp });
+        } finally {
+            spy.mockRestore();
+        }
+        expect(fs.existsSync(tmp)).toBe(true);
+    });
+
+    it('leaves no temporary base behind when the copy cannot be made, nor when its root cannot be removed', async () => {
+        const { makeCopy, removeCopy } = await import('./throwaway-copy.js');
+        const made: string[] = [];
+        const mkdtemp = fs.mkdtempSync;
+        let failRoot = true;
+        const spy = vi.spyOn(fs, 'mkdtempSync').mockImplementation(((prefix: string, o?: unknown) => {
+            if (failRoot && String(prefix).includes('rigour-judge-copy-')) throw Object.assign(new Error('no space left'), { code: 'ENOSPC' });
+            const dir = mkdtemp(prefix, o as BufferEncoding);
+            made.push(dir);
+            return dir;
+        }) as typeof fs.mkdtempSync);
+        try {
+            await expect(makeCopy(h.repo, 'HEAD', defaultExec)).rejects.toThrow('no space left');
+            expect(made.filter(dir => dir.startsWith('/tmp/rgr-'))).toHaveLength(1);
+            expect(made.filter(dir => fs.existsSync(dir))).toEqual([]);
+            failRoot = false;
+            const copy = await makeCopy(h.repo, 'HEAD', defaultExec);
+            if ('error' in copy) throw new Error(copy.error);
+            const rm = fs.rmSync;
+            const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation(((p: fs.PathLike, o?: fs.RmOptions) => {
+                if (String(p) === copy.root) throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+                return rm(p, o);
+            }) as typeof fs.rmSync);
+            try {
+                expect(() => removeCopy(copy)).toThrow('busy');
+            } finally {
+                rmSpy.mockRestore();
+            }
+            expect(fs.existsSync(copy.tmp)).toBe(false); // the base went first
+            removeCopy(copy);
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
     it('takes nothing when ps cannot run: no owner can be told from a later process with its pid', () => {
         const dead = copyRoot({ pid: deadPid(), started: 'Thu Jan  1 00:00:00 2026' });
         const ownerless = copyRoot(undefined, 2 * 3_600_000);

@@ -48,16 +48,28 @@ function ownedDir(prefix: string, tmp: string, extra: { tmp?: string } = {}): st
 /** The judge's temporary base, private (Claude Code uses it only then), with its TMPDIR inside. */
 function newJudgeTmp(): string {
     const tmp = fs.mkdtempSync(JUDGE_TMP_PREFIX);
-    fs.mkdirSync(judgeTmpDir(tmp), { mode: 0o700 });
+    try {
+        // Its owner too, for a review that keeps its copies elsewhere (another TMPDIR): never swept while it runs.
+        fs.writeFileSync(path.join(tmp, 'owner.json'), JSON.stringify({ ...thisProcess(), uid: process.getuid?.() ?? -1 }));
+        fs.mkdirSync(judgeTmpDir(tmp), { mode: 0o700 });
+    } catch (error) {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        throw error;
+    }
     return tmp;
 }
 
 /** A new, empty copy root owned by this process, its judge's temporary base named in its owner.json. */
 function newRoot(): Copy {
     const tmp = newJudgeTmp();
-    // The real path: what the system reports as a process's working directory in it (judge-processes.ts).
-    const root = ownedDir(COPY_PREFIX, fs.realpathSync(os.tmpdir()), { tmp });
-    return { root, dir: path.join(root, 'repo'), tmp };
+    try {
+        // The real path: what the system reports as a process's working directory in it (judge-processes.ts).
+        const root = ownedDir(COPY_PREFIX, fs.realpathSync(os.tmpdir()), { tmp });
+        return { root, dir: path.join(root, 'repo'), tmp };
+    } catch (error) {
+        removeJudgeTmp(tmp); // no root names it: nothing else would ever remove it
+        throw error;
+    }
 }
 
 /** A review's input folder, owned by this process: removed by the review, or by the sweep once the review is gone. */
@@ -118,14 +130,38 @@ export async function resetCopy(cwd: string, copy: Copy, head: string, exec: Exe
     return undefined;
 }
 
+/** Removes the copy: its temporary base first, so a root that cannot be removed leaves no base only it names. */
 export function removeCopy(copy: Copy): void {
-    fs.rmSync(copy.root, { recursive: true, force: true });
     removeJudgeTmp(copy.tmp);
+    fs.rmSync(copy.root, { recursive: true, force: true });
 }
 
-/** Removes a judge's temporary base: only ever one of Rigour's, by its prefix. */
+/** Whether `tmp` is one of Rigour's judge temporary bases (by its prefix) and this user's. */
+function ourJudgeTmp(tmp: string | undefined): tmp is string {
+    if (!tmp?.startsWith(JUDGE_TMP_PREFIX) || tmp.slice(JUDGE_TMP_PREFIX.length).includes('/')) return false;
+    return fs.statSync(tmp, { throwIfNoEntry: false })?.uid === process.getuid?.();
+}
+
+/** Removes a judge's temporary base: only ever one of Rigour's, and only this user's. */
 function removeJudgeTmp(tmp: string | undefined): void {
-    if (tmp?.startsWith(JUDGE_TMP_PREFIX) && !tmp.slice(JUDGE_TMP_PREFIX.length).includes('/')) fs.rmSync(tmp, { recursive: true, force: true });
+    if (ourJudgeTmp(tmp)) fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+/**
+ * Removes judge temporary bases no copy names any more: this user's, private (0700, as Rigour makes them), named by no
+ * copy root whose owner is not gone, and either their own owner is gone or, with no owner.json, an hour old (a crash
+ * between making one and writing its owner).
+ */
+function sweepJudgeTmps(named: Set<string>): void {
+    const base = path.dirname(JUDGE_TMP_PREFIX);
+    for (const name of fs.readdirSync(base).filter(entry => entry.startsWith(path.basename(JUDGE_TMP_PREFIX)))) {
+        const tmp = path.join(base, name);
+        const stat = fs.statSync(tmp, { throwIfNoEntry: false });
+        if (!stat || named.has(tmp) || !ourJudgeTmp(tmp) || (stat.mode & 0o777) !== 0o700) continue;
+        const owner = ownerOf(tmp);
+        if (owner ? owner.uid !== process.getuid?.() || ownerState(owner) !== 'gone' : Date.now() - stat.mtimeMs <= 3_600_000) continue;
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
 }
 
 /** Whether the process that made the copy at `root` is gone: its pid ended, or now another process's. */
@@ -155,10 +191,15 @@ export function sweepStaleCopies(): string[] {
     if (!thisProcess().started) return [];
     const tmp = fs.realpathSync(os.tmpdir());
     const swept: string[] = [];
+    const named = new Set<string>();
     for (const name of fs.readdirSync(tmp).filter(entry => entry.startsWith(COPY_PREFIX) || entry.startsWith(WORK_PREFIX))) {
         const root = path.join(tmp, name);
         try {
-            if (fs.statSync(root).uid !== process.getuid?.() || !orphaned(root)) continue;
+            if (fs.statSync(root).uid !== process.getuid?.() || !orphaned(root)) {
+                const kept = ownerOf(root)?.tmp;
+                if (kept) named.add(kept);
+                continue;
+            }
             removeJudgeTmp(ownerOf(root)?.tmp);
             fs.rmSync(root, { recursive: true, force: true });
             swept.push(root);
@@ -166,5 +207,6 @@ export function sweepStaleCopies(): string[] {
             // gone meanwhile, or not readable: not this user's to remove
         }
     }
+    sweepJudgeTmps(named);
     return swept;
 }

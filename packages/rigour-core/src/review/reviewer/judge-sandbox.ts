@@ -79,8 +79,9 @@ export function claudeSandbox(place: SandboxPlace, home: string = os.homedir(), 
         enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { allowedDomains: [], strictAllowlist: true },
         filesystem: {
-            // The temporary directory holds other processes' files (other reviews' inputs, other tools' state): denied too.
-            denyRead: [real(home), real(os.tmpdir()), real(path.join(place.repo, '.git'))],
+            // The temporary directories hold other processes' files (other reviews' inputs and judges' temporary bases,
+            // Claude Code's shared /tmp/claude-<uid>, other tools' state): denied too; the judge's own base is read back.
+            denyRead: [real(home), real(os.tmpdir()), real('/tmp'), real(path.join(place.repo, '.git'))],
             allowRead: [...new Set(allowRead)],
             denyWrite: [...claudeTmpEntries(env), path.join(place.copy, '.git')],
         },
