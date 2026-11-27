@@ -93,7 +93,7 @@ function readText(file: string): string {
 }
 
 /** From a config.toml, only the model and provider: the top-level `model` and `model_provider`, and `[model_providers.*]` tables. */
-function modelSettings(toml: string): string {
+export function modelSettings(toml: string): string {
     const kept: string[] = [];
     let table: string | undefined;
     for (const line of toml.split(/\r?\n/)) {

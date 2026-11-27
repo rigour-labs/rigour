@@ -1,25 +1,45 @@
 /** How the reviewer runs commands (git, gh, the agent CLIs); tests replace it. */
+import path from 'path';
 import { execa } from 'execa';
 
-/** `env` adds variables to the inherited environment; `unset` removes inherited ones the command must not see. */
-export type Exec = (command: string, args: string[], options: { cwd: string; timeoutMs: number; env?: Record<string, string>; unset?: string[] }) =>
+/**
+ * `env` adds variables to the inherited environment; `unset` removes inherited ones the command must not see.
+ * `detached` starts the command in a process group of its own, and `onSpawn` is told its pid: a caller that must end
+ * everything the command started (a judge that runs code) kills the group.
+ */
+export type Exec = (command: string, args: string[], options: { cwd: string; timeoutMs: number; env?: Record<string, string>; unset?: string[]; detached?: boolean; onSpawn?: (pid: number) => void }) =>
     Promise<{ exitCode: number; stdout: string; stderr: string }>;
 
 export const defaultExec: Exec = async (command, args, options) => {
     // stdin is /dev/null, not an empty pipe: an agent CLI that reads stdin sees its end at once, and a command that exits
     // before an empty write lands (git rev-parse) cannot fail the run with EPIPE, as it did on Linux.
-    const result = await execa(command, args, { cwd: options.cwd, reject: false, timeout: options.timeoutMs, stdin: 'ignore', ...childEnv(options), maxBuffer: 64 * 1024 * 1024 });
+    const child = execa(command, args, { cwd: options.cwd, reject: false, timeout: options.timeoutMs, stdin: 'ignore', ...childEnv(options), maxBuffer: 64 * 1024 * 1024, ...(options.detached ? { detached: true } : {}) });
+    if (options.onSpawn && child.pid) options.onSpawn(child.pid);
+    const result = await child;
     const stderr = String(result.stderr ?? '');
     // A command that could not start, timed out or was killed writes nothing itself: say which, never an empty failure.
-    return { exitCode: result.exitCode ?? 1, stdout: String(result.stdout ?? ''), stderr: stderr || (result.failed && 'shortMessage' in result ? String(result.shortMessage) : '') };
+    return { exitCode: result.exitCode ?? 1, stdout: String(result.stdout ?? ''), stderr: stderr || (result.failed ? failure(command, result, options.timeoutMs) : '') };
 };
+
+/**
+ * Why a command failed without a word of its own, by its name only: execa's own message quotes the whole command line,
+ * and an argument can be a secret (a header in a codex override, a prompt).
+ */
+function failure(command: string, result: { timedOut?: boolean; signal?: string | null; code?: string; exitCode?: number | null }, timeoutMs: number): string {
+    const name = path.basename(command);
+    if (result.timedOut) return `${name} timed out after ${timeoutMs} ms`;
+    if (result.code) return `${name} could not start (${result.code})`;
+    if (result.signal) return `${name} was killed (${result.signal})`;
+    return `${name} failed (exit ${result.exitCode ?? 'unknown'})`;
+}
 
 /** The environment a command runs with: the inherited one plus `env`, minus `unset` (then nothing is inherited implicitly). */
 function childEnv(options: { env?: Record<string, string>; unset?: string[] }): { env?: Record<string, string | undefined>; extendEnv?: boolean } {
     if (!options.unset?.length) return options.env ? { env: { ...process.env, ...options.env } } : {};
-    const env: Record<string, string | undefined> = { ...process.env, ...options.env };
+    // `unset` removes what is inherited; what the caller sets itself stays (git's GIT_CONFIG_KEY_0 names no secret).
+    const env: Record<string, string | undefined> = { ...process.env };
     for (const name of options.unset) delete env[name];
-    return { env, extendEnv: false };
+    return { env: { ...env, ...options.env }, extendEnv: false };
 }
 
 /** Called while the reviewer works, so a slow run and a stuck one look different. */

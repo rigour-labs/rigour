@@ -9,11 +9,11 @@
  */
 import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
-import path from 'path';
 import type { Config } from '../../types/index.js';
 import { reviewChange } from '../review.js';
 import { pushReviewSkip, runReviewer, type ModeRecord, type ReviewerResult } from '../reviewer.js';
-import { defaultExec, GH_TIMEOUT_MS, type Exec } from './exec.js';
+import { defaultExec, type Exec } from './exec.js';
+import { addDetachedWorktree, removeWorktree, removeWorktreeOnTermination, shareDependencies } from './throwaway-worktree.js';
 import { dismissedAs, readReviewDismissals, reviewerInputs } from './context.js';
 import { VerdictStore, type DaySpend, type ReviewAttempt } from './store.js';
 import { itemLine, type OpenItem, type Verdict } from './verdict.js';
@@ -49,8 +49,10 @@ export async function backgroundReview(cwd: string, job: BackgroundJob, config: 
         return { outcome: 'skipped', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason: skip, reviewers: [], cached: false };
     }
     const worktree = store.worktreeDir(job.head);
-    const added = await exec('git', ['worktree', 'add', '--detach', worktree, job.head], { cwd, timeoutMs: 5 * GH_TIMEOUT_MS });
-    if (added.exitCode !== 0 && !fs.existsSync(path.join(worktree, '.git'))) throw new Error(`could not check out ${job.head.slice(0, 9)} for the review: ${added.stderr.trim()}`);
+    const failed = await addDetachedWorktree(cwd, worktree, job.head, exec);
+    if (failed) throw new Error(`could not check out ${job.head.slice(0, 9)} for the review: ${failed}`);
+    // A newer push ends this review with SIGTERM: the worktree goes with it, not left on the disk.
+    const unregister = removeWorktreeOnTermination(cwd, worktree);
     try {
         shareDependencies(cwd, worktree);
         // The typed checks' hints (a nested scan, a value that only leaves through serialisation) are the reviewer's candidates to confirm.
@@ -62,7 +64,8 @@ export async function backgroundReview(cwd: string, job: BackgroundJob, config: 
         notify(`Rigour review of ${job.branch} @ ${job.head.slice(0, 9)}: ${result.outcome}${result.items.length ? `, ${result.items.length} open item(s)` : ''}`);
         return result;
     } finally {
-        await exec('git', ['worktree', 'remove', '--force', worktree], { cwd, timeoutMs: 5 * GH_TIMEOUT_MS });
+        await removeWorktree(cwd, worktree, exec);
+        unregister();
         clearPid(store, job.branch);
     }
 }
@@ -127,12 +130,6 @@ function endRunning(store: VerdictStore, branch: string): void {
         // already gone
     }
     fs.unlinkSync(store.branchFile(branch, 'pid'));
-}
-
-/** The checkout's installed dependencies serve the worktree too (the typed checks need the project's compiler), never a download. */
-function shareDependencies(cwd: string, worktree: string): void {
-    const root = path.join(cwd, 'node_modules');
-    if (fs.existsSync(root) && !fs.existsSync(path.join(worktree, 'node_modules'))) fs.symlinkSync(root, path.join(worktree, 'node_modules'), 'junction');
 }
 
 function alive(pid: number): boolean {

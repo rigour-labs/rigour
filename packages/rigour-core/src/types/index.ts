@@ -523,6 +523,19 @@ export const ConfigSchema = z.object({
              * when that variable holds a key meant for another service. RIGOUR_API_KEY is never passed to a judge.
              */
             judge_env: z.record(z.object({ unset: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'an environment variable name')).optional().default([]) })).optional().default({}),
+            /**
+             * The team's review instructions (a rubric), a repository-relative file served to every judge after Rigour's
+             * own prompt (reviewer/instructions.ts). Read from the base for an independent review; at most 32 KB.
+             */
+            instructions: z.string().min(1).optional(),
+            /**
+             * Whether a judge may write and run scratch code to confirm a problem, sandboxed in a throwaway copy of the
+             * reviewed commit with no network (reviewer/run-code.ts). Codex and Claude Code only; never in CI, an
+             * independent review or a backtest. More tokens and time; the caps still apply.
+             */
+            run_code: z.enum(['off', 'on']).optional().default('off'),
+            /** The largest throwaway copy run_code makes, in MB; a bigger commit is reviewed read-only, and the review says why. */
+            run_code_max_mb: z.number().int().positive().optional().default(2048),
         }).optional().default({}),
     }).optional().default({}),
     ignore: z.array(z.string()).optional().default([]),

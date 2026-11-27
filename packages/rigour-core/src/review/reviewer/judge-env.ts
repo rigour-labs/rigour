@@ -27,3 +27,42 @@ export function judgeUnset(name: string, judgeEnv: Record<string, { unset: strin
 export function insideAgentSession(env: NodeJS.ProcessEnv = process.env): boolean {
     return AGENT_SESSION_MARKERS.some(name => !!env[name]?.trim());
 }
+
+/**
+ * A variable whose name says it holds a secret, or a way to one: the words anywhere in the name, any case
+ * (`LANGFUSE_SECRET_KEY_PR`), and the endings that name one (a connection string, a webhook, a DSN).
+ */
+const SECRET_NAME = /SECRET|TOKEN|PASSWORD|PASSWD|KEY|CREDENTIAL|(_PASS|_PWD|_PAT|_URI|_DSN|WEBHOOK(_URL)?)$|CONNECTION_STRING|^NPM_CONFIG__AUTH/i;
+/** Names those words appear in that name a setting the toolchain reads, not a secret. */
+const NOT_SECRET = new Set(['TOKENIZERS_PARALLELISM', 'KEYTIMEOUT']);
+const SECRET_PREFIX = /^(AWS_|GH_)/i;
+/** Exact names: a database URL, the tokens package managers and GitHub read, and what reaches a cluster, a daemon or an agent's keys. */
+const SECRET_NAMES = new Set(['DATABASE_URL', 'GITHUB_TOKEN', 'NPM_TOKEN', 'NODE_AUTH_TOKEN', 'KUBECONFIG', 'DOCKER_HOST', 'GOOGLE_APPLICATION_CREDENTIALS', 'SSH_AUTH_SOCK']);
+/** A URL with a user (and usually a password) in it: `postgres://user:pass@host`. */
+const URL_WITH_CREDENTIALS = /^[a-z][a-z0-9+.-]*:\/\/[^/\s@]+@/i;
+/** What each judge's own login needs, kept: removing it would sign the judge out. Its answer is redacted like any other (redact.ts). */
+const OWN_LOGIN: Record<string, string[]> = { claude: ['CLAUDE_CODE_OAUTH_TOKEN'], codex: ['CODEX_HOME'] };
+
+/**
+ * The variables a judge that runs code must not see: whatever a scratch script could read and print. Its own login
+ * variable stays (`CLAUDE_CODE_OAUTH_TOKEN`, the Codex home); an API key does not, so a key-only login fails with a hint.
+ */
+export function secretVariables(judge: string, env: NodeJS.ProcessEnv = process.env): string[] {
+    const keep = new Set(['CODEX_HOME', ...(OWN_LOGIN[judge] ?? [])]);
+    return Object.keys(env).filter(name => !keep.has(name) && (secretName(name) || (/_URL$/i.test(name) && URL_WITH_CREDENTIALS.test(env[name] ?? '')))).sort();
+}
+
+/** Whether a variable's name says it holds a secret (also what the redaction of an env-style line asks, redact.ts). */
+export function secretName(name: string): boolean {
+    return !NOT_SECRET.has(name.toUpperCase()) && (SECRET_NAME.test(name) || SECRET_PREFIX.test(name) || SECRET_NAMES.has(name.toUpperCase()));
+}
+
+/**
+ * Git, told to ask no one for a credential: no helper (the keychain, a credential store), no terminal prompt, no
+ * askpass program, no global config. Set for a judge that runs code; the sandbox closes the keychain itself (docs/REVIEWER.md).
+ */
+export const GIT_WITHOUT_CREDENTIALS: Record<string, string> = {
+    GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '',
+    // Nor the person's own git config (a helper, a token in a header, an alias): the sandbox denies reading it anyway.
+    GIT_CONFIG_GLOBAL: '/dev/null',
+};

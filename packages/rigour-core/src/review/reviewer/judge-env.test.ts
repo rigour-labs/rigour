@@ -1,6 +1,6 @@
 import os from 'os';
 import { describe, expect, it } from 'vitest';
-import { insideAgentSession, judgeUnset } from './judge-env.js';
+import { insideAgentSession, judgeUnset, secretVariables } from './judge-env.js';
 import { ADAPTERS } from './adapters.js';
 import { defaultExec } from './exec.js';
 
@@ -35,5 +35,29 @@ describe("a judge's environment", () => {
         expect(insideAgentSession({ CLAUDECODE: '1' })).toBe(true);
         expect(insideAgentSession({ CLAUDE_CODE_ENTRYPOINT: 'cli' })).toBe(true);
         expect(insideAgentSession({ ANTHROPIC_BASE_URL: 'https://proxy.example.invalid' })).toBe(false);
+    });
+});
+
+describe('the variables a judge that runs code runs without', () => {
+    const removed = [
+        'EXAMPLE_API_KEY', 'SIGNING_KEYS', 'DEPLOY_TOKEN', 'APP_SECRET', 'APP_SECRETS', 'DB_PASSWORD', 'SMTP_PASSWD', 'FTP_PASS', 'MYSQL_PWD', 'CLOUD_CREDENTIAL', 'CLOUD_CREDENTIALS', 'ACME_PAT',
+        'AZURE_STORAGE_CONNECTION_STRING', 'MONGO_URI', 'SENTRY_DSN', 'SLACK_WEBHOOK', 'SLACK_WEBHOOK_URL', 'NPM_CONFIG__AUTH', 'npm_config__authToken', 'KUBECONFIG', 'DOCKER_HOST',
+        'GOOGLE_APPLICATION_CREDENTIALS', 'DATABASE_URL', 'GITHUB_TOKEN', 'NPM_TOKEN', 'NODE_AUTH_TOKEN', 'AWS_REGION', 'AWS_PROFILE', 'GH_HOST', 'SSH_AUTH_SOCK', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY',
+        // The words anywhere in the name, any case: not only at its end.
+        'LANGFUSE_SECRET_KEY_PR', 'EXAMPLE_TOKEN_FILE', 'DB_PASSWORD_PRIMARY', 'SMTP_PASSWD_2', 'API_KEY_ID', 'CREDENTIAL_PROCESS', 'acme_secret_value', 'PubKeyPath',
+    ];
+    // Lookalikes the toolchain reads, kept: Hugging Face's tokenizers switch and zsh's key timeout name a setting, not a secret.
+    const kept = ['PATH', 'HOME', 'PWD', 'OLDPWD', 'TMPDIR', 'LANG', 'SHELL', 'DOCS_URL', 'CODEX_HOME', 'NODE_ENV', 'BYPASS', 'TERM_PROGRAM_VERSION', 'TOKENIZERS_PARALLELISM', 'KEYTIMEOUT'];
+
+    it('removes every secret-looking name, a URL holding a password, and keeps the rest', () => {
+        const env = Object.fromEntries([...removed, ...kept].map(name => [name, 'x']));
+        env.CACHE_URL = 'redis://user:pw@cache.example.com';
+        expect(secretVariables('codex', env)).toEqual([...removed, 'CACHE_URL'].sort());
+    });
+
+    it('keeps the judge\'s own login variable: CLAUDE_CODE_OAUTH_TOKEN for claude, never for another judge', () => {
+        const env = { CLAUDE_CODE_OAUTH_TOKEN: 'x', CODEX_HOME: '/h' };
+        expect(secretVariables('claude', env)).toEqual([]);
+        expect(secretVariables('codex', env)).toEqual(['CLAUDE_CODE_OAUTH_TOKEN']);
     });
 });

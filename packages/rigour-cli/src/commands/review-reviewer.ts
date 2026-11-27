@@ -7,26 +7,31 @@
  */
 import chalk from 'chalk';
 import { execFileSync } from 'child_process';
-import { branchBase, coverageLine, itemLine, reviewerInputs, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
+import { branchBase, coverageLine, itemLine, ranCodeLabel, reviewerInputs, reviewStatus, runReviewer, type Config, type ReviewerResult, type ReviewResult, type ReviewStatus, type RunChoice } from '@rigour-labs/core';
 
 /** The base a branch review runs against: the one named, else where the branch left main. */
 export function reviewerBase(cwd: string, named: string | undefined): string | undefined {
     return named ?? branchBase(cwd)?.mainRef.replace(/^refs\/(remotes\/|heads\/)/, '');
 }
 
-/** `run.blind` (or RIGOUR_REVIEWER_BLIND=1): the change alone, with no pull request lookup, description or human reviews (no GitHub CLI needed). */
-export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult, run: { goal: boolean | undefined; orchestrator: boolean | undefined; blind: boolean }): Promise<ReviewerResult> {
+/**
+ * `run.blind` (or RIGOUR_REVIEWER_BLIND=1): the change alone, with no pull request lookup, description or human reviews (no GitHub CLI needed).
+ * `run.trustedRef` (an independent review's base): the team's review instructions are read there; with `run.ci` or `run.independent` no judge runs code.
+ */
+export async function reviewerFor(cwd: string, base: string | undefined, config: Config, full: boolean, choice: RunChoice, review: ReviewResult, run: { goal: boolean | undefined; orchestrator: boolean | undefined; blind: boolean; trustedRef: string | undefined; ci: boolean; independent: boolean }): Promise<ReviewerResult> {
     const { goal, orchestrator, blind } = run;
+    const trust = { ...(run.trustedRef ? { trustedRef: run.trustedRef } : {}), ...(run.ci ? { ci: true } : {}), ...(run.independent ? { independent: true } : {}) };
     if (!base) return { outcome: 'unavailable', items: [], unverified: [], resolved: [], answerInReply: [], notes: [], advisory: [], disputed: [], dropped: [], dismissed: [], reason: 'no base to review against: pass --base, or fetch the main branch', reviewers: [], cached: false };
     const withoutPr = blind || process.env.RIGOUR_REVIEWER_BLIND === '1';
-    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...(withoutPr ? { blind: true } : {}), ...(goal !== undefined ? { goal } : {}), ...(orchestrator !== undefined ? { orchestrator } : {}), ...reviewerInputs(review) });
+    return runReviewer(cwd, base, config, undefined, undefined, { trigger: 'review', full, choice, ...(withoutPr ? { blind: true } : {}), ...(goal !== undefined ? { goal } : {}), ...(orchestrator !== undefined ? { orchestrator } : {}), ...trust, ...reviewerInputs(review) });
 }
 
 /** Verified should-fixes shown in full before the rest fold into a count. */
 const ADVISORY_SHOWN = 5;
 
 export function printReviewer(result: ReviewerResult, options: { notes?: boolean } = {}): void {
-    const who = result.reviewers.length ? result.reviewers.join(' + ') : 'no reviewer';
+    const ranCode = new Set<string>(result.mode?.ranCode ?? []);
+    const who = result.reviewers.length ? result.reviewers.map(r => (ranCode.has(r) ? ranCodeLabel(r) : r)).join(' + ') : 'no reviewer';
     console.log(chalk.bold('\n  Reviewer') + chalk.dim(`  ${who}${result.scope ? `, ${result.scope}${result.why ? ` (${result.why})` : ''}` : ''}${result.previousReview ? `; previous review: ${result.previousReview}` : '; no previous human review'}`));
     printMode(result);
     if (result.blind) console.log(chalk.dim('  reviewed without pull request context: no pull request, description or human reviews read (--blind)'));
@@ -81,6 +86,7 @@ function printMode(result: ReviewerResult): void {
         console.log(chalk.yellow(`  ${mode.asked} asked (${mode.source}), ${mode.ran} ran${why ? `: ${why}` : ''}`));
     }
     for (const line of mode.refused ?? []) console.log(chalk.yellow(`  ${line}`));
+    printJudgeSetup(mode);
     for (const line of mode.skipped ?? []) console.log(chalk.yellow(`  ${line}`));
 }
 
@@ -92,6 +98,8 @@ export function reviewerJson(result: ReviewerResult): Record<string, unknown> {
         blind: !!result.blind,
         coverage: result.coverage ?? null,
         reviewers: result.reviewers,
+        // Each judge as the output names it: "codex (ran code in a throwaway copy)" when it ran code (review.reviewer.run_code).
+        judged_by: result.reviewers.map(r => (result.mode?.ranCode?.includes(r) ? ranCodeLabel(r) : r)),
         scope: result.scope ?? null,
         items: result.items,
         unverified: result.unverified,
@@ -147,4 +155,10 @@ function currentBranch(cwd: string): string {
     } catch {
         return 'HEAD';
     }
+}
+
+/** How the judges ran besides the mode: the team's instructions served, and what was not (instructions, run_code). */
+function printJudgeSetup(mode: NonNullable<ReviewerResult['mode']>): void {
+    for (const line of mode.caveats ?? []) console.log(chalk.yellow(`  ${line}`));
+    if (mode.instructions?.served) console.log(chalk.dim(`  team review instructions: ${mode.instructions.path} (from ${mode.instructions.from}${mode.instructions.hash ? `, sha256 ${mode.instructions.hash}` : ''})`));
 }

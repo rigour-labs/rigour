@@ -128,6 +128,8 @@ export interface RuleCheck { id: string; status: 'followed' | 'broken' | 'not-ap
 export interface Finding { class: string; file: string; line?: number; issue: string; why?: string; consequence?: string; input?: string; quote?: string; reviewer?: string; severity?: 'blocking' | 'should'; absent?: string; /** A review point: what to change. */ suggestion?: string; /** A review point: how sure the judge is that this code's reviewers would ask for it, 0 to 1. */ confidence?: number }
 
 export interface Verdict {
+    /** Quotes holding a secret this review confirmed against the checkout, as stored (redacted): reuse trusts only these. */
+    redacted_quotes?: string[];
     prior_points: PriorPoint[];
     redundant: Redundant[];
     reads: Read[];
