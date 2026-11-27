@@ -5,10 +5,11 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeCodexTrust } from './cli-leftovers.js';
+import { ON_POSIX, POSIX_ONLY } from './__tests__/run-code-harness.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 
-describe("removing codex's trust entries", () => {
+describe.runIf(ON_POSIX)(`removing codex's trust entries ${POSIX_ONLY}`, () => {
     let home: string;
     beforeEach(() => {
         home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-'));

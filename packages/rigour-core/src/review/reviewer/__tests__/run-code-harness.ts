@@ -13,6 +13,16 @@ import { defaultExec } from '../exec.js';
 import { gitIn, installFakeJudges, makeRepo, type FakeJudges, type JudgeRun } from './judge-fakes.js';
 
 /** `homes`: the CLIs' homes for the test; `made`: what a test creates besides, removed after it even when it fails. */
+/**
+ * run_code runs only on macOS, where its sandboxes were verified: every other platform keeps every judge read-only,
+ * and run-code.test.ts asserts that refusal there. Tests of what a judge that runs code does are macOS-only, and say so.
+ */
+export const ON_MACOS = process.platform === 'darwin';
+export const MACOS_ONLY = '(macOS only: run_code runs only where its sandboxes were verified)';
+/** What only POSIX has (signals a process can catch, ps, lsof, /tmp): run_code never runs on Windows. */
+export const ON_POSIX = process.platform !== 'win32';
+export const POSIX_ONLY = '(POSIX only: run_code, which needs it, never runs on Windows)';
+
 /** The team's rigour.yml on the base: run_code on. */
 export const BASE_RUN_CODE = 'version: 1\nreview:\n  reviewer:\n    run_code: "on"\n';
 

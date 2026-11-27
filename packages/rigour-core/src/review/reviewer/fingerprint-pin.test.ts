@@ -6,6 +6,7 @@ import { runReviewer } from '../reviewer.js';
 import { defaultExec } from './exec.js';
 import { installFakeJudges, makeRepo, portable, write, type FakeJudges } from './__tests__/judge-fakes.js';
 import { VerdictStore } from './store.js';
+import { CI_MARKERS } from '../../telemetry/telemetry.js';
 
 /**
  * A changed verdict key re-runs every cached review, paid, for every user. With review.reviewer.instructions and
@@ -18,13 +19,20 @@ const PINNED = {
 
 let repo: string;
 let judges: FakeJudges;
+const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
     judges = installFakeJudges();
     repo = makeRepo({ 'AGENTS.md': '# Rules\n- Bound every read.\n' });
+    // CI services' variables refuse run_code (run-code.ts): cleared, so the keys are the same wherever the suite runs.
+    for (const name of CI_MARKERS) {
+        saved[name] = process.env[name];
+        delete process.env[name];
+    }
 });
 afterEach(() => {
     judges.remove();
     fs.rmSync(repo, { recursive: true, force: true });
+    for (const [name, value] of Object.entries(saved)) if (value !== undefined) process.env[name] = value;
 });
 
 const config = (extra: Record<string, unknown> = {}) => ConfigSchema.parse({ version: 1, review: { coverage: false, reviewer: { enabled: true, reviewers: ['claude'], ...extra } } });
@@ -38,9 +46,15 @@ async function keysOf(extra: Record<string, unknown>, orchestrator: boolean): Pr
 }
 
 describe('the verdict fingerprint with the judge switches unset', () => {
-    it('is byte-identical to 7.0.14 for one judge and for the orchestrator', async () => {
-        expect(await keysOf({}, false)).toEqual(PINNED.single);
-        expect(await keysOf({}, true)).toEqual(PINNED.orchestrator);
+    it('keeps the verdict keys byte-identical to 7.0.14 for one judge and for the orchestrator, on every platform', async () => {
+        const keys = ({ inputsKey, rulesHash }: { inputsKey?: string; rulesHash?: string }) => ({ inputsKey, rulesHash });
+        expect(keys(await keysOf({}, false))).toEqual(keys(PINNED.single));
+        expect(keys(await keysOf({}, true))).toEqual(keys(PINNED.orchestrator));
+    });
+
+    it.runIf(process.platform !== 'win32')('keeps the prompt byte-identical to 7.0.14 too (POSIX only: the prompt names this machine\'s paths, pinned with POSIX ones)', async () => {
+        expect((await keysOf({}, false)).prompt).toBe(PINNED.single.prompt);
+        expect((await keysOf({}, true)).prompt).toBe(PINNED.orchestrator.prompt);
     });
 
     it('changes, keys and prompt, once the team names its review instructions or turns run_code on', async () => {

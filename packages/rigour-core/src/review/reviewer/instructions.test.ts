@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigSchema } from '../../types/index.js';
 import { runReviewer, type ReviewerResult } from '../reviewer.js';
 import { defaultExec } from './exec.js';
+import { instructionsCaveats, readInstructions } from './instructions.js';
 import { bigChange, gitIn, installFakeJudges, makeRepo, write, type FakeJudges } from './__tests__/judge-fakes.js';
 import { passLimit } from './orchestrator.js';
 import { VerdictStore } from './store.js';
@@ -66,12 +67,24 @@ describe("the team's review instructions", () => {
         expect(result.record?.caveats).toEqual(result.mode?.caveats);
     });
 
-    it('over 32 KB: the first 32 KB are served, and the review says they were cut', async () => {
+    it('over the limit (32 KB, 8 KB on Windows): the first part is served, and the review says they were cut', async () => {
         repo = makeRepo({}, { [RUBRIC]: `${'Check the lock first.\n'.repeat(2000)}THE LAST LINE\n` });
         const result = await review();
         expect(prompts()[0]).toContain('Check the lock first.');
         expect(prompts()[0]).not.toContain('THE LAST LINE');
-        expect(result.mode?.caveats).toEqual([`review instructions ${RUBRIC}: instructions truncated at 32 KB (the file is 43 KB)`]);
+        expect(result.mode?.caveats).toEqual([process.platform === 'win32'
+            ? `review instructions ${RUBRIC}: instructions truncated at 8 KB, as Windows holds a command line of 32,767 characters (the file is 43 KB)`
+            : `review instructions ${RUBRIC}: instructions truncated at 32 KB (the file is 43 KB)`]);
+    });
+
+    it('are cut at 8 KB on Windows, whose command line (prompt included) holds 32,767 characters, and at 32 KB elsewhere', () => {
+        repo = makeRepo({ [RUBRIC]: 'x'.repeat(10 * 1024) });
+        const windows = readInstructions(repo, RUBRIC, undefined, 'win32');
+        expect(windows.text?.length).toBe(8 * 1024);
+        expect(instructionsCaveats(windows)).toEqual([`review instructions ${RUBRIC}: instructions truncated at 8 KB, as Windows holds a command line of 32,767 characters (the file is 10 KB)`]);
+        const posix = readInstructions(repo, RUBRIC, undefined, 'linux');
+        expect(posix.text?.length).toBe(10 * 1024);
+        expect(instructionsCaveats(posix)).toEqual([]);
     });
 
     it('are refused when the path or a symlink leads out of the repository, in the working tree and at the base', async () => {

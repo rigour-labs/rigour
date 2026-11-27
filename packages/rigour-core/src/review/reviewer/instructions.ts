@@ -10,7 +10,11 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-const INSTRUCTIONS_MAX_BYTES = 32 * 1024;
+/**
+ * The most a judge is given: 32 KB. On Windows 8 KB, because the prompt travels on the command line, which Windows
+ * holds to 32,767 characters, and Rigour's own prompt takes up to about 17 K of them.
+ */
+const maxBytes = (platform: NodeJS.Platform) => (platform === 'win32' ? 8 : 32) * 1024;
 /** Symlinks followed inside a commit before the path counts as unreadable. */
 const MAX_LINK_HOPS = 8;
 
@@ -18,12 +22,13 @@ export interface TeamInstructions {
     path: string;
     /** Where they were read: `the working tree`, or `the base <sha>`. */
     from: string;
-    /** What the judge is given (at most INSTRUCTIONS_MAX_BYTES), when it could be read. */
+    /** What the judge is given (at most the platform's limit, maxBytes), when it could be read. */
     text?: string;
     /** sha256 of the whole file, when it could be read. */
     hash?: string;
-    /** Bytes in the file, when it is over the limit. */
+    /** Bytes in the file, when it is over the limit, and the platform whose limit cut it. */
     truncatedFrom?: number;
+    truncatedOn?: NodeJS.Platform;
     /** Why nothing was served: the line the review shows. */
     problem?: string;
 }
@@ -31,7 +36,7 @@ export interface TeamInstructions {
 const GENERAL = 'reviewed with the general prompt';
 
 /** The instructions at `rel`, read at `ref` (an independent review's base) or in the working tree of `root`. */
-export function readInstructions(root: string, rel: string, ref?: string): TeamInstructions {
+export function readInstructions(root: string, rel: string, ref?: string, platform: NodeJS.Platform = process.platform): TeamInstructions {
     const from = ref ? `the base ${ref.slice(0, 9)}` : 'the working tree';
     const said = (problem: string) => ({ path: rel, from, problem: `review instructions ${rel} ${problem}; ${GENERAL}${ref ? ` (read from ${from}: an independent review trusts the base)` : ''}` });
     const inside = insideRepository(rel);
@@ -39,12 +44,12 @@ export function readInstructions(root: string, rel: string, ref?: string): TeamI
     const read = ref ? readAtRef(root, inside, ref) : readWorkingTree(root, inside);
     if ('problem' in read) return said(read.problem);
     if (read.bytes.length === 0) return said('are empty');
-    const over = read.bytes.length > INSTRUCTIONS_MAX_BYTES;
+    const over = read.bytes.length > maxBytes(platform);
     return {
         path: rel, from,
-        text: read.bytes.subarray(0, INSTRUCTIONS_MAX_BYTES).toString('utf8'),
+        text: read.bytes.subarray(0, maxBytes(platform)).toString('utf8'),
         hash: createHash('sha256').update(read.bytes).digest('hex').slice(0, 16),
-        ...(over ? { truncatedFrom: read.bytes.length } : {}),
+        ...(over ? { truncatedFrom: read.bytes.length, truncatedOn: platform } : {}),
     };
 }
 
@@ -52,7 +57,9 @@ export function readInstructions(root: string, rel: string, ref?: string): TeamI
 export function instructionsCaveats(i: TeamInstructions | undefined): string[] {
     if (!i) return [];
     if (i.problem) return [i.problem];
-    return i.truncatedFrom ? [`review instructions ${i.path}: instructions truncated at 32 KB (the file is ${Math.ceil(i.truncatedFrom / 1024)} KB)`] : [];
+    if (!i.truncatedFrom) return [];
+    const at = i.truncatedOn === 'win32' ? '8 KB, as Windows holds a command line of 32,767 characters' : '32 KB';
+    return [`review instructions ${i.path}: instructions truncated at ${at} (the file is ${Math.ceil(i.truncatedFrom / 1024)} KB)`];
 }
 
 /** Their part of the verdict fingerprint: only when the key is set, so an unset key leaves every existing key as it was. */

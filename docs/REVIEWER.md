@@ -141,8 +141,10 @@ rules and what blocks stay Rigour's, so every finding is still checked against t
   otherwise from the working tree.
 - **What is refused.** A path that leaves the repository, directly (`../notes.md`) or through a
   symlink (followed with its real path in the working tree, and link by link at the base).
-- **Size.** At most 32 KB. A longer file is cut there, and the review says "instructions truncated
-  at 32 KB".
+- **Size.** At most 32 KB; on Windows at most 8 KB, because the prompt travels on the command line,
+  which Windows holds to 32,767 characters. A longer file is cut there, and the review says
+  "instructions truncated at 32 KB" (on Windows "at 8 KB, as Windows holds a command line of 32,767
+  characters").
 - **No silent fallback.** A file that is missing, empty, unreadable or refused leaves the review on
   the general prompt, and the output, the JSON (`mode.caveats`) and the record say so: "review
   instructions docs/review-rubric.md not found; reviewed with the general prompt".

@@ -6,7 +6,7 @@ import { runReviewer, type ReviewerOptions } from '../reviewer.js';
 import { ADAPTERS } from './adapters.js';
 import { defaultExec } from './exec.js';
 import { EMPTY_VERDICT, gitIn, makeRepo, write } from './__tests__/judge-fakes.js';
-import { cleanedUp, harnessEnv, inCopy, reviewIn, runCodeConfig, runCodeHarness } from './__tests__/run-code-harness.js';
+import { cleanedUp, harnessEnv, inCopy, MACOS_ONLY, ON_MACOS, reviewIn, runCodeConfig, runCodeHarness } from './__tests__/run-code-harness.js';
 import { recordLines } from './record.js';
 import { copyPool } from './copy-pool.js';
 import { judgeRunCodeRefusal, runCodeModel, runInCopy } from './run-code.js';
@@ -17,7 +17,7 @@ const h = runCodeHarness();
 const review = (extra: Record<string, unknown> = {}, options: ReviewerOptions = {}) => reviewIn(h.repo, extra, options);
 const GIT_OFF = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GIT_CONFIG_GLOBAL: '/dev/null' };
 
-describe('run_code: codex', () => {
+describe.runIf(ON_MACOS)(`run_code: codex ${MACOS_ONLY}`, () => {
     it('runs codex sandboxed, no network, ignoring every config but the pins, in a standalone throwaway copy of the head', async () => {
         h.judges.behave({ answer: JSON.stringify(EMPTY_VERDICT), scratch: { file: 'scratch.test.mjs', content: 'console.log(1)\n' } });
         const result = await review();
@@ -111,7 +111,7 @@ describe('run_code: codex', () => {
     });
 });
 
-describe('run_code: a repository that borrows its objects', () => {
+describe.runIf(ON_MACOS)(`run_code: a repository that borrows its objects ${MACOS_ONLY}`, () => {
     it('is copied whole (--dissociate): the copy has no alternates file, so nothing leads back', async () => {
         const borrower = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'judge-switches-')));
         h.made.push(borrower);
@@ -127,7 +127,7 @@ describe('run_code: a repository that borrows its objects', () => {
     });
 });
 
-describe("run_code: codex keeps the person's model", () => {
+describe.runIf(ON_MACOS)(`run_code: codex keeps the person's model ${MACOS_ONLY}`, () => {
     const config = (model: string) => [
         `model = "${model}"`, 'model_provider = "acme"', 'approval_policy = "on-request"', '',
         '[model_providers.acme]', 'name = "Acme"', 'base_url = "https://llm.example.com/v1" # the gateway', 'env_key = "ACME_API_KEY"', '',
@@ -191,7 +191,7 @@ describe("run_code: codex keeps the person's model", () => {
     });
 });
 
-describe('run_code: claude', () => {
+describe.runIf(ON_MACOS)(`run_code: claude ${MACOS_ONLY}`, () => {
     it('runs claude restricted to no settings file, sandboxed with no network, no escape, the credential files unreadable and other sessions\' temp files unwritable', async () => {
         const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-tmp-base-'));
         h.made.push(tmpBase);
@@ -228,11 +228,6 @@ describe('run_code: claude', () => {
         fs.rmSync(tmpBase, { recursive: true, force: true });
     });
 
-    it('stays read-only below the Claude Code version, and on a platform, its sandbox was verified on', () => {
-        expect(ADAPTERS.claude.runCodeRefusal('2.1.285 (Claude Code)')).toBe(process.platform === 'darwin' ? undefined : `its sandbox is verified on macOS only, and this is ${process.platform}`);
-        expect(judgeRunCodeRefusal('claude', '2.1.200 (Claude Code)')).toMatch(/^run_code: its sandbox is verified on (Claude Code 2\.1\.285 or later, and this is 2\.1\.200 \(Claude Code\)|macOS only, and this is \w+); claude stays read-only$/);
-    });
-
     it('tells a key-only person to sign in when run_code took the key and the judge could not log in', async () => {
         harnessEnv.set({ ANTHROPIC_API_KEY: 'example-key', OPENAI_API_KEY: 'example-key' });
         h.judges.behave({ exitCode: 1, answer: 'Not logged in · Please run /login' });
@@ -263,6 +258,29 @@ describe('run_code read from the base', () => {
 });
 
 describe('run_code refused', () => {
+    it('stays read-only below the Claude Code version, and on a platform, its sandbox was verified on', () => {
+        expect(ADAPTERS.claude.runCodeRefusal('2.1.285 (Claude Code)')).toBe(process.platform === 'darwin' ? undefined : `its sandbox is verified on macOS only, and this is ${process.platform}`);
+        expect(judgeRunCodeRefusal('claude', '2.1.200 (Claude Code)')).toMatch(/^run_code: its sandbox is verified on (Claude Code 2\.1\.285 or later, and this is 2\.1\.200 \(Claude Code\)|macOS only, and this is \w+); claude stays read-only$/);
+    });
+
+    it(`off macOS (here: ${process.platform === 'darwin' ? 'linux, stubbed' : process.platform}): every judge stays read-only and says why`, async () => {
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        const offMacos = process.platform === 'darwin' ? 'linux' : process.platform;
+        Object.defineProperty(process, 'platform', { ...platform, value: offMacos });
+        try {
+            for (const judge of ['codex', 'claude']) {
+                const result = await reviewIn(h.repo, { reviewers: [judge] });
+                const run = h.judges.runs().at(-1)!;
+                expect(fs.realpathSync(run.cwd)).toBe(fs.realpathSync(h.repo)); // in the checkout: no copy is made
+                expect(run.argv).toEqual(expect.arrayContaining(judge === 'codex' ? ['--sandbox', 'read-only'] : ['--setting-sources', 'project']));
+                expect(result.mode?.ranCode).toBeUndefined();
+                expect(result.mode?.caveats).toContain(`run_code: its sandbox is verified on macOS only, and this is ${offMacos}; ${judge} stays read-only`);
+            }
+        } finally {
+            Object.defineProperty(process, 'platform', platform);
+        }
+    });
+
     const readOnly = async (expected: string, extra: Record<string, unknown> = {}, options: ReviewerOptions = {}) => {
         const result = await review(extra, options);
         const run = h.judges.runs().at(-1)!;

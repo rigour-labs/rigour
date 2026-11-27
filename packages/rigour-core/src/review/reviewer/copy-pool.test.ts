@@ -4,8 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultExec } from './exec.js';
 import { gitIn, makeRepo } from './__tests__/judge-fakes.js';
 import { copyPool } from './copy-pool.js';
+import { ON_POSIX, POSIX_ONLY } from './__tests__/run-code-harness.js';
 
-describe("one review's copies", () => {
+describe.runIf(ON_POSIX)(`one review's copies ${POSIX_ONLY}`, () => {
     let repo: string;
     beforeEach(() => {
         repo = makeRepo();

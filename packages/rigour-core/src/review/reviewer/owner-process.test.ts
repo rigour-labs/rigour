@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ownerState, thisProcess } from './owner-process.js';
+import { ON_POSIX, POSIX_ONLY } from './__tests__/run-code-harness.js';
 
-describe("a process's start time", () => {
+describe.runIf(ON_POSIX)(`a process's start time ${POSIX_ONLY}`, () => {
     it('reads the same in every locale and time zone, so another review never takes a live owner for gone', () => {
         const saved = { LC_ALL: process.env.LC_ALL, LANG: process.env.LANG, TZ: process.env.TZ };
         const read = (env: Record<string, string>) => {

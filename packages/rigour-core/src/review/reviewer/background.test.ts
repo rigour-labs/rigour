@@ -107,7 +107,7 @@ describe('the background review', () => {
         process.kill(second!.pid);
     });
 
-    it('on SIGTERM (a newer push ends it) its worktree is removed and it exits 143', async () => {
+    it.runIf(process.platform !== 'win32')('on SIGTERM (a newer push ends it) its worktree is removed and it exits 143 (POSIX only: on Windows a SIGTERM ends a process outright, with no handler to run)', async () => {
         const head = git('rev-parse', 'HEAD');
         const here = path.dirname(new URL(import.meta.url).pathname);
         const worktree = path.join(bin, 'review-worktree');

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultExec } from './exec.js';
 import { bigChange, EMPTY_VERDICT, gitIn } from './__tests__/judge-fakes.js';
-import { cleanedUp, gone, harnessEnv, inCopy, reviewIn, runCodeHarness } from './__tests__/run-code-harness.js';
+import { cleanedUp, gone, harnessEnv, inCopy, MACOS_ONLY, ON_MACOS, reviewIn, runCodeHarness } from './__tests__/run-code-harness.js';
 import { VerdictStore } from './store.js';
 import { sweepStaleCopies } from './throwaway-copy.js';
 
@@ -15,7 +15,7 @@ vi.setConfig({ testTimeout: 60_000 });
 const h = runCodeHarness();
 const here = path.dirname(new URL(import.meta.url).pathname);
 
-describe('run_code cleans up after itself', () => {
+describe.runIf(ON_MACOS)(`run_code cleans up after itself ${MACOS_ONLY}`, () => {
     it('removes the copy when the judge fails, and when it times out: the judge and what it started are ended', async () => {
         h.judges.behave({ exitCode: 1 });
         expect((await reviewIn(h.repo)).outcome).toBe('unavailable');
@@ -135,7 +135,7 @@ describe('run_code cleans up after itself', () => {
     });
 });
 
-describe('a copy a killed review left behind', () => {
+describe.runIf(ON_MACOS)(`a copy a killed review left behind ${MACOS_ONLY}`, () => {
     // A temporary directory of these tests' own: a review in another test file sweeps the shared one meanwhile.
     beforeEach(() => {
         const tmp = path.join(h.homes, 'tmp');
